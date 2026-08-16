@@ -11,7 +11,7 @@ Cache/
 Extracted_Mods/
 Profiles/
 Staged_UE4SS/
-settings.json
+/settings.json
 
 # Visual Studio / Rider / VS Code
 .vs/

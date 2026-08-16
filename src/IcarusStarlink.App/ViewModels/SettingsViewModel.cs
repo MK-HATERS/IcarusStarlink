@@ -61,7 +61,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         _settingsService.Current.IcarusContentPath = IcarusContentPath;
         _settingsService.Current.UnrealPakExePath = UnrealPakExePath;
-        _settingsService.Save();
-        SavedMessage = $"Saved at {DateTime.Now:T}";
+        SavedMessage = _settingsService.Save()
+            ? $"Saved at {DateTime.Now:T}"
+            : "Failed to save settings — check the logs.";
     }
 }

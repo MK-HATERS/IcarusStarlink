@@ -69,7 +69,14 @@
                             <DataTemplate>
                                 <Button Content="{Binding}" Style="{StaticResource ThemeButtonStyle}"
                                         Command="{Binding DataContext.SelectThemeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                        CommandParameter="{Binding}"/>
+                                        CommandParameter="{Binding}">
+                                    <Button.Tag>
+                                        <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
+                                            <Binding Path="."/>
+                                            <Binding Path="DataContext.CurrentThemeName" RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                        </MultiBinding>
+                                    </Button.Tag>
+                                </Button>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>

@@ -4,5 +4,6 @@ public interface ISettingsService
 {
     AppSettings Current { get; }
 
-    void Save();
+    /// <returns>False if the settings file could not be written (e.g. locked or read-only path).</returns>
+    bool Save();
 }

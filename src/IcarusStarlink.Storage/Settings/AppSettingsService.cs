@@ -40,9 +40,18 @@ public sealed class AppSettingsService : ISettingsService
         }
     }
 
-    public void Save()
+    public bool Save()
     {
-        var json = JsonSerializer.Serialize(Current, JsonOptions);
-        File.WriteAllText(_settingsFilePath, json);
+        try
+        {
+            var json = JsonSerializer.Serialize(Current, JsonOptions);
+            File.WriteAllText(_settingsFilePath, json);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save settings to {Path}", _settingsFilePath);
+            return false;
+        }
     }
 }
