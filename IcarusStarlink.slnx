@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/IcarusStarlink.App/IcarusStarlink.App.csproj" />
+    <Project Path="src/IcarusStarlink.Catalog/IcarusStarlink.Catalog.csproj" />
+    <Project Path="src/IcarusStarlink.Core/IcarusStarlink.Core.csproj" />
+    <Project Path="src/IcarusStarlink.Diffing/IcarusStarlink.Diffing.csproj" />
+    <Project Path="src/IcarusStarlink.PakIO/IcarusStarlink.PakIO.csproj" />
+    <Project Path="src/IcarusStarlink.SaveEditor/IcarusStarlink.SaveEditor.csproj" />
+    <Project Path="src/IcarusStarlink.Storage/IcarusStarlink.Storage.csproj" />
+    <Project Path="src/IcarusStarlink.Updater/IcarusStarlink.Updater.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/IcarusStarlink.App.Tests/IcarusStarlink.App.Tests.csproj" />
+    <Project Path="tests/IcarusStarlink.Catalog.Tests/IcarusStarlink.Catalog.Tests.csproj" />
+    <Project Path="tests/IcarusStarlink.Diffing.Tests/IcarusStarlink.Diffing.Tests.csproj" />
+    <Project Path="tests/IcarusStarlink.PakIO.Tests/IcarusStarlink.PakIO.Tests.csproj" />
+    <Project Path="tests/IcarusStarlink.Storage.Tests/IcarusStarlink.Storage.Tests.csproj" />
+  </Folder>
+</Solution>

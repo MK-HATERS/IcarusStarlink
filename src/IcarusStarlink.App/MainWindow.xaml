@@ -1,0 +1,106 @@
+<Window x:Class="IcarusStarlink.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
+        xmlns:views="clr-namespace:IcarusStarlink.App.Views"
+        mc:Ignorable="d"
+        Title="IcarusStarlink" Height="720" Width="1180" MinHeight="560" MinWidth="900"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <DataTemplate DataType="{x:Type vm:LibraryViewModel}">
+            <views:LibraryView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:MergeInstallViewModel}">
+            <views:MergeInstallView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:DownloadsViewModel}">
+            <views:DownloadsView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ProfilesViewModel}">
+            <views:ProfilesView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:Ue4ssViewModel}">
+            <views:Ue4ssView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
+            <views:SettingsView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:DiagnosticsViewModel}">
+            <views:DiagnosticsView/>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{DynamicResource PanelBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
+                Padding="20,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="IcarusStarlink" FontSize="18" FontWeight="Bold"
+                               Foreground="{DynamicResource AccentBrush}"/>
+                    <TextBlock Text="mod manager for Icarus" FontSize="12" Margin="10,0,0,0"
+                               VerticalAlignment="Bottom"
+                               Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Theme:" VerticalAlignment="Center" Margin="0,0,4,0"
+                               Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    <ItemsControl ItemsSource="{Binding AvailableThemes}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Content="{Binding}" Style="{StaticResource ThemeButtonStyle}"
+                                        Command="{Binding DataContext.SelectThemeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="{DynamicResource PanelBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+                <ListBox ItemsSource="{Binding NavItems}"
+                         SelectedItem="{Binding SelectedNavItem}"
+                         Style="{StaticResource NavListBoxStyle}"
+                         ItemContainerStyle="{StaticResource NavListBoxItemStyle}"
+                         Margin="0,12,0,0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Title}"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <Border Grid.Column="1" Background="{DynamicResource ContentBackgroundBrush}">
+                <ContentControl Content="{Binding CurrentPage}"/>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

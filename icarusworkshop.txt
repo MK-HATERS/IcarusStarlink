@@ -1,0 +1,222 @@
+Icarus Workshop
+Icarus mod manager for Windows
+
+Merge EXMOD mods, edit them, download updates, share a loadout with friends,
+keep UE4SS mods on the same profile, and (in testing) edit player saves.
+⚠️ IMPORTANT: Backups & Bug Reporting
+Everything should work as intended, but modding always carries some risk.
+Manual Save Backups Recommended: While Workshop automatically creates a backup before making any edits to your player data, it is always strongly recommended to make your own manual backup before testing any new mod.
+Found a Bug? If you run into issues, please include a diagnostic package with your bug report (Settings → Diagnostics → Export Diagnostics Zip).
+
+What this is
+Icarus Workshop is a desktop app for managing Icarus mods.
+It focuses on EXMOD data mods: extract them, edit them, merge several into
+one IMM_Merged_Mod_P.pak, and install that into the game. It can also
+download mods, keep notes/favorites, export a shareable patch for friends or a
+server, stage UE4SS (Lua) mods so they install with the same profile, and
+edit player saves (still in testing).
+
+It does not replace Unreal Engine for custom Blueprints, and it is not a
+Lua scripting IDE. For those, you still author elsewhere and import/stage the
+finished package here.
+
+Requirements
+Windows 10/11 (64-bit)
+Icarus installed (Steam)
+UnrealPak.exe (optional can be automatically downloaded, or point at your own already downloaded exe)
+* Optional: Nexus API key (Premium) for in-app Nexus downloads. Later update.
+Optional: second PC + IMM Server Agent for remote dedicated-server control
+
+* = planned for a later update; not in this release.
+
+Install
+Create a folder for Workshop (example: H:\IMM-Workshop).
+    Do not leave it in Downloads. The app writes data next to the exe.
+Extract Icarus_Workshop.zip into that folder. Keep
+    Icarus_Workshop.exe and the _internal
+    folder together. If you still have IMM_Workshop.exe, delete it.
+Run Icarus_Workshop.exe.
+Open Settings:
+Set Icarus Content folder
+    (…\Icarus\Icarus\Content)
+Set UnrealPak.exe (or use Download UnrealPak)
+Click Update data folder (extracts game data Workshop needs for merge/edit)
+Download or import mods → add EXMODs to the merge queue → Rebuild & Install.
+
+Updating the app
+Checking for updates happens during the launch of the app if an update is found you can click yes to update. If you don't want to restart to check for an update you can just click on check for updates in the settings menu.
+OR
+Download the latest release zip and overwrite the program files. Your
+Extracted_Mods, Profiles, settings, and Cache stay in the install folder if you
+only replace the exe / _internal.
+
+Uninstall
+Run Uninstall.bat in the Workshop folder. You can keep or
+wipe local data. The game install is not removed by the uninstaller.
+
+
+Features
+Library (Extracted Mods)
+Import EXMODZ, folders, or .pak packs into a local library
+Search by name, author, notes, and EXMOD file/item contents
+Pin, favorite, and notes (right-click or detail pane)
+Open Nexus / DB / Nexus search from a library row
+Files tab (browse package contents, preview text/images) and Readme tab
+New mod… creates a blank EXMOD (name + author) and opens the editor
+After Rebuild, IMM_Merged_Mod appears in the library with its packed
+    mod list (edit like any other mod)
+✎ mark when you save a mod in the editor (locally edited)
+Same mod with sizes or options is grouped (expand the family, pick
+    one child). Examples: 2x / 5x / 10x, or Take Home Tools / Gear / Almost All
+EXMOD editor
+Item fields, File JSON, or Full EXMOD JSON views
+Side-by-side original game data with amber highlights on differences
+Mass edit, pop-out panes, sync scroll, open original file
+Shortcuts: Ctrl+S, Ctrl+F, F3, Ctrl+D, and more (see in-app Help)
+Save editor (still in testing but nearing )
+Edits Icarus player data under
+%LocalAppData%\Icarus\Saved\PlayerData\<SteamID>\.
+Back up first (Backup on the tab) and expect rough edges.
+Browse Steam player slots (persona name when Steam profile XML is reachable)
+Backup / Restore zips the whole slot into Workshop
+    Cache\save_backups (not inside the game folder).
+    Restore writes a pre_restore safety zip first, then replaces the slot
+Overview: character cards plus account snapshot (currencies,
+    workshop items, accolades, last backup). Click a card to edit that character
+Characters: name, level / XP slider, location, Open World tag
+    (Olympus / Styx / Prometheus / Elysium). Duplicate or remove slots.
+    Profile currencies on the same tab (Ren, Exotics, Red, Biomass, Uranium,
+    Licence, Respec). Save characters vs Save profile are separate writes
+Cosmetics: Head / Body / Legs with dropdowns; IsMale switches
+    body/voice sets. Option pictures from extracted icons when present
+Talents: Blueprints, Skills (Survival / Adventure / Habitation /
+    Combat / Solo), Workshop research, Prospect unlocks, Outpost unlocks.
+    Search + Enter to jump; double-click / right-click to toggle ranks
+Items: YOUR ITEMS (workshop bag) beside ITEMS ON DROPS (loadouts).
+    Empty / filled slots, searchable picker, stack edit, repair / delete
+Bestiary: Field Guide tiles (art, biome chips, points, lore unlock)
+Accolades: Medals / Hunting / Survival / Construction / General /
+    Achievement. Live tracker progress (not just complete/empty). Click to
+    inspect, double-click to toggle; Clear complete un-awards without wiping
+    trackers
+Mounts: read-only type cards (RecorderBlob is not edited)
+Flags: searchable chips (Mission, Granted Blueprint, Talent, …);
+    double-click to toggle locked / unlocked
+Settings → Extract game icons… pulls UI textures from your Icarus
+    Paks into Cache\save_icons (local only)
+
+Save editing is still in testing everything should work but if there are any issues report them with a diagnostics zip (Settings → Diagnostics).
+
+Merge & install
+Library list on this tab uses the same grouping as Library
+Ordered merge queue. Later mods win conflicts by default.
+Rebuild builds IMM_Merged_Mod_P.pak and installs into Content/Paks/mods
+Copy built pack to game (Rebuild ▾ menu) copies the already-built
+    Staging pak into the game folder without remelting. Use this if Icarus was open
+    during install, or you only need the pack copied back
+If the game has the pak locked, Retry does that same copy-only step
+Optional auto-backup of the game mods folder before overwrite (keeps last 5)
+Optional advanced conflict picker (choose earlier/later per field)
+Queue rules for a merged pack: skip mods already inside it; pack can
+    replace individuals; new mods can sit beside the pack and merge on top
+Prebuilt sidecar .paks and staged UE4SS mods install with the same Rebuild
+
+Downloads
+Community IMM Database (EXMODZ list) with author and AgentKush category filters
+Refresh / force refresh / clear filters
+Nexus Mods tab: Open on Nexus / Import file
+* Nexus API (Premium in-app download, Add URL, Check updates). Later update.
+UE4SS zips stage under Staged_UE4SS (loader is separate)
+
+Profiles & patches
+Save a merge list + options + UE4SS set as a profile
+Export a patch for friends/servers (.immnext.json or .zip with bundled EXMODZ)
+Bundles mods with no download URL, and mods you edited locally
+Import + Sync reinstalls listed mods (force refresh; does not skip same version)
+Friends still Rebuild & Install on their own machine. You are not shipping
+    a giant shared pak unless you choose to
+
+UE4SS
+Stage Lua/UE4SS mod folders, attach them to a profile, install on Rebuild
+Library UE4SS tab shows what is already in the game Mods folder
+Separate remove options for pak mods vs UE4SS mods vs full UE4SS uninstall
+Server (optional)
+Local server control, or remote agent on another PC
+Agent token and update tokens stored in Windows Credential Manager
+Diagnostics & safety
+Export diagnostics zip (logs + sanitized settings, no API keys/tokens)
+Performance tracking off by default (optional app.perf logging)
+Themes: Icarus, Dark, Light
+In-app Help and What’s new after updates
+For mod authors: grouped options in Library / Merge
+If you ship several versions of the same mod (bag sizes, extract presets, etc.),
+Workshop can show them as one family with each option listed underneath.
+The group header is not a mod. Users expand it and add one child to the
+merge queue. A family only appears when two or more matching variants are
+in Extracted Mods.
+
+Best: declare it in the EXMOD JSON (top-level keys, next to name / fileName).
+Put the option at the end of name so the family
+title strips cleanly (Take Home Tools → group
+Take Home).
+
+"variantGroup": "Take_Home"
+"variant": "Tools"
+"variantSort": 1
+
+variantGroup: same id on every option (case-insensitive). Example:
+    Take_Home or Space_Station_Inventory
+variant: label shown under the group (Tools,
+    2x, Almost All)
+variantSort: optional integer. Lower sorts first (Tools before Almost All).
+    If omitted, labels that start with a number (2x, 5x, 10x) sort by that number
+Each option still needs its own folder and fileName
+Keep these keys if you re-save in the EXMOD editor (Full EXMOD JSON view)
+
+Also works with no extra keys if fileName or
+name ends with a multiplier:
+MyMod_2x / MyMod_5x /
+    MyMod_10x
+or display name My Mod 2x
+Named options (Tools, Food, Almost All) should use variantGroup. Filename
+guessing only understands _2x-style suffixes.
+
+If two options edit the same number field (bag slots, etc.), tell users
+to pick one (last in the merge queue wins). Gameplay-tag
+Query options combine[/font] in Workshop (Take Home
+Tools + Resources keeps both). Options that edit different files can sit
+together (Take Home + a bag-size mod is fine).
+
+
+Quick workflow
+Settings → Content path + UnrealPak → Update data folder
+Downloads or Import → get mods into Extracted Mods
+Merge → add EXMODs to the queue (drag to order) → Rebuild & Install
+Optional: save a Profile; Export patch to share with friends
+Optional: Saves tab (in testing). Backup first, then edit.
+
+
+Credits
+
+Icarus Workshop by therealskybro
+
+EXMOD / EXMODZ & classic IMM
+Jimk72 created classic IMM (Icarus Mod Manager), the .EXMOD / .EXMODZ package format, merge-into-pak workflow, and the community modinfo.json list Icarus Workshop can use. Also: Icarus Mod Manager on Project Daedalus
+AgentKush (Finlay Hansford): large EXMODZ mod catalog, format docs/validator work, and the category mapping Workshop shows for AgentKush mods. Mods: GitHub · browse site
+Project Daedalus: community modding tools hub and the Firestore-backed mod database Workshop can refresh against (tools)
+
+Also
+UE4SS: Lua/scripting loader that UE4SS mods depend on (Workshop only stages/installs mod folders; it does not replace UE4SS)
+* Nexus Mods API: later update (Open on Nexus / Import file work now)
+Community mod authors: everyone publishing EXMODZ / pak / UE4SS packages for Icarus
+
+Icarus is © RocketWerkz / the game’s rights holders. This tool is unofficial and not affiliated with them.
+
+☕ Support Development on Ko-fi
+If you enjoy this mod, consider supporting me! Your support helps me dedicate more time to creating and maintaining mods.
+
+
+Permissions & notes
+Free to use. Redistribute the official release builds; don’t claim the app as your own.
+Your mods and edited EXMODs remain yours. Workshop just stores them in its folder.
+Report bugs with a diagnostics zip when you can (Settings → Diagnostics).
