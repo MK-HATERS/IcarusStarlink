@@ -20,6 +20,9 @@ Staged_UE4SS/
 *.user
 *.suo
 
+# Claude Code local tooling state
+.claude/
+
 # NuGet
 *.nupkg
 packages/
