@@ -18,6 +18,13 @@ public sealed class LibraryEntry
     public string? Variant { get; set; }
     public int? VariantSort { get; set; }
 
+    /// <summary>
+    /// True for a prebuilt ".pak" imported directly (no .EXMOD, so no per-field diff data) — an
+    /// opaque black-box mod the UI can list/pin/favorite/note, but can't browse files for, show a
+    /// readme for, or open in the EXMOD editor.
+    /// </summary>
+    public bool IsOpaquePak { get; set; }
+
     public bool IsPinned { get; set; }
     public bool IsFavorite { get; set; }
     public string Notes { get; set; } = "";

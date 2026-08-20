@@ -10,6 +10,12 @@ public interface ILibraryRepository
     /// <summary>sourcePath is either a loose mod folder or an .EXMODZ file.</summary>
     LibraryEntry Import(string sourcePath);
 
+    /// <summary>Imports a prebuilt .pak as an opaque library entry — see LibraryEntry.IsOpaquePak.</summary>
+    LibraryEntry ImportPak(string pakFilePath);
+
+    /// <summary>Re-scans Extracted_Mods from disk — for mods added/edited outside the app while it was running.</summary>
+    void Refresh();
+
     void Delete(string folderName);
 
     void UpdateMetadata(string folderName, bool isPinned, bool isFavorite, string notes);

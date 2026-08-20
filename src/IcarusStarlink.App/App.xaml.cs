@@ -50,10 +50,7 @@ public partial class App : Application
         builder.Services.AddSingleton<LibraryViewModel>();
         builder.Services.AddSingleton<MergeInstallViewModel>();
         builder.Services.AddSingleton<DownloadsViewModel>();
-        builder.Services.AddSingleton<ProfilesViewModel>();
-        builder.Services.AddSingleton<Ue4ssViewModel>();
         builder.Services.AddSingleton<SettingsViewModel>();
-        builder.Services.AddSingleton<DiagnosticsViewModel>();
 
         builder.Services.AddSingleton<MainWindow>();
 

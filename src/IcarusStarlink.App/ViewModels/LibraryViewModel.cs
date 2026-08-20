@@ -29,6 +29,13 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private string? _statusMessage;
 
+    [ObservableProperty]
+    private int _modCount;
+
+    /// <summary>Count of variant families currently shown (LibraryGroup.IsFamily), not the total root-row count — matches the real app's "N mod(s) · M group(s)" wording.</summary>
+    [ObservableProperty]
+    private int _groupCount;
+
     public LibraryViewModel(ILibraryRepository repository)
     {
         _repository = repository;
@@ -60,7 +67,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         var dialog = new OpenFolderDialog { Title = "Select the mod's extracted folder" };
         if (dialog.ShowDialog() == true)
         {
-            TryImport(dialog.FolderName);
+            TryImport(dialog.FolderName, _repository.Import);
         }
     }
 
@@ -75,8 +82,44 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         if (dialog.ShowDialog() == true)
         {
-            TryImport(dialog.FileName);
+            TryImport(dialog.FileName, _repository.Import);
         }
+    }
+
+    [RelayCommand]
+    private void ImportPak()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Select a prebuilt .pak file",
+            Filter = "Unreal pak package (*.pak)|*.pak",
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            TryImport(dialog.FileName, _repository.ImportPak);
+        }
+    }
+
+    [RelayCommand]
+    private void Refresh()
+    {
+        try
+        {
+            _repository.Refresh();
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as import/delete — Refresh() re-walks Extracted_Mods from disk,
+            // which can hit the same locked/permission-denied conditions RescanAll's own per-mod
+            // catch already tolerates, except this one is the top-level directory enumeration
+            // itself, which isn't wrapped per-folder.
+            StatusMessage = $"Refresh failed: {ex.Message}";
+            return;
+        }
+
+        StatusMessage = "Library refreshed.";
+        Reload(fullResync: true);
     }
 
     [RelayCommand]
@@ -110,11 +153,12 @@ public sealed partial class LibraryViewModel : ObservableObject
         Reload();
     }
 
-    private void TryImport(string sourcePath)
+    /// <summary>Shared by ImportFolder/ImportFile/ImportPak — same try/catch/status/reload shape, differing only in which repository method actually reads sourcePath.</summary>
+    private void TryImport(string sourcePath, Func<string, LibraryEntry> importer)
     {
         try
         {
-            var entry = _repository.Import(sourcePath);
+            var entry = importer(sourcePath);
             StatusMessage = $"Imported '{entry.Name}'.";
             Reload();
         }
@@ -127,12 +171,30 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
     }
 
-    private void Reload()
+    /// <summary>
+    /// fullResync is true only for the explicit Refresh() command — every other caller (the
+    /// search debounce, import, delete, a pin toggle) reloads because the *set* of visible items
+    /// changed, not because any individual still-visible mod's own data did, so those paths must
+    /// leave already-cached LibraryItemViewModel instances alone rather than re-syncing them.
+    /// Doing that unconditionally on every reload was tried and reverted: it re-applied whatever
+    /// Notes/Pinned/Favorite happened to be in the repository's last-saved snapshot over top of
+    /// values the user might still be mid-typing (Notes saves on a 500ms debounce), and it wiped
+    /// every still-selected mod's cached Files/Readme/thumbnail on every keystroke of a search,
+    /// forcing a redundant disk re-read — defeating the exact caching GetOrCreateItem exists for.
+    /// </summary>
+    private void Reload(bool fullResync = false)
     {
         var previouslySelectedFolder = SelectedItem?.FolderName;
 
+        // Pinned mods (or a family with any pinned member) sort first, matching the real app's
+        // "pinned mods sort to the top" — then alphabetical within each of those two bands.
         var groups = VariantGrouping.Group(_repository.Search(SearchText))
-            .OrderBy(g => g.DisplayName, StringComparer.OrdinalIgnoreCase);
+            .OrderByDescending(g => g.Entries.Any(e => e.IsPinned))
+            .ThenBy(g => g.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        ModCount = groups.Sum(g => g.Entries.Count);
+        GroupCount = groups.Count(g => g.IsFamily);
 
         var seenFolders = new HashSet<string>();
         var seenGroupKeys = new HashSet<string>();
@@ -140,7 +202,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         foreach (var group in groups)
         {
-            var items = group.Entries.Select(GetOrCreateItem).ToList();
+            var items = group.Entries.Select(entry => GetOrCreateItem(entry, fullResync)).ToList();
             foreach (var item in items)
             {
                 seenFolders.Add(item.FolderName);
@@ -173,6 +235,14 @@ public sealed partial class LibraryViewModel : ObservableObject
         SelectedItem = previouslySelectedFolder is not null && _itemsByFolderName.TryGetValue(previouslySelectedFolder, out var stillSelected)
             ? stillSelected
             : null;
+
+        // OnSelectedItemChanged only fires on an actual reference change, but SelectedItem above
+        // is frequently reassigned to the exact same cached instance it already was (nothing
+        // selection-worthy changed) — that path still needs EnsureDetailsLoaded() run explicitly
+        // so a just-applied Update() (which clears AssetPaths/ReadmeContent/ThumbnailImage and
+        // resets _detailsLoaded) actually reloads the still-selected mod's details right away,
+        // rather than only the next time the user reselects it.
+        SelectedItem?.EnsureDetailsLoaded();
     }
 
     /// <summary>
@@ -192,14 +262,26 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// keeps its already-loaded Files/Readme state (no redundant disk I/O) and stays the same
     /// object reference SelectedItem points at.
     /// </summary>
-    private LibraryItemViewModel GetOrCreateItem(LibraryEntry entry)
+    private LibraryItemViewModel GetOrCreateItem(LibraryEntry entry, bool fullResync)
     {
         if (_itemsByFolderName.TryGetValue(entry.FolderName, out var existing))
         {
+            // Only on an explicit Refresh() — see the fullResync doc comment on Reload() for why
+            // this can't run on every reload.
+            if (fullResync)
+            {
+                existing.Update(entry);
+            }
+
             return existing;
         }
 
-        var created = new LibraryItemViewModel(entry, _repository, status => StatusMessage = status);
+        // onPinnedChanged: pinned status drives Reload()'s sort order, but toggling it only
+        // updates the repository/cache in place — nothing else re-runs that ordering. Without
+        // this, a pin saves correctly but the row silently stays wherever it already was in the
+        // tree until some unrelated change (a search edit, a delete) happens to trigger the next
+        // Reload().
+        var created = new LibraryItemViewModel(entry, _repository, status => StatusMessage = status, () => Reload());
         _itemsByFolderName[entry.FolderName] = created;
         return created;
     }

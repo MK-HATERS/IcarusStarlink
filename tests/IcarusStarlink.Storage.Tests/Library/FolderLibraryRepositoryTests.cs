@@ -286,6 +286,108 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.Throws<DirectoryNotFoundException>(() => repo.Delete("DoesNotExist"));
     }
 
+    private static string WriteFixturePakFile(string name = "MyPrebuiltMod")
+    {
+        // A per-call temp subdirectory keeps the actual filename (and so the derived mod name)
+        // clean/predictable for assertions, rather than baking a uniqueness suffix into the name.
+        var dir = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var pakPath = Path.Combine(dir, $"{name}.pak");
+        File.WriteAllBytes(pakPath, [1, 2, 3, 4]);
+        return pakPath;
+    }
+
+    [Fact]
+    public void ImportPak_AddsOpaqueEntryToLibrary()
+    {
+        var pakPath = WriteFixturePakFile("MyPrebuiltMod");
+        using var repo = CreateRepository();
+
+        try
+        {
+            var entry = repo.ImportPak(pakPath);
+
+            Assert.Equal("MyPrebuiltMod", entry.Name);
+            Assert.True(entry.IsOpaquePak);
+            Assert.Single(repo.GetAll());
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ImportPak_ListAssetPathsAndReadReadme_AreEmptyRatherThanThrowing()
+    {
+        var pakPath = WriteFixturePakFile();
+        using var repo = CreateRepository();
+
+        try
+        {
+            var entry = repo.ImportPak(pakPath);
+
+            Assert.Empty(repo.ListAssetPaths(entry.FolderName));
+            Assert.Null(repo.ReadReadme(entry.FolderName));
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ImportPak_FolderNameCollision_DisambiguatesWithSuffix()
+    {
+        var pakPath = WriteFixturePakFile("SameName");
+        using var repo = CreateRepository();
+
+        try
+        {
+            var first = repo.ImportPak(pakPath);
+            var second = repo.ImportPak(pakPath);
+
+            Assert.NotEqual(first.FolderName, second.FolderName);
+            Assert.Equal(2, repo.GetAll().Count);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Refresh_PicksUpAModFolderAddedExternallyAfterConstruction()
+    {
+        using var repo = CreateRepository();
+        Assert.Empty(repo.GetAll());
+
+        // Simulates a user dropping an already-extracted mod folder straight into Extracted_Mods
+        // via Explorer while the app is running, bypassing Import() entirely.
+        ExmodFolder.Write(Path.Combine(_extractedModsDir, "External_Mod"), BuildFixture(fileName: "External_Mod", name: "External Mod"));
+
+        repo.Refresh();
+
+        Assert.Contains(repo.GetAll(), e => e.Name == "External Mod");
+    }
+
+    [Fact]
+    public void Constructor_FolderWithOnlyAPakFile_ScansAsAnOpaqueEntry()
+    {
+        // Simulates a prebuilt .pak dropped straight into Extracted_Mods outside the app, then
+        // discovered on the next launch — not just via ImportPak() in the same session.
+        Directory.CreateDirectory(_extractedModsDir);
+        var folder = Path.Combine(_extractedModsDir, "External_Pak");
+        Directory.CreateDirectory(folder);
+        File.WriteAllBytes(Path.Combine(folder, "External_Pak.pak"), [1, 2, 3]);
+
+        using var repo = CreateRepository();
+
+        var entry = Assert.Single(repo.GetAll());
+        Assert.True(entry.IsOpaquePak);
+        Assert.Equal("External_Pak", entry.Name);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_extractedModsDir))

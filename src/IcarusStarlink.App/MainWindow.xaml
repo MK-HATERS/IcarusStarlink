@@ -19,17 +19,8 @@
         <DataTemplate DataType="{x:Type vm:DownloadsViewModel}">
             <views:DownloadsView/>
         </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:ProfilesViewModel}">
-            <views:ProfilesView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:Ue4ssViewModel}">
-            <views:Ue4ssView/>
-        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
             <views:SettingsView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:DiagnosticsViewModel}">
-            <views:DiagnosticsView/>
         </DataTemplate>
     </Window.Resources>
 

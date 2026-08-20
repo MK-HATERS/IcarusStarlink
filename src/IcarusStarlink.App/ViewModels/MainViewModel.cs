@@ -33,15 +33,16 @@ public sealed partial class MainViewModel : ObservableObject
         _themeService = themeService;
         _settingsService = settingsService;
 
+        // Matches the real app's top-level nav: Profiles lives inside Merge & Install (a
+        // profile is "saved merge list + options + UE4SS set", not an independent page), UE4SS
+        // shows up as a sub-tab of Library plus a per-profile section of Merge & Install, and
+        // Diagnostics is a section inside Settings — none of the three get their own nav item.
         NavItems =
         [
+            new NavItem("downloads", "Downloads", typeof(DownloadsViewModel)),
             new NavItem("library", "Library", typeof(LibraryViewModel)),
             new NavItem("merge", "Merge & Install", typeof(MergeInstallViewModel)),
-            new NavItem("downloads", "Downloads", typeof(DownloadsViewModel)),
-            new NavItem("profiles", "Profiles", typeof(ProfilesViewModel)),
-            new NavItem("ue4ss", "UE4SS", typeof(Ue4ssViewModel)),
             new NavItem("settings", "Settings", typeof(SettingsViewModel)),
-            new NavItem("diagnostics", "Diagnostics", typeof(DiagnosticsViewModel)),
         ];
 
         _currentThemeName = settingsService.Current.ThemeName;
@@ -52,9 +53,14 @@ public sealed partial class MainViewModel : ObservableObject
         // deferred to the next dispatcher cycle, so the window actually paints first.
     }
 
+    /// <summary>
+    /// Defaults to Library specifically, not NavItems[0] — Downloads (now first, matching the
+    /// real app's nav order) is still an empty placeholder page until Phase 4, and landing there
+    /// on launch would be a worse first impression than the one page that's actually functional.
+    /// </summary>
     public void SelectDefaultPage()
     {
-        SelectedNavItem = NavItems[0];
+        SelectedNavItem = NavItems.First(item => item.Id == "library");
     }
 
     partial void OnSelectedNavItemChanged(NavItem? value)

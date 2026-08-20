@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.IO;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using IcarusStarlink.Core.Library;
@@ -7,17 +9,40 @@ namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class LibraryItemViewModel : ObservableObject
 {
+    private static readonly HashSet<string> ImageExtensions =
+        new(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".bmp", ".gif" };
+
     private readonly ILibraryRepository _repository;
     private readonly Action<string> _reportStatus;
+    private readonly Action _onPinnedChanged;
     private readonly DispatcherTimer _notesSaveDebounceTimer;
     private bool _detailsLoaded;
 
     public string FolderName { get; }
-    public string Name { get; }
-    public string Author { get; }
-    public string Version { get; }
-    public string Description { get; }
-    public string? VariantLabel { get; }
+
+    [ObservableProperty]
+    private string _name;
+
+    [ObservableProperty]
+    private string _author;
+
+    [ObservableProperty]
+    private string _version;
+
+    [ObservableProperty]
+    private string _description;
+
+    [ObservableProperty]
+    private string? _variantLabel;
+
+    [ObservableProperty]
+    private bool _isOpaquePak;
+
+    /// <summary>Stub for the ✎ "locally edited" glyph the real app shows — always false until Phase 7's EXMOD editor actually tracks edits.</summary>
+    public bool IsLocallyEdited => false;
+
+    /// <summary>Stub for the merged-pack glyph the real app shows on a rebuilt pack re-imported as its own library entry — always false until Phase 6 produces one.</summary>
+    public bool IsMergedPack => false;
 
     [ObservableProperty]
     private bool _isPinned;
@@ -39,16 +64,27 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private string? _selectedAssetPreview;
 
-    public LibraryItemViewModel(LibraryEntry entry, ILibraryRepository repository, Action<string> reportStatus)
+    /// <summary>
+    /// Set from an asset conventionally named "ImageOnly" (any common image extension) if the
+    /// mod package has one — a real convention from classic IMM's own format ("Added support for
+    /// mods to have ImageOnly.png this will load the image into Mod Manager"), not a guess. Null
+    /// for most mods, which don't carry one.
+    /// </summary>
+    [ObservableProperty]
+    private BitmapImage? _thumbnailImage;
+
+    public LibraryItemViewModel(LibraryEntry entry, ILibraryRepository repository, Action<string> reportStatus, Action onPinnedChanged)
     {
         _repository = repository;
         _reportStatus = reportStatus;
+        _onPinnedChanged = onPinnedChanged;
         FolderName = entry.FolderName;
-        Name = entry.Name;
-        Author = entry.Author;
-        Version = entry.Version;
-        Description = entry.Description;
-        VariantLabel = entry.Variant;
+        _name = entry.Name;
+        _author = entry.Author;
+        _version = entry.Version;
+        _description = entry.Description;
+        _variantLabel = entry.Variant;
+        _isOpaquePak = entry.IsOpaquePak;
 
         // Assigning the backing fields directly (not the generated properties) means this
         // doesn't route through OnIsPinnedChanged/etc. and save straight back to the repository
@@ -71,6 +107,65 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     }
 
     /// <summary>
+    /// LibraryViewModel.GetOrCreateItem calls this on a reused instance only when Reload() was
+    /// triggered by an explicit Refresh() (its fullResync flag) — without it, Refresh() re-scanning
+    /// a mod that was edited outside the app (a new Name/Version/etc. in its .EXMOD) would update
+    /// the repository's data but leave this already-instantiated row showing whatever it had at
+    /// construction time, forever. It's deliberately *not* called on every routine reload (search,
+    /// import, delete): this mod's own data can't have changed just because a different mod was
+    /// imported, and blindly re-syncing on every reload was tried and reverted — see Reload()'s
+    /// own doc comment for why.
+    /// </summary>
+    public void Update(LibraryEntry entry)
+    {
+        Name = entry.Name;
+        Author = entry.Author;
+        Version = entry.Version;
+        Description = entry.Description;
+        VariantLabel = entry.Variant;
+        IsOpaquePak = entry.IsOpaquePak;
+
+        // Direct field assignment + manual notify, not the generated properties: this re-syncs
+        // from a re-scan, not a user edit, so it must update the UI without re-triggering
+        // OnIsPinnedChanged/OnIsFavoriteChanged/OnNotesChanged — those would redundantly write
+        // this same value straight back to the repository, and for IsPinned specifically, call
+        // back into the very Reload() this method is running from. MVVMTK0034 flags direct field
+        // access outside the generated setter on the (correct, in general) assumption that it's
+        // a mistake; the constructor gets an implicit pass from the analyzer for the same
+        // pattern, a plain method doesn't, so it's suppressed explicitly here instead.
+#pragma warning disable MVVMTK0034
+        if (_isPinned != entry.IsPinned)
+        {
+            _isPinned = entry.IsPinned;
+            OnPropertyChanged(nameof(IsPinned));
+        }
+
+        if (_isFavorite != entry.IsFavorite)
+        {
+            _isFavorite = entry.IsFavorite;
+            OnPropertyChanged(nameof(IsFavorite));
+        }
+
+        if (_notes != entry.Notes)
+        {
+            _notes = entry.Notes;
+            OnPropertyChanged(nameof(Notes));
+        }
+#pragma warning restore MVVMTK0034
+
+        // The mod's own assets (Files list, Readme, thumbnail) can have changed too, not just
+        // its header fields — clearing the cache and resetting _detailsLoaded lets the next
+        // EnsureDetailsLoaded() (LibraryViewModel.Reload() calls it unconditionally on whatever
+        // ends up selected) re-read them, instead of this row showing pre-refresh Files/Readme/
+        // thumbnail content for the rest of the session.
+        AssetPaths.Clear();
+        ReadmeContent = null;
+        ThumbnailImage = null;
+        SelectedAssetPath = null;
+        _detailsLoaded = false;
+    }
+
+    /// <summary>
     /// Stops any pending debounced notes save without flushing it — called right before this
     /// mod's folder is deleted. Without this, a stale timer firing after delete could write this
     /// entry's old metadata into a *different* mod that reuses the exact same folder name
@@ -79,7 +174,17 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// </summary>
     public void CancelPendingSave() => _notesSaveDebounceTimer.Stop();
 
-    partial void OnIsPinnedChanged(bool value) => SaveMetadata();
+    partial void OnIsPinnedChanged(bool value)
+    {
+        // Explicit sequencing, not a PropertyChanged subscription on the LibraryViewModel side:
+        // pinned status drives Reload()'s sort order, and that reorder must see the repository
+        // already updated — calling SaveMetadata() first and only then _onPinnedChanged() (rather
+        // than relying on where CommunityToolkit's generated setter happens to raise
+        // INotifyPropertyChanged relative to this partial method) guarantees that order without
+        // depending on source-generator internals.
+        SaveMetadata();
+        _onPinnedChanged();
+    }
 
     partial void OnIsFavoriteChanged(bool value) => SaveMetadata();
 
@@ -147,6 +252,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             }
 
             ReadmeContent = _repository.ReadReadme(FolderName);
+            LoadThumbnailIfPresent();
 
             // Only mark this as done once it actually succeeded — a transient failure (folder
             // locked, deleted out from under the app) should let a later reselect retry rather
@@ -159,6 +265,41 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             // OnSelectedItemChanged, off a binding-driven selection change, so an unhandled
             // exception here would crash the app instead of showing a status message.
             _reportStatus($"Couldn't load mod details: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Best-effort only: a missing or corrupt thumbnail is cosmetic, not a reason to fail the
+    /// whole details load the way a Files/Readme read failure would — so failures here are
+    /// swallowed rather than routed through _reportStatus.
+    /// </summary>
+    private void LoadThumbnailIfPresent()
+    {
+        var thumbnailPath = AssetPaths.FirstOrDefault(p =>
+            Path.GetFileNameWithoutExtension(p).Equals("ImageOnly", StringComparison.OrdinalIgnoreCase)
+            && ImageExtensions.Contains(Path.GetExtension(p)));
+
+        if (thumbnailPath is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var bytes = _repository.ReadAssetContent(FolderName, thumbnailPath);
+            using var stream = new MemoryStream(bytes);
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.StreamSource = stream;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            ThumbnailImage = bitmap;
+        }
+        catch (Exception)
+        {
+            // Corrupt file, or a "ImageOnly.png" that isn't actually a decodable image — leave
+            // ThumbnailImage unset and move on.
         }
     }
 

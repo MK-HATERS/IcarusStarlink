@@ -46,11 +46,34 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         return [.. _cachedEntries.Where(e => matchingFolders.Contains(e.FolderName))];
     }
 
+    public void Refresh() => RescanAll();
+
+    public LibraryEntry ImportPak(string pakFilePath)
+    {
+        var baseName = Path.GetFileNameWithoutExtension(pakFilePath);
+        var folderName = MakeUniqueFolderName(baseName);
+        var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
+        Directory.CreateDirectory(targetFolder);
+
+        var targetPakPath = Path.Combine(targetFolder, Path.GetFileName(pakFilePath));
+        File.Copy(pakFilePath, targetPakPath);
+
+        var meta = new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow };
+        _metaStore.Save(folderName, meta);
+
+        // Surgical, same as Import(): only this one entry is new.
+        var entry = ToOpaquePakEntry(folderName, targetPakPath, meta);
+        _cachedEntries.Add(entry);
+        _searchIndex.Insert(entry, entry.Name);
+
+        return entry;
+    }
+
     public LibraryEntry Import(string sourcePath)
     {
         if (sourcePath.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
         {
-            throw new NotSupportedException("Importing prebuilt .pak files isn't supported yet.");
+            throw new NotSupportedException("A .pak file isn't an EXMODZ archive — use ImportPak() instead.");
         }
 
         var contents = Directory.Exists(sourcePath)
@@ -110,8 +133,12 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         }
     }
 
-    public IReadOnlyList<string> ListAssetPaths(string folderName) =>
-        ExmodFolder.ListAssetPaths(ResolveFolder(folderName));
+    /// <summary>An opaque .pak entry (LibraryEntry.IsOpaquePak) has no .EXMOD to enumerate assets from — nothing to browse in the Files tab.</summary>
+    public IReadOnlyList<string> ListAssetPaths(string folderName)
+    {
+        var folder = ResolveFolder(folderName);
+        return ClassifyModFolder(folder).HasExmod ? ExmodFolder.ListAssetPaths(folder) : [];
+    }
 
     public byte[] ReadAssetContent(string folderName, string relativePath) =>
         ExmodFolder.ReadAssetContent(ResolveFolder(folderName), relativePath);
@@ -119,6 +146,11 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
     public string? ReadReadme(string folderName)
     {
         var folder = ResolveFolder(folderName);
+        if (!ClassifyModFolder(folder).HasExmod)
+        {
+            return null;
+        }
+
         var readmePath = ExmodFolder.ListAssetPaths(folder)
             .FirstOrDefault(p => Path.GetFileNameWithoutExtension(p).Equals("readme", StringComparison.OrdinalIgnoreCase));
 
@@ -133,10 +165,21 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         {
             try
             {
-                var package = ExmodFolder.ReadPackageOnly(folder);
                 var folderName = Path.GetFileName(folder);
                 var meta = _metaStore.Load(folderName);
-                scanned.Add((ToEntry(folderName, package, meta), BuildSearchableContent(package)));
+                var (hasExmod, pakPath) = ClassifyModFolder(folder);
+
+                if (hasExmod)
+                {
+                    var package = ExmodFolder.ReadPackageOnly(folder);
+                    scanned.Add((ToEntry(folderName, package, meta), BuildSearchableContent(package)));
+                }
+                else
+                {
+                    var resolvedPakPath = pakPath ?? throw new FormatException($"No .EXMOD or .pak file found under '{folder}'.");
+                    var entry = ToOpaquePakEntry(folderName, resolvedPakPath, meta);
+                    scanned.Add((entry, entry.Name));
+                }
             }
             catch (Exception ex) when (ex is FormatException or IOException or UnauthorizedAccessException)
             {
@@ -149,6 +192,35 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
 
         _cachedEntries = [.. scanned.Select(t => t.Entry)];
         _searchIndex.Rebuild(scanned);
+    }
+
+    /// <summary>
+    /// One scan classifies a folder as EXMOD-based vs. opaque-pak vs. neither, rather than two
+    /// separate calls each re-walking the folder (which is what an earlier version of this method
+    /// did) — a smaller version of the same TOCTOU concern ExmodFolder.ReadPackageOnly's own
+    /// single-snapshot design addresses (see its class doc comment). This still can't close the
+    /// gap against ExmodFolder's own *internal* re-scan when ReadPackageOnly/ListAssetPaths are
+    /// called afterward — closing that fully would mean PakIO accepting a pre-computed file list
+    /// instead of always re-walking the folder itself, which is more surface area than this
+    /// narrow, external-concurrent-modification-only race currently justifies.
+    /// </summary>
+    private static (bool HasExmod, string? PakPath) ClassifyModFolder(string folder)
+    {
+        var hasExmod = false;
+        string? pakPath = null;
+        foreach (var filePath in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+        {
+            if (filePath.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase))
+            {
+                hasExmod = true;
+            }
+            else if (pakPath is null && filePath.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
+            {
+                pakPath = filePath;
+            }
+        }
+
+        return (hasExmod, pakPath);
     }
 
     private static LibraryEntry ToEntry(string folderName, ExmodPackage package, LibraryMeta meta) => new()
@@ -167,6 +239,26 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         Notes = meta.Notes,
         ImportedAtUtc = meta.ImportedAtUtc,
     };
+
+    private static LibraryEntry ToOpaquePakEntry(string folderName, string pakFilePath, LibraryMeta meta)
+    {
+        var sizeMb = new FileInfo(pakFilePath).Length / 1_000_000.0;
+        var displayName = Path.GetFileNameWithoutExtension(pakFilePath);
+        return new LibraryEntry
+        {
+            FolderName = folderName,
+            Name = displayName,
+            Author = "Unknown",
+            Version = "",
+            Description = $"Imported prebuilt .pak package ({sizeMb:N1} MB) — no EXMOD data, so no file browsing, readme, or editing.",
+            FileName = displayName,
+            IsOpaquePak = true,
+            IsPinned = meta.IsPinned,
+            IsFavorite = meta.IsFavorite,
+            Notes = meta.Notes,
+            ImportedAtUtc = meta.ImportedAtUtc,
+        };
+    }
 
     private static string BuildSearchableContent(ExmodPackage package)
     {
