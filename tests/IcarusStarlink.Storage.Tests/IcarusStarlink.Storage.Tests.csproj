@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\IcarusStarlink.Storage\IcarusStarlink.Storage.csproj" />
+    <ProjectReference Include="..\..\src\IcarusStarlink.PakIO\IcarusStarlink.PakIO.csproj" />
   </ItemGroup>
 
 </Project>

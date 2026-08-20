@@ -2,7 +2,9 @@ using System.IO;
 using System.Windows;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Storage.Library;
 using IcarusStarlink.Storage.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -38,6 +40,11 @@ public partial class App : Application
         builder.Services.AddSingleton<ISettingsService>(sp =>
             new AppSettingsService(appDataDirectory, sp.GetRequiredService<ILogger<AppSettingsService>>()));
         builder.Services.AddSingleton<IThemeService, ThemeService>();
+        builder.Services.AddSingleton<ILibraryRepository>(sp =>
+            new FolderLibraryRepository(
+                Path.Combine(appDataDirectory, "Extracted_Mods"),
+                Path.Combine(appDataDirectory, "Library_Meta"),
+                sp.GetRequiredService<ILogger<FolderLibraryRepository>>()));
 
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<LibraryViewModel>();
@@ -62,6 +69,17 @@ public partial class App : Application
 
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
         mainWindow.Show();
+
+        // Deferred to the next dispatcher cycle so the window paints once before the default
+        // page (Library) resolves a repository that scans Extracted_Mods — otherwise that scan
+        // would run before the window ever appears at all. This only moves the freeze to just
+        // after the window shows, not off the UI thread entirely: for the "dozens of mods"
+        // library size this is designed around, that scan is fast enough not to matter; a truly
+        // large library would still visibly hang the window here. Making the scan itself
+        // non-blocking (background thread + a loading state in the Library UI) is future work if
+        // that assumption stops holding.
+        var mainViewModel = _host.Services.GetRequiredService<MainViewModel>();
+        Dispatcher.BeginInvoke(mainViewModel.SelectDefaultPage);
     }
 
     protected override void OnExit(ExitEventArgs e)

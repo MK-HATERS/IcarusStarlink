@@ -26,6 +26,26 @@ public static class ExmodJson
 
     public static ExmodPackage Parse(JsonObject root)
     {
+        try
+        {
+            return ParseCore(root);
+        }
+        catch (ArgumentException ex)
+        {
+            // JsonObject lazily builds a property dictionary per object node and throws
+            // ArgumentException the first time a node with a real duplicate JSON key (same key
+            // twice in one {} block) is queried — observed in the wild in a real Jimk72-authored
+            // EXMOD file where a single File_Item's own object listed "ResourceCostMultipliers"
+            // twice. That's malformed EXMOD content exactly like every other case in this parser,
+            // so it should surface as the same FormatException callers already expect (and that
+            // FolderLibraryRepository.RescanAll's skip-and-log path already handles), not a raw
+            // framework exception type nothing downstream is prepared for.
+            throw new FormatException("EXMOD JSON contains a duplicate key within one object.", ex);
+        }
+    }
+
+    private static ExmodPackage ParseCore(JsonObject root)
+    {
         var fileName = GetRequiredString(root, "fileName");
         AssetPathGuard.EnsureSimpleFileName(fileName);
 

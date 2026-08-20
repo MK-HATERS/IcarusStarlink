@@ -2,9 +2,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\IcarusStarlink.Core\IcarusStarlink.Core.csproj" />
+    <ProjectReference Include="..\IcarusStarlink.PakIO\IcarusStarlink.PakIO.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
   </ItemGroup>
 

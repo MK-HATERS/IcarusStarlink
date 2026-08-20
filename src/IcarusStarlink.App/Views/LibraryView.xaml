@@ -3,9 +3,111 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
              mc:Ignorable="d">
-    <StackPanel Style="{StaticResource PlaceholderPageStyle}">
-        <TextBlock Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
-        <TextBlock Text="{Binding PlaceholderMessage}" Style="{StaticResource PageBodyTextStyle}"/>
-    </StackPanel>
+
+    <UserControl.Resources>
+        <HierarchicalDataTemplate DataType="{x:Type vm:LibraryGroupViewModel}" ItemsSource="{Binding Items}">
+            <StackPanel Orientation="Horizontal" Margin="0,2">
+                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding Items.Count, StringFormat=' ({0} options)'}"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
+            </StackPanel>
+        </HierarchicalDataTemplate>
+
+        <DataTemplate DataType="{x:Type vm:LibraryItemViewModel}">
+            <StackPanel Orientation="Horizontal" Margin="0,2">
+                <TextBlock Text="📌" Margin="0,0,4,0" Visibility="{Binding IsPinned, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                <TextBlock Text="★" Margin="0,0,4,0" Foreground="{DynamicResource AccentBrush}"
+                           Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                <TextBlock Text="{Binding Name}"/>
+                <TextBlock Text="{Binding VariantLabel, StringFormat=' — {0}'}"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}"
+                           Visibility="{Binding VariantLabel, Converter={StaticResource NullToVisibilityConverter}}"/>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid Margin="32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
+
+        <DockPanel Grid.Row="1" Margin="0,0,0,16" LastChildFill="True">
+            <Button DockPanel.Dock="Right" Content="Import File…" Command="{Binding ImportFileCommand}" Margin="8,0,0,0"/>
+            <Button DockPanel.Dock="Right" Content="Import Folder…" Command="{Binding ImportFolderCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+            <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
+                     ToolTip="Search by name, author, notes, or mod file/item contents"/>
+        </DockPanel>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+                <TreeView x:Name="LibraryTree" ItemsSource="{Binding RootItems}" Background="Transparent" BorderThickness="0"
+                          SelectedItemChanged="LibraryTree_SelectedItemChanged"/>
+            </Border>
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Visibility="{Binding SelectedItem, Converter={StaticResource NullToVisibilityConverter}}">
+                    <TextBlock Text="{Binding SelectedItem.Name}" FontSize="18" FontWeight="SemiBold"/>
+                    <TextBlock Margin="0,2,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                        <Run Text="{Binding SelectedItem.Author, Mode=OneWay}"/>
+                        <Run Text=" · v"/>
+                        <Run Text="{Binding SelectedItem.Version, Mode=OneWay}"/>
+                    </TextBlock>
+                    <TextBlock Text="{Binding SelectedItem.Description}" Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,12"/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <CheckBox Content="Pinned" IsChecked="{Binding SelectedItem.IsPinned}" Margin="0,0,16,0"/>
+                        <CheckBox Content="Favorite" IsChecked="{Binding SelectedItem.IsFavorite}" Margin="0,0,16,0"/>
+                        <Button Content="Delete" Command="{Binding DeleteSelectedCommand}"/>
+                    </StackPanel>
+
+                    <TextBlock Text="Notes" Style="{StaticResource FieldLabelStyle}"/>
+                    <TextBox Text="{Binding SelectedItem.Notes, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,12" AcceptsReturn="True" Height="60" TextWrapping="Wrap"/>
+
+                    <TabControl>
+                        <TabItem Header="Files">
+                            <Grid Margin="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <ListBox Grid.Column="0" ItemsSource="{Binding SelectedItem.AssetPaths}"
+                                         SelectedItem="{Binding SelectedItem.SelectedAssetPath}" Height="200"/>
+                                <TextBox Grid.Column="1" Text="{Binding SelectedItem.SelectedAssetPreview, Mode=OneWay}"
+                                         Margin="8,0,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                         AcceptsReturn="True" Height="200"/>
+                            </Grid>
+                        </TabItem>
+                        <TabItem Header="Readme">
+                            <TextBox Text="{Binding SelectedItem.ReadmeContent, Mode=OneWay}" Margin="8" IsReadOnly="True"
+                                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AcceptsReturn="True" Height="200"/>
+                        </TabItem>
+                    </TabControl>
+                </StackPanel>
+
+                <TextBlock Grid.Row="0" Text="Select a mod on the left to see details."
+                           Foreground="{DynamicResource SecondaryForegroundBrush}"
+                           Visibility="{Binding SelectedItem, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+            </Grid>
+        </Grid>
+
+        <TextBlock Grid.Row="2" VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="0,0,0,-24"
+                    Text="{Binding StatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"/>
+    </Grid>
 </UserControl>

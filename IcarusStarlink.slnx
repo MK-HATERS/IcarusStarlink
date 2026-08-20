@@ -12,6 +12,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/IcarusStarlink.App.Tests/IcarusStarlink.App.Tests.csproj" />
     <Project Path="tests/IcarusStarlink.Catalog.Tests/IcarusStarlink.Catalog.Tests.csproj" />
+    <Project Path="tests/IcarusStarlink.Core.Tests/IcarusStarlink.Core.Tests.csproj" />
     <Project Path="tests/IcarusStarlink.Diffing.Tests/IcarusStarlink.Diffing.Tests.csproj" />
     <Project Path="tests/IcarusStarlink.PakIO.Tests/IcarusStarlink.PakIO.Tests.csproj" />
     <Project Path="tests/IcarusStarlink.Storage.Tests/IcarusStarlink.Storage.Tests.csproj" />

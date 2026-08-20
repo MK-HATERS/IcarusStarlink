@@ -151,6 +151,36 @@ public class ExmodJsonTests
     }
 
     [Fact]
+    public void Parse_FileItemObjectHasADuplicateJsonKey_ThrowsFormatExceptionNotArgumentException()
+    {
+        // Real-world regression: a Jimk72-authored EXMOD had a single File_Item object with
+        // "ResourceCostMultipliers" listed twice. System.Text.Json's text parser accepts a raw
+        // duplicate key (it doesn't enforce uniqueness while tokenizing), but JsonObject throws
+        // ArgumentException the first time that specific node's property dictionary is built —
+        // which, unhandled, crashed the whole app at library-scan startup instead of being
+        // skipped like every other malformed mod folder.
+        const string json = """
+            {
+                "name": "N", "author": "A", "version": "1", "description": "D", "fileName": "F",
+                "Rows": [
+                    {
+                        "CurrentFile": "Items-D_ItemsStatic.json",
+                        "File_Items": [
+                            {
+                                "Name": "Jimk_Wood_Fence",
+                                "ResourceCostMultipliers": [1],
+                                "ResourceCostMultipliers": [2]
+                            }
+                        ]
+                    }
+                ]
+            }
+            """;
+
+        Assert.Throws<FormatException>(() => ExmodJson.Parse(json));
+    }
+
+    [Fact]
     public void Parse_ItemNameBlank_ThrowsFormatException()
     {
         var root = new JsonObject

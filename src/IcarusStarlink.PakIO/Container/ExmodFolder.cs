@@ -4,71 +4,66 @@ using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.PakIO.Container;
 
-/// <summary>Same logical layout as ExmodzArchive, but as loose files on disk rather than a zip — the "import a folder" case the Library spec calls out.</summary>
+/// <summary>
+/// Same logical layout as ExmodzArchive, but as loose files on disk rather than a zip — the
+/// "import a folder" case the Library spec calls out.
+///
+/// Read() and ListAssetPaths() each snapshot the folder's file list once (FindExmodFile and
+/// EnumerateAssetPaths both then work off that same list) rather than each calling
+/// Directory.EnumerateFiles independently — the folder is a live filesystem another process
+/// could be touching mid-scan (an antivirus scan, an external edit), and two independent
+/// enumerations could otherwise observe different states: EnumerateAssetPaths would only know to
+/// exclude the exact exmodFilePath the earlier scan happened to find, so a second .EXMOD that
+/// appeared in between would be silently ingested as a regular asset instead of tripping the
+/// "ambiguous .EXMOD" check.
+/// </summary>
 public static class ExmodFolder
 {
     public static ExmodPackageContents Read(string folderPath)
     {
-        string? exmodFilePath = null;
-        var assetFilePaths = new List<string>();
-
-        // Single pass over the tree: classify each file as the .EXMOD or a candidate asset,
-        // instead of walking the whole directory twice (once to find the .EXMOD, again for
-        // everything else).
-        foreach (var filePath in Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories))
-        {
-            if (!filePath.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase))
-            {
-                assetFilePaths.Add(filePath);
-                continue;
-            }
-
-            if (exmodFilePath is not null)
-            {
-                throw new FormatException(
-                    $"Folder '{folderPath}' contains more than one .EXMOD file — ambiguous which is the mod's own package.");
-            }
-
-            exmodFilePath = filePath;
-        }
-
-        if (exmodFilePath is null)
-        {
-            throw new FormatException($"No .EXMOD file found under '{folderPath}'.");
-        }
-
-        // A folder can just as easily hold something accidentally (or deliberately) huge as a
-        // zip can decompress to something huge — cap it the same way ExmodzArchive.Read does,
-        // for the same reason, even though there's no compression/amplification step here.
+        var allFiles = SnapshotFiles(folderPath);
+        var exmodFilePath = FindExmodFile(allFiles, folderPath);
         var sizeBudget = new ExmodSizeBudget($"Folder '{folderPath}'");
 
-        var exmodBytes = ReadAllBytesBounded(exmodFilePath, $"'{exmodFilePath}'", sizeBudget);
-        // TrimStart handles a leading UTF-8 BOM some tools write.
-        var package = ExmodJson.Parse(Encoding.UTF8.GetString(exmodBytes).TrimStart('\uFEFF'));
+        var package = ReadPackage(exmodFilePath, sizeBudget);
 
         var assets = new List<ExmodAssetEntry>();
         var seenAssetPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var filePath in assetFilePaths)
+        foreach (var relativePath in EnumerateAssetPaths(allFiles, folderPath, exmodFilePath, seenAssetPaths))
         {
-            var relativePath = Path.GetRelativePath(folderPath, filePath).Replace('\\', '/');
-            // Matches ExmodzArchive.Read's guard — a reparse point/junction under folderPath
-            // could otherwise produce a path that looks contained but isn't.
-            AssetPathGuard.EnsureSafeRelativePath(relativePath);
-
-            // Mirrors ExmodPackageWriteGuard's duplicate check on the write side — normally
-            // unreachable on Windows' case-insensitive filesystem, but per-directory
-            // case-sensitivity is an opt-in NTFS feature since Windows 10, so it's not truly
-            // impossible.
-            if (!seenAssetPaths.Add(relativePath))
-            {
-                throw new FormatException($"Duplicate asset path '{relativePath}' found while importing '{folderPath}'.");
-            }
-
-            var content = ReadAllBytesBounded(filePath, $"Asset '{relativePath}'", sizeBudget);
+            var content = ReadAllBytesBounded(Path.Combine(folderPath, relativePath), $"Asset '{relativePath}'", sizeBudget);
             assets.Add(new ExmodAssetEntry(relativePath, content));
         }
 
         return new ExmodPackageContents(package, assets);
+    }
+
+    /// <summary>
+    /// Parses just the .EXMOD JSON (name/author/version/description/Rows/...), skipping every
+    /// asset file entirely — for scanning many mods at once (the Library list, its search index)
+    /// where loading every mod's multi-MB binary assets into memory just to show a summary row
+    /// would be wasteful. The .EXMOD itself is "tens of KB" per the real samples inspected during
+    /// planning, cheap regardless of how large the mod's compiled assets are.
+    /// </summary>
+    public static ExmodPackage ReadPackageOnly(string folderPath)
+    {
+        var exmodFilePath = FindExmodFile(SnapshotFiles(folderPath), folderPath);
+        return ReadPackage(exmodFilePath, new ExmodSizeBudget($"Folder '{folderPath}'"));
+    }
+
+    /// <summary>Lists asset relative paths without reading any file's content — for a Files-tab-style listing before the user picks one to preview.</summary>
+    public static IReadOnlyList<string> ListAssetPaths(string folderPath)
+    {
+        var allFiles = SnapshotFiles(folderPath);
+        var exmodFilePath = FindExmodFile(allFiles, folderPath);
+        return [.. EnumerateAssetPaths(allFiles, folderPath, exmodFilePath, new HashSet<string>(StringComparer.OrdinalIgnoreCase))];
+    }
+
+    /// <summary>Reads one specific asset's bytes on demand — e.g. to preview a single file the user picked from a ListAssetPaths listing.</summary>
+    public static byte[] ReadAssetContent(string folderPath, string relativePath)
+    {
+        var assetPath = AssetPathGuard.ResolveWithinDirectory(folderPath, relativePath);
+        return ReadAllBytesBounded(assetPath, $"Asset '{relativePath}'", new ExmodSizeBudget($"Folder '{folderPath}'"));
     }
 
     public static void Write(string folderPath, ExmodPackageContents contents)
@@ -90,6 +85,72 @@ public static class ExmodFolder
             var assetPath = AssetPathGuard.ResolveWithinDirectory(folderPath, asset.RelativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(assetPath)!);
             File.WriteAllBytes(assetPath, asset.Content);
+        }
+    }
+
+    private static List<string> SnapshotFiles(string folderPath) =>
+        [.. Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories)];
+
+    private static string FindExmodFile(IReadOnlyList<string> allFiles, string folderPath)
+    {
+        string? exmodFilePath = null;
+
+        // Manual scan + OrdinalIgnoreCase, not a "*.EXMOD" glob: Directory.EnumerateFiles'
+        // pattern matching follows the filesystem's own case sensitivity, which is
+        // case-sensitive on a case-sensitive volume or an opt-in-case-sensitive NTFS directory
+        // (see the same note on EnumerateAssetPaths' duplicate check below) — a glob would then
+        // silently miss a same-name-different-case second .EXMOD file instead of flagging the
+        // ambiguity.
+        foreach (var filePath in allFiles)
+        {
+            if (!filePath.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (exmodFilePath is not null)
+            {
+                throw new FormatException(
+                    $"Folder '{folderPath}' contains more than one .EXMOD file — ambiguous which is the mod's own package.");
+            }
+
+            exmodFilePath = filePath;
+        }
+
+        return exmodFilePath ?? throw new FormatException($"No .EXMOD file found under '{folderPath}'.");
+    }
+
+    private static ExmodPackage ReadPackage(string exmodFilePath, ExmodSizeBudget sizeBudget)
+    {
+        var exmodBytes = ReadAllBytesBounded(exmodFilePath, $"'{exmodFilePath}'", sizeBudget);
+        // TrimStart handles a leading UTF-8 BOM some tools write.
+        return ExmodJson.Parse(Encoding.UTF8.GetString(exmodBytes).TrimStart('\uFEFF'));
+    }
+
+    private static IEnumerable<string> EnumerateAssetPaths(IReadOnlyList<string> allFiles, string folderPath, string exmodFilePath, HashSet<string> seenAssetPaths)
+    {
+        foreach (var filePath in allFiles)
+        {
+            if (string.Equals(filePath, exmodFilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var relativePath = Path.GetRelativePath(folderPath, filePath).Replace('\\', '/');
+            // Matches ExmodzArchive.Read's guard — a reparse point/junction under folderPath
+            // could otherwise produce a path that looks contained but isn't.
+            AssetPathGuard.EnsureSafeRelativePath(relativePath);
+
+            // Mirrors ExmodPackageWriteGuard's duplicate check on the write side — normally
+            // unreachable on Windows' case-insensitive filesystem, but per-directory
+            // case-sensitivity is an opt-in NTFS feature since Windows 10, so it's not truly
+            // impossible.
+            if (!seenAssetPaths.Add(relativePath))
+            {
+                throw new FormatException($"Duplicate asset path '{relativePath}' found while importing '{folderPath}'.");
+            }
+
+            yield return relativePath;
         }
     }
 

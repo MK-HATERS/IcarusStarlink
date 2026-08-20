@@ -45,6 +45,15 @@ public sealed partial class MainViewModel : ObservableObject
         ];
 
         _currentThemeName = settingsService.Current.ThemeName;
+
+        // Deliberately not selecting a default page here: the first page (Library) resolves a
+        // repository whose constructor scans Extracted_Mods, and this constructor runs before
+        // the main window is shown — App.xaml.cs calls SelectDefaultPage() after Show() instead,
+        // deferred to the next dispatcher cycle, so the window actually paints first.
+    }
+
+    public void SelectDefaultPage()
+    {
         SelectedNavItem = NavItems[0];
     }
 
