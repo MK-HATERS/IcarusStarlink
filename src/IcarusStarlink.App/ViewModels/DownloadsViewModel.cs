@@ -10,9 +10,11 @@ using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
+using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Settings;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -28,12 +30,21 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
     private readonly IDaedalusCatalogClient _daedalusClient;
     private readonly IJimk72CatalogClient _jimk72Client;
+    private readonly IGitHubRepoDateClient _gitHubRepoDateClient;
     private readonly ILibraryRepository _libraryRepository;
     private readonly INexusWatchlistStore _watchlistStore;
+    private readonly ISettingsService _settingsService;
     private readonly HttpClient _downloadHttpClient;
     private readonly DispatcherTimer _searchDebounceTimer;
 
     private IReadOnlyList<CatalogEntry> _allCatalogEntries = [];
+
+    // Keyed by (owner, repo), not by mod — see GitHubRepoDateClient's own doc comment for why
+    // that's a deliberate repo-level, not per-file, granularity. Only ever replaced on a
+    // *successful* RefreshCatalogAsync fetch (see there) so a transient GitHub failure on a later
+    // refresh doesn't wipe out dates a previous successful refresh already resolved.
+    private IReadOnlyDictionary<(string Owner, string Repo), DateTimeOffset> _repoPushedDates =
+        new Dictionary<(string, string), DateTimeOffset>();
 
     public string Title => "Downloads";
 
@@ -85,6 +96,31 @@ public sealed partial class DownloadsViewModel : ObservableObject
     [ObservableProperty]
     private int _catalogTotalCount;
 
+    [ObservableProperty]
+    private bool _isColumnsMenuOpen;
+
+    // Mod Name has no toggle of its own — always shown, same as Explorer's "Name" column.
+    [ObservableProperty]
+    private bool _showAuthorColumn;
+
+    [ObservableProperty]
+    private bool _showVersionColumn;
+
+    [ObservableProperty]
+    private bool _showInstalledVersionColumn;
+
+    [ObservableProperty]
+    private bool _showCompatibilityColumn;
+
+    [ObservableProperty]
+    private bool _showCategoryColumn;
+
+    [ObservableProperty]
+    private bool _showStatusColumn;
+
+    [ObservableProperty]
+    private bool _showLastUpdatedColumn;
+
     // --- Nexus Mods tab ---
     public ObservableCollection<NexusWatchlistItemViewModel> NexusEntries { get; } = [];
 
@@ -103,15 +139,27 @@ public sealed partial class DownloadsViewModel : ObservableObject
     public DownloadsViewModel(
         IDaedalusCatalogClient daedalusClient,
         IJimk72CatalogClient jimk72Client,
+        IGitHubRepoDateClient gitHubRepoDateClient,
         ILibraryRepository libraryRepository,
         INexusWatchlistStore watchlistStore,
+        ISettingsService settingsService,
         HttpClient downloadHttpClient)
     {
         _daedalusClient = daedalusClient;
         _jimk72Client = jimk72Client;
+        _gitHubRepoDateClient = gitHubRepoDateClient;
         _libraryRepository = libraryRepository;
         _watchlistStore = watchlistStore;
+        _settingsService = settingsService;
         _downloadHttpClient = downloadHttpClient;
+
+        _showAuthorColumn = settingsService.Current.CatalogShowAuthorColumn;
+        _showVersionColumn = settingsService.Current.CatalogShowVersionColumn;
+        _showInstalledVersionColumn = settingsService.Current.CatalogShowInstalledVersionColumn;
+        _showCompatibilityColumn = settingsService.Current.CatalogShowCompatibilityColumn;
+        _showCategoryColumn = settingsService.Current.CatalogShowCategoryColumn;
+        _showStatusColumn = settingsService.Current.CatalogShowStatusColumn;
+        _showLastUpdatedColumn = settingsService.Current.CatalogShowLastUpdatedColumn;
 
         _searchDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _searchDebounceTimer.Tick += (_, _) =>
@@ -144,6 +192,32 @@ public sealed partial class DownloadsViewModel : ObservableObject
     partial void OnHideOlderWeeksChanged(bool value) => ApplyCatalogFilters();
 
     partial void OnNexusFilterTextChanged(string value) => ApplyNexusFilter();
+
+    // Immediate-save, not debounced: these are discrete checkbox clicks, not rapid-repeat
+    // keystrokes like Notes/Name — same "save right away" precedent MainViewModel's own theme
+    // selection already established for a silent UI preference with no dedicated Save button.
+    partial void OnShowAuthorColumnChanged(bool value) => SaveColumnPreferences();
+    partial void OnShowVersionColumnChanged(bool value) => SaveColumnPreferences();
+    partial void OnShowInstalledVersionColumnChanged(bool value) => SaveColumnPreferences();
+    partial void OnShowCompatibilityColumnChanged(bool value) => SaveColumnPreferences();
+    partial void OnShowCategoryColumnChanged(bool value) => SaveColumnPreferences();
+    partial void OnShowStatusColumnChanged(bool value) => SaveColumnPreferences();
+    partial void OnShowLastUpdatedColumnChanged(bool value) => SaveColumnPreferences();
+
+    private void SaveColumnPreferences()
+    {
+        _settingsService.Current.CatalogShowAuthorColumn = ShowAuthorColumn;
+        _settingsService.Current.CatalogShowVersionColumn = ShowVersionColumn;
+        _settingsService.Current.CatalogShowInstalledVersionColumn = ShowInstalledVersionColumn;
+        _settingsService.Current.CatalogShowCompatibilityColumn = ShowCompatibilityColumn;
+        _settingsService.Current.CatalogShowCategoryColumn = ShowCategoryColumn;
+        _settingsService.Current.CatalogShowStatusColumn = ShowStatusColumn;
+        _settingsService.Current.CatalogShowLastUpdatedColumn = ShowLastUpdatedColumn;
+        _settingsService.Save();
+    }
+
+    [RelayCommand]
+    private void ToggleColumnsMenu() => IsColumnsMenuOpen = !IsColumnsMenuOpen;
 
     [RelayCommand]
     private async Task RefreshCatalogAsync()
@@ -194,6 +268,30 @@ public sealed partial class DownloadsViewModel : ObservableObject
             // Only needed on the success path: a failed fetch leaves _allCatalogEntries (and so
             // the already-rendered CatalogEntries) unchanged, nothing to re-apply filters over.
             ApplyCatalogFilters();
+
+            // Best-effort enrichment layered on top of the core catalog data above, deliberately
+            // not blocking it: rows render (Last Updated blank) as soon as the catalog itself is
+            // ready, then get a second ApplyCatalogFilters() pass once repo dates resolve a moment
+            // later, rather than making the whole table wait on ~40 extra GitHub API round-trips.
+            try
+            {
+                var repoKeys = _allCatalogEntries
+                    .Select(e => GitHubRepoKey.Extract(e.PakUrl ?? e.ExmodzUrl))
+                    .Where(key => key is not null)
+                    .Select(key => key!.Value)
+                    .Distinct()
+                    .ToList();
+                _repoPushedDates = await _gitHubRepoDateClient.FetchPushedDatesAsync(repoKeys);
+                ApplyCatalogFilters();
+            }
+            catch (Exception)
+            {
+                // Same best-effort rule GitHubRepoDateClient applies per-repo, one level up: leave
+                // _repoPushedDates exactly as it was (possibly populated by a prior successful
+                // refresh, possibly still empty) rather than blanking known-good dates because
+                // this particular refresh's GitHub lookup failed outright (offline, GitHub API
+                // down, rate-limited). The core catalog above is entirely unaffected either way.
+            }
         }
         catch (Exception ex)
         {
@@ -269,7 +367,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
 
         var rows = query
-            .Select(e => new CatalogEntryViewModel(e, libraryByKey.GetValueOrDefault(CatalogKey.Normalize(e.Name, e.Author))))
+            .Select(e => new CatalogEntryViewModel(
+                e,
+                libraryByKey.GetValueOrDefault(CatalogKey.Normalize(e.Name, e.Author)),
+                GitHubRepoKey.Extract(e.PakUrl ?? e.ExmodzUrl) is { } repoKey ? _repoPushedDates.GetValueOrDefault(repoKey) : null))
             .Where(row => !ShowUpdatesOnly || row.IsOutdated)
             .Where(row => !ExtractedOnly || row.IsDownloaded)
             .Where(row => !NotDownloadedOnly || !row.IsDownloaded)

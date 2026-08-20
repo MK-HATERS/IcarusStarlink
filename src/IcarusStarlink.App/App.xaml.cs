@@ -4,6 +4,7 @@ using System.Windows;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Catalog.Daedalus;
+using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
@@ -56,6 +57,7 @@ public partial class App : Application
         // relies on to know what to inject.
         builder.Services.AddHttpClient<IDaedalusCatalogClient, DaedalusCatalogClient>();
         builder.Services.AddHttpClient<IJimk72CatalogClient, Jimk72CatalogClient>();
+        builder.Services.AddHttpClient<IGitHubRepoDateClient, GitHubRepoDateClient>();
         // A plain HttpClient for DownloadsViewModel's own file download, distinct from the two
         // typed clients above (those are scoped to their own catalog JSON endpoints).
         builder.Services.AddHttpClient();

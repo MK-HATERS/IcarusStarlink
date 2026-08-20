@@ -14,15 +14,26 @@ Get the running app's PID first (e.g. `tasklist` or `Get-Process IcarusStarlink.
 ## Commands
 
 - `capture <pid> <outputPath>` — PrintWindow screenshot to a PNG. Note: this
-  only captures the target window's own client area — popups (context menus,
-  combo dropdowns, tooltips) render in a separate top-level HWND and won't
-  appear in the capture.
-- `list-controls <pid>` — dumps every descendant control's type/Name/AutomationId.
-  Start here when a command below can't find what you're looking for.
+  only captures ONE specific HWND (the target window's own client area) — a
+  WPF Popup (context menu, combo dropdown, this app's Columns picker) renders
+  in its own separate top-level HWND, so it never appears in the capture no
+  matter what. Unlike the commands below, there's no fix for this short of
+  compositing two separate PrintWindow calls into one image, which hasn't
+  been worth building.
+- `list-controls <pid>` — dumps every descendant control's type/Name/AutomationId,
+  across every top-level window owned by pid (the main window plus any
+  currently-open Popup — see the GetAllRoots doc comment in Program.cs for why
+  that traversal matters). Start here when a command below can't find what
+  you're looking for.
 - `click <pid> <controlType> <nameContains>` — finds the first control whose
   type ends with `controlType` and whose Name contains `nameContains`
-  (case-insensitive), then invokes it via whichever of Invoke/SelectionItem/
-  Toggle pattern it supports.
+  (case-insensitive) across all top-level windows for pid, then invokes it via
+  whichever of Invoke/SelectionItem/Toggle pattern it supports. Note a Popup
+  with `StaysOpen="False"` (used for this app's Columns picker, and by
+  ComboBox dropdowns) can auto-dismiss between separate WinTools process
+  launches — chain the "open it" and "click inside it" calls with `&&` in one
+  shell command rather than two separate tool calls, or the second one won't
+  find what the first one just opened.
 - `select-by-text <pid> <exactText>` — finds an element with that exact Name,
   walks up to the nearest ancestor supporting SelectionItemPattern, and
   selects it. Useful for TreeView/ListBox rows whose own Name is a generic

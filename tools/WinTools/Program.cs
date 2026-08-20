@@ -86,6 +86,25 @@ static AutomationElement GetRoot(int pid)
     return root;
 }
 
+/// <summary>
+/// A WPF Popup (ComboBox dropdown, this app's Columns picker, a context menu) opens as its own
+/// separate top-level HWND, not a descendant of the main window's own AutomationElement — so
+/// GetRoot's single FindFirst never sees into it while it's open. Used by list-controls/click/
+/// select-by-text so those commands can still find/act on content inside an open popup; Capture
+/// deliberately keeps using the single-root GetRoot since a screenshot can only target one HWND at
+/// a time anyway (documented limitation in the README, unchanged by this).
+/// </summary>
+static List<AutomationElement> GetAllRoots(int pid)
+{
+    var condition = new PropertyCondition(AutomationElement.ProcessIdProperty, pid);
+    var roots = AutomationElement.RootElement.FindAll(TreeScope.Children, condition).Cast<AutomationElement>().ToList();
+    if (roots.Count == 0)
+    {
+        throw new InvalidOperationException($"No top-level window found for pid {pid}");
+    }
+    return roots;
+}
+
 static void Capture(int pid, string outputPath)
 {
     var root = GetRoot(pid);
@@ -107,25 +126,30 @@ static void Capture(int pid, string outputPath)
 
 static void ListControls(int pid)
 {
-    var root = GetRoot(pid);
-    var all = root.FindAll(TreeScope.Descendants, Condition.TrueCondition);
-    foreach (AutomationElement el in all)
+    foreach (var root in GetAllRoots(pid))
     {
-        var c = el.Current;
-        Console.WriteLine($"{c.ControlType.ProgrammaticName,-40} Name='{c.Name}' AutomationId='{c.AutomationId}'");
+        var all = root.FindAll(TreeScope.Descendants, Condition.TrueCondition);
+        foreach (AutomationElement el in all)
+        {
+            var c = el.Current;
+            Console.WriteLine($"{c.ControlType.ProgrammaticName,-40} Name='{c.Name}' AutomationId='{c.AutomationId}'");
+        }
     }
 }
 
-static AutomationElement FindByTypeAndName(AutomationElement root, string controlType, string nameContains)
+static AutomationElement FindByTypeAndName(IReadOnlyList<AutomationElement> roots, string controlType, string nameContains)
 {
-    var all = root.FindAll(TreeScope.Descendants, Condition.TrueCondition);
-    foreach (AutomationElement el in all)
+    foreach (var root in roots)
     {
-        var c = el.Current;
-        if (c.ControlType.ProgrammaticName.EndsWith(controlType, StringComparison.OrdinalIgnoreCase)
-            && c.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase))
+        var all = root.FindAll(TreeScope.Descendants, Condition.TrueCondition);
+        foreach (AutomationElement el in all)
         {
-            return el;
+            var c = el.Current;
+            if (c.ControlType.ProgrammaticName.EndsWith(controlType, StringComparison.OrdinalIgnoreCase)
+                && c.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase))
+            {
+                return el;
+            }
         }
     }
     throw new InvalidOperationException($"No {controlType} containing '{nameContains}' found");
@@ -133,8 +157,7 @@ static AutomationElement FindByTypeAndName(AutomationElement root, string contro
 
 static void Click(int pid, string controlType, string nameContains)
 {
-    var root = GetRoot(pid);
-    var el = FindByTypeAndName(root, controlType, nameContains);
+    var el = FindByTypeAndName(GetAllRoots(pid), controlType, nameContains);
 
     if (el.TryGetCurrentPattern(InvokePattern.Pattern, out var invokeObj))
     {
@@ -159,9 +182,8 @@ static void Click(int pid, string controlType, string nameContains)
 
 static void SelectByText(int pid, string exactText)
 {
-    var root = GetRoot(pid);
-    var textEl = root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, exactText))
-        .Cast<AutomationElement>()
+    var textEl = GetAllRoots(pid)
+        .SelectMany(root => root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, exactText)).Cast<AutomationElement>())
         .FirstOrDefault()
         ?? throw new InvalidOperationException($"No element with exact text '{exactText}' found");
 
