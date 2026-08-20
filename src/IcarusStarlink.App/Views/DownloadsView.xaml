@@ -101,8 +101,17 @@
                                 </Style>
                             </DataGrid.RowStyle>
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Mod Name" Binding="{Binding Name}" Width="2*"/>
-                                <DataGridTextColumn Header="Author" Binding="{Binding Author}" Width="*"
+                                <!-- Fixed pixel widths on every column, not Star ("*"): a Star column
+                                     always redistributes space among its sibling Star columns on any
+                                     resize, so dragging one wider steals width from the others instead
+                                     of growing the grid's total content width — which is also why no
+                                     horizontal scrollbar could ever appear. Fixed widths let content
+                                     genuinely overflow the viewport, so resizing one column no longer
+                                     crunches the rest; the DataGrid's default ControlTemplate already
+                                     shows a horizontal scrollbar (HorizontalScrollBarVisibility="Auto"
+                                     is its own built-in default) once that happens. -->
+                                <DataGridTextColumn Header="Mod Name" Binding="{Binding Name}" Width="220"/>
+                                <DataGridTextColumn Header="Author" Binding="{Binding Author}" Width="120"
                                                      Visibility="{Binding Data.ShowAuthorColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                 <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="70"
                                                      Visibility="{Binding Data.ShowVersionColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
@@ -110,7 +119,7 @@
                                                      Visibility="{Binding Data.ShowInstalledVersionColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                 <DataGridTextColumn Header="Compat." Binding="{Binding CompatibilityDisplay}" Width="70"
                                                      Visibility="{Binding Data.ShowCompatibilityColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                <DataGridTextColumn Header="Category" Binding="{Binding CategoryDisplay}" Width="*"
+                                <DataGridTextColumn Header="Category" Binding="{Binding CategoryDisplay}" Width="150"
                                                      Visibility="{Binding Data.ShowCategoryColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                 <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="90"
                                                      Visibility="{Binding Data.ShowStatusColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
