@@ -1,9 +1,14 @@
 using System.IO;
+using System.Net.Http;
 using System.Windows;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.Catalog.Daedalus;
+using IcarusStarlink.Catalog.Jimk72;
+using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Storage.Catalog;
 using IcarusStarlink.Storage.Library;
 using IcarusStarlink.Storage.Settings;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,6 +50,20 @@ public partial class App : Application
                 Path.Combine(appDataDirectory, "Extracted_Mods"),
                 Path.Combine(appDataDirectory, "Library_Meta"),
                 sp.GetRequiredService<ILogger<FolderLibraryRepository>>()));
+
+        // Typed HttpClient registrations: each catalog client's own constructor takes exactly
+        // one HttpClient parameter, which is the convention AddHttpClient<TInterface, TClient>
+        // relies on to know what to inject.
+        builder.Services.AddHttpClient<IDaedalusCatalogClient, DaedalusCatalogClient>();
+        builder.Services.AddHttpClient<IJimk72CatalogClient, Jimk72CatalogClient>();
+        // A plain HttpClient for DownloadsViewModel's own file download, distinct from the two
+        // typed clients above (those are scoped to their own catalog JSON endpoints).
+        builder.Services.AddHttpClient();
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient());
+        builder.Services.AddSingleton<INexusWatchlistStore>(sp =>
+            new NexusWatchlistStore(
+                Path.Combine(appDataDirectory, "Cache"),
+                sp.GetRequiredService<ILogger<NexusWatchlistStore>>()));
 
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<LibraryViewModel>();

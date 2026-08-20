@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Core.Library;
 using Microsoft.Win32;
@@ -49,6 +51,12 @@ public sealed partial class LibraryViewModel : ObservableObject
             _searchDebounceTimer.Stop();
             Reload();
         };
+
+        // This VM is a DI singleton, constructed once and never re-scanned on its own — without
+        // this, a mod imported from Downloads (a different page, sharing the same
+        // ILibraryRepository) wouldn't show up here until the user happened to trigger some
+        // unrelated reload (a search edit, or this page's own Refresh button).
+        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((LibraryViewModel)recipient).Reload(fullResync: true));
 
         Reload();
     }
