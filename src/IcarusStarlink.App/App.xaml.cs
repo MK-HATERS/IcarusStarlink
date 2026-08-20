@@ -9,6 +9,7 @@ using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.PakIO.Pak;
 using IcarusStarlink.Storage.Catalog;
 using IcarusStarlink.Storage.Library;
 using IcarusStarlink.Storage.Settings;
@@ -66,12 +67,17 @@ public partial class App : Application
             new NexusWatchlistStore(
                 Path.Combine(appDataDirectory, "Cache"),
                 sp.GetRequiredService<ILogger<NexusWatchlistStore>>()));
+        builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
+        builder.Services.AddSingleton<IUnrealPakService, UnrealPakService>();
 
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<LibraryViewModel>();
         builder.Services.AddSingleton<MergeInstallViewModel>();
         builder.Services.AddSingleton<DownloadsViewModel>();
-        builder.Services.AddSingleton<SettingsViewModel>();
+        builder.Services.AddSingleton(sp => new SettingsViewModel(
+            sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<IUnrealPakService>(),
+            Path.Combine(appDataDirectory, "Data")));
 
         builder.Services.AddSingleton<MainWindow>();
 
