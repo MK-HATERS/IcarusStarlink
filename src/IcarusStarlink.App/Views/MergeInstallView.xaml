@@ -9,12 +9,26 @@
     <Grid Margin="32">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
 
-        <Grid Grid.Row="1" Margin="0,16,0,0">
+        <DockPanel Grid.Row="1" Margin="0,16,0,0" LastChildFill="True">
+            <TextBlock DockPanel.Dock="Left" Text="Profile:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+            <ComboBox DockPanel.Dock="Left" Width="160" ItemsSource="{Binding ProfileNames}" SelectedItem="{Binding SelectedProfileName}" Margin="0,0,12,0"/>
+            <Button DockPanel.Dock="Right" Content="Delete" Command="{Binding DeleteProfileCommand}" Margin="8,0,0,0"/>
+            <Button DockPanel.Dock="Right" Content="Rename" Command="{Binding RenameProfileCommand}" Margin="8,0,0,0"/>
+            <Button DockPanel.Dock="Right" Content="Save" Command="{Binding SaveProfileCommand}" Margin="8,0,0,0"/>
+            <Button DockPanel.Dock="Right" Content="New" Command="{Binding NewProfileCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"/>
+            <TextBox Text="{Binding ProfileNameInput, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
+                     ToolTip="Name to use for New or Rename"/>
+        </DockPanel>
+        <TextBlock Grid.Row="2" Text="{Binding ProfileStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0"/>
+
+        <Grid Grid.Row="3" Margin="0,16,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="16"/>

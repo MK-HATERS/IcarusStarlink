@@ -8,6 +8,7 @@ using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Install;
@@ -15,6 +16,7 @@ using IcarusStarlink.PakIO.Pak;
 using IcarusStarlink.PakIO.Rebuild;
 using IcarusStarlink.Storage.Catalog;
 using IcarusStarlink.Storage.Library;
+using IcarusStarlink.Storage.Profiles;
 using IcarusStarlink.Storage.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -78,6 +80,10 @@ public partial class App : Application
                 sp.GetRequiredService<ILogger<WeeklyChangeReportStore>>()));
         builder.Services.AddSingleton<IRebuildService, RebuildService>();
         builder.Services.AddSingleton<IInstallService, InstallService>();
+        builder.Services.AddSingleton<IProfileStore>(sp =>
+            new ProfileStore(
+                Path.Combine(appDataDirectory, "Profiles"),
+                sp.GetRequiredService<ILogger<ProfileStore>>()));
 
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<LibraryViewModel>();
@@ -85,6 +91,7 @@ public partial class App : Application
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IRebuildService>(),
             sp.GetRequiredService<IInstallService>(),
+            sp.GetRequiredService<IProfileStore>(),
             sp.GetRequiredService<ISettingsService>(),
             Path.Combine(appDataDirectory, "Data"),
             Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),

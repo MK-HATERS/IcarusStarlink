@@ -32,6 +32,9 @@ switch (args[0])
     case "select-by-text":
         SelectByText(int.Parse(args[1]), args[2]);
         break;
+    case "select-combo-item":
+        SelectComboItem(int.Parse(args[1]), args[2]);
+        break;
     case "expand":
         Expand(int.Parse(args[1]), args[2]);
         break;
@@ -177,7 +180,13 @@ static void Click(int pid, string controlType, string nameContains)
         Console.WriteLine($"toggled {el.Current.Name}");
         return;
     }
-    throw new InvalidOperationException($"Element '{el.Current.Name}' supports neither Invoke, SelectionItem, nor Toggle");
+    if (el.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out var expandObj))
+    {
+        ((ExpandCollapsePattern)expandObj).Expand();
+        Console.WriteLine($"expanded {el.Current.Name}");
+        return;
+    }
+    throw new InvalidOperationException($"Element '{el.Current.Name}' supports neither Invoke, SelectionItem, Toggle, nor ExpandCollapse");
 }
 
 static void SelectByText(int pid, string exactText)
@@ -200,6 +209,41 @@ static void SelectByText(int pid, string exactText)
         current = walker.GetParent(current);
     }
     throw new InvalidOperationException($"No selectable ancestor found for '{exactText}'");
+}
+
+// WPF ComboBox popups are their own top-level HWND (see GetAllRoots' remarks) and, empirically,
+// don't survive being expanded in one WinTools process and selected from in the next — the popup
+// closes in between. This does expand + select in a single process run so the popup stays open.
+static void SelectComboItem(int pid, string exactText)
+{
+    var combo = FindByTypeAndName(GetAllRoots(pid), "ComboBox", "");
+    ((ExpandCollapsePattern)combo.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
+    System.Threading.Thread.Sleep(300);
+
+    var walker = TreeWalker.ControlViewWalker;
+    var candidates = GetAllRoots(pid)
+        .SelectMany(root => root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, exactText)).Cast<AutomationElement>())
+        .ToList();
+    if (candidates.Count == 0)
+    {
+        throw new InvalidOperationException($"No element with exact text '{exactText}' found after expanding combo");
+    }
+
+    foreach (var textEl in candidates)
+    {
+        var current = textEl;
+        while (current is not null)
+        {
+            if (current.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var pattern))
+            {
+                ((SelectionItemPattern)pattern).Select();
+                Console.WriteLine($"selected combo item '{exactText}'");
+                return;
+            }
+            current = walker.GetParent(current);
+        }
+    }
+    throw new InvalidOperationException($"No selectable ancestor found for combo item '{exactText}'");
 }
 
 static AutomationElement FindTreeViewItemAncestor(int pid, string exactText)

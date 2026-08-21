@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Install;
@@ -13,17 +14,18 @@ using IcarusStarlink.PakIO.Rebuild;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// Phase 6 (see the plan's "Update (2026-08-21)" section): merge queue + Rebuild (6.1) + Install
-/// (6.2). Rebuild only ever writes to a staged pak under IcarusStarlink's own folder; Install is
-/// the one action in this whole app that writes into the real game's Content\Paks\mods —
-/// deliberately its own separate, explicit button rather than folded into Rebuild, so a click
-/// there is never accidental.
+/// Phase 6 (see the plan's "Update (2026-08-21)" section): Profile bar (6.3) + merge queue +
+/// Rebuild (6.1) + Install (6.2). Rebuild only ever writes to a staged pak under IcarusStarlink's
+/// own folder; Install is the one action in this whole app that writes into the real game's
+/// Content\Paks\mods — deliberately its own separate, explicit button rather than folded into
+/// Rebuild, so a click there is never accidental.
 /// </summary>
 public sealed partial class MergeInstallViewModel : ObservableObject
 {
     private readonly ILibraryRepository _libraryRepository;
     private readonly IRebuildService _rebuildService;
     private readonly IInstallService _installService;
+    private readonly IProfileStore _profileStore;
     private readonly ISettingsService _settingsService;
     private readonly string _dataFolder;
     private readonly string _outputPakPath;
@@ -57,19 +59,33 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     public ObservableCollection<string> Warnings { get; } = [];
 
+    // --- Profile bar (6.3) ---
+    public ObservableCollection<string> ProfileNames { get; } = [];
+
+    [ObservableProperty]
+    private string? _selectedProfileName;
+
+    [ObservableProperty]
+    private string _profileNameInput = "";
+
+    [ObservableProperty]
+    private string? _profileStatusMessage;
+
     public MergeInstallViewModel(
-        ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, ISettingsService settingsService,
-        string dataFolder, string outputPakPath, string backupDirectory)
+        ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
+        ISettingsService settingsService, string dataFolder, string outputPakPath, string backupDirectory)
     {
         _libraryRepository = libraryRepository;
         _rebuildService = rebuildService;
         _installService = installService;
+        _profileStore = profileStore;
         _settingsService = settingsService;
         _dataFolder = dataFolder;
         _outputPakPath = outputPakPath;
         _backupDirectory = backupDirectory;
 
         ReloadLibrary();
+        ReloadProfileNames();
     }
 
     /// <summary>
@@ -86,6 +102,163 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         foreach (var group in groups)
         {
             LibraryRootItems.Add(group.IsFamily ? group : group.Entries[0]);
+        }
+    }
+
+    private void ReloadProfileNames()
+    {
+        ProfileNames.Clear();
+        foreach (var name in _profileStore.ProfileNames)
+        {
+            ProfileNames.Add(name);
+        }
+    }
+
+    /// <summary>Selecting a profile replaces the current queue with that profile's own saved one — a profile *is* "a saved merge list" per the spec, not something merged alongside the current queue.</summary>
+    partial void OnSelectedProfileNameChanged(string? value)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var profile = _profileStore.Load(value);
+
+            Queue.Clear();
+            var missingCount = 0;
+            foreach (var folderName in profile.MergeQueueFolderNames)
+            {
+                var entry = _libraryRepository.GetAll().FirstOrDefault(e => e.FolderName == folderName);
+                if (entry is not null)
+                {
+                    Queue.Add(entry);
+                }
+                else
+                {
+                    missingCount++;
+                }
+            }
+
+            ProfileStatusMessage = missingCount > 0
+                ? $"Loaded '{value}' — {missingCount} mod(s) from this profile are no longer in your Library."
+                : $"Loaded '{value}'.";
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as everywhere else: a corrupt/unreadable profile file shows a
+            // status message rather than crashing the app out of a ComboBox selection change.
+            ProfileStatusMessage = $"Couldn't load profile: {ex.Message}";
+        }
+    }
+
+    /// <summary>Captures whatever's currently in the queue under a new profile name — lets a user build a queue first, then decide to save it, rather than New always starting empty.</summary>
+    [RelayCommand]
+    private void NewProfile()
+    {
+        if (string.IsNullOrWhiteSpace(ProfileNameInput))
+        {
+            ProfileStatusMessage = "Type a profile name first.";
+            return;
+        }
+
+        if (ProfileNames.Contains(ProfileNameInput, StringComparer.OrdinalIgnoreCase))
+        {
+            ProfileStatusMessage = $"A profile named '{ProfileNameInput}' already exists.";
+            return;
+        }
+
+        try
+        {
+            var name = ProfileNameInput;
+            _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)] });
+            ReloadProfileNames();
+            SelectedProfileName = name;
+            ProfileNameInput = "";
+            ProfileStatusMessage = $"Created '{name}'.";
+        }
+        catch (Exception ex)
+        {
+            ProfileStatusMessage = $"Couldn't create profile: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void SaveProfile()
+    {
+        if (SelectedProfileName is not { } name)
+        {
+            ProfileStatusMessage = "Select or create a profile first.";
+            return;
+        }
+
+        try
+        {
+            _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)] });
+            ProfileStatusMessage = $"Saved '{name}'.";
+        }
+        catch (Exception ex)
+        {
+            ProfileStatusMessage = $"Couldn't save profile: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void RenameProfile()
+    {
+        if (SelectedProfileName is not { } oldName)
+        {
+            ProfileStatusMessage = "Select a profile first.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ProfileNameInput))
+        {
+            ProfileStatusMessage = "Type the new name first.";
+            return;
+        }
+
+        if (ProfileNames.Contains(ProfileNameInput, StringComparer.OrdinalIgnoreCase))
+        {
+            ProfileStatusMessage = $"A profile named '{ProfileNameInput}' already exists.";
+            return;
+        }
+
+        try
+        {
+            var newName = ProfileNameInput;
+            _profileStore.Rename(oldName, newName);
+            ReloadProfileNames();
+            SelectedProfileName = newName;
+            ProfileNameInput = "";
+            ProfileStatusMessage = $"Renamed '{oldName}' to '{newName}'.";
+        }
+        catch (Exception ex)
+        {
+            ProfileStatusMessage = $"Couldn't rename profile: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void DeleteProfile()
+    {
+        if (SelectedProfileName is not { } name)
+        {
+            ProfileStatusMessage = "Select a profile first.";
+            return;
+        }
+
+        try
+        {
+            _profileStore.Delete(name);
+            ReloadProfileNames();
+            SelectedProfileName = null;
+            ProfileStatusMessage = $"Deleted '{name}'.";
+        }
+        catch (Exception ex)
+        {
+            ProfileStatusMessage = $"Couldn't delete profile: {ex.Message}";
         }
     }
 

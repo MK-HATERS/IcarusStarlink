@@ -5,13 +5,9 @@
 [Rr]elease/
 out/
 
-# App runtime data (created next to the exe when running)
-Logs/
-Cache/
-Extracted_Mods/
-Library_Meta/
-Profiles/
-Staged_UE4SS/
+# App runtime data (created next to the exe when running, already under bin/ above).
+# Not repeated as bare folder-name rules here: those matched by name anywhere in the tree,
+# which silently hid src/IcarusStarlink.*/Profiles/ (real source, not runtime data) from git.
 /settings.json
 
 # Visual Studio / Rider / VS Code
