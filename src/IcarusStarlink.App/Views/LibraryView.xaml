@@ -163,12 +163,22 @@
             </TabItem>
 
             <TabItem Header="UE4SS mods">
-                <StackPanel Margin="16">
-                    <TextBlock Text="UE4SS mods already installed in your game's Mods folder will show here."
-                               Style="{StaticResource PageBodyTextStyle}"/>
-                    <TextBlock Text="Needs your Icarus install path from Settings — arrives with that phase."
-                               Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,0"/>
-                </StackPanel>
+                <Grid Margin="16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Orientation="Horizontal">
+                        <TextBlock Text="Mods already installed in your game's UE4SS Mods folder — read-only."
+                                   Style="{StaticResource PageBodyTextStyle}" VerticalAlignment="Center"/>
+                        <Button Content="Refresh" Command="{Binding ReloadInstalledUe4ssModsCommand}" Margin="12,0,0,0"/>
+                    </StackPanel>
+                    <TextBlock Grid.Row="1" Text="{Binding Ue4ssStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               FontSize="12" Margin="0,4,0,8"/>
+                    <ListBox Grid.Row="2" ItemsSource="{Binding InstalledUe4ssMods}"/>
+                </Grid>
             </TabItem>
         </TabControl>
 

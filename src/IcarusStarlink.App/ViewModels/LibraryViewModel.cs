@@ -6,6 +6,8 @@ using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Ue4ss;
 using Microsoft.Win32;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -13,6 +15,8 @@ namespace IcarusStarlink.App.ViewModels;
 public sealed partial class LibraryViewModel : ObservableObject
 {
     private readonly ILibraryRepository _repository;
+    private readonly IUe4ssModRepository _ue4ssModRepository;
+    private readonly ISettingsService _settingsService;
     private readonly DispatcherTimer _searchDebounceTimer;
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
     private readonly Dictionary<string, LibraryGroupViewModel> _groupsByKey = [];
@@ -38,9 +42,17 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private int _groupCount;
 
-    public LibraryViewModel(ILibraryRepository repository)
+    /// <summary>"Library UE4SS tab shows what is already in the game Mods folder" per the spec — a read-only scan of the real install, distinct from Merge & Install's own staging section.</summary>
+    public ObservableCollection<string> InstalledUe4ssMods { get; } = [];
+
+    [ObservableProperty]
+    private string? _ue4ssStatusMessage;
+
+    public LibraryViewModel(ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, ISettingsService settingsService)
     {
         _repository = repository;
+        _ue4ssModRepository = ue4ssModRepository;
+        _settingsService = settingsService;
 
         // Reload() rebuilds every row's ViewModel and re-queries the search index; without
         // debouncing, every keystroke would pay that cost plus re-trigger the still-selected
@@ -59,6 +71,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((LibraryViewModel)recipient).Reload(fullResync: true));
 
         Reload();
+        ReloadInstalledUe4ssMods();
     }
 
     partial void OnSearchTextChanged(string value)
@@ -68,6 +81,35 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     partial void OnSelectedItemChanged(LibraryItemViewModel? value) => value?.EnsureDetailsLoaded();
+
+    [RelayCommand]
+    private void ReloadInstalledUe4ssMods()
+    {
+        if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
+        {
+            InstalledUe4ssMods.Clear();
+            Ue4ssStatusMessage = "Set the Icarus Content folder in Settings first.";
+            return;
+        }
+
+        try
+        {
+            var modsFolder = Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath);
+            var mods = _ue4ssModRepository.ListInstalledInGame(modsFolder);
+
+            InstalledUe4ssMods.Clear();
+            foreach (var mod in mods)
+            {
+                InstalledUe4ssMods.Add(mod);
+            }
+
+            Ue4ssStatusMessage = mods.Count == 0 ? "No UE4SS mods found." : null;
+        }
+        catch (Exception ex)
+        {
+            Ue4ssStatusMessage = $"Couldn't read the game's UE4SS Mods folder: {ex.Message}";
+        }
+    }
 
     [RelayCommand]
     private void ImportFolder()

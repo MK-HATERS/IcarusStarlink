@@ -10,6 +10,7 @@ using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
@@ -19,6 +20,7 @@ using IcarusStarlink.Storage.Catalog;
 using IcarusStarlink.Storage.Library;
 using IcarusStarlink.Storage.Profiles;
 using IcarusStarlink.Storage.Settings;
+using IcarusStarlink.Storage.Ue4ss;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -86,15 +88,21 @@ public partial class App : Application
                 Path.Combine(appDataDirectory, "Profiles"),
                 sp.GetRequiredService<ILogger<ProfileStore>>()));
         builder.Services.AddSingleton<IPatchService, PatchService>();
+        builder.Services.AddSingleton<IUe4ssModRepository>(sp =>
+            new Ue4ssModRepository(Path.Combine(appDataDirectory, "Staged_UE4SS")));
 
         builder.Services.AddSingleton<MainViewModel>();
-        builder.Services.AddSingleton<LibraryViewModel>();
+        builder.Services.AddSingleton(sp => new LibraryViewModel(
+            sp.GetRequiredService<ILibraryRepository>(),
+            sp.GetRequiredService<IUe4ssModRepository>(),
+            sp.GetRequiredService<ISettingsService>()));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IRebuildService>(),
             sp.GetRequiredService<IInstallService>(),
             sp.GetRequiredService<IProfileStore>(),
             sp.GetRequiredService<IPatchService>(),
+            sp.GetRequiredService<IUe4ssModRepository>(),
             sp.GetRequiredService<IDaedalusCatalogClient>(),
             sp.GetRequiredService<IJimk72CatalogClient>(),
             sp.GetRequiredService<ISettingsService>(),
