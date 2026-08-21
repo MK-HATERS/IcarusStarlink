@@ -90,12 +90,67 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         }
     }
 
+    // The real game's own paks mount their content at this path (confirmed against the user's
+    // real, already-installed IMM_Merged_Mod_P.pak via `-List`) — a pak whose files aren't
+    // reachable under this mount point won't actually be found by the game at runtime, even
+    // though the pak itself would build and extract just fine.
+    private const string GameContentMountPoint = "../../../Icarus/Content/";
+
+    /// <summary>
+    /// Packs everything under stagingDirectory into one pak at outputPakPath. Built and verified
+    /// against the real UnrealPak.exe binary, not just its documented flags — two things aren't
+    /// obvious from -help alone: (1) UnrealPak's -Create with a response file crashes
+    /// ("Assertion failed... VerifyIndexesMatch") when the response file's destination paths don't
+    /// share a common prefix, which multi-folder mod content (data/... alongside BP/..., ASS/...)
+    /// never would on its own — worked around by baking GameContentMountPoint onto the front of
+    /// every single line, so every entry always shares that prefix. (2) Passing stagingDirectory
+    /// itself as -Create=<folder> (no response file) avoids that crash entirely, but then
+    /// UnrealPak auto-infers the mount point from the folder's own absolute path — wrong, and
+    /// unusable in-game. The response-file form above is the only one confirmed to produce a pak
+    /// whose mount point actually matches a real installed pak's own.
+    /// </summary>
+    public async Task<int> CreatePakAsync(
+        string unrealPakExePath, string stagingDirectory, string outputPakPath, CancellationToken cancellationToken = default)
+    {
+        ValidateUnrealPakExePath(unrealPakExePath);
+
+        var files = Directory.GetFiles(stagingDirectory, "*", SearchOption.AllDirectories);
+        if (files.Length == 0)
+        {
+            throw new InvalidOperationException("Nothing to pack — the merge queue produced no files.");
+        }
+
+        var responseFilePath = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"Response_{Guid.NewGuid():N}.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(responseFilePath)!);
+
+        try
+        {
+            var lines = files.Select(file =>
+            {
+                var relativePath = Path.GetRelativePath(stagingDirectory, file).Replace('\\', '/');
+                return $"\"{file}\" \"{GameContentMountPoint}{relativePath}\"";
+            });
+            await File.WriteAllLinesAsync(responseFilePath, lines, cancellationToken);
+
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPakPath)!);
+            var result = await processRunner.RunAsync(unrealPakExePath, [outputPakPath, $"-Create={responseFilePath}"], cancellationToken);
+            if (result.ExitCode != 0)
+            {
+                var detail = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
+                throw new InvalidOperationException($"UnrealPak.exe exited with code {result.ExitCode}: {detail}");
+            }
+
+            return files.Length;
+        }
+        finally
+        {
+            File.Delete(responseFilePath);
+        }
+    }
+
     private static string ResolveDataPakPath(string unrealPakExePath, string icarusContentPath)
     {
-        if (string.IsNullOrWhiteSpace(unrealPakExePath) || !File.Exists(unrealPakExePath))
-        {
-            throw new FileNotFoundException($"UnrealPak.exe not found at '{unrealPakExePath}' — check the UnrealPak.exe path setting.");
-        }
+        ValidateUnrealPakExePath(unrealPakExePath);
 
         var dataPakPath = Path.Combine(icarusContentPath, "Data", "data.pak");
         if (!File.Exists(dataPakPath))
@@ -106,5 +161,13 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         }
 
         return dataPakPath;
+    }
+
+    private static void ValidateUnrealPakExePath(string unrealPakExePath)
+    {
+        if (string.IsNullOrWhiteSpace(unrealPakExePath) || !File.Exists(unrealPakExePath))
+        {
+            throw new FileNotFoundException($"UnrealPak.exe not found at '{unrealPakExePath}' — check the UnrealPak.exe path setting.");
+        }
     }
 }

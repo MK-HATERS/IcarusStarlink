@@ -165,6 +165,126 @@ public class UnrealPakServiceTests : IDisposable
         Assert.Equal("Amount", change.FieldName);
     }
 
+    private sealed class CapturingProcessRunner(ProcessRunResult result) : IProcessRunner
+    {
+        public string? LastFileName { get; private set; }
+        public IReadOnlyList<string>? LastArguments { get; private set; }
+
+        // The real method deletes its own response file in a finally block before returning, so
+        // the only window to see its content is here, while RunAsync is still executing.
+        public string? CapturedResponseFileContent { get; private set; }
+
+        public Task<ProcessRunResult> RunAsync(string fileName, IReadOnlyList<string> arguments, CancellationToken cancellationToken = default)
+        {
+            LastFileName = fileName;
+            LastArguments = arguments;
+
+            var createArg = arguments.FirstOrDefault(a => a.StartsWith("-Create=", StringComparison.Ordinal));
+            if (createArg is not null)
+            {
+                var responseFilePath = createArg["-Create=".Length..];
+                CapturedResponseFileContent = File.Exists(responseFilePath) ? File.ReadAllText(responseFilePath) : null;
+            }
+
+            return Task.FromResult(result);
+        }
+    }
+
+    [Fact]
+    public async Task CreatePakAsync_MissingExePath_ThrowsFileNotFoundException()
+    {
+        var stagingDirectory = Path.Combine(_tempDir, "Staging");
+        Directory.CreateDirectory(Path.Combine(stagingDirectory, "data"));
+        File.WriteAllText(Path.Combine(stagingDirectory, "data", "Test.json"), "{}");
+        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(0, "", "")));
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            service.CreatePakAsync(Path.Combine(_tempDir, "NoSuchExe.exe"), stagingDirectory, Path.Combine(_tempDir, "Out_P.pak")));
+    }
+
+    [Fact]
+    public async Task CreatePakAsync_EmptyStagingDirectory_ThrowsInvalidOperationException()
+    {
+        var stagingDirectory = Path.Combine(_tempDir, "EmptyStaging");
+        Directory.CreateDirectory(stagingDirectory);
+        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(0, "", "")));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreatePakAsync(_unrealPakExePath, stagingDirectory, Path.Combine(_tempDir, "Out_P.pak")));
+    }
+
+    [Fact]
+    public async Task CreatePakAsync_NonZeroExitCode_ThrowsWithStandardErrorInMessage()
+    {
+        var stagingDirectory = Path.Combine(_tempDir, "Staging");
+        Directory.CreateDirectory(Path.Combine(stagingDirectory, "data"));
+        File.WriteAllText(Path.Combine(stagingDirectory, "data", "Test.json"), "{}");
+        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(1, "", "index mismatch")));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreatePakAsync(_unrealPakExePath, stagingDirectory, Path.Combine(_tempDir, "Out_P.pak")));
+        Assert.Contains("index mismatch", exception.Message);
+    }
+
+    [Fact]
+    public async Task CreatePakAsync_Success_ReturnsPackedFileCount()
+    {
+        var stagingDirectory = Path.Combine(_tempDir, "Staging");
+        Directory.CreateDirectory(Path.Combine(stagingDirectory, "data"));
+        Directory.CreateDirectory(Path.Combine(stagingDirectory, "BP"));
+        File.WriteAllText(Path.Combine(stagingDirectory, "data", "Test.json"), "{}");
+        File.WriteAllText(Path.Combine(stagingDirectory, "BP", "Thing.uasset"), "binary");
+        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "", ""));
+        var service = new UnrealPakService(runner);
+
+        var count = await service.CreatePakAsync(_unrealPakExePath, stagingDirectory, Path.Combine(_tempDir, "Out_P.pak"));
+
+        Assert.Equal(2, count);
+    }
+
+    [Fact]
+    public async Task CreatePakAsync_ResponseFileBakesGameMountPointOntoEveryLine()
+    {
+        // Verified against the real UnrealPak.exe binary: a response file whose destination
+        // paths don't share a common prefix crashes it outright, and folder-mode -Create (no
+        // response file) auto-infers the wrong mount point (this dev machine's own absolute
+        // staging path) instead of the real game-relative one. Baking the same mount point onto
+        // every line is the one technique confirmed to produce a pak that both builds without
+        // crashing and mounts where the game actually expects it.
+        var stagingDirectory = Path.Combine(_tempDir, "Staging");
+        Directory.CreateDirectory(Path.Combine(stagingDirectory, "data", "Crafting"));
+        Directory.CreateDirectory(Path.Combine(stagingDirectory, "BP"));
+        File.WriteAllText(Path.Combine(stagingDirectory, "data", "Crafting", "D_ProcessorRecipes.json"), "{}");
+        File.WriteAllText(Path.Combine(stagingDirectory, "BP", "Thing.uasset"), "binary");
+        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "", ""));
+        var service = new UnrealPakService(runner);
+
+        await service.CreatePakAsync(_unrealPakExePath, stagingDirectory, Path.Combine(_tempDir, "Out_P.pak"));
+
+        Assert.NotNull(runner.CapturedResponseFileContent);
+        var lines = runner.CapturedResponseFileContent!.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        Assert.Contains(lines, l => l.Contains("\"../../../Icarus/Content/data/Crafting/D_ProcessorRecipes.json\""));
+        Assert.Contains(lines, l => l.Contains("\"../../../Icarus/Content/BP/Thing.uasset\""));
+    }
+
+    [Fact]
+    public async Task CreatePakAsync_PassesOutputPakPathAndCreateFlag()
+    {
+        var stagingDirectory = Path.Combine(_tempDir, "Staging");
+        Directory.CreateDirectory(stagingDirectory);
+        File.WriteAllText(Path.Combine(stagingDirectory, "Test.json"), "{}");
+        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "", ""));
+        var service = new UnrealPakService(runner);
+        var outputPakPath = Path.Combine(_tempDir, "Out_P.pak");
+
+        await service.CreatePakAsync(_unrealPakExePath, stagingDirectory, outputPakPath);
+
+        Assert.Equal(_unrealPakExePath, runner.LastFileName);
+        Assert.Equal(outputPakPath, runner.LastArguments![0]);
+        Assert.StartsWith("-Create=", runner.LastArguments[1]);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))

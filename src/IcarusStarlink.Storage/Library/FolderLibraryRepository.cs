@@ -157,6 +157,8 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         return readmePath is null ? null : Encoding.UTF8.GetString(ExmodFolder.ReadAssetContent(folder, readmePath));
     }
 
+    public string GetFolderPath(string folderName) => ResolveFolder(folderName);
+
     private void RescanAll()
     {
         var scanned = new List<(LibraryEntry Entry, string SearchableContent)>();

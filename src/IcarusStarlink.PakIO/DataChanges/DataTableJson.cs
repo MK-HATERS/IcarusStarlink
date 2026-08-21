@@ -39,4 +39,35 @@ public static class DataTableJson
 
         return result;
     }
+
+    /// <summary>
+    /// The inverse of RowsToKeyedObject, for writing a merged table back out in Rebuild's own
+    /// pipeline: rebuilds the {"RowStruct", "Defaults", "Rows": [...]} shape from a merged keyed
+    /// object, reusing originalFile's own RowStruct/Defaults (a merge never touches those — only
+    /// row fields). "Name" is re-inserted as each row object's first key, matching the real file's
+    /// own field order, purely so a diff against the original stays readable to a human — the game
+    /// itself doesn't care about JSON key order.
+    /// </summary>
+    public static JsonObject KeyedObjectToRows(JsonObject originalFile, JsonObject keyedTable)
+    {
+        var result = originalFile.DeepClone()!.AsObject();
+
+        var rows = new JsonArray();
+        foreach (var (name, rowValue) in keyedTable)
+        {
+            var row = new JsonObject { ["Name"] = JsonValue.Create(name) };
+            if (rowValue is JsonObject rowObject)
+            {
+                foreach (var (fieldName, fieldValue) in rowObject)
+                {
+                    row[fieldName] = fieldValue?.DeepClone();
+                }
+            }
+
+            rows.Add(row);
+        }
+
+        result["Rows"] = rows;
+        return result;
+    }
 }

@@ -3,9 +3,85 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:core="clr-namespace:IcarusStarlink.Core.Library;assembly=IcarusStarlink.Core"
              mc:Ignorable="d">
-    <StackPanel Style="{StaticResource PlaceholderPageStyle}">
-        <TextBlock Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
-        <TextBlock Text="{Binding PlaceholderMessage}" Style="{StaticResource PageBodyTextStyle}"/>
-    </StackPanel>
+
+    <Grid Margin="32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
+
+        <Grid Grid.Row="1" Margin="0,16,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Library pane -->
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="Library" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+
+                <TreeView Grid.Row="1" x:Name="LibraryTree" ItemsSource="{Binding LibraryRootItems}"
+                          SelectedItemChanged="LibraryTree_SelectedItemChanged" BorderThickness="1"
+                          BorderBrush="{DynamicResource BorderBrush}">
+                    <TreeView.Resources>
+                        <HierarchicalDataTemplate DataType="{x:Type core:LibraryGroup}" ItemsSource="{Binding Entries}">
+                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                        </HierarchicalDataTemplate>
+                        <DataTemplate DataType="{x:Type core:LibraryEntry}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Name}"/>
+                                <TextBlock Text="{Binding Author, StringFormat=' · {0}'}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </TreeView.Resources>
+                </TreeView>
+
+                <Button Grid.Row="2" Content="Add to queue →" Command="{Binding AddToQueueCommand}"
+                        Style="{StaticResource PrimaryButtonStyle}" Margin="0,8,0,0" HorizontalAlignment="Left"/>
+            </Grid>
+
+            <!-- Queue + Rebuild pane -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="Mods in merged pack (later mods win conflicts)" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+
+                <ListBox Grid.Row="1" ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueEntry}"
+                         DisplayMemberPath="Name"/>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button Content="Move up" Command="{Binding MoveQueueEntryUpCommand}" Margin="0,0,8,0"/>
+                    <Button Content="Move down" Command="{Binding MoveQueueEntryDownCommand}" Margin="0,0,8,0"/>
+                    <Button Content="Remove" Command="{Binding RemoveFromQueueCommand}" Margin="0,0,8,0"/>
+                    <Button Content="Clear" Command="{Binding ClearQueueCommand}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,16,0,0">
+                    <Button Content="Rebuild" Command="{Binding RebuildCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+                    <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                               Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <ListBox Grid.Row="4" ItemsSource="{Binding Warnings}" Margin="0,8,0,0" MaxHeight="120"
+                         Foreground="{DynamicResource AccentBrush}" FontSize="12"/>
+            </Grid>
+        </Grid>
+    </Grid>
 </UserControl>

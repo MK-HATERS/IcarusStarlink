@@ -26,4 +26,12 @@ public interface ILibraryRepository
 
     /// <summary>Null if the mod has no file named "readme" (any extension).</summary>
     string? ReadReadme(string folderName);
+
+    /// <summary>
+    /// The mod's own folder under Extracted_Mods, for callers (Merge & Install's Rebuild
+    /// pipeline) that need to read its full .EXMOD themselves via IcarusStarlink.PakIO directly —
+    /// this interface lives in Core, which PakIO itself depends on, so it can't return a PakIO
+    /// type without a circular reference. Throws if folderName doesn't exist.
+    /// </summary>
+    string GetFolderPath(string folderName);
 }

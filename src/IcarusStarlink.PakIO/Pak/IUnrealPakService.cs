@@ -34,6 +34,14 @@ public interface IUnrealPakService
     /// background check, not a user-initiated action that should surface an error dialog.
     /// </summary>
     Task<string?> TryGetDataPakHashAsync(string icarusContentPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Packs everything under stagingDirectory into one pak at outputPakPath, mounted so the
+    /// result actually loads in-game (see UnrealPakService's own doc comment for the real
+    /// mechanics this was built against). Returns the number of files packed. Throws on failure —
+    /// same convention as ExtractDataPakAsync.
+    /// </summary>
+    Task<int> CreatePakAsync(string unrealPakExePath, string stagingDirectory, string outputPakPath, CancellationToken cancellationToken = default);
 }
 
 public sealed record UnrealPakExtractResult(int ExtractedFileCount, WeeklyChangeReport? ChangeReport);
