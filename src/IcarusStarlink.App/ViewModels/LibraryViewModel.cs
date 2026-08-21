@@ -1,10 +1,12 @@
 using System.Collections.ObjectModel;
+using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
@@ -17,6 +19,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly ILibraryRepository _repository;
     private readonly IUe4ssModRepository _ue4ssModRepository;
     private readonly ISettingsService _settingsService;
+    private readonly Func<string, ExmodEditorViewModel> _editorFactory;
     private readonly DispatcherTimer _searchDebounceTimer;
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
     private readonly Dictionary<string, LibraryGroupViewModel> _groupsByKey = [];
@@ -48,11 +51,12 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private string? _ue4ssStatusMessage;
 
-    public LibraryViewModel(ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, ISettingsService settingsService)
+    public LibraryViewModel(ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, ISettingsService settingsService, Func<string, ExmodEditorViewModel> editorFactory)
     {
         _repository = repository;
         _ue4ssModRepository = ue4ssModRepository;
         _settingsService = settingsService;
+        _editorFactory = editorFactory;
 
         // Reload() rebuilds every row's ViewModel and re-queries the search index; without
         // debouncing, every keystroke would pay that cost plus re-trigger the still-selected
@@ -170,6 +174,60 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         StatusMessage = "Library refreshed.";
         Reload(fullResync: true);
+    }
+
+    [RelayCommand]
+    private void EditSelected()
+    {
+        if (SelectedItem is null)
+        {
+            return;
+        }
+
+        if (SelectedItem.IsOpaquePak)
+        {
+            StatusMessage = "An opaque .pak import has no .EXMOD to edit.";
+            return;
+        }
+
+        OpenEditor(SelectedItem.FolderName);
+    }
+
+    [RelayCommand]
+    private void NewMod()
+    {
+        var dialog = new NewModDialog { Owner = Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var entry = _repository.CreateBlankMod(dialog.ModName, dialog.ModAuthor);
+            StatusMessage = $"Created '{entry.Name}'.";
+            Reload();
+            OpenEditor(entry.FolderName);
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as TryImport — folder creation can fail for the same reasons any
+            // other Extracted_Mods write can (permission denied, disk full, ...).
+            StatusMessage = $"Couldn't create the mod: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// A new, non-modal Window + a fresh, transient ExmodEditorViewModel per call — classic IMM's
+    /// own real editor supports two independent sessions open at once, which .Show() (not
+    /// ShowDialog) matches; this app's other ViewModels stay DI singletons, but the editor
+    /// deliberately isn't one.
+    /// </summary>
+    private void OpenEditor(string folderName)
+    {
+        var editorViewModel = _editorFactory(folderName);
+        var window = new ExmodEditorWindow(editorViewModel) { Owner = Application.Current.MainWindow };
+        window.Show();
     }
 
     [RelayCommand]

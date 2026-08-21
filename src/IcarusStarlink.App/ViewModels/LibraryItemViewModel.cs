@@ -40,8 +40,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isOpaquePak;
 
-    /// <summary>Stub for the ✎ "locally edited" glyph the real app shows — always false until Phase 7's EXMOD editor actually tracks edits.</summary>
-    public bool IsLocallyEdited => false;
+    /// <summary>Set once the EXMOD editor's own Save action runs against this mod — the ✎ glyph.</summary>
+    [ObservableProperty]
+    private bool _isLocallyEdited;
 
     /// <summary>Stub for the merged-pack glyph the real app shows on a rebuilt pack re-imported as its own library entry — always false until Phase 6 produces one.</summary>
     public bool IsMergedPack => false;
@@ -91,6 +92,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         _description = entry.Description;
         _variantLabel = entry.Variant;
         _isOpaquePak = entry.IsOpaquePak;
+        _isLocallyEdited = entry.IsLocallyEdited;
 
         // Assigning the backing fields directly (not the generated properties) means this
         // doesn't route through OnIsPinnedChanged/etc. and save straight back to the repository
@@ -130,6 +132,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         Description = entry.Description;
         VariantLabel = entry.Variant;
         IsOpaquePak = entry.IsOpaquePak;
+        IsLocallyEdited = entry.IsLocallyEdited;
 
         // Direct field assignment + manual notify, not the generated properties: this re-syncs
         // from a re-scan, not a user edit, so it must update the UI without re-triggering

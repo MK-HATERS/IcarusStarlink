@@ -20,6 +20,17 @@ public interface ILibraryRepository
 
     void UpdateMetadata(string folderName, bool isPinned, bool isFavorite, string notes);
 
+    /// <summary>Sets the ✎ "locally edited" flag — called once by the EXMOD editor's own Save action, never toggled directly by the user the way Pin/Favorite/Notes are.</summary>
+    void MarkLocallyEdited(string folderName);
+
+    /// <summary>
+    /// Creates a genuinely new mod — an empty EXMOD (no Rows yet) under a fresh Extracted_Mods
+    /// folder — for the "New mod…" action, which doesn't read from an existing folder/zip the way
+    /// every other Import does. name becomes both the display Name and (sanitized) the EXMOD's own
+    /// FileName/folder name; author is required (an empty EXMOD still needs valid header fields).
+    /// </summary>
+    LibraryEntry CreateBlankMod(string name, string author);
+
     IReadOnlyList<string> ListAssetPaths(string folderName);
 
     byte[] ReadAssetContent(string folderName, string relativePath);

@@ -13,13 +13,20 @@ Get the running app's PID first (e.g. `tasklist` or `Get-Process IcarusStarlink.
 
 ## Commands
 
-- `capture <pid> <outputPath>` — PrintWindow screenshot to a PNG. Note: this
-  only captures ONE specific HWND (the target window's own client area) — a
-  WPF Popup (context menu, combo dropdown, this app's Columns picker) renders
-  in its own separate top-level HWND, so it never appears in the capture no
-  matter what. Unlike the commands below, there's no fix for this short of
-  compositing two separate PrintWindow calls into one image, which hasn't
-  been worth building.
+- `capture <pid> <outputPath> [titleContains]` — PrintWindow screenshot to a
+  PNG. Note: this only captures ONE specific HWND (the target window's own
+  client area) — a WPF Popup (context menu, combo dropdown, this app's
+  Columns picker) renders in its own separate top-level HWND, so it never
+  appears in the capture no matter what. Unlike some of the commands below,
+  there's no fix for that short of compositing two separate PrintWindow calls
+  into one image, which hasn't been worth building. Omit titleContains for
+  the original behavior (the main window). Pass it to target a genuinely
+  separate owned Window instead — e.g. Phase 7.1's ExmodEditorWindow, opened
+  via Library's Edit…/New mod… actions — by a substring of its title; added
+  because such a window shows up in UI Automation as a *descendant* of its
+  owner (found via list-controls' traversal), not as its own sibling root of
+  the Desktop, so this searches TreeScope.Descendants for a matching
+  ControlType.Window rather than picking among GetAllRoots.
 - `list-controls <pid>` — dumps every descendant control's type/Name/AutomationId,
   across every top-level window owned by pid (the main window plus any
   currently-open Popup — see the GetAllRoots doc comment in Program.cs for why
@@ -44,7 +51,17 @@ Get the running app's PID first (e.g. `tasklist` or `Get-Process IcarusStarlink.
 - `select-by-text <pid> <exactText>` — finds an element with that exact Name,
   walks up to the nearest ancestor supporting SelectionItemPattern, and
   selects it. Useful for TreeView/ListBox rows whose own Name is a generic
-  type string rather than the row's visible text.
+  type string rather than the row's visible text. Matches by manually walking
+  Descendants and comparing `.Current.Name` (like FindByTypeAndName), not a
+  native PropertyCondition — an earlier PropertyCondition-based version
+  worked fine against TreeView rows but intermittently reported no match at
+  all against a plain ListBox's Text peers (Phase 7.1's editor), even though
+  the exact same element was trivially found by the manual-walk approach
+  moments earlier via list-controls. If this still reports "no element
+  found" for text that's visibly on screen, double-check for a dash
+  character mismatch first (e.g. an em dash "—" in the real Display string
+  vs. a plain hyphen "-" typed on the command line) before suspecting the
+  tool itself — that's the actual cause it usually turns out to be.
 - `select-combo-item <pid> <exactText> [comboIndex]` — finds the ComboBox at
   comboIndex (0-indexed, visual-tree order across all top-level windows for
   pid; defaults to 0, the first one — pass an index when a page has more than

@@ -66,10 +66,14 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
-                        <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,8,0"/>
+                        <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,8,0"
+                                ToolTip="Re-scan Extracted_Mods from disk"/>
+                        <Button Content="New mod…" Command="{Binding NewModCommand}" Margin="0,0,8,0"
+                                ToolTip="Create a blank EXMOD (name + author) and open it in the editor"/>
                         <Button Content="Import EXMODZ…" Command="{Binding ImportFileCommand}" Margin="0,0,8,0"/>
                         <Button Content="Import Folder…" Command="{Binding ImportFolderCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"/>
-                        <Button Content="Import .pak…" Command="{Binding ImportPakCommand}"/>
+                        <Button Content="Import .pak…" Command="{Binding ImportPakCommand}"
+                                ToolTip="Import a prebuilt .pak as an opaque library entry — no .EXMOD, can't be browsed or edited"/>
                     </StackPanel>
 
                     <StackPanel Grid.Row="1" Margin="0,0,0,12">
@@ -117,6 +121,8 @@
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                                         <CheckBox Content="Pinned" IsChecked="{Binding SelectedItem.IsPinned}" Margin="0,0,16,0"/>
                                         <CheckBox Content="Favorite" IsChecked="{Binding SelectedItem.IsFavorite}" Margin="0,0,16,0"/>
+                                        <Button Content="Edit…" Command="{Binding EditSelectedCommand}" Margin="0,0,8,0"
+                                                ToolTip="Open this mod's Item fields in the EXMOD editor"/>
                                         <Button Content="Delete" Command="{Binding DeleteSelectedCommand}"/>
                                     </StackPanel>
 

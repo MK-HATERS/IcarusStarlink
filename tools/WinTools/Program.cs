@@ -15,7 +15,7 @@ if (args.Length == 0)
 switch (args[0])
 {
     case "capture":
-        Capture(int.Parse(args[1]), args[2]);
+        Capture(int.Parse(args[1]), args[2], args.Length > 3 ? args[3] : null);
         break;
     case "list-controls":
         ListControls(int.Parse(args[1]));
@@ -111,9 +111,30 @@ static List<AutomationElement> GetAllRoots(int pid)
     return roots;
 }
 
-static void Capture(int pid, string outputPath)
+/// <summary>
+/// titleContains targets a specific window by a substring of its title — omit it for the
+/// original single-root behavior (the main window). An owned Window (like ExmodEditorWindow,
+/// which sets Owner = the main window) shows up in UI Automation as a *descendant* of its owner,
+/// not as its own sibling root of the Desktop the way GetAllRoots' Popup case does — so this
+/// searches TreeScope.Descendants for a ControlType.Window with a matching Name, the same
+/// traversal ListControls/FindByTypeAndName already use, rather than GetAllRoots. Still only ever
+/// grabs one HWND; same PrintWindow limitation as always.
+/// </summary>
+static void Capture(int pid, string outputPath, string? titleContains = null)
 {
-    var root = GetRoot(pid);
+    AutomationElement root;
+    if (titleContains is null)
+    {
+        root = GetRoot(pid);
+    }
+    else
+    {
+        root = GetAllRoots(pid)
+            .SelectMany(r => r.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window)).Cast<AutomationElement>())
+            .FirstOrDefault(w => w.Current.Name.Contains(titleContains, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"No window for pid {pid} with title containing '{titleContains}'.");
+    }
+
     var hwnd = new IntPtr(root.Current.NativeWindowHandle);
     NativeMethods.GetWindowRect(hwnd, out var rect);
     var width = rect.Right - rect.Left;
@@ -206,9 +227,15 @@ static void Click(int pid, string controlType, string nameContains)
 
 static void SelectByText(int pid, string exactText)
 {
+    // A native PropertyCondition on AutomationElement.NameProperty was tried here originally, but
+    // proved unreliable against a plain ListBox's Text peers (as opposed to the TreeView rows this
+    // was first built for) — it intermittently reported no match even though the exact same
+    // element was trivially findable by manually walking Descendants and comparing .Current.Name,
+    // the same style FindByTypeAndName already uses. Manual comparison is the more robust of the
+    // two, empirically, so this matches that approach instead of the native property filter.
     var textEl = GetAllRoots(pid)
-        .SelectMany(root => root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, exactText)).Cast<AutomationElement>())
-        .FirstOrDefault()
+        .SelectMany(root => root.FindAll(TreeScope.Descendants, Condition.TrueCondition).Cast<AutomationElement>())
+        .FirstOrDefault(el => el.Current.Name == exactText)
         ?? throw new InvalidOperationException($"No element with exact text '{exactText}' found");
 
     var walker = TreeWalker.ControlViewWalker;

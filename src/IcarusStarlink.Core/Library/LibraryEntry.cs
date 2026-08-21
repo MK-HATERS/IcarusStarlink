@@ -29,4 +29,7 @@ public sealed class LibraryEntry
     public bool IsFavorite { get; set; }
     public string Notes { get; set; } = "";
     public DateTimeOffset ImportedAtUtc { get; set; }
+
+    /// <summary>Set once the EXMOD editor's own Save action runs against this mod — the ✎ glyph.</summary>
+    public bool IsLocallyEdited { get; set; }
 }

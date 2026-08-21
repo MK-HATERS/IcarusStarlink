@@ -7,4 +7,7 @@ internal sealed class LibraryMeta
     public bool IsFavorite { get; set; }
     public string Notes { get; set; } = "";
     public DateTimeOffset ImportedAtUtc { get; set; }
+
+    /// <summary>Set once, by the EXMOD editor's own Save action — unlike Pin/Favorite/Notes, never toggled directly in the Library UI.</summary>
+    public bool IsLocallyEdited { get; set; }
 }

@@ -91,11 +91,20 @@ public partial class App : Application
         builder.Services.AddSingleton<IUe4ssModRepository>(sp =>
             new Ue4ssModRepository(Path.Combine(appDataDirectory, "Staged_UE4SS")));
 
+        // Transient, not a singleton — every other ViewModel in this app is constructed once and
+        // reused, but the EXMOD editor is per-open-instance (Phase 7.1: classic IMM's own editor
+        // really does support two independent mods open at once). Registered as a factory
+        // delegate, not AddTransient<T>, since the folder name it edits is only known at the
+        // moment Library's Edit…/New mod… actions fire, not at DI composition time.
+        builder.Services.AddSingleton<Func<string, ExmodEditorViewModel>>(sp => folderName =>
+            new ExmodEditorViewModel(folderName, sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data")));
+
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton(sp => new LibraryViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IUe4ssModRepository>(),
-            sp.GetRequiredService<ISettingsService>()));
+            sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<Func<string, ExmodEditorViewModel>>()));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IRebuildService>(),

@@ -388,6 +388,74 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.Equal("External_Pak", entry.Name);
     }
 
+    [Fact]
+    public void CreateBlankMod_AddsEntryWithNoRowsToLibrary()
+    {
+        using var repo = CreateRepository();
+
+        var entry = repo.CreateBlankMod("My New Mod", "TestAuthor");
+
+        Assert.Equal("My New Mod", entry.Name);
+        Assert.Equal("TestAuthor", entry.Author);
+        Assert.False(entry.IsOpaquePak);
+        Assert.Single(repo.GetAll());
+        Assert.Empty(repo.ListAssetPaths(entry.FolderName));
+    }
+
+    [Fact]
+    public void CreateBlankMod_PersistsAsARealExmodPackageAcrossRepositoryInstances()
+    {
+        string folderName;
+        using (var repo = CreateRepository())
+        {
+            folderName = repo.CreateBlankMod("My New Mod", "TestAuthor").FolderName;
+        }
+
+        using var reopened = CreateRepository();
+        var package = ExmodFolder.Read(reopened.GetFolderPath(folderName)).Package;
+
+        Assert.Equal("My New Mod", package.Name);
+        Assert.Empty(package.Rows);
+    }
+
+    [Fact]
+    public void CreateBlankMod_NameCollision_DisambiguatesWithSuffix()
+    {
+        using var repo = CreateRepository();
+
+        var first = repo.CreateBlankMod("Same Name", "A");
+        var second = repo.CreateBlankMod("Same Name", "A");
+
+        Assert.NotEqual(first.FolderName, second.FolderName);
+        Assert.Equal(2, repo.GetAll().Count);
+    }
+
+    [Fact]
+    public void MarkLocallyEdited_SetsFlag_PersistsAcrossRepositoryInstances()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        string folderName;
+        using (var repo = CreateRepository())
+        {
+            folderName = repo.Import(_sourceDir).FolderName;
+            Assert.False(repo.GetAll().Single().IsLocallyEdited);
+
+            repo.MarkLocallyEdited(folderName);
+            Assert.True(repo.GetAll().Single().IsLocallyEdited);
+        }
+
+        using var reopened = CreateRepository();
+        Assert.True(reopened.GetAll().Single().IsLocallyEdited);
+    }
+
+    [Fact]
+    public void MarkLocallyEdited_UnknownFolderName_ThrowsDirectoryNotFound()
+    {
+        using var repo = CreateRepository();
+
+        Assert.Throws<DirectoryNotFoundException>(() => repo.MarkLocallyEdited("DoesNotExist"));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_extractedModsDir))

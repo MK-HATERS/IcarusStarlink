@@ -99,6 +99,33 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         return entry;
     }
 
+    /// <summary>
+    /// "New mod…" per the spec — a blank EXMOD (zero Rows) so the editor has something to open
+    /// straight into and build up, rather than reading from an existing folder/zip the way every
+    /// other Import does. name.Replace(' ', '_') derives the EXMOD's own FileName, matching the
+    /// convention real EXMOD authors already use — ExmodFolder.Write's own validation (via
+    /// ExmodPackageWriteGuard) rejects anything that isn't actually a safe simple filename, same
+    /// as every other write path.
+    /// </summary>
+    public LibraryEntry CreateBlankMod(string name, string author)
+    {
+        var fileName = name.Replace(' ', '_');
+        var folderName = MakeUniqueFolderName(fileName);
+        var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
+
+        var package = new ExmodPackage { Name = name, Author = author, Version = "1.0", Description = "", FileName = fileName, Rows = [] };
+        ExmodFolder.Write(targetFolder, new ExmodPackageContents(package, []));
+
+        var meta = new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow };
+        _metaStore.Save(folderName, meta);
+
+        var entry = ToEntry(folderName, package, meta);
+        _cachedEntries.Add(entry);
+        _searchIndex.Insert(entry, BuildSearchableContent(package));
+
+        return entry;
+    }
+
     public void Delete(string folderName)
     {
         Directory.Delete(ResolveFolder(folderName), recursive: true);
@@ -130,6 +157,21 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
             existing.IsFavorite = isFavorite;
             existing.Notes = notes;
             _searchIndex.UpdateNotes(folderName, notes);
+        }
+    }
+
+    public void MarkLocallyEdited(string folderName)
+    {
+        ResolveFolder(folderName);
+
+        var meta = _metaStore.Load(folderName);
+        meta.IsLocallyEdited = true;
+        _metaStore.Save(folderName, meta);
+
+        var existing = _cachedEntries.Find(e => e.FolderName == folderName);
+        if (existing is not null)
+        {
+            existing.IsLocallyEdited = true;
         }
     }
 
@@ -240,6 +282,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         IsFavorite = meta.IsFavorite,
         Notes = meta.Notes,
         ImportedAtUtc = meta.ImportedAtUtc,
+        IsLocallyEdited = meta.IsLocallyEdited,
     };
 
     private static LibraryEntry ToOpaquePakEntry(string folderName, string pakFilePath, LibraryMeta meta)
@@ -259,6 +302,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
             IsFavorite = meta.IsFavorite,
             Notes = meta.Notes,
             ImportedAtUtc = meta.ImportedAtUtc,
+            IsLocallyEdited = meta.IsLocallyEdited,
         };
     }
 

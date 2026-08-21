@@ -1,0 +1,28 @@
+<Window x:Class="IcarusStarlink.App.Views.NewModDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        mc:Ignorable="d"
+        Title="New mod" Height="240" Width="380" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <StackPanel Margin="20">
+        <TextBlock Text="Creates a blank EXMOD with no fields yet, then opens it in the editor."
+                   Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,16"/>
+
+        <TextBlock Text="Name" Style="{StaticResource FieldLabelStyle}"/>
+        <TextBox x:Name="NameBox" Margin="0,4,0,12"/>
+
+        <TextBlock Text="Author" Style="{StaticResource FieldLabelStyle}"/>
+        <TextBox x:Name="AuthorBox" Margin="0,4,0,16"/>
+
+        <TextBlock x:Name="ErrorText" Foreground="#E05555" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap" Visibility="Collapsed"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0"/>
+            <Button Content="Create" Click="Create_Click" Style="{StaticResource PrimaryButtonStyle}"/>
+        </StackPanel>
+    </StackPanel>
+</Window>
