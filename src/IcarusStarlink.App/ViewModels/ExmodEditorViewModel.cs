@@ -52,6 +52,17 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// </summary>
     private Dictionary<(string CurrentFile, string ItemName, string FieldName), JsonNode?> _baseValuesByKey = [];
 
+    /// <summary>
+    /// What this mod's own fields held when this editor was opened (or last saved, whichever is
+    /// more recent) — a *separate* reference point from _baseValuesByKey's real-game-default
+    /// values: "what did I just change in this sitting" vs. "what does this mod change from
+    /// vanilla". Deliberately never refreshed by AddItem/AddField/RemoveField/a raw-JSON Apply —
+    /// those are exactly the in-session edits this is meant to reveal — only by construction and a
+    /// successful Save (at which point the mod's own "original" genuinely becomes whatever was
+    /// just written).
+    /// </summary>
+    private Dictionary<(string CurrentFile, string ItemName, string FieldName), JsonNode?> _originalValuesByKey = [];
+
     public string WindowTitle => $"Edit — {_package.Name}";
 
     public ObservableCollection<EditorItemViewModel> Items { get; } = [];
@@ -96,27 +107,14 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _package = ExmodFolder.Read(repository.GetFolderPath(folderName)).Package;
 
         RefreshBaseDiff();
+        SnapshotOriginalValues();
         ReloadItems();
         SelectedItem = Items.FirstOrDefault();
     }
 
     partial void OnSelectedItemChanged(EditorItemViewModel? value)
     {
-        Fields.Clear();
-        if (value is not null)
-        {
-            var item = FindItem(value.CurrentFile, value.ItemName);
-            if (item is not null)
-            {
-                foreach (var fieldName in item.Fields.Keys.ToList())
-                {
-                    var baseValue = _baseValuesByKey.TryGetValue((value.CurrentFile, value.ItemName, fieldName), out var v)
-                        ? v
-                        : item.Fields[fieldName];
-                    Fields.Add(new EditorFieldViewModel(fieldName, item.Fields, baseValue));
-                }
-            }
-        }
+        PopulateFieldsForSelection();
 
         // Keeps the File JSON view "synced" to whatever's selected in the shared Items list, per
         // the spec's "share selection/edits with the Item fields view" — switching the selected
@@ -251,6 +249,53 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         StatusMessage = report.Warnings.Count > 0 ? report.Warnings[0] : null;
     }
 
+    /// <summary>Shared by OnSelectedItemChanged and a successful Save (which needs the just-saved item's own "was:" indicators to clear immediately, not just on next reselect).</summary>
+    private void PopulateFieldsForSelection()
+    {
+        Fields.Clear();
+        if (SelectedItem is null)
+        {
+            return;
+        }
+
+        var item = FindItem(SelectedItem.CurrentFile, SelectedItem.ItemName);
+        if (item is null)
+        {
+            return;
+        }
+
+        foreach (var fieldName in item.Fields.Keys.ToList())
+        {
+            var baseValue = LookupOrFallback(_baseValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, fieldName, item);
+            var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, fieldName, item);
+            Fields.Add(new EditorFieldViewModel(fieldName, item.Fields, baseValue, originalValue));
+        }
+    }
+
+    /// <summary>A field genuinely not found in the given lookup (never diffed against base, or didn't exist at the last snapshot) falls back to "same as current" — no highlight, matching the established convention for both _baseValuesByKey and _originalValuesByKey.</summary>
+    private static JsonNode? LookupOrFallback(
+        Dictionary<(string CurrentFile, string ItemName, string FieldName), JsonNode?> lookup,
+        string currentFile, string itemName, string fieldName, ExmodFileItem item) =>
+        lookup.TryGetValue((currentFile, itemName, fieldName), out var v) ? v : item.Fields[fieldName];
+
+    /// <summary>See _originalValuesByKey's own doc comment for when this runs and why.</summary>
+    private void SnapshotOriginalValues()
+    {
+        var snapshot = new Dictionary<(string, string, string), JsonNode?>();
+        foreach (var row in _package.Rows)
+        {
+            foreach (var item in row.FileItems)
+            {
+                foreach (var (fieldName, value) in item.Fields)
+                {
+                    snapshot[(row.CurrentFile, item.Name, fieldName)] = value;
+                }
+            }
+        }
+
+        _originalValuesByKey = snapshot;
+    }
+
     private void RefreshFileJsonText()
     {
         if (SelectedItem is null)
@@ -299,10 +344,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         }
 
         item.Fields[NewFieldName] = parsedValue;
-        var baseValue = _baseValuesByKey.TryGetValue((SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName), out var v)
-            ? v
-            : parsedValue;
-        Fields.Add(new EditorFieldViewModel(NewFieldName, item.Fields, baseValue));
+        var baseValue = LookupOrFallback(_baseValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
+        var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
+        Fields.Add(new EditorFieldViewModel(NewFieldName, item.Fields, baseValue, originalValue));
 
         NewFieldName = "";
         NewFieldValue = "";
@@ -367,6 +411,13 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         {
             ExmodFolder.Write(_repository.GetFolderPath(_folderName), new ExmodPackageContents(_package, []));
             _repository.MarkLocallyEdited(_folderName);
+
+            // What just got written is now this mod's own "original" going forward — refreshing
+            // the already-displayed Fields immediately (not waiting for the next reselect) so
+            // every "was: X" indicator for the just-saved item clears right away.
+            SnapshotOriginalValues();
+            PopulateFieldsForSelection();
+
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             StatusMessage = "Saved.";
         }

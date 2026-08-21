@@ -22,9 +22,13 @@ public sealed partial class EditorFieldViewModel : ObservableObject
 
     private readonly Dictionary<string, JsonNode?> _fields;
     private readonly JsonNode? _baseValue;
+    private readonly JsonNode? _originalValue;
 
     public string FieldName { get; }
     public string BaseValueText { get; }
+
+    /// <summary>What this field held when the editor was opened (or last saved) — "was: X", shown only when it differs from the live value. A separate reference point from base/vanilla-game.</summary>
+    public string OriginalValueText { get; }
 
     [ObservableProperty]
     private string _valueText;
@@ -32,15 +36,21 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     [ObservableProperty]
     private bool _isChanged;
 
+    /// <summary>True when the live value differs from OriginalValueText — drives whether the "was: X" line shows at all.</summary>
+    [ObservableProperty]
+    private bool _isChangedFromOriginal;
+
     [ObservableProperty]
     private string? _parseError;
 
-    public EditorFieldViewModel(string fieldName, Dictionary<string, JsonNode?> fields, JsonNode? baseValue)
+    public EditorFieldViewModel(string fieldName, Dictionary<string, JsonNode?> fields, JsonNode? baseValue, JsonNode? originalValue)
     {
         FieldName = fieldName;
         _fields = fields;
         _baseValue = baseValue;
+        _originalValue = originalValue;
         BaseValueText = FormatForDisplay(baseValue);
+        OriginalValueText = FormatForDisplay(originalValue);
         _valueText = FormatForDisplay(fields.TryGetValue(fieldName, out var current) ? current : null);
         RecomputeChanged();
     }
@@ -70,10 +80,12 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         {
             var parsed = string.IsNullOrWhiteSpace(ValueText) ? null : JsonNode.Parse(ValueText);
             IsChanged = !JsonNode.DeepEquals(parsed, _baseValue);
+            IsChangedFromOriginal = !JsonNode.DeepEquals(parsed, _originalValue);
         }
         catch
         {
             IsChanged = true;
+            IsChangedFromOriginal = true;
         }
     }
 

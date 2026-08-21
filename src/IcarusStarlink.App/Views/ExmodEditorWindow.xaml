@@ -121,8 +121,11 @@
                                                     </Style>
                                                 </TextBox.Style>
                                             </TextBox>
-                                            <TextBlock Text="{Binding BaseValueText, StringFormat='base: {0}'}" FontSize="11"
+                                            <TextBlock Text="{Binding BaseValueText, StringFormat='base (vanilla game): {0}'}" FontSize="11"
                                                        Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,2,0,0"/>
+                                            <TextBlock Text="{Binding OriginalValueText, StringFormat='was (before this edit): {0}'}" FontSize="11"
+                                                       Foreground="{DynamicResource AccentBrush}" Margin="0,2,0,0"
+                                                       Visibility="{Binding IsChangedFromOriginal, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                             <TextBlock Text="{Binding ParseError}" FontSize="11" Foreground="#E05555" Margin="0,2,0,0"
                                                        Visibility="{Binding ParseError, Converter={StaticResource NullToVisibilityConverter}}"/>
                                         </StackPanel>
