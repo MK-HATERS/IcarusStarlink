@@ -30,6 +30,9 @@
         <TextBlock Text="Update data folder" Style="{StaticResource FieldLabelStyle}"/>
         <TextBlock Text="Extracts the game's current DataTable JSON (Content\Data\data.pak) so merge/edit works against up-to-date data. Re-run this after a game update."
                    Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10"/>
+        <TextBlock Text="{Binding GameDataOutdatedMessage}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"
+                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,10"
+                   Visibility="{Binding GameDataOutdatedMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
         <StackPanel Orientation="Horizontal">
             <Button Content="Update data folder" Command="{Binding UpdateDataFolderCommand}"/>
             <TextBlock Text="{Binding DataFolderStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"

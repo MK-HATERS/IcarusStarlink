@@ -1,3 +1,5 @@
+using IcarusStarlink.PakIO.DataChanges;
+
 namespace IcarusStarlink.PakIO.Pak;
 
 public interface IUnrealPakService
@@ -6,12 +8,32 @@ public interface IUnrealPakService
     /// Extracts Content\Data\data.pak (the one pak that holds the game's gameplay DataTable JSON —
     /// see UnrealPakService's own doc comment for how that path was confirmed against a real
     /// install) into outputDirectory, replacing whatever was there from a previous run.
+    ///
+    /// previousUpdateAt is the timestamp the caller recorded the last time this succeeded (null if
+    /// this is the very first run, or the caller has no record of one) — passed in rather than
+    /// inferred from outputDirectory's own existence/mtime, so a folder that happens to exist for
+    /// unrelated reasons (leftover manual testing, a copy from elsewhere) can't be mistaken for a
+    /// genuine prior run and diffed against by accident. When it's non-null and outputDirectory
+    /// has content, a WeeklyChangeReport is computed (old extraction vs new) before the old
+    /// extraction is replaced; otherwise ChangeReport is null on the result — no prior snapshot,
+    /// nothing to compare.
+    ///
     /// Throws on any failure (missing exe, missing pak, UnrealPak itself failing) — same
     /// throw-and-let-the-caller's-UI-boundary-catch-it convention as ILibraryRepository/
     /// IDaedalusCatalogClient/etc. elsewhere in this app.
     /// </summary>
     Task<UnrealPakExtractResult> ExtractDataPakAsync(
-        string unrealPakExePath, string icarusContentPath, string outputDirectory, CancellationToken cancellationToken = default);
+        string unrealPakExePath, string icarusContentPath, string outputDirectory,
+        DateTimeOffset? previousUpdateAt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A SHA256 of the current data.pak on disk, for detecting "the game (or at least this pak)
+    /// has changed since the last Update data folder run" without re-extracting anything — cheap,
+    /// data.pak is only a few MB. Returns null rather than throwing when the file can't be read
+    /// (content path not set yet, wrong path, game not installed) — this is meant for a passive
+    /// background check, not a user-initiated action that should surface an error dialog.
+    /// </summary>
+    Task<string?> TryGetDataPakHashAsync(string icarusContentPath, CancellationToken cancellationToken = default);
 }
 
-public sealed record UnrealPakExtractResult(int ExtractedFileCount);
+public sealed record UnrealPakExtractResult(int ExtractedFileCount, WeeklyChangeReport? ChangeReport);

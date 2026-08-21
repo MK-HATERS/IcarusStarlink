@@ -9,6 +9,7 @@ using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Pak;
 using IcarusStarlink.Storage.Catalog;
 using IcarusStarlink.Storage.Library;
@@ -69,6 +70,10 @@ public partial class App : Application
                 sp.GetRequiredService<ILogger<NexusWatchlistStore>>()));
         builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
         builder.Services.AddSingleton<IUnrealPakService, UnrealPakService>();
+        builder.Services.AddSingleton<IWeeklyChangeReportStore>(sp =>
+            new WeeklyChangeReportStore(
+                Path.Combine(appDataDirectory, "Cache"),
+                sp.GetRequiredService<ILogger<WeeklyChangeReportStore>>()));
 
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<LibraryViewModel>();
@@ -77,7 +82,9 @@ public partial class App : Application
         builder.Services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUnrealPakService>(),
+            sp.GetRequiredService<IWeeklyChangeReportStore>(),
             Path.Combine(appDataDirectory, "Data")));
+        builder.Services.AddSingleton<WeeklyChangesViewModel>();
 
         builder.Services.AddSingleton<MainWindow>();
 

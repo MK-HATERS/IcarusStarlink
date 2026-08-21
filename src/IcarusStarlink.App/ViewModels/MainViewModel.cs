@@ -42,6 +42,7 @@ public sealed partial class MainViewModel : ObservableObject
             new NavItem("downloads", "Downloads", typeof(DownloadsViewModel)),
             new NavItem("library", "Library", typeof(LibraryViewModel)),
             new NavItem("merge", "Merge & Install", typeof(MergeInstallViewModel)),
+            new NavItem("weekly-changes", "Weekly Changes", typeof(WeeklyChangesViewModel)),
             new NavItem("settings", "Settings", typeof(SettingsViewModel)),
         ];
 
