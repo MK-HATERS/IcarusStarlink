@@ -10,6 +10,7 @@ using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.DataChanges;
+using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
 using IcarusStarlink.PakIO.Rebuild;
 using IcarusStarlink.Storage.Catalog;
@@ -76,15 +77,18 @@ public partial class App : Application
                 Path.Combine(appDataDirectory, "Cache"),
                 sp.GetRequiredService<ILogger<WeeklyChangeReportStore>>()));
         builder.Services.AddSingleton<IRebuildService, RebuildService>();
+        builder.Services.AddSingleton<IInstallService, InstallService>();
 
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<LibraryViewModel>();
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IRebuildService>(),
+            sp.GetRequiredService<IInstallService>(),
             sp.GetRequiredService<ISettingsService>(),
             Path.Combine(appDataDirectory, "Data"),
-            Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak")));
+            Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
+            Path.Combine(appDataDirectory, "Backups")));
         builder.Services.AddSingleton<DownloadsViewModel>();
         builder.Services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<ISettingsService>(),

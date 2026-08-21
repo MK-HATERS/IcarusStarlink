@@ -51,11 +51,12 @@
                         Style="{StaticResource PrimaryButtonStyle}" Margin="0,8,0,0" HorizontalAlignment="Left"/>
             </Grid>
 
-            <!-- Queue + Rebuild pane -->
+            <!-- Queue + Rebuild + Install pane -->
             <Grid Grid.Column="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -81,6 +82,14 @@
 
                 <ListBox Grid.Row="4" ItemsSource="{Binding Warnings}" Margin="0,8,0,0" MaxHeight="120"
                          Foreground="{DynamicResource AccentBrush}" FontSize="12"/>
+
+                <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,16,0,0">
+                    <!-- The one button in this whole app that writes into the real game's Content\Paks\mods —
+                         deliberately not the same click as Rebuild, so it's never accidental. -->
+                    <Button Content="Install" Command="{Binding InstallCommand}"/>
+                    <TextBlock Text="{Binding InstallStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                               Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
+                </StackPanel>
             </Grid>
         </Grid>
     </Grid>
