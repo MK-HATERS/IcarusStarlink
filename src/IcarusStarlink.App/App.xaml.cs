@@ -13,6 +13,7 @@ using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
+using IcarusStarlink.PakIO.Patches;
 using IcarusStarlink.PakIO.Rebuild;
 using IcarusStarlink.Storage.Catalog;
 using IcarusStarlink.Storage.Library;
@@ -84,6 +85,7 @@ public partial class App : Application
             new ProfileStore(
                 Path.Combine(appDataDirectory, "Profiles"),
                 sp.GetRequiredService<ILogger<ProfileStore>>()));
+        builder.Services.AddSingleton<IPatchService, PatchService>();
 
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<LibraryViewModel>();
@@ -92,6 +94,9 @@ public partial class App : Application
             sp.GetRequiredService<IRebuildService>(),
             sp.GetRequiredService<IInstallService>(),
             sp.GetRequiredService<IProfileStore>(),
+            sp.GetRequiredService<IPatchService>(),
+            sp.GetRequiredService<IDaedalusCatalogClient>(),
+            sp.GetRequiredService<IJimk72CatalogClient>(),
             sp.GetRequiredService<ISettingsService>(),
             Path.Combine(appDataDirectory, "Data"),
             Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),

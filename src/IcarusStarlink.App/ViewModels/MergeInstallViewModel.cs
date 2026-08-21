@@ -4,12 +4,17 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.Catalog;
+using IcarusStarlink.Catalog.Daedalus;
+using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Install;
+using IcarusStarlink.PakIO.Patches;
 using IcarusStarlink.PakIO.Rebuild;
+using Microsoft.Win32;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -26,6 +31,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     private readonly IRebuildService _rebuildService;
     private readonly IInstallService _installService;
     private readonly IProfileStore _profileStore;
+    private readonly IPatchService _patchService;
+    private readonly IDaedalusCatalogClient _daedalusClient;
+    private readonly IJimk72CatalogClient _jimk72Client;
     private readonly ISettingsService _settingsService;
     private readonly string _dataFolder;
     private readonly string _outputPakPath;
@@ -71,14 +79,25 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private string? _profileStatusMessage;
 
+    // --- Export/Import patch (6.3) ---
+    [ObservableProperty]
+    private bool _isExportingPatch;
+
+    [ObservableProperty]
+    private string? _patchStatusMessage;
+
     public MergeInstallViewModel(
         ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
+        IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
         ISettingsService settingsService, string dataFolder, string outputPakPath, string backupDirectory)
     {
         _libraryRepository = libraryRepository;
         _rebuildService = rebuildService;
         _installService = installService;
         _profileStore = profileStore;
+        _patchService = patchService;
+        _daedalusClient = daedalusClient;
+        _jimk72Client = jimk72Client;
         _settingsService = settingsService;
         _dataFolder = dataFolder;
         _outputPakPath = outputPakPath;
@@ -259,6 +278,179 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         catch (Exception ex)
         {
             ProfileStatusMessage = $"Couldn't delete profile: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// "Bundles mods with no download URL, and mods you edited locally" per the spec — this app
+    /// has no way to tell a locally-edited mod apart from a downloaded one yet (that needs the
+    /// EXMOD editor, Phase 7), so the proxy used here is "not found in the community catalog by
+    /// (Name, Author)": a friend can get anything catalog-listed from Downloads themselves, so
+    /// only what they genuinely couldn't get elsewhere needs to travel inside the patch file
+    /// itself. Exports whatever's currently in Queue (not a fresh reload of the saved profile),
+    /// matching SaveProfile's own live-state semantics.
+    /// </summary>
+    [RelayCommand]
+    private async Task ExportPatchAsync()
+    {
+        if (SelectedProfileName is not { } profileName)
+        {
+            PatchStatusMessage = "Select or save a profile first.";
+            return;
+        }
+
+        if (Queue.Count == 0)
+        {
+            PatchStatusMessage = "Add at least one mod to the queue first.";
+            return;
+        }
+
+        IsExportingPatch = true;
+        PatchStatusMessage = "Checking which mods are in the community catalog…";
+
+        try
+        {
+            var daedalusTask = _daedalusClient.FetchAsync();
+            var jimk72Task = _jimk72Client.FetchAsync();
+            await Task.WhenAll(daedalusTask, jimk72Task);
+            var catalogKeys = daedalusTask.Result.Concat(jimk72Task.Result)
+                .Select(e => CatalogKey.Normalize(e.Name, e.Author))
+                .ToHashSet();
+
+            var mods = new List<PatchModEntry>();
+            var bundledContents = new Dictionary<string, ExmodPackageContents>();
+            foreach (var entry in Queue)
+            {
+                var isInCatalog = catalogKeys.Contains(CatalogKey.Normalize(entry.Name, entry.Author));
+                mods.Add(new PatchModEntry
+                {
+                    FolderName = entry.FolderName, Name = entry.Name, Author = entry.Author, Version = entry.Version,
+                    Bundled = !isInCatalog,
+                });
+                if (!isInCatalog)
+                {
+                    bundledContents[entry.FolderName] = ExmodFolder.Read(_libraryRepository.GetFolderPath(entry.FolderName));
+                }
+            }
+
+            var extension = bundledContents.Count == 0 ? "json" : "zip";
+            var dialog = new SaveFileDialog
+            {
+                Title = "Export patch",
+                FileName = $"ISL-Patch-{profileName}.{extension}",
+                Filter = extension == "json" ? "IcarusStarlink patch (*.json)|*.json" : "IcarusStarlink patch (*.zip)|*.zip",
+            };
+            // ShowDialog() blocks until the user responds, so the "Checking…" message above would
+            // otherwise sit on screen — stale-looking — for as long as they take to pick a location.
+            PatchStatusMessage = "Choose where to save…";
+            if (dialog.ShowDialog() != true)
+            {
+                PatchStatusMessage = null;
+                return;
+            }
+
+            await _patchService.ExportAsync(new PatchManifest { ProfileName = profileName, Mods = mods }, bundledContents, dialog.FileName);
+
+            PatchStatusMessage = bundledContents.Count > 0
+                ? $"Exported '{profileName}' to '{dialog.FileName}' — {bundledContents.Count} mod(s) bundled, " +
+                    $"{mods.Count - bundledContents.Count} referenced from the community catalog."
+                : $"Exported '{profileName}' to '{dialog.FileName}' — every mod is in the community catalog, nothing bundled.";
+        }
+        catch (Exception ex)
+        {
+            PatchStatusMessage = $"Export failed: {ex.Message}";
+        }
+        finally
+        {
+            IsExportingPatch = false;
+        }
+    }
+
+    /// <summary>
+    /// "Import + Sync reinstalls listed mods (force refresh; does not skip same version)" per the
+    /// spec — a bundled mod always overwrites whatever's already in the Library under the same
+    /// folder name, rather than skipping it as "already have it", since the whole point is syncing
+    /// exactly what the patch carries. A referenced (non-bundled) mod is matched by (Name, Author)
+    /// against the local Library; if it's missing, this reports it rather than failing the whole
+    /// import — same SkipWithWarning philosophy as everywhere else the merge pipeline can hit a
+    /// gap. Synchronous: unlike Export, nothing here needs the network.
+    /// </summary>
+    [RelayCommand]
+    private void ImportPatch()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Import a patch",
+            Filter = "IcarusStarlink patch (*.json;*.zip)|*.json;*.zip",
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var contents = _patchService.ImportAsync(dialog.FileName).GetAwaiter().GetResult();
+            var resolvedFolderNames = new List<string>();
+            var missing = new List<string>();
+
+            foreach (var mod in contents.Manifest.Mods)
+            {
+                if (mod.Bundled)
+                {
+                    resolvedFolderNames.Add(ImportBundledMod(contents.BundledMods[mod.FolderName]));
+                    continue;
+                }
+
+                var modKey = CatalogKey.Normalize(mod.Name, mod.Author);
+                var existing = _libraryRepository.GetAll().FirstOrDefault(e => CatalogKey.Normalize(e.Name, e.Author) == modKey);
+                if (existing is not null)
+                {
+                    resolvedFolderNames.Add(existing.FolderName);
+                }
+                else
+                {
+                    missing.Add($"{mod.Name} by {mod.Author}");
+                }
+            }
+
+            _profileStore.Save(new Profile { Name = contents.Manifest.ProfileName, MergeQueueFolderNames = resolvedFolderNames });
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            ReloadLibrary();
+            ReloadProfileNames();
+            // Triggers OnSelectedProfileNameChanged, which populates Queue from the just-saved
+            // profile and reports its own "N mod(s) no longer in your Library" count — reused as-is
+            // rather than duplicating that population logic here.
+            SelectedProfileName = contents.Manifest.ProfileName;
+
+            PatchStatusMessage = missing.Count > 0
+                ? $"Imported '{contents.Manifest.ProfileName}' — {missing.Count} mod(s) missing, get them from Downloads first: {string.Join(", ", missing)}."
+                : $"Imported '{contents.Manifest.ProfileName}'.";
+        }
+        catch (Exception ex)
+        {
+            PatchStatusMessage = $"Import failed: {ex.Message}";
+        }
+    }
+
+    private string ImportBundledMod(ExmodPackageContents contents)
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.EXMODZ");
+        try
+        {
+            ExmodzArchive.Write(tempPath, contents);
+
+            var existing = _libraryRepository.GetAll().FirstOrDefault(e => e.FolderName == contents.Package.FileName);
+            if (existing is not null)
+            {
+                _libraryRepository.Delete(existing.FolderName);
+            }
+
+            return _libraryRepository.Import(tempPath).FolderName;
+        }
+        finally
+        {
+            File.Delete(tempPath);
         }
     }
 

@@ -11,6 +11,8 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -28,7 +30,15 @@
         </DockPanel>
         <TextBlock Grid.Row="2" Text="{Binding ProfileStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0"/>
 
-        <Grid Grid.Row="3" Margin="0,16,0,0">
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
+            <Button Content="Export patch…" Command="{Binding ExportPatchCommand}"
+                    ToolTip="Share the selected profile's mod list with a friend or server — bundles anything not in the community catalog"/>
+            <Button Content="Import patch…" Command="{Binding ImportPatchCommand}" Margin="8,0,0,0"
+                    ToolTip="Load a patch someone shared — recreates its profile and syncs any bundled mods into your Library"/>
+        </StackPanel>
+        <TextBlock Grid.Row="4" Text="{Binding PatchStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+
+        <Grid Grid.Row="5" Margin="0,16,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="16"/>

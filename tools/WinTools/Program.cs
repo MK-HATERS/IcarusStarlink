@@ -26,6 +26,9 @@ switch (args[0])
     case "set-text":
         SetText(int.Parse(args[1]), int.Parse(args[2]), args[3]);
         break;
+    case "set-text-by-automation-id":
+        SetTextByAutomationId(int.Parse(args[1]), args[2], args[3]);
+        break;
     case "seed-library":
         SeedLibrary(args[1]);
         break;
@@ -316,6 +319,22 @@ static void SetText(int pid, int editIndex, string text)
     var pattern = (ValuePattern)el.GetCurrentPattern(ValuePattern.Pattern);
     pattern.SetValue(text);
     Console.WriteLine($"set edit[{editIndex}] = {text}");
+}
+
+// For native common-dialog controls (Open/SaveFileDialog), which are their own top-level HWND
+// (see GetAllRoots) with a rich, stable set of AutomationIds (e.g. the filename box is always
+// "1001") — an index into "every Edit control" is fragile there since the dialog's file list view
+// also exposes several hidden inline-rename Edit peers ahead of the one field that actually matters.
+static void SetTextByAutomationId(int pid, string automationId, string text)
+{
+    var el = GetAllRoots(pid)
+        .SelectMany(root => root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, automationId)).Cast<AutomationElement>())
+        .FirstOrDefault()
+        ?? throw new InvalidOperationException($"No element with AutomationId '{automationId}' found");
+
+    var pattern = (ValuePattern)el.GetCurrentPattern(ValuePattern.Pattern);
+    pattern.SetValue(text);
+    Console.WriteLine($"set [{automationId}] = {text}");
 }
 
 internal static class NativeMethods
