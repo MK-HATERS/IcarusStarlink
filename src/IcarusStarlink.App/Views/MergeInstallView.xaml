@@ -164,9 +164,12 @@
                     <TextBox Text="{Binding SpeedCraftingPercentInput, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="e.g. 50 = halve crafting time, skipping recipes with a Water/Milk/Biofuel resource input or output (same conditional logic classic IMM's changelog documents). Blank = unchanged."/>
 
-                    <CheckBox Content="Remove Weight" IsChecked="{Binding RemoveWeight}" Margin="0,12,0,0"/>
-                    <CheckBox Content="Unlimited Ammo" IsChecked="{Binding UnlimitedAmmo}" Margin="0,8,0,0"/>
-                    <CheckBox Content="Disable Temperatures" IsChecked="{Binding DisableTemperatures}" Margin="0,8,0,0"/>
+                    <CheckBox Content="Remove Weight" IsChecked="{Binding RemoveWeight}" Margin="0,12,0,0"
+                              ToolTip="Zeroes out every item's own weight override — everything becomes weightless to carry"/>
+                    <CheckBox Content="Unlimited Ammo" IsChecked="{Binding UnlimitedAmmo}" Margin="0,8,0,0"
+                              ToolTip="Weapons stop consuming ammo on fire, but still need at least 1 round in the magazine"/>
+                    <CheckBox Content="Disable Temperatures" IsChecked="{Binding DisableTemperatures}" Margin="0,8,0,0"
+                              ToolTip="Removes hot/cold environmental damage and temperature management entirely"/>
                 </StackPanel>
             </ScrollViewer>
 

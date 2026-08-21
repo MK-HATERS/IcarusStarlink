@@ -61,7 +61,8 @@
                          ToolTip="Real game data file path, e.g. Traits/D_Fuel.json"/>
                 <TextBox Text="{Binding NewItemName, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"
                          ToolTip="Item/row name in that file, e.g. Item_Wood"/>
-                <Button Content="Add item" Command="{Binding AddItemCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"/>
+                <Button Content="Add item" Command="{Binding AddItemCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"
+                        ToolTip="Adds a new, empty item to this file (or creates the file if it's not already part of this mod)"/>
             </StackPanel>
         </Grid>
 
@@ -120,7 +121,8 @@
                     <TextBox Text="{Binding MassEditFieldName, UpdateSourceTrigger=PropertyChanged}" Width="150" Margin="8,0,0,0" ToolTip="Field name"/>
                     <TextBox Text="{Binding MassEditFieldValue, UpdateSourceTrigger=PropertyChanged}" Width="180" Margin="8,0,0,0"
                              ToolTip="JSON value, e.g. 1313 or &quot;text&quot; — set (added if missing) on every selected item"/>
-                    <Button Content="Apply to selection" Command="{Binding ApplyMassEditCommand}" Margin="8,0,0,0"/>
+                    <Button Content="Apply to selection" Command="{Binding ApplyMassEditCommand}" Margin="8,0,0,0"
+                            ToolTip="Sets this field on every selected item (added if an item doesn't already have it)"/>
                     <TextBlock Text="{Binding MassEditStatusMessage}" Foreground="{DynamicResource AccentForegroundBrush}"
                                VerticalAlignment="Center" Margin="12,0,0,0"/>
                 </StackPanel>
@@ -144,7 +146,8 @@
 
                                         <StackPanel Grid.Column="1">
                                             <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}"
-                                                     AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas">
+                                                     AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas"
+                                                     ToolTip="This mod's current value for this field, as JSON. An orange border means it differs from the real game's own default (see 'base' below).">
                                                 <TextBox.Style>
                                                     <Style TargetType="TextBox">
                                                         <Setter Property="BorderThickness" Value="1"/>
@@ -183,7 +186,8 @@
                 <TextBox Text="{Binding FileJsonText, UpdateSourceTrigger=PropertyChanged}"
                          AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
                          BorderThickness="0" Background="Transparent"
-                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
+                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                         ToolTip="This file's items and fields as raw JSON. Edit freely, then click Apply file JSON below to update the mod — nothing here is saved until you do."/>
             </Border>
 
             <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
@@ -191,7 +195,8 @@
                 <TextBox Text="{Binding FullExmodJsonText, UpdateSourceTrigger=PropertyChanged}"
                          AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
                          BorderThickness="0" Background="Transparent"
-                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
+                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                         ToolTip="The whole mod's .EXMOD as raw JSON. Edit freely, then click Apply full EXMOD JSON below to update the mod — nothing here is saved until you do."/>
             </Border>
 
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0"
@@ -199,7 +204,8 @@
                 <TextBox Text="{Binding NewFieldName, UpdateSourceTrigger=PropertyChanged}" Width="160" ToolTip="Field name"/>
                 <TextBox Text="{Binding NewFieldValue, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="8,0,0,0"
                          ToolTip="JSON value, e.g. 1313 or &quot;text&quot;"/>
-                <Button Content="Add field" Command="{Binding AddFieldCommand}" Margin="8,0,0,0"/>
+                <Button Content="Add field" Command="{Binding AddFieldCommand}" Margin="8,0,0,0"
+                        ToolTip="Adds this field to the selected item"/>
             </StackPanel>
 
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
@@ -219,7 +225,8 @@
             </StackPanel>
 
             <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">
-                <Button Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+                <Button Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                        ToolTip="Writes every change so far to this mod's .EXMOD file — from any of the three views above, they all edit the same mod"/>
                 <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{DynamicResource SecondaryForegroundBrush}"/>
             </StackPanel>
