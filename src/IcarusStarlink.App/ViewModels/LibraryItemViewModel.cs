@@ -4,6 +4,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.PakIO.Container;
+using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -57,6 +59,10 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     [ObservableProperty]
     private string? _readmeContent;
+
+    /// <summary>What this mod actually changes, rendered readable via ExmodChangesFormatter — not the raw compiled asset browsing the Files tab does. Null for an opaque .pak entry (IsOpaquePak), which has no .EXMOD to read at all.</summary>
+    [ObservableProperty]
+    private string? _changesContent;
 
     [ObservableProperty]
     private string? _selectedAssetPath;
@@ -160,6 +166,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         // thumbnail content for the rest of the session.
         AssetPaths.Clear();
         ReadmeContent = null;
+        ChangesContent = null;
         ThumbnailImage = null;
         SelectedAssetPath = null;
         _detailsLoaded = false;
@@ -253,6 +260,14 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
             ReadmeContent = _repository.ReadReadme(FolderName);
             LoadThumbnailIfPresent();
+
+            // An opaque .pak entry has no .EXMOD at all — nothing to format, and ExmodFolder.Read
+            // would throw trying.
+            if (!IsOpaquePak)
+            {
+                var package = ExmodFolder.Read(_repository.GetFolderPath(FolderName)).Package;
+                ChangesContent = ExmodChangesFormatter.Format(package);
+            }
 
             // Only mark this as done once it actually succeeded — a transient failure (folder
             // locked, deleted out from under the app) should let a later reselect retry rather

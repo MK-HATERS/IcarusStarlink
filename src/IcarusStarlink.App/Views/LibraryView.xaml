@@ -124,6 +124,15 @@
                                     <TextBox Text="{Binding SelectedItem.Notes, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,12" AcceptsReturn="True" Height="60" TextWrapping="Wrap"/>
 
                                     <TabControl>
+                                        <TabItem Header="Changes"
+                                                 ToolTip="What this mod actually changes — read-only. For editing, see the EXMOD editor (planned).">
+                                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="8" Height="200">
+                                                <TextBox Text="{Binding SelectedItem.ChangesContent, Mode=OneWay}"
+                                                         IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
+                                                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                                         AcceptsReturn="True" BorderThickness="0" Padding="8"/>
+                                            </Border>
+                                        </TabItem>
                                         <TabItem Header="Files">
                                             <Grid Margin="8">
                                                 <Grid.ColumnDefinitions>
