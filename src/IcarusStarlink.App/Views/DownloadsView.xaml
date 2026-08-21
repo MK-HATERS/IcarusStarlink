@@ -180,18 +180,40 @@
                     </DockPanel>
 
                     <DataGrid Grid.Row="2" ItemsSource="{Binding NexusEntries}" SelectedItem="{Binding SelectedNexusEntry}">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasUpdateAvailable}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Mod Name" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="2*" IsReadOnly="False"/>
                             <DataGridTextColumn Header="Nexus ID" Binding="{Binding NexusId}" Width="90" IsReadOnly="True"/>
+                            <DataGridTemplateColumn Header="Update?" Width="90">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="Available" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" Margin="4,0"
+                                                   Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="URL" Binding="{Binding Url}" Width="3*" IsReadOnly="True"/>
                         </DataGrid.Columns>
                     </DataGrid>
 
                     <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
                         <Button Content="Browse on Nexus" Command="{Binding BrowseOnNexusCommand}" Margin="0,0,8,0"/>
-                        <Button Content="Check for updates" Command="{Binding CheckForNexusUpdatesCommand}" Margin="0,0,8,0"/>
+                        <Button Content="Check for updates" Command="{Binding CheckForNexusUpdatesCommand}" Margin="0,0,8,0"
+                                ToolTip="Checks every mod above against Nexus's own recently-updated list (last month) — needs a signed-in Nexus API key, set in Settings"/>
                         <Button Content="Import file…" Command="{Binding ImportNexusFileCommand}" Margin="0,0,8,0"/>
                         <Button Content="Remove from list" Command="{Binding RemoveNexusEntryCommand}"/>
+                        <TextBlock Text="Checking…" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   Visibility="{Binding IsCheckingNexusUpdates, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     </StackPanel>
 
                     <TextBlock Grid.Row="4" Margin="0,8,0,0" Text="{Binding NexusStatusMessage}"

@@ -15,9 +15,6 @@ namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class SettingsViewModel : ObservableObject
 {
-    /// <summary>Windows Credential Manager target name — namespaced so it can't collide with anything else in the user's own Credential Manager.</summary>
-    private const string NexusApiKeyTarget = "IcarusStarlink:NexusApiKey";
-
     private readonly ISettingsService _settingsService;
     private readonly IUnrealPakService _unrealPakService;
     private readonly IWeeklyChangeReportStore _weeklyChangeReportStore;
@@ -264,7 +261,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 return;
             }
 
-            _credentialStore.Save(NexusApiKeyTarget, trimmedKey);
+            _credentialStore.Save(CredentialTargets.NexusApiKey, trimmedKey);
             NexusSignedInAs = user.IsPremium ? $"{user.Name} (Premium)" : user.Name;
             NexusApiKeyInput = "";
             NexusStatusMessage = "Signed in.";
@@ -285,7 +282,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void SignOutNexus()
     {
-        _credentialStore.Delete(NexusApiKeyTarget);
+        _credentialStore.Delete(CredentialTargets.NexusApiKey);
         NexusSignedInAs = null;
         NexusStatusMessage = "Signed out.";
     }
@@ -297,7 +294,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </summary>
     private async Task InitializeNexusStatusAsync()
     {
-        var storedKey = _credentialStore.Read(NexusApiKeyTarget);
+        var storedKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
         if (storedKey is null)
         {
             return;

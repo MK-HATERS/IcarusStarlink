@@ -12,8 +12,10 @@ using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Jimk72;
+using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -34,6 +36,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private readonly ILibraryRepository _libraryRepository;
     private readonly INexusWatchlistStore _watchlistStore;
     private readonly ISettingsService _settingsService;
+    private readonly INexusApiClient _nexusApiClient;
+    private readonly ICredentialStore _credentialStore;
     private readonly HttpClient _downloadHttpClient;
     private readonly DispatcherTimer _searchDebounceTimer;
 
@@ -136,6 +140,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
     [ObservableProperty]
     private string? _nexusStatusMessage;
 
+    [ObservableProperty]
+    private bool _isCheckingNexusUpdates;
+
     public DownloadsViewModel(
         IDaedalusCatalogClient daedalusClient,
         IJimk72CatalogClient jimk72Client,
@@ -143,6 +150,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
         ILibraryRepository libraryRepository,
         INexusWatchlistStore watchlistStore,
         ISettingsService settingsService,
+        INexusApiClient nexusApiClient,
+        ICredentialStore credentialStore,
         HttpClient downloadHttpClient)
     {
         _daedalusClient = daedalusClient;
@@ -151,6 +160,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
         _libraryRepository = libraryRepository;
         _watchlistStore = watchlistStore;
         _settingsService = settingsService;
+        _nexusApiClient = nexusApiClient;
+        _credentialStore = credentialStore;
         _downloadHttpClient = downloadHttpClient;
 
         _showAuthorColumn = settingsService.Current.CatalogShowAuthorColumn;
@@ -175,6 +186,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
         // RefreshCatalogAsync has its own top-level try/catch, so nothing here can produce an
         // unobserved exception.
         _ = RefreshCatalogAsync();
+        // Silent (isAutomatic: true) — a launch-time check shouldn't show "sign in first" the
+        // moment Downloads opens for a user who's never configured Nexus at all; the manual
+        // Check for updates button surfaces that message on an explicit click instead.
+        _ = RunNexusUpdateCheckAsync(isAutomatic: true);
     }
 
     partial void OnCatalogSearchTextChanged(string value)
@@ -529,15 +544,67 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// either faking a check or being a dead no-op.
     /// </summary>
     [RelayCommand]
-    private void CheckForNexusUpdates()
+    private Task CheckForNexusUpdates() => RunNexusUpdateCheckAsync(isAutomatic: false);
+
+    /// <summary>
+    /// Phase 8.2: checks every tracked mod at once against Nexus's own "updated within the last
+    /// month" list — not a per-mod version diff (Nexus's API doesn't give us an exact version to
+    /// compare against without a second call per mod), so this is a real but coarse "something
+    /// changed recently" signal, the same honest scope-limit already accepted for the IMM
+    /// Database catalog's own cross-reference. isAutomatic distinguishes the constructor's silent
+    /// launch-time check (no key configured yet shouldn't nag) from an explicit button click
+    /// (which should say so).
+    /// </summary>
+    private async Task RunNexusUpdateCheckAsync(bool isAutomatic)
     {
-        if (SelectedNexusEntry is not { } selected)
+        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+        if (apiKey is null)
+        {
+            if (!isAutomatic)
+            {
+                NexusStatusMessage = "Sign in with your Nexus API key in Settings first.";
+            }
+
+            return;
+        }
+
+        if (NexusEntries.Count == 0)
         {
             return;
         }
 
-        NexusStatusMessage = "No in-app Nexus API yet — opening the mod page to check manually.";
-        OpenUrl(selected.Url);
+        IsCheckingNexusUpdates = true;
+        try
+        {
+            var updated = await _nexusApiClient.GetUpdatedModsAsync(apiKey, "icarus", "1m");
+            var updatedIds = updated.Select(u => u.ModId).ToHashSet();
+
+            var matchCount = 0;
+            foreach (var entry in NexusEntries)
+            {
+                entry.HasUpdateAvailable = updatedIds.Contains(entry.NexusId);
+                if (entry.HasUpdateAvailable)
+                {
+                    matchCount++;
+                }
+            }
+
+            NexusStatusMessage = matchCount == 0
+                ? "No updates found for your tracked mods in the last month."
+                : $"{matchCount} tracked mod(s) have updates available.";
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as everywhere else — a rejected/revoked key or a Nexus outage
+            // shows a status message instead of crashing the app; a launch-time automatic check
+            // failing silently-ish (still sets the message, just doesn't interrupt anything) is
+            // fine since the user can always retry via the button.
+            NexusStatusMessage = $"Couldn't check for updates: {ex.Message}";
+        }
+        finally
+        {
+            IsCheckingNexusUpdates = false;
+        }
     }
 
     [RelayCommand]
