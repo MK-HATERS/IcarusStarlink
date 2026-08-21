@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Steam;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Pak;
 using Microsoft.Win32;
@@ -14,6 +15,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ISettingsService _settingsService;
     private readonly IUnrealPakService _unrealPakService;
     private readonly IWeeklyChangeReportStore _weeklyChangeReportStore;
+    private readonly ISteamInstallLocator _steamInstallLocator;
     private readonly string _dataOutputDirectory;
 
     public string Title => "Settings";
@@ -38,11 +40,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string? _gameDataOutdatedMessage;
 
     public SettingsViewModel(
-        ISettingsService settingsService, IUnrealPakService unrealPakService, IWeeklyChangeReportStore weeklyChangeReportStore, string dataOutputDirectory)
+        ISettingsService settingsService, IUnrealPakService unrealPakService, IWeeklyChangeReportStore weeklyChangeReportStore,
+        ISteamInstallLocator steamInstallLocator, string dataOutputDirectory)
     {
         _settingsService = settingsService;
         _unrealPakService = unrealPakService;
         _weeklyChangeReportStore = weeklyChangeReportStore;
+        _steamInstallLocator = steamInstallLocator;
         _dataOutputDirectory = dataOutputDirectory;
         _icarusContentPath = settingsService.Current.IcarusContentPath;
         _unrealPakExePath = settingsService.Current.UnrealPakExePath;
@@ -65,6 +69,26 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             IcarusContentPath = dialog.FolderName;
         }
+    }
+
+    /// <summary>
+    /// Phase 7.5: reads Steam's own install path from the registry, walks its real
+    /// libraryfolders.vdf, and checks each library for Icarus's own App ID (1149460) —
+    /// pre-fills the field but doesn't save on its own; the user still confirms via the
+    /// existing Save button (or overrides it with Browse… first) just like a manual edit would.
+    /// </summary>
+    [RelayCommand]
+    private void AutoDetectIcarusContentFolder()
+    {
+        var detected = _steamInstallLocator.FindIcarusContentPath();
+        if (detected is null)
+        {
+            SavedMessage = "Couldn't find Icarus through Steam automatically — use Browse… instead.";
+            return;
+        }
+
+        IcarusContentPath = detected;
+        SavedMessage = "Found via Steam — click Save to keep it.";
     }
 
     [RelayCommand]

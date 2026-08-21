@@ -12,6 +12,8 @@
         <TextBlock Text="Icarus Content folder (…\Icarus\Icarus\Content)" Style="{StaticResource FieldLabelStyle}"/>
         <DockPanel Margin="0,6,0,20">
             <Button Content="Browse…" Command="{Binding BrowseIcarusContentFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"/>
+            <Button Content="Auto-detect" Command="{Binding AutoDetectIcarusContentFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
+                    ToolTip="Looks for Icarus through your own Steam install (registry + library folders) and fills this in if found"/>
             <TextBox Text="{Binding IcarusContentPath, UpdateSourceTrigger=PropertyChanged}"/>
         </DockPanel>
 

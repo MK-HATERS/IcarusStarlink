@@ -10,6 +10,7 @@ using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Steam;
 using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Install;
@@ -20,6 +21,7 @@ using IcarusStarlink.Storage.Catalog;
 using IcarusStarlink.Storage.Library;
 using IcarusStarlink.Storage.Profiles;
 using IcarusStarlink.Storage.Settings;
+using IcarusStarlink.Storage.Steam;
 using IcarusStarlink.Storage.Ue4ss;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -90,6 +92,7 @@ public partial class App : Application
         builder.Services.AddSingleton<IPatchService, PatchService>();
         builder.Services.AddSingleton<IUe4ssModRepository>(sp =>
             new Ue4ssModRepository(Path.Combine(appDataDirectory, "Staged_UE4SS")));
+        builder.Services.AddSingleton<ISteamInstallLocator, SteamInstallLocator>();
 
         // Transient, not a singleton — every other ViewModel in this app is constructed once and
         // reused, but the EXMOD editor is per-open-instance (Phase 7.1: classic IMM's own editor
@@ -123,6 +126,7 @@ public partial class App : Application
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUnrealPakService>(),
             sp.GetRequiredService<IWeeklyChangeReportStore>(),
+            sp.GetRequiredService<ISteamInstallLocator>(),
             Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton<WeeklyChangesViewModel>();
 
