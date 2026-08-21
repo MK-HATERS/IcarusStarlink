@@ -18,7 +18,9 @@ namespace IcarusStarlink.PakIO.Rebuild;
 /// </summary>
 public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuildService
 {
-    private const string ManifestFileName = "IMM_Merged_Mod.txt";
+    // "ISL-" (IcarusStarlink) rather than classic IMM's own "IMM_Merged_Mod" naming, so the two
+    // tools' output can't collide if a user ever has both installed side by side.
+    private const string ManifestFileName = "ISL-Merged.txt";
     private static readonly JsonSerializerOptions JsonWriteOptions = new() { WriteIndented = true };
 
     public async Task<RebuildResult> RebuildAsync(

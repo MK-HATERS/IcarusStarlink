@@ -84,7 +84,7 @@ public partial class App : Application
             sp.GetRequiredService<IRebuildService>(),
             sp.GetRequiredService<ISettingsService>(),
             Path.Combine(appDataDirectory, "Data"),
-            Path.Combine(appDataDirectory, "Staged_Build", "IMM_Merged_Mod_P.pak")));
+            Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak")));
         builder.Services.AddSingleton<DownloadsViewModel>();
         builder.Services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<ISettingsService>(),

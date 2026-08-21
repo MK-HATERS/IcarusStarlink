@@ -16,7 +16,7 @@ public class RebuildServiceTests : IDisposable
     {
         _dataFolder = Path.Combine(_tempDir, "Data");
         _unrealPakExePath = Path.Combine(_tempDir, "UnrealPak.exe");
-        _outputPakPath = Path.Combine(_tempDir, "Staged_Build", "IMM_Merged_Mod_P.pak");
+        _outputPakPath = Path.Combine(_tempDir, "Staged_Build", "ISL-Merged_P.pak");
 
         Directory.CreateDirectory(_dataFolder);
         File.WriteAllText(_unrealPakExePath, "fake exe bytes");
