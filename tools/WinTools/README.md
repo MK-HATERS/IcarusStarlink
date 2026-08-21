@@ -50,6 +50,16 @@ Get the running app's PID first (e.g. `tasklist` or `Get-Process IcarusStarlink.
   one process keeps the popup alive throughout.
 - `set-text <pid> <editIndex> <text>` — sets the Nth Edit control's value via
   ValuePattern (0-indexed, in visual-tree order).
+- `set-text-by-automation-id <pid> <automationId> <text>` — same, but finds
+  the element by exact AutomationId across all top-level windows for pid
+  instead of by index. Added in Phase 6.3 for native Open/SaveFileDialogs
+  (their own top-level HWND, same as a ComboBox popup): the filename box has
+  a stable AutomationId (`1001` in a SaveFileDialog, `1148` in an
+  OpenFileDialog — confirmed on this machine's Windows build, not guaranteed
+  elsewhere; `list-controls` first if a dialog doesn't behave the same way)
+  but an index into "every Edit control" is fragile there, since the
+  dialog's own file list view exposes several hidden inline-rename Edit
+  peers ahead of the one field that actually matters.
 - `expand <pid> <exactText>` / `is-expanded <pid> <exactText>` — finds the
   nearest TreeItem ancestor of an element with that exact Name and
   expands/queries it via ExpandCollapsePattern.
