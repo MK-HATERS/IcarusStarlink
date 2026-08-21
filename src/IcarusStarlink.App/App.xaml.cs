@@ -6,9 +6,11 @@ using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Jimk72;
+using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
+using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Steam;
 using IcarusStarlink.Core.Ue4ss;
@@ -20,6 +22,7 @@ using IcarusStarlink.PakIO.Rebuild;
 using IcarusStarlink.Storage.Catalog;
 using IcarusStarlink.Storage.Library;
 using IcarusStarlink.Storage.Profiles;
+using IcarusStarlink.Storage.Secrets;
 using IcarusStarlink.Storage.Settings;
 using IcarusStarlink.Storage.Steam;
 using IcarusStarlink.Storage.Ue4ss;
@@ -69,6 +72,7 @@ public partial class App : Application
         builder.Services.AddHttpClient<IDaedalusCatalogClient, DaedalusCatalogClient>();
         builder.Services.AddHttpClient<IJimk72CatalogClient, Jimk72CatalogClient>();
         builder.Services.AddHttpClient<IGitHubRepoDateClient, GitHubRepoDateClient>();
+        builder.Services.AddHttpClient<INexusApiClient, NexusApiClient>();
         // A plain HttpClient for DownloadsViewModel's own file download, distinct from the two
         // typed clients above (those are scoped to their own catalog JSON endpoints).
         builder.Services.AddHttpClient();
@@ -93,6 +97,7 @@ public partial class App : Application
         builder.Services.AddSingleton<IUe4ssModRepository>(sp =>
             new Ue4ssModRepository(Path.Combine(appDataDirectory, "Staged_UE4SS")));
         builder.Services.AddSingleton<ISteamInstallLocator, SteamInstallLocator>();
+        builder.Services.AddSingleton<ICredentialStore, WindowsCredentialStore>();
 
         // Transient, not a singleton — every other ViewModel in this app is constructed once and
         // reused, but the EXMOD editor is per-open-instance (Phase 7.1: classic IMM's own editor
@@ -127,6 +132,8 @@ public partial class App : Application
             sp.GetRequiredService<IUnrealPakService>(),
             sp.GetRequiredService<IWeeklyChangeReportStore>(),
             sp.GetRequiredService<ISteamInstallLocator>(),
+            sp.GetRequiredService<ICredentialStore>(),
+            sp.GetRequiredService<INexusApiClient>(),
             Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton<WeeklyChangesViewModel>();
 

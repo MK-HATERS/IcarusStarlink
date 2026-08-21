@@ -29,6 +29,34 @@
                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
         </StackPanel>
 
+        <TextBlock Text="Nexus Mods" Style="{StaticResource FieldLabelStyle}"/>
+        <TextBlock Text="Sign in with your own Nexus Personal API Key to enable update checks for your tracked mods (Downloads' Nexus Mods tab)."
+                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="560"/>
+
+        <StackPanel Visibility="{Binding NexusSignedInAs, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}">
+            <DockPanel Margin="0,0,0,8">
+                <Button Content="Get API key…" Command="{Binding OpenNexusApiKeyPageCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
+                        ToolTip="Opens your Nexus account's API Access page in your browser"/>
+                <TextBox Text="{Binding NexusApiKeyInput, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="Paste your Nexus Personal API Key here"/>
+            </DockPanel>
+            <Button Content="Authorize" Command="{Binding AuthorizeNexusCommand}" HorizontalAlignment="Left"
+                    IsEnabled="{Binding CanAuthorizeNexus}"
+                    ToolTip="Validates the key with Nexus itself and, if it's accepted, saves it to Windows Credential Manager"/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
+                    Visibility="{Binding NexusSignedInAs, Converter={StaticResource NullToVisibilityConverter}}">
+            <TextBlock VerticalAlignment="Center">
+                <Run Text="Signed in as "/><Run Text="{Binding NexusSignedInAs, Mode=OneWay}" FontWeight="SemiBold"/>
+            </TextBlock>
+            <Button Content="Sign out" Command="{Binding SignOutNexusCommand}" Margin="12,0,0,0"/>
+        </StackPanel>
+
+        <TextBlock Text="{Binding NexusStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
+                   Visibility="{Binding NexusStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+
         <TextBlock Text="Update data folder" Style="{StaticResource FieldLabelStyle}"/>
         <TextBlock Text="Extracts the game's current DataTable JSON (Content\Data\data.pak) so merge/edit works against up-to-date data. Re-run this after a game update."
                    Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10"/>

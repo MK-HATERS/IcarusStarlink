@@ -1,7 +1,10 @@
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.Catalog.Nexus;
+using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Steam;
 using IcarusStarlink.PakIO.DataChanges;
@@ -12,10 +15,15 @@ namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class SettingsViewModel : ObservableObject
 {
+    /// <summary>Windows Credential Manager target name — namespaced so it can't collide with anything else in the user's own Credential Manager.</summary>
+    private const string NexusApiKeyTarget = "IcarusStarlink:NexusApiKey";
+
     private readonly ISettingsService _settingsService;
     private readonly IUnrealPakService _unrealPakService;
     private readonly IWeeklyChangeReportStore _weeklyChangeReportStore;
     private readonly ISteamInstallLocator _steamInstallLocator;
+    private readonly ICredentialStore _credentialStore;
+    private readonly INexusApiClient _nexusApiClient;
     private readonly string _dataOutputDirectory;
 
     public string Title => "Settings";
@@ -39,14 +47,31 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string? _gameDataOutdatedMessage;
 
+    [ObservableProperty]
+    private string _nexusApiKeyInput = "";
+
+    /// <summary>Null when not signed in — e.g. "SomeUser (Premium)".</summary>
+    [ObservableProperty]
+    private string? _nexusSignedInAs;
+
+    [ObservableProperty]
+    private bool _isAuthorizingNexus;
+
+    public bool CanAuthorizeNexus => !IsAuthorizingNexus;
+
+    [ObservableProperty]
+    private string? _nexusStatusMessage;
+
     public SettingsViewModel(
         ISettingsService settingsService, IUnrealPakService unrealPakService, IWeeklyChangeReportStore weeklyChangeReportStore,
-        ISteamInstallLocator steamInstallLocator, string dataOutputDirectory)
+        ISteamInstallLocator steamInstallLocator, ICredentialStore credentialStore, INexusApiClient nexusApiClient, string dataOutputDirectory)
     {
         _settingsService = settingsService;
         _unrealPakService = unrealPakService;
         _weeklyChangeReportStore = weeklyChangeReportStore;
         _steamInstallLocator = steamInstallLocator;
+        _credentialStore = credentialStore;
+        _nexusApiClient = nexusApiClient;
         _dataOutputDirectory = dataOutputDirectory;
         _icarusContentPath = settingsService.Current.IcarusContentPath;
         _unrealPakExePath = settingsService.Current.UnrealPakExePath;
@@ -55,6 +80,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         // RefreshCatalogAsync: constructors can't be async, and CheckForGameUpdateAsync has its
         // own top-level try/catch so nothing here can produce an unobserved exception.
         _ = CheckForGameUpdateAsync();
+        _ = InitializeNexusStatusAsync();
     }
 
     [RelayCommand]
@@ -193,6 +219,107 @@ public sealed partial class SettingsViewModel : ObservableObject
         if (currentHash is not null && currentHash != lastKnownHash)
         {
             GameDataOutdatedMessage = "Icarus has been updated since your last data refresh — click Update data folder to see what changed.";
+        }
+    }
+
+    partial void OnIsAuthorizingNexusChanged(bool value) => OnPropertyChanged(nameof(CanAuthorizeNexus));
+
+    [RelayCommand]
+    private void OpenNexusApiKeyPage()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("https://www.nexusmods.com/users/myaccount?tab=api") { UseShellExecute = true });
+        }
+        catch (Exception)
+        {
+            // Opening the default browser is best-effort UX, not a core operation — same
+            // swallow-and-move-on DownloadsViewModel's own OpenUrl already uses.
+        }
+    }
+
+    /// <summary>
+    /// A real, live validation against Nexus's own API — "just like a new user would," per the
+    /// user's own explicit ask, not a hardcoded test key. Only saves the key to Windows Credential
+    /// Manager once Nexus itself has confirmed it's genuinely valid.
+    /// </summary>
+    [RelayCommand]
+    private async Task AuthorizeNexusAsync()
+    {
+        if (string.IsNullOrWhiteSpace(NexusApiKeyInput))
+        {
+            NexusStatusMessage = "Paste your API key first.";
+            return;
+        }
+
+        IsAuthorizingNexus = true;
+        NexusStatusMessage = null;
+        try
+        {
+            var trimmedKey = NexusApiKeyInput.Trim();
+            var user = await _nexusApiClient.ValidateKeyAsync(trimmedKey);
+            if (user is null)
+            {
+                NexusStatusMessage = "Nexus didn't accept that key — double check you copied the whole thing.";
+                return;
+            }
+
+            _credentialStore.Save(NexusApiKeyTarget, trimmedKey);
+            NexusSignedInAs = user.IsPremium ? $"{user.Name} (Premium)" : user.Name;
+            NexusApiKeyInput = "";
+            NexusStatusMessage = "Signed in.";
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as everywhere else — a network hiccup or Nexus itself being down
+            // shows a status message, distinguishable from "that key is wrong" (the null case
+            // above) since this is the genuine-failure path, not a rejected key.
+            NexusStatusMessage = $"Couldn't reach Nexus: {ex.Message}";
+        }
+        finally
+        {
+            IsAuthorizingNexus = false;
+        }
+    }
+
+    [RelayCommand]
+    private void SignOutNexus()
+    {
+        _credentialStore.Delete(NexusApiKeyTarget);
+        NexusSignedInAs = null;
+        NexusStatusMessage = "Signed out.";
+    }
+
+    /// <summary>
+    /// Re-validates a previously-saved key once per launch (not on every Settings visit) — cheap
+    /// against Nexus's own generous rate limit (500/day), and catches a since-revoked key early
+    /// rather than only surfacing that the next time the user happens to click Authorize again.
+    /// </summary>
+    private async Task InitializeNexusStatusAsync()
+    {
+        var storedKey = _credentialStore.Read(NexusApiKeyTarget);
+        if (storedKey is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var user = await _nexusApiClient.ValidateKeyAsync(storedKey);
+            if (user is null)
+            {
+                NexusStatusMessage = "Your saved Nexus API key is no longer valid — sign in again below.";
+                return;
+            }
+
+            NexusSignedInAs = user.IsPremium ? $"{user.Name} (Premium)" : user.Name;
+        }
+        catch (Exception)
+        {
+            // Best-effort startup check — a network hiccup shouldn't block Settings from loading
+            // or claim the saved key is invalid when it might still be fine; Authorize will surface
+            // a clearer error if the user tries it manually.
+            NexusStatusMessage = "Couldn't reach Nexus to confirm your saved key — it may still be valid.";
         }
     }
 }
