@@ -12,7 +12,6 @@ namespace IcarusStarlink.PakIO.Install;
 public sealed class InstallService : IInstallService
 {
     private const int MaxBackups = 5;
-    private const string InstalledModsManifestFileName = "ISL-Installed-Mods.txt";
 
     public Task<InstallResult> InstallAsync(
         string stagedPakPath, string? stagedManifestPath, IReadOnlyList<string> stagedUe4ssModFolderPaths,
@@ -43,11 +42,28 @@ public sealed class InstallService : IInstallService
         return Task.FromResult(new InstallResult(targetPakPath, backupPakPath, installedUe4ssModNames));
     }
 
+    public Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default)
+    {
+        var pakManifestPath = Path.Combine(icarusContentPath, "Paks", "mods", InstallManifestNames.PakManifest);
+        var modNames = File.Exists(pakManifestPath)
+            // First line is the "Includes the following mods:" header, not a mod name.
+            ? File.ReadAllLines(pakManifestPath).Skip(1).Where(line => !string.IsNullOrWhiteSpace(line)).ToList()
+            : [];
+
+        var gameModsFolder = Ue4ssGamePaths.ResolveModsFolder(icarusContentPath);
+        var ue4ssManifestPath = Path.Combine(gameModsFolder, InstallManifestNames.Ue4ssInstalledMods);
+        var ue4ssModNames = File.Exists(ue4ssManifestPath)
+            ? File.ReadAllLines(ue4ssManifestPath).Where(line => !string.IsNullOrWhiteSpace(line)).ToList()
+            : [];
+
+        return Task.FromResult(new InstalledState(modNames, ue4ssModNames));
+    }
+
     /// <summary>Removes only the UE4SS mod folders this app itself installed there (tracked via the manifest InstallAsync writes) — never the built-in UE4SS framework mods or anything installed by hand or another tool, which this app has no way to positively identify as safe to touch.</summary>
     public Task RemoveInstalledUe4ssModsAsync(string icarusContentPath, CancellationToken cancellationToken = default)
     {
         var gameModsFolder = Ue4ssGamePaths.ResolveModsFolder(icarusContentPath);
-        var manifestPath = Path.Combine(gameModsFolder, InstalledModsManifestFileName);
+        var manifestPath = Path.Combine(gameModsFolder, InstallManifestNames.Ue4ssInstalledMods);
         if (!File.Exists(manifestPath))
         {
             return Task.CompletedTask;
@@ -76,7 +92,7 @@ public sealed class InstallService : IInstallService
     private static IReadOnlyList<string> SyncUe4ssMods(IReadOnlyList<string> stagedModFolderPaths, string gameModsFolder, string backupDirectory)
     {
         Directory.CreateDirectory(gameModsFolder);
-        var manifestPath = Path.Combine(gameModsFolder, InstalledModsManifestFileName);
+        var manifestPath = Path.Combine(gameModsFolder, InstallManifestNames.Ue4ssInstalledMods);
         var previouslyInstalled = File.Exists(manifestPath) ? File.ReadAllLines(manifestPath) : [];
         var ue4ssBackupDirectory = Path.Combine(backupDirectory, "UE4SS");
 

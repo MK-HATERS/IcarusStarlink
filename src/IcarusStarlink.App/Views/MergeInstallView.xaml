@@ -88,6 +88,8 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Text="Mods in merged pack (later mods win conflicts)" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
@@ -112,6 +114,14 @@
                          Foreground="{DynamicResource AccentBrush}" FontSize="12"/>
 
                 <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,16,0,0">
+                    <Button Content="Compare to installed" Command="{Binding CompareToInstalledCommand}"
+                            ToolTip="Preview what Install would actually change, by reading what this app can tell is currently installed."/>
+                    <TextBlock Text="{Binding ComparisonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                               Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
+                </StackPanel>
+                <ListBox Grid.Row="6" ItemsSource="{Binding ComparisonEntries}" Margin="0,8,0,0" MaxHeight="120" FontSize="12" FontFamily="Consolas"/>
+
+                <StackPanel Grid.Row="7" Orientation="Horizontal" Margin="0,16,0,0">
                     <!-- The one button in this whole app that writes into the real game's Content\Paks\mods —
                          deliberately not the same click as Rebuild, so it's never accidental. -->
                     <Button Content="Install" Command="{Binding InstallCommand}"/>

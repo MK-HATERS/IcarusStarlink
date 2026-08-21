@@ -183,6 +183,40 @@ public class InstallServiceTests : IDisposable
         Assert.Null(exception);
     }
 
+    [Fact]
+    public async Task GetInstalledStateAsync_NothingInstalledYet_ReturnsEmptyLists()
+    {
+        var state = await _service.GetInstalledStateAsync(_fakeContentPath);
+
+        Assert.Empty(state.ModNames);
+        Assert.Empty(state.Ue4ssModFolderNames);
+    }
+
+    [Fact]
+    public async Task GetInstalledStateAsync_AfterInstall_ReadsBackModNamesAndUe4ssFolderNames()
+    {
+        var staged = StageUe4ssMod("NearbyCrafting");
+        await _service.InstallAsync(_stagedPakPath, _stagedManifestPath, [staged], _fakeContentPath, _backupDirectory);
+
+        var state = await _service.GetInstalledStateAsync(_fakeContentPath);
+
+        Assert.Equal(["Mod A"], state.ModNames);
+        Assert.Equal(["NearbyCrafting"], state.Ue4ssModFolderNames);
+    }
+
+    [Fact]
+    public async Task GetInstalledStateAsync_AfterRemovingUe4ssMods_Ue4ssListGoesBackToEmpty()
+    {
+        var staged = StageUe4ssMod("NearbyCrafting");
+        await _service.InstallAsync(_stagedPakPath, _stagedManifestPath, [staged], _fakeContentPath, _backupDirectory);
+        await _service.RemoveInstalledUe4ssModsAsync(_fakeContentPath);
+
+        var state = await _service.GetInstalledStateAsync(_fakeContentPath);
+
+        Assert.Empty(state.Ue4ssModFolderNames);
+        Assert.Equal(["Mod A"], state.ModNames); // the pak itself wasn't touched by that call
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))

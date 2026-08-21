@@ -7,6 +7,7 @@ using IcarusStarlink.App.Messages;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.Jimk72;
+using IcarusStarlink.Core.InstallComparison;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
@@ -140,6 +141,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     [ObservableProperty]
     private string? _ue4ssStatusMessage;
+
+    // --- Installed vs this list (6.6) ---
+    /// <summary>"+ Name" (would be added), "- Name" (would be removed), "= Name" (unchanged) — a preview of what clicking Install would actually do, not run automatically since it needs a real read of the game folder.</summary>
+    public ObservableCollection<string> ComparisonEntries { get; } = [];
+
+    [ObservableProperty]
+    private string? _comparisonStatusMessage;
 
     public MergeInstallViewModel(
         ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
@@ -681,6 +689,49 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         if (index >= 0 && index < Queue.Count - 1)
         {
             Queue.Move(index, index + 1);
+        }
+    }
+
+    /// <summary>
+    /// "Installed vs this list" — reads what this app can positively identify as currently
+    /// installed (its own manifests in the real game folder) and diffs it against the current
+    /// queue + attached UE4SS mods, so a user can see exactly what Install would change before
+    /// clicking it. Gameplay options aren't part of this comparison — they're not a "mod" with a
+    /// name to diff, they overwrite specific fields regardless of what's currently there.
+    /// </summary>
+    [RelayCommand]
+    private async Task CompareToInstalledAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
+        {
+            ComparisonStatusMessage = "Set the Icarus Content folder in Settings first.";
+            return;
+        }
+
+        try
+        {
+            var installed = await _installService.GetInstalledStateAsync(_settingsService.Current.IcarusContentPath!);
+            var comparison = InstalledVsListComparer.Compare(
+                installed.ModNames, [.. Queue.Select(e => e.Name)],
+                installed.Ue4ssModFolderNames, AttachedUe4ssMods);
+
+            ComparisonEntries.Clear();
+            foreach (var entry in comparison.OrderBy(e => e.State).ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                var symbol = entry.State switch
+                {
+                    InstalledComparisonState.Added => "+",
+                    InstalledComparisonState.Removed => "-",
+                    _ => "=",
+                };
+                ComparisonEntries.Add($"{symbol}  {entry.Name}{(entry.IsUe4ss ? " (UE4SS)" : "")}");
+            }
+
+            ComparisonStatusMessage = ComparisonEntries.Count == 0 ? "Nothing installed yet to compare against." : null;
+        }
+        catch (Exception ex)
+        {
+            ComparisonStatusMessage = $"Compare failed: {ex.Message}";
         }
     }
 

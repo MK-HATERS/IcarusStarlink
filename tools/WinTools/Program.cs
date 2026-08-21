@@ -143,22 +143,34 @@ static void ListControls(int pid)
     }
 }
 
+// Prefers an exact Name match over a mere substring one — e.g. a button literally named "Install"
+// would otherwise be shadowed by "Compare to installed" (which also contains "install") if that
+// happens to come first in visual-tree order. Only falls back to substring matching when nothing
+// matches exactly.
 static AutomationElement FindByTypeAndName(IReadOnlyList<AutomationElement> roots, string controlType, string nameContains)
 {
+    AutomationElement? firstSubstringMatch = null;
     foreach (var root in roots)
     {
         var all = root.FindAll(TreeScope.Descendants, Condition.TrueCondition);
         foreach (AutomationElement el in all)
         {
             var c = el.Current;
-            if (c.ControlType.ProgrammaticName.EndsWith(controlType, StringComparison.OrdinalIgnoreCase)
-                && c.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase))
+            if (!c.ControlType.ProgrammaticName.EndsWith(controlType, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (string.Equals(c.Name, nameContains, StringComparison.OrdinalIgnoreCase))
             {
                 return el;
             }
+            if (firstSubstringMatch is null && c.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase))
+            {
+                firstSubstringMatch = el;
+            }
         }
     }
-    throw new InvalidOperationException($"No {controlType} containing '{nameContains}' found");
+    return firstSubstringMatch ?? throw new InvalidOperationException($"No {controlType} containing '{nameContains}' found");
 }
 
 static void Click(int pid, string controlType, string nameContains)

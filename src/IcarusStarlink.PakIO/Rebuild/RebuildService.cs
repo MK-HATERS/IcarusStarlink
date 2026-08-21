@@ -20,9 +20,6 @@ namespace IcarusStarlink.PakIO.Rebuild;
 /// </summary>
 public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuildService
 {
-    // "ISL-" (IcarusStarlink) rather than classic IMM's own "IMM_Merged_Mod" naming, so the two
-    // tools' output can't collide if a user ever has both installed side by side.
-    private const string ManifestFileName = "ISL-Merged.txt";
     private static readonly JsonSerializerOptions JsonWriteOptions = new() { WriteIndented = true };
 
     public async Task<RebuildResult> RebuildAsync(
@@ -149,7 +146,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         // implicit coupling between two methods that's easy to silently break later (e.g. a
         // different IUnrealPakService implementation that doesn't happen to do this).
         Directory.CreateDirectory(outputDirectory);
-        var manifestPath = Path.Combine(outputDirectory, ManifestFileName);
+        var manifestPath = Path.Combine(outputDirectory, InstallManifestNames.PakManifest);
 
         var text = new StringBuilder();
         text.AppendLine("Includes the following mods:");

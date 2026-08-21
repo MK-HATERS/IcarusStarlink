@@ -25,12 +25,16 @@ Get the running app's PID first (e.g. `tasklist` or `Get-Process IcarusStarlink.
   currently-open Popup — see the GetAllRoots doc comment in Program.cs for why
   that traversal matters). Start here when a command below can't find what
   you're looking for.
-- `click <pid> <controlType> <nameContains>` — finds the first control whose
-  type ends with `controlType` and whose Name contains `nameContains`
+- `click <pid> <controlType> <nameContains>` — finds the control whose type
+  ends with `controlType` and whose Name contains `nameContains`
   (case-insensitive) across all top-level windows for pid, then invokes it via
   whichever of Invoke/SelectionItem/Toggle/ExpandCollapse pattern it supports.
-  Note a Popup with `StaysOpen="False"` (used for this app's Columns picker,
-  and by ComboBox dropdowns) can auto-dismiss between separate WinTools
+  Prefers an exact Name match over a mere substring one (added Phase 6.6) — a
+  button literally named "Install" would otherwise be shadowed by "Compare to
+  installed" (which also contains "install") if that happened to come first
+  in visual-tree order; only falls back to substring matching when nothing
+  matches exactly. Note a Popup with `StaysOpen="False"` (used for this app's
+  Columns picker, and by ComboBox dropdowns) can auto-dismiss between separate WinTools
   process launches — chain the "open it" and "click inside it" calls with
   `&&` in one shell command rather than two separate tool calls, or the
   second one won't find what the first one just opened. For a ComboBox

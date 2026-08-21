@@ -21,4 +21,7 @@ public interface IInstallService
 
     /// <summary>Removes only the UE4SS mod folders this app itself installed (tracked via its own manifest, written during InstallAsync) — never the built-in UE4SS framework mods or anything installed by hand or another tool. A no-op if nothing this app installed is still present.</summary>
     Task RemoveInstalledUe4ssModsAsync(string icarusContentPath, CancellationToken cancellationToken = default);
+
+    /// <summary>Reads this app's own two manifests back from the real game folder — mod names from the pak's ISL-Merged.txt, UE4SS folder names from ISL-Installed-Mods.txt — for the "installed vs this list" comparison. Empty lists (never throws) if either manifest, or the game folder itself, doesn't exist yet.</summary>
+    Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default);
 }
