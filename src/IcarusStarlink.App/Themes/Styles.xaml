@@ -6,6 +6,7 @@
     <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
     <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
     <converters:MarkdownToFlowDocumentConverter x:Key="MarkdownToFlowDocumentConverter"/>
+    <converters:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
 
     <Style TargetType="{x:Type Window}">
         <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}"/>

@@ -276,6 +276,64 @@ public class ExmodJsonTests
     }
 
     [Fact]
+    public void ParseRow_RealisticShape_MatchesWhatParseWouldProduceForTheSameRow()
+    {
+        // ParseRow (Phase 7.2's File JSON raw view) is ParseCore's per-row logic pulled out into
+        // its own public method — this confirms it still produces exactly the same row a full
+        // Parse() of the same JSON would, not a divergent code path.
+        var fullPackage = ExmodJson.Parse(RealisticJson);
+        var rowObject = ExmodJson.ToJsonObject(fullPackage).AsObject()["Rows"]!.AsArray()[0]!.AsObject();
+
+        var row = ExmodJson.ParseRow(rowObject);
+
+        Assert.Equal("Crafting-D_ProcessorRecipes.json", row.CurrentFile);
+        var item = Assert.Single(row.FileItems);
+        Assert.Equal("SmelterRecipe", item.Name);
+        Assert.Equal(5, item.Fields["CraftTime"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void ParseRow_NonObjectFileItemsEntry_ThrowsInsteadOfSilentlyDroppingIt()
+    {
+        var rowObject = new JsonObject
+        {
+            ["CurrentFile"] = "Items-D_ItemsStatic.json",
+            ["File_Items"] = new JsonArray { "garbage" },
+        };
+
+        Assert.Throws<FormatException>(() => ExmodJson.ParseRow(rowObject));
+    }
+
+    [Fact]
+    public void RowToJsonObject_ThenParseRow_RoundTrips()
+    {
+        var row = new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Fuel.json",
+            FileItems = [new ExmodFileItem { Name = "Item_Wood", Fields = { ["Weight"] = JsonValue.Create(50) } }],
+        };
+
+        var reparsed = ExmodJson.ParseRow(ExmodJson.RowToJsonObject(row));
+
+        Assert.Equal(row.CurrentFile, reparsed.CurrentFile);
+        Assert.Equal("Item_Wood", reparsed.FileItems[0].Name);
+        Assert.Equal(50, reparsed.FileItems[0].Fields["Weight"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void RowToJsonObject_ItemFieldLiterallyNamedName_ThrowsSameAsToJsonObject()
+    {
+        var row = new ExmodFileRow
+        {
+            CurrentFile = "Items-D_ItemsStatic.json",
+            FileItems = [new ExmodFileItem { Name = "Sword", Fields = { ["Name"] = "Excalibur" } }],
+        };
+
+        var ex = Assert.Throws<FormatException>(() => ExmodJson.RowToJsonObject(row));
+        Assert.Contains("Sword", ex.Message);
+    }
+
+    [Fact]
     public void RoundTrip_SerializeThenParse_ReproducesEquivalentPackage()
     {
         var original = ExmodJson.Parse(RealisticJson);

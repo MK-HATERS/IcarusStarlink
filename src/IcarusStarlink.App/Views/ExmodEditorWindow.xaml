@@ -3,8 +3,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
         mc:Ignorable="d"
-        Title="{Binding WindowTitle}" Height="640" Width="960" MinHeight="420" MinWidth="700"
+        Title="{Binding WindowTitle}" Height="680" Width="1040" MinHeight="420" MinWidth="700"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource ContentBackgroundBrush}">
 
@@ -44,7 +45,10 @@
             </StackPanel>
         </Grid>
 
-        <!-- Right: the selected item's fields, editable, amber-highlighted against real base data. -->
+        <!-- Right: three views over the same selected item/package — Item fields (structured,
+             amber-highlighted), File JSON (one file's raw JSON), Full EXMOD JSON (the whole
+             package's raw JSON) — sharing the left-hand selection per the spec's "Item fields,
+             File JSON, or Full EXMOD JSON views" + "sync scroll" bullets. -->
         <Grid Grid.Column="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -53,9 +57,41 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Text="Fields" Style="{StaticResource FieldLabelStyle}"/>
+            <StackPanel Grid.Row="0" Orientation="Horizontal">
+                <Button Content="Item fields" Style="{StaticResource ThemeButtonStyle}" Margin="0"
+                        Command="{Binding SetViewModeCommand}" CommandParameter="ItemFields"
+                        ToolTip="Structured, one row per field — the amber-highlighted view">
+                    <Button.Tag>
+                        <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
+                            <Binding Path="ViewMode"/>
+                            <Binding Source="{x:Static vm:ExmodEditorViewMode.ItemFields}"/>
+                        </MultiBinding>
+                    </Button.Tag>
+                </Button>
+                <Button Content="File JSON" Style="{StaticResource ThemeButtonStyle}"
+                        Command="{Binding SetViewModeCommand}" CommandParameter="FileJson"
+                        ToolTip="The selected item's own file, as raw JSON you can edit directly">
+                    <Button.Tag>
+                        <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
+                            <Binding Path="ViewMode"/>
+                            <Binding Source="{x:Static vm:ExmodEditorViewMode.FileJson}"/>
+                        </MultiBinding>
+                    </Button.Tag>
+                </Button>
+                <Button Content="Full EXMOD JSON" Style="{StaticResource ThemeButtonStyle}"
+                        Command="{Binding SetViewModeCommand}" CommandParameter="FullExmodJson"
+                        ToolTip="The whole mod's .EXMOD, as raw JSON you can edit directly">
+                    <Button.Tag>
+                        <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
+                            <Binding Path="ViewMode"/>
+                            <Binding Source="{x:Static vm:ExmodEditorViewMode.FullExmodJson}"/>
+                        </MultiBinding>
+                    </Button.Tag>
+                </Button>
+            </StackPanel>
 
-            <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,4,0,0">
+            <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
+                    Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <ItemsControl ItemsSource="{Binding Fields}" Margin="8">
                         <ItemsControl.ItemTemplate>
@@ -103,11 +139,44 @@
                 </ScrollViewer>
             </Border>
 
-            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+            <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
+                    Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
+                <TextBox Text="{Binding FileJsonText, UpdateSourceTrigger=PropertyChanged}"
+                         AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
+                         BorderThickness="0" Background="Transparent"
+                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
+            </Border>
+
+            <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
+                    Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
+                <TextBox Text="{Binding FullExmodJsonText, UpdateSourceTrigger=PropertyChanged}"
+                         AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
+                         BorderThickness="0" Background="Transparent"
+                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
+            </Border>
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0"
+                        Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
                 <TextBox Text="{Binding NewFieldName, UpdateSourceTrigger=PropertyChanged}" Width="160" ToolTip="Field name"/>
                 <TextBox Text="{Binding NewFieldValue, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="8,0,0,0"
                          ToolTip="JSON value, e.g. 1313 or &quot;text&quot;"/>
                 <Button Content="Add field" Command="{Binding AddFieldCommand}" Margin="8,0,0,0"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
+                        Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
+                <Button Content="Apply file JSON" Command="{Binding ApplyFileJsonCommand}"
+                        ToolTip="Re-parse this box and replace the selected item's file in the mod"/>
+                <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
+                        Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
+                <Button Content="Apply full EXMOD JSON" Command="{Binding ApplyFullExmodJsonCommand}"
+                        ToolTip="Re-parse this box and replace the whole mod's contents"/>
+                <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
             </StackPanel>
 
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">

@@ -76,42 +76,53 @@ public static class ExmodJson
                     throw new FormatException("EXMOD JSON 'Rows' array contains a non-object entry.");
                 }
 
-                var currentFile = GetRequiredString(rowObj, "CurrentFile");
-                EnsurePlainIdentifier(currentFile, "'CurrentFile'");
-                var row = new ExmodFileRow { CurrentFile = currentFile };
-
-                if (rowObj["File_Items"] is JsonArray itemsArray)
-                {
-                    foreach (var itemNode in itemsArray)
-                    {
-                        if (itemNode is not JsonObject itemObj)
-                        {
-                            throw new FormatException(
-                                $"EXMOD JSON 'File_Items' array (in '{currentFile}') contains a non-object entry.");
-                        }
-
-                        var itemName = GetRequiredString(itemObj, "Name");
-                        EnsurePlainIdentifier(itemName, "item 'Name'");
-                        var item = new ExmodFileItem { Name = itemName };
-                        foreach (var (key, value) in itemObj)
-                        {
-                            if (key == "Name")
-                            {
-                                continue;
-                            }
-
-                            item.Fields[key] = value?.DeepClone();
-                        }
-
-                        row.FileItems.Add(item);
-                    }
-                }
-
-                package.Rows.Add(row);
+                package.Rows.Add(ParseRow(rowObj));
             }
         }
 
         return package;
+    }
+
+    /// <summary>
+    /// One Rows entry: {"CurrentFile": ..., "File_Items": [...]}. Extracted out of ParseCore's own
+    /// loop (Phase 7.2) so the EXMOD editor's "File JSON" raw view — one file's worth of a mod's
+    /// changes, edited as text — can parse/reserialize a single row through the exact same
+    /// validation ParseCore/ToJsonObject already apply to every row, rather than a laxer path.
+    /// </summary>
+    public static ExmodFileRow ParseRow(JsonObject rowObj)
+    {
+        var currentFile = GetRequiredString(rowObj, "CurrentFile");
+        EnsurePlainIdentifier(currentFile, "'CurrentFile'");
+        var row = new ExmodFileRow { CurrentFile = currentFile };
+
+        if (rowObj["File_Items"] is JsonArray itemsArray)
+        {
+            foreach (var itemNode in itemsArray)
+            {
+                if (itemNode is not JsonObject itemObj)
+                {
+                    throw new FormatException(
+                        $"EXMOD JSON 'File_Items' array (in '{currentFile}') contains a non-object entry.");
+                }
+
+                var itemName = GetRequiredString(itemObj, "Name");
+                EnsurePlainIdentifier(itemName, "item 'Name'");
+                var item = new ExmodFileItem { Name = itemName };
+                foreach (var (key, value) in itemObj)
+                {
+                    if (key == "Name")
+                    {
+                        continue;
+                    }
+
+                    item.Fields[key] = value?.DeepClone();
+                }
+
+                row.FileItems.Add(item);
+            }
+        }
+
+        return row;
     }
 
     public static JsonObject ToJsonObject(ExmodPackage package)
@@ -158,34 +169,40 @@ public static class ExmodJson
         var rowsArray = new JsonArray();
         foreach (var row in package.Rows)
         {
-            // Same rule Parse() enforces on read — validate here too, so ToJsonObject can never
-            // write a file its own Parse() would then reject on the very next read.
-            EnsurePlainIdentifier(row.CurrentFile, "'CurrentFile'");
-
-            var itemsArray = new JsonArray();
-            foreach (var item in row.FileItems)
-            {
-                EnsurePlainIdentifier(item.Name, "item 'Name'");
-
-                if (item.Fields.ContainsKey("Name"))
-                {
-                    ReservedFieldNames.EnsureFieldNameAllowed(item.Name, row.CurrentFile, "Name");
-                }
-
-                var itemObj = new JsonObject { ["Name"] = item.Name };
-                foreach (var (key, value) in item.Fields)
-                {
-                    itemObj[key] = value?.DeepClone();
-                }
-
-                itemsArray.Add(itemObj);
-            }
-
-            rowsArray.Add(new JsonObject { ["CurrentFile"] = row.CurrentFile, ["File_Items"] = itemsArray });
+            rowsArray.Add(RowToJsonObject(row));
         }
 
         root["Rows"] = rowsArray;
         return root;
+    }
+
+    /// <summary>Write-side counterpart to ParseRow — see its own doc comment.</summary>
+    public static JsonObject RowToJsonObject(ExmodFileRow row)
+    {
+        // Same rule Parse() enforces on read — validate here too, so this can never produce a row
+        // its own ParseRow() would then reject on the very next read.
+        EnsurePlainIdentifier(row.CurrentFile, "'CurrentFile'");
+
+        var itemsArray = new JsonArray();
+        foreach (var item in row.FileItems)
+        {
+            EnsurePlainIdentifier(item.Name, "item 'Name'");
+
+            if (item.Fields.ContainsKey("Name"))
+            {
+                ReservedFieldNames.EnsureFieldNameAllowed(item.Name, row.CurrentFile, "Name");
+            }
+
+            var itemObj = new JsonObject { ["Name"] = item.Name };
+            foreach (var (key, value) in item.Fields)
+            {
+                itemObj[key] = value?.DeepClone();
+            }
+
+            itemsArray.Add(itemObj);
+        }
+
+        return new JsonObject { ["CurrentFile"] = row.CurrentFile, ["File_Items"] = itemsArray };
     }
 
     public static string Serialize(ExmodPackage package, bool indented = true) =>
