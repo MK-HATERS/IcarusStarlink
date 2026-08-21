@@ -62,6 +62,12 @@ Get the running app's PID first (e.g. `tasklist` or `Get-Process IcarusStarlink.
   character mismatch first (e.g. an em dash "—" in the real Display string
   vs. a plain hyphen "-" typed on the command line) before suspecting the
   tool itself — that's the actual cause it usually turns out to be.
+- `add-to-selection-by-text <pid> <exactText>` — same lookup as select-by-text,
+  but calls AddToSelection() instead of Select(), so it adds to whatever's
+  already selected instead of replacing it (a Ctrl/Shift-click equivalent).
+  Added Phase 7.3 for the EXMOD editor's mass-edit feature, which needs a
+  real multi-select in a ListBox — select-by-text alone can only ever select
+  one item at a time.
 - `select-combo-item <pid> <exactText> [comboIndex]` — finds the ComboBox at
   comboIndex (0-indexed, visual-tree order across all top-level windows for
   pid; defaults to 0, the first one — pass an index when a page has more than

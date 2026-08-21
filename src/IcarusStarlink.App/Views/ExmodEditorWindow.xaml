@@ -11,6 +11,9 @@
 
     <Window.InputBindings>
         <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCommand}"/>
+        <KeyBinding Key="D" Modifiers="Control" Command="{Binding DuplicateItemCommand}"/>
+        <KeyBinding Key="F3" Command="{Binding SelectNextItemCommand}"/>
+        <!-- Ctrl+F is handled in code-behind (focuses the filter box) — a pure-UI focus concern the ViewModel can't reach directly. -->
     </Window.InputBindings>
 
     <Grid Margin="16">
@@ -20,22 +23,39 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- Left: items, grouped implicitly by file via sort order + the "File — Item" display text. -->
+        <!-- Left: items, grouped implicitly by file via sort order + the "File — Item" display text.
+             Extended selection mode + the code-behind SelectionChanged handler feed multi-select
+             into the ViewModel for mass edit (ListBox.SelectedItems isn't natively bindable). -->
         <Grid Grid.Column="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Text="Items" Style="{StaticResource FieldLabelStyle}"/>
 
-            <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,4,0,0">
-                <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}"
-                         DisplayMemberPath="Display" Background="Transparent" BorderThickness="0"/>
+            <TextBox x:Name="FilterBox" Grid.Row="1" Margin="0,4,0,0"
+                     Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
+                     ToolTip="Filter by file or item name (Ctrl+F)"/>
+
+            <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,4,0,0">
+                <ListBox x:Name="ItemsListBox" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}"
+                         SelectionMode="Extended" SelectionChanged="ItemsListBox_SelectionChanged"
+                         DisplayMemberPath="Display" Background="Transparent" BorderThickness="0"
+                         ToolTip="Ctrl/Shift-click to select several items for mass edit"/>
             </Border>
 
-            <StackPanel Grid.Row="2" Margin="0,8,0,0">
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
+                <Button Content="Duplicate (Ctrl+D)" Command="{Binding DuplicateItemCommand}"
+                        ToolTip="Clone the selected item's fields under a new name"/>
+                <Button Content="Open original file" Command="{Binding OpenOriginalFileCommand}" Margin="8,0,0,0"
+                        ToolTip="Open the real, unmodified base game data file for the selected item"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="4" Margin="0,8,0,0">
                 <TextBlock Text="Add item" Style="{StaticResource FieldLabelStyle}"/>
                 <TextBox Text="{Binding NewItemCurrentFile, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"
                          ToolTip="Real game data file path, e.g. Traits/D_Fuel.json"/>
@@ -51,6 +71,7 @@
              File JSON, or Full EXMOD JSON views" + "sync scroll" bullets. -->
         <Grid Grid.Column="2">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
@@ -90,7 +111,22 @@
                 </Button>
             </StackPanel>
 
-            <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
+            <Border Grid.Row="1" Background="{DynamicResource AccentBrush}" CornerRadius="4" Margin="0,8,0,0" Padding="8"
+                    Visibility="{Binding IsMassEditActive, Converter={StaticResource BoolToVisibilityConverter}}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Foreground="{DynamicResource AccentForegroundBrush}" VerticalAlignment="Center" FontWeight="SemiBold">
+                        <Run Text="{Binding SelectedItemCount, Mode=OneWay}"/><Run Text=" items selected — mass edit:"/>
+                    </TextBlock>
+                    <TextBox Text="{Binding MassEditFieldName, UpdateSourceTrigger=PropertyChanged}" Width="150" Margin="8,0,0,0" ToolTip="Field name"/>
+                    <TextBox Text="{Binding MassEditFieldValue, UpdateSourceTrigger=PropertyChanged}" Width="180" Margin="8,0,0,0"
+                             ToolTip="JSON value, e.g. 1313 or &quot;text&quot; — set (added if missing) on every selected item"/>
+                    <Button Content="Apply to selection" Command="{Binding ApplyMassEditCommand}" Margin="8,0,0,0"/>
+                    <TextBlock Text="{Binding MassEditStatusMessage}" Foreground="{DynamicResource AccentForegroundBrush}"
+                               VerticalAlignment="Center" Margin="12,0,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
                     Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <ItemsControl ItemsSource="{Binding Fields}" Margin="8">
@@ -142,7 +178,7 @@
                 </ScrollViewer>
             </Border>
 
-            <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
+            <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
                     Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
                 <TextBox Text="{Binding FileJsonText, UpdateSourceTrigger=PropertyChanged}"
                          AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
@@ -150,7 +186,7 @@
                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
             </Border>
 
-            <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
+            <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
                     Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
                 <TextBox Text="{Binding FullExmodJsonText, UpdateSourceTrigger=PropertyChanged}"
                          AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
@@ -158,7 +194,7 @@
                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
             </Border>
 
-            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0"
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0"
                         Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
                 <TextBox Text="{Binding NewFieldName, UpdateSourceTrigger=PropertyChanged}" Width="160" ToolTip="Field name"/>
                 <TextBox Text="{Binding NewFieldValue, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="8,0,0,0"
@@ -166,7 +202,7 @@
                 <Button Content="Add field" Command="{Binding AddFieldCommand}" Margin="8,0,0,0"/>
             </StackPanel>
 
-            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
                         Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
                 <Button Content="Apply file JSON" Command="{Binding ApplyFileJsonCommand}"
                         ToolTip="Re-parse this box and replace the selected item's file in the mod"/>
@@ -174,7 +210,7 @@
                            Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
             </StackPanel>
 
-            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
                         Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
                 <Button Content="Apply full EXMOD JSON" Command="{Binding ApplyFullExmodJsonCommand}"
                         ToolTip="Re-parse this box and replace the whole mod's contents"/>
@@ -182,7 +218,7 @@
                            Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
             </StackPanel>
 
-            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">
+            <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">
                 <Button Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
                 <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{DynamicResource SecondaryForegroundBrush}"/>

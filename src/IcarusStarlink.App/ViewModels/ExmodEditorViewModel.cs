@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -99,6 +101,33 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [ObservableProperty]
     private string? _rawJsonStatusMessage;
 
+    /// <summary>Filters Items by a substring of its Display text (file or item name) — Ctrl+F focuses the box this is bound to.</summary>
+    [ObservableProperty]
+    private string _filterText = "";
+
+    /// <summary>
+    /// Populated by ExmodEditorWindow's code-behind SelectionChanged handler — ListBox.SelectedItems
+    /// isn't a bindable DependencyProperty in stock WPF, so this is the one piece of this editor
+    /// that has to be pushed in from the View rather than bound directly, matching the same
+    /// established gap LibraryView's own TreeView selection handling already works around.
+    /// </summary>
+    private IReadOnlyList<EditorItemViewModel> _selectedItemsForMassEdit = [];
+
+    [ObservableProperty]
+    private int _selectedItemCount;
+
+    /// <summary>2+ items selected at once — mass edit becomes available. A single selection (the common case) keeps using the normal Item fields/File JSON/Full EXMOD JSON views instead.</summary>
+    public bool IsMassEditActive => SelectedItemCount > 1;
+
+    [ObservableProperty]
+    private string _massEditFieldName = "";
+
+    [ObservableProperty]
+    private string _massEditFieldValue = "";
+
+    [ObservableProperty]
+    private string? _massEditStatusMessage;
+
     public ExmodEditorViewModel(string folderName, ILibraryRepository repository, string dataFolder)
     {
         _repository = repository;
@@ -123,6 +152,144 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         if (ViewMode == ExmodEditorViewMode.FileJson)
         {
             RefreshFileJsonText();
+        }
+    }
+
+    partial void OnFilterTextChanged(string value) => ReloadItems();
+
+    partial void OnSelectedItemCountChanged(int value) => OnPropertyChanged(nameof(IsMassEditActive));
+
+    /// <summary>Called from ExmodEditorWindow's code-behind whenever the Items ListBox's (Extended-mode) selection changes.</summary>
+    public void SetSelectedItemsForMassEdit(IReadOnlyList<EditorItemViewModel> items)
+    {
+        _selectedItemsForMassEdit = items;
+        SelectedItemCount = items.Count;
+    }
+
+    [RelayCommand]
+    private void ApplyMassEdit()
+    {
+        if (_selectedItemsForMassEdit.Count < 2)
+        {
+            MassEditStatusMessage = "Select 2 or more items first.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(MassEditFieldName))
+        {
+            MassEditStatusMessage = "Field name is required.";
+            return;
+        }
+
+        JsonNode? parsedValue;
+        try
+        {
+            parsedValue = string.IsNullOrWhiteSpace(MassEditFieldValue) ? null : JsonNode.Parse(MassEditFieldValue);
+        }
+        catch (Exception ex)
+        {
+            MassEditStatusMessage = $"Invalid JSON value: {ex.Message}";
+            return;
+        }
+
+        var count = 0;
+        foreach (var editorItem in _selectedItemsForMassEdit)
+        {
+            var item = FindItem(editorItem.CurrentFile, editorItem.ItemName);
+            if (item is null)
+            {
+                continue;
+            }
+
+            // Each item's Fields dictionary needs its own JsonNode instance — a JsonNode can only
+            // ever belong to one parent, the same constraint ExmodBaseDiffer.ToKeyedObject already
+            // works around by deep-cloning.
+            item.Fields[MassEditFieldName] = parsedValue?.DeepClone();
+            count++;
+        }
+
+        RefreshBaseDiff();
+        PopulateFieldsForSelection();
+        MassEditStatusMessage = $"Set '{MassEditFieldName}' on {count} item(s).";
+    }
+
+    /// <summary>Ctrl+D — clones the selected item's own fields into a new item under the same file, named "&lt;Name&gt;_Copy" (or "_Copy2"/"_Copy3"/... if that's already taken).</summary>
+    [RelayCommand]
+    private void DuplicateItem()
+    {
+        if (SelectedItem is null)
+        {
+            StatusMessage = "Select an item first.";
+            return;
+        }
+
+        var sourceItem = FindItem(SelectedItem.CurrentFile, SelectedItem.ItemName);
+        var row = _package.Rows.FirstOrDefault(r => r.CurrentFile == SelectedItem.CurrentFile);
+        if (sourceItem is null || row is null)
+        {
+            return;
+        }
+
+        var newName = $"{sourceItem.Name}_Copy";
+        var suffix = 2;
+        while (row.FileItems.Any(i => i.Name == newName))
+        {
+            newName = $"{sourceItem.Name}_Copy{suffix}";
+            suffix++;
+        }
+
+        var clonedFields = new Dictionary<string, JsonNode?>();
+        foreach (var (fieldName, value) in sourceItem.Fields)
+        {
+            clonedFields[fieldName] = value?.DeepClone();
+        }
+
+        row.FileItems.Add(new ExmodFileItem { Name = newName, Fields = clonedFields });
+
+        var newEditorItem = new EditorItemViewModel(row.CurrentFile, newName);
+        Items.Add(newEditorItem);
+        SyncItemOrder();
+        SelectedItem = newEditorItem;
+        StatusMessage = $"Duplicated '{sourceItem.Name}' as '{newName}'.";
+    }
+
+    /// <summary>F3 — moves the selection to the next item in the (possibly filtered) Items list, wrapping to the first after the last.</summary>
+    [RelayCommand]
+    private void SelectNextItem()
+    {
+        if (Items.Count == 0)
+        {
+            return;
+        }
+
+        var currentIndex = SelectedItem is null ? -1 : Items.IndexOf(SelectedItem);
+        SelectedItem = Items[(currentIndex + 1) % Items.Count];
+    }
+
+    /// <summary>Reveals the selected item's real, unmodified base game data file in whatever the OS has associated with .json — read-only reference, not something this app opens an in-app viewer for.</summary>
+    [RelayCommand]
+    private void OpenOriginalFile()
+    {
+        if (SelectedItem is null)
+        {
+            StatusMessage = "Select an item first.";
+            return;
+        }
+
+        var realPath = Path.Combine(_dataFolder, SelectedItem.RealPath.Replace('/', Path.DirectorySeparatorChar));
+        if (!File.Exists(realPath))
+        {
+            StatusMessage = $"No matching base file at '{realPath}'.";
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(realPath) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't open the file: {ex.Message}";
         }
     }
 
@@ -437,7 +604,11 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         {
             foreach (var item in row.FileItems.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase))
             {
-                Items.Add(new EditorItemViewModel(row.CurrentFile, item.Name));
+                var candidate = new EditorItemViewModel(row.CurrentFile, item.Name);
+                if (string.IsNullOrWhiteSpace(FilterText) || candidate.Display.Contains(FilterText, StringComparison.OrdinalIgnoreCase))
+                {
+                    Items.Add(candidate);
+                }
             }
         }
     }

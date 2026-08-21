@@ -35,6 +35,9 @@ switch (args[0])
     case "select-by-text":
         SelectByText(int.Parse(args[1]), args[2]);
         break;
+    case "add-to-selection-by-text":
+        AddToSelectionByText(int.Parse(args[1]), args[2]);
+        break;
     case "select-combo-item":
         SelectComboItem(int.Parse(args[1]), args[2], args.Length > 3 ? int.Parse(args[3]) : 0);
         break;
@@ -238,15 +241,36 @@ static void SelectByText(int pid, string exactText)
         .FirstOrDefault(el => el.Current.Name == exactText)
         ?? throw new InvalidOperationException($"No element with exact text '{exactText}' found");
 
+    ((SelectionItemPattern)FindSelectableAncestor(textEl, exactText)).Select();
+    Console.WriteLine($"selected ancestor of '{exactText}'");
+}
+
+/// <summary>
+/// Adds an element to the CURRENT selection (Ctrl/Shift-click equivalent) instead of replacing it
+/// — for exercising a ListBox's multi-select (e.g. the EXMOD editor's mass-edit feature, Phase
+/// 7.3), which plain select-by-text/Select() can't reach since Select() always clears whatever
+/// else was already selected.
+/// </summary>
+static void AddToSelectionByText(int pid, string exactText)
+{
+    var textEl = GetAllRoots(pid)
+        .SelectMany(root => root.FindAll(TreeScope.Descendants, Condition.TrueCondition).Cast<AutomationElement>())
+        .FirstOrDefault(el => el.Current.Name == exactText)
+        ?? throw new InvalidOperationException($"No element with exact text '{exactText}' found");
+
+    ((SelectionItemPattern)FindSelectableAncestor(textEl, exactText)).AddToSelection();
+    Console.WriteLine($"added '{exactText}' to selection");
+}
+
+static object FindSelectableAncestor(AutomationElement textEl, string exactText)
+{
     var walker = TreeWalker.ControlViewWalker;
     var current = textEl;
     while (current is not null)
     {
         if (current.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var pattern))
         {
-            ((SelectionItemPattern)pattern).Select();
-            Console.WriteLine($"selected ancestor of '{exactText}'");
-            return;
+            return pattern;
         }
         current = walker.GetParent(current);
     }
