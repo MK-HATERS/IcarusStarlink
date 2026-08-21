@@ -43,6 +43,8 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="16"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="260"/>
             </Grid.ColumnDefinitions>
 
             <!-- Library pane -->
@@ -115,6 +117,46 @@
                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                 </StackPanel>
             </Grid>
+
+            <!-- Gameplay-toggle merge options: applied as a final pass after the queue is merged,
+                 even with an empty queue — matching classic IMM's own documented behavior. -->
+            <ScrollViewer Grid.Column="4" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="Merge options" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+
+                    <TextBlock Text="Speed Boost" FontSize="12" Margin="0,8,0,2"/>
+                    <ComboBox ItemsSource="{Binding BoostLevels}" SelectedItem="{Binding SpeedBoost}"
+                              ToolTip="Level 1: +100 move speed, +19 crouch/+50 sprint speed coefficient. Level 2: +245 move speed, +34 crouch/+100 sprint speed coefficient. (Classic IMM's own documented values.)"/>
+
+                    <TextBlock Text="Player Boost" FontSize="12" Margin="0,8,0,2"/>
+                    <ComboBox ItemsSource="{Binding BoostLevels}" SelectedItem="{Binding PlayerBoost}"
+                              ToolTip="Level 1/2: more health/stamina/weight capacity, less food/water/oxygen consumption, faster regen, no fall damage, cold/heat resistance. (Classic IMM's own documented values.)"/>
+
+                    <TextBlock Text="XP Boost" FontSize="12" Margin="0,8,0,2"/>
+                    <ComboBox ItemsSource="{Binding BoostLevels}" SelectedItem="{Binding XpBoost}"
+                              ToolTip="Level 1: +500% XP. Level 2: +1000% XP. (Classic IMM's own documented values.)"/>
+
+                    <TextBlock Text="Craft Cost" FontSize="12" Margin="0,8,0,2"/>
+                    <ComboBox ItemsSource="{Binding CraftCostReductions}" SelectedItem="{Binding CraftCost}"
+                              ToolTip="Reduces the item/resource inputs every crafting-bench recipe needs. (Classic IMM's own documented values.)"/>
+
+                    <TextBlock Text="Stacks multiplier" FontSize="12" Margin="0,8,0,2"/>
+                    <TextBox Text="{Binding StacksMultiplierInput, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="e.g. 3 = triple every item's stack size. Blank = unchanged. No fixed levels — classic IMM never documented an exact multiplier for its own Stacks toggle."/>
+
+                    <TextBlock Text="Slots multiplier" FontSize="12" Margin="0,8,0,2"/>
+                    <TextBox Text="{Binding SlotsMultiplierInput, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="e.g. 2 = double every backpack/container's slot count. Blank = unchanged."/>
+
+                    <TextBlock Text="Speed Crafting %" FontSize="12" Margin="0,8,0,2"/>
+                    <TextBox Text="{Binding SpeedCraftingPercentInput, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="e.g. 50 = halve crafting time, skipping recipes with a Water/Milk/Biofuel resource input or output (same conditional logic classic IMM's changelog documents). Blank = unchanged."/>
+
+                    <CheckBox Content="Remove Weight" IsChecked="{Binding RemoveWeight}" Margin="0,12,0,0"/>
+                    <CheckBox Content="Unlimited Ammo" IsChecked="{Binding UnlimitedAmmo}" Margin="0,8,0,0"/>
+                    <CheckBox Content="Disable Temperatures" IsChecked="{Binding DisableTemperatures}" Margin="0,8,0,0"/>
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
     </Grid>
 </UserControl>

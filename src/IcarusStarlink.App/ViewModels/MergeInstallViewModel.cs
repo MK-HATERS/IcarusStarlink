@@ -11,6 +11,7 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.Container;
+using IcarusStarlink.PakIO.GameplayToggles;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Patches;
 using IcarusStarlink.PakIO.Rebuild;
@@ -86,6 +87,42 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private string? _patchStatusMessage;
 
+    // --- Gameplay-toggle merge options (6.4) ---
+    public static IReadOnlyList<BoostLevel> BoostLevels { get; } = Enum.GetValues<BoostLevel>();
+
+    public static IReadOnlyList<CraftCostReduction> CraftCostReductions { get; } = Enum.GetValues<CraftCostReduction>();
+
+    [ObservableProperty]
+    private BoostLevel _speedBoost;
+
+    [ObservableProperty]
+    private BoostLevel _playerBoost;
+
+    [ObservableProperty]
+    private BoostLevel _xpBoost;
+
+    [ObservableProperty]
+    private CraftCostReduction _craftCost;
+
+    /// <summary>Free-text multiplier/percentage inputs, not fixed levels — classic IMM never documented an exact number for its own Stacks/Slots/Speed Crafting toggles, unlike the dropdowns above.</summary>
+    [ObservableProperty]
+    private string _stacksMultiplierInput = "";
+
+    [ObservableProperty]
+    private string _slotsMultiplierInput = "";
+
+    [ObservableProperty]
+    private string _speedCraftingPercentInput = "";
+
+    [ObservableProperty]
+    private bool _removeWeight;
+
+    [ObservableProperty]
+    private bool _unlimitedAmmo;
+
+    [ObservableProperty]
+    private bool _disableTemperatures;
+
     public MergeInstallViewModel(
         ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
         IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
@@ -133,6 +170,37 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
     }
 
+    private GameplayOptions BuildGameplayOptionsFromUi() => new()
+    {
+        SpeedBoost = SpeedBoost,
+        PlayerBoost = PlayerBoost,
+        XpBoost = XpBoost,
+        CraftCost = CraftCost,
+        StacksMultiplier = ParsePositiveDouble(StacksMultiplierInput),
+        SlotsMultiplier = ParsePositiveDouble(SlotsMultiplierInput),
+        SpeedCraftingReductionPercent = ParsePositiveDouble(SpeedCraftingPercentInput),
+        RemoveWeight = RemoveWeight,
+        UnlimitedAmmo = UnlimitedAmmo,
+        DisableTemperatures = DisableTemperatures,
+    };
+
+    private void LoadGameplayOptionsIntoUi(GameplayOptions options)
+    {
+        SpeedBoost = options.SpeedBoost;
+        PlayerBoost = options.PlayerBoost;
+        XpBoost = options.XpBoost;
+        CraftCost = options.CraftCost;
+        StacksMultiplierInput = options.StacksMultiplier?.ToString() ?? "";
+        SlotsMultiplierInput = options.SlotsMultiplier?.ToString() ?? "";
+        SpeedCraftingPercentInput = options.SpeedCraftingReductionPercent?.ToString() ?? "";
+        RemoveWeight = options.RemoveWeight;
+        UnlimitedAmmo = options.UnlimitedAmmo;
+        DisableTemperatures = options.DisableTemperatures;
+    }
+
+    private static double? ParsePositiveDouble(string text) =>
+        double.TryParse(text, out var value) && value > 0 ? value : null;
+
     /// <summary>Selecting a profile replaces the current queue with that profile's own saved one — a profile *is* "a saved merge list" per the spec, not something merged alongside the current queue.</summary>
     partial void OnSelectedProfileNameChanged(string? value)
     {
@@ -144,6 +212,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         try
         {
             var profile = _profileStore.Load(value);
+            LoadGameplayOptionsIntoUi(profile.Options);
 
             Queue.Clear();
             var missingCount = 0;
@@ -191,7 +260,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         try
         {
             var name = ProfileNameInput;
-            _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)] });
+            _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = BuildGameplayOptionsFromUi() });
             ReloadProfileNames();
             SelectedProfileName = name;
             ProfileNameInput = "";
@@ -214,7 +283,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)] });
+            _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = BuildGameplayOptionsFromUi() });
             ProfileStatusMessage = $"Saved '{name}'.";
         }
         catch (Exception ex)
@@ -349,7 +418,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 return;
             }
 
-            await _patchService.ExportAsync(new PatchManifest { ProfileName = profileName, Mods = mods }, bundledContents, dialog.FileName);
+            var manifest = new PatchManifest { ProfileName = profileName, Mods = mods, Options = BuildGameplayOptionsFromUi() };
+            await _patchService.ExportAsync(manifest, bundledContents, dialog.FileName);
 
             PatchStatusMessage = bundledContents.Count > 0
                 ? $"Exported '{profileName}' to '{dialog.FileName}' — {bundledContents.Count} mod(s) bundled, " +
@@ -414,7 +484,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 }
             }
 
-            _profileStore.Save(new Profile { Name = contents.Manifest.ProfileName, MergeQueueFolderNames = resolvedFolderNames });
+            _profileStore.Save(new Profile { Name = contents.Manifest.ProfileName, MergeQueueFolderNames = resolvedFolderNames, Options = contents.Manifest.Options });
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             ReloadLibrary();
             ReloadProfileNames();
@@ -516,9 +586,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand]
     private async Task RebuildAsync()
     {
-        if (Queue.Count == 0)
+        var gameplayOptions = BuildGameplayOptionsFromUi();
+        // Gameplay options can apply on their own, with an empty queue, per the spec ("the ability
+        // to add merge options to game with no mods selected") — only block if there's genuinely
+        // nothing to do at all.
+        if (Queue.Count == 0 && GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions).Count == 0)
         {
-            StatusMessage = "Add at least one mod to the queue first.";
+            StatusMessage = "Add at least one mod to the queue, or enable a gameplay option, first.";
             return;
         }
 
@@ -542,7 +616,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 .ToList();
 
             var result = await _rebuildService.RebuildAsync(
-                packages, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath);
+                packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath);
             _lastManifestPath = result.ManifestPath;
 
             StatusMessage = $"Built '{result.OutputPakPath}' — {result.PackedFileCount} files packed, "

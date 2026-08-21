@@ -41,13 +41,18 @@ Get the running app's PID first (e.g. `tasklist` or `Get-Process IcarusStarlink.
   walks up to the nearest ancestor supporting SelectionItemPattern, and
   selects it. Useful for TreeView/ListBox rows whose own Name is a generic
   type string rather than the row's visible text.
-- `select-combo-item <pid> <exactText>` — finds the first ComboBox, expands
-  it, waits briefly for its popup items to realize, then selects the item
-  with that exact text — all in one process run. Added in Phase 6.3 because
-  a ComboBox's dropdown is its own top-level popup HWND that doesn't survive
-  being expanded in one WinTools process and selected from in the next (the
-  popup closes in between, even chained with `&&`); doing both steps inside
-  one process keeps the popup alive throughout.
+- `select-combo-item <pid> <exactText> [comboIndex]` — finds the ComboBox at
+  comboIndex (0-indexed, visual-tree order across all top-level windows for
+  pid; defaults to 0, the first one — pass an index when a page has more than
+  one ComboBox, e.g. Merge & Install's Profile selector plus four gameplay-
+  option dropdowns), expands it, waits briefly for its popup items to
+  realize, then selects the item with that exact text — all in one process
+  run. Added in Phase 6.3 because a ComboBox's dropdown is its own top-level
+  popup HWND that doesn't survive being expanded in one WinTools process and
+  selected from in the next (the popup closes in between, even chained with
+  `&&`); doing both steps inside one process keeps the popup alive
+  throughout. `list-controls` shows how many ComboBoxes exist and in what
+  order if you're not sure which index to use.
 - `set-text <pid> <editIndex> <text>` — sets the Nth Edit control's value via
   ValuePattern (0-indexed, in visual-tree order).
 - `set-text-by-automation-id <pid> <automationId> <text>` — same, but finds

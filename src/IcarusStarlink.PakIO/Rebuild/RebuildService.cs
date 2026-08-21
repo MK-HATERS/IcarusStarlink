@@ -1,10 +1,12 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Exmod;
+using IcarusStarlink.PakIO.GameplayToggles;
 using IcarusStarlink.PakIO.Pak;
 
 namespace IcarusStarlink.PakIO.Rebuild;
@@ -24,7 +26,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     private static readonly JsonSerializerOptions JsonWriteOptions = new() { WriteIndented = true };
 
     public async Task<RebuildResult> RebuildAsync(
-        IReadOnlyList<ExmodPackageContents> queuedMods, string dataFolder, string unrealPakExePath, string outputPakPath,
+        IReadOnlyList<ExmodPackageContents> queuedMods, GameplayOptions gameplayOptions, string dataFolder, string unrealPakExePath, string outputPakPath,
         CancellationToken cancellationToken = default)
     {
         var report = new MergeReport();
@@ -35,8 +37,26 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             .ToList();
         var resolvedChanges = MergeEngine.Merge(orderedModChanges, new MergeRuleRegistry());
 
-        var (baseTablesByFile, originalFileJsonByFile) = ReadBaseTables(resolvedChanges, dataFolder, report);
-        var mergedTables = MultiFileMerger.Apply(baseTablesByFile, resolvedChanges, report);
+        var requiredFiles = resolvedChanges.Select(c => c.CurrentFile)
+            .Concat(GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions))
+            .Distinct();
+        var (baseTablesByFile, originalFileJsonByFile) = ReadBaseTables(requiredFiles, dataFolder, report);
+        var mergedTables = new Dictionary<string, JsonObject>(MultiFileMerger.Apply(baseTablesByFile, resolvedChanges, report));
+
+        // Gameplay options apply as a final pass over the already-merged result — matching classic
+        // IMM's own documented behavior ("these new options are added after the mods are all
+        // merged") — and can target a file no queued mod's own FieldChange touches at all (options
+        // work with an empty queue too), so make sure those land here even though
+        // MultiFileMerger.Apply only ever populates entries for files a FieldChange actually
+        // touches.
+        foreach (var file in GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions))
+        {
+            if (!mergedTables.ContainsKey(file) && baseTablesByFile.TryGetValue(file, out var baseTable))
+            {
+                mergedTables[file] = baseTable;
+            }
+        }
+        GameplayOptionsApplier.Apply(gameplayOptions, mergedTables, report);
 
         var stagingDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"Rebuild_{Guid.NewGuid():N}");
         Directory.CreateDirectory(stagingDirectory);
@@ -64,12 +84,12 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     /// with no ambiguity (no real DataTable filename contains an embedded dash).
     /// </summary>
     private static (Dictionary<string, JsonObject> Keyed, Dictionary<string, JsonObject> Original) ReadBaseTables(
-        IReadOnlyList<FieldChange> resolvedChanges, string dataFolder, MergeReport report)
+        IEnumerable<string> currentFiles, string dataFolder, MergeReport report)
     {
         var keyed = new Dictionary<string, JsonObject>();
         var original = new Dictionary<string, JsonObject>();
 
-        foreach (var currentFile in resolvedChanges.Select(c => c.CurrentFile).Distinct())
+        foreach (var currentFile in currentFiles.Distinct())
         {
             var realRelativePath = currentFile.Replace('-', '/');
             var basePath = Path.Combine(dataFolder, realRelativePath);

@@ -1,3 +1,4 @@
+using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Pak;
@@ -83,7 +84,7 @@ public class RebuildServiceTests : IDisposable
         var pakService = new FakeUnrealPakService();
         var service = new RebuildService(pakService);
 
-        var result = await service.RebuildAsync([mod], _dataFolder, _unrealPakExePath, _outputPakPath);
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
 
         Assert.Equal(1, result.MergedFileCount);
         var stagedJson = pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"];
@@ -103,7 +104,7 @@ public class RebuildServiceTests : IDisposable
 
         // modB is later in the queue (higher priority) — matches MergeEngine's own
         // "index 0 = lowest priority" convention.
-        await service.RebuildAsync([modA, modB], _dataFolder, _unrealPakExePath, _outputPakPath);
+        await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
 
         var stagedJson = pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"];
         Assert.Contains("\"CraftTime\": 2", stagedJson);
@@ -117,7 +118,7 @@ public class RebuildServiceTests : IDisposable
         var pakService = new FakeUnrealPakService();
         var service = new RebuildService(pakService);
 
-        var result = await service.RebuildAsync([mod], _dataFolder, _unrealPakExePath, _outputPakPath);
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
 
         Assert.Equal(0, result.MergedFileCount);
         Assert.Contains(result.Warnings, w => w.Contains("NoSuchCategory-D_Missing.json"));
@@ -133,7 +134,7 @@ public class RebuildServiceTests : IDisposable
         var pakService = new FakeUnrealPakService();
         var service = new RebuildService(pakService);
 
-        await service.RebuildAsync([mod], _dataFolder, _unrealPakExePath, _outputPakPath);
+        await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
 
         Assert.Contains("BP/Building/BP_Thing.uasset", pakService.StagedRelativePathsAtCallTime);
     }
@@ -148,7 +149,7 @@ public class RebuildServiceTests : IDisposable
             new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(2) });
         var service = new RebuildService(new FakeUnrealPakService());
 
-        var result = await service.RebuildAsync([modA, modB], _dataFolder, _unrealPakExePath, _outputPakPath);
+        var result = await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
 
         var manifest = await File.ReadAllTextAsync(result.ManifestPath);
         Assert.Contains("Includes the following mods:", manifest);
@@ -165,7 +166,7 @@ public class RebuildServiceTests : IDisposable
             assets: [new ExmodAssetEntry("BP/Thing.uasset", [1])]);
         var service = new RebuildService(new FakeUnrealPakService());
 
-        var result = await service.RebuildAsync([mod], _dataFolder, _unrealPakExePath, _outputPakPath);
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
 
         // 1 merged data file + 1 asset file = 2 staged files.
         Assert.Equal(2, result.PackedFileCount);
@@ -180,7 +181,7 @@ public class RebuildServiceTests : IDisposable
         var pakService = new FakeUnrealPakService();
         var service = new RebuildService(pakService);
 
-        await service.RebuildAsync([mod], _dataFolder, _unrealPakExePath, _outputPakPath);
+        await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
 
         Assert.False(Directory.Exists(pakService.LastStagingDirectory));
     }

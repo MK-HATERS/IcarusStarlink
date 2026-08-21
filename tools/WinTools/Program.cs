@@ -36,7 +36,7 @@ switch (args[0])
         SelectByText(int.Parse(args[1]), args[2]);
         break;
     case "select-combo-item":
-        SelectComboItem(int.Parse(args[1]), args[2]);
+        SelectComboItem(int.Parse(args[1]), args[2], args.Length > 3 ? int.Parse(args[3]) : 0);
         break;
     case "expand":
         Expand(int.Parse(args[1]), args[2]);
@@ -217,9 +217,18 @@ static void SelectByText(int pid, string exactText)
 // WPF ComboBox popups are their own top-level HWND (see GetAllRoots' remarks) and, empirically,
 // don't survive being expanded in one WinTools process and selected from in the next — the popup
 // closes in between. This does expand + select in a single process run so the popup stays open.
-static void SelectComboItem(int pid, string exactText)
+// comboIndex picks which ComboBox on the page (0-indexed, visual-tree order) when there's more
+// than one — FindByTypeAndName alone always grabs the first.
+static void SelectComboItem(int pid, string exactText, int comboIndex = 0)
 {
-    var combo = FindByTypeAndName(GetAllRoots(pid), "ComboBox", "");
+    var combos = GetAllRoots(pid)
+        .SelectMany(root => root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ComboBox)).Cast<AutomationElement>())
+        .ToList();
+    if (comboIndex >= combos.Count)
+    {
+        throw new InvalidOperationException($"Only {combos.Count} ComboBox(es) found, index {comboIndex} out of range");
+    }
+    var combo = combos[comboIndex];
     ((ExpandCollapsePattern)combo.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
     System.Threading.Thread.Sleep(300);
 

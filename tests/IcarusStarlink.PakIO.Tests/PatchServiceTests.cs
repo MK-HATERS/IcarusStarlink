@@ -34,6 +34,25 @@ public class PatchServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ExportAsync_ThenImportAsync_RoundTripsGameplayOptions()
+    {
+        var manifest = new PatchManifest
+        {
+            ProfileName = "Weekend Build",
+            Mods = [],
+            Options = new GameplayOptions { XpBoost = BoostLevel.Level1, SlotsMultiplier = 2, UnlimitedAmmo = true },
+        };
+        var path = Path.Combine(_dir, "patch.json");
+        await _service.ExportAsync(manifest, new Dictionary<string, ExmodPackageContents>(), path);
+
+        var result = await _service.ImportAsync(path);
+
+        Assert.Equal(BoostLevel.Level1, result.Manifest.Options.XpBoost);
+        Assert.Equal(2, result.Manifest.Options.SlotsMultiplier);
+        Assert.True(result.Manifest.Options.UnlimitedAmmo);
+    }
+
+    [Fact]
     public async Task ExportAsync_ThenImportAsync_JsonPatch_RoundTripsManifestWithNoBundledMods()
     {
         var manifest = new PatchManifest

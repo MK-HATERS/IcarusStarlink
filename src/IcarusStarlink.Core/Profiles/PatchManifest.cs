@@ -11,6 +11,8 @@ public sealed class PatchManifest
 
     /// <summary>Same order as the profile's own MergeQueueFolderNames (index 0 = lowest priority).</summary>
     public List<PatchModEntry> Mods { get; set; } = [];
+
+    public GameplayOptions Options { get; set; } = new();
 }
 
 /// <summary>

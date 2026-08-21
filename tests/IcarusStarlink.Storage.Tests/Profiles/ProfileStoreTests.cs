@@ -28,6 +28,27 @@ public class ProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public void Save_ThenLoad_RoundTripsGameplayOptions()
+    {
+        var store = CreateStore();
+        var options = new GameplayOptions
+        {
+            SpeedBoost = BoostLevel.Level2,
+            CraftCost = CraftCostReduction.TwentyFivePercent,
+            StacksMultiplier = 3.5,
+            RemoveWeight = true,
+        };
+        store.Save(new Profile { Name = "Main", MergeQueueFolderNames = [], Options = options });
+
+        var loaded = CreateStore().Load("Main");
+
+        Assert.Equal(BoostLevel.Level2, loaded.Options.SpeedBoost);
+        Assert.Equal(CraftCostReduction.TwentyFivePercent, loaded.Options.CraftCost);
+        Assert.Equal(3.5, loaded.Options.StacksMultiplier);
+        Assert.True(loaded.Options.RemoveWeight);
+    }
+
+    [Fact]
     public void Save_PersistsAcrossStoreInstances()
     {
         CreateStore().Save(new Profile { Name = "Main", MergeQueueFolderNames = [] });
