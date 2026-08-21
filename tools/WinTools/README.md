@@ -28,16 +28,26 @@ Get the running app's PID first (e.g. `tasklist` or `Get-Process IcarusStarlink.
 - `click <pid> <controlType> <nameContains>` — finds the first control whose
   type ends with `controlType` and whose Name contains `nameContains`
   (case-insensitive) across all top-level windows for pid, then invokes it via
-  whichever of Invoke/SelectionItem/Toggle pattern it supports. Note a Popup
-  with `StaysOpen="False"` (used for this app's Columns picker, and by
-  ComboBox dropdowns) can auto-dismiss between separate WinTools process
-  launches — chain the "open it" and "click inside it" calls with `&&` in one
-  shell command rather than two separate tool calls, or the second one won't
-  find what the first one just opened.
+  whichever of Invoke/SelectionItem/Toggle/ExpandCollapse pattern it supports.
+  Note a Popup with `StaysOpen="False"` (used for this app's Columns picker,
+  and by ComboBox dropdowns) can auto-dismiss between separate WinTools
+  process launches — chain the "open it" and "click inside it" calls with
+  `&&` in one shell command rather than two separate tool calls, or the
+  second one won't find what the first one just opened. For a ComboBox
+  specifically, prefer `select-combo-item` below — it hit this exact problem
+  even when chained, since expanding a ComboBox and then re-querying its
+  items needed a delay in between, not just being in the same shell command.
 - `select-by-text <pid> <exactText>` — finds an element with that exact Name,
   walks up to the nearest ancestor supporting SelectionItemPattern, and
   selects it. Useful for TreeView/ListBox rows whose own Name is a generic
   type string rather than the row's visible text.
+- `select-combo-item <pid> <exactText>` — finds the first ComboBox, expands
+  it, waits briefly for its popup items to realize, then selects the item
+  with that exact text — all in one process run. Added in Phase 6.3 because
+  a ComboBox's dropdown is its own top-level popup HWND that doesn't survive
+  being expanded in one WinTools process and selected from in the next (the
+  popup closes in between, even chained with `&&`); doing both steps inside
+  one process keeps the popup alive throughout.
 - `set-text <pid> <editIndex> <text>` — sets the Nth Edit control's value via
   ValuePattern (0-indexed, in visual-tree order).
 - `expand <pid> <exactText>` / `is-expanded <pid> <exactText>` — finds the
