@@ -37,6 +37,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private readonly ILibraryRepository _libraryRepository;
     private readonly INexusWatchlistStore _watchlistStore;
     private readonly ISettingsService _settingsService;
+    private readonly PerformanceTracker _performanceTracker;
     private readonly INexusApiClient _nexusApiClient;
     private readonly ICredentialStore _credentialStore;
     private readonly IPendingDownloadStore _pendingDownloadStore;
@@ -169,6 +170,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         ICredentialStore credentialStore,
         IPendingDownloadStore pendingDownloadStore,
         HttpClient downloadHttpClient,
+        PerformanceTracker performanceTracker,
         string pendingDownloadsDirectory)
     {
         _daedalusClient = daedalusClient;
@@ -177,6 +179,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         _libraryRepository = libraryRepository;
         _watchlistStore = watchlistStore;
         _settingsService = settingsService;
+        _performanceTracker = performanceTracker;
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
         _pendingDownloadStore = pendingDownloadStore;
@@ -260,6 +263,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         try
         {
+            using var perfScope = _performanceTracker.Track("RefreshCatalog");
             // Each source is isolated the same way GitHubRepoDateClient already isolates its own
             // per-repo fetches — one source being down (a transient outage, a renamed endpoint)
             // shouldn't discard the other source's already-successful results via a shared

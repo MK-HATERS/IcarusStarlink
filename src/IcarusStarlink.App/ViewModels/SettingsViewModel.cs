@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Catalog.Ue4ss;
 using IcarusStarlink.Core.Nexus;
@@ -33,6 +34,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly HttpClient _httpClient;
     private readonly string _backupDirectory;
     private readonly string _dataOutputDirectory;
+    private readonly string _logsDirectory;
+    private readonly string _settingsFilePath;
 
     public string Title => "Settings";
 
@@ -139,7 +142,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         ISettingsService settingsService, IUnrealPakService unrealPakService, IWeeklyChangeReportStore weeklyChangeReportStore,
         ISteamInstallLocator steamInstallLocator, ICredentialStore credentialStore, INexusApiClient nexusApiClient,
         INxmProtocolRegistrar nxmProtocolRegistrar, IUe4ssLoaderInstallService ue4ssLoaderInstallService,
-        IUe4ssReleaseClient ue4ssReleaseClient, HttpClient httpClient, string backupDirectory, string dataOutputDirectory)
+        IUe4ssReleaseClient ue4ssReleaseClient, HttpClient httpClient, string backupDirectory, string dataOutputDirectory,
+        string logsDirectory, string settingsFilePath)
     {
         _settingsService = settingsService;
         _unrealPakService = unrealPakService;
@@ -153,8 +157,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         _httpClient = httpClient;
         _backupDirectory = backupDirectory;
         _dataOutputDirectory = dataOutputDirectory;
+        _logsDirectory = logsDirectory;
+        _settingsFilePath = settingsFilePath;
         _icarusContentPath = settingsService.Current.IcarusContentPath;
         _unrealPakExePath = settingsService.Current.UnrealPakExePath;
+        _performanceTrackingEnabled = settingsService.Current.PerformanceTrackingEnabled;
         _isNxmProtocolRegisteredToThisApp = nxmProtocolRegistrar.IsRegisteredToThisApp();
 
         if (!string.IsNullOrWhiteSpace(IcarusContentPath))
@@ -559,6 +566,48 @@ public sealed partial class SettingsViewModel : ObservableObject
                 // Best-effort cleanup of a temp file — leaving a stray one behind isn't worth
                 // surfacing over whatever the install itself already reported.
             }
+        }
+    }
+
+    // --- Diagnostics & safety (Phase 9) ---
+    [ObservableProperty]
+    private bool _performanceTrackingEnabled;
+
+    [ObservableProperty]
+    private string? _diagnosticsStatusMessage;
+
+    /// <summary>Saves immediately on toggle, matching Downloads' own column-visibility checkboxes — this isn't gated behind the Save Settings button, since a diagnostic on/off switch has no reason to wait.</summary>
+    partial void OnPerformanceTrackingEnabledChanged(bool value)
+    {
+        _settingsService.Current.PerformanceTrackingEnabled = value;
+        _settingsService.Save();
+    }
+
+    [RelayCommand]
+    private void ExportDiagnostics()
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export diagnostics zip",
+            FileName = $"IcarusStarlink-Diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.zip",
+            Filter = "Zip archive (*.zip)|*.zip",
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, dialog.FileName);
+            DiagnosticsStatusMessage = $"Exported to '{dialog.FileName}'.";
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as everywhere else — a locked log file or a full disk shows a
+            // status message, not a crash, even for a feature whose whole purpose is helping
+            // diagnose a crash.
+            DiagnosticsStatusMessage = $"Export failed: {ex.Message}";
         }
     }
 }

@@ -98,10 +98,21 @@
         <TextBlock Text="{Binding GameDataOutdatedMessage}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"
                    TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,10"
                    Visibility="{Binding GameDataOutdatedMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-        <StackPanel Orientation="Horizontal">
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
             <Button Content="Update data folder" Command="{Binding UpdateDataFolderCommand}"/>
             <TextBlock Text="{Binding DataFolderStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+        </StackPanel>
+
+        <TextBlock Text="Diagnostics &amp; safety" Style="{StaticResource FieldLabelStyle}"/>
+        <TextBlock Text="If you run into a bug, export a diagnostics zip (logs + sanitized settings, never API keys or tokens) to attach to your report."
+                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="560"/>
+        <CheckBox Content="Performance tracking" IsChecked="{Binding PerformanceTrackingEnabled}" Margin="0,0,0,10"
+                  ToolTip="Off by default. When on, logs how long Rebuild/Install/catalog-refresh take to a separate app.perf log file — useful if something feels slow and you want to show real numbers in a bug report."/>
+        <StackPanel Orientation="Horizontal">
+            <Button Content="Export diagnostics zip…" Command="{Binding ExportDiagnosticsCommand}"/>
+            <TextBlock Text="{Binding DiagnosticsStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
         </StackPanel>
     </StackPanel>
     </ScrollViewer>

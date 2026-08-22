@@ -3,6 +3,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Windows;
 using IcarusStarlink.App.Services;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.GitHub;
@@ -96,6 +97,7 @@ public partial class App : Application
 
         builder.Services.AddSingleton<ISettingsService>(sp =>
             new AppSettingsService(appDataDirectory, sp.GetRequiredService<ILogger<AppSettingsService>>()));
+        builder.Services.AddSingleton(sp => new PerformanceTracker(sp.GetRequiredService<ISettingsService>(), logsDirectory));
         builder.Services.AddSingleton<IThemeService, ThemeService>();
         builder.Services.AddSingleton<ILibraryRepository>(sp =>
             new FolderLibraryRepository(
@@ -177,6 +179,7 @@ public partial class App : Application
             sp.GetRequiredService<IDaedalusCatalogClient>(),
             sp.GetRequiredService<IJimk72CatalogClient>(),
             sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<PerformanceTracker>(),
             Path.Combine(appDataDirectory, "Data"),
             Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
             Path.Combine(appDataDirectory, "Backups")));
@@ -191,6 +194,7 @@ public partial class App : Application
             sp.GetRequiredService<ICredentialStore>(),
             sp.GetRequiredService<IPendingDownloadStore>(),
             sp.GetRequiredService<HttpClient>(),
+            sp.GetRequiredService<PerformanceTracker>(),
             Path.Combine(appDataDirectory, "Pending_Downloads")));
         builder.Services.AddSingleton(sp => new NexusBrowserViewModel(Path.Combine(appDataDirectory, "WebView2")));
         builder.Services.AddSingleton(sp => new SettingsViewModel(
@@ -205,7 +209,9 @@ public partial class App : Application
             sp.GetRequiredService<IUe4ssReleaseClient>(),
             sp.GetRequiredService<HttpClient>(),
             Path.Combine(appDataDirectory, "Backups"),
-            Path.Combine(appDataDirectory, "Data")));
+            Path.Combine(appDataDirectory, "Data"),
+            logsDirectory,
+            Path.Combine(appDataDirectory, "settings.json")));
         builder.Services.AddSingleton<WeeklyChangesViewModel>();
         builder.Services.AddSingleton(sp => new ServerViewModel(
             sp.GetRequiredService<IFtpSiteStore>(),

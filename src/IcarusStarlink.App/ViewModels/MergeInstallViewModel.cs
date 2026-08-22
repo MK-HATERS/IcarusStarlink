@@ -43,6 +43,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     private readonly IDaedalusCatalogClient _daedalusClient;
     private readonly IJimk72CatalogClient _jimk72Client;
     private readonly ISettingsService _settingsService;
+    private readonly PerformanceTracker _performanceTracker;
     private readonly string _dataFolder;
     private readonly string _outputPakPath;
     private readonly string _backupDirectory;
@@ -149,7 +150,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     public MergeInstallViewModel(
         ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
         IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
-        ISettingsService settingsService, string dataFolder, string outputPakPath, string backupDirectory)
+        ISettingsService settingsService, PerformanceTracker performanceTracker, string dataFolder, string outputPakPath, string backupDirectory)
     {
         _libraryRepository = libraryRepository;
         _rebuildService = rebuildService;
@@ -159,6 +160,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         _daedalusClient = daedalusClient;
         _jimk72Client = jimk72Client;
         _settingsService = settingsService;
+        _performanceTracker = performanceTracker;
         _dataFolder = dataFolder;
         _outputPakPath = outputPakPath;
         _backupDirectory = backupDirectory;
@@ -700,6 +702,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
+            using var perfScope = _performanceTracker.Track("Rebuild");
             var (_, packages) = await LoadQueuedPackagesAsync();
 
             var result = await _rebuildService.RebuildAsync(
@@ -832,6 +835,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
+            using var perfScope = _performanceTracker.Track("Install");
             var result = await _installService.InstallAsync(
                 _outputPakPath, _settingsService.Current.IcarusContentPath!, _backupDirectory);
 
