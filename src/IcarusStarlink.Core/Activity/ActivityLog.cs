@@ -2,9 +2,9 @@ using System.Collections.ObjectModel;
 
 namespace IcarusStarlink.Core.Activity;
 
-public enum ActivityKind { Info, Success, Warning }
+public enum ActivityEntryKind { Info, Success, Warning }
 
-public sealed record ActivityEntry(string Message, ActivityKind Kind, DateTimeOffset Timestamp);
+public sealed record ActivityEntry(string Message, ActivityEntryKind Kind, DateTimeOffset Timestamp);
 
 /// <summary>
 /// Phase 10: a cross-cutting, app-wide feed of recent actions — Rebuild/Install/import/save
@@ -16,7 +16,7 @@ public interface IActivityLog
     /// <summary>Newest entry first. Capped — see MaxEntries.</summary>
     ObservableCollection<ActivityEntry> Entries { get; }
 
-    void Log(string message, ActivityKind kind = ActivityKind.Info);
+    void Log(string message, ActivityEntryKind kind = ActivityEntryKind.Info);
 }
 
 /// <summary>In-memory only — this session's own activity, not persisted across restarts.</summary>
@@ -26,7 +26,7 @@ public sealed class ActivityLog : IActivityLog
 
     public ObservableCollection<ActivityEntry> Entries { get; } = [];
 
-    public void Log(string message, ActivityKind kind = ActivityKind.Info)
+    public void Log(string message, ActivityEntryKind kind = ActivityEntryKind.Info)
     {
         Entries.Insert(0, new ActivityEntry(message, kind, DateTimeOffset.Now));
         while (Entries.Count > MaxEntries)

@@ -34,7 +34,13 @@
 
                     <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="True">
                         <Grid DockPanel.Dock="Right" Margin="8,0,0,0">
-                            <Button x:Name="ColumnsButton" Content="Columns" Command="{Binding ToggleColumnsMenuCommand}"/>
+                            <Button x:Name="ColumnsButton" Command="{Binding ToggleColumnsMenuCommand}" AutomationProperties.Name="Columns">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconGearTeeth}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Columns" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
                             <Popup PlacementTarget="{Binding ElementName=ColumnsButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
                                    IsOpen="{Binding IsColumnsMenuOpen, Mode=TwoWay}"
                                    DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
@@ -54,7 +60,12 @@
                             </Popup>
                         </Grid>
                         <Button DockPanel.Dock="Right" Content="Clear filters" Command="{Binding ClearCatalogFiltersCommand}" Margin="8,0,0,0"/>
-                        <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshCatalogCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+                        <Button DockPanel.Dock="Right" Command="{Binding RefreshCatalogCommand}" Style="{StaticResource PrimaryButtonStyle}" AutomationProperties.Name="Refresh">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource AccentForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Refresh" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                         <TextBox Text="{Binding CatalogSearchText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
                                  ToolTip="Search by name, author, or description"/>
                     </DockPanel>
@@ -129,8 +140,45 @@
                                                      Visibility="{Binding Data.ShowCompatibilityColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                 <DataGridTextColumn Header="Category" Binding="{Binding CategoryDisplay}" Width="150"
                                                      Visibility="{Binding Data.ShowCategoryColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="90"
-                                                     Visibility="{Binding Data.ShowStatusColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <DataGridTemplateColumn Header="Status" Width="90"
+                                                         Visibility="{Binding Data.ShowStatusColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <!-- Phase 10: a small semantic badge instead of plain text — same
+                                                 pill treatment Merge & Install's conflict badge uses. -->
+                                            <Border CornerRadius="8" Padding="7,2" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="{DynamicResource CardRaisedBackgroundBrush}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsOutdated}" Value="True">
+                                                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsDownloaded}" Value="True">
+                                                                <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="{Binding Status}" FontSize="10.5" FontFamily="Consolas">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsOutdated}" Value="True">
+                                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsDownloaded}" Value="True">
+                                                                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Border>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="Last Updated" Binding="{Binding LastUpdatedDisplay}" Width="90"
                                                      Visibility="{Binding Data.ShowLastUpdatedColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                             </DataGrid.Columns>
@@ -143,10 +191,10 @@
                             </Grid.RowDefinitions>
 
                             <StackPanel Grid.Row="0" Visibility="{Binding SelectedCatalogEntry, Converter={StaticResource NullToVisibilityConverter}}">
-                                <Border Height="120" Background="{DynamicResource PanelBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                                        BorderThickness="1" CornerRadius="4" Margin="0,0,0,8">
-                                    <TextBlock Text="No image" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"/>
+                                <Border Height="120" Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1" CornerRadius="6" Margin="0,0,0,8">
+                                    <Path Data="{StaticResource IconMountains}" Stroke="{DynamicResource FaintForegroundBrush}" StrokeThickness="1.6"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="30" Height="30" Stretch="Uniform"/>
                                 </Border>
                                 <TextBlock Text="{Binding SelectedCatalogEntry.Name}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                 <TextBlock Margin="0,2,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -155,10 +203,23 @@
                                     <Run Text="{Binding SelectedCatalogEntry.Version, Mode=OneWay}"/>
                                 </TextBlock>
                                 <TextBlock Text="{Binding SelectedCatalogEntry.Entry.Description}" Style="{StaticResource PageBodyTextStyle}" MaxWidth="260" Margin="0,0,0,12"/>
-                                <Button Content="Download &amp; extract" Command="{Binding DownloadAndExtractCommand}"
+                                <Button Command="{Binding DownloadAndExtractCommand}"
                                         Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,0,8"
-                                        IsEnabled="{Binding SelectedCatalogEntry.HasDownloadableFile}"/>
-                                <Button Content="Open readme" Command="{Binding OpenCatalogReadmeCommand}"/>
+                                        IsEnabled="{Binding SelectedCatalogEntry.HasDownloadableFile}"
+                                        AutomationProperties.Name="Download and extract">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Download &amp; extract" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Command="{Binding OpenCatalogReadmeCommand}" AutomationProperties.Name="Open readme">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Open readme" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
                         </Grid>
                     </Grid>
@@ -182,7 +243,13 @@
                              ToolTip="Filter my Nexus list…"/>
 
                     <DockPanel Grid.Row="1" Margin="0,0,0,8" LastChildFill="True">
-                        <Button DockPanel.Dock="Right" Content="Add mod URL" Command="{Binding AddNexusUrlCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+                        <Button DockPanel.Dock="Right" Command="{Binding AddNexusUrlCommand}" Style="{StaticResource PrimaryButtonStyle}" AutomationProperties.Name="Add mod URL">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconPlus}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Add mod URL" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                         <TextBox Text="{Binding NewNexusUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
                                  ToolTip="Paste a nexusmods.com/icarus/mods/&lt;id&gt; URL"/>
                     </DockPanel>
@@ -203,9 +270,11 @@
                             <DataGridTemplateColumn Header="Update?" Width="90">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="Available" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"
-                                                   VerticalAlignment="Center" Margin="4,0"
-                                                   Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        <Border CornerRadius="8" Padding="7,2" Background="{DynamicResource AccentSoftBrush}"
+                                                HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
+                                            <TextBlock Text="Available" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold" FontSize="10.5" FontFamily="Consolas"/>
+                                        </Border>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
@@ -214,11 +283,35 @@
                     </DataGrid>
 
                     <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
-                        <Button Content="Browse on Nexus" Command="{Binding BrowseOnNexusCommand}" Margin="0,0,8,0"/>
-                        <Button Content="Check for updates" Command="{Binding CheckForNexusUpdatesCommand}" Margin="0,0,8,0"
-                                ToolTip="Checks every mod above against Nexus's own recently-updated list (last month) — needs a signed-in Nexus API key, set in Settings"/>
-                        <Button Content="Import file…" Command="{Binding ImportNexusFileCommand}" Margin="0,0,8,0"/>
-                        <Button Content="Remove from list" Command="{Binding RemoveNexusEntryCommand}"/>
+                        <Button Command="{Binding BrowseOnNexusCommand}" Margin="0,0,8,0" AutomationProperties.Name="Browse on Nexus">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconGlobeMeridian}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Browse on Nexus" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding CheckForNexusUpdatesCommand}" Margin="0,0,8,0"
+                                ToolTip="Checks every mod above against Nexus's own recently-updated list (last month) — needs a signed-in Nexus API key, set in Settings"
+                                AutomationProperties.Name="Check for updates">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Check for updates" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding ImportNexusFileCommand}" Margin="0,0,8,0" AutomationProperties.Name="Import file">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Import file…" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding RemoveNexusEntryCommand}" AutomationProperties.Name="Remove from list">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Remove from list" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                         <TextBlock Text="Checking…" VerticalAlignment="Center" Margin="12,0,0,0"
                                    Foreground="{DynamicResource SecondaryForegroundBrush}"
                                    Visibility="{Binding IsCheckingNexusUpdates, Converter={StaticResource BoolToVisibilityConverter}}"/>
@@ -243,8 +336,15 @@
                     </TextBlock>
 
                     <DockPanel Grid.Row="1" Margin="0,0,0,8" LastChildFill="True">
-                        <Button DockPanel.Dock="Right" Content="Fetch" Command="{Binding FetchNxmUrlCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                ToolTip="Manually paste and fetch an nxm:// link — the same path a real 'Mod Manager Download' click will eventually use"/>
+                        <Button DockPanel.Dock="Right" Command="{Binding FetchNxmUrlCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                ToolTip="Manually paste and fetch an nxm:// link — the same path a real 'Mod Manager Download' click will eventually use"
+                                AutomationProperties.Name="Fetch">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Fetch" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                         <TextBox Text="{Binding ManualNxmUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
                                  ToolTip="Paste an nxm://icarus/mods/&lt;id&gt;/files/&lt;id&gt; link"/>
                     </DockPanel>
@@ -258,14 +358,28 @@
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal">
-                                            <Button Content="Activate" Margin="4,2"
+                                            <Button Margin="4,2"
                                                     Command="{Binding DataContext.ActivatePendingDownloadCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                     CommandParameter="{Binding}"
-                                                    ToolTip="Import this file into your Library"/>
-                                            <Button Content="Discard" Margin="4,2"
+                                                    ToolTip="Import this file into your Library"
+                                                    AutomationProperties.Name="Activate">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
+                                                    <TextBlock Text="Activate" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Margin="4,2"
                                                     Command="{Binding DataContext.DiscardPendingDownloadCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                     CommandParameter="{Binding}"
-                                                    ToolTip="Delete the downloaded file and remove it from this list"/>
+                                                    ToolTip="Delete the downloaded file and remove it from this list"
+                                                    AutomationProperties.Name="Discard">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
+                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
+                                                    <TextBlock Text="Discard" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
                                         </StackPanel>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using IcarusStarlink.App.ViewModels;
@@ -9,6 +10,56 @@ public partial class LibraryView : UserControl
     public LibraryView()
     {
         InitializeComponent();
+        DataContextChanged += (_, e) =>
+        {
+            if (e.OldValue is INotifyPropertyChanged oldVm)
+            {
+                oldVm.PropertyChanged -= ViewModel_PropertyChanged;
+            }
+
+            if (e.NewValue is INotifyPropertyChanged newVm)
+            {
+                newVm.PropertyChanged += ViewModel_PropertyChanged;
+            }
+        };
+    }
+
+    // TreeView.SelectedItem has no setter (see LibraryTree_SelectedItemChanged's own comment), so
+    // setting the ViewModel's SelectedItem to null on its own never reaches the real
+    // TreeViewItem.IsSelected — DeleteSelected() deletes the mod and removes its row while WPF
+    // still considers that TreeViewItem "selected". WPF's TreeView does not defensively clean up
+    // its own internal selection tracking when a still-selected container disappears via a
+    // targeted Remove (as opposed to a full Reset) — it silently blocks the next selection
+    // attempt (clicking a different, still-present row does nothing) until something else forces
+    // the TreeView into a clean state, which is why navigating away and back (a full visual-tree
+    // rebuild) was the only way to recover. This handler runs synchronously off the SelectedItem
+    // PropertyChanged notification — before Reload()'s own removal of the row — so it can clear
+    // the real IsSelected on the doomed container while it's still there to find.
+    private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(LibraryViewModel.SelectedItem)
+            && DataContext is LibraryViewModel { SelectedItem: null })
+        {
+            ClearTreeViewSelection(LibraryTree);
+        }
+    }
+
+    private static void ClearTreeViewSelection(ItemsControl container)
+    {
+        foreach (var item in container.Items)
+        {
+            if (container.ItemContainerGenerator.ContainerFromItem(item) is not TreeViewItem treeViewItem)
+            {
+                continue;
+            }
+
+            if (treeViewItem.IsSelected)
+            {
+                treeViewItem.IsSelected = false;
+            }
+
+            ClearTreeViewSelection(treeViewItem);
+        }
     }
 
     // TreeView.SelectedItem has no setter, so it can't be bound directly — forward it to the

@@ -8,7 +8,7 @@ using IcarusStarlink.PakIO.Exmod;
 
 if (args.Length == 0)
 {
-    Console.WriteLine("usage: capture|list-controls|click|set-text|seed-library|select-by-text|expand|is-expanded|right-click ...");
+    Console.WriteLine("usage: capture|list-controls|click|set-text|seed-library|select-by-text|expand|is-expanded|right-click|real-left-click ...");
     return 1;
 }
 
@@ -49,6 +49,9 @@ switch (args[0])
         break;
     case "right-click":
         RightClick(int.Parse(args[1]), args[2]);
+        break;
+    case "real-left-click":
+        RealLeftClick(int.Parse(args[1]), args[2]);
         break;
     case "scroll-bottom":
         ScrollBottom(int.Parse(args[1]));
@@ -382,6 +385,29 @@ static void RightClick(int pid, string exactText)
     Console.WriteLine($"right-clicked '{exactText}' at ({x},{y})");
 }
 
+// A genuine synthesized left click via real cursor movement + mouse_event, not a UI Automation
+// pattern invocation — added specifically because SelectionItemPattern.Select() (what
+// select-by-text uses) does not reliably exercise the same code path a real left-click does for
+// some controls (e.g. TreeView's own internal selection bookkeeping), so a bug that only
+// reproduces via genuine mouse input can silently not reproduce through automation-pattern-based
+// selection alone. Same single-monitor/uniform-DPI caveat as right-click.
+static void RealLeftClick(int pid, string exactText)
+{
+    var root = GetRoot(pid);
+    var textEl = root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, exactText))
+        .Cast<AutomationElement>()
+        .FirstOrDefault()
+        ?? throw new InvalidOperationException($"No element with exact text '{exactText}' found");
+
+    var rect = textEl.Current.BoundingRectangle;
+    var x = (int)(rect.Left + rect.Width / 2);
+    var y = (int)(rect.Top + rect.Height / 2);
+    NativeMethods.SetCursorPos(x, y);
+    NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+    NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+    Console.WriteLine($"left-clicked '{exactText}' at ({x},{y})");
+}
+
 // Scrolls the first ScrollPattern-supporting element (this app's pages are typically one page-level
 // ScrollViewer wrapping everything) all the way down — for capturing a screenshot of content below
 // the fold, since none of the click/select commands above need visibility to act on an element (UIA
@@ -445,6 +471,8 @@ internal static class NativeMethods
 {
     public const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
     public const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+    public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    public const uint MOUSEEVENTF_LEFTUP = 0x0004;
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);

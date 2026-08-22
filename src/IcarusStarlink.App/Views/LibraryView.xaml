@@ -128,27 +128,27 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
-                        <Button Command="{Binding RefreshCommand}" Margin="0,0,8,0" ToolTip="Re-scan Extracted_Mods from disk">
+                        <Button Command="{Binding RefreshCommand}" Margin="0,0,8,0" ToolTip="Re-scan Extracted_Mods from disk" AutomationProperties.Name="Refresh">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
                                 <TextBlock Text="Refresh" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <Button Command="{Binding NewModCommand}" Margin="0,0,8,0" ToolTip="Create a blank EXMOD (name + author) and open it in the editor">
+                        <Button Command="{Binding NewModCommand}" Margin="0,0,8,0" ToolTip="Create a blank EXMOD (name + author) and open it in the editor" AutomationProperties.Name="New mod">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconPlus}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                       StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
                                 <TextBlock Text="New mod…" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <Button Command="{Binding ImportFileCommand}" Margin="0,0,8,0">
+                        <Button Command="{Binding ImportFileCommand}" Margin="0,0,8,0" AutomationProperties.Name="Import EXMODZ">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                       StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
                                 <TextBlock Text="Import EXMODZ…" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <Button Command="{Binding ImportFolderCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0">
+                        <Button Command="{Binding ImportFolderCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0" AutomationProperties.Name="Import folder">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
                                       StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -156,7 +156,8 @@
                             </StackPanel>
                         </Button>
                         <Button Command="{Binding ImportPakCommand}"
-                                ToolTip="Import a prebuilt .pak as an opaque library entry — no .EXMOD, can't be browsed or edited">
+                                ToolTip="Import a prebuilt .pak as an opaque library entry — no .EXMOD, can't be browsed or edited"
+                                AutomationProperties.Name="Import .pak">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconPackage}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
                                       StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -246,14 +247,14 @@
                                                 </ToggleButton.Style>
                                             </ToggleButton>
                                             <Button Command="{Binding EditSelectedCommand}" Margin="0,0,8,4"
-                                                    ToolTip="Open this mod's Item fields in the EXMOD editor">
+                                                    ToolTip="Open this mod's Item fields in the EXMOD editor" AutomationProperties.Name="Edit selected mod">
                                                 <StackPanel Orientation="Horizontal">
                                                     <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
                                                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
                                                     <TextBlock Text="Edit…" VerticalAlignment="Center"/>
                                                 </StackPanel>
                                             </Button>
-                                            <Button Command="{Binding DeleteSelectedCommand}" Margin="0,0,0,4">
+                                            <Button Command="{Binding DeleteSelectedCommand}" Margin="0,0,0,4" AutomationProperties.Name="Delete selected mod">
                                                 <StackPanel Orientation="Horizontal">
                                                     <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
                                                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>

@@ -280,7 +280,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             StatusMessage = $"Created '{entry.Name}'.";
             Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-            _activityLog.Log($"Created new mod '{entry.Name}'.", ActivityKind.Success);
+            _activityLog.Log($"Created new mod '{entry.Name}'.", ActivityEntryKind.Success);
             OpenEditor(entry.FolderName);
         }
         catch (Exception ex)
@@ -353,7 +353,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         StatusMessage = $"Deleted '{name}'.";
         Reload();
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-        _activityLog.Log($"Deleted '{name}'.", ActivityKind.Info);
+        _activityLog.Log($"Deleted '{name}'.", ActivityEntryKind.Info);
     }
 
     /// <summary>Shared by ImportFolder/ImportFile/ImportPak — same try/catch/status/reload shape, differing only in which repository method actually reads sourcePath.</summary>
@@ -365,7 +365,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             StatusMessage = $"Imported '{entry.Name}'.";
             Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-            _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityKind.Success);
+            _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {

@@ -317,7 +317,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             SelectedProfileName = name;
             ProfileNameInput = "";
             ProfileStatusMessage = $"Created '{name}'.";
-            _activityLog.Log($"Created profile '{name}'.", ActivityKind.Success);
+            _activityLog.Log($"Created profile '{name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
@@ -338,7 +338,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = BuildGameplayOptionsFromUi() });
             ProfileStatusMessage = $"Saved '{name}'.";
-            _activityLog.Log($"Saved profile '{name}'.", ActivityKind.Success);
+            _activityLog.Log($"Saved profile '{name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
@@ -731,7 +731,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             }
 
             var pickNote = _manualPicks is { Count: > 0 } picks ? $", {picks.Count} conflict(s) manually resolved" : "";
-            _activityLog.Log($"Rebuilt pack with {Queue.Count} mod(s) — {result.PackedFileCount} files packed{pickNote}.", ActivityKind.Success);
+            _activityLog.Log($"Rebuilt pack with {Queue.Count} mod(s) — {result.PackedFileCount} files packed{pickNote}.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
@@ -824,7 +824,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 return;
             }
 
-            _activityLog.Log($"{conflicts.Count} conflict(s) found among {modNames.Count} queued mod(s).", ActivityKind.Warning);
+            _activityLog.Log($"{conflicts.Count} conflict(s) found among {modNames.Count} queued mod(s).", ActivityEntryKind.Warning);
 
             var pickerViewModel = new ConflictPickerViewModel(conflicts, _manualPicks);
             var window = new ConflictPickerWindow(pickerViewModel) { Owner = Application.Current.MainWindow };
@@ -901,7 +901,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             InstallStatusMessage = result.BackupPakPath is not null
                 ? $"Installed to '{result.InstalledPakPath}'. Backed up the previous pak to '{result.BackupPakPath}'."
                 : $"Installed to '{result.InstalledPakPath}'.";
-            _activityLog.Log($"Installed pack to {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityKind.Success);
+            _activityLog.Log($"Installed pack to {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {

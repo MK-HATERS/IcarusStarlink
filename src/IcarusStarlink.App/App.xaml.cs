@@ -202,6 +202,7 @@ public partial class App : Application
             sp.GetRequiredService<IPendingDownloadStore>(),
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<PerformanceTracker>(),
+            sp.GetRequiredService<IActivityLog>(),
             Path.Combine(appDataDirectory, "Pending_Downloads")));
         builder.Services.AddSingleton(sp => new NexusBrowserViewModel(Path.Combine(appDataDirectory, "WebView2")));
         builder.Services.AddSingleton(sp => new SettingsViewModel(

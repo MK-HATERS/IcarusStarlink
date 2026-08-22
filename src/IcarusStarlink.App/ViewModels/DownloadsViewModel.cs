@@ -13,6 +13,7 @@ using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Catalog.Nexus;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
@@ -42,6 +43,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private readonly ICredentialStore _credentialStore;
     private readonly IPendingDownloadStore _pendingDownloadStore;
     private readonly HttpClient _downloadHttpClient;
+    private readonly IActivityLog _activityLog;
     private readonly string _pendingDownloadsDirectory;
     private readonly DebounceTimer _searchDebounceTimer;
 
@@ -171,6 +173,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         IPendingDownloadStore pendingDownloadStore,
         HttpClient downloadHttpClient,
         PerformanceTracker performanceTracker,
+        IActivityLog activityLog,
         string pendingDownloadsDirectory)
     {
         _daedalusClient = daedalusClient;
@@ -184,6 +187,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         _credentialStore = credentialStore;
         _pendingDownloadStore = pendingDownloadStore;
         _downloadHttpClient = downloadHttpClient;
+        _activityLog = activityLog;
         _pendingDownloadsDirectory = pendingDownloadsDirectory;
 
         _showAuthorColumn = settingsService.Current.CatalogShowAuthorColumn;
@@ -305,6 +309,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
             CatalogStatusMessage = failedSources.Count > 0
                 ? $"Loaded {_allCatalogEntries.Count} mods — {string.Join(" and ", failedSources)} unavailable, try Refresh again."
                 : $"Loaded {_allCatalogEntries.Count} mods.";
+            _activityLog.Log($"Catalog refreshed — {_allCatalogEntries.Count} mods.", failedSources.Count > 0 ? ActivityEntryKind.Warning : ActivityEntryKind.Info);
             // Inside the try, not after the whole try/catch/finally: this method is invoked
             // fire-and-forget (`_ = RefreshCatalogAsync();`) from the constructor specifically
             // because its own top-level try/catch was meant to guarantee no unobserved exception
@@ -469,6 +474,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
             CatalogStatusMessage = $"Downloaded and imported '{imported.Name}'.";
             ApplyCatalogFilters();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            _activityLog.Log($"Downloaded and imported '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
@@ -747,6 +753,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
             ReloadPendingDownloads();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             PendingDownloadStatusMessage = $"Imported '{entry.Name}' into your Library.";
+            _activityLog.Log($"Activated pending download '{entry.Name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {

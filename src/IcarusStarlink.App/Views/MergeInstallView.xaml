@@ -24,7 +24,7 @@
             <Button DockPanel.Dock="Right" Content="Delete" Command="{Binding DeleteProfileCommand}" Margin="8,0,0,0"/>
             <Button DockPanel.Dock="Right" Content="Rename" Command="{Binding RenameProfileCommand}" Margin="8,0,0,0"/>
             <Button DockPanel.Dock="Right" Content="Save" Command="{Binding SaveProfileCommand}" Margin="8,0,0,0"/>
-            <Button DockPanel.Dock="Right" Command="{Binding NewProfileCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0">
+            <Button DockPanel.Dock="Right" Command="{Binding NewProfileCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0" AutomationProperties.Name="New profile">
                 <StackPanel Orientation="Horizontal">
                     <Path Data="{StaticResource IconPlus}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -38,7 +38,8 @@
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
             <Button Command="{Binding ExportPatchCommand}"
-                    ToolTip="Share the selected profile's mod list with a friend or server — bundles anything not in the community catalog">
+                    ToolTip="Share the selected profile's mod list with a friend or server — bundles anything not in the community catalog"
+                    AutomationProperties.Name="Export patch">
                 <StackPanel Orientation="Horizontal">
                     <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -46,7 +47,8 @@
                 </StackPanel>
             </Button>
             <Button Command="{Binding ImportPatchCommand}" Margin="8,0,0,0"
-                    ToolTip="Load a patch someone shared — recreates its profile and syncs any bundled mods into your Library">
+                    ToolTip="Load a patch someone shared — recreates its profile and syncs any bundled mods into your Library"
+                    AutomationProperties.Name="Import patch">
                 <StackPanel Orientation="Horizontal">
                     <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -153,7 +155,7 @@
                         <Path Data="{StaticResource IconArrowDown}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                               StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform"/>
                     </Button>
-                    <Button Command="{Binding RemoveFromQueueCommand}" Margin="0,0,8,0">
+                    <Button Command="{Binding RemoveFromQueueCommand}" Margin="0,0,8,0" AutomationProperties.Name="Remove from queue">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -171,7 +173,7 @@
                 </StackPanel>
 
                 <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,16,0,0">
-                    <Button Command="{Binding RebuildCommand}" Style="{StaticResource PrimaryButtonStyle}">
+                    <Button Command="{Binding RebuildCommand}" Style="{StaticResource PrimaryButtonStyle}" AutomationProperties.Name="Rebuild">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconMerge}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -196,7 +198,7 @@
                 <StackPanel Grid.Row="8" Orientation="Horizontal" Margin="0,16,0,0">
                     <!-- The one button in this whole app that writes into the real game's Content\Paks\mods —
                          deliberately not the same click as Rebuild, so it's never accidental. -->
-                    <Button Command="{Binding InstallCommand}">
+                    <Button Command="{Binding InstallCommand}" AutomationProperties.Name="Install">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
