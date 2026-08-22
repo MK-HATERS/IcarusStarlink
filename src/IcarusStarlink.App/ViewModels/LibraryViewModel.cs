@@ -14,6 +14,7 @@ using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
@@ -36,6 +37,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly Func<string, ExmodEditorViewModel> _editorFactory;
     private readonly IActivityLog _activityLog;
     private readonly HttpClient _downloadHttpClient;
+    private readonly IPendingDownloadStore _pendingDownloadStore;
     private readonly string _backupDirectory;
     private readonly DebounceTimer _searchDebounceTimer;
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
@@ -90,9 +92,11 @@ public sealed partial class LibraryViewModel : ObservableObject
         ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
         ISettingsService settingsService, IUnrealPakService unrealPakService, INexusApiClient nexusApiClient,
         ICredentialStore credentialStore, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
-        Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient, string backupDirectory)
+        Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
+        IPendingDownloadStore pendingDownloadStore, string backupDirectory)
     {
         _downloadHttpClient = downloadHttpClient;
+        _pendingDownloadStore = pendingDownloadStore;
         _repository = repository;
         _ue4ssModRepository = ue4ssModRepository;
         _ue4ssModStateService = ue4ssModStateService;
@@ -347,6 +351,17 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         if (string.Equals(item.Source, "Nexus", StringComparison.OrdinalIgnoreCase))
         {
+            // Nexus downloads persist in Pending Downloads (MO2-style) — if a file for this mod is
+            // already sitting there, activating it is one click closer than a fresh browser trip,
+            // so point there instead of the website. (Can't distinguish which version that file is
+            // — PendingDownloadEntry carries no version — so this stays a pointer, not an
+            // automatic activation of a possibly-older file.)
+            if (item.NexusModId is { } nexusModId && _pendingDownloadStore.Entries.Any(e => e.ModId == nexusModId))
+            {
+                StatusMessage = "A downloaded file for this mod is already in Downloads → Pending Downloads — Activate/Reinstall it there (or re-download from Nexus if it's older than the update).";
+                return;
+            }
+
             item.OpenOnNexusCommand.Execute(null);
             StatusMessage = "Opened the mod's Nexus page — use its Mod Manager Download button to pull the update through this app.";
             return;

@@ -182,6 +182,7 @@ public partial class App : Application
             sp.GetRequiredService<Func<string, ExmodEditorViewModel>>(),
             sp.GetRequiredService<IActivityLog>(),
             sp.GetRequiredService<HttpClient>(),
+            sp.GetRequiredService<IPendingDownloadStore>(),
             Path.Combine(appDataDirectory, "Backups")));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
