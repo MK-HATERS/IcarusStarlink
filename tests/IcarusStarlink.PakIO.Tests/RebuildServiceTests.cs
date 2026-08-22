@@ -57,6 +57,36 @@ public class RebuildServiceTests : IDisposable
         public Task<string?> TryGetDataPakHashAsync(string icarusContentPath, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        // Real IReadOnlyDictionary keyed by pak file path -> the fake "contents" to drop into
+        // outputDirectory when that pak is "extracted" — a real UnrealPak.exe isn't available in a
+        // unit test, so this stands in for it the same way FakeProcessRunner does elsewhere.
+        // ListPakContentsAsync (RebuildService's own pre-extraction collision check) reads the same
+        // map's keys, matching what a real -List call would report before anything is written.
+        public Dictionary<string, Dictionary<string, string>> FakeExtractedFilesByPakPath { get; } = [];
+
+        public Task<IReadOnlyList<string>> ListPakContentsAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<string>>(
+                FakeExtractedFilesByPakPath.TryGetValue(pakFilePath, out var files) ? [.. files.Keys] : []);
+        public List<string> ExtractedPakPaths { get; } = [];
+
+        public Task<int> ExtractPakAsync(string unrealPakExePath, string pakFilePath, string outputDirectory, CancellationToken cancellationToken = default)
+        {
+            ExtractedPakPaths.Add(pakFilePath);
+            if (!FakeExtractedFilesByPakPath.TryGetValue(pakFilePath, out var files))
+            {
+                return Task.FromResult(0);
+            }
+
+            foreach (var (relativePath, content) in files)
+            {
+                var path = Path.Combine(outputDirectory, relativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllText(path, content);
+            }
+
+            return Task.FromResult(files.Count);
+        }
+
         // RebuildAsync deletes its own staging directory in a finally block before returning, so
         // both the file list and each file's content have to be captured here, while this call
         // is still executing — nothing after RebuildAsync returns can see the staging dir at all.
@@ -84,11 +114,34 @@ public class RebuildServiceTests : IDisposable
         var pakService = new FakeUnrealPakService();
         var service = new RebuildService(pakService);
 
-        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
 
         Assert.Equal(1, result.MergedFileCount);
         var stagedJson = pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"];
         Assert.Contains("\"CraftTime\": 1", stagedJson);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_ReportsProgressThroughToCompletion()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var pakService = new FakeUnrealPakService();
+        var service = new RebuildService(pakService);
+        var reported = new List<RebuildStageProgress>();
+
+        await service.RebuildAsync(
+            [mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [], progress: new Progress<RebuildStageProgress>(reported.Add));
+
+        // Progress<T> marshals through SynchronizationContext.Post, which without a real UI message
+        // loop (as here, in a test) runs synchronously — still, give it a moment so a flush isn't
+        // required for this assertion to be meaningful either way.
+        Assert.NotEmpty(reported);
+        Assert.Equal(0, reported[0].PercentComplete);
+        Assert.Equal(100, reported[^1].PercentComplete);
+        Assert.True(reported.Select(p => p.PercentComplete).SequenceEqual(reported.Select(p => p.PercentComplete).OrderBy(p => p)),
+            "Percentages should never go backwards across the pipeline.");
     }
 
     [Fact]
@@ -104,7 +157,7 @@ public class RebuildServiceTests : IDisposable
 
         // modB is later in the queue (higher priority) — matches MergeEngine's own
         // "index 0 = lowest priority" convention.
-        await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
+        await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
 
         var stagedJson = pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"];
         Assert.Contains("\"CraftTime\": 2", stagedJson);
@@ -128,7 +181,7 @@ public class RebuildServiceTests : IDisposable
             [("Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe", "CraftTime")] = 0, // modA, not the last
         };
 
-        await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, manualPicks);
+        await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [], manualPicks);
 
         var stagedJson = pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"];
         Assert.Contains("\"CraftTime\": 1", stagedJson);
@@ -149,7 +202,7 @@ public class RebuildServiceTests : IDisposable
         var pakService = new FakeUnrealPakService();
         var service = new RebuildService(pakService);
 
-        var result = await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
+        var result = await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
 
         // Exactly one staged file for the pair (not two, one per casing variant) — the winning
         // group's own CurrentFile casing (whichever mod's it happens to be) decides the on-disk
@@ -169,7 +222,7 @@ public class RebuildServiceTests : IDisposable
         var pakService = new FakeUnrealPakService();
         var service = new RebuildService(pakService);
 
-        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
 
         Assert.Equal(0, result.MergedFileCount);
         Assert.Contains(result.Warnings, w => w.Contains("NoSuchCategory-D_Missing.json"));
@@ -185,7 +238,7 @@ public class RebuildServiceTests : IDisposable
         var pakService = new FakeUnrealPakService();
         var service = new RebuildService(pakService);
 
-        await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
+        await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
 
         Assert.Contains("BP/Building/BP_Thing.uasset", pakService.StagedRelativePathsAtCallTime);
     }
@@ -200,7 +253,7 @@ public class RebuildServiceTests : IDisposable
             new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(2) });
         var service = new RebuildService(new FakeUnrealPakService());
 
-        var result = await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
+        var result = await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
 
         var manifest = await File.ReadAllTextAsync(result.ManifestPath);
         Assert.Contains("Includes the following mods:", manifest);
@@ -217,10 +270,81 @@ public class RebuildServiceTests : IDisposable
             assets: [new ExmodAssetEntry("BP/Thing.uasset", [1])]);
         var service = new RebuildService(new FakeUnrealPakService());
 
-        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
 
         // 1 merged data file + 1 asset file = 2 staged files.
         Assert.Equal(2, result.PackedFileCount);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_AttachedPrebuiltPak_ItsContentsAreFoldedIntoTheSameStaging()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Mod With Asset", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) },
+            assets: [new ExmodAssetEntry("BP/Building/BP_Thing.uasset", [1, 2, 3])]);
+        var prebuiltPakPath = Path.Combine(_tempDir, "SomeMod_P.pak");
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFilesByPakPath[prebuiltPakPath] = new() { ["Prebuilt/Thing.uasset"] = "prebuilt bytes" };
+        var service = new RebuildService(pakService);
+
+        await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath]);
+
+        // Both the queued EXMOD mod's own asset and the attached prebuilt pak's own extracted
+        // content land in the exact same staging folder that CreatePakAsync packs — one final pak,
+        // not two separate files.
+        Assert.Contains(prebuiltPakPath, pakService.ExtractedPakPaths);
+        Assert.Contains("BP/Building/BP_Thing.uasset", pakService.StagedRelativePathsAtCallTime);
+        Assert.Contains("Prebuilt/Thing.uasset", pakService.StagedRelativePathsAtCallTime);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_PrebuiltPakOverwritesAFieldMergedPath_AddsWarning()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Mod A", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var prebuiltPakPath = Path.Combine(_tempDir, "SomeMod_P.pak");
+        var pakService = new FakeUnrealPakService();
+        // Collides with the exact path StageMergedTables writes the field-merged table to.
+        pakService.FakeExtractedFilesByPakPath[prebuiltPakPath] = new() { ["data/Crafting/D_ProcessorRecipes.json"] = "raw overwrite" };
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath]);
+
+        Assert.Contains(result.Warnings, w => w.Contains("SomeMod_P") && w.Contains("data/Crafting/D_ProcessorRecipes.json"));
+        // The prebuilt pak's own raw bytes still win on disk — the warning discloses the loss, it
+        // doesn't prevent it (there's genuinely no way to reconcile raw bytes against a merge).
+        var stagedJson = pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"];
+        Assert.Equal("raw overwrite", stagedJson);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_PrebuiltPakWithNoCollisions_NoWarning()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Mod A", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var prebuiltPakPath = Path.Combine(_tempDir, "SomeMod_P.pak");
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFilesByPakPath[prebuiltPakPath] = new() { ["Prebuilt/Thing.uasset"] = "prebuilt bytes" };
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath]);
+
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_AttachedPrebuiltPak_NameIsListedInTheManifest()
+    {
+        var prebuiltPakPath = Path.Combine(_tempDir, "SomeMod_P.pak");
+        var service = new RebuildService(new FakeUnrealPakService());
+
+        var result = await service.RebuildAsync([], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath]);
+
+        var manifest = await File.ReadAllTextAsync(result.ManifestPath);
+        Assert.Contains("SomeMod_P", manifest);
     }
 
     [Fact]
@@ -232,7 +356,7 @@ public class RebuildServiceTests : IDisposable
         var pakService = new FakeUnrealPakService();
         var service = new RebuildService(pakService);
 
-        await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
+        await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
 
         Assert.False(Directory.Exists(pakService.LastStagingDirectory));
     }

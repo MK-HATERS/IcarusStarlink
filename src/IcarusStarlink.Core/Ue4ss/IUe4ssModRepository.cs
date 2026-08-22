@@ -16,6 +16,16 @@ public interface IUe4ssModRepository
     /// <summary>Extracts a UE4SS mod zip into staging, deriving a folder name from the zip itself and disambiguating on collision. Returns the folder name it landed under.</summary>
     string Import(string zipFilePath);
 
+    /// <summary>
+    /// Stages a UE4SS mod from an already-extracted folder — e.g. Downloads' Activate, which
+    /// extracts a downloaded archive first and only then determines it's a UE4SS mod rather than
+    /// an EXMOD or a prebuilt pak. Mirrors Import's own "strip a single wrapping folder if
+    /// present" logic, but there's no zip filename to fall back on for naming when there isn't
+    /// one — fallbackName (the original archive's own name, sans extension) covers that case.
+    /// Returns the folder name it landed under (disambiguated on collision, same as Import).
+    /// </summary>
+    string ImportFromFolder(string sourceFolder, string fallbackName);
+
     void Delete(string folderName);
 
     string GetFolderPath(string folderName);

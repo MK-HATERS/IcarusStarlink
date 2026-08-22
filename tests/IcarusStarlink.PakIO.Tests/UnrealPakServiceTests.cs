@@ -285,6 +285,150 @@ public class UnrealPakServiceTests : IDisposable
         Assert.StartsWith("-Create=", runner.LastArguments[1]);
     }
 
+    // Real output captured by running -List against a real installed pak during planning.
+    private const string RealisticListOutput = """
+        LogInit: Display: Loading text-based GConfig....
+        LogPakFile: Display: Using command line for crypto configuration
+        LogPakFile: Display: Mount point ../../../Icarus/Content/
+        LogPakFile: Display: "Rada_CheatMenu/BP/BP_CheatMenuDummy.uasset" offset: 0, size: 9662 bytes, sha1: 3FE5A7055CEC10EA2198733BFF5C3C7BC4663A71, compression: Zlib.
+        LogPakFile: Display: "Rada_CheatMenu/E_CheatCategory.uasset" offset: 14978, size: 922 bytes, sha1: 828E50FFA55669064C48DA8CC19B8DECAEC9BF27, compression: None.
+        LogPakFile: Display: "UI/Components/UMG_RevisionNumber.uexp" offset: 585314, size: 881 bytes, sha1: 42FD3B56E56771A4BD99C420AAAF0EEB91585F98, compression: Zlib.
+        LogPakFile: Display: 291 files (567550 bytes), (0 filtered bytes).
+        LogPakFile: Display: Unreal pak executed in 0.005162 seconds
+        """;
+
+    [Fact]
+    public async Task ListPakContentsAsync_RealisticOutput_ParsesEveryEntryPathAndSkipsSummaryLines()
+    {
+        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
+        File.WriteAllText(pakPath, "fake pak bytes");
+        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(0, RealisticListOutput, "")));
+
+        var paths = await service.ListPakContentsAsync(_unrealPakExePath, pakPath);
+
+        Assert.Equal(
+            ["Rada_CheatMenu/BP/BP_CheatMenuDummy.uasset", "Rada_CheatMenu/E_CheatCategory.uasset", "UI/Components/UMG_RevisionNumber.uexp"],
+            paths);
+    }
+
+    [Fact]
+    public async Task ListPakContentsAsync_PassesPakPathAndListFlag()
+    {
+        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
+        File.WriteAllText(pakPath, "fake pak bytes");
+        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "", ""));
+        var service = new UnrealPakService(runner);
+
+        await service.ListPakContentsAsync(_unrealPakExePath, pakPath);
+
+        Assert.Equal(_unrealPakExePath, runner.LastFileName);
+        Assert.Equal([pakPath, "-List"], runner.LastArguments);
+    }
+
+    [Fact]
+    public async Task ListPakContentsAsync_MissingExePath_ThrowsFileNotFoundException()
+    {
+        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
+        File.WriteAllText(pakPath, "fake pak bytes");
+        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(0, "", "")));
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            service.ListPakContentsAsync(Path.Combine(_tempDir, "NoSuchExe.exe"), pakPath));
+    }
+
+    [Fact]
+    public async Task ListPakContentsAsync_MissingPakFile_ThrowsFileNotFoundException()
+    {
+        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(0, "", "")));
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            service.ListPakContentsAsync(_unrealPakExePath, Path.Combine(_tempDir, "NoSuchPak.pak")));
+    }
+
+    [Fact]
+    public async Task ListPakContentsAsync_NonZeroExitCode_ThrowsWithStandardErrorInMessage()
+    {
+        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
+        File.WriteAllText(pakPath, "fake pak bytes");
+        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(1, "", "corrupt pak")));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ListPakContentsAsync(_unrealPakExePath, pakPath));
+        Assert.Contains("corrupt pak", ex.Message);
+    }
+
+    // Real output captured by running -Extract against a real installed pak during planning.
+    private const string RealisticExtractOutput = """
+        LogInit: Display: Loading text-based GConfig....
+        LogPakFile: Display: Using command line for crypto configuration
+        LogPakFile: Display: Mount point ../../../Icarus/Content/
+        LogPakFile: Display: Extracted "Rada_CheatMenu/BP/BP_CheatMenuDummy.uasset" to "C:\Temp\out/Rada_CheatMenu/BP/BP_CheatMenuDummy.uasset" Offset 0.
+        LogPakFile: Display: Extracted "UI/Components/UMG_RevisionNumber.uexp" to "C:\Temp\out/UI/Components/UMG_RevisionNumber.uexp" Offset 585314.
+        LogPakFile: Display: Unreal pak executed in 0.179808 seconds
+        """;
+
+    [Fact]
+    public async Task ExtractPakAsync_RealisticOutput_ReturnsExtractedFileCountFromExtractedLines()
+    {
+        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
+        File.WriteAllText(pakPath, "fake pak bytes");
+        var outputDirectory = Path.Combine(_tempDir, "Extracted");
+        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(0, RealisticExtractOutput, "")));
+
+        var count = await service.ExtractPakAsync(_unrealPakExePath, pakPath, outputDirectory);
+
+        Assert.Equal(2, count);
+    }
+
+    [Fact]
+    public async Task ExtractPakAsync_PassesPakPathAndExtractFlagAndOutputDirectory()
+    {
+        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
+        File.WriteAllText(pakPath, "fake pak bytes");
+        var outputDirectory = Path.Combine(_tempDir, "Extracted");
+        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "", ""));
+        var service = new UnrealPakService(runner);
+
+        await service.ExtractPakAsync(_unrealPakExePath, pakPath, outputDirectory);
+
+        Assert.Equal(_unrealPakExePath, runner.LastFileName);
+        Assert.Equal([pakPath, "-Extract", outputDirectory], runner.LastArguments);
+    }
+
+    [Fact]
+    public async Task ExtractPakAsync_OutputDirectoryDoesNotExist_IsCreated()
+    {
+        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
+        File.WriteAllText(pakPath, "fake pak bytes");
+        var outputDirectory = Path.Combine(_tempDir, "Extracted");
+        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(0, "", "")));
+
+        await service.ExtractPakAsync(_unrealPakExePath, pakPath, outputDirectory);
+
+        Assert.True(Directory.Exists(outputDirectory));
+    }
+
+    [Fact]
+    public async Task ExtractPakAsync_MissingPakFile_ThrowsFileNotFoundException()
+    {
+        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(0, "", "")));
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            service.ExtractPakAsync(_unrealPakExePath, Path.Combine(_tempDir, "NoSuchPak.pak"), Path.Combine(_tempDir, "Extracted")));
+    }
+
+    [Fact]
+    public async Task ExtractPakAsync_NonZeroExitCode_ThrowsWithStandardErrorInMessage()
+    {
+        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
+        File.WriteAllText(pakPath, "fake pak bytes");
+        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(1, "", "corrupt pak")));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ExtractPakAsync(_unrealPakExePath, pakPath, Path.Combine(_tempDir, "Extracted")));
+        Assert.Contains("corrupt pak", ex.Message);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))

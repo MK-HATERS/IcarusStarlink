@@ -9,11 +9,13 @@ public sealed class GameplayLevelToShortLabelConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value switch
     {
-        BoostLevel.Off or CraftCostReduction.Off => "Off",
-        BoostLevel.Level1 => "L1",
-        BoostLevel.Level2 => "L2",
+        BoostLevel.Off or CraftCostReduction.Off or XpBoostLevel.Off => "Off",
+        BoostLevel.Level1 or XpBoostLevel.Level1 => "L1",
+        BoostLevel.Level2 or XpBoostLevel.Level2 => "L2",
+        XpBoostLevel.Level3 => "L3",
         CraftCostReduction.TwentyFivePercent => "25%",
         CraftCostReduction.FiftyPercent => "50%",
+        CraftCostReduction.Creative => "Free",
         _ => value?.ToString() ?? "",
     };
 

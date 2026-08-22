@@ -6,10 +6,16 @@ using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
+using IcarusStarlink.Catalog;
+using IcarusStarlink.Catalog.Daedalus;
+using IcarusStarlink.Catalog.Jimk72;
+using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
+using IcarusStarlink.PakIO.Pak;
 using Microsoft.Win32;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -20,6 +26,11 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IUe4ssModRepository _ue4ssModRepository;
     private readonly IUe4ssModStateService _ue4ssModStateService;
     private readonly ISettingsService _settingsService;
+    private readonly IUnrealPakService _unrealPakService;
+    private readonly INexusApiClient _nexusApiClient;
+    private readonly ICredentialStore _credentialStore;
+    private readonly IDaedalusCatalogClient _daedalusClient;
+    private readonly IJimk72CatalogClient _jimk72Client;
     private readonly Func<string, ExmodEditorViewModel> _editorFactory;
     private readonly IActivityLog _activityLog;
     private readonly string _backupDirectory;
@@ -62,14 +73,27 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private string? _ue4ssStatusMessage;
 
+    [ObservableProperty]
+    private bool _isCheckingForUpdates;
+
+    [ObservableProperty]
+    private string? _updateCheckStatusMessage;
+
     public LibraryViewModel(
         ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
-        ISettingsService settingsService, Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, string backupDirectory)
+        ISettingsService settingsService, IUnrealPakService unrealPakService, INexusApiClient nexusApiClient,
+        ICredentialStore credentialStore, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
+        Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, string backupDirectory)
     {
         _repository = repository;
         _ue4ssModRepository = ue4ssModRepository;
         _ue4ssModStateService = ue4ssModStateService;
         _settingsService = settingsService;
+        _unrealPakService = unrealPakService;
+        _nexusApiClient = nexusApiClient;
+        _credentialStore = credentialStore;
+        _daedalusClient = daedalusClient;
+        _jimk72Client = jimk72Client;
         _editorFactory = editorFactory;
         _activityLog = activityLog;
         _backupDirectory = backupDirectory;
@@ -87,6 +111,11 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         Reload();
         ReloadInstalledUe4ssMods();
+
+        // Constructors can't be async — same "fire it and let the method itself handle every
+        // failure" shape DownloadsViewModel's own launch-time Nexus check already uses. Silent:
+        // no "sign in first" nag if unconfigured, that only shows on an explicit button click.
+        _ = CheckForUpdatesAsync(isAutomatic: true);
     }
 
     partial void OnSearchTextChanged(string value) => _searchDebounceTimer.Restart();
@@ -183,7 +212,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         var dialog = new OpenFolderDialog { Title = "Select the mod's extracted folder" };
         if (dialog.ShowDialog() == true)
         {
-            TryImport(dialog.FolderName, _repository.Import);
+            TryImport(dialog.FolderName, path => _repository.Import(path));
         }
     }
 
@@ -198,7 +227,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         if (dialog.ShowDialog() == true)
         {
-            TryImport(dialog.FileName, _repository.Import);
+            TryImport(dialog.FileName, path => _repository.Import(path));
         }
     }
 
@@ -213,7 +242,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         if (dialog.ShowDialog() == true)
         {
-            TryImport(dialog.FileName, _repository.ImportPak);
+            TryImport(dialog.FileName, path => _repository.ImportPak(path));
         }
     }
 
@@ -288,6 +317,142 @@ public sealed partial class LibraryViewModel : ObservableObject
             // Same UI boundary as TryImport — folder creation can fail for the same reasons any
             // other Extracted_Mods write can (permission denied, disk full, ...).
             StatusMessage = $"Couldn't create the mod: {ex.Message}";
+        }
+    }
+
+    /// <summary>Snapshots the mod's whole folder — a safety net before a risky manual edit, independent of the EXMOD editor's own transient per-field preview.</summary>
+    [RelayCommand]
+    private void BackupMod(LibraryItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _repository.BackupMod(item.FolderName);
+            StatusMessage = $"Backed up '{item.Name}'.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Backup failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Replaces the mod's current folder with its own most recent backup — a real point-in-time
+    /// restore, so this is gated the same way every other hard-to-reverse action in this app is.
+    /// </summary>
+    [RelayCommand]
+    private void RestoreModBackup(LibraryItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        var confirmResult = MessageBox.Show(
+            $"This replaces '{item.Name}''s current content with its most recent backup — any edit made since then is lost.\n\nContinue?",
+            "Restore backup", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirmResult != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            var restored = _repository.RestoreLatestModBackup(item.FolderName);
+            StatusMessage = restored ? $"Restored '{item.Name}' from its latest backup." : $"No backup exists yet for '{item.Name}'.";
+            if (restored)
+            {
+                Reload();
+                WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Restore failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Manually connects a Library entry (however it got here — a manual Import, or an unmatched
+    /// entry from a future bulk import) to a real Nexus mod ID, so it starts participating in
+    /// update-checking like anything activated through the real nxm:// pipeline. Best-effort
+    /// enrichment afterward (real name/author/version via the API) mirrors
+    /// DownloadsViewModel.EnrichOpaquePakFromNexusAsync's own two-step shape — a rejected/missing
+    /// key just means the ID link itself still succeeds without the extra display data.
+    /// </summary>
+    [RelayCommand]
+    private async Task LinkToNexus(LibraryItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        var dialog = new LinkNexusDialog { Owner = Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            _repository.LinkToNexus(item.FolderName, dialog.NexusModId);
+
+            var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+            if (apiKey is not null)
+            {
+                try
+                {
+                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", dialog.NexusModId);
+                    if (info is not null)
+                    {
+                        _repository.SetNexusMetadata(item.FolderName, info.Name, info.Author, info.Summary, info.Version);
+                    }
+                }
+                catch (Exception)
+                {
+                    // Best-effort — the ID link above already succeeded regardless.
+                }
+            }
+
+            StatusMessage = $"Linked '{item.Name}' to Nexus mod #{dialog.NexusModId}.";
+            Reload();
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't link to Nexus: {ex.Message}";
+        }
+    }
+
+    /// <summary>Opens a small dialog to override how a mod's own name displays in Library — never touches its real folder, FileName, or file content. Reset clears the override; Cancel does nothing.</summary>
+    [RelayCommand]
+    private void RenameItem(LibraryItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        var dialog = new RenameModDialog(item.Name) { Owner = Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            _repository.SetDisplayNameOverride(item.FolderName, dialog.NewDisplayName);
+            Reload();
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't rename: {ex.Message}";
         }
     }
 
@@ -493,7 +658,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         // this, a pin saves correctly but the row silently stays wherever it already was in the
         // tree until some unrelated change (a search edit, a delete) happens to trigger the next
         // Reload().
-        var created = new LibraryItemViewModel(entry, _repository, status => StatusMessage = status, () => Reload());
+        var created = new LibraryItemViewModel(entry, _repository, _unrealPakService, _settingsService, status => StatusMessage = status, () => Reload());
         _itemsByFolderName[entry.FolderName] = created;
         return created;
     }
@@ -517,5 +682,132 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         group.Update(displayName, items);
         return group;
+    }
+
+    [RelayCommand]
+    private Task CheckForUpdates() => CheckForUpdatesAsync(isAutomatic: false);
+
+    /// <summary>
+    /// Nexus-sourced mods get a real version lookup via the Nexus API (same GetModInfoAsync the
+    /// Activate enrichment flow already uses), compared against each mod's own currently-known
+    /// Version. Database-sourced mods cross-reference the live Daedalus+Jimk72 catalog by
+    /// (Name, Author) — same CatalogKey normalization Export Patch already uses — and compare its
+    /// Version field. Neither result is persisted; both are recomputed every call, matching
+    /// Downloads' own Nexus watchlist precedent ("a real but coarse signal... not persisted").
+    /// isAutomatic (the once-per-launch call from the constructor) suppresses status messages
+    /// entirely — no "sign in first" nag just from opening the app, only from an explicit click.
+    /// </summary>
+    private async Task CheckForUpdatesAsync(bool isAutomatic)
+    {
+        var nexusItems = _itemsByFolderName.Values
+            .Where(i => string.Equals(i.Source, "Nexus", StringComparison.OrdinalIgnoreCase) && i.NexusModId is not null)
+            .ToList();
+        var databaseItems = _itemsByFolderName.Values
+            .Where(i => string.Equals(i.Source, "Database", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (nexusItems.Count == 0 && databaseItems.Count == 0)
+        {
+            return;
+        }
+
+        IsCheckingForUpdates = true;
+        try
+        {
+            var updatedCount = 0;
+            var messages = new List<string>();
+
+            if (nexusItems.Count > 0)
+            {
+                var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+                if (apiKey is null)
+                {
+                    if (!isAutomatic)
+                    {
+                        messages.Add("Sign in with your Nexus API key in Settings to check Nexus-sourced mods.");
+                    }
+                }
+                else
+                {
+                    var results = await Task.WhenAll(nexusItems.Select(async item =>
+                    {
+                        try
+                        {
+                            var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", item.NexusModId!.Value);
+                            return (Item: item, Version: info?.Version);
+                        }
+                        catch (Exception)
+                        {
+                            // Best-effort per-mod — one bad lookup (rate limit, a since-removed
+                            // mod) shouldn't stop the rest of the batch from checking.
+                            return (Item: item, Version: (string?)null);
+                        }
+                    }));
+
+                    foreach (var (item, version) in results)
+                    {
+                        if (string.IsNullOrEmpty(version))
+                        {
+                            continue;
+                        }
+
+                        item.LatestVersion = version;
+                        if (item.HasUpdateAvailable)
+                        {
+                            updatedCount++;
+                        }
+                    }
+                }
+            }
+
+            if (databaseItems.Count > 0)
+            {
+                try
+                {
+                    // Isolated per-source, same as Downloads' own catalog refresh and Export
+                    // Patch's own lookup — a transient blip in either source shouldn't fail the
+                    // whole check.
+                    var failedSources = new List<string>();
+                    var daedalusTask = CatalogSourceFetch.FetchAsync(_daedalusClient.FetchAsync, "Daedalus", failedSources);
+                    var jimk72Task = CatalogSourceFetch.FetchAsync(_jimk72Client.FetchAsync, "Jimk72", failedSources);
+                    await Task.WhenAll(daedalusTask, jimk72Task);
+
+                    var catalogVersionByKey = new Dictionary<(string Name, string Author), string>();
+                    foreach (var catalogEntry in daedalusTask.Result.Concat(jimk72Task.Result))
+                    {
+                        catalogVersionByKey[CatalogKey.Normalize(catalogEntry.Name, catalogEntry.Author)] = catalogEntry.Version;
+                    }
+
+                    foreach (var item in databaseItems)
+                    {
+                        if (!catalogVersionByKey.TryGetValue(CatalogKey.Normalize(item.Name, item.Author), out var catalogVersion))
+                        {
+                            continue;
+                        }
+
+                        item.LatestVersion = catalogVersion;
+                        if (item.HasUpdateAvailable)
+                        {
+                            updatedCount++;
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    // Best-effort — a catalog fetch failure just means Database-sourced mods don't
+                    // get checked this time, not a reason to fail the whole update check.
+                }
+            }
+
+            if (!isAutomatic)
+            {
+                messages.Add(updatedCount > 0 ? $"{updatedCount} mod(s) have an update available." : "Everything checked is up to date.");
+                UpdateCheckStatusMessage = string.Join(" ", messages);
+            }
+        }
+        finally
+        {
+            IsCheckingForUpdates = false;
+        }
     }
 }

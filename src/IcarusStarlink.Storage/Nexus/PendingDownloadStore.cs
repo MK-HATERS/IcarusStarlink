@@ -32,5 +32,18 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
         Save();
     }
 
+    public void SetActivation(int modId, int fileId, string? folderName, PendingDownloadActivationKind? kind)
+    {
+        var entry = _entries.FirstOrDefault(e => e.ModId == modId && e.FileId == fileId);
+        if (entry is null)
+        {
+            return;
+        }
+
+        entry.ActivatedFolderName = folderName;
+        entry.ActivatedKind = kind;
+        Save();
+    }
+
     private void Save() => JsonFileStore.Save(_filePath, _entries);
 }

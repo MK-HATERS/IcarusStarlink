@@ -1,6 +1,6 @@
 namespace IcarusStarlink.Core.Profiles;
 
-/// <summary>Off/Level1/Level2 — shared by SpeedBoost, PlayerBoost, and XpBoost, whose real documented values (from classic IMM's own changelog) are each a fixed pair of levels, not a free scale.</summary>
+/// <summary>Off/Level1/Level2 — shared by SpeedBoost and PlayerBoost, whose real documented values (from classic IMM's own changelog) are each a fixed pair of levels, not a free scale.</summary>
 public enum BoostLevel
 {
     Off,
@@ -8,12 +8,22 @@ public enum BoostLevel
     Level2,
 }
 
-/// <summary>"Reduce crafting cost 25%/50%" per classic IMM's changelog — the only two documented levels; there's no "Level 3" to guess at.</summary>
+/// <summary>Off/Level1/Level2/Level3 — XpBoost's own levels, kept separate from BoostLevel because classic IMM's live changelog grew XpBoost a third tier (200%/500%/1000%) that SpeedBoost/PlayerBoost never got; a shared enum would let a user pick a Level3 those two have no documented values for.</summary>
+public enum XpBoostLevel
+{
+    Off,
+    Level1,
+    Level2,
+    Level3,
+}
+
+/// <summary>"Reduce crafting cost 25%/50%", plus "Creative mode... reduce all crafting bench costs to 0" — all three per classic IMM's live changelog (Creative added after the original two-tier research this enum was first built from).</summary>
 public enum CraftCostReduction
 {
     Off,
     TwentyFivePercent,
     FiftyPercent,
+    Creative,
 }
 
 /// <summary>
@@ -32,7 +42,7 @@ public sealed class GameplayOptions
 
     public BoostLevel PlayerBoost { get; set; }
 
-    public BoostLevel XpBoost { get; set; }
+    public XpBoostLevel XpBoost { get; set; }
 
     public CraftCostReduction CraftCost { get; set; }
 

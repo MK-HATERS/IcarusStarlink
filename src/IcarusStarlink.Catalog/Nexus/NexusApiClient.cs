@@ -77,6 +77,27 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         return [.. links.Select(l => new NexusDownloadLink(l.Uri, l.Name, l.ShortName))];
     }
 
+    public async Task<NexusModInfo?> GetModInfoAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{modId}");
+        request.Headers.Add("apikey", apiKey);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var dto = await response.Content.ReadFromJsonAsync<ModInfoResponseDto>(cancellationToken)
+            ?? throw new HttpRequestException("Nexus's mod-info endpoint returned an empty response.");
+
+        // Nexus's own web UI renders "name"/"summary" as HTML, so entities like "&amp;" are real
+        // content, not an API quirk — decode here, at the boundary, rather than leaking raw HTML
+        // entities into a plain-text UI (Library's detail pane) that never otherwise deals in HTML.
+        return new NexusModInfo(WebUtility.HtmlDecode(dto.Name), dto.Author, WebUtility.HtmlDecode(dto.Summary), dto.Version);
+    }
+
     private sealed class ValidateResponseDto
     {
         [JsonPropertyName("user_id")]
@@ -120,5 +141,21 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
         [JsonPropertyName("short_name")]
         public string ShortName { get; init; } = "";
+    }
+
+    private sealed class ModInfoResponseDto
+    {
+        // Absent when the mod is under moderation, per Nexus's own documented IModInfo shape.
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        [JsonPropertyName("author")]
+        public string Author { get; init; } = "";
+
+        [JsonPropertyName("summary")]
+        public string? Summary { get; init; }
+
+        [JsonPropertyName("version")]
+        public string Version { get; init; } = "";
     }
 }

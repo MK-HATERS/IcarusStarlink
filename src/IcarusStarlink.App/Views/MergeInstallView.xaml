@@ -72,29 +72,45 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Text="Library" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
 
                 <TreeView Grid.Row="1" x:Name="LibraryTree" ItemsSource="{Binding LibraryRootItems}"
-                          SelectedItemChanged="LibraryTree_SelectedItemChanged" BorderThickness="1"
-                          BorderBrush="{DynamicResource BorderBrush}">
+                          SelectedItemChanged="LibraryTree_SelectedItemChanged" MouseDoubleClick="LibraryTree_MouseDoubleClick"
+                          BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                          ToolTip="Double-click a mod to add it to the merge queue">
                     <TreeView.Resources>
                         <HierarchicalDataTemplate DataType="{x:Type core:LibraryGroup}" ItemsSource="{Binding Entries}">
                             <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
                         </HierarchicalDataTemplate>
                         <DataTemplate DataType="{x:Type core:LibraryEntry}">
                             <StackPanel Orientation="Horizontal">
+                                <!-- No .EXMOD field-level data — Rebuild unpacks it and folds its
+                                     contents into the merged pak instead of field-merging it. -->
+                                <Path Data="{StaticResource IconPackage}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.4"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"
+                                      Margin="0,0,5,0" VerticalAlignment="Center"
+                                      ToolTip="Prebuilt .pak — no field-level merge; its files are folded into the merged pak as-is on Rebuild"
+                                      Visibility="{Binding IsOpaquePak, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <Path Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" Data="{StaticResource IconCheck}"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"
+                                      Margin="0,0,5,0" VerticalAlignment="Center"
+                                      ToolTip="Already in the merge queue">
+                                    <Path.Visibility>
+                                        <MultiBinding Converter="{StaticResource LibraryEntryQueuedConverter}">
+                                            <Binding/>
+                                            <Binding Path="DataContext.Queue" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                            <Binding Path="DataContext.Queue.Count" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                        </MultiBinding>
+                                    </Path.Visibility>
+                                </Path>
                                 <TextBlock Text="{Binding Name}"/>
                                 <TextBlock Text="{Binding Author, StringFormat=' · {0}'}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
                             </StackPanel>
                         </DataTemplate>
                     </TreeView.Resources>
                 </TreeView>
-
-                <Button Grid.Row="2" Content="Add to queue →" Command="{Binding AddToQueueCommand}"
-                        Style="{StaticResource PrimaryButtonStyle}" Margin="0,8,0,0" HorizontalAlignment="Left"/>
             </Grid>
 
             <!-- Queue + Rebuild + Install pane -->
@@ -102,6 +118,7 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -140,8 +157,20 @@
                             </TextBlock>
                         </DockPanel>
                     </Border>
-                    <ListBox ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueEntry}"
-                             DisplayMemberPath="Name" MinHeight="100"/>
+                    <ListBox ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueEntry}" MinHeight="100">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconPackage}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.4"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"
+                                          Margin="0,0,5,0" VerticalAlignment="Center"
+                                          ToolTip="Prebuilt .pak — no field-level merge; its files are folded into the merged pak as-is on Rebuild"
+                                          Visibility="{Binding IsOpaquePak, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    <TextBlock Text="{Binding Name}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </DockPanel>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
@@ -173,36 +202,53 @@
                 </StackPanel>
 
                 <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,16,0,0">
-                    <Button Command="{Binding RebuildCommand}" Style="{StaticResource PrimaryButtonStyle}" AutomationProperties.Name="Rebuild">
+                    <!-- One button now does the whole "merge, then install" flow — chained internally
+                         (RebuildAndInstallCommand), not merged into one method, so the real-game-write
+                         confirmation dialog still appears only right before that actual write, after
+                         the safe local rebuild step completes. Label reflects whether this app already
+                         has something installed (a fresh "Install" vs. re-running it as "Update install"). -->
+                    <Button Command="{Binding RebuildAndInstallCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                            AutomationProperties.Name="{Binding InstallButtonLabel}"
+                            ToolTip="Merges the queue into a pak and installs it into the real game folder, in one step">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconMerge}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                            <TextBlock Text="Rebuild" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding InstallButtonLabel}" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                     <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                 </StackPanel>
 
-                <ListBox Grid.Row="5" ItemsSource="{Binding Warnings}" Margin="0,8,0,0" MaxHeight="120"
+                <Grid Grid.Row="5" Margin="0,8,0,0" Visibility="{Binding IsRebuilding, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <ProgressBar Grid.Column="0" Minimum="0" Maximum="100" Value="{Binding RebuildProgressPercent, Mode=OneWay}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{Binding RebuildStageText}" Margin="10,0,0,0" VerticalAlignment="Center"
+                               Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+                </Grid>
+
+                <ListBox Grid.Row="6" ItemsSource="{Binding Warnings}" Margin="0,8,0,0" MaxHeight="120"
                          Foreground="{DynamicResource AccentBrush}" FontSize="12"/>
 
-                <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,16,0,0">
+                <StackPanel Grid.Row="7" Orientation="Horizontal" Margin="0,16,0,0">
                     <Button Content="Compare to installed" Command="{Binding CompareToInstalledCommand}"
                             ToolTip="Preview what Install would actually change, by reading what this app can tell is currently installed."/>
                     <TextBlock Text="{Binding ComparisonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                 </StackPanel>
-                <ListBox Grid.Row="7" ItemsSource="{Binding ComparisonEntries}" Margin="0,8,0,0" MaxHeight="120" FontSize="12" FontFamily="Consolas"/>
+                <ListBox Grid.Row="8" ItemsSource="{Binding ComparisonEntries}" Margin="0,8,0,0" MaxHeight="120" FontSize="12" FontFamily="Consolas"/>
 
-                <StackPanel Grid.Row="8" Orientation="Horizontal" Margin="0,16,0,0">
-                    <!-- The one button in this whole app that writes into the real game's Content\Paks\mods —
-                         deliberately not the same click as Rebuild, so it's never accidental. -->
-                    <Button Command="{Binding InstallCommand}" AutomationProperties.Name="Install">
+                <StackPanel Grid.Row="9" Orientation="Horizontal" Margin="0,16,0,0">
+                    <Button Command="{Binding RemoveFromGameCommand}"
+                            ToolTip="Uninstalls IcarusStarlink's pak from the real game folder — doesn't touch your Library"
+                            AutomationProperties.Name="Remove from game">
                         <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                            <TextBlock Text="Install" VerticalAlignment="Center"/>
+                            <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                            <TextBlock Text="Remove from game" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                     <TextBlock Text="{Binding InstallStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
@@ -252,9 +298,9 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="XP Boost" FontSize="12"/>
                         <Path Style="{StaticResource InfoHintIconStyle}"
-                              ToolTip="Level 1: +500% XP. Level 2: +1000% XP. (Classic IMM's own documented values.)"/>
+                              ToolTip="Level 1: +200% XP. Level 2: +500% XP. Level 3: +1000% XP. (Classic IMM's own documented values.)"/>
                     </StackPanel>
-                    <ListBox ItemsSource="{Binding BoostLevels}" SelectedItem="{Binding XpBoost}"
+                    <ListBox ItemsSource="{Binding XpBoostLevels}" SelectedItem="{Binding XpBoost}"
                              Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -266,7 +312,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Craft Cost" FontSize="12"/>
                         <Path Style="{StaticResource InfoHintIconStyle}"
-                              ToolTip="Reduces the item/resource inputs every crafting-bench recipe needs. Never touches what a recipe outputs. (Classic IMM's own documented values.)"/>
+                              ToolTip="Reduces the item/resource inputs every crafting-bench recipe needs. Never touches what a recipe outputs. Free (Creative mode) zeroes every input outright rather than rounding it down. (Classic IMM's own documented values.)"/>
                     </StackPanel>
                     <ListBox ItemsSource="{Binding CraftCostReductions}" SelectedItem="{Binding CraftCost}"
                              Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">

@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
-using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -19,6 +18,8 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Ue4ss;
+using IcarusStarlink.PakIO.Container;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -30,12 +31,11 @@ namespace IcarusStarlink.App.ViewModels;
 /// </summary>
 public sealed partial class DownloadsViewModel : ObservableObject
 {
-    private static readonly Regex NexusModUrlPattern = new(@"nexusmods\.com/icarus/mods/(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
     private readonly IDaedalusCatalogClient _daedalusClient;
     private readonly IJimk72CatalogClient _jimk72Client;
     private readonly IGitHubRepoDateClient _gitHubRepoDateClient;
     private readonly ILibraryRepository _libraryRepository;
+    private readonly IUe4ssModRepository _ue4ssModRepository;
     private readonly INexusWatchlistStore _watchlistStore;
     private readonly ISettingsService _settingsService;
     private readonly PerformanceTracker _performanceTracker;
@@ -103,6 +103,17 @@ public sealed partial class DownloadsViewModel : ObservableObject
     [ObservableProperty]
     private int _catalogShownCount;
 
+    /// <summary>DataGrid.SelectedItems isn't a bindable DependencyProperty — set from DownloadsView's own code-behind SelectionChanged handler, same limitation/workaround the EXMOD editor's mass-edit selection already uses.</summary>
+    private IReadOnlyList<CatalogEntryViewModel> _selectedCatalogEntriesForBatch = [];
+
+    [ObservableProperty]
+    private int _selectedCatalogEntryCount;
+
+    /// <summary>Drives the batch-download button's visibility — a plain int bound through NullToVisibilityConverter would always read "has a value" (an int is never null), the same bug class already caught once this session, so this is a real bool instead.</summary>
+    public bool HasCatalogSelectionForBatch => SelectedCatalogEntryCount >= 2;
+
+    partial void OnSelectedCatalogEntryCountChanged(int value) => OnPropertyChanged(nameof(HasCatalogSelectionForBatch));
+
     [ObservableProperty]
     private int _catalogTotalCount;
 
@@ -166,6 +177,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         IJimk72CatalogClient jimk72Client,
         IGitHubRepoDateClient gitHubRepoDateClient,
         ILibraryRepository libraryRepository,
+        IUe4ssModRepository ue4ssModRepository,
         INexusWatchlistStore watchlistStore,
         ISettingsService settingsService,
         INexusApiClient nexusApiClient,
@@ -180,6 +192,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         _jimk72Client = jimk72Client;
         _gitHubRepoDateClient = gitHubRepoDateClient;
         _libraryRepository = libraryRepository;
+        _ue4ssModRepository = ue4ssModRepository;
         _watchlistStore = watchlistStore;
         _settingsService = settingsService;
         _performanceTracker = performanceTracker;
@@ -217,8 +230,19 @@ public sealed partial class DownloadsViewModel : ObservableObject
         // Activate, or an import) but, until now, never Registered to receive it — so the IMM
         // Database's Downloaded/Outdated/installed-version status went stale after an import or
         // delete that happened elsewhere (Library, or Merge & Install's own Install) until an
-        // unrelated filter change happened to recompute it.
-        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((DownloadsViewModel)recipient).ApplyCatalogFilters());
+        // unrelated filter change happened to recompute it. Also refreshes every Pending Downloads
+        // row's own computed Install/Reinstall/deleted state, for the same reason — a delete in
+        // Library doesn't touch this VM's own PendingDownloads collection at all, so nothing else
+        // would notice.
+        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) =>
+        {
+            var self = (DownloadsViewModel)recipient;
+            self.ApplyCatalogFilters();
+            foreach (var item in self.PendingDownloads)
+            {
+                item.Refresh();
+            }
+        });
     }
 
     partial void OnCatalogSearchTextChanged(string value) => _searchDebounceTimer.Restart();
@@ -453,32 +477,50 @@ public sealed partial class DownloadsViewModel : ObservableObject
             return;
         }
 
-        var entry = SelectedCatalogEntry.Entry;
-        var downloadUrl = entry.ExmodzUrl ?? entry.PakUrl;
+        var (success, message) = await DownloadAndExtractEntryAsync(SelectedCatalogEntry);
+        CatalogStatusMessage = message;
+        if (success)
+        {
+            ApplyCatalogFilters();
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        }
+    }
+
+    /// <summary>
+    /// Downloads and imports one catalog entry — shared by the single-entry Download &amp; extract
+    /// button and DownloadAndExtractSelectedAsync's own batch loop, since the two are otherwise
+    /// identical work. Deliberately doesn't itself refresh filters/send LibraryChangedMessage — a
+    /// batch of N imports refreshing once at the end (not N times mid-loop) is both cheaper and
+    /// avoids the DataGrid's own selection getting reset out from under a loop still in progress
+    /// (see ApplyCatalogFilters' own selection-by-ID restore, which a mid-batch rebuild would
+    /// otherwise fight with the still-multi-selected rows).
+    /// </summary>
+    private async Task<(bool Success, string Message)> DownloadAndExtractEntryAsync(CatalogEntryViewModel entry)
+    {
+        var catalogEntry = entry.Entry;
+        var downloadUrl = catalogEntry.ExmodzUrl ?? catalogEntry.PakUrl;
         if (downloadUrl is null)
         {
-            CatalogStatusMessage = $"'{entry.Name}' has no downloadable file listed.";
-            return;
+            return (false, $"'{catalogEntry.Name}' has no downloadable file listed.");
         }
 
-        var isExmodz = entry.ExmodzUrl is not null;
+        var isExmodz = catalogEntry.ExmodzUrl is not null;
         var tempPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_{Guid.NewGuid():N}{(isExmodz ? ".EXMODZ" : ".pak")}");
 
         try
         {
-            CatalogStatusMessage = $"Downloading '{entry.Name}'…";
             var bytes = await _downloadHttpClient.GetByteArrayAsync(downloadUrl);
             await File.WriteAllBytesAsync(tempPath, bytes);
 
-            var imported = isExmodz ? _libraryRepository.Import(tempPath) : _libraryRepository.ImportPak(tempPath);
-            CatalogStatusMessage = $"Downloaded and imported '{imported.Name}'.";
-            ApplyCatalogFilters();
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            var imported = isExmodz
+                ? _libraryRepository.Import(tempPath, source: "Database")
+                : _libraryRepository.ImportPak(tempPath, source: "Database");
             _activityLog.Log($"Downloaded and imported '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
+            return (true, $"Downloaded and imported '{imported.Name}'.");
         }
         catch (Exception ex)
         {
-            CatalogStatusMessage = $"Download failed: {ex.Message}";
+            return (false, $"'{catalogEntry.Name}' failed: {ex.Message}");
         }
         finally
         {
@@ -491,6 +533,47 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 // Best-effort temp cleanup — a leftover file in %TEMP% isn't worth surfacing.
             }
         }
+    }
+
+    /// <summary>Called from DownloadsView's own DataGrid.SelectionChanged code-behind — DataGrid.SelectedItems isn't a bindable DependencyProperty, same limitation the EXMOD editor's own mass-edit selection already works around.</summary>
+    public void SetSelectedCatalogEntries(IReadOnlyList<CatalogEntryViewModel> entries)
+    {
+        _selectedCatalogEntriesForBatch = entries;
+        SelectedCatalogEntryCount = entries.Count;
+    }
+
+    /// <summary>Sequential, not parallel — a burst of concurrent downloads against the same catalog source (and Library import, which isn't designed for concurrent writers) is more likely to trip a rate limit or a file-collision than to meaningfully speed this up.</summary>
+    [RelayCommand]
+    private async Task DownloadAndExtractSelectedAsync()
+    {
+        if (_selectedCatalogEntriesForBatch.Count == 0)
+        {
+            return;
+        }
+
+        var entries = _selectedCatalogEntriesForBatch;
+        var successCount = 0;
+        var failures = new List<string>();
+
+        for (var i = 0; i < entries.Count; i++)
+        {
+            CatalogStatusMessage = $"Downloading {i + 1} of {entries.Count} — '{entries[i].Name}'…";
+            var (success, message) = await DownloadAndExtractEntryAsync(entries[i]);
+            if (success)
+            {
+                successCount++;
+            }
+            else
+            {
+                failures.Add(message);
+            }
+        }
+
+        CatalogStatusMessage = failures.Count == 0
+            ? $"Downloaded and imported {successCount} mod(s)."
+            : $"Downloaded and imported {successCount} of {entries.Count} — {failures.Count} failed: {string.Join("; ", failures)}";
+        ApplyCatalogFilters();
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
     }
 
     [RelayCommand]
@@ -509,14 +592,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
     [RelayCommand]
     private void AddNexusUrl()
     {
-        var match = NexusModUrlPattern.Match(NewNexusUrl);
-        if (!match.Success)
+        if (!NexusModWebUrl.TryParseModIdFromUrl(NewNexusUrl, out var nexusId))
         {
             NexusStatusMessage = "That doesn't look like a nexusmods.com/icarus/mods/<id> URL.";
             return;
         }
 
-        var nexusId = int.Parse(match.Groups[1].Value);
         // Nexus's own mod name isn't fetchable without API access (see NexusWatchlistEntry) —
         // this placeholder is meant to be renamed via the editable Name column.
         var entry = new NexusWatchlistEntry { NexusId = nexusId, Url = NewNexusUrl.Trim(), Name = $"Nexus mod #{nexusId}" };
@@ -562,6 +643,53 @@ public sealed partial class DownloadsViewModel : ObservableObject
         ReloadNexusEntries();
     }
 
+    /// <summary>
+    /// Closes a real spec gap: icarusworkshop.txt lists "Refresh info" as a per-row Nexus Mods
+    /// action, but this app only ever had a batch-wide Check for updates — and the watchlist item's
+    /// own placeholder-name comment ("Nexus's own mod name isn't fetchable without API access") has
+    /// been stale since Phase 8.1 gave this app a real Nexus API client. One real GetModInfoAsync
+    /// call re-syncs this single entry's display name against Nexus's own current title, replacing
+    /// the "Nexus mod #123" placeholder without touching every other tracked mod.
+    /// </summary>
+    [RelayCommand]
+    private async Task RefreshNexusEntryInfoAsync(NexusWatchlistItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+        if (apiKey is null)
+        {
+            NexusStatusMessage = "Sign in with your Nexus API key in Settings first.";
+            return;
+        }
+
+        try
+        {
+            var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", item.NexusId);
+            if (info is null)
+            {
+                NexusStatusMessage = $"Nexus has no info for mod #{item.NexusId} (removed, or your key can't see it).";
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(info.Name))
+            {
+                // Setting Name fires the item's own OnNameChanged, which debounces and persists
+                // through the same path a manual rename already uses — no separate save call needed.
+                item.Name = info.Name;
+            }
+
+            NexusStatusMessage = $"Refreshed info for '{item.Name}'.";
+        }
+        catch (Exception ex)
+        {
+            NexusStatusMessage = $"Couldn't refresh info: {ex.Message}";
+        }
+    }
+
     [RelayCommand]
     private void BrowseOnNexus()
     {
@@ -573,11 +701,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         OpenUrl(selected.Url);
     }
 
-    /// <summary>
-    /// There's no in-app Nexus API to actually check anything against (see NexusWatchlistEntry) —
-    /// opening the mod's own page is the honest, useful thing this button can do instead of
-    /// either faking a check or being a dead no-op.
-    /// </summary>
+    /// <summary>The explicit-click variant of the real API-backed check — unlike the constructor's silent launch-time run, this one does say "sign in first" when no key is configured. (A pre-8.2 doc comment here claimed no in-app Nexus API existed — long stale.)</summary>
     [RelayCommand]
     private Task CheckForNexusUpdates() => RunNexusUpdateCheckAsync(isAutomatic: false);
 
@@ -736,24 +860,70 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// MO2-style: never removes the entry from Pending Downloads (only Discard does that) — a
+    /// second click on an already-installed entry is a Reinstall, which first deletes whatever
+    /// its last activation produced (mirroring the "delete existing Library entry by folder name
+    /// before re-importing" pattern MergeInstallViewModel's own InstallAsync already established,
+    /// so re-Activating doesn't leave a "_2"-suffixed duplicate next to the one it's replacing).
+    /// Deleting happens before the new import is attempted, same as that existing pattern — if the
+    /// new import then fails, the entry is left correctly showing "deleted from Library" rather
+    /// than silently keeping a stale, no-longer-accurate "installed" state.
+    /// </summary>
     [RelayCommand]
-    private void ActivatePendingDownload(PendingDownloadItemViewModel? item)
+    private async Task ActivatePendingDownloadAsync(PendingDownloadItemViewModel? item)
     {
         if (item is null)
         {
             return;
         }
 
+        string? tempExtractDirectory = null;
         try
         {
-            var isPak = string.Equals(Path.GetExtension(item.LocalFilePath), ".pak", StringComparison.OrdinalIgnoreCase);
-            var entry = isPak ? _libraryRepository.ImportPak(item.LocalFilePath) : _libraryRepository.Import(item.LocalFilePath);
+            if (item.IsInstalled && item.ActivatedFolderName is { } existingFolderName)
+            {
+                if (item.ActivatedKind == PendingDownloadActivationKind.Library)
+                {
+                    _libraryRepository.Delete(existingFolderName);
+                }
+                else if (item.ActivatedKind == PendingDownloadActivationKind.Ue4ssMod)
+                {
+                    _ue4ssModRepository.Delete(existingFolderName);
+                }
+            }
 
-            _pendingDownloadStore.Remove(item.ModId, item.FileId);
-            ReloadPendingDownloads();
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-            PendingDownloadStatusMessage = $"Imported '{entry.Name}' into your Library.";
-            _activityLog.Log($"Activated pending download '{entry.Name}'.", ActivityEntryKind.Success);
+            string statusMessage;
+            string activatedFolderName;
+            PendingDownloadActivationKind activatedKind;
+
+            if (string.Equals(Path.GetExtension(item.LocalFilePath), ".pak", StringComparison.OrdinalIgnoreCase))
+            {
+                var entry = _libraryRepository.ImportPak(item.LocalFilePath, source: "Nexus", nexusModId: item.ModId);
+                await EnrichOpaquePakFromNexusAsync(entry.FolderName, item.ModId);
+                WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+                statusMessage = $"Imported '{entry.Name}' into your Library.";
+                activatedFolderName = entry.FolderName;
+                activatedKind = PendingDownloadActivationKind.Library;
+                _activityLog.Log($"Activated pending download '{entry.Name}'.", ActivityEntryKind.Success);
+            }
+            else
+            {
+                // A real Nexus download's own extension can't be trusted (a mod author might
+                // upload a zip, rar, or 7z, and it could contain an EXMOD-shaped mod, a prebuilt
+                // .pak, or a UE4SS mod) — unlike every other import path in this app, there's no
+                // dialog filter or button choice telling us which kind this is, so it has to be
+                // extracted first and classified from its actual content.
+                tempExtractDirectory = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Activate_{Guid.NewGuid():N}");
+                AnyArchiveExtractor.ExtractToDirectory(item.LocalFilePath, tempExtractDirectory);
+                (statusMessage, activatedFolderName, activatedKind) =
+                    await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, item.ModId);
+            }
+
+            _pendingDownloadStore.SetActivation(item.ModId, item.FileId, activatedFolderName, activatedKind);
+            item.ActivatedFolderName = activatedFolderName;
+            item.ActivatedKind = activatedKind;
+            PendingDownloadStatusMessage = statusMessage;
         }
         catch (Exception ex)
         {
@@ -762,6 +932,100 @@ public sealed partial class DownloadsViewModel : ObservableObject
             // the entry in Pending Downloads (and the file on disk) on failure, so nothing is lost
             // and the user can retry or Discard explicitly.
             PendingDownloadStatusMessage = $"Import failed: {ex.Message}";
+        }
+        finally
+        {
+            if (tempExtractDirectory is not null)
+            {
+                try
+                {
+                    Directory.Delete(tempExtractDirectory, recursive: true);
+                }
+                catch (Exception)
+                {
+                    // Best-effort scratch cleanup — a locked file here (e.g. antivirus mid-scan)
+                    // shouldn't turn a successful import into a reported failure.
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Figures out what an already-extracted download actually is and imports it the right way:
+    /// an EXMOD-shaped mod (ExmodFolder.Read already searches the whole tree for a .EXMOD file,
+    /// wherever it's nested), a prebuilt .pak with no EXMOD wrapper, or — the catch-all, since a
+    /// UE4SS mod carries no metadata file of its own to detect it by — a UE4SS mod folder.
+    /// </summary>
+    private async Task<(string StatusMessage, string FolderName, PendingDownloadActivationKind Kind)> ClassifyAndImportExtractedModAsync(
+        string extractedDirectory, string originalFileName, int modId)
+    {
+        // A manual scan, not a "*.EXMOD" glob — Directory.EnumerateFiles' pattern matching follows
+        // the filesystem's own case sensitivity, same reasoning ExmodFolder.FindExmodFile's own
+        // comment already gives for why it does the same thing.
+        var hasExmod = Directory.EnumerateFiles(extractedDirectory, "*", SearchOption.AllDirectories)
+            .Any(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase));
+
+        if (hasExmod)
+        {
+            // Let any real validation failure (corrupt EXMOD JSON, more than one .EXMOD, an unsafe
+            // asset path, a size-budget violation) propagate up as-is — this genuinely IS
+            // EXMOD-shaped content, so a failure here is a real problem, not a signal to try a
+            // different format.
+            var entry = _libraryRepository.Import(extractedDirectory, source: "Nexus", nexusModId: modId);
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            _activityLog.Log($"Activated pending download '{entry.Name}'.", ActivityEntryKind.Success);
+            return ($"Imported '{entry.Name}' into your Library.", entry.FolderName, PendingDownloadActivationKind.Library);
+        }
+
+        var pakFiles = Directory.GetFiles(extractedDirectory, "*.pak", SearchOption.AllDirectories);
+        if (pakFiles.Length == 1)
+        {
+            var entry = _libraryRepository.ImportPak(pakFiles[0], source: "Nexus", nexusModId: modId);
+            await EnrichOpaquePakFromNexusAsync(entry.FolderName, modId);
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            _activityLog.Log($"Activated pending download '{entry.Name}'.", ActivityEntryKind.Success);
+            return ($"Imported '{entry.Name}' into your Library.", entry.FolderName, PendingDownloadActivationKind.Library);
+        }
+
+        if (pakFiles.Length > 1)
+        {
+            throw new FormatException($"Contains {pakFiles.Length} .pak files — ambiguous which one to import.");
+        }
+
+        // Neither EXMOD-shaped nor a single prebuilt pak — treat as a UE4SS mod, the one kind of
+        // mod this app handles that carries no metadata file of its own to detect it by.
+        var fallbackName = Path.GetFileNameWithoutExtension(originalFileName);
+        var folderName = _ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName);
+        _activityLog.Log($"Activated pending download '{folderName}' as a UE4SS mod.", ActivityEntryKind.Success);
+        return ($"Staged '{folderName}' as a UE4SS mod — enable it from Library's UE4SS tab, then click Apply.", folderName, PendingDownloadActivationKind.Ue4ssMod);
+    }
+
+    /// <summary>
+    /// An opaque .pak carries no embedded name/author/description of its own — this looks the mod
+    /// up by the ID the nxm:// download already told us, and records what Nexus knows instead.
+    /// Best-effort only: no signed-in key, a rejected key, or a network hiccup all fall through
+    /// silently, since a missing enrichment shouldn't turn an otherwise-successful import into a
+    /// reported failure — the entry just keeps showing "Unknown" the way it always has.
+    /// </summary>
+    private async Task EnrichOpaquePakFromNexusAsync(string folderName, int modId)
+    {
+        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+        if (apiKey is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
+            if (info is not null)
+            {
+                _libraryRepository.SetNexusMetadata(folderName, info.Name, info.Author, info.Summary, info.Version);
+            }
+        }
+        catch (Exception)
+        {
+            // Best-effort — see the doc comment above.
         }
     }
 
@@ -801,7 +1065,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         PendingDownloads.Clear();
         foreach (var entry in _pendingDownloadStore.Entries.OrderByDescending(e => e.DownloadedAtUtc))
         {
-            PendingDownloads.Add(new PendingDownloadItemViewModel(entry));
+            PendingDownloads.Add(new PendingDownloadItemViewModel(entry, _libraryRepository, _ue4ssModRepository));
         }
     }
 
@@ -821,8 +1085,14 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         try
         {
+            // Tagged with the currently-selected tracked mod's own Nexus ID when there is one — the
+            // file being imported here is presumably that mod's own manually-downloaded file, so it
+            // should be checkable for updates the same way an Activate-imported one is.
+            var nexusModId = SelectedNexusEntry?.NexusId;
             var isPak = dialog.FileName.EndsWith(".pak", StringComparison.OrdinalIgnoreCase);
-            var imported = isPak ? _libraryRepository.ImportPak(dialog.FileName) : _libraryRepository.Import(dialog.FileName);
+            var imported = isPak
+                ? _libraryRepository.ImportPak(dialog.FileName, source: "Nexus", nexusModId: nexusModId)
+                : _libraryRepository.Import(dialog.FileName, source: "Nexus", nexusModId: nexusModId);
             NexusStatusMessage = $"Imported '{imported.Name}'.";
             ApplyCatalogFilters();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());

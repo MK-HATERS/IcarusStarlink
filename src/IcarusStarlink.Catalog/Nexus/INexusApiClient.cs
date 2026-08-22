@@ -20,4 +20,12 @@ public interface INexusApiClient
     /// </summary>
     Task<IReadOnlyList<NexusDownloadLink>> GetDownloadLinksAsync(
         string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Looks up a single mod's real name/author/summary by ID — for enriching a Library entry that
+    /// otherwise has no metadata of its own (an opaque .pak Activated from a real Nexus download).
+    /// Null if Nexus rejected the key (same 401/403 convention as ValidateKeyAsync) or the mod is
+    /// under moderation (its "name" field is absent per Nexus's own documented behavior).
+    /// </summary>
+    Task<NexusModInfo?> GetModInfoAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default);
 }

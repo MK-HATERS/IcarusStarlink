@@ -9,6 +9,8 @@
     <converters:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
     <converters:BoolToFolderFileConverter x:Key="BoolToFolderFileConverter"/>
     <converters:GameplayLevelToShortLabelConverter x:Key="GameplayLevelToShortLabelConverter"/>
+    <converters:ProgressToWidthConverter x:Key="ProgressToWidthConverter"/>
+    <converters:LibraryEntryQueuedConverter x:Key="LibraryEntryQueuedConverter"/>
 
     <Style TargetType="{x:Type Window}">
         <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}"/>
@@ -54,6 +56,22 @@
         <Setter Property="CaretBrush" Value="{DynamicResource ForegroundBrush}"/>
     </Style>
 
+    <!-- Placeholder/example text for a specific TextBox — a Grid overlay (a real, separate
+         TextBlock bound to the same source property, not a VisualBrush trick), since a
+         VisualBrush.Visual's content sits outside the TextBox's own visual tree and can't resolve a
+         RelativeSource binding back up to it — confirmed the hard way (a first attempt using exactly
+         that VisualBrush+RelativeSource shape rendered nothing, silently). IsHitTestVisible="False"
+         so it never intercepts a click meant for the real text underneath. Deliberately per-instance
+         (each usage supplies its own bound-empty-check), not a shared implicit style, since only a
+         handful of fields actually asked for this. -->
+    <Style x:Key="PlaceholderTextStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
+        <Setter Property="FontStyle" Value="Italic"/>
+        <Setter Property="Margin" Value="9,0,0,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="IsHitTestVisible" Value="False"/>
+    </Style>
+
     <!-- PasswordBox doesn't inherit TextBox's implicit style (a different control type) — same
          look, applied separately. -->
     <Style TargetType="{x:Type PasswordBox}">
@@ -68,6 +86,35 @@
     <Style TargetType="{x:Type FlowDocumentScrollViewer}">
         <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+    </Style>
+
+    <!-- Stock ProgressBar's own default template computes the indicator's width via a private WPF
+         adapter that isn't reusable once the template is replaced for theming — this rebuilds the
+         same effect with a MultiBinding (Value/Maximum/the track's own real ActualWidth) driving a
+         plain Border's Width instead. -->
+    <Style TargetType="{x:Type ProgressBar}">
+        <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Height" Value="8"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ProgressBar}">
+                    <Border x:Name="PART_Track" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" ClipToBounds="True">
+                        <Border Background="{DynamicResource AccentBrush}" HorizontalAlignment="Left" CornerRadius="4">
+                            <Border.Width>
+                                <MultiBinding Converter="{StaticResource ProgressToWidthConverter}">
+                                    <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Value"/>
+                                    <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Maximum"/>
+                                    <Binding ElementName="PART_Track" Path="ActualWidth"/>
+                                </MultiBinding>
+                            </Border.Width>
+                        </Border>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style TargetType="{x:Type ContextMenu}">
@@ -85,12 +132,16 @@
                     <Border x:Name="Bd" Background="Transparent" Padding="{TemplateBinding Padding}">
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="20"/>
+                                <ColumnDefinition x:Name="CheckColumn" Width="20"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <!-- IsCheckable items (Pinned/Favorite in Library's row context menu) need their
                                  own checkmark — MenuItem's Click/IsChecked toggling works without this, but
-                                 with no visual indicator the menu can't show current state at all. -->
+                                 with no visual indicator the menu can't show current state at all. A plain
+                                 action item (Rename…, Open on Nexus) collapses this column to 0 instead of
+                                 reserving it unused — otherwise every non-checkable item shows a dead blank
+                                 strip down its left edge for no reason, which reads as a rendering bug rather
+                                 than "this one just isn't checkable." -->
                             <TextBlock x:Name="CheckGlyph" Grid.Column="0" Text="✓" FontWeight="Bold"
                                        Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center"
                                        Visibility="Collapsed"/>
@@ -98,6 +149,9 @@
                         </Grid>
                     </Border>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="IsCheckable" Value="False">
+                            <Setter TargetName="CheckColumn" Property="Width" Value="0"/>
+                        </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="CheckGlyph" Property="Visibility" Value="Visible"/>
                         </Trigger>
@@ -123,6 +177,43 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type Button}">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="4"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavItemHoverBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- No implicit ToggleButton style existed here before — Library's Pin/Favorite toggles
+         (BasedOn="{StaticResource {x:Type ToggleButton}}") were silently falling through to
+         Windows' own default Aero2 ToggleButton chrome (a flat grey 3D-bevel look, unthemed and
+         reading as "disabled" against this app's dark background) instead of this app's own
+         button language. Mirrors the Button style directly above, minus IsChecked coloring —
+         each per-instance style (Pin/Favorite) supplies its own IsChecked trigger on top. -->
+    <Style TargetType="{x:Type ToggleButton}">
+        <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="12,6"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ToggleButton}">
                     <Border x:Name="Bd"
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
@@ -198,14 +289,81 @@
         <Setter Property="Background" Value="Transparent"/>
     </Style>
 
+    <!-- The default TreeViewItem template has its own internal Border ("Bd") whose IsSelected
+         ControlTemplate.Trigger sets Background straight to SystemColors.HighlightBrushKey
+         (usually white/light-blue) — a plain Style-level Background setter on IsSelected (as
+         below on ComboBoxItem) is silently ignored for TreeViewItem specifically, since a
+         template trigger targeting a named part outranks it. Retemplating fully, matching how
+         ComboBoxItem right below already solves the identical problem, is the real fix. -->
     <Style TargetType="{x:Type TreeViewItem}">
         <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
         <Setter Property="Padding" Value="2"/>
-        <Style.Triggers>
-            <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="{DynamicResource NavItemSelectedBrush}"/>
-            </Trigger>
-        </Style.Triggers>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type TreeViewItem}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition MinWidth="19" Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition/>
+                        </Grid.RowDefinitions>
+
+                        <ToggleButton x:Name="Expander" Grid.Column="0" Width="16" Height="16"
+                                      Focusable="False" ClickMode="Press"
+                                      IsChecked="{Binding Path=IsExpanded, RelativeSource={RelativeSource TemplatedParent}}">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="{x:Type ToggleButton}">
+                                    <Border Background="Transparent">
+                                        <Path x:Name="ExpandPath" Data="{StaticResource IconChevronDown}"
+                                              Fill="{DynamicResource SecondaryForegroundBrush}"
+                                              Width="9" Height="9" Stretch="Uniform" RenderTransformOrigin="0.5,0.5">
+                                            <Path.RenderTransform>
+                                                <RotateTransform Angle="-90"/>
+                                            </Path.RenderTransform>
+                                        </Path>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="ExpandPath" Property="RenderTransform">
+                                                <Setter.Value>
+                                                    <RotateTransform Angle="0"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                        </ToggleButton>
+
+                        <Border x:Name="Bd" Grid.Column="1" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}" CornerRadius="4" SnapsToDevicePixels="True">
+                            <ContentPresenter x:Name="PART_Header" ContentSource="Header"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                        </Border>
+
+                        <ItemsPresenter x:Name="ItemsHost" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsExpanded" Value="False">
+                            <Setter TargetName="ItemsHost" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                        <Trigger Property="HasItems" Value="False">
+                            <Setter TargetName="Expander" Property="Visibility" Value="Hidden"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavItemSelectedBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style TargetType="{x:Type ComboBoxItem}">

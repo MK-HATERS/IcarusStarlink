@@ -12,6 +12,7 @@
     <Window.InputBindings>
         <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCommand}"/>
         <KeyBinding Key="D" Modifiers="Control" Command="{Binding DuplicateItemCommand}"/>
+        <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoCommand}"/>
         <KeyBinding Key="F3" Command="{Binding SelectNextItemCommand}"/>
         <!-- Ctrl+F is handled in code-behind (focuses the filter box) — a pure-UI focus concern the ViewModel can't reach directly. -->
     </Window.InputBindings>
@@ -48,19 +49,33 @@
                          ToolTip="Ctrl/Shift-click to select several items for mass edit"/>
             </Border>
 
-            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
-                <Button Content="Duplicate (Ctrl+D)" Command="{Binding DuplicateItemCommand}"
+            <WrapPanel Grid.Row="3" Margin="0,8,0,0">
+                <Button Content="Duplicate (Ctrl+D)" Command="{Binding DuplicateItemCommand}" Margin="0,0,8,4"
                         ToolTip="Clone the selected item's fields under a new name"/>
-                <Button Content="Open original file" Command="{Binding OpenOriginalFileCommand}" Margin="8,0,0,0"
+                <Button Content="Open original file" Command="{Binding OpenOriginalFileCommand}" Margin="0,0,8,4"
                         ToolTip="Open the real, unmodified base game data file for the selected item"/>
-            </StackPanel>
+                <Button Content="Open mods folder" Command="{Binding OpenModsFolderCommand}" Margin="0,0,8,4"
+                        ToolTip="Reveal this mod's own folder in Explorer"/>
+                <Button Content="Insert file at location…" Command="{Binding InsertFileAtLocationCommand}" Margin="0,0,8,4"
+                        ToolTip="Add one of the game's own real data files to this mod, with no items yet"/>
+                <Button Content="Merge existing mod into this one…" Command="{Binding MergeExistingModCommand}" Margin="0,0,8,4"
+                        ToolTip="Copy another Library mod's own items into this one — an item already here is left alone"/>
+            </WrapPanel>
 
             <StackPanel Grid.Row="4" Margin="0,8,0,0">
                 <TextBlock Text="Add item" Style="{StaticResource FieldLabelStyle}"/>
-                <TextBox Text="{Binding NewItemCurrentFile, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"
-                         ToolTip="Real game data file path, e.g. Traits/D_Fuel.json"/>
-                <TextBox Text="{Binding NewItemName, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"
-                         ToolTip="Item/row name in that file, e.g. Item_Wood"/>
+                <Grid Margin="0,4,0,0">
+                    <TextBox Text="{Binding NewItemCurrentFile, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Real game data file path, e.g. Traits/D_Fuel.json"/>
+                    <TextBlock Text="e.g. Traits/D_Fuel.json" Style="{StaticResource PlaceholderTextStyle}"
+                               Visibility="{Binding NewItemCurrentFile, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                </Grid>
+                <Grid Margin="0,4,0,0">
+                    <TextBox Text="{Binding NewItemName, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Item/row name in that file, e.g. Item_Wood"/>
+                    <TextBlock Text="e.g. Item_Wood" Style="{StaticResource PlaceholderTextStyle}"
+                               Visibility="{Binding NewItemName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                </Grid>
                 <Button Content="Add item" Command="{Binding AddItemCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"
                         ToolTip="Adds a new, empty item to this file (or creates the file if it's not already part of this mod)"/>
             </StackPanel>
@@ -201,9 +216,16 @@
 
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0"
                         Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
-                <TextBox Text="{Binding NewFieldName, UpdateSourceTrigger=PropertyChanged}" Width="160" ToolTip="Field name"/>
-                <TextBox Text="{Binding NewFieldValue, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="8,0,0,0"
-                         ToolTip="JSON value, e.g. 1313 or &quot;text&quot;"/>
+                <Grid Width="160">
+                    <TextBox Text="{Binding NewFieldName, UpdateSourceTrigger=PropertyChanged}" ToolTip="Field name"/>
+                    <TextBlock Text="e.g. MaxStack" Style="{StaticResource PlaceholderTextStyle}"
+                               Visibility="{Binding NewFieldName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                </Grid>
+                <Grid Width="200" Margin="8,0,0,0">
+                    <TextBox Text="{Binding NewFieldValue, UpdateSourceTrigger=PropertyChanged}" ToolTip="JSON value, e.g. 1313 or &quot;text&quot;"/>
+                    <TextBlock Text="e.g. 1313 or &quot;text&quot;" Style="{StaticResource PlaceholderTextStyle}"
+                               Visibility="{Binding NewFieldValue, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                </Grid>
                 <Button Content="Add field" Command="{Binding AddFieldCommand}" Margin="8,0,0,0"
                         ToolTip="Adds this field to the selected item"/>
             </StackPanel>
@@ -227,6 +249,9 @@
             <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">
                 <Button Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
                         ToolTip="Writes every change so far to this mod's .EXMOD file — from any of the three views above, they all edit the same mod"/>
+                <Button Content="Undo (Ctrl+Z)" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" Margin="8,0,0,0"
+                        ToolTip="Reverts the last Add/Remove field, Add item, Duplicate, mass edit, or raw-JSON Apply — not per-keystroke typing"
+                        ToolTipService.ShowOnDisabled="True"/>
                 <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{DynamicResource SecondaryForegroundBrush}"/>
             </StackPanel>

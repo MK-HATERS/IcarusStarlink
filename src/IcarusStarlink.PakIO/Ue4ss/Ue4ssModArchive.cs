@@ -15,21 +15,7 @@ namespace IcarusStarlink.PakIO.Ue4ss;
 /// </summary>
 public static class Ue4ssModArchive
 {
-    /// <summary>Convenience wrapper for a caller that only needs the derived name, not extraction too — opens and scans the zip on its own. Prefer Open() when a caller needs both (the common case, Import), so the zip is only opened and scanned once.</summary>
-    public static string DeriveFolderName(string zipFilePath)
-    {
-        using var handle = Open(zipFilePath);
-        return handle.DerivedFolderName;
-    }
-
-    /// <summary>Convenience wrapper for a caller that only needs extraction, not the derived name too.</summary>
-    public static void Extract(string zipFilePath, string destinationFolder)
-    {
-        using var handle = Open(zipFilePath);
-        handle.ExtractTo(destinationFolder);
-    }
-
-    /// <summary>Opens the zip once and scans its entries once — the caller can read DerivedFolderName and/or call ExtractTo any number of times off the same open archive before disposing.</summary>
+    /// <summary>Opens the zip once and scans its entries once — the caller can read DerivedFolderName and/or call ExtractTo any number of times off the same open archive before disposing. (Static DeriveFolderName/Extract convenience wrappers existed once but had no production callers left — removed rather than kept as tests-only surface.)</summary>
     public static Handle Open(string zipFilePath) => new(zipFilePath);
 
     public sealed class Handle : IDisposable

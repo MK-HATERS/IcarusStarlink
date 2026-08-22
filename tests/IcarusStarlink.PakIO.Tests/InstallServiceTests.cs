@@ -118,6 +118,40 @@ public class InstallServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RemoveInstalledPakAsync_NothingInstalled_ReturnsFalseAndDoesNothing()
+    {
+        var removed = await _service.RemoveInstalledPakAsync("ISL-Merged_P.pak", _fakeContentPath, _backupDirectory);
+
+        Assert.False(removed);
+        Assert.False(Directory.Exists(_backupDirectory));
+    }
+
+    [Fact]
+    public async Task RemoveInstalledPakAsync_AfterInstall_DeletesThePakAndManifestAfterBackingThemUp()
+    {
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+
+        var removed = await _service.RemoveInstalledPakAsync("ISL-Merged_P.pak", _fakeContentPath, _backupDirectory);
+
+        Assert.True(removed);
+        Assert.False(File.Exists(TargetPakPath));
+        Assert.False(File.Exists(TargetManifestPath));
+        Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(Directory.GetFiles(_backupDirectory, "ISL-Merged_P_*.pak").Single()));
+    }
+
+    [Fact]
+    public async Task RemoveInstalledPakAsync_OnlyDerivesTheFileNameFromStagedPakFileName_DoesNotRequireItToExistOnDisk()
+    {
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+        File.Delete(_stagedPakPath);
+
+        var removed = await _service.RemoveInstalledPakAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+
+        Assert.True(removed);
+        Assert.False(File.Exists(TargetPakPath));
+    }
+
+    [Fact]
     public async Task GetInstalledStateAsync_NothingInstalledYet_ReturnsEmptyList()
     {
         var state = await _service.GetInstalledStateAsync(_fakeContentPath);

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using IcarusStarlink.PakIO.DataChanges;
 
 namespace IcarusStarlink.PakIO.Pak;
@@ -146,6 +147,65 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         {
             File.Delete(responseFilePath);
         }
+    }
+
+    // Real output format confirmed by running -List against a real installed pak during planning:
+    // `LogPakFile: Display: "Rada_CheatMenu/BP/BP_CheatMenuDummy.uasset" offset: 0, size: 9662
+    // bytes, sha1: ..., compression: Zlib.` — every real entry line starts this way; the trailing
+    // summary lines ("291 files (...)", "Unreal pak executed in ...") don't have a quote right
+    // after "Display: " so this pattern naturally skips them without special-casing.
+    private static readonly Regex ListEntryPattern = new("""^LogPakFile: Display: "(?<path>[^"]+)" offset:""", RegexOptions.Compiled);
+
+    public async Task<IReadOnlyList<string>> ListPakContentsAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default)
+    {
+        ValidateUnrealPakExePath(unrealPakExePath);
+        if (!File.Exists(pakFilePath))
+        {
+            throw new FileNotFoundException($"'{pakFilePath}' doesn't exist.");
+        }
+
+        var result = await processRunner.RunAsync(unrealPakExePath, [pakFilePath, "-List"], cancellationToken);
+        if (result.ExitCode != 0)
+        {
+            var detail = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
+            throw new InvalidOperationException($"UnrealPak.exe exited with code {result.ExitCode}: {detail}");
+        }
+
+        var paths = new List<string>();
+        foreach (var line in result.StandardOutput.Split('\n'))
+        {
+            var match = ListEntryPattern.Match(line);
+            if (match.Success)
+            {
+                paths.Add(match.Groups["path"].Value);
+            }
+        }
+
+        return paths;
+    }
+
+    public async Task<int> ExtractPakAsync(string unrealPakExePath, string pakFilePath, string outputDirectory, CancellationToken cancellationToken = default)
+    {
+        ValidateUnrealPakExePath(unrealPakExePath);
+        if (!File.Exists(pakFilePath))
+        {
+            throw new FileNotFoundException($"'{pakFilePath}' doesn't exist.");
+        }
+
+        Directory.CreateDirectory(outputDirectory);
+
+        var result = await processRunner.RunAsync(unrealPakExePath, [pakFilePath, "-Extract", outputDirectory], cancellationToken);
+        if (result.ExitCode != 0)
+        {
+            var detail = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
+            throw new InvalidOperationException($"UnrealPak.exe exited with code {result.ExitCode}: {detail}");
+        }
+
+        // Counted from stdout's own "Extracted "..."" lines, not a directory-wide file count —
+        // outputDirectory can already hold other files (RebuildService extracts each attached
+        // prebuilt pak into the same staging folder the merge output already populated), which a
+        // bare Directory.GetFiles count would wrongly include.
+        return result.StandardOutput.Split('\n').Count(line => line.Contains("LogPakFile: Display: Extracted \"", StringComparison.Ordinal));
     }
 
     private static string ResolveDataPakPath(string unrealPakExePath, string icarusContentPath)

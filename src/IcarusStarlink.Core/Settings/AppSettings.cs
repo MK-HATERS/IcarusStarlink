@@ -23,4 +23,21 @@ public sealed class AppSettings
     public bool CatalogShowCategoryColumn { get; set; } = true;
     public bool CatalogShowStatusColumn { get; set; } = true;
     public bool CatalogShowLastUpdatedColumn { get; set; } = true;
+
+    // Main window bounds — all four null until the first real close, so a fresh install still gets
+    // MainWindow.xaml's own WindowStartupLocation="CenterScreen" default rather than snapping to 0,0.
+    public double? WindowLeft { get; set; }
+    public double? WindowTop { get; set; }
+    public double? WindowWidth { get; set; }
+    public double? WindowHeight { get; set; }
+    public bool WindowMaximized { get; set; }
+
+    /// <summary>
+    /// The app version last confirmed running, used to detect "you were just updated" for the
+    /// What's New dialog. Null on a fresh install AND on an existing install's first launch after
+    /// this field was introduced — both cases are deliberately silent (see
+    /// SettingsViewModel.CheckForAppUpdatesOnLaunchAsync), so the dialog only ever appears on a
+    /// genuine detected version change going forward, never out of nowhere.
+    /// </summary>
+    public string? LastSeenAppVersion { get; set; }
 }

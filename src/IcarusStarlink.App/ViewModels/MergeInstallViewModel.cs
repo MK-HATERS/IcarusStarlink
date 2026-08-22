@@ -55,6 +55,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// <summary>Each element is either a LibraryGroup (a real family) or a bare LibraryEntry (standalone) — same type-per-DataTemplate routing Library's own RootItems already uses.</summary>
     public ObservableCollection<object> LibraryRootItems { get; } = [];
 
+    /// <summary>
+    /// Mods queued for the next Rebuild — a mix of real EXMOD mods (field-merged against base game
+    /// data) and opaque/prebuilt .pak entries (LibraryEntry.IsOpaquePak, no .EXMOD — unpacked and
+    /// folded into the same merged pak instead, see RebuildService). Both live in one list since
+    /// both end up in the same output; LoadQueuedPackagesAsync is what splits them back apart for
+    /// RebuildService's own two-parameter signature.
+    /// </summary>
     public ObservableCollection<LibraryEntry> Queue { get; } = [];
 
     [ObservableProperty]
@@ -67,10 +74,21 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     private bool _isRebuilding;
 
     [ObservableProperty]
-    private string? _statusMessage;
+    private int _rebuildProgressPercent;
 
     [ObservableProperty]
-    private bool _isInstalling;
+    private string? _rebuildStageText;
+
+    [ObservableProperty]
+    private string? _statusMessage;
+
+    /// <summary>Whether this app's own pak is currently installed in the real game folder — refreshed at construction and after a successful install/remove, never live-polled. Drives InstallButtonLabel; deliberately coarse (not "has the queue changed since the last install", which would need a live diff every queue edit) — see the combined Install button's own doc comment for why.</summary>
+    [ObservableProperty]
+    private bool _hasExistingInstall;
+
+    public string InstallButtonLabel => HasExistingInstall ? "Update install" : "Install";
+
+    partial void OnHasExistingInstallChanged(bool value) => OnPropertyChanged(nameof(InstallButtonLabel));
 
     [ObservableProperty]
     private string? _installStatusMessage;
@@ -117,6 +135,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     // --- Gameplay-toggle merge options (6.4) ---
     public static IReadOnlyList<BoostLevel> BoostLevels { get; } = Enum.GetValues<BoostLevel>();
 
+    public static IReadOnlyList<XpBoostLevel> XpBoostLevels { get; } = Enum.GetValues<XpBoostLevel>();
+
     public static IReadOnlyList<CraftCostReduction> CraftCostReductions { get; } = Enum.GetValues<CraftCostReduction>();
 
     [ObservableProperty]
@@ -126,7 +146,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     private BoostLevel _playerBoost;
 
     [ObservableProperty]
-    private BoostLevel _xpBoost;
+    private XpBoostLevel _xpBoost;
 
     [ObservableProperty]
     private CraftCostReduction _craftCost;
@@ -194,16 +214,45 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // restarts — this Send()s LibraryChangedMessage itself (after ImportPatchAsync/InstallAsync)
         // but, until now, never Registered to receive it from anywhere else.
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((MergeInstallViewModel)recipient).ReloadLibrary());
+
+        _ = RefreshHasExistingInstallAsync();
     }
 
     /// <summary>
-    /// Opaque .pak entries (LibraryEntry.IsOpaquePak) are excluded here — they have no .EXMOD to
-    /// merge in. The spec treats a prebuilt pak as a sidecar copied alongside the merged pack on
-    /// install instead (6.2's job), not something Rebuild folds in.
+    /// Checks for the real installed pak's own file directly, not GetInstalledStateAsync's parsed
+    /// mod-name list — a gameplay-options-only install (an empty queue, per the spec's own "add
+    /// merge options to game with no mods selected") still produces a real pak but lists zero mod
+    /// names in the manifest, which would make a Count-based check wrongly say nothing's installed.
+    /// </summary>
+    private Task RefreshHasExistingInstallAsync() => Task.Run(() =>
+    {
+        if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
+        {
+            HasExistingInstall = false;
+            return;
+        }
+
+        try
+        {
+            var targetPakPath = Path.Combine(_settingsService.Current.IcarusContentPath!, "Paks", "mods", Path.GetFileName(_outputPakPath));
+            HasExistingInstall = File.Exists(targetPakPath);
+        }
+        catch (Exception)
+        {
+            // Best-effort — the button label just stays whatever it already was.
+        }
+    });
+
+    /// <summary>
+    /// Every Library entry shows here, including opaque .pak entries (LibraryEntry.IsOpaquePak,
+    /// marked with a small package icon in the row template) — matching Library's own page, which
+    /// already shows both kinds together. An opaque entry has no .EXMOD to merge, but it can still
+    /// be added to Queue: Rebuild unpacks it and folds its contents into the same merged pak
+    /// instead of field-merging it (see RebuildService/LoadQueuedPackagesAsync).
     /// </summary>
     private void ReloadLibrary()
     {
-        var groups = VariantGrouping.Group(_libraryRepository.GetAll().Where(e => !e.IsOpaquePak))
+        var groups = VariantGrouping.Group(_libraryRepository.GetAll())
             .OrderBy(g => g.DisplayName, StringComparer.OrdinalIgnoreCase);
 
         LibraryRootItems.Clear();
@@ -312,7 +361,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         try
         {
             var name = ProfileNameInput;
-            _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = BuildGameplayOptionsFromUi() });
+            _profileStore.Save(new Profile
+            {
+                Name = name,
+                MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)],
+                Options = BuildGameplayOptionsFromUi(),
+            });
             ReloadProfileNames();
             SelectedProfileName = name;
             ProfileNameInput = "";
@@ -336,7 +390,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = BuildGameplayOptionsFromUi() });
+            _profileStore.Save(new Profile
+            {
+                Name = name,
+                MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)],
+                Options = BuildGameplayOptionsFromUi(),
+            });
             ProfileStatusMessage = $"Saved '{name}'.";
             _activityLog.Log($"Saved profile '{name}'.", ActivityEntryKind.Success);
         }
@@ -591,6 +650,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Spec: "skip mods already inside it; pack can replace individuals; new mods can sit beside
+    /// the pack and merge on top" — the queue rules for a merged pack re-imported into Library.
+    /// </summary>
     [RelayCommand]
     private void AddToQueue()
     {
@@ -603,6 +666,33 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             StatusMessage = $"'{entry.Name}' is already in the queue.";
             return;
+        }
+
+        // Adding a mod that's already folded into a merged pack sitting in the queue is a no-op —
+        // the pack already covers it, and merging it again would be redundant, not additive.
+        var coveringPack = Queue.FirstOrDefault(q =>
+            q.MergedPackModNames?.Contains(entry.Name, StringComparer.OrdinalIgnoreCase) == true);
+        if (coveringPack is not null)
+        {
+            StatusMessage = $"'{entry.Name}' is already inside '{coveringPack.Name}', which is already queued.";
+            return;
+        }
+
+        // Adding a merged pack replaces whichever of its own constituent mods are already queued
+        // individually — the pack folds their contents in on its own, so keeping both would merge
+        // the same mod's fields twice.
+        if (entry.MergedPackModNames is { Count: > 0 } names)
+        {
+            var replaced = Queue.Where(q => names.Contains(q.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+            foreach (var individual in replaced)
+            {
+                Queue.Remove(individual);
+            }
+
+            if (replaced.Count > 0)
+            {
+                StatusMessage = $"'{entry.Name}' replaces {replaced.Count} individually-queued mod(s) it already contains.";
+            }
         }
 
         Queue.Add(entry);
@@ -653,10 +743,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// <summary>
     /// "Installed vs this list" — reads what this app can positively identify as currently
     /// installed (its own pak manifest in the real game folder) and diffs it against the current
-    /// queue, so a user can see exactly what Install would change before clicking it. Gameplay
-    /// options aren't part of this comparison — they're not a "mod" with a name to diff, they
-    /// overwrite specific fields regardless of what's currently there. UE4SS mods aren't part of
-    /// this either (Phase 8.5) — see Library's own UE4SS tab, which shows their real state directly.
+    /// queue plus any attached prebuilt paks (both now folded into the one merged pak by Rebuild,
+    /// so both are listed in the same manifest), so a user can see exactly what Install would
+    /// change before clicking it. Gameplay options aren't part of this comparison — they're not a
+    /// "mod" with a name to diff, they overwrite specific fields regardless of what's currently
+    /// there. UE4SS mods aren't part of this either (Phase 8.5) — see Library's own UE4SS tab,
+    /// which shows their real state directly.
     /// </summary>
     [RelayCommand]
     private async Task CompareToInstalledAsync()
@@ -670,7 +762,22 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         try
         {
             var installed = await _installService.GetInstalledStateAsync(_settingsService.Current.IcarusContentPath!);
-            var comparison = InstalledVsListComparer.Compare(installed.ModNames, [.. Queue.Select(e => e.Name)]);
+
+            // For an opaque entry, the name RebuildService's own WriteManifest actually records is
+            // Path.GetFileNameWithoutExtension of its resolved .pak file, not its (possibly Nexus-
+            // enriched) display Name — the comparison below is a literal string match against what
+            // the real manifest on disk says, so opaque entries need that same derivation here.
+            var currentList = Queue.Select(entry =>
+            {
+                if (!entry.IsOpaquePak)
+                {
+                    return entry.Name;
+                }
+
+                var pakPath = Directory.GetFiles(_libraryRepository.GetFolderPath(entry.FolderName), "*.pak").FirstOrDefault();
+                return pakPath is not null ? Path.GetFileNameWithoutExtension(pakPath) : entry.Name;
+            }).ToList();
+            var comparison = InstalledVsListComparer.Compare(installed.ModNames, currentList);
 
             ComparisonEntries.Clear();
             foreach (var entry in comparison.OrderBy(e => e.State).ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
@@ -692,13 +799,37 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The one visible button for turning the current queue into a real install — merges Rebuild
+    /// and Install into a single click rather than requiring two, per direct user feedback ("why
+    /// can't it just be an install and it merges and installs"). Internally still two distinct
+    /// steps (RebuildAsync, a safe local-only pak build; InstallAsync, the one action in this whole
+    /// app that writes into the real game folder, gated behind its own explicit Yes/No confirmation)
+    /// — chaining them, rather than merging their bodies into one method, keeps each independently
+    /// callable/testable and means the confirmation dialog still only appears right before the
+    /// actual risky write, not before the safe rebuild step that precedes it. Skips the install
+    /// step (and never shows its confirmation dialog at all) if the rebuild itself failed.
+    /// </summary>
     [RelayCommand]
+    private async Task RebuildAndInstallAsync()
+    {
+        await RebuildAsync();
+        if (File.Exists(_outputPakPath))
+        {
+            await InstallAsync();
+        }
+    }
+
+    // No [RelayCommand] — RebuildAndInstallAsync above is the only caller since the combined
+    // Install button replaced the separate Rebuild/Install pair; the generated commands would be
+    // dead bindings nothing in XAML references anymore.
     private async Task RebuildAsync()
     {
         var gameplayOptions = BuildGameplayOptionsFromUi();
         // Gameplay options can apply on their own, with an empty queue, per the spec ("the ability
         // to add merge options to game with no mods selected") — only block if there's genuinely
-        // nothing to do at all.
+        // nothing to do at all. Queue can hold opaque pak entries too now (folded into the same
+        // output by Rebuild, not field-merged), so a queue containing only those is still real work.
         if (Queue.Count == 0 && GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions).Count == 0)
         {
             StatusMessage = "Add at least one mod to the queue, or enable a gameplay option, first.";
@@ -713,18 +844,31 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         IsRebuilding = true;
         StatusMessage = "Rebuilding…";
+        RebuildProgressPercent = 0;
+        RebuildStageText = null;
         Warnings.Clear();
 
         try
         {
             using var perfScope = _performanceTracker.Track("Rebuild");
-            var (_, packages) = await LoadQueuedPackagesAsync();
+            var (_, packages, prebuiltPakFilePaths) = await LoadQueuedPackagesAsync();
+
+            // Progress<T>'s own callback marshals back through the SynchronizationContext captured
+            // at construction time — safe to update these bound properties directly from it since
+            // this constructor runs on the UI thread (a RelayCommand invoked from a button click),
+            // even though RebuildAsync's own pipeline reports from a background Task.Run.
+            var progress = new Progress<RebuildStageProgress>(p =>
+            {
+                RebuildStageText = p.Stage;
+                RebuildProgressPercent = p.PercentComplete;
+            });
 
             var result = await _rebuildService.RebuildAsync(
-                packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath, _manualPicks);
+                packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath, prebuiltPakFilePaths, _manualPicks, progress);
 
+            var prebuiltNote = prebuiltPakFilePaths.Count > 0 ? $", {prebuiltPakFilePaths.Count} prebuilt pak(s) folded in" : "";
             StatusMessage = $"Built '{result.OutputPakPath}' — {result.PackedFileCount} files packed, "
-                + $"{result.MergedFileCount} data table(s) merged.";
+                + $"{result.MergedFileCount} data table(s) merged{prebuiltNote}.";
             foreach (var warning in result.Warnings)
             {
                 Warnings.Add(warning);
@@ -753,20 +897,43 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// (cheap, no I/O) so a user edit to Queue (Add/Remove) mid-read can't race with the actual disk
     /// reads, which are the slow part and run off-thread on that fixed snapshot instead. Shared by
     /// RebuildAsync and ReviewConflictsAsync, which both need the exact same materialization.
+    ///
+    /// Queue can hold opaque pak entries (LibraryEntry.IsOpaquePak) alongside real EXMOD mods —
+    /// split apart here since RebuildService needs them as two separate parameters. Entries stays
+    /// EXMOD-only, kept 1:1 with Packages (FindQueueConflictsAsync zips them by index), so conflict
+    /// checking naturally only ever considers mods that can actually have a field-level conflict.
     /// </summary>
-    private async Task<(List<LibraryEntry> Entries, List<ExmodPackageContents> Packages)> LoadQueuedPackagesAsync()
+    private async Task<(List<LibraryEntry> Entries, List<ExmodPackageContents> Packages, List<string> PrebuiltPakFilePaths)> LoadQueuedPackagesAsync()
     {
-        var entriesSnapshot = Queue.ToList();
-        var packages = await Task.Run(() => entriesSnapshot
-            .Select(entry => ExmodFolder.Read(_libraryRepository.GetFolderPath(entry.FolderName)))
-            .ToList());
-        return (entriesSnapshot, packages);
+        var queueSnapshot = Queue.ToList();
+        var exmodEntries = queueSnapshot.Where(e => !e.IsOpaquePak).ToList();
+        var prebuiltEntries = queueSnapshot.Where(e => e.IsOpaquePak).ToList();
+
+        var (packages, prebuiltPakFilePaths) = await Task.Run(() =>
+        {
+            var packages = exmodEntries
+                .Select(entry => ExmodFolder.Read(_libraryRepository.GetFolderPath(entry.FolderName)))
+                .ToList();
+
+            // Each opaque pak folder holds exactly one .pak file (ImportPak's own write path) — a
+            // folder whose .pak vanished since being queued (Library entry deleted/moved) is
+            // silently skipped rather than failing the whole rebuild.
+            var prebuiltPakFilePaths = prebuiltEntries
+                .Select(entry => Directory.GetFiles(_libraryRepository.GetFolderPath(entry.FolderName), "*.pak").FirstOrDefault())
+                .Where(path => path is not null)
+                .Select(path => path!)
+                .ToList();
+
+            return (packages, prebuiltPakFilePaths);
+        });
+
+        return (exmodEntries, packages, prebuiltPakFilePaths);
     }
 
     /// <summary>Shared by ReviewConflictsAsync and the background badge computation — both need the exact same (queued packages) -&gt; (conflicts) pipeline.</summary>
     private async Task<(IReadOnlyList<FieldConflict> Conflicts, List<string> ModNames)> FindQueueConflictsAsync()
     {
-        var (entries, packages) = await LoadQueuedPackagesAsync();
+        var (entries, packages, _) = await LoadQueuedPackagesAsync();
         return await Task.Run(() =>
         {
             var classifier = new DefaultSemanticClassifier();
@@ -845,11 +1012,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     }
 
     /// <summary>
-    /// The one command in this whole app that writes into the real game's Content\Paks\mods.
-    /// Also serves as the spec's own "Copy built pack to game" retry action — clicking it again
-    /// after a locked-file failure just re-copies the same already-staged pak, no rebuild needed.
+    /// The one method in this whole app that writes into the real game's Content\Paks\mods.
+    /// No [RelayCommand] — reached only through RebuildAndInstallAsync's chain since the combined
+    /// Install button replaced the separate pair; re-running that button after a locked-file
+    /// failure still covers the spec's own "Copy built pack to game" retry case (the rebuild step
+    /// just re-produces the same staged pak before this re-copies it).
     /// </summary>
-    [RelayCommand]
     private async Task InstallAsync()
     {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
@@ -877,7 +1045,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             return;
         }
 
-        IsInstalling = true;
         InstallStatusMessage = "Installing…";
 
         try
@@ -902,6 +1069,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 ? $"Installed to '{result.InstalledPakPath}'. Backed up the previous pak to '{result.BackupPakPath}'."
                 : $"Installed to '{result.InstalledPakPath}'.";
             _activityLog.Log($"Installed pack to {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityEntryKind.Success);
+            HasExistingInstall = true;
         }
         catch (Exception ex)
         {
@@ -910,10 +1078,55 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // not crash the app. Retry is just clicking Install again once the cause is cleared.
             InstallStatusMessage = $"Install failed: {ex.Message}";
         }
-        finally
-        {
-            IsInstalling = false;
-        }
     }
 
+    /// <summary>
+    /// A standalone uninstall — deletes the real installed pak from Content\Paks\mods without
+    /// Installing anything in its place. Deliberately leaves the Library entry Install's own
+    /// "Replace, not accumulate" step created untouched: removing a mod from the live game isn't
+    /// the same request as deleting it from the local library, so this only ever touches the real
+    /// game folder.
+    /// </summary>
+    [RelayCommand]
+    private async Task RemoveFromGameAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
+        {
+            InstallStatusMessage = "Set the Icarus Content folder in Settings first.";
+            return;
+        }
+
+        // Same explicit Yes/No gate InstallAsync itself already uses — this deletes a real file
+        // from the user's actual game folder, so it shouldn't be reachable via a single accidental
+        // click any more than overwriting it already isn't.
+        var confirmResult = MessageBox.Show(
+            $"This removes IcarusStarlink's installed pak from '{_settingsService.Current.IcarusContentPath}\\Paks\\mods'.\n\n" +
+            "It's backed up first (last 5 kept), and your Library copy of this mod isn't touched — only the real game install.\n\nContinue?",
+            "Remove from Icarus", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirmResult != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        InstallStatusMessage = "Removing…";
+
+        try
+        {
+            var removed = await _installService.RemoveInstalledPakAsync(
+                Path.GetFileName(_outputPakPath), _settingsService.Current.IcarusContentPath!, _backupDirectory);
+
+            InstallStatusMessage = removed
+                ? "Removed from Icarus — backed up first."
+                : "Nothing installed by IcarusStarlink was there to remove.";
+            if (removed)
+            {
+                _activityLog.Log($"Removed installed pack from {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityEntryKind.Success);
+                HasExistingInstall = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            InstallStatusMessage = $"Remove failed: {ex.Message}";
+        }
+    }
 }

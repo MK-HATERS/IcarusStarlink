@@ -15,6 +15,14 @@ public interface IRebuildService
     /// pack's own file layout. Throws on failure (missing/unreadable base data, UnrealPak itself
     /// failing) — same convention as IUnrealPakService.
     /// </summary>
+    /// <param name="prebuiltPakFilePaths">
+    /// Attached opaque/prebuilt Library paks (LibraryEntry.IsOpaquePak — no .EXMOD, nothing to
+    /// field-merge). Each one is unpacked via UnrealPak -Extract straight into the same staging
+    /// folder the merge output populates, so the final -Create produces one single merged pak —
+    /// matching classic IMM's own real behavior, confirmed directly rather than the original spec
+    /// text's own "installed alongside as a separate file" reading, which turned out to describe
+    /// a different (and, per that direct confirmation, incorrect) design.
+    /// </param>
     /// <param name="manualPicks">
     /// The advanced conflict picker's own overrides, passed straight through to MergeEngine.Merge —
     /// null (the default) means every conflict resolves via the registry's own automatic rule
@@ -28,6 +36,8 @@ public interface IRebuildService
         string dataFolder,
         string unrealPakExePath,
         string outputPakPath,
+        IReadOnlyList<string> prebuiltPakFilePaths,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
+        IProgress<RebuildStageProgress>? progress = null,
         CancellationToken cancellationToken = default);
 }

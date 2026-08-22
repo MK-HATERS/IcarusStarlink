@@ -44,7 +44,7 @@ public static class GameplayOptionsApplier
             files.Add(FirearmDataFile);
         }
         if (options.SpeedBoost != BoostLevel.Off || options.PlayerBoost != BoostLevel.Off
-            || options.XpBoost != BoostLevel.Off || options.DisableTemperatures)
+            || options.XpBoost != XpBoostLevel.Off || options.DisableTemperatures)
         {
             files.Add(CharacterStatsFile);
         }
@@ -114,7 +114,15 @@ public static class GameplayOptionsApplier
         }
     }
 
-    /// <summary>"Added reduce crafting cost %25/%50 to merge options... reduce all crafting bench recipes by %25/%50" per classic IMM's changelog — scales down the ITEM inputs a recipe costs, never its outputs (that would be a free-item exploit, not a cost reduction).</summary>
+    /// <summary>
+    /// "Added reduce crafting cost %25/%50 to merge options... reduce all crafting bench recipes by
+    /// %25/%50" plus "Added Creative mode to merge options... reduce all crafting bench costs to 0"
+    /// per classic IMM's changelog — scales down (or, for Creative, zeroes) the ITEM inputs a recipe
+    /// costs, never its outputs (that would be a free-item exploit, not a cost reduction). Creative
+    /// needs its own literal-zero path rather than a 100% factor through ScaleCountsInArray, since
+    /// that helper deliberately floors every result at 1 (never lets 25%/50% round all the way down
+    /// to free) — Creative mode's whole point is actually reaching 0, so it can't reuse that clamp.
+    /// </summary>
     private static void ApplyCraftCostReduction(GameplayOptions options, IDictionary<string, JsonObject> tables)
     {
         if (options.CraftCost == CraftCostReduction.Off)
@@ -122,8 +130,12 @@ public static class GameplayOptionsApplier
             return;
         }
 
-        var percent = options.CraftCost == CraftCostReduction.TwentyFivePercent ? 25 : 50;
-        var factor = 1 - percent / 100.0;
+        var factor = options.CraftCost switch
+        {
+            CraftCostReduction.TwentyFivePercent => 0.75,
+            CraftCostReduction.FiftyPercent => 0.5,
+            _ => 0.0,
+        };
 
         foreach (var file in new[] { ProcessorRecipesFile, ExtractorRecipesFile })
         {
@@ -139,8 +151,33 @@ public static class GameplayOptionsApplier
                     continue;
                 }
 
-                ScaleCountsInArray(row["Inputs"] as JsonArray, "Count", factor);
-                ScaleCountsInArray(row["ResourceInputs"] as JsonArray, "RequiredUnits", factor);
+                if (options.CraftCost == CraftCostReduction.Creative)
+                {
+                    ZeroCountsInArray(row["Inputs"] as JsonArray, "Count");
+                    ZeroCountsInArray(row["ResourceInputs"] as JsonArray, "RequiredUnits");
+                }
+                else
+                {
+                    ScaleCountsInArray(row["Inputs"] as JsonArray, "Count", factor);
+                    ScaleCountsInArray(row["ResourceInputs"] as JsonArray, "RequiredUnits", factor);
+                }
+            }
+        }
+    }
+
+    /// <summary>Creative mode's own zero-out — deliberately not routed through ScaleCountsInArray, which floors every result at a minimum of 1 and so can never actually reach free.</summary>
+    private static void ZeroCountsInArray(JsonArray? array, string countField)
+    {
+        if (array is null)
+        {
+            return;
+        }
+
+        foreach (var element in array)
+        {
+            if (element is JsonObject obj && obj[countField] is JsonValue)
+            {
+                obj[countField] = JsonValue.Create(0);
             }
         }
     }
@@ -219,7 +256,7 @@ public static class GameplayOptionsApplier
     private static void ApplyCharacterStats(GameplayOptions options, IDictionary<string, JsonObject> tables, MergeReport report)
     {
         var needsStats = options.SpeedBoost != BoostLevel.Off || options.PlayerBoost != BoostLevel.Off
-            || options.XpBoost != BoostLevel.Off || options.DisableTemperatures;
+            || options.XpBoost != XpBoostLevel.Off || options.DisableTemperatures;
         if (!needsStats || !tables.TryGetValue(CharacterStatsFile, out var table))
         {
             return;
@@ -245,12 +282,21 @@ public static class GameplayOptionsApplier
         {
             ApplyPlayerBoost(statsGranted, options.PlayerBoost);
         }
-        if (options.XpBoost != BoostLevel.Off)
+        if (options.XpBoost != XpBoostLevel.Off)
         {
-            // "Boosts XP by %500" (Level 1) / "%1000" (Level 2) per the changelog. No existing
-            // Experience-category grant on Base_Stats in the real data — this adds a new one, using
-            // the same stat naming convention (BaseExperience_+%) the game's own stat catalog defines.
-            SetStat(statsGranted, "BaseExperience_+%", options.XpBoost == BoostLevel.Level1 ? 500 : 1000);
+            // "Boosts XP by %500" (Level 1) / "%1000" (Level 2) per the original two-tier changelog
+            // entry; classic IMM's live app has since grown a third tier, "level 1 is %200, level 2
+            // is %500 and Level 3 is %1000" (ver 2.4.4) — this now matches that current numbering.
+            // No existing Experience-category grant on Base_Stats in the real data — this adds a new
+            // one, using the same stat naming convention (BaseExperience_+%) the game's own stat
+            // catalog defines.
+            var percent = options.XpBoost switch
+            {
+                XpBoostLevel.Level1 => 200,
+                XpBoostLevel.Level2 => 500,
+                _ => 1000,
+            };
+            SetStat(statsGranted, "BaseExperience_+%", percent);
         }
         if (options.DisableTemperatures)
         {

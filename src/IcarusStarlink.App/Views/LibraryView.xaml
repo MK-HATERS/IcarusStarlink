@@ -19,7 +19,8 @@
              reveals inline Pin/Favorite/Edit actions (RowActions, opacity 0→1 on IsMouseOver)
              instead of only the detail pane or the right-click menu below. -->
         <DataTemplate DataType="{x:Type vm:LibraryItemViewModel}">
-            <Grid x:Name="Row" Margin="0,2">
+            <Grid x:Name="Row" Margin="0,2"
+                  Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
@@ -28,22 +29,43 @@
                 <Grid.ContextMenu>
                     <!-- Right-clicking selects the row first (see code-behind), so Pin/Favorite here apply to
                          the same mod the detail pane is about to show. Notes doesn't need its own entry —
-                         the same right-click already surfaces the Notes box in the detail pane below. -->
+                         the same right-click already surfaces the Notes box in the detail pane below.
+                         A ContextMenu is its own top-level Popup, not part of this Grid's visual tree, so a
+                         plain RelativeSource AncestorType=UserControl lookup from inside it finds nothing —
+                         confirmed the hard way earlier this session with the same shape of bug (a
+                         VisualBrush.Visual binding that silently resolved to nothing). Row's own Tag above
+                         relays the page VM across that boundary: PlacementTarget (a real property WPF sets
+                         to whatever opened the menu, so it stays inside the real visual tree) exposes that
+                         Tag back to the MenuItem below. -->
                     <ContextMenu>
                         <MenuItem Header="Pinned" IsCheckable="True" IsChecked="{Binding IsPinned}"/>
                         <MenuItem Header="Favorite" IsCheckable="True" IsChecked="{Binding IsFavorite}"/>
                         <Separator/>
-                        <MenuItem Header="Open on Nexus" IsEnabled="False"
-                                  ToolTip="Available once Downloads links mods to their Nexus page (Phase 4)."
+                        <MenuItem Header="Rename…"
+                                  Command="{Binding PlacementTarget.Tag.RenameItemCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  ToolTip="Change how this mod displays in Library — its real folder/files aren't touched"/>
+                        <Separator/>
+                        <MenuItem Header="Create mod backup"
+                                  Command="{Binding PlacementTarget.Tag.BackupModCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  ToolTip="Snapshots this mod's whole folder — a safety net before a risky manual edit"/>
+                        <MenuItem Header="Restore latest backup"
+                                  Command="{Binding PlacementTarget.Tag.RestoreModBackupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}" IsEnabled="{Binding HasModBackup}"
+                                  ToolTip="Replaces this mod's current content with its most recent backup"
                                   ToolTipService.ShowOnDisabled="True"/>
+                        <MenuItem Header="Open on Nexus" Command="{Binding OpenOnNexusCommand}" IsEnabled="{Binding HasNexusLink}"
+                                  ToolTip="Open this mod's Nexus page in your browser"
+                                  ToolTipService.ShowOnDisabled="True"/>
+                        <MenuItem Header="Link to Nexus ID…"
+                                  Command="{Binding PlacementTarget.Tag.LinkToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates"/>
                     </ContextMenu>
                 </Grid.ContextMenu>
 
                 <StackPanel Grid.Column="0" Orientation="Horizontal">
-                    <Path Data="{StaticResource IconPin}" Fill="{DynamicResource AccentBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
-                          Visibility="{Binding IsPinned, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                    <Path Data="{StaticResource IconStar}" Fill="#FFD24C" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
-                          Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
                           ToolTip="Locally edited in the EXMOD editor"
@@ -59,6 +81,18 @@
                     <TextBlock Text="{Binding VariantLabel, StringFormat=' — {0}'}"
                                Foreground="{DynamicResource SecondaryForegroundBrush}"
                                Visibility="{Binding VariantLabel, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    <!-- Phase 10 follow-up: a compact provenance badge — the tree column is narrower
+                         than the detail pane, so this stays small but still shows the full word. -->
+                    <Border Margin="6,0,0,0" CornerRadius="7" Padding="5,0" VerticalAlignment="Center"
+                            Background="{DynamicResource InfoBrush}"
+                            Visibility="{Binding HasSource, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock Text="{Binding Source}" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
+                    </Border>
+                    <Border Margin="6,0,0,0" CornerRadius="7" Padding="5,0" VerticalAlignment="Center"
+                            Background="{DynamicResource AccentBrush}" ToolTip="{Binding LatestVersion, StringFormat='Update available: v{0}'}"
+                            Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock Text="Update" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
+                    </Border>
                 </StackPanel>
 
                 <StackPanel x:Name="RowActions" Grid.Column="2" Orientation="Horizontal" Opacity="0">
@@ -102,9 +136,21 @@
                 </StackPanel>
             </Grid>
             <DataTemplate.Triggers>
+                <!-- Pinned/Favorite no longer duplicate onto a separate always-on left-side glyph
+                     (the previous design) — the same right-side toggle icon IS the indicator now:
+                     hover reveals it as an invitation to act on a not-yet-pinned/favorited row, and
+                     it stays visible (its own Fill already turns solid/accent-colored via the
+                     DataTriggers below) once the state is actually on, instead of disappearing again
+                     the moment the mouse leaves. -->
                 <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
                     <Setter TargetName="RowActions" Property="Opacity" Value="1"/>
                 </Trigger>
+                <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                    <Setter TargetName="RowActions" Property="Opacity" Value="1"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                    <Setter TargetName="RowActions" Property="Opacity" Value="1"/>
+                </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
     </UserControl.Resources>
@@ -119,7 +165,7 @@
         <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
 
         <TabControl Grid.Row="1" Margin="0,12,0,0">
-            <TabItem Header="EXMOD library">
+            <TabItem Header="Mods">
                 <Grid Margin="0,12,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -164,6 +210,14 @@
                                 <TextBlock Text="Import .pak…" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
+                        <Button Command="{Binding CheckForUpdatesCommand}" Margin="0,0,8,0"
+                                ToolTip="Checks every Nexus- or Database-sourced mod against its real current version"
+                                AutomationProperties.Name="Check for updates">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Check for updates" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
 
                     <StackPanel Grid.Row="1" Margin="0,0,0,12">
@@ -172,6 +226,8 @@
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}">
                             <Run Text="{Binding ModCount, Mode=OneWay}"/><Run Text=" mod(s) · "/><Run Text="{Binding GroupCount, Mode=OneWay}"/><Run Text=" group(s)"/>
                         </TextBlock>
+                        <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding UpdateCheckStatusMessage}"
+                                   Visibility="{Binding UpdateCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                     </StackPanel>
 
                     <Grid Grid.Row="2">
@@ -201,7 +257,23 @@
                                     </Grid.ColumnDefinitions>
 
                                     <StackPanel Grid.Column="0">
-                                        <TextBlock Text="{Binding SelectedItem.Name}" FontSize="18" FontWeight="SemiBold"/>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding SelectedItem.Name}" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                            <!-- Phase 10 follow-up: provenance badge — where this mod came from (Nexus/Database),
+                                                 null/empty for a manual import, in which case the badge collapses entirely. -->
+                                            <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
+                                                    Background="{DynamicResource InfoBrush}"
+                                                    Visibility="{Binding SelectedItem.HasSource, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                <TextBlock Text="{Binding SelectedItem.Source}" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
+                                            </Border>
+                                            <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
+                                                    Background="{DynamicResource AccentBrush}"
+                                                    Visibility="{Binding SelectedItem.HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                <TextBlock FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}">
+                                                    <Run Text="Update available: v"/><Run Text="{Binding SelectedItem.LatestVersion, Mode=OneWay}"/>
+                                                </TextBlock>
+                                            </Border>
+                                        </StackPanel>
                                         <TextBlock Margin="0,2,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}">
                                             <Run Text="{Binding SelectedItem.Author, Mode=OneWay}"/>
                                             <Run Text=" · v"/>
@@ -299,15 +371,33 @@
                                     </TabItem>
                                     <TabItem Header="Files">
                                         <Grid Margin="0,8,0,0" MinHeight="110">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="200"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <ListBox Grid.Column="0" ItemsSource="{Binding SelectedItem.AssetPaths}"
-                                                     SelectedItem="{Binding SelectedItem.SelectedAssetPath}"/>
-                                            <TextBox Grid.Column="1" Text="{Binding SelectedItem.SelectedAssetPreview, Mode=OneWay}"
-                                                     Margin="8,0,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                                                     AcceptsReturn="True"/>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+
+                                            <!-- Only ever shown for an opaque .pak — its files come from an
+                                                 async UnrealPak -List call, not an instant disk read, so this
+                                                 covers "loading…" and "failed, here's why" (with a retry) alike. -->
+                                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8"
+                                                        Visibility="{Binding SelectedItem.PakListingStatus, Converter={StaticResource NullToVisibilityConverter}}">
+                                                <TextBlock Text="{Binding SelectedItem.PakListingStatus}" Foreground="{DynamicResource SecondaryForegroundBrush}" VerticalAlignment="Center"/>
+                                                <Button Content="Retry" Margin="8,0,0,0" Padding="8,2"
+                                                        Command="{Binding SelectedItem.LoadPakContentsCommand}"
+                                                        AutomationProperties.Name="Retry loading pak contents"/>
+                                            </StackPanel>
+
+                                            <Grid Grid.Row="1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="200"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <ListBox Grid.Column="0" ItemsSource="{Binding SelectedItem.AssetPaths}"
+                                                         SelectedItem="{Binding SelectedItem.SelectedAssetPath}"/>
+                                                <TextBox Grid.Column="1" Text="{Binding SelectedItem.SelectedAssetPreview, Mode=OneWay}"
+                                                         Margin="8,0,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                                         AcceptsReturn="True"/>
+                                            </Grid>
                                         </Grid>
                                     </TabItem>
                                     <TabItem Header="Readme">

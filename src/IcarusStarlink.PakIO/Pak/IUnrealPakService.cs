@@ -42,6 +42,24 @@ public interface IUnrealPakService
     /// same convention as ExtractDataPakAsync.
     /// </summary>
     Task<int> CreatePakAsync(string unrealPakExePath, string stagingDirectory, string outputPakPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists a pak's own internal asset paths via `-List` — read-only, never extracts anything.
+    /// For browsing an opaque .pak's contents in the Library UI, which otherwise has no EXMOD data
+    /// to enumerate assets from. Throws on failure, same convention as the other methods here.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListPakContentsAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Extracts an arbitrary pak's full contents into outputDirectory, additively — confirmed live
+    /// that UnrealPak -Extract writes into a pre-populated folder without disturbing what's already
+    /// there, which is exactly what RebuildService relies on to fold an attached opaque/prebuilt
+    /// pak's own contents into the same staging folder as the merged EXMOD output, so the final
+    /// -Create produces one single pak (matching classic IMM's own real behavior) rather than a
+    /// separate sidecar file. Returns the number of files extracted. Throws on failure, same
+    /// convention as the other methods here.
+    /// </summary>
+    Task<int> ExtractPakAsync(string unrealPakExePath, string pakFilePath, string outputDirectory, CancellationToken cancellationToken = default);
 }
 
 public sealed record UnrealPakExtractResult(int ExtractedFileCount, WeeklyChangeReport? ChangeReport);

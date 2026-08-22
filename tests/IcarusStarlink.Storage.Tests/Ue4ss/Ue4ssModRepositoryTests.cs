@@ -131,6 +131,54 @@ public class Ue4ssModRepositoryTests : IDisposable
         Assert.Throws<DirectoryNotFoundException>(() => CreateRepository().AdoptFromGame(_gameModsDir, "NoSuchMod"));
     }
 
+    [Fact]
+    public void ImportFromFolder_SingleWrappingSubfolder_StripsItAndNamesTheModAfterIt()
+    {
+        var extracted = Path.Combine(_dir, "Extracted1");
+        var wrapping = Path.Combine(extracted, "NearbyCrafting");
+        Directory.CreateDirectory(Path.Combine(wrapping, "Scripts"));
+        File.WriteAllText(Path.Combine(wrapping, "Scripts", "main.lua"), "-- lua");
+
+        var repo = CreateRepository();
+        var folderName = repo.ImportFromFolder(extracted, "SomeArchiveName");
+
+        Assert.Equal("NearbyCrafting", folderName);
+        Assert.True(File.Exists(Path.Combine(repo.GetFolderPath("NearbyCrafting"), "Scripts", "main.lua")));
+    }
+
+    [Fact]
+    public void ImportFromFolder_LooseFilesAtRoot_UsesFallbackNameSinceThereIsNoWrappingFolder()
+    {
+        var extracted = Path.Combine(_dir, "Extracted2");
+        Directory.CreateDirectory(Path.Combine(extracted, "Scripts"));
+        File.WriteAllText(Path.Combine(extracted, "Scripts", "main.lua"), "-- lua");
+        File.WriteAllText(Path.Combine(extracted, "readme.txt"), "hi");
+
+        var repo = CreateRepository();
+        var folderName = repo.ImportFromFolder(extracted, "Rada-CheatMenu");
+
+        Assert.Equal("Rada-CheatMenu", folderName);
+        Assert.True(File.Exists(Path.Combine(repo.GetFolderPath("Rada-CheatMenu"), "Scripts", "main.lua")));
+        Assert.True(File.Exists(Path.Combine(repo.GetFolderPath("Rada-CheatMenu"), "readme.txt")));
+    }
+
+    [Fact]
+    public void ImportFromFolder_NameCollision_DisambiguatesRatherThanOverwriting()
+    {
+        var repo = CreateRepository();
+        repo.Import(MakeModZip("first.zip", "NearbyCrafting"));
+
+        var extracted = Path.Combine(_dir, "Extracted3");
+        var wrapping = Path.Combine(extracted, "NearbyCrafting");
+        Directory.CreateDirectory(wrapping);
+        File.WriteAllText(Path.Combine(wrapping, "main.lua"), "-- lua v2");
+
+        var folderName = repo.ImportFromFolder(extracted, "NearbyCrafting");
+
+        Assert.Equal("NearbyCrafting_2", folderName);
+        Assert.Equal(["NearbyCrafting", "NearbyCrafting_2"], repo.GetAll());
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

@@ -4,7 +4,11 @@ namespace IcarusStarlink.PakIO.Install;
 /// Copies a staged pak into the real game's Content\Paks\mods — the one thing this app ever writes
 /// there. Backup scope is deliberately narrow: only the one file this service is about to
 /// overwrite, not the whole folder. UE4SS mods are a separate concern (IUe4ssModStateService,
-/// Phase 8.5) — this service no longer touches the UE4SS Mods folder at all.
+/// Phase 8.5) — this service no longer touches the UE4SS Mods folder at all. Prebuilt/opaque paks
+/// are folded into the same staged pak by RebuildService itself (unpacked via UnrealPak -Extract
+/// into the same staging folder before -Create runs — confirmed live that extraction is additive,
+/// not destructive, against a pre-populated folder) — matching classic IMM's own real behavior, so
+/// there's only ever the one file for this service to install.
 /// </summary>
 public sealed class InstallService : IInstallService
 {
@@ -53,5 +57,32 @@ public sealed class InstallService : IInstallService
             : [];
 
         return new InstalledState(modNames);
+    }, cancellationToken);
+
+    public Task<bool> RemoveInstalledPakAsync(
+        string stagedPakFileName, string icarusContentPath, string backupDirectory,
+        CancellationToken cancellationToken = default) => Task.Run(() =>
+    {
+        var modsDirectory = Path.Combine(icarusContentPath, "Paks", "mods");
+        var targetPakPath = Path.Combine(modsDirectory, Path.GetFileName(stagedPakFileName));
+        var targetManifestPath = Path.Combine(modsDirectory, InstallManifestNames.PakManifest);
+
+        var removedAnything = false;
+
+        if (File.Exists(targetPakPath))
+        {
+            FolderBackup.BackupFile(targetPakPath, backupDirectory);
+            File.Delete(targetPakPath);
+            removedAnything = true;
+        }
+
+        if (File.Exists(targetManifestPath))
+        {
+            FolderBackup.BackupFile(targetManifestPath, backupDirectory);
+            File.Delete(targetManifestPath);
+            removedAnything = true;
+        }
+
+        return removedAnything;
     }, cancellationToken);
 }

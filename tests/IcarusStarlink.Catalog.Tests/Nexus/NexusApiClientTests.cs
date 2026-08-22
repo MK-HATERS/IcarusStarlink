@@ -140,4 +140,82 @@ public class NexusApiClientTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetDownloadLinksAsync("some-key", "icarus", 290, 1234, "stale", 1));
     }
+
+    // Real shape, confirmed against Nexus's own official node-nexus-api client source (IModInfo).
+    private const string RealisticModInfoJson = """
+        {
+            "mod_id": 289, "game_id": 1, "domain_name": "icarus", "category_id": 2,
+            "contains_adult_content": false, "name": "Rada's Cheat Menu", "summary": "An in-game cheat menu.",
+            "description": "[b]Full[/b] description in BBCode.", "version": "2.6", "author": "Rada",
+            "uploaded_by": "Rada", "status": "published", "available": true,
+            "created_timestamp": 1700000000, "created_time": "2023-11-14T22:13:20.000+00:00",
+            "updated_timestamp": 1700000000, "updated_time": "2023-11-14T22:13:20.000+00:00",
+            "allow_rating": true, "endorsement_count": 10, "mod_downloads": 100
+        }
+        """;
+
+    [Fact]
+    public async Task GetModInfoAsync_RealisticShape_ParsesNameAuthorSummary()
+    {
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://api.nexusmods.com/v1/games/icarus/mods/289"] = RealisticModInfoJson,
+        });
+
+        var result = await client.GetModInfoAsync("some-key", "icarus", 289);
+
+        Assert.NotNull(result);
+        Assert.Equal("Rada's Cheat Menu", result.Name);
+        Assert.Equal("Rada", result.Author);
+        Assert.Equal("An in-game cheat menu.", result.Summary);
+        Assert.Equal("2.6", result.Version);
+    }
+
+    [Fact]
+    public async Task GetModInfoAsync_RejectedKey_ReturnsNullNotAnException()
+    {
+        var client = CreateClient(
+            new Dictionary<string, string> { ["https://api.nexusmods.com/v1/games/icarus/mods/289"] = """{"message":"Invalid API Key"}""" },
+            new Dictionary<string, HttpStatusCode> { ["https://api.nexusmods.com/v1/games/icarus/mods/289"] = HttpStatusCode.Unauthorized });
+
+        var result = await client.GetModInfoAsync("wrong-key", "icarus", 289);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetModInfoAsync_HtmlEntitiesInNameAndSummary_AreDecoded()
+    {
+        // Nexus's web UI renders these fields as HTML — a real summary containing "&amp;" (for a
+        // literal "&") is expected content, not something to show raw in a plain-text UI.
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://api.nexusmods.com/v1/games/icarus/mods/289"] = """
+                {"mod_id": 289, "author": "Rada", "version": "2.6", "name": "Cheats &amp; Tools", "summary": "Toggle fog on &amp; off."}
+                """,
+        });
+
+        var result = await client.GetModInfoAsync("some-key", "icarus", 289);
+
+        Assert.NotNull(result);
+        Assert.Equal("Cheats & Tools", result.Name);
+        Assert.Equal("Toggle fog on & off.", result.Summary);
+    }
+
+    [Fact]
+    public async Task GetModInfoAsync_ModUnderModeration_NameAbsent_StillParsesAuthor()
+    {
+        // Per Nexus's own documented IModInfo shape: "name" is absent specifically when a mod is
+        // under moderation — the rest of the response still comes through.
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://api.nexusmods.com/v1/games/icarus/mods/500"] = """{"mod_id": 500, "author": "SomeAuthor", "version": "1.0"}""",
+        });
+
+        var result = await client.GetModInfoAsync("some-key", "icarus", 500);
+
+        Assert.NotNull(result);
+        Assert.Null(result.Name);
+        Assert.Equal("SomeAuthor", result.Author);
+    }
 }

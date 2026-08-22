@@ -323,6 +323,43 @@ public class ExmodzArchiveTests
     }
 
     [Fact]
+    public void Read_StringPath_RealZipFileRegardlessOfExtension_Succeeds()
+    {
+        // Downloads' Activate can't trust a Nexus file's extension — a real EXMODZ zip renamed
+        // to something else (or arriving with no extension at all) must still read correctly,
+        // since Read(string) now sniffs the real format from content rather than the extension.
+        var path = Path.Combine(Path.GetTempPath(), $"IcarusStarlink.Tests.{Guid.NewGuid():N}.notazip");
+        try
+        {
+            ExmodzArchive.Write(path, BuildFixture());
+
+            var result = ExmodzArchive.Read(path);
+
+            Assert.Equal("Faster Processors", result.Package.Name);
+            Assert.Equal(3, result.Assets.Count);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Read_StringPath_NotARecognizedArchive_ThrowsFormatException()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"IcarusStarlink.Tests.{Guid.NewGuid():N}.EXMODZ");
+        try
+        {
+            File.WriteAllBytes(path, [1, 2, 3, 4, 5, 6, 7, 8]);
+            Assert.Throws<FormatException>(() => ExmodzArchive.Read(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Read_ArchiveWithNoExmodFile_ThrowsFormatException()
     {
         using var stream = new MemoryStream();

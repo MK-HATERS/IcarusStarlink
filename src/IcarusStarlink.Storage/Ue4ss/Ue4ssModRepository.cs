@@ -28,6 +28,17 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
         return folderName;
     }
 
+    public string ImportFromFolder(string sourceFolder, string fallbackName)
+    {
+        var wrapping = FindSingleWrappingFolder(sourceFolder);
+        var actualSource = wrapping ?? sourceFolder;
+        var derivedName = wrapping is not null ? Path.GetFileName(wrapping)! : fallbackName;
+
+        var folderName = MakeUniqueFolderName(derivedName);
+        FolderBackup.CopyDirectory(actualSource, Path.Combine(_stagedDirectory, folderName));
+        return folderName;
+    }
+
     public void Delete(string folderName) => Directory.Delete(ResolveFolder(folderName), recursive: true);
 
     public string GetFolderPath(string folderName) => ResolveFolder(folderName);
@@ -48,6 +59,13 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
         var targetName = MakeUniqueFolderName(folderName);
         FolderBackup.CopyDirectory(sourceFolder, Path.Combine(_stagedDirectory, targetName));
         return targetName;
+    }
+
+    /// <summary>Every entry sits under one single top-level subfolder → that's a wrapping folder, same convention as Ue4ssModArchive's own zip-entry version of this check.</summary>
+    private static string? FindSingleWrappingFolder(string sourceFolder)
+    {
+        var entries = Directory.GetFileSystemEntries(sourceFolder);
+        return entries.Length == 1 && Directory.Exists(entries[0]) ? entries[0] : null;
     }
 
     private string MakeUniqueFolderName(string name)

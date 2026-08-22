@@ -10,9 +10,10 @@ public class FolderLibraryRepositoryTests : IDisposable
     private readonly string _extractedModsDir = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
     private readonly string _metaDir = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N") + "_meta");
     private readonly string _sourceDir = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N") + "_src");
+    private readonly string _backupsDir = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N") + "_backups");
 
     private FolderLibraryRepository CreateRepository() =>
-        new(_extractedModsDir, _metaDir, NullLogger<FolderLibraryRepository>.Instance);
+        new(_extractedModsDir, _metaDir, _backupsDir, NullLogger<FolderLibraryRepository>.Instance);
 
     private static ExmodPackageContents BuildFixture(string fileName = "Faster_Processors", string name = "Faster Processors")
     {
@@ -318,6 +319,46 @@ public class FolderLibraryRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void ImportPak_SiblingMergeManifestPresent_RecordsMergedPackModNames()
+    {
+        var pakPath = WriteFixturePakFile("ISL-Merged_P");
+        var manifestPath = Path.Combine(Path.GetDirectoryName(pakPath)!, IcarusStarlink.PakIO.InstallManifestNames.PakManifest);
+        File.WriteAllText(manifestPath, "Includes the following mods:\nFaster Processors\nBigger Backpacks\n");
+        using var repo = CreateRepository();
+
+        try
+        {
+            var entry = repo.ImportPak(pakPath);
+
+            Assert.True(entry.IsOpaquePak);
+            Assert.NotNull(entry.MergedPackModNames);
+            Assert.Equal(["Faster Processors", "Bigger Backpacks"], entry.MergedPackModNames);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ImportPak_NoSiblingMergeManifest_MergedPackModNamesIsNull()
+    {
+        var pakPath = WriteFixturePakFile();
+        using var repo = CreateRepository();
+
+        try
+        {
+            var entry = repo.ImportPak(pakPath);
+
+            Assert.Null(entry.MergedPackModNames);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ImportPak_ListAssetPathsAndReadReadme_AreEmptyRatherThanThrowing()
     {
         var pakPath = WriteFixturePakFile();
@@ -349,6 +390,124 @@ public class FolderLibraryRepositoryTests : IDisposable
 
             Assert.NotEqual(first.FolderName, second.FolderName);
             Assert.Equal(2, repo.GetAll().Count);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Import_WithSource_RecordsItOnTheEntry()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+
+        var entry = repo.Import(_sourceDir, source: "Database");
+
+        Assert.Equal("Database", entry.Source);
+    }
+
+    [Fact]
+    public void Import_NoSource_LeavesItNull()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+
+        var entry = repo.Import(_sourceDir);
+
+        Assert.Null(entry.Source);
+    }
+
+    [Fact]
+    public void ImportPak_WithNexusModId_RecordsItOnTheEntry()
+    {
+        var pakPath = WriteFixturePakFile();
+        using var repo = CreateRepository();
+
+        try
+        {
+            var entry = repo.ImportPak(pakPath, source: "Nexus", nexusModId: 289);
+            Assert.Equal(289, entry.NexusModId);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Import_WithNexusModId_RecordsItOnTheEntry()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+
+        var entry = repo.Import(_sourceDir, source: "Nexus", nexusModId: 289);
+
+        Assert.Equal(289, entry.NexusModId);
+    }
+
+    [Fact]
+    public void ImportPak_WithSource_RecordsItOnTheEntry()
+    {
+        var pakPath = WriteFixturePakFile();
+        using var repo = CreateRepository();
+
+        try
+        {
+            var entry = repo.ImportPak(pakPath, source: "Nexus");
+            Assert.Equal("Nexus", entry.Source);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SetNexusMetadata_OpaquePakEntry_OverridesNameAuthorDescription()
+    {
+        var pakPath = WriteFixturePakFile();
+        using var repo = CreateRepository();
+
+        try
+        {
+            var entry = repo.ImportPak(pakPath, source: "Nexus");
+
+            repo.SetNexusMetadata(entry.FolderName, "Real Mod Name", "RealAuthor", "A real summary from Nexus.", "2.6");
+
+            var updated = repo.GetAll().Single(e => e.FolderName == entry.FolderName);
+            Assert.Equal("Real Mod Name", updated.Name);
+            Assert.Equal("RealAuthor", updated.Author);
+            Assert.Equal("A real summary from Nexus.", updated.Description);
+            Assert.Equal("2.6", updated.Version);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SetNexusMetadata_PersistsAcrossRepositoryReopen()
+    {
+        var pakPath = WriteFixturePakFile();
+        string folderName;
+
+        using (var repo = CreateRepository())
+        {
+            var entry = repo.ImportPak(pakPath, source: "Nexus");
+            folderName = entry.FolderName;
+            repo.SetNexusMetadata(folderName, "Real Mod Name", "RealAuthor", "A real summary.", "2.6");
+        }
+
+        try
+        {
+            using var reopened = CreateRepository();
+            var reloaded = reopened.GetAll().Single(e => e.FolderName == folderName);
+
+            Assert.Equal("Real Mod Name", reloaded.Name);
+            Assert.Equal("RealAuthor", reloaded.Author);
         }
         finally
         {
@@ -456,6 +615,142 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.Throws<DirectoryNotFoundException>(() => repo.MarkLocallyEdited("DoesNotExist"));
     }
 
+    [Fact]
+    public void SetDisplayNameOverride_OverridesTheNameWithoutTouchingTheRealExmod_PersistsAcrossRepositoryInstances()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        string folderName;
+        using (var repo = CreateRepository())
+        {
+            folderName = repo.Import(_sourceDir).FolderName;
+
+            repo.SetDisplayNameOverride(folderName, "My Custom Name");
+            Assert.Equal("My Custom Name", repo.GetAll().Single().Name);
+        }
+
+        using var reopened = CreateRepository();
+        Assert.Equal("My Custom Name", reopened.GetAll().Single().Name);
+        // The real .EXMOD's own "name" field is never touched — confirmed by reading it back
+        // through ExmodFolder.Read directly rather than through the repository's own (now
+        // overridden) Name.
+        Assert.Equal("Faster Processors", ExmodFolder.Read(Path.Combine(reopened.GetFolderPath(folderName))).Package.Name);
+    }
+
+    [Fact]
+    public void SetDisplayNameOverride_EmptyOrWhitespace_ClearsTheOverrideBackToTheDefaultName()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        repo.SetDisplayNameOverride(folderName, "Temporary Name");
+        Assert.Equal("Temporary Name", repo.GetAll().Single().Name);
+
+        repo.SetDisplayNameOverride(folderName, "   ");
+
+        Assert.Equal("Faster Processors", repo.GetAll().Single().Name);
+    }
+
+    [Fact]
+    public void SetDisplayNameOverride_UnknownFolderName_ThrowsDirectoryNotFound()
+    {
+        using var repo = CreateRepository();
+
+        Assert.Throws<DirectoryNotFoundException>(() => repo.SetDisplayNameOverride("DoesNotExist", "Anything"));
+    }
+
+    [Fact]
+    public void LinkToNexus_SetsIdAndSource_PersistsAcrossRepositoryInstances()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        string folderName;
+        using (var repo = CreateRepository())
+        {
+            folderName = repo.Import(_sourceDir).FolderName;
+            Assert.Null(repo.GetAll().Single().NexusModId);
+
+            repo.LinkToNexus(folderName, 12345);
+
+            var entry = repo.GetAll().Single();
+            Assert.Equal(12345, entry.NexusModId);
+            Assert.Equal("Nexus", entry.Source);
+        }
+
+        using var reopened = CreateRepository();
+        var reopenedEntry = reopened.GetAll().Single();
+        Assert.Equal(12345, reopenedEntry.NexusModId);
+        Assert.Equal("Nexus", reopenedEntry.Source);
+    }
+
+    [Fact]
+    public void LinkToNexus_UnknownFolderName_ThrowsDirectoryNotFound()
+    {
+        using var repo = CreateRepository();
+
+        Assert.Throws<DirectoryNotFoundException>(() => repo.LinkToNexus("DoesNotExist", 123));
+    }
+
+    [Fact]
+    public void HasModBackup_NoBackupYet_ReturnsFalse()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+
+        Assert.False(repo.HasModBackup(folderName));
+    }
+
+    [Fact]
+    public void BackupMod_ThenEditingTheRealFile_RestoreLatestModBackup_BringsBackTheOriginalContent()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        var folderPath = repo.GetFolderPath(folderName);
+        var exmodPath = Directory.GetFiles(folderPath, "*.EXMOD", SearchOption.AllDirectories).Single();
+        var originalContent = File.ReadAllText(exmodPath);
+
+        repo.BackupMod(folderName);
+        Assert.True(repo.HasModBackup(folderName));
+
+        // Simulate a risky edit gone wrong — a real change to the mod's own file on disk.
+        File.WriteAllText(exmodPath, "{ this is now corrupted }");
+
+        var restored = repo.RestoreLatestModBackup(folderName);
+
+        Assert.True(restored);
+        Assert.Equal(originalContent, File.ReadAllText(exmodPath));
+    }
+
+    [Fact]
+    public void RestoreLatestModBackup_NoBackupYet_ReturnsFalseAndLeavesTheModUntouched()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+
+        var restored = repo.RestoreLatestModBackup(folderName);
+
+        Assert.False(restored);
+    }
+
+    [Fact]
+    public void RestoreLatestModBackup_ANewFileAddedSinceTheBackup_IsRemoved()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        repo.BackupMod(folderName);
+
+        var strayFile = Path.Combine(repo.GetFolderPath(folderName), "should_not_survive.txt");
+        File.WriteAllText(strayFile, "leftover from a bad edit");
+
+        repo.RestoreLatestModBackup(folderName);
+
+        // A real point-in-time restore, not a merge — a file added after the backup was taken
+        // shouldn't survive, since the whole point is undoing everything since that snapshot.
+        Assert.False(File.Exists(strayFile));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_extractedModsDir))
@@ -471,6 +766,11 @@ public class FolderLibraryRepositoryTests : IDisposable
         if (Directory.Exists(_metaDir))
         {
             Directory.Delete(_metaDir, recursive: true);
+        }
+
+        if (Directory.Exists(_backupsDir))
+        {
+            Directory.Delete(_backupsDir, recursive: true);
         }
     }
 }

@@ -30,6 +30,22 @@ public sealed class LibraryEntry
     public string Notes { get; set; } = "";
     public DateTimeOffset ImportedAtUtc { get; set; }
 
+    /// <summary>Where this mod came from — "Nexus" or "Database", set at import time by the code path that knows. Null for a manual/local import — shown as a small provenance badge, or no badge at all.</summary>
+    public string? Source { get; set; }
+
+    /// <summary>The real Nexus mod ID, set at import time for a Source == "Nexus" entry — needed to look up its current version for update-checking. Null for anything not Nexus-sourced.</summary>
+    public int? NexusModId { get; set; }
+
     /// <summary>Set once the EXMOD editor's own Save action runs against this mod — the ✎ glyph.</summary>
     public bool IsLocallyEdited { get; set; }
+
+    /// <summary>
+    /// Set when this opaque pak was imported alongside a sibling ISL-Merged.txt manifest — meaning
+    /// it's a previously-Rebuild-and-Installed IcarusStarlink pak, re-imported as its own Library
+    /// entry (RebuildService/InstallService's own established behavior since Phase 6.2). Holds the
+    /// display Name of every mod folded into it, read straight from that manifest — drives Merge &amp;
+    /// Install's queue rules ("skip mods already inside it", "pack can replace individuals") and the
+    /// 📦 glyph. Null for every other entry, including a plain prebuilt pak with no such manifest.
+    /// </summary>
+    public IReadOnlyList<string>? MergedPackModNames { get; set; }
 }

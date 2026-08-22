@@ -4,7 +4,7 @@ using IcarusStarlink.Core.Catalog;
 
 namespace IcarusStarlink.App.ViewModels;
 
-/// <summary>One tracked Nexus mod — Name is the only editable field (Nexus's own mod name isn't fetchable without API access, so the user names it themselves) and saves on edit, debounced the same 500ms way LibraryItemViewModel debounces Notes so the whole watchlist file isn't rewritten on every keystroke.</summary>
+/// <summary>One tracked Nexus mod — Name defaults to a placeholder at Add time (a URL alone doesn't carry a title) and is user-editable; DownloadsViewModel.RefreshNexusEntryInfoAsync can also re-sync it from a real Nexus API call. Saves on edit, debounced the same 500ms way LibraryItemViewModel debounces Notes so the whole watchlist file isn't rewritten on every keystroke.</summary>
 public sealed partial class NexusWatchlistItemViewModel : ObservableObject
 {
     private readonly Action<int, string> _onNameChanged;

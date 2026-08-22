@@ -4,10 +4,12 @@ using System.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Container;
@@ -44,6 +46,20 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     private readonly string _folderName;
     private readonly string _dataFolder;
     private readonly ExmodPackage _package;
+
+    /// <summary>
+    /// Snapshots taken before each discrete structural action (Add/Remove field, Add item,
+    /// Duplicate, mass edit, a raw-JSON Apply) — deliberately NOT per-keystroke: EditorFieldViewModel
+    /// writes a per-field value straight into the live package on every keystroke with no commit
+    /// event to hook, and snapshotting that granularly would make Undo revert one character at a
+    /// time instead of one meaningful action. Each entry is a full serialized copy (via the same
+    /// ExmodJson round-trip Full EXMOD JSON already uses), not a shallow reference — JsonNode/
+    /// ExmodPackage are mutable reference types, so anything less would let a later edit silently
+    /// corrupt an already-pushed snapshot. Capped so an extended editing session can't grow this
+    /// unboundedly.
+    /// </summary>
+    private readonly List<string> _undoSnapshots = [];
+    private const int MaxUndoDepth = 20;
 
     /// <summary>
     /// Recomputed whenever Rows changes shape (construction, or a raw-JSON Apply) — not on every
@@ -192,6 +208,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
+        PushUndoSnapshot();
         var count = 0;
         foreach (var editorItem in _selectedItemsForMassEdit)
         {
@@ -244,6 +261,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             clonedFields[fieldName] = value?.DeepClone();
         }
 
+        PushUndoSnapshot();
         row.FileItems.Add(new ExmodFileItem { Name = newName, Fields = clonedFields });
 
         var newEditorItem = new EditorItemViewModel(row.CurrentFile, newName);
@@ -290,6 +308,124 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't open the file: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// "Insert file at location" — classic IMM's own name for picking one of the game's own real
+    /// data files from a browsable list, rather than free-typing its path the way Add item's own
+    /// NewItemCurrentFile box requires. Adds it with zero items yet; Add item (or Add field once an
+    /// item exists) is still what actually puts content into it.
+    /// </summary>
+    [RelayCommand]
+    private void InsertFileAtLocation()
+    {
+        var dialog = new PickFileDialog(_dataFolder) { Owner = Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true || dialog.SelectedCurrentFile is not { } currentFile)
+        {
+            return;
+        }
+
+        if (_package.Rows.Any(r => string.Equals(r.CurrentFile, currentFile, StringComparison.OrdinalIgnoreCase)))
+        {
+            StatusMessage = $"'{currentFile}' is already part of this mod.";
+            return;
+        }
+
+        PushUndoSnapshot();
+        var previousFile = SelectedItem?.CurrentFile;
+        var previousName = SelectedItem?.ItemName;
+        _package.Rows.Add(new ExmodFileRow { CurrentFile = currentFile });
+        RefreshBaseDiff();
+        ReloadItems();
+        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == previousFile && i.ItemName == previousName) ?? Items.FirstOrDefault();
+        StatusMessage = $"Added '{currentFile}' with no items yet — use Add item to add one.";
+    }
+
+    /// <summary>
+    /// "Merge existing mod into this one" — copies another Library mod's own items into this one.
+    /// An item this mod already has (same CurrentFile + item name) is left alone, never overwritten
+    /// — this is a one-time fold-in action with no queue/conflict-picker semantics behind it, so
+    /// "don't touch what's already there" is the one safe default. Binary assets aren't part of
+    /// this (per the dialog's own description, "copies every item" — the picked mod's own real
+    /// .uasset/.uexp files aren't something this in-memory JSON editor touches at all; a mod that
+    /// genuinely needs the other one's assets too still needs those copied by hand into its folder).
+    /// </summary>
+    [RelayCommand]
+    private void MergeExistingMod()
+    {
+        var candidates = _repository.GetAll()
+            .Where(e => !e.IsOpaquePak && !string.Equals(e.FolderName, _folderName, StringComparison.OrdinalIgnoreCase));
+
+        var dialog = new PickModDialog(candidates) { Owner = Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true || dialog.SelectedEntry is not { } selected)
+        {
+            return;
+        }
+
+        ExmodPackage sourcePackage;
+        try
+        {
+            sourcePackage = ExmodFolder.Read(_repository.GetFolderPath(selected.FolderName)).Package;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't read '{selected.Name}': {ex.Message}";
+            return;
+        }
+
+        PushUndoSnapshot();
+        var previousFile = SelectedItem?.CurrentFile;
+        var previousName = SelectedItem?.ItemName;
+        var addedCount = 0;
+        foreach (var sourceRow in sourcePackage.Rows)
+        {
+            var targetRow = _package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, sourceRow.CurrentFile, StringComparison.OrdinalIgnoreCase));
+            if (targetRow is null)
+            {
+                targetRow = new ExmodFileRow { CurrentFile = sourceRow.CurrentFile };
+                _package.Rows.Add(targetRow);
+            }
+
+            foreach (var sourceItem in sourceRow.FileItems)
+            {
+                if (targetRow.FileItems.Any(i => i.Name == sourceItem.Name))
+                {
+                    continue;
+                }
+
+                // Each item's own Fields dictionary needs its own JsonNode instances — a JsonNode
+                // can only ever belong to one parent, same reasoning DuplicateItem already documents.
+                var clonedFields = new Dictionary<string, JsonNode?>();
+                foreach (var (fieldName, value) in sourceItem.Fields)
+                {
+                    clonedFields[fieldName] = value?.DeepClone();
+                }
+
+                targetRow.FileItems.Add(new ExmodFileItem { Name = sourceItem.Name, Fields = clonedFields });
+                addedCount++;
+            }
+        }
+
+        RefreshBaseDiff();
+        ReloadItems();
+        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == previousFile && i.ItemName == previousName) ?? Items.FirstOrDefault();
+        StatusMessage = addedCount == 0
+            ? $"Nothing new to merge — every item in '{selected.Name}' is already here."
+            : $"Merged {addedCount} item(s) from '{selected.Name}'.";
+    }
+
+    /// <summary>Reveals this mod's own real folder in Explorer — the same "open mods folder" convenience classic IMM's editor has, using the same folder Save writes to.</summary>
+    [RelayCommand]
+    private void OpenModsFolder()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(_repository.GetFolderPath(_folderName)) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't open the folder: {ex.Message}";
         }
     }
 
@@ -341,6 +477,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
+        PushUndoSnapshot();
         var existingIndex = _package.Rows.FindIndex(r => r.CurrentFile == SelectedItem.CurrentFile);
         if (existingIndex >= 0)
         {
@@ -382,6 +519,14 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
+        PushUndoSnapshot();
+        ApplyParsedPackage(parsed);
+        RawJsonStatusMessage = "Applied.";
+    }
+
+    /// <summary>Copies every field but FileName (the caller's own responsibility to guard, per ApplyFullExmodJson's own check above) from parsed onto the live _package in place, then refreshes every view derived from it. Shared by ApplyFullExmodJson and Undo — both are, structurally, "replace the whole package's content with something else."</summary>
+    private void ApplyParsedPackage(ExmodPackage parsed)
+    {
         _package.Name = parsed.Name;
         _package.Author = parsed.Author;
         _package.Version = parsed.Version;
@@ -399,7 +544,41 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         ReloadItems();
         SelectedItem = Items.FirstOrDefault();
         OnPropertyChanged(nameof(WindowTitle));
-        RawJsonStatusMessage = "Applied.";
+    }
+
+    private void PushUndoSnapshot()
+    {
+        _undoSnapshots.Add(ExmodJson.ToJsonObject(_package).ToJsonString());
+        if (_undoSnapshots.Count > MaxUndoDepth)
+        {
+            _undoSnapshots.RemoveAt(0);
+        }
+
+        OnPropertyChanged(nameof(CanUndo));
+    }
+
+    public bool CanUndo => _undoSnapshots.Count > 0;
+
+    /// <summary>Reverts the last discrete structural action (see _undoSnapshots' own doc comment for exactly what counts) — does not itself push a "redo" point, matching classic IMM's own plain single-direction Undo button.</summary>
+    [RelayCommand]
+    private void Undo()
+    {
+        if (_undoSnapshots.Count == 0)
+        {
+            StatusMessage = "Nothing to undo.";
+            return;
+        }
+
+        var snapshotJson = _undoSnapshots[^1];
+        _undoSnapshots.RemoveAt(_undoSnapshots.Count - 1);
+        OnPropertyChanged(nameof(CanUndo));
+
+        var snapshot = ExmodJson.Parse(snapshotJson);
+        var previousFile = SelectedItem?.CurrentFile;
+        var previousName = SelectedItem?.ItemName;
+        ApplyParsedPackage(snapshot);
+        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == previousFile && i.ItemName == previousName) ?? Items.FirstOrDefault();
+        StatusMessage = "Undid last action.";
     }
 
     private void RefreshBaseDiff()
@@ -510,6 +689,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
+        PushUndoSnapshot();
         item.Fields[NewFieldName] = parsedValue;
         var baseValue = LookupOrFallback(_baseValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
         var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
@@ -529,6 +709,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         }
 
         var item = FindItem(SelectedItem.CurrentFile, SelectedItem.ItemName)!;
+        PushUndoSnapshot();
         item.Fields.Remove(field.FieldName);
         Fields.Remove(field);
     }
@@ -546,6 +727,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         // "Traits/D_Fuel.json" typed by a user -> "Traits-D_Fuel.json" as stored.
         var currentFile = NewItemCurrentFile.Trim().Replace('/', '-').Replace('\\', '-');
 
+        PushUndoSnapshot();
         var row = _package.Rows.FirstOrDefault(r => r.CurrentFile == currentFile);
         if (row is null)
         {

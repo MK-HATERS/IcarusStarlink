@@ -107,6 +107,7 @@ public partial class App : Application
             new FolderLibraryRepository(
                 Path.Combine(appDataDirectory, "Extracted_Mods"),
                 Path.Combine(appDataDirectory, "Library_Meta"),
+                Path.Combine(appDataDirectory, "Backups", "Mods"),
                 sp.GetRequiredService<ILogger<FolderLibraryRepository>>()));
 
         // Typed HttpClient registrations: each catalog client's own constructor takes exactly
@@ -173,6 +174,11 @@ public partial class App : Application
             sp.GetRequiredService<IUe4ssModRepository>(),
             sp.GetRequiredService<IUe4ssModStateService>(),
             sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<IUnrealPakService>(),
+            sp.GetRequiredService<INexusApiClient>(),
+            sp.GetRequiredService<ICredentialStore>(),
+            sp.GetRequiredService<IDaedalusCatalogClient>(),
+            sp.GetRequiredService<IJimk72CatalogClient>(),
             sp.GetRequiredService<Func<string, ExmodEditorViewModel>>(),
             sp.GetRequiredService<IActivityLog>(),
             Path.Combine(appDataDirectory, "Backups")));
@@ -195,6 +201,7 @@ public partial class App : Application
             sp.GetRequiredService<IJimk72CatalogClient>(),
             sp.GetRequiredService<IGitHubRepoDateClient>(),
             sp.GetRequiredService<ILibraryRepository>(),
+            sp.GetRequiredService<IUe4ssModRepository>(),
             sp.GetRequiredService<INexusWatchlistStore>(),
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<INexusApiClient>(),

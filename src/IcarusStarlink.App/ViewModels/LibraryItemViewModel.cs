@@ -2,10 +2,14 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Nexus;
+using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
+using IcarusStarlink.PakIO.Pak;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -15,6 +19,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         new(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".bmp", ".gif" };
 
     private readonly ILibraryRepository _repository;
+    private readonly IUnrealPakService _unrealPakService;
+    private readonly ISettingsService _settingsService;
     private readonly Action<string> _reportStatus;
     private readonly Action _onPinnedChanged;
     private readonly DebounceTimer _notesSaveDebounceTimer;
@@ -40,6 +46,69 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isOpaquePak;
 
+    /// <summary>Where this mod came from ("Nexus"/"Database") — null for a manual/local import, shown as a small provenance badge next to the name.</summary>
+    [ObservableProperty]
+    private string? _source;
+
+    public bool HasSource => !string.IsNullOrEmpty(Source);
+
+    partial void OnSourceChanged(string? value)
+    {
+        OnPropertyChanged(nameof(HasSource));
+        OnPropertyChanged(nameof(HasUpdateAvailable));
+    }
+
+    partial void OnVersionChanged(string value) => OnPropertyChanged(nameof(HasUpdateAvailable));
+
+    /// <summary>The real Nexus mod ID — only meaningful when Source == "Nexus", needed by LibraryViewModel.CheckForUpdatesAsync to look up this mod's current version.</summary>
+    public int? NexusModId { get; private set; }
+
+    /// <summary>Whether this row has a stable Nexus mod ID to link out to — drives the "Open on Nexus" context menu item's enabled state.</summary>
+    public bool HasNexusLink => NexusModId is not null;
+
+    /// <summary>Deliberately not cached — a ContextMenu re-measures (and so re-evaluates its bindings) fresh each time it opens, so a plain live check here always reflects whatever Backup mod most recently did, with no extra change-notification plumbing needed.</summary>
+    public bool HasModBackup => _repository.HasModBackup(FolderName);
+
+    /// <summary>
+    /// Closes a stale gap: the context menu item was hardcoded disabled since Phase 3.5 ("Available
+    /// once Downloads links mods to their Nexus page"), but NexusModId has existed on LibraryEntry
+    /// since this session's own update-checking work — the data this needs was already there, it
+    /// just was never wired up. Self-contained on this row's own ViewModel (not LibraryViewModel)
+    /// since opening a URL needs nothing else, and doing it here sidesteps ContextMenu's DataContext
+    /// not flowing the same way RelativeSource lookups do elsewhere in this app.
+    /// </summary>
+    [RelayCommand]
+    private void OpenOnNexus()
+    {
+        if (NexusModId is not { } nexusModId)
+        {
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(NexusModWebUrl.For(nexusModId)) { UseShellExecute = true });
+        }
+        catch (Exception)
+        {
+            // Opening the default browser is best-effort UX, not a core operation — swallow rather
+            // than crash the app if the OS can't find a handler for the URL.
+        }
+    }
+
+    /// <summary>
+    /// The mod's current known version, as of the last "Check for updates" run — null until a
+    /// check has actually happened (never persisted; matches Downloads' own Nexus watchlist
+    /// precedent of recomputing this each check rather than caching it stale across sessions).
+    /// </summary>
+    [ObservableProperty]
+    private string? _latestVersion;
+
+    public bool HasUpdateAvailable => HasSource && !string.IsNullOrEmpty(LatestVersion) && !string.Equals(LatestVersion, Version, StringComparison.OrdinalIgnoreCase);
+
+    partial void OnLatestVersionChanged(string? value) => OnPropertyChanged(nameof(HasUpdateAvailable));
+
     /// <summary>Phase 10: an opaque .pak entry has no .EXMOD to edit — the inline row Edit action hides itself rather than opening an editor with nothing to show.</summary>
     public bool CanEdit => !IsOpaquePak;
 
@@ -49,8 +118,11 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isLocallyEdited;
 
-    /// <summary>Stub for the merged-pack glyph the real app shows on a rebuilt pack re-imported as its own library entry — always false until Phase 6 produces one.</summary>
-    public bool IsMergedPack => false;
+    /// <summary>A previously-Rebuild-and-Installed IcarusStarlink pak, re-imported as its own Library entry — the 📦 glyph. Drives Merge &amp; Install's queue rules.</summary>
+    public bool IsMergedPack => MergedPackModNames is { Count: > 0 };
+
+    /// <summary>Every mod's own display Name folded into this merged pack — null for anything that isn't one.</summary>
+    public IReadOnlyList<string>? MergedPackModNames { get; private set; }
 
     [ObservableProperty]
     private bool _isPinned;
@@ -62,6 +134,10 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     private string _notes;
 
     public ObservableCollection<string> AssetPaths { get; } = [];
+
+    /// <summary>Non-null while an opaque .pak's own internal files are being listed via UnrealPak -List, or after that failed (missing UnrealPak.exe path, a corrupt pak) — null once AssetPaths is populated successfully. Not used for a normal EXMOD entry, whose AssetPaths load synchronously from disk.</summary>
+    [ObservableProperty]
+    private string? _pakListingStatus;
 
     [ObservableProperty]
     private string? _readmeContent;
@@ -85,9 +161,13 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private BitmapImage? _thumbnailImage;
 
-    public LibraryItemViewModel(LibraryEntry entry, ILibraryRepository repository, Action<string> reportStatus, Action onPinnedChanged)
+    public LibraryItemViewModel(
+        LibraryEntry entry, ILibraryRepository repository, IUnrealPakService unrealPakService, ISettingsService settingsService,
+        Action<string> reportStatus, Action onPinnedChanged)
     {
         _repository = repository;
+        _unrealPakService = unrealPakService;
+        _settingsService = settingsService;
         _reportStatus = reportStatus;
         _onPinnedChanged = onPinnedChanged;
         FolderName = entry.FolderName;
@@ -98,6 +178,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         _variantLabel = entry.Variant;
         _isOpaquePak = entry.IsOpaquePak;
         _isLocallyEdited = entry.IsLocallyEdited;
+        _source = entry.Source;
+        NexusModId = entry.NexusModId;
+        MergedPackModNames = entry.MergedPackModNames;
 
         // Assigning the backing fields directly (not the generated properties) means this
         // doesn't route through OnIsPinnedChanged/etc. and save straight back to the repository
@@ -133,6 +216,11 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         VariantLabel = entry.Variant;
         IsOpaquePak = entry.IsOpaquePak;
         IsLocallyEdited = entry.IsLocallyEdited;
+        Source = entry.Source;
+        NexusModId = entry.NexusModId;
+        OnPropertyChanged(nameof(HasNexusLink));
+        MergedPackModNames = entry.MergedPackModNames;
+        OnPropertyChanged(nameof(IsMergedPack));
 
         // Direct field assignment + manual notify, not the generated properties: this re-syncs
         // from a re-scan, not a user edit, so it must update the UI without re-triggering
@@ -172,6 +260,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         ChangesContent = null;
         ThumbnailImage = null;
         SelectedAssetPath = null;
+        PakListingStatus = null;
         _detailsLoaded = false;
     }
 
@@ -214,6 +303,16 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         if (value is null)
         {
             SelectedAssetPreview = null;
+            return;
+        }
+
+        if (IsOpaquePak)
+        {
+            // These paths came from UnrealPak -List, not this mod's own folder on disk —
+            // ReadAssetContent (ExmodFolder-based) has nothing to read them from, and they're
+            // compiled Unreal binary assets anyway, no different from any other .uasset's
+            // "no preview" case elsewhere in this same pane.
+            SelectedAssetPreview = "(packed inside this .pak — no preview available for opaque pak entries)";
             return;
         }
 
@@ -270,16 +369,24 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             LoadThumbnailIfPresent();
 
             // An opaque .pak entry has no .EXMOD at all — nothing to format, and ExmodFolder.Read
-            // would throw trying.
+            // would throw trying. Its own internal files aren't on disk under this mod's folder
+            // either (just the bare .pak itself) — LoadPakContentsCommand fetches those separately,
+            // via UnrealPak -List, an external process this synchronous method can't await.
             if (!IsOpaquePak)
             {
                 var package = ExmodFolder.Read(_repository.GetFolderPath(FolderName)).Package;
                 ChangesContent = ExmodChangesFormatter.Format(package);
             }
+            else
+            {
+                _ = LoadPakContentsCommand.ExecuteAsync(null);
+            }
 
             // Only mark this as done once it actually succeeded — a transient failure (folder
             // locked, deleted out from under the app) should let a later reselect retry rather
             // than permanently pin this mod's Files/Readme tabs empty for the rest of the run.
+            // The opaque-pak listing above is deliberately NOT part of this gate — it's its own
+            // independently retryable action (see LoadPakContentsAsync's own doc comment).
             _detailsLoaded = true;
         }
         catch (Exception ex)
@@ -288,6 +395,60 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             // OnSelectedItemChanged, off a binding-driven selection change, so an unhandled
             // exception here would crash the app instead of showing a status message.
             _reportStatus($"Couldn't load mod details: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Lists an opaque .pak's own internal files via UnrealPak -List — separate from
+    /// EnsureDetailsLoaded's own once-only gate (_detailsLoaded) since this needs an external
+    /// process and a configured UnrealPak.exe path, either of which can fail independently of
+    /// whether the rest of this mod's (empty, for a pak) details loaded fine. Exposed as a real
+    /// command, not just called internally, so the Files tab can offer a manual retry after the
+    /// user goes and sets UnrealPak.exe's path in Settings.
+    /// </summary>
+    [RelayCommand]
+    private async Task LoadPakContentsAsync()
+    {
+        var unrealPakExePath = _settingsService.Current.UnrealPakExePath;
+        if (string.IsNullOrWhiteSpace(unrealPakExePath))
+        {
+            PakListingStatus = "Set UnrealPak.exe's path in Settings to list this pak's internal files.";
+            return;
+        }
+
+        string? pakFilePath;
+        try
+        {
+            pakFilePath = Directory.GetFiles(_repository.GetFolderPath(FolderName), "*.pak").FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            PakListingStatus = $"Couldn't find this mod's own .pak file: {ex.Message}";
+            return;
+        }
+
+        if (pakFilePath is null)
+        {
+            PakListingStatus = "Couldn't find this mod's own .pak file.";
+            return;
+        }
+
+        try
+        {
+            PakListingStatus = "Loading pak contents…";
+            var paths = await _unrealPakService.ListPakContentsAsync(unrealPakExePath, pakFilePath);
+
+            AssetPaths.Clear();
+            foreach (var path in paths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+            {
+                AssetPaths.Add(path);
+            }
+
+            PakListingStatus = null;
+        }
+        catch (Exception ex)
+        {
+            PakListingStatus = $"Couldn't list this pak's contents: {ex.Message}";
         }
     }
 

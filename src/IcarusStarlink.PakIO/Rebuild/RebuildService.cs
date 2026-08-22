@@ -24,10 +24,13 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
 
     public async Task<RebuildResult> RebuildAsync(
         IReadOnlyList<ExmodPackageContents> queuedMods, GameplayOptions gameplayOptions, string dataFolder, string unrealPakExePath, string outputPakPath,
+        IReadOnlyList<string> prebuiltPakFilePaths,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
+        IProgress<RebuildStageProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         var report = new MergeReport();
+        progress?.Report(new RebuildStageProgress("Merging queued mods…", 0));
 
         // The merge computation (reading every required base-game JSON file, resolving field
         // conflicts, applying gameplay options) is synchronous and, for a large queue, not cheap —
@@ -80,15 +83,61 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             // queued mod's own binary assets to disk is synchronous file I/O, offloaded so it doesn't
             // block the UI thread either. Still inside this try/finally, so staging cleanup below is
             // guaranteed even if a write here fails.
+            progress?.Report(new RebuildStageProgress("Staging merged tables and assets…", 25));
             await Task.Run(() =>
             {
                 StageMergedTables(mergedTables, originalFileJsonByFile, stagingDirectory);
                 StageAssets(queuedMods, stagingDirectory);
             }, cancellationToken);
 
-            var packedFileCount = await unrealPakService.CreatePakAsync(unrealPakExePath, stagingDirectory, outputPakPath, cancellationToken);
-            var manifestPath = WriteManifest(queuedMods, outputPakPath);
+            if (prebuiltPakFilePaths.Count > 0)
+            {
+                progress?.Report(new RebuildStageProgress("Folding in prebuilt paks…", 50));
+            }
 
+            // Opaque/prebuilt paks have no .EXMOD to field-merge — unpacked straight into the same
+            // staging folder instead, so the -Create call below folds their contents into the one
+            // final pak rather than producing a separate sidecar file. Confirmed live that
+            // UnrealPak -Extract is additive against an already-populated folder, not destructive,
+            // so this can safely run after the merge output above without disturbing it. Later
+            // paks in the list win on a literal path collision (an actual UnrealPak -Extract
+            // overwrite, not application logic) — same policy StageAssets already documents for
+            // queued mods' own binary assets.
+            //
+            // A prebuilt pak carries no field-change data, so if it happens to touch a path the
+            // merge output (or an earlier prebuilt pak) already wrote — most plausibly a DataTable
+            // JSON another queued mod field-merged — there's no way to reconcile the two; its raw
+            // bytes simply win via a literal file overwrite, silently discarding whatever was
+            // there. Checked via -List (cheap, read-only) before each -Extract specifically so
+            // that loss is a surfaced MergeReport warning instead of a silent one.
+            foreach (var prebuiltPakPath in prebuiltPakFilePaths)
+            {
+                var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
+                var pakContents = await unrealPakService.ListPakContentsAsync(unrealPakExePath, prebuiltPakPath, cancellationToken);
+                var alreadyStaged = new HashSet<string>(
+                    Directory.GetFiles(stagingDirectory, "*", SearchOption.AllDirectories)
+                        .Select(f => Path.GetRelativePath(stagingDirectory, f).Replace('\\', '/')),
+                    StringComparer.OrdinalIgnoreCase);
+
+                foreach (var path in pakContents)
+                {
+                    if (alreadyStaged.Contains(path))
+                    {
+                        report.AddWarning(
+                            $"Prebuilt pak '{pakName}' overwrites '{path}', which another queued mod (or an earlier "
+                            + $"prebuilt pak) also touches — no field-level merge is possible for a prebuilt pak, so "
+                            + $"'{pakName}' silently wins for this one file.");
+                    }
+                }
+
+                await unrealPakService.ExtractPakAsync(unrealPakExePath, prebuiltPakPath, stagingDirectory, cancellationToken);
+            }
+
+            progress?.Report(new RebuildStageProgress("Packing…", 75));
+            var packedFileCount = await unrealPakService.CreatePakAsync(unrealPakExePath, stagingDirectory, outputPakPath, cancellationToken);
+            var manifestPath = WriteManifest(queuedMods, prebuiltPakFilePaths, outputPakPath);
+
+            progress?.Report(new RebuildStageProgress("Done.", 100));
             return new RebuildResult(mergedTables.Count, packedFileCount, outputPakPath, manifestPath, report.Warnings);
         }
         finally
@@ -167,7 +216,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         }
     }
 
-    private static string WriteManifest(IReadOnlyList<ExmodPackageContents> queuedMods, string outputPakPath)
+    private static string WriteManifest(IReadOnlyList<ExmodPackageContents> queuedMods, IReadOnlyList<string> prebuiltPakFilePaths, string outputPakPath)
     {
         var outputDirectory = Path.GetDirectoryName(outputPakPath)!;
         // Not relying on CreatePakAsync having already created this as a side effect — that's an
@@ -181,6 +230,14 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         foreach (var mod in queuedMods)
         {
             text.AppendLine(mod.Package.Name);
+        }
+
+        // Now genuinely part of this same pak (folded in via ExtractPakAsync above), so they belong
+        // in the "what's actually installed" record the same way a queued mod does — GetInstalledStateAsync
+        // reads this back for the "Compare to installed" diff, which would otherwise not know they're there.
+        foreach (var prebuiltPakPath in prebuiltPakFilePaths)
+        {
+            text.AppendLine(Path.GetFileNameWithoutExtension(prebuiltPakPath));
         }
 
         File.WriteAllText(manifestPath, text.ToString());

@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog.AppUpdate;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Catalog.Ue4ss;
@@ -742,6 +743,31 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         LatestAppUpdateRelease = release;
+
+        // "What's new" — GitHub's own latest release matches the exact version we're running,
+        // meaning the app itself was updated since we last recorded a seen version. Deliberately
+        // silent when LastSeenAppVersion is still null (a fresh install, or an existing user's
+        // first launch after this field was introduced) — only a genuine detected version change
+        // shows the dialog, so it never appears out of nowhere on an unrelated launch.
+        if (string.Equals(release.Version, InstalledAppVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            var settings = _settingsService.Current;
+            if (settings.LastSeenAppVersion is not null
+                && !string.Equals(settings.LastSeenAppVersion, InstalledAppVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                var whatsNew = new WhatsNewWindow(release.Version, release.ReleaseNotes) { Owner = Application.Current.MainWindow };
+                whatsNew.ShowDialog();
+            }
+
+            if (!string.Equals(settings.LastSeenAppVersion, InstalledAppVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                settings.LastSeenAppVersion = InstalledAppVersion;
+                _settingsService.Save();
+            }
+
+            return;
+        }
+
         if (!IsAppUpdateAvailable)
         {
             return;

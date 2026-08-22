@@ -41,14 +41,14 @@ public class PatchServiceTests : IDisposable
         {
             ProfileName = "Weekend Build",
             Mods = [],
-            Options = new GameplayOptions { XpBoost = BoostLevel.Level1, SlotsMultiplier = 2, UnlimitedAmmo = true },
+            Options = new GameplayOptions { XpBoost = XpBoostLevel.Level1, SlotsMultiplier = 2, UnlimitedAmmo = true },
         };
         var path = Path.Combine(_dir, "patch.json");
         await _service.ExportAsync(manifest, new Dictionary<string, ExmodPackageContents>(), path);
 
         var result = await _service.ImportAsync(path);
 
-        Assert.Equal(BoostLevel.Level1, result.Manifest.Options.XpBoost);
+        Assert.Equal(XpBoostLevel.Level1, result.Manifest.Options.XpBoost);
         Assert.Equal(2, result.Manifest.Options.SlotsMultiplier);
         Assert.True(result.Manifest.Options.UnlimitedAmmo);
     }

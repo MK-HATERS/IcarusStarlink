@@ -29,7 +29,8 @@ public class Ue4ssModArchiveTests : IDisposable
     {
         var zip = MakeZip("download.zip", ("NearbyCrafting/Scripts/main.lua", "-- lua"), ("NearbyCrafting/enabled.txt", "on"));
 
-        Assert.Equal("NearbyCrafting", Ue4ssModArchive.DeriveFolderName(zip));
+        using var handle = Ue4ssModArchive.Open(zip);
+        Assert.Equal("NearbyCrafting", handle.DerivedFolderName);
     }
 
     [Fact]
@@ -37,7 +38,8 @@ public class Ue4ssModArchiveTests : IDisposable
     {
         var zip = MakeZip("MyMod.zip", ("Scripts/main.lua", "-- lua"), ("enabled.txt", "on"));
 
-        Assert.Equal("MyMod", Ue4ssModArchive.DeriveFolderName(zip));
+        using var handle = Ue4ssModArchive.Open(zip);
+        Assert.Equal("MyMod", handle.DerivedFolderName);
     }
 
     [Fact]
@@ -45,7 +47,8 @@ public class Ue4ssModArchiveTests : IDisposable
     {
         var zip = MakeZip("Bundle.zip", ("ModA/main.lua", "a"), ("ModB/main.lua", "b"));
 
-        Assert.Equal("Bundle", Ue4ssModArchive.DeriveFolderName(zip));
+        using var handle = Ue4ssModArchive.Open(zip);
+        Assert.Equal("Bundle", handle.DerivedFolderName);
     }
 
     [Fact]
@@ -54,7 +57,10 @@ public class Ue4ssModArchiveTests : IDisposable
         var zip = MakeZip("download.zip", ("NearbyCrafting/Scripts/main.lua", "-- lua"), ("NearbyCrafting/enabled.txt", "on"));
         var dest = Path.Combine(_dir, "staged", "NearbyCrafting_2"); // deliberately different name than the zip's own folder
 
-        Ue4ssModArchive.Extract(zip, dest);
+        using (var handle = Ue4ssModArchive.Open(zip))
+        {
+            handle.ExtractTo(dest);
+        }
 
         Assert.Equal("-- lua", File.ReadAllText(Path.Combine(dest, "Scripts", "main.lua")));
         Assert.Equal("on", File.ReadAllText(Path.Combine(dest, "enabled.txt")));
@@ -67,7 +73,10 @@ public class Ue4ssModArchiveTests : IDisposable
         var zip = MakeZip("MyMod.zip", ("Scripts/main.lua", "-- lua"), ("enabled.txt", "on"));
         var dest = Path.Combine(_dir, "staged", "MyMod");
 
-        Ue4ssModArchive.Extract(zip, dest);
+        using (var handle = Ue4ssModArchive.Open(zip))
+        {
+            handle.ExtractTo(dest);
+        }
 
         Assert.Equal("-- lua", File.ReadAllText(Path.Combine(dest, "Scripts", "main.lua")));
         Assert.Equal("on", File.ReadAllText(Path.Combine(dest, "enabled.txt")));
@@ -79,7 +88,13 @@ public class Ue4ssModArchiveTests : IDisposable
         var zip = MakeZip("evil.zip", ("MyMod/../../../evil.dll", "malicious"));
         var dest = Path.Combine(_dir, "staged", "MyMod");
 
-        Assert.Throws<FormatException>(() => Ue4ssModArchive.Extract(zip, dest));
+        // Open+ExtractTo both inside the lambda — the containment check may fire at either stage,
+        // and the guarantee under test is only that it fires before anything lands on disk.
+        Assert.Throws<FormatException>(() =>
+        {
+            using var handle = Ue4ssModArchive.Open(zip);
+            handle.ExtractTo(dest);
+        });
     }
 
     [Fact]
@@ -94,7 +109,11 @@ public class Ue4ssModArchiveTests : IDisposable
             entryStream.Write(new byte[Container.ExmodSizeLimits.MaxAssetEntryBytes + 1]);
         }
 
-        Assert.Throws<FormatException>(() => Ue4ssModArchive.Extract(path, Path.Combine(_dir, "staged", "MyMod")));
+        Assert.Throws<FormatException>(() =>
+        {
+            using var handle = Ue4ssModArchive.Open(path);
+            handle.ExtractTo(Path.Combine(_dir, "staged", "MyMod"));
+        });
     }
 
     [Fact]

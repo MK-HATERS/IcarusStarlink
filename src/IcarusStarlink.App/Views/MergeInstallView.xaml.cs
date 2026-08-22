@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Core.Library;
 
@@ -20,6 +21,20 @@ public partial class MergeInstallView : UserControl
         if (DataContext is MergeInstallViewModel viewModel)
         {
             viewModel.SelectedLibraryItem = e.NewValue as LibraryEntry;
+        }
+    }
+
+    /// <summary>
+    /// Replaces the separate "Add to queue" button — double-clicking a mod queues it directly.
+    /// SelectedItemChanged (above) always fires first and already narrows SelectedLibraryItem to
+    /// null for anything that isn't a real LibraryEntry (a LibraryGroup header, empty space), so
+    /// this can reuse AddToQueueCommand as-is rather than re-deriving what was actually clicked.
+    /// </summary>
+    private void LibraryTree_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (DataContext is MergeInstallViewModel { SelectedLibraryItem: not null } viewModel)
+        {
+            viewModel.AddToQueueCommand.Execute(null);
         }
     }
 }

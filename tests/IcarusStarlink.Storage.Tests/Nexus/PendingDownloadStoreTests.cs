@@ -62,6 +62,37 @@ public class PendingDownloadStoreTests : IDisposable
         Assert.Empty(CreateStore().Entries);
     }
 
+    [Fact]
+    public void SetActivation_PersistsAcrossStoreInstances()
+    {
+        var store = CreateStore();
+        store.Add(MakeEntry(290, 1234));
+        store.SetActivation(290, 1234, "Nearby_Crafting", PendingDownloadActivationKind.Library);
+
+        var entry = Assert.Single(CreateStore().Entries);
+        Assert.Equal("Nearby_Crafting", entry.ActivatedFolderName);
+        Assert.Equal(PendingDownloadActivationKind.Library, entry.ActivatedKind);
+    }
+
+    [Fact]
+    public void SetActivation_DoesNotRemoveTheEntry()
+    {
+        var store = CreateStore();
+        store.Add(MakeEntry(290, 1234));
+        store.SetActivation(290, 1234, "Some_Mod", PendingDownloadActivationKind.Ue4ssMod);
+
+        Assert.Single(store.Entries);
+    }
+
+    [Fact]
+    public void SetActivation_UnknownModAndFileId_IsANoOp()
+    {
+        var store = CreateStore();
+        store.SetActivation(999, 999, "Nothing", PendingDownloadActivationKind.Library);
+
+        Assert.Empty(store.Entries);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))
