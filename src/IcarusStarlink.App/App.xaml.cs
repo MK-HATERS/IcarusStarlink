@@ -217,6 +217,7 @@ public partial class App : Application
             sp.GetRequiredService<IFtpSiteStore>(),
             sp.GetRequiredService<ICredentialStore>(),
             sp.GetRequiredService<Func<IFtpClient>>()));
+        builder.Services.AddSingleton<HelpViewModel>();
 
         builder.Services.AddSingleton<MainWindow>();
 

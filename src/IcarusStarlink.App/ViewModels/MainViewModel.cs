@@ -51,6 +51,7 @@ public sealed partial class MainViewModel : ObservableObject
             // remote-agent/control page the original spec described.
             new NavItem("server", "Server", typeof(ServerViewModel)),
             new NavItem("settings", "Settings", typeof(SettingsViewModel)),
+            new NavItem("help", "Help", typeof(HelpViewModel)),
         ];
 
         _currentThemeName = settingsService.Current.ThemeName;
