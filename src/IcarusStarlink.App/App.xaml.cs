@@ -8,6 +8,7 @@ using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Catalog.Nexus;
+using IcarusStarlink.Catalog.Ue4ss;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
@@ -124,9 +125,12 @@ public partial class App : Application
         builder.Services.AddSingleton<IPatchService, PatchService>();
         builder.Services.AddSingleton<IUe4ssModRepository>(sp =>
             new Ue4ssModRepository(Path.Combine(appDataDirectory, "Staged_UE4SS")));
+        builder.Services.AddSingleton<IUe4ssModStateService, Ue4ssModStateService>();
         builder.Services.AddSingleton<ISteamInstallLocator, SteamInstallLocator>();
         builder.Services.AddSingleton<ICredentialStore, WindowsCredentialStore>();
         builder.Services.AddSingleton<INxmProtocolRegistrar, NxmProtocolRegistrar>();
+        builder.Services.AddSingleton<IUe4ssLoaderInstallService, Ue4ssLoaderInstallService>();
+        builder.Services.AddHttpClient<IUe4ssReleaseClient, Ue4ssReleaseClient>();
 
         // Transient, not a singleton — every other ViewModel in this app is constructed once and
         // reused, but the EXMOD editor is per-open-instance (Phase 7.1: classic IMM's own editor
@@ -140,15 +144,16 @@ public partial class App : Application
         builder.Services.AddSingleton(sp => new LibraryViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IUe4ssModRepository>(),
+            sp.GetRequiredService<IUe4ssModStateService>(),
             sp.GetRequiredService<ISettingsService>(),
-            sp.GetRequiredService<Func<string, ExmodEditorViewModel>>()));
+            sp.GetRequiredService<Func<string, ExmodEditorViewModel>>(),
+            Path.Combine(appDataDirectory, "Backups")));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IRebuildService>(),
             sp.GetRequiredService<IInstallService>(),
             sp.GetRequiredService<IProfileStore>(),
             sp.GetRequiredService<IPatchService>(),
-            sp.GetRequiredService<IUe4ssModRepository>(),
             sp.GetRequiredService<IDaedalusCatalogClient>(),
             sp.GetRequiredService<IJimk72CatalogClient>(),
             sp.GetRequiredService<ISettingsService>(),
@@ -176,6 +181,10 @@ public partial class App : Application
             sp.GetRequiredService<ICredentialStore>(),
             sp.GetRequiredService<INexusApiClient>(),
             sp.GetRequiredService<INxmProtocolRegistrar>(),
+            sp.GetRequiredService<IUe4ssLoaderInstallService>(),
+            sp.GetRequiredService<IUe4ssReleaseClient>(),
+            sp.GetRequiredService<HttpClient>(),
+            Path.Combine(appDataDirectory, "Backups"),
             Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton<WeeklyChangesViewModel>();
 

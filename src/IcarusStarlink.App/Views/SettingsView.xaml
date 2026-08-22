@@ -77,6 +77,20 @@
                    TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
                    Visibility="{Binding NxmProtocolStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
+        <TextBlock Text="UE4SS" Style="{StaticResource FieldLabelStyle}"/>
+        <TextBlock Text="UE4SS is Icarus's separate Lua/scripting mod framework (Binaries\Win64) — installing/updating it is unrelated to the EXMOD/pak system above. Your existing mods and settings are never overwritten."
+                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="560"/>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Content="{Binding Ue4ssInstallButtonLabel}" Command="{Binding InstallOrUpdateUe4ssCommand}"
+                    IsEnabled="{Binding CanInstallOrUpdateUe4ss}"
+                    ToolTip="Downloads the latest stable UE4SS release from GitHub and installs it into Binaries\Win64 — backs up what's there first, asks for confirmation before writing anything"/>
+            <TextBlock Text="{Binding Ue4ssStatusText}" VerticalAlignment="Center" Margin="12,0,0,0"
+                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+        </StackPanel>
+        <TextBlock Text="{Binding Ue4ssStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
+                   Visibility="{Binding Ue4ssStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+
         <TextBlock Text="Update data folder" Style="{StaticResource FieldLabelStyle}"/>
         <TextBlock Text="Extracts the game's current DataTable JSON (Content\Data\data.pak) so merge/edit works against up-to-date data. Re-run this after a game update."
                    Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10"/>

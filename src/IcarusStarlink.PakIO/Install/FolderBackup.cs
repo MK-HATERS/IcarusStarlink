@@ -1,0 +1,82 @@
+namespace IcarusStarlink.PakIO.Install;
+
+/// <summary>
+/// Keep-last-5 backup helper shared by every service that overwrites something in the real game
+/// folder (InstallService's pak/UE4SS-mod-folder writes, Ue4ssLoaderInstallService's loader writes)
+/// — extracted so the backup+prune algorithm only needs implementing once.
+/// </summary>
+internal static class FolderBackup
+{
+    private const int MaxBackups = 5;
+
+    /// <summary>Copies sourceFolder into backupBaseDirectory under a timestamped name, then prunes older backups of the same folder name beyond MaxBackups. No-op if sourceFolder doesn't exist.</summary>
+    public static void BackupFolder(string sourceFolder, string backupBaseDirectory)
+    {
+        if (!Directory.Exists(sourceFolder))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(backupBaseDirectory);
+        var name = Path.GetFileName(sourceFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var backupPath = Path.Combine(backupBaseDirectory, $"{name}_{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}");
+        CopyDirectory(sourceFolder, backupPath);
+        PruneOldFolderBackups(backupBaseDirectory, name);
+    }
+
+    /// <summary>Copies sourceFile into backupDirectory under a timestamped name, then prunes older backups of the same base name beyond MaxBackups. No-op if sourceFile doesn't exist. Returns the backup path, or null if there was nothing to back up.</summary>
+    public static string? BackupFile(string sourceFile, string backupDirectory)
+    {
+        if (!File.Exists(sourceFile))
+        {
+            return null;
+        }
+
+        Directory.CreateDirectory(backupDirectory);
+        var baseName = Path.GetFileNameWithoutExtension(sourceFile);
+        var extension = Path.GetExtension(sourceFile);
+        var backupPath = Path.Combine(backupDirectory, $"{baseName}_{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}{extension}");
+        File.Copy(sourceFile, backupPath);
+
+        PruneOldFileBackups(backupDirectory, baseName, extension);
+        return backupPath;
+    }
+
+    public static void CopyDirectory(string sourceDir, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+        foreach (var file in Directory.GetFiles(sourceDir))
+        {
+            File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)), overwrite: true);
+        }
+
+        foreach (var subDir in Directory.GetDirectories(sourceDir))
+        {
+            CopyDirectory(subDir, Path.Combine(destDir, Path.GetFileName(subDir)));
+        }
+    }
+
+    private static void PruneOldFolderBackups(string backupDirectory, string name)
+    {
+        var backups = Directory.GetDirectories(backupDirectory, $"{name}_*")
+            .OrderByDescending(Directory.GetCreationTimeUtc)
+            .ToList();
+
+        foreach (var stale in backups.Skip(MaxBackups))
+        {
+            Directory.Delete(stale, recursive: true);
+        }
+    }
+
+    private static void PruneOldFileBackups(string backupDirectory, string baseName, string extension)
+    {
+        var backups = Directory.GetFiles(backupDirectory, $"{baseName}_*{extension}")
+            .OrderByDescending(File.GetCreationTimeUtc)
+            .ToList();
+
+        foreach (var stale in backups.Skip(MaxBackups))
+        {
+            File.Delete(stale);
+        }
+    }
+}

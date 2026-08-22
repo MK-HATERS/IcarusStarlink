@@ -1,15 +1,19 @@
 using System.Diagnostics;
+using System.IO;
+using System.Net.Http;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.Catalog.Nexus;
+using IcarusStarlink.Catalog.Ue4ss;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Steam;
 using IcarusStarlink.PakIO.DataChanges;
+using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
 using Microsoft.Win32;
 
@@ -24,6 +28,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ICredentialStore _credentialStore;
     private readonly INexusApiClient _nexusApiClient;
     private readonly INxmProtocolRegistrar _nxmProtocolRegistrar;
+    private readonly IUe4ssLoaderInstallService _ue4ssLoaderInstallService;
+    private readonly IUe4ssReleaseClient _ue4ssReleaseClient;
+    private readonly HttpClient _httpClient;
+    private readonly string _backupDirectory;
     private readonly string _dataOutputDirectory;
 
     public string Title => "Settings";
@@ -72,10 +80,66 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     partial void OnIsNxmProtocolRegisteredToThisAppChanged(bool value) => OnPropertyChanged(nameof(IsNxmProtocolNotRegistered));
 
+    [ObservableProperty]
+    private bool _isUe4ssInstalled;
+
+    [ObservableProperty]
+    private string? _ue4ssInstalledVersion;
+
+    /// <summary>Null until GetLatestStableReleaseAsync succeeds — offline/rate-limited/unreachable all leave this null, disabling Install/Update rather than guessing a download URL.</summary>
+    [ObservableProperty]
+    private Ue4ssReleaseInfo? _ue4ssLatestRelease;
+
+    [ObservableProperty]
+    private bool _isCheckingUe4ssRelease;
+
+    [ObservableProperty]
+    private bool _isInstallingUe4ss;
+
+    [ObservableProperty]
+    private string? _ue4ssStatusMessage;
+
+    public string Ue4ssStatusText => (IsUe4ssInstalled, Ue4ssLatestRelease) switch
+    {
+        (false, _) => "Not installed.",
+        (true, null) => $"v{Ue4ssInstalledVersion} installed.",
+        (true, { } latest) when latest.Version == Ue4ssInstalledVersion => $"v{Ue4ssInstalledVersion} installed (up to date).",
+        (true, { } latest) => $"v{Ue4ssInstalledVersion} installed — v{latest.Version} available.",
+    };
+
+    public string Ue4ssInstallButtonLabel => (IsUe4ssInstalled, Ue4ssLatestRelease) switch
+    {
+        (false, null) => "Install",
+        (false, { } latest) => $"Install v{latest.Version}",
+        (true, null) => "Update",
+        (true, { } latest) when latest.Version == Ue4ssInstalledVersion => "Reinstall",
+        (true, { } latest) => $"Update to v{latest.Version}",
+    };
+
+    public bool CanInstallOrUpdateUe4ss => Ue4ssLatestRelease is not null && !IsInstallingUe4ss;
+
+    partial void OnIsUe4ssInstalledChanged(bool value)
+    {
+        OnPropertyChanged(nameof(Ue4ssStatusText));
+        OnPropertyChanged(nameof(Ue4ssInstallButtonLabel));
+    }
+
+    partial void OnUe4ssInstalledVersionChanged(string? value) => OnPropertyChanged(nameof(Ue4ssStatusText));
+
+    partial void OnUe4ssLatestReleaseChanged(Ue4ssReleaseInfo? value)
+    {
+        OnPropertyChanged(nameof(Ue4ssStatusText));
+        OnPropertyChanged(nameof(Ue4ssInstallButtonLabel));
+        OnPropertyChanged(nameof(CanInstallOrUpdateUe4ss));
+    }
+
+    partial void OnIsInstallingUe4ssChanged(bool value) => OnPropertyChanged(nameof(CanInstallOrUpdateUe4ss));
+
     public SettingsViewModel(
         ISettingsService settingsService, IUnrealPakService unrealPakService, IWeeklyChangeReportStore weeklyChangeReportStore,
         ISteamInstallLocator steamInstallLocator, ICredentialStore credentialStore, INexusApiClient nexusApiClient,
-        INxmProtocolRegistrar nxmProtocolRegistrar, string dataOutputDirectory)
+        INxmProtocolRegistrar nxmProtocolRegistrar, IUe4ssLoaderInstallService ue4ssLoaderInstallService,
+        IUe4ssReleaseClient ue4ssReleaseClient, HttpClient httpClient, string backupDirectory, string dataOutputDirectory)
     {
         _settingsService = settingsService;
         _unrealPakService = unrealPakService;
@@ -84,16 +148,26 @@ public sealed partial class SettingsViewModel : ObservableObject
         _credentialStore = credentialStore;
         _nexusApiClient = nexusApiClient;
         _nxmProtocolRegistrar = nxmProtocolRegistrar;
+        _ue4ssLoaderInstallService = ue4ssLoaderInstallService;
+        _ue4ssReleaseClient = ue4ssReleaseClient;
+        _httpClient = httpClient;
+        _backupDirectory = backupDirectory;
         _dataOutputDirectory = dataOutputDirectory;
         _icarusContentPath = settingsService.Current.IcarusContentPath;
         _unrealPakExePath = settingsService.Current.UnrealPakExePath;
         _isNxmProtocolRegisteredToThisApp = nxmProtocolRegistrar.IsRegisteredToThisApp();
+
+        if (!string.IsNullOrWhiteSpace(IcarusContentPath))
+        {
+            RefreshUe4ssStatus();
+        }
 
         // Fire-and-forget, same shape as DownloadsViewModel's constructor-triggered
         // RefreshCatalogAsync: constructors can't be async, and CheckForGameUpdateAsync has its
         // own top-level try/catch so nothing here can produce an unobserved exception.
         _ = CheckForGameUpdateAsync();
         _ = InitializeNexusStatusAsync();
+        _ = CheckUe4ssLatestReleaseAsync();
     }
 
     [RelayCommand]
@@ -382,6 +456,96 @@ public sealed partial class SettingsViewModel : ObservableObject
         catch (Exception ex)
         {
             NxmProtocolStatusMessage = $"Couldn't unregister: {ex.Message}";
+        }
+    }
+
+    private void RefreshUe4ssStatus()
+    {
+        var status = _ue4ssLoaderInstallService.GetStatus(IcarusContentPath!);
+        IsUe4ssInstalled = status.IsInstalled;
+        Ue4ssInstalledVersion = status.InstalledVersion;
+    }
+
+    /// <summary>Best-effort, once per launch — offline or GitHub-unreachable just leaves Ue4ssLatestRelease null (Install/Update stays disabled) rather than surfacing an error nobody asked for.</summary>
+    private async Task CheckUe4ssLatestReleaseAsync()
+    {
+        IsCheckingUe4ssRelease = true;
+        try
+        {
+            Ue4ssLatestRelease = await _ue4ssReleaseClient.GetLatestStableReleaseAsync();
+        }
+        finally
+        {
+            IsCheckingUe4ssRelease = false;
+        }
+    }
+
+    /// <summary>
+    /// Phase 8.5: a real, hard-to-reverse write into Binaries\Win64 — the game's own executable
+    /// folder, more sensitive than either target this app has written to before (Content\Paks\mods,
+    /// the UE4SS Mods folder). Same gating philosophy as the real pak install and the nxm://
+    /// protocol registration: never automatic, and only proceeds behind this explicit confirmation.
+    /// </summary>
+    [RelayCommand]
+    private async Task InstallOrUpdateUe4ssAsync()
+    {
+        if (string.IsNullOrWhiteSpace(IcarusContentPath))
+        {
+            Ue4ssStatusMessage = "Set the Icarus Content folder first.";
+            return;
+        }
+
+        if (Ue4ssLatestRelease is not { } release)
+        {
+            Ue4ssStatusMessage = "Couldn't reach GitHub to find the latest release — try again.";
+            return;
+        }
+
+        var wasInstalled = IsUe4ssInstalled;
+        var verb = wasInstalled ? "Update" : "Install";
+        var result = MessageBox.Show(
+            $"This downloads UE4SS v{release.Version} from GitHub and installs it into your game's Binaries\\Win64 folder " +
+            "— the loader that lets Lua/scripting mods run.\n\n" +
+            "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Any mods already in your Mods folder, " +
+            "and your own UE4SS-settings.ini if you've customized it, are left untouched.\n\n" +
+            "Continue?",
+            $"{verb} UE4SS", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        IsInstallingUe4ss = true;
+        Ue4ssStatusMessage = "Downloading…";
+        var tempZipPath = Path.Combine(Path.GetTempPath(), $"UE4SS_{Guid.NewGuid():N}.zip");
+        try
+        {
+            var bytes = await _httpClient.GetByteArrayAsync(release.DownloadUrl);
+            await File.WriteAllBytesAsync(tempZipPath, bytes);
+
+            Ue4ssStatusMessage = "Installing…";
+            await _ue4ssLoaderInstallService.InstallOrUpdateAsync(IcarusContentPath, tempZipPath, _backupDirectory);
+
+            RefreshUe4ssStatus();
+            Ue4ssStatusMessage = $"{(wasInstalled ? "Updated" : "Installed")} to v{release.Version}.";
+        }
+        catch (Exception ex)
+        {
+            Ue4ssStatusMessage = $"{verb} failed: {ex.Message}";
+        }
+        finally
+        {
+            IsInstallingUe4ss = false;
+            try
+            {
+                File.Delete(tempZipPath);
+            }
+            catch (Exception)
+            {
+                // Best-effort cleanup of a temp file — leaving a stray one behind isn't worth
+                // surfacing over whatever the install itself already reported.
+            }
         }
     }
 }

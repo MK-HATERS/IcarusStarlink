@@ -20,4 +20,14 @@ public interface IUe4ssModRepository
 
     /// <summary>Bare mod folder names currently present in the real game's own UE4SS Mods folder — see Ue4ssGamePaths.ResolveModsFolder for how a caller derives gameModsFolderPath. Empty if the folder doesn't exist yet (UE4SS not installed, or the Icarus Content path isn't set).</summary>
     IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath);
+
+    /// <summary>
+    /// Copies an already-installed mod (found via ListInstalledInGame but never staged through this
+    /// app — the framework's own built-ins, or one installed by hand/another tool) into this app's
+    /// own staging, so it becomes attachable to a Profile like any other staged mod. A copy, never a
+    /// move — the real game folder is untouched either way, and nothing about the source folder's
+    /// own already-working state changes. Returns the folder name it landed under (disambiguated on
+    /// collision, same as Import).
+    /// </summary>
+    string AdoptFromGame(string gameModsFolderPath, string folderName);
 }

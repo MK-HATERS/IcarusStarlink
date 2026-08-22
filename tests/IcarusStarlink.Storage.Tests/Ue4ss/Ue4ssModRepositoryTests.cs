@@ -94,6 +94,43 @@ public class Ue4ssModRepositoryTests : IDisposable
         Assert.Equal(["CenterUICursor", "ConsoleEnablerMod"], result);
     }
 
+    [Fact]
+    public void AdoptFromGame_RealFolderInGame_CopiesIntoStagingAndLeavesGameFolderUntouched()
+    {
+        var gameModFolder = Path.Combine(_gameModsDir, "ActorDumperMod", "Scripts");
+        Directory.CreateDirectory(gameModFolder);
+        File.WriteAllText(Path.Combine(gameModFolder, "main.lua"), "-- framework built-in");
+
+        var repo = CreateRepository();
+        var stagedName = repo.AdoptFromGame(_gameModsDir, "ActorDumperMod");
+
+        Assert.Equal("ActorDumperMod", stagedName);
+        Assert.Equal(["ActorDumperMod"], repo.GetAll());
+        Assert.Equal("-- framework built-in", File.ReadAllText(Path.Combine(repo.GetFolderPath("ActorDumperMod"), "Scripts", "main.lua")));
+        // The source is a copy, not a move — the real game folder must still have its own copy.
+        Assert.True(File.Exists(Path.Combine(gameModFolder, "main.lua")));
+    }
+
+    [Fact]
+    public void AdoptFromGame_AlreadyStagedUnderThatName_DisambiguatesRatherThanOverwriting()
+    {
+        var repo = CreateRepository();
+        repo.Import(MakeModZip("first.zip", "ActorDumperMod"));
+        Directory.CreateDirectory(Path.Combine(_gameModsDir, "ActorDumperMod"));
+
+        var adopted = repo.AdoptFromGame(_gameModsDir, "ActorDumperMod");
+
+        Assert.Equal("ActorDumperMod_2", adopted);
+    }
+
+    [Fact]
+    public void AdoptFromGame_NotActuallyInGameFolder_ThrowsDirectoryNotFoundException()
+    {
+        Directory.CreateDirectory(_gameModsDir);
+
+        Assert.Throws<DirectoryNotFoundException>(() => CreateRepository().AdoptFromGame(_gameModsDir, "NoSuchMod"));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

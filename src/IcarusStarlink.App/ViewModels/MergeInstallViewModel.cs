@@ -11,7 +11,6 @@ using IcarusStarlink.Core.InstallComparison;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
-using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.GameplayToggles;
 using IcarusStarlink.PakIO.Install;
@@ -35,7 +34,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     private readonly IInstallService _installService;
     private readonly IProfileStore _profileStore;
     private readonly IPatchService _patchService;
-    private readonly IUe4ssModRepository _ue4ssModRepository;
     private readonly IDaedalusCatalogClient _daedalusClient;
     private readonly IJimk72CatalogClient _jimk72Client;
     private readonly ISettingsService _settingsService;
@@ -126,22 +124,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private bool _disableTemperatures;
 
-    // --- Per-profile UE4SS staging (6.5) ---
-    /// <summary>Every mod currently in this app's own Staged_UE4SS folder — mirrors the Library pane's role for EXMOD mods.</summary>
-    public ObservableCollection<string> StagedUe4ssMods { get; } = [];
-
-    [ObservableProperty]
-    private string? _selectedStagedUe4ssMod;
-
-    /// <summary>Attached to the current profile — installed alongside the pak when Install runs. Order doesn't matter (see Profile.Ue4ssModFolderNames).</summary>
-    public ObservableCollection<string> AttachedUe4ssMods { get; } = [];
-
-    [ObservableProperty]
-    private string? _selectedAttachedUe4ssMod;
-
-    [ObservableProperty]
-    private string? _ue4ssStatusMessage;
-
     // --- Installed vs this list (6.6) ---
     /// <summary>"+ Name" (would be added), "- Name" (would be removed), "= Name" (unchanged) — a preview of what clicking Install would actually do, not run automatically since it needs a real read of the game folder.</summary>
     public ObservableCollection<string> ComparisonEntries { get; } = [];
@@ -151,7 +133,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     public MergeInstallViewModel(
         ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
-        IPatchService patchService, IUe4ssModRepository ue4ssModRepository, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
+        IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
         ISettingsService settingsService, string dataFolder, string outputPakPath, string backupDirectory)
     {
         _libraryRepository = libraryRepository;
@@ -159,7 +141,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         _installService = installService;
         _profileStore = profileStore;
         _patchService = patchService;
-        _ue4ssModRepository = ue4ssModRepository;
         _daedalusClient = daedalusClient;
         _jimk72Client = jimk72Client;
         _settingsService = settingsService;
@@ -169,7 +150,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         ReloadLibrary();
         ReloadProfileNames();
-        ReloadStagedUe4ssMods();
     }
 
     /// <summary>
@@ -195,62 +175,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         foreach (var name in _profileStore.ProfileNames)
         {
             ProfileNames.Add(name);
-        }
-    }
-
-    private void ReloadStagedUe4ssMods()
-    {
-        StagedUe4ssMods.Clear();
-        foreach (var name in _ue4ssModRepository.GetAll())
-        {
-            StagedUe4ssMods.Add(name);
-        }
-    }
-
-    [RelayCommand]
-    private void ImportUe4ssMod()
-    {
-        var dialog = new OpenFileDialog { Title = "Select a UE4SS mod zip", Filter = "Zip archive (*.zip)|*.zip" };
-        if (dialog.ShowDialog() != true)
-        {
-            return;
-        }
-
-        try
-        {
-            var folderName = _ue4ssModRepository.Import(dialog.FileName);
-            ReloadStagedUe4ssMods();
-            Ue4ssStatusMessage = $"Staged '{folderName}'.";
-        }
-        catch (Exception ex)
-        {
-            Ue4ssStatusMessage = $"Import failed: {ex.Message}";
-        }
-    }
-
-    [RelayCommand]
-    private void AttachUe4ssMod()
-    {
-        if (SelectedStagedUe4ssMod is not { } name)
-        {
-            return;
-        }
-
-        if (AttachedUe4ssMods.Contains(name))
-        {
-            Ue4ssStatusMessage = $"'{name}' is already attached.";
-            return;
-        }
-
-        AttachedUe4ssMods.Add(name);
-    }
-
-    [RelayCommand]
-    private void DetachUe4ssMod()
-    {
-        if (SelectedAttachedUe4ssMod is { } name)
-        {
-            AttachedUe4ssMods.Remove(name);
         }
     }
 
@@ -313,33 +237,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 }
             }
 
-            var stagedUe4ssMods = _ue4ssModRepository.GetAll();
-            AttachedUe4ssMods.Clear();
-            var missingUe4ssCount = 0;
-            foreach (var folderName in profile.Ue4ssModFolderNames)
-            {
-                if (stagedUe4ssMods.Contains(folderName))
-                {
-                    AttachedUe4ssMods.Add(folderName);
-                }
-                else
-                {
-                    missingUe4ssCount++;
-                }
-            }
-
-            var missingParts = new List<string>();
-            if (missingCount > 0)
-            {
-                missingParts.Add($"{missingCount} mod(s) from this profile are no longer in your Library");
-            }
-            if (missingUe4ssCount > 0)
-            {
-                missingParts.Add($"{missingUe4ssCount} UE4SS mod(s) from this profile are no longer staged");
-            }
-
-            ProfileStatusMessage = missingParts.Count > 0
-                ? $"Loaded '{value}' — {string.Join("; ", missingParts)}."
+            ProfileStatusMessage = missingCount > 0
+                ? $"Loaded '{value}' — {missingCount} mod(s) from this profile are no longer in your Library."
                 : $"Loaded '{value}'.";
         }
         catch (Exception ex)
@@ -369,7 +268,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         try
         {
             var name = ProfileNameInput;
-            _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = BuildGameplayOptionsFromUi(), Ue4ssModFolderNames = [.. AttachedUe4ssMods] });
+            _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = BuildGameplayOptionsFromUi() });
             ReloadProfileNames();
             SelectedProfileName = name;
             ProfileNameInput = "";
@@ -392,7 +291,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = BuildGameplayOptionsFromUi(), Ue4ssModFolderNames = [.. AttachedUe4ssMods] });
+            _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = BuildGameplayOptionsFromUi() });
             ProfileStatusMessage = $"Saved '{name}'.";
         }
         catch (Exception ex)
@@ -694,10 +593,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     /// <summary>
     /// "Installed vs this list" — reads what this app can positively identify as currently
-    /// installed (its own manifests in the real game folder) and diffs it against the current
-    /// queue + attached UE4SS mods, so a user can see exactly what Install would change before
-    /// clicking it. Gameplay options aren't part of this comparison — they're not a "mod" with a
-    /// name to diff, they overwrite specific fields regardless of what's currently there.
+    /// installed (its own pak manifest in the real game folder) and diffs it against the current
+    /// queue, so a user can see exactly what Install would change before clicking it. Gameplay
+    /// options aren't part of this comparison — they're not a "mod" with a name to diff, they
+    /// overwrite specific fields regardless of what's currently there. UE4SS mods aren't part of
+    /// this either (Phase 8.5) — see Library's own UE4SS tab, which shows their real state directly.
     /// </summary>
     [RelayCommand]
     private async Task CompareToInstalledAsync()
@@ -711,9 +611,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         try
         {
             var installed = await _installService.GetInstalledStateAsync(_settingsService.Current.IcarusContentPath!);
-            var comparison = InstalledVsListComparer.Compare(
-                installed.ModNames, [.. Queue.Select(e => e.Name)],
-                installed.Ue4ssModFolderNames, AttachedUe4ssMods);
+            var comparison = InstalledVsListComparer.Compare(installed.ModNames, [.. Queue.Select(e => e.Name)]);
 
             ComparisonEntries.Clear();
             foreach (var entry in comparison.OrderBy(e => e.State).ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
@@ -724,7 +622,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                     InstalledComparisonState.Removed => "-",
                     _ => "=",
                 };
-                ComparisonEntries.Add($"{symbol}  {entry.Name}{(entry.IsUe4ss ? " (UE4SS)" : "")}");
+                ComparisonEntries.Add($"{symbol}  {entry.Name}");
             }
 
             ComparisonStatusMessage = ComparisonEntries.Count == 0 ? "Nothing installed yet to compare against." : null;
@@ -816,9 +714,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            var stagedUe4ssModPaths = AttachedUe4ssMods.Select(_ue4ssModRepository.GetFolderPath).ToList();
             var result = await _installService.InstallAsync(
-                _outputPakPath, _lastManifestPath, stagedUe4ssModPaths, _settingsService.Current.IcarusContentPath!, _backupDirectory);
+                _outputPakPath, _lastManifestPath, _settingsService.Current.IcarusContentPath!, _backupDirectory);
 
             // Replace, not accumulate: ImportPak would otherwise derive a fresh "_2"/"_3"-suffixed
             // folder name every time (its own collision-avoidance rule), leaving one stale Library
@@ -832,12 +729,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             _libraryRepository.ImportPak(_outputPakPath);
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
 
-            var ue4ssPart = result.InstalledUe4ssModNames.Count > 0
-                ? $" Installed {result.InstalledUe4ssModNames.Count} UE4SS mod(s)."
-                : "";
             InstallStatusMessage = result.BackupPakPath is not null
-                ? $"Installed to '{result.InstalledPakPath}'. Backed up the previous pak to '{result.BackupPakPath}'.{ue4ssPart}"
-                : $"Installed to '{result.InstalledPakPath}'.{ue4ssPart}";
+                ? $"Installed to '{result.InstalledPakPath}'. Backed up the previous pak to '{result.BackupPakPath}'."
+                : $"Installed to '{result.InstalledPakPath}'.";
         }
         catch (Exception ex)
         {
@@ -852,29 +746,4 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
     }
 
-    /// <summary>
-    /// Removes only the UE4SS mod folders this app itself installed (tracked via InstallService's
-    /// own manifest) — never the built-in UE4SS framework mods or anything installed by hand or
-    /// another tool. A separate, explicit action from Install (which only ever adds/syncs), per the
-    /// spec's own "separate remove options for pak mods vs UE4SS mods".
-    /// </summary>
-    [RelayCommand]
-    private async Task RemoveInstalledUe4ssModsAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
-        {
-            InstallStatusMessage = "Set the Icarus Content folder in Settings first.";
-            return;
-        }
-
-        try
-        {
-            await _installService.RemoveInstalledUe4ssModsAsync(_settingsService.Current.IcarusContentPath!);
-            InstallStatusMessage = "Removed the UE4SS mods this app installed.";
-        }
-        catch (Exception ex)
-        {
-            InstallStatusMessage = $"Remove failed: {ex.Message}";
-        }
-    }
 }

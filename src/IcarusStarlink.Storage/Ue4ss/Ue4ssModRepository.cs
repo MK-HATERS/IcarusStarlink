@@ -33,6 +33,33 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
             ? [.. Directory.GetDirectories(gameModsFolderPath).Select(Path.GetFileName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase)!]
             : [];
 
+    public string AdoptFromGame(string gameModsFolderPath, string folderName)
+    {
+        var sourceFolder = Path.Combine(gameModsFolderPath, folderName);
+        if (!Directory.Exists(sourceFolder))
+        {
+            throw new DirectoryNotFoundException($"'{folderName}' isn't in the game's UE4SS Mods folder.");
+        }
+
+        var targetName = MakeUniqueFolderName(folderName);
+        CopyDirectory(sourceFolder, Path.Combine(_stagedDirectory, targetName));
+        return targetName;
+    }
+
+    private static void CopyDirectory(string sourceDir, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+        foreach (var file in Directory.GetFiles(sourceDir))
+        {
+            File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)));
+        }
+
+        foreach (var subDir in Directory.GetDirectories(sourceDir))
+        {
+            CopyDirectory(subDir, Path.Combine(destDir, Path.GetFileName(subDir)));
+        }
+    }
+
     private string MakeUniqueFolderName(string name)
     {
         var candidate = name;

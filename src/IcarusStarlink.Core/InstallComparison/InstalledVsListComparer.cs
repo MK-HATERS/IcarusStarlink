@@ -12,43 +12,37 @@ public enum InstalledComparisonState
     Unchanged,
 }
 
-public sealed record InstalledComparisonEntry(string Name, InstalledComparisonState State, bool IsUe4ss);
+public sealed record InstalledComparisonEntry(string Name, InstalledComparisonState State);
 
 /// <summary>
 /// "Installed vs this list" — a preview of what clicking Install would actually change, comparing
 /// what this app can positively identify as currently installed (InstallService.GetInstalledStateAsync,
-/// read from its own manifests) against the current profile's own queue and attached UE4SS set.
-/// Pure comparison, no I/O — the caller resolves both sides first.
+/// read from its own pak manifest) against the current profile's own queue. Pure comparison, no I/O
+/// — the caller resolves both sides first. UE4SS mods aren't part of this comparison (Phase 8.5) —
+/// they're enabled/disabled directly, not staged against an intended "list" the way pak mods are.
 /// </summary>
 public static class InstalledVsListComparer
 {
-    public static IReadOnlyList<InstalledComparisonEntry> Compare(
-        IReadOnlyList<string> installedModNames, IReadOnlyList<string> queuedModNames,
-        IReadOnlyList<string> installedUe4ssModNames, IReadOnlyList<string> attachedUe4ssModNames)
+    public static IReadOnlyList<InstalledComparisonEntry> Compare(IReadOnlyList<string> installedModNames, IReadOnlyList<string> queuedModNames)
     {
+        var installedSet = new HashSet<string>(installedModNames, StringComparer.OrdinalIgnoreCase);
+        var desiredSet = new HashSet<string>(queuedModNames, StringComparer.OrdinalIgnoreCase);
+
         var entries = new List<InstalledComparisonEntry>();
-        entries.AddRange(CompareSet(installedModNames, queuedModNames, isUe4ss: false));
-        entries.AddRange(CompareSet(installedUe4ssModNames, attachedUe4ssModNames, isUe4ss: true));
-        return entries;
-    }
-
-    private static IEnumerable<InstalledComparisonEntry> CompareSet(IReadOnlyList<string> installed, IReadOnlyList<string> desired, bool isUe4ss)
-    {
-        var installedSet = new HashSet<string>(installed, StringComparer.OrdinalIgnoreCase);
-        var desiredSet = new HashSet<string>(desired, StringComparer.OrdinalIgnoreCase);
-
-        foreach (var name in desired.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var name in queuedModNames.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            yield return new InstalledComparisonEntry(
-                name, installedSet.Contains(name) ? InstalledComparisonState.Unchanged : InstalledComparisonState.Added, isUe4ss);
+            entries.Add(new InstalledComparisonEntry(
+                name, installedSet.Contains(name) ? InstalledComparisonState.Unchanged : InstalledComparisonState.Added));
         }
 
-        foreach (var name in installed.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var name in installedModNames.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (!desiredSet.Contains(name))
             {
-                yield return new InstalledComparisonEntry(name, InstalledComparisonState.Removed, isUe4ss);
+                entries.Add(new InstalledComparisonEntry(name, InstalledComparisonState.Removed));
             }
         }
+
+        return entries;
     }
 }

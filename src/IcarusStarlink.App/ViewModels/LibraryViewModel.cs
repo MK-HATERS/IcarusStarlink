@@ -18,8 +18,10 @@ public sealed partial class LibraryViewModel : ObservableObject
 {
     private readonly ILibraryRepository _repository;
     private readonly IUe4ssModRepository _ue4ssModRepository;
+    private readonly IUe4ssModStateService _ue4ssModStateService;
     private readonly ISettingsService _settingsService;
     private readonly Func<string, ExmodEditorViewModel> _editorFactory;
+    private readonly string _backupDirectory;
     private readonly DispatcherTimer _searchDebounceTimer;
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
     private readonly Dictionary<string, LibraryGroupViewModel> _groupsByKey = [];
@@ -45,18 +47,30 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private int _groupCount;
 
-    /// <summary>"Library UE4SS tab shows what is already in the game Mods folder" per the spec — a read-only scan of the real install, distinct from Merge & Install's own staging section.</summary>
-    public ObservableCollection<string> InstalledUe4ssMods { get; } = [];
+    /// <summary>
+    /// Library's UE4SS tab (Phase 8.5 rework) — the single place to manage UE4SS mods, replacing
+    /// the old split between this read-only tab and Merge & Install's own separate Staged/Attached
+    /// section. Each row's IsEnabled starts equal to its real current state (present in the game's
+    /// own Mods folder or not) and only diverges once toggled — nothing actually moves until Apply.
+    /// </summary>
+    public ObservableCollection<Ue4ssModRowViewModel> Ue4ssMods { get; } = [];
+
+    [ObservableProperty]
+    private bool _hasPendingUe4ssChanges;
 
     [ObservableProperty]
     private string? _ue4ssStatusMessage;
 
-    public LibraryViewModel(ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, ISettingsService settingsService, Func<string, ExmodEditorViewModel> editorFactory)
+    public LibraryViewModel(
+        ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
+        ISettingsService settingsService, Func<string, ExmodEditorViewModel> editorFactory, string backupDirectory)
     {
         _repository = repository;
         _ue4ssModRepository = ue4ssModRepository;
+        _ue4ssModStateService = ue4ssModStateService;
         _settingsService = settingsService;
         _editorFactory = editorFactory;
+        _backupDirectory = backupDirectory;
 
         // Reload() rebuilds every row's ViewModel and re-queries the search index; without
         // debouncing, every keystroke would pay that cost plus re-trigger the still-selected
@@ -91,7 +105,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
-            InstalledUe4ssMods.Clear();
+            Ue4ssMods.Clear();
+            HasPendingUe4ssChanges = false;
             Ue4ssStatusMessage = "Set the Icarus Content folder in Settings first.";
             return;
         }
@@ -99,19 +114,73 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             var modsFolder = Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath);
-            var mods = _ue4ssModRepository.ListInstalledInGame(modsFolder);
+            var states = _ue4ssModStateService.GetAll(modsFolder);
 
-            InstalledUe4ssMods.Clear();
-            foreach (var mod in mods)
+            Ue4ssMods.Clear();
+            foreach (var state in states)
             {
-                InstalledUe4ssMods.Add(mod);
+                Ue4ssMods.Add(new Ue4ssModRowViewModel(state.Name, state.IsEnabled, RecomputeHasPendingUe4ssChanges));
             }
+            HasPendingUe4ssChanges = false;
 
-            Ue4ssStatusMessage = mods.Count == 0 ? "No UE4SS mods found." : null;
+            Ue4ssStatusMessage = states.Count == 0 ? "No UE4SS mods found." : null;
         }
         catch (Exception ex)
         {
             Ue4ssStatusMessage = $"Couldn't read the game's UE4SS Mods folder: {ex.Message}";
+        }
+    }
+
+    private void RecomputeHasPendingUe4ssChanges() => HasPendingUe4ssChanges = Ue4ssMods.Any(m => m.IsDirty);
+
+    /// <summary>
+    /// Moves every dirty row to match its toggled state — enabling copies staging→game, disabling
+    /// backs up then moves game→staging (IUe4ssModStateService.Apply) — then reloads so every row's
+    /// RealIsEnabled (and the page's own dirty state) reflects what's actually on disk now.
+    /// </summary>
+    [RelayCommand]
+    private void ApplyUe4ssChanges()
+    {
+        if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
+        {
+            Ue4ssStatusMessage = "Set the Icarus Content folder in Settings first.";
+            return;
+        }
+
+        try
+        {
+            var modsFolder = Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath);
+            var desired = Ue4ssMods.Where(m => m.IsDirty).ToDictionary(m => m.Name, m => m.IsEnabled);
+            var changedCount = desired.Count;
+
+            _ue4ssModStateService.Apply(modsFolder, desired, _backupDirectory);
+            ReloadInstalledUe4ssMods();
+            Ue4ssStatusMessage = $"Applied {changedCount} change(s).";
+        }
+        catch (Exception ex)
+        {
+            Ue4ssStatusMessage = $"Apply failed: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void ImportUe4ssMod()
+    {
+        var dialog = new OpenFileDialog { Title = "Select a UE4SS mod zip", Filter = "Zip archive (*.zip)|*.zip" };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var folderName = _ue4ssModRepository.Import(dialog.FileName);
+            ReloadInstalledUe4ssMods();
+            Ue4ssStatusMessage = $"Staged '{folderName}' — enable it below, then click Apply.";
+        }
+        catch (Exception ex)
+        {
+            Ue4ssStatusMessage = $"Import failed: {ex.Message}";
         }
     }
 

@@ -183,16 +183,34 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Horizontal">
-                        <TextBlock Text="Mods already installed in your game's UE4SS Mods folder — read-only."
-                                   Style="{StaticResource PageBodyTextStyle}" VerticalAlignment="Center"/>
-                        <Button Content="Refresh" Command="{Binding ReloadInstalledUe4ssModsCommand}" Margin="12,0,0,0"/>
+                        <TextBlock Text="Enable/disable UE4SS mods, then click Apply. Enabling moves a mod into the game's real Mods folder; disabling moves it back out here, ready to re-enable later."
+                                   Style="{StaticResource PageBodyTextStyle}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="440"/>
+                        <Button Content="Import…" Command="{Binding ImportUe4ssModCommand}" Margin="12,0,0,0"
+                                ToolTip="Stage a UE4SS mod from a downloaded zip — lands here disabled, ready to enable and Apply"/>
+                        <Button Content="Refresh" Command="{Binding ReloadInstalledUe4ssModsCommand}" Margin="8,0,0,0"/>
                     </StackPanel>
                     <TextBlock Grid.Row="1" Text="{Binding Ue4ssStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                FontSize="12" Margin="0,4,0,8"/>
-                    <ListBox Grid.Row="2" ItemsSource="{Binding InstalledUe4ssMods}"/>
+                    <ListBox Grid.Row="2" ItemsSource="{Binding Ue4ssMods}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                    <CheckBox IsChecked="{Binding IsEnabled}" VerticalAlignment="Center" Margin="0,0,8,0"
+                                              ToolTip="Checked = enabled (in the real game Mods folder). Nothing moves until you click Apply below."/>
+                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Width="260"/>
+                                    <TextBlock Text="modified" Foreground="{DynamicResource AccentBrush}" FontSize="12"
+                                               VerticalAlignment="Center" Visibility="{Binding IsDirty, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <Button Grid.Row="3" Content="Apply" Command="{Binding ApplyUe4ssChangesCommand}"
+                            IsEnabled="{Binding HasPendingUe4ssChanges}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,8,0,0"
+                            ToolTip="Moves every checked/unchecked mod to match — backs up anything removed from the game folder first"/>
                 </Grid>
             </TabItem>
         </TabControl>
