@@ -5,6 +5,7 @@ using System.Windows;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.Catalog.AppUpdate;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Jimk72;
@@ -145,6 +146,7 @@ public partial class App : Application
         builder.Services.AddSingleton<INxmProtocolRegistrar, NxmProtocolRegistrar>();
         builder.Services.AddSingleton<IUe4ssLoaderInstallService, Ue4ssLoaderInstallService>();
         builder.Services.AddHttpClient<IUe4ssReleaseClient, Ue4ssReleaseClient>();
+        builder.Services.AddHttpClient<IAppUpdateClient, AppUpdateClient>();
         builder.Services.AddSingleton<IFtpSiteStore>(sp =>
             new FtpSiteStore(
                 Path.Combine(appDataDirectory, "Cache"),
@@ -207,6 +209,7 @@ public partial class App : Application
             sp.GetRequiredService<INxmProtocolRegistrar>(),
             sp.GetRequiredService<IUe4ssLoaderInstallService>(),
             sp.GetRequiredService<IUe4ssReleaseClient>(),
+            sp.GetRequiredService<IAppUpdateClient>(),
             sp.GetRequiredService<HttpClient>(),
             Path.Combine(appDataDirectory, "Backups"),
             Path.Combine(appDataDirectory, "Data"),

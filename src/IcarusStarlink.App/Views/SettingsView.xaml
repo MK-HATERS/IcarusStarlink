@@ -109,11 +109,42 @@
                    Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="560"/>
         <CheckBox Content="Performance tracking" IsChecked="{Binding PerformanceTrackingEnabled}" Margin="0,0,0,10"
                   ToolTip="Off by default. When on, logs how long Rebuild/Install/catalog-refresh take to a separate app.perf log file — useful if something feels slow and you want to show real numbers in a bug report."/>
-        <StackPanel Orientation="Horizontal">
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
             <Button Content="Export diagnostics zip…" Command="{Binding ExportDiagnosticsCommand}"/>
             <TextBlock Text="{Binding DiagnosticsStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
         </StackPanel>
+
+        <TextBlock Text="App updates" Style="{StaticResource FieldLabelStyle}"/>
+        <TextBlock Margin="0,4,0,10">
+            <Run Text="You have v"/><Run Text="{Binding InstalledAppVersion, Mode=OneWay}"/><Run Text=" installed."/>
+        </TextBlock>
+
+        <StackPanel Visibility="{Binding HasNoSavedGitHubToken, Converter={StaticResource BoolToVisibilityConverter}}">
+            <TextBlock Text="IcarusStarlink's own GitHub repo is currently private — a personal access token (repo scope) is needed to check for and download updates."
+                       Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10" TextWrapping="Wrap" MaxWidth="560"/>
+            <DockPanel Margin="0,0,0,8">
+                <Button Content="Save token" Command="{Binding SaveGitHubTokenCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"/>
+                <PasswordBox x:Name="GitHubTokenBox" DockPanel.Dock="Left" PasswordChanged="GitHubTokenBox_PasswordChanged"
+                             ToolTip="Paste a GitHub personal access token here — never stored in settings.json, only Windows Credential Manager"/>
+            </DockPanel>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
+                    Visibility="{Binding HasSavedGitHubToken, Converter={StaticResource BoolToVisibilityConverter}}">
+            <TextBlock Text="GitHub token saved." VerticalAlignment="Center"/>
+            <Button Content="Clear" Command="{Binding ClearGitHubTokenCommand}" Margin="12,0,0,0"/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Content="Check for updates" Command="{Binding CheckForAppUpdatesCommand}" IsEnabled="{Binding CanCheckForAppUpdates}"/>
+            <Button Content="Update now" Command="{Binding OpenLatestReleasePageCommand}" Margin="8,0,0,0"
+                    Visibility="{Binding IsAppUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
+                    ToolTip="Opens the release's GitHub page in your browser so you can download and run it manually"/>
+        </StackPanel>
+        <TextBlock Text="{Binding AppUpdateStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                   TextWrapping="Wrap" MaxWidth="560"
+                   Visibility="{Binding AppUpdateStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
     </StackPanel>
     </ScrollViewer>
 </UserControl>

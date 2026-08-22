@@ -1,12 +1,14 @@
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
+using System.Reflection;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.Catalog.AppUpdate;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Catalog.Ue4ss;
 using IcarusStarlink.Core.Nexus;
@@ -31,6 +33,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly INxmProtocolRegistrar _nxmProtocolRegistrar;
     private readonly IUe4ssLoaderInstallService _ue4ssLoaderInstallService;
     private readonly IUe4ssReleaseClient _ue4ssReleaseClient;
+    private readonly IAppUpdateClient _appUpdateClient;
     private readonly HttpClient _httpClient;
     private readonly string _backupDirectory;
     private readonly string _dataOutputDirectory;
@@ -142,8 +145,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         ISettingsService settingsService, IUnrealPakService unrealPakService, IWeeklyChangeReportStore weeklyChangeReportStore,
         ISteamInstallLocator steamInstallLocator, ICredentialStore credentialStore, INexusApiClient nexusApiClient,
         INxmProtocolRegistrar nxmProtocolRegistrar, IUe4ssLoaderInstallService ue4ssLoaderInstallService,
-        IUe4ssReleaseClient ue4ssReleaseClient, HttpClient httpClient, string backupDirectory, string dataOutputDirectory,
-        string logsDirectory, string settingsFilePath)
+        IUe4ssReleaseClient ue4ssReleaseClient, IAppUpdateClient appUpdateClient, HttpClient httpClient,
+        string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath)
     {
         _settingsService = settingsService;
         _unrealPakService = unrealPakService;
@@ -154,6 +157,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _nxmProtocolRegistrar = nxmProtocolRegistrar;
         _ue4ssLoaderInstallService = ue4ssLoaderInstallService;
         _ue4ssReleaseClient = ue4ssReleaseClient;
+        _appUpdateClient = appUpdateClient;
         _httpClient = httpClient;
         _backupDirectory = backupDirectory;
         _dataOutputDirectory = dataOutputDirectory;
@@ -163,6 +167,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _unrealPakExePath = settingsService.Current.UnrealPakExePath;
         _performanceTrackingEnabled = settingsService.Current.PerformanceTrackingEnabled;
         _isNxmProtocolRegisteredToThisApp = nxmProtocolRegistrar.IsRegisteredToThisApp();
+        _hasSavedGitHubToken = credentialStore.Read(CredentialTargets.GitHubToken) is not null;
 
         if (!string.IsNullOrWhiteSpace(IcarusContentPath))
         {
@@ -175,6 +180,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ = CheckForGameUpdateAsync();
         _ = InitializeNexusStatusAsync();
         _ = CheckUe4ssLatestReleaseAsync();
+        _ = CheckForAppUpdatesOnLaunchAsync();
     }
 
     [RelayCommand]
@@ -608,6 +614,145 @@ public sealed partial class SettingsViewModel : ObservableObject
             // status message, not a crash, even for a feature whose whole purpose is helping
             // diagnose a crash.
             DiagnosticsStatusMessage = $"Export failed: {ex.Message}";
+        }
+    }
+
+    // --- App updates (Phase 9) ---
+
+    /// <summary>The version baked into this build via the App csproj's own &lt;Version&gt; property — bump that alongside tagging a real GitHub release.</summary>
+    public string InstalledAppVersion { get; } =
+        Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
+
+    [ObservableProperty]
+    private string _gitHubTokenInput = "";
+
+    /// <summary>Whether a token is currently saved — the token itself is never held in this ViewModel or read back for display, only its presence/absence.</summary>
+    [ObservableProperty]
+    private bool _hasSavedGitHubToken;
+
+    public bool HasNoSavedGitHubToken => !HasSavedGitHubToken;
+
+    partial void OnHasSavedGitHubTokenChanged(bool value) => OnPropertyChanged(nameof(HasNoSavedGitHubToken));
+
+    [ObservableProperty]
+    private bool _isCheckingForAppUpdate;
+
+    public bool CanCheckForAppUpdates => !IsCheckingForAppUpdate;
+
+    partial void OnIsCheckingForAppUpdateChanged(bool value) => OnPropertyChanged(nameof(CanCheckForAppUpdates));
+
+    /// <summary>Null until CheckForAppUpdatesAsync/CheckForAppUpdatesOnLaunchAsync succeeds — offline/rate-limited/no-token-on-a-private-repo all leave this null.</summary>
+    [ObservableProperty]
+    private AppUpdateRelease? _latestAppUpdateRelease;
+
+    [ObservableProperty]
+    private string? _appUpdateStatusMessage;
+
+    public bool IsAppUpdateAvailable =>
+        LatestAppUpdateRelease is { } release
+        && Version.TryParse(release.Version, out var latest)
+        && Version.TryParse(InstalledAppVersion, out var installed)
+        && latest > installed;
+
+    partial void OnLatestAppUpdateReleaseChanged(AppUpdateRelease? value) => OnPropertyChanged(nameof(IsAppUpdateAvailable));
+
+    [RelayCommand]
+    private void SaveGitHubToken()
+    {
+        if (string.IsNullOrWhiteSpace(GitHubTokenInput))
+        {
+            AppUpdateStatusMessage = "Paste a GitHub personal access token first.";
+            return;
+        }
+
+        _credentialStore.Save(CredentialTargets.GitHubToken, GitHubTokenInput.Trim());
+        HasSavedGitHubToken = true;
+        GitHubTokenInput = "";
+        AppUpdateStatusMessage = "GitHub token saved.";
+    }
+
+    [RelayCommand]
+    private void ClearGitHubToken()
+    {
+        _credentialStore.Delete(CredentialTargets.GitHubToken);
+        HasSavedGitHubToken = false;
+        AppUpdateStatusMessage = "GitHub token cleared.";
+    }
+
+    [RelayCommand]
+    private async Task CheckForAppUpdatesAsync()
+    {
+        IsCheckingForAppUpdate = true;
+        AppUpdateStatusMessage = null;
+        try
+        {
+            var token = _credentialStore.Read(CredentialTargets.GitHubToken);
+            LatestAppUpdateRelease = await _appUpdateClient.GetLatestReleaseAsync(token);
+            AppUpdateStatusMessage = LatestAppUpdateRelease switch
+            {
+                null => "Couldn't check for updates — while the repo is private, a GitHub token above is required.",
+                { } r when IsAppUpdateAvailable => $"v{r.Version} is available (you have v{InstalledAppVersion}).",
+                _ => "You're up to date.",
+            };
+        }
+        finally
+        {
+            IsCheckingForAppUpdate = false;
+        }
+    }
+
+    /// <summary>
+    /// Opens the release's own GitHub page rather than downloading/installing automatically — the
+    /// spec's own documented manual fallback. A fully automated download-extract-relaunch pipeline
+    /// is real, hard-to-reverse surgery on this app's own running files; that's the Updater.exe
+    /// project's eventual job, deliberately not built out in this pass.
+    /// </summary>
+    [RelayCommand]
+    private void OpenLatestReleasePage()
+    {
+        if (LatestAppUpdateRelease is not { } release)
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo($"https://github.com/MK-HATERS/IcarusStarlink/releases/tag/v{release.Version}") { UseShellExecute = true });
+        }
+        catch (Exception)
+        {
+            // Opening the default browser is best-effort UX, not a core operation — same
+            // swallow-and-move-on OpenNexusApiKeyPage already uses.
+        }
+    }
+
+    /// <summary>
+    /// Silent once-per-launch check, same shape as InitializeNexusStatusAsync/CheckUe4ssLatestReleaseAsync
+    /// — no nag if unconfigured (no token yet, while the repo is private). Only a genuine newer
+    /// release prompts, via a real Yes/No, matching every other "ask before doing something visible"
+    /// gate already established in this app.
+    /// </summary>
+    private async Task CheckForAppUpdatesOnLaunchAsync()
+    {
+        var token = _credentialStore.Read(CredentialTargets.GitHubToken);
+        var release = await _appUpdateClient.GetLatestReleaseAsync(token);
+        if (release is null)
+        {
+            return;
+        }
+
+        LatestAppUpdateRelease = release;
+        if (!IsAppUpdateAvailable)
+        {
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"IcarusStarlink v{release.Version} is available — you're on v{InstalledAppVersion}.\n\nOpen the release page to download it?",
+            "Update available", MessageBoxButton.YesNo, MessageBoxImage.Information);
+        if (result == MessageBoxResult.Yes)
+        {
+            OpenLatestReleasePage();
         }
     }
 }

@@ -50,6 +50,9 @@ switch (args[0])
     case "right-click":
         RightClick(int.Parse(args[1]), args[2]);
         break;
+    case "scroll-bottom":
+        ScrollBottom(int.Parse(args[1]));
+        break;
     default:
         Console.WriteLine($"unknown command: {args[0]}");
         return 1;
@@ -377,6 +380,35 @@ static void RightClick(int pid, string exactText)
     NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
     NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero);
     Console.WriteLine($"right-clicked '{exactText}' at ({x},{y})");
+}
+
+// Scrolls the first ScrollPattern-supporting element (this app's pages are typically one page-level
+// ScrollViewer wrapping everything) all the way down — for capturing a screenshot of content below
+// the fold, since none of the click/select commands above need visibility to act on an element (UIA
+// patterns dispatch directly), only Capture does.
+static void ScrollBottom(int pid)
+{
+    // More than one ScrollPattern element can exist on a page (e.g. the left nav ListBox has its
+    // own implicit one) — skip past any that aren't actually vertically scrollable (nothing below
+    // their own fold) rather than assuming the first one found in visual-tree order is the page's
+    // own content ScrollViewer.
+    var scrollables = GetAllRoots(pid)
+        .SelectMany(root => root.FindAll(TreeScope.Descendants, Condition.TrueCondition).Cast<AutomationElement>())
+        .Where(el => el.TryGetCurrentPattern(ScrollPattern.Pattern, out _))
+        .ToList();
+
+    foreach (var el in scrollables)
+    {
+        var pattern = (ScrollPattern)el.GetCurrentPattern(ScrollPattern.Pattern);
+        if (pattern.Current.VerticallyScrollable)
+        {
+            pattern.SetScrollPercent(ScrollPattern.NoScroll, 100);
+            Console.WriteLine("scrolled to bottom");
+            return;
+        }
+    }
+
+    Console.WriteLine($"found {scrollables.Count} scrollable element(s), but none are vertically scrollable (nothing below the fold)");
 }
 
 static void SetText(int pid, int editIndex, string text)

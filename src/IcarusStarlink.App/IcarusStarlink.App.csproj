@@ -23,6 +23,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Compared against the latest GitHub release tag by the App Updates check — bump this
+         alongside tagging a real GitHub release, they're meant to stay in lockstep. -->
+    <Version>0.9.0</Version>
+    <!-- Without this, the SDK appends "+<git-commit-sha>" to InformationalVersion (SourceLink's
+         deterministic-build behavior) — breaks both the displayed version and Version.TryParse in
+         SettingsViewModel's own update-comparison logic, which doesn't understand a "+sha" suffix. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
 </Project>
