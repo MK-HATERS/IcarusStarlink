@@ -24,6 +24,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
 
     public async Task<RebuildResult> RebuildAsync(
         IReadOnlyList<ExmodPackageContents> queuedMods, GameplayOptions gameplayOptions, string dataFolder, string unrealPakExePath, string outputPakPath,
+        IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
         CancellationToken cancellationToken = default)
     {
         var report = new MergeReport();
@@ -39,7 +40,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             var orderedModChanges = queuedMods
                 .Select(mod => ExmodFieldChangeMapper.ToFieldChanges(mod.Package, classifier))
                 .ToList();
-            var resolvedChanges = MergeEngine.Merge(orderedModChanges, new MergeRuleRegistry());
+            var resolvedChanges = MergeEngine.Merge(orderedModChanges, new MergeRuleRegistry(), manualPicks);
 
             var requiredFiles = resolvedChanges.Select(c => c.CurrentFile)
                 .Concat(GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions))

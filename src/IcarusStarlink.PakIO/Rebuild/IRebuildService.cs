@@ -15,11 +15,19 @@ public interface IRebuildService
     /// pack's own file layout. Throws on failure (missing/unreadable base data, UnrealPak itself
     /// failing) — same convention as IUnrealPakService.
     /// </summary>
+    /// <param name="manualPicks">
+    /// The advanced conflict picker's own overrides, passed straight through to MergeEngine.Merge —
+    /// null (the default) means every conflict resolves via the registry's own automatic rule
+    /// (last-write-wins for a plain scalar). Only valid against the exact same queuedMods this was
+    /// computed against (see MergeEngine.FindConflicts) — a stale pick against a since-changed queue
+    /// throws ArgumentOutOfRangeException rather than silently applying the wrong mod's value.
+    /// </param>
     Task<RebuildResult> RebuildAsync(
         IReadOnlyList<ExmodPackageContents> queuedMods,
         GameplayOptions gameplayOptions,
         string dataFolder,
         string unrealPakExePath,
         string outputPakPath,
+        IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
         CancellationToken cancellationToken = default);
 }

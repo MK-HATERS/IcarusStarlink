@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.Jimk72;
@@ -14,7 +15,9 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Patches;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Container;
+using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.GameplayToggles;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Patches;
@@ -70,6 +73,16 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     private string? _installStatusMessage;
 
     public ObservableCollection<string> Warnings { get; } = [];
+
+    // --- Advanced conflict picker ---
+    // Null means "no manual picks" (every conflict resolves via the registry's own default rule).
+    // Invalidated (reset to null) whenever Queue changes at all — a pick's own index only means
+    // the mod it meant when it was made; any Add/Remove/Move/Clear could change which mod that
+    // index now refers to, or whether the field is even still a conflict at all.
+    private IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? _manualPicks;
+
+    [ObservableProperty]
+    private string? _conflictStatusMessage;
 
     // --- Profile bar (6.3) ---
     public ObservableCollection<string> ProfileNames { get; } = [];
@@ -152,6 +165,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         ReloadLibrary();
         ReloadProfileNames();
+
+        // Any queue change at all invalidates existing conflict picks — see _manualPicks' own
+        // comment for why an Add/Remove/Move/Clear can silently change what a pick's index means.
+        Queue.CollectionChanged += (_, _) =>
+        {
+            _manualPicks = null;
+            ConflictStatusMessage = null;
+        };
 
         // This ViewModel is a DI singleton built once, so without this its own Library pane would
         // never learn about a mod imported/deleted from Library or Downloads until the app
@@ -679,19 +700,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            // Queue order = merge priority (index 0 lowest, matching MergeEngine's own
-            // convention) — read fresh from disk each Rebuild rather than caching, so an edit
-            // made outside the app (or via the EXMOD editor once Phase 7 lands) is picked up.
-            // The snapshot itself is taken synchronously on the UI thread (cheap, no I/O) so a
-            // user edit to Queue (Add/Remove) mid-rebuild can't race with the actual disk reads,
-            // which are the slow part and run off-thread on that fixed snapshot instead.
-            var entriesSnapshot = Queue.ToList();
-            var packages = await Task.Run(() => entriesSnapshot
-                .Select(entry => ExmodFolder.Read(_libraryRepository.GetFolderPath(entry.FolderName)))
-                .ToList());
+            var (_, packages) = await LoadQueuedPackagesAsync();
 
             var result = await _rebuildService.RebuildAsync(
-                packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath);
+                packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath, _manualPicks);
 
             StatusMessage = $"Built '{result.OutputPakPath}' — {result.PackedFileCount} files packed, "
                 + $"{result.MergedFileCount} data table(s) merged.";
@@ -710,6 +722,75 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         finally
         {
             IsRebuilding = false;
+        }
+    }
+
+    /// <summary>
+    /// Queue order = merge priority (index 0 lowest, matching MergeEngine's own convention) — read
+    /// fresh from disk every time rather than caching, so an edit made outside the app (or via the
+    /// EXMOD editor) is picked up. The snapshot itself is taken synchronously on the UI thread
+    /// (cheap, no I/O) so a user edit to Queue (Add/Remove) mid-read can't race with the actual disk
+    /// reads, which are the slow part and run off-thread on that fixed snapshot instead. Shared by
+    /// RebuildAsync and ReviewConflictsAsync, which both need the exact same materialization.
+    /// </summary>
+    private async Task<(List<LibraryEntry> Entries, List<ExmodPackageContents> Packages)> LoadQueuedPackagesAsync()
+    {
+        var entriesSnapshot = Queue.ToList();
+        var packages = await Task.Run(() => entriesSnapshot
+            .Select(entry => ExmodFolder.Read(_libraryRepository.GetFolderPath(entry.FolderName)))
+            .ToList());
+        return (entriesSnapshot, packages);
+    }
+
+    /// <summary>
+    /// The advanced conflict picker's own entry point — computes which fields two or more queued
+    /// mods change differently and, if any, opens a window to let the user pick a winner per field
+    /// (or leave it on the usual last-mod-wins default). Picks are stored in _manualPicks and used
+    /// by the next Rebuild; they're invalidated the moment the queue changes at all, so this needs
+    /// re-running after any Add/Remove/Move/Clear if the user wants to review again.
+    /// </summary>
+    [RelayCommand]
+    private async Task ReviewConflictsAsync()
+    {
+        if (Queue.Count == 0)
+        {
+            ConflictStatusMessage = "Add mods to the queue first.";
+            return;
+        }
+
+        try
+        {
+            var (entries, packages) = await LoadQueuedPackagesAsync();
+            var (conflicts, modNames) = await Task.Run(() =>
+            {
+                var classifier = new DefaultSemanticClassifier();
+                var orderedModChanges = packages.Select(p => ExmodFieldChangeMapper.ToFieldChanges(p.Package, classifier)).ToList();
+                var names = entries.Select(e => e.Name).ToList();
+                return (MergeEngine.FindConflicts(names, orderedModChanges), names);
+            });
+
+            if (conflicts.Count == 0)
+            {
+                _manualPicks = null;
+                ConflictStatusMessage = $"No conflicts among {modNames.Count} mod(s) — every changed field is touched by only one mod, or they all agree.";
+                return;
+            }
+
+            var pickerViewModel = new ConflictPickerViewModel(conflicts, _manualPicks);
+            var window = new ConflictPickerWindow(pickerViewModel) { Owner = Application.Current.MainWindow };
+            if (window.ShowDialog() == true)
+            {
+                var picks = window.ResultPicks!;
+                _manualPicks = picks.Count > 0 ? picks : null;
+                ConflictStatusMessage = picks.Count > 0
+                    ? $"{conflicts.Count} conflict(s) found, {picks.Count} manually picked — Rebuild to apply."
+                    : $"{conflicts.Count} conflict(s) found, all left on default (last mod wins).";
+            }
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as Rebuild itself — a malformed queued mod shouldn't crash the app.
+            ConflictStatusMessage = $"Couldn't check for conflicts: {ex.Message}";
         }
     }
 

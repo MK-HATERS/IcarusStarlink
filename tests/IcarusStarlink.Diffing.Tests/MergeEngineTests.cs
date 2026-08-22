@@ -214,4 +214,90 @@ public class MergeEngineTests
         var tags = change.NewValue!.AsArray().Select(n => n!.GetValue<string>()).ToList();
         Assert.Equal(["Tools", "Resources"], tags);
     }
+
+    [Fact]
+    public void FindConflicts_TwoModsDifferentValues_ReturnsOneConflictWithBothCandidatesInQueueOrder()
+    {
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 10) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+
+        var conflicts = MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA, modB]);
+
+        var conflict = Assert.Single(conflicts);
+        Assert.Equal("Sword", conflict.ItemName);
+        Assert.Equal("Damage", conflict.FieldName);
+        Assert.Equal(2, conflict.Candidates.Count);
+        Assert.Equal("Mod A", conflict.Candidates[0].ModName);
+        Assert.Equal(10, conflict.Candidates[0].Change.NewValue!.GetValue<int>());
+        Assert.Equal("Mod B", conflict.Candidates[1].ModName);
+        Assert.Equal(20, conflict.Candidates[1].Change.NewValue!.GetValue<int>());
+    }
+
+    [Fact]
+    public void FindConflicts_TwoModsSameValue_ReturnsNoConflict()
+    {
+        // Both mods happen to set the field to the identical value — nothing for a human to pick
+        // between, so this shouldn't be surfaced as something needing a decision.
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+
+        var conflicts = MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA, modB]);
+
+        Assert.Empty(conflicts);
+    }
+
+    [Fact]
+    public void FindConflicts_SingleModTouchesField_ReturnsNoConflict()
+    {
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+
+        var conflicts = MergeEngine.FindConflicts(["Mod A"], [modA]);
+
+        Assert.Empty(conflicts);
+    }
+
+    [Fact]
+    public void FindConflicts_ThreeMods_OnlyTwoTouchTheSameField_CandidatesExcludeTheThird()
+    {
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 10) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Weight", 1) }; // different field, not part of the conflict
+        var modC = new List<FieldChange> { ScalarChange("Sword", "Damage", 30) };
+
+        var conflicts = MergeEngine.FindConflicts(["Mod A", "Mod B", "Mod C"], [modA, modB, modC]);
+
+        var conflict = Assert.Single(conflicts);
+        Assert.Equal(2, conflict.Candidates.Count);
+        Assert.Equal("Mod A", conflict.Candidates[0].ModName);
+        Assert.Equal("Mod C", conflict.Candidates[1].ModName);
+    }
+
+    [Fact]
+    public void FindConflicts_MismatchedListLengths_Throws()
+    {
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 10) };
+
+        Assert.Throws<ArgumentException>(() => MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA]));
+    }
+
+    [Fact]
+    public void FindConflicts_CandidateIndexAlignsWithMergeManualPicksIndex()
+    {
+        // The whole point of Candidates' ordering: a UI can pick Candidates[i] here and pass that
+        // same i as Merge's own manualPicks index, for the identical orderedModChanges.
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 10) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+        var modC = new List<FieldChange> { ScalarChange("Sword", "Damage", 30) };
+        IReadOnlyList<IReadOnlyList<FieldChange>> orderedModChanges = [modA, modB, modC];
+
+        var conflicts = MergeEngine.FindConflicts(["Mod A", "Mod B", "Mod C"], orderedModChanges);
+        var conflict = Assert.Single(conflicts);
+        var pickedIndex = 1; // "Mod B" per the UI's own selection
+
+        var key = (conflict.CurrentFile, conflict.ItemName, conflict.FieldName);
+        var resolved = MergeEngine.Merge(orderedModChanges, new MergeRuleRegistry(),
+            new Dictionary<(string, string, string), int> { [key] = pickedIndex });
+
+        var change = Assert.Single(resolved);
+        Assert.Equal(conflict.Candidates[pickedIndex].Change.NewValue!.GetValue<int>(), change.NewValue!.GetValue<int>());
+    }
 }

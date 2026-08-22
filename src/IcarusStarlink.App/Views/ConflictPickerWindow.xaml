@@ -1,0 +1,45 @@
+<Window x:Class="IcarusStarlink.App.Views.ConflictPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        mc:Ignorable="d"
+        Title="Merge conflicts" Height="520" Width="720" MinHeight="320" MinWidth="520"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12">
+            <Run Text="These fields are changed differently by more than one mod in your queue. Pick which mod should win for each one, or leave it on Default to keep the usual last-mod-in-queue-wins behavior."/>
+        </TextBlock>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding Rows}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,10">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Display}" FontFamily="Consolas" FontSize="12" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                                <ComboBox ItemsSource="{Binding Options}" SelectedIndex="{Binding SelectedOptionIndex}"
+                                          HorizontalAlignment="Left" MinWidth="320"
+                                          ToolTip="Pick which mod's value should win for this field, or leave Default"/>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0"/>
+            <Button Content="Apply picks" Click="Apply_Click" Style="{StaticResource PrimaryButtonStyle}"
+                    ToolTip="Saves these picks for the next Rebuild — nothing is written to disk until you click Rebuild"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -111,6 +111,30 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RebuildAsync_ManualPickOverridesLastWriteWins()
+    {
+        // Same conflict as RebuildAsync_TwoModsSameField_LaterModInQueueWins, but this time the
+        // advanced conflict picker explicitly picks the earlier mod (index 0) — the whole point of
+        // manualPicks is overriding what the registry's default rule would otherwise do.
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var modA = MakeMod("Mod A", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var modB = MakeMod("Mod B", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(2) });
+        var pakService = new FakeUnrealPakService();
+        var service = new RebuildService(pakService);
+        var manualPicks = new Dictionary<(string, string, string), int>
+        {
+            [("Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe", "CraftTime")] = 0, // modA, not the last
+        };
+
+        await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, manualPicks);
+
+        var stagedJson = pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"];
+        Assert.Contains("\"CraftTime\": 1", stagedJson);
+    }
+
+    [Fact]
     public async Task RebuildAsync_TwoModsSameFieldDifferentCurrentFileCasing_LaterModStillWinsInsteadOfBothWritingSeparately()
     {
         // Different EXMOD authors' extraction tools aren't guaranteed to emit CurrentFile with

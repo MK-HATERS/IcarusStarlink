@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+
 namespace IcarusStarlink.Diffing;
 
 /// <summary>
@@ -57,5 +59,45 @@ public static class MergeEngine
         }
 
         return resolved;
+    }
+
+    /// <summary>
+    /// Finds every field two or more of orderedModChanges' mods touch with genuinely different
+    /// values — the set a human might want to review before Rebuild, via the advanced conflict
+    /// picker Merge's own manualPicks parameter feeds into. A field only both mods happen to set to
+    /// the identical value isn't included: there's nothing to pick between. modNames must be the
+    /// same length as orderedModChanges, in the same queue order (index 0 = lowest priority) — each
+    /// returned FieldConflict.Candidates is built by walking both lists together, so a picked
+    /// Candidates[i] lines up with the pickedIndex Merge itself expects only when Merge is later
+    /// called with this exact same orderedModChanges (same mods, same order, same queue snapshot).
+    /// </summary>
+    public static IReadOnlyList<FieldConflict> FindConflicts(
+        IReadOnlyList<string> modNames, IReadOnlyList<IReadOnlyList<FieldChange>> orderedModChanges)
+    {
+        if (modNames.Count != orderedModChanges.Count)
+        {
+            throw new ArgumentException("modNames must have exactly one entry per orderedModChanges entry.", nameof(modNames));
+        }
+
+        var groups = new Dictionary<(string CurrentFile, string ItemName, string FieldName), List<ConflictCandidate>>(FieldChangeKeyComparer.Instance);
+
+        for (var i = 0; i < orderedModChanges.Count; i++)
+        {
+            foreach (var change in orderedModChanges[i])
+            {
+                var key = (change.CurrentFile, change.ItemName, change.FieldName);
+                if (!groups.TryGetValue(key, out var list))
+                {
+                    list = [];
+                    groups[key] = list;
+                }
+
+                list.Add(new ConflictCandidate(modNames[i], change));
+            }
+        }
+
+        return [.. groups
+            .Where(kv => kv.Value.Count > 1 && !kv.Value.All(c => JsonNode.DeepEquals(c.Change.NewValue, kv.Value[0].Change.NewValue)))
+            .Select(kv => new FieldConflict(kv.Key.CurrentFile, kv.Key.ItemName, kv.Key.FieldName, kv.Value))];
     }
 }
