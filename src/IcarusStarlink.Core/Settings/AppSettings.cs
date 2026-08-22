@@ -33,6 +33,15 @@ public sealed class AppSettings
     public bool WindowMaximized { get; set; }
 
     /// <summary>
+    /// Folder names always merged into every rebuild — the "standard/minimum" baseline list
+    /// (classic IMM's own "create a standard list and then always merge that list with your
+    /// current one", ver 2.4.9). Stored in list order; prepended to the queue (lowest merge
+    /// priority) so the active profile's own mods win any conflict against a baseline mod.
+    /// Managed from Merge &amp; Install's "Set baseline" action.
+    /// </summary>
+    public List<string> BaselineModFolderNames { get; set; } = [];
+
+    /// <summary>
     /// The app version last confirmed running, used to detect "you were just updated" for the
     /// What's New dialog. Null on a fresh install AND on an existing install's first launch after
     /// this field was introduced — both cases are deliberately silent (see

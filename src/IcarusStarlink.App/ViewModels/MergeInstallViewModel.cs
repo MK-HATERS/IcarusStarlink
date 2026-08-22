@@ -199,6 +199,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         ReloadLibrary();
         ReloadProfileNames();
+        PrependBaselineMods();
 
         // Any queue change at all invalidates existing conflict picks — see _manualPicks' own
         // comment for why an Add/Remove/Move/Clear can silently change what a pick's index means.
@@ -329,6 +330,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                     missingCount++;
                 }
             }
+
+            PrependBaselineMods();
 
             ProfileStatusMessage = missingCount > 0
                 ? $"Loaded '{value}' — {missingCount} mod(s) from this profile are no longer in your Library."
@@ -571,6 +574,65 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// properly rather than blocking the UI thread on a zip read/extract that can take real time
     /// for a patch with bundled EXMODZ content.
     /// </summary>
+    /// <summary>
+    /// Loads a classic-IMM merge list (LastMergedMods.txt / IMM_Merged_Mod.txt — or this app's own
+    /// ISL-Merged.txt, same format) and rebuilds the queue from it, in the list's own order (merge
+    /// priority). REPLACES the current queue, matching classic IMM's own "Load Merge list"
+    /// semantics — the file IS the intended list, not an addition to whatever happened to be
+    /// queued. Names that don't match any Library entry land in the Warnings list rather than
+    /// being silently dropped, so the user can resolve them (import the missing mod, or Rename/
+    /// Link an existing one) and re-import.
+    /// </summary>
+    [RelayCommand]
+    private void ImportImmModList()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Import an IMM mod list",
+            Filter = "Mod list (*.txt)|*.txt|All files (*.*)|*.*",
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var names = ModListText.ParseNames(File.ReadAllText(dialog.FileName));
+            if (names.Count == 0)
+            {
+                StatusMessage = "That file has no mod names in it.";
+                return;
+            }
+
+            var result = ModListMatcher.Match(names, _libraryRepository.GetAll());
+
+            Queue.Clear();
+            foreach (var entry in result.Matched)
+            {
+                Queue.Add(entry);
+            }
+
+            Warnings.Clear();
+            foreach (var name in result.Unmatched)
+            {
+                Warnings.Add($"No Library match for '{name}' — import it first, then re-import this list.");
+            }
+
+            StatusMessage = result.Unmatched.Count == 0
+                ? $"Queued all {result.Matched.Count} mod(s) from the list."
+                : $"Queued {result.Matched.Count} of {names.Count} — {result.Unmatched.Count} not in your Library yet (see warnings below).";
+            _activityLog.Log($"Imported IMM mod list — {result.Matched.Count} of {names.Count} matched.",
+                result.Unmatched.Count == 0 ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as ImportPatchAsync below — an unreadable/locked file shows a
+            // status message rather than crashing the app.
+            StatusMessage = $"Couldn't import the list: {ex.Message}";
+        }
+    }
+
     [RelayCommand]
     private async Task ImportPatchAsync()
     {
@@ -647,6 +709,52 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         finally
         {
             File.Delete(tempPath);
+        }
+    }
+
+    /// <summary>
+    /// The "standard/minimum" baseline list — classic IMM's own "create a standard list and then
+    /// always merge that list with your current one" (ver 2.4.9). Saves the CURRENT queue as the
+    /// baseline; an empty queue clears it. Baseline mods are then prepended (lowest merge
+    /// priority, so a profile's own mods win conflicts) into every future queue load — visibly,
+    /// as real queue rows, never as an invisible union at rebuild time.
+    /// </summary>
+    [RelayCommand]
+    private void SetBaseline()
+    {
+        _settingsService.Current.BaselineModFolderNames = [.. Queue.Select(e => e.FolderName)];
+        _settingsService.Save();
+        StatusMessage = Queue.Count == 0
+            ? "Baseline cleared — no mods are auto-added anymore."
+            : $"Baseline set — these {Queue.Count} mod(s) will be auto-added to every profile's queue.";
+        _activityLog.Log(Queue.Count == 0 ? "Cleared the baseline mod list." : $"Set baseline mod list ({Queue.Count} mod(s)).", ActivityEntryKind.Info);
+    }
+
+    /// <summary>
+    /// Inserts baseline mods missing from the queue at its front, preserving the baseline's own
+    /// stored order (index 0 = lowest merge priority, so the queue's own mods override a baseline
+    /// mod on any conflicting field). A baseline mod no longer in the Library, or already covered
+    /// by a queued merged pack, is skipped silently — the queue rows themselves are the visible
+    /// truth of what will merge.
+    /// </summary>
+    private void PrependBaselineMods()
+    {
+        var insertAt = 0;
+        foreach (var folderName in _settingsService.Current.BaselineModFolderNames)
+        {
+            if (Queue.Any(q => string.Equals(q.FolderName, folderName, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            var entry = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+            if (entry is null || Queue.Any(q => q.MergedPackModNames?.Contains(entry.Name, StringComparer.OrdinalIgnoreCase) == true))
+            {
+                continue;
+            }
+
+            Queue.Insert(insertAt, entry);
+            insertAt++;
         }
     }
 

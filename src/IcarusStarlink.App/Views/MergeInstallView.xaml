@@ -55,6 +55,15 @@
                     <TextBlock Text="Import patch…" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
+            <Button Command="{Binding ImportImmModListCommand}" Margin="8,0,0,0"
+                    ToolTip="Load a classic IMM merge list (LastMergedMods.txt / IMM_Merged_Mod.txt) — rebuilds the queue from it in the list's own order, reporting any mod not in your Library yet"
+                    AutomationProperties.Name="Import IMM mod list">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Import IMM mod list…" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
         </StackPanel>
         <TextBlock Grid.Row="4" Text="{Binding PatchStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
 
@@ -191,7 +200,9 @@
                             <TextBlock Text="Remove" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Content="Clear" Command="{Binding ClearQueueCommand}"/>
+                    <Button Content="Clear" Command="{Binding ClearQueueCommand}" Margin="0,0,8,0"/>
+                    <Button Content="Set baseline" Command="{Binding SetBaselineCommand}"
+                            ToolTip="Saves the current queue as your baseline — these mods are auto-added (lowest priority) to every profile's queue from now on. Click with an empty queue to clear the baseline."/>
                 </StackPanel>
 
                 <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">

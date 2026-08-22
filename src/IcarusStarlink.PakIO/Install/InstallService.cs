@@ -1,3 +1,5 @@
+using IcarusStarlink.Core.Library;
+
 namespace IcarusStarlink.PakIO.Install;
 
 /// <summary>
@@ -51,9 +53,10 @@ public sealed class InstallService : IInstallService
     public Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var pakManifestPath = Path.Combine(icarusContentPath, "Paks", "mods", InstallManifestNames.PakManifest);
+        // ModListText is the same tolerant header-plus-names parser the Import IMM mod list feature
+        // uses — one format, one parser, rather than a second Skip(1) copy here that could drift.
         var modNames = File.Exists(pakManifestPath)
-            // First line is the "Includes the following mods:" header, not a mod name.
-            ? File.ReadAllLines(pakManifestPath).Skip(1).Where(line => !string.IsNullOrWhiteSpace(line)).ToList()
+            ? ModListText.ParseNames(File.ReadAllText(pakManifestPath))
             : [];
 
         return new InstalledState(modNames);
