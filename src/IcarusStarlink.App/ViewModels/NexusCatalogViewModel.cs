@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
@@ -51,6 +52,12 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     [ObservableProperty]
     private NexusModList _selectedList = NexusModList.Trending;
 
+    /// <summary>Non-empty switches the page from the curated lists to live GraphQL search results; clearing it goes back to the selected list. Debounced so typing doesn't fire a network round-trip per keystroke — same 250ms pattern Library's own search box uses.</summary>
+    [ObservableProperty]
+    private string _searchText = "";
+
+    private readonly DebounceTimer _searchDebounceTimer;
+
     [ObservableProperty]
     private bool _isLoading;
 
@@ -74,6 +81,8 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         // here would silently fire on every import anywhere in the app).
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((NexusCatalogViewModel)recipient).RebuildRows());
 
+        _searchDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), () => _ = LoadAsync());
+
         // Same fire-and-forget-with-own-try/catch shape DownloadsViewModel's constructor already
         // uses for its catalog fetch — LoadAsync can't leak an unobserved exception.
         _ = LoadAsync();
@@ -81,18 +90,24 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
 
     partial void OnSelectedListChanged(NexusModList value) => _ = LoadAsync();
 
+    partial void OnSearchTextChanged(string value) => _searchDebounceTimer.Restart();
+
     [RelayCommand]
     private Task Refresh() => LoadAsync();
 
     private async Task LoadAsync()
     {
         var version = ++_loadVersion;
+        var searchText = SearchText.Trim();
+        var isSearch = searchText.Length > 0;
 
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
-        if (apiKey is null)
+        // Search works even with no key (the v2 GraphQL endpoint answers unauthenticated —
+        // confirmed live); only the curated v1 lists genuinely require one.
+        if (apiKey is null && !isSearch)
         {
             Mods.Clear();
-            StatusMessage = "Sign in with your Nexus API key in Settings to browse here — or use Full site below.";
+            StatusMessage = "Sign in with your Nexus API key in Settings to browse the lists — search still works, or use Full site below.";
             return;
         }
 
@@ -100,7 +115,9 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         StatusMessage = null;
         try
         {
-            var mods = await _nexusApiClient.GetModListAsync(apiKey, "icarus", SelectedList);
+            var mods = isSearch
+                ? await _nexusApiClient.SearchModsAsync(apiKey, "icarus", searchText)
+                : await _nexusApiClient.GetModListAsync(apiKey!, "icarus", SelectedList);
             if (version != _loadVersion)
             {
                 return;
@@ -111,13 +128,15 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             _lastFetched = [.. mods.Where(m => m.Name is not null)];
             RebuildRows();
 
-            StatusMessage = Mods.Count == 0 ? "Nexus returned nothing for this list right now." : null;
+            StatusMessage = Mods.Count == 0
+                ? (isSearch ? $"No mods match '{searchText}'." : "Nexus returned nothing for this list right now.")
+                : (isSearch ? $"{Mods.Count} result(s) for '{searchText}'." : null);
         }
         catch (Exception ex)
         {
             if (version == _loadVersion)
             {
-                StatusMessage = $"Couldn't load the list: {ex.Message}";
+                StatusMessage = $"Couldn't load: {ex.Message}";
             }
         }
         finally

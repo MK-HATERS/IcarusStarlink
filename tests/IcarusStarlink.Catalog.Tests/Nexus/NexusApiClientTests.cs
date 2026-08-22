@@ -297,6 +297,47 @@ public class NexusApiClientTests
     }
 
     [Fact]
+    public async Task SearchModsAsync_RealisticGraphShape_ParsesNodesAndDecodesHtml()
+    {
+        // The v2 GraphQL wrapper — camelCase fields, {"data":{"mods":{"nodes":[...]}}} — captured
+        // from a live probe of the real endpoint during planning.
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://api.nexusmods.com/v2/graphql"] = """
+                {"data":{"mods":{"nodes":[
+                  {"modId":289,"name":"Cheats &amp; Tools","version":"2.6","summary":"Fog on &amp; off.",
+                   "pictureUrl":"https://staticdelivery.nexusmods.com/289.png","author":"MisterRada03"},
+                  {"modId":59,"name":"Other","version":"1.0","summary":null,"pictureUrl":null,"author":"nik4kin"}
+                ],"totalCount":2}}}
+                """,
+        });
+
+        var result = await client.SearchModsAsync("some-key", "icarus", "cheat");
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(289, result[0].ModId);
+        Assert.Equal("Cheats & Tools", result[0].Name);
+        Assert.Equal("Fog on & off.", result[0].Summary);
+        Assert.Equal("https://staticdelivery.nexusmods.com/289.png", result[0].PictureUrl);
+        Assert.Null(result[1].PictureUrl);
+    }
+
+    [Fact]
+    public async Task SearchModsAsync_NullApiKey_StillWorks()
+    {
+        // The v2 GraphQL endpoint answers unauthenticated (confirmed live) — search must not
+        // require a configured key the way the v1 list endpoints do.
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://api.nexusmods.com/v2/graphql"] = """{"data":{"mods":{"nodes":[],"totalCount":0}}}""",
+        });
+
+        var result = await client.SearchModsAsync(null, "icarus", "anything");
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
     public async Task GetModListAsync_RejectedKey_ThrowsInvalidOperation()
     {
         var url = "https://api.nexusmods.com/v1/games/icarus/mods/trending";

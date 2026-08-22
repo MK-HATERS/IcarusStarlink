@@ -45,6 +45,14 @@ public interface INexusApiClient
     /// the other authenticated calls.
     /// </summary>
     Task<IReadOnlyList<NexusModFile>> GetModFilesAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Name search over a game's whole mod catalog — the one thing v1 can't do at all, served by
+    /// Nexus's newer v2 GraphQL endpoint (shape confirmed by live probing during planning).
+    /// apiKey is genuinely optional here: the endpoint answers unauthenticated (confirmed live),
+    /// so search works even before a key is configured — pass the key when there is one.
+    /// </summary>
+    Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Which of Nexus's v1 browse lists GetModListAsync fetches. Names double as the UI's own pill labels, so they read as words, not endpoint paths.</summary>

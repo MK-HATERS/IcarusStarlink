@@ -33,9 +33,15 @@
             </Grid.RowDefinitions>
 
             <DockPanel Grid.Row="0" Margin="0,0,0,10" LastChildFill="False">
+                <Grid DockPanel.Dock="Left" Width="240" Margin="0,0,10,0" VerticalAlignment="Center">
+                    <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Search every Icarus mod on Nexus — clear to go back to the lists"/>
+                    <TextBlock Text="Search all Icarus mods…" Style="{StaticResource PlaceholderTextStyle}"
+                               Visibility="{Binding SearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                </Grid>
                 <ListBox DockPanel.Dock="Left" ItemsSource="{Binding ListKinds}" SelectedItem="{Binding SelectedList}"
                          Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}"
-                         ToolTip="Nexus's own curated lists — searching needs the Full site view (Nexus's API has no search endpoint)">
+                         ToolTip="Nexus's own curated lists — clear the search box to use them">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding}"/>

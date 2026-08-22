@@ -15,6 +15,7 @@ namespace IcarusStarlink.Catalog.Nexus;
 public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 {
     private const string BaseUrl = "https://api.nexusmods.com/v1";
+    private const string GraphQlUrl = "https://api.nexusmods.com/v2/graphql";
 
     public async Task<NexusUserInfo?> ValidateKeyAsync(string apiKey, CancellationToken cancellationToken = default)
     {
@@ -212,6 +213,43 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         public string? PictureUrl { get; init; }
     }
 
+    public async Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(
+        string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default)
+    {
+        // Nexus's newer v2 GraphQL endpoint — the only place mod search exists at all (v1 has no
+        // search endpoint). Query shape and the WILDCARD-as-substring behavior both confirmed by
+        // live probing the real endpoint during planning, not guessed; user input travels as a
+        // GraphQL VARIABLE, never string-interpolated into the query text, so no quoting/injection
+        // concerns. Works unauthenticated (also confirmed live) — the key is attached when
+        // available anyway, since authenticated requests get the account's own rate limits.
+        var payload = new Dictionary<string, object?>
+        {
+            ["query"] = "query Search($filter: ModsFilter, $count: Int) { mods(filter: $filter, count: $count) { nodes { modId name version summary pictureUrl author } totalCount } }",
+            ["variables"] = new Dictionary<string, object?>
+            {
+                ["filter"] = new Dictionary<string, object?>
+                {
+                    ["gameDomainName"] = new Dictionary<string, string> { ["value"] = gameDomain, ["op"] = "EQUALS" },
+                    ["name"] = new Dictionary<string, string> { ["value"] = searchText, ["op"] = "WILDCARD" },
+                },
+                ["count"] = 30,
+            },
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, GraphQlUrl) { Content = JsonContent.Create(payload) };
+        if (apiKey is not null)
+        {
+            request.Headers.Add("apikey", apiKey);
+        }
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var dto = await response.Content.ReadFromJsonAsync<GraphResponseDto>(cancellationToken);
+
+        return [.. (dto?.Data?.Mods?.Nodes ?? []).Select(n => new NexusModInfo(
+            n.ModId, WebUtility.HtmlDecode(n.Name), n.Author, WebUtility.HtmlDecode(n.Summary), n.Version, n.PictureUrl))];
+    }
+
     private sealed class ModFilesResponseDto
     {
         [JsonPropertyName("files")]
@@ -237,5 +275,45 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
         [JsonPropertyName("is_primary")]
         public bool IsPrimary { get; init; }
+    }
+
+    // The v2 GraphQL response wrapper — camelCase field names, unlike v1's snake_case.
+    private sealed class GraphResponseDto
+    {
+        [JsonPropertyName("data")]
+        public GraphDataDto? Data { get; init; }
+    }
+
+    private sealed class GraphDataDto
+    {
+        [JsonPropertyName("mods")]
+        public GraphModsDto? Mods { get; init; }
+    }
+
+    private sealed class GraphModsDto
+    {
+        [JsonPropertyName("nodes")]
+        public List<GraphModDto> Nodes { get; init; } = [];
+    }
+
+    private sealed class GraphModDto
+    {
+        [JsonPropertyName("modId")]
+        public int ModId { get; init; }
+
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        [JsonPropertyName("version")]
+        public string Version { get; init; } = "";
+
+        [JsonPropertyName("summary")]
+        public string? Summary { get; init; }
+
+        [JsonPropertyName("pictureUrl")]
+        public string? PictureUrl { get; init; }
+
+        [JsonPropertyName("author")]
+        public string Author { get; init; } = "";
     }
 }
