@@ -64,6 +64,9 @@
 
             <StackPanel Grid.Row="4" Margin="0,8,0,0">
                 <TextBlock Text="Add item" Style="{StaticResource FieldLabelStyle}"/>
+                <Button Content="Add item from game data…" Command="{Binding AddItemFromGameCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        ToolTip="Pick any real in-game item and copy its complete current values into this mod as a starting point — then edit just the fields you want changed"/>
                 <Grid Margin="0,4,0,0">
                     <TextBox Text="{Binding NewItemCurrentFile, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Real game data file path, e.g. Traits/D_Fuel.json"/>

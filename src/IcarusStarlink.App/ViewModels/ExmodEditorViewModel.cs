@@ -12,10 +12,17 @@ using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Diffing;
+using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.App.ViewModels;
+
+/// <summary>One real DataTable row in the extracted game data — the pickable unit for "Add item from game data". CurrentFile is EXMOD's own dash-flattened form; RealPath keeps the slashes for display and for reading the file back.</summary>
+public sealed record GameDataItemRef(string CurrentFile, string RealPath, string ItemName)
+{
+    public string Display => $"{RealPath} — {ItemName}";
+}
 
 /// <summary>Which of the editor's three views (spec: "Item fields, File JSON, or Full EXMOD JSON views") is showing in the right-hand pane.</summary>
 public enum ExmodEditorViewMode
@@ -309,6 +316,138 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         {
             StatusMessage = $"Couldn't open the file: {ex.Message}";
         }
+    }
+
+    /// <summary>Built once, on the first "Add item from game data" click — ~300 file parses over the whole extracted data folder, kept for the editor window's lifetime so reopening the picker is instant.</summary>
+    private IReadOnlyList<GameDataItemRef>? _gameItemIndex;
+
+    /// <summary>
+    /// Classic IMM's own "Add Item to Mod" — its changelog's single most-iterated editor feature,
+    /// credited with drastically cutting the time to build custom items. Picks any real in-game
+    /// item and copies its COMPLETE current game values into this mod as a starting point — the
+    /// user then edits the few fields they care about, instead of hand-assembling an item from
+    /// blank boxes field by field. A copy left unedited is identical to base, so it merges as a
+    /// no-op — safe to add speculatively.
+    /// </summary>
+    [RelayCommand]
+    private async Task AddItemFromGameAsync()
+    {
+        if (_gameItemIndex is null)
+        {
+            StatusMessage = "Reading the game data folder…";
+            try
+            {
+                var dataFolder = _dataFolder;
+                _gameItemIndex = await Task.Run(() => BuildGameItemIndex(dataFolder));
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Couldn't read the game data folder: {ex.Message}";
+                return;
+            }
+
+            StatusMessage = null;
+        }
+
+        if (_gameItemIndex.Count == 0)
+        {
+            StatusMessage = "No game data found — run Update data folder in Settings first.";
+            return;
+        }
+
+        var dialog = new PickGameItemDialog(_gameItemIndex) { Owner = Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true || dialog.SelectedItem is not { } picked)
+        {
+            return;
+        }
+
+        var row = _package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, picked.CurrentFile, StringComparison.OrdinalIgnoreCase));
+        if (row is not null && row.FileItems.Any(i => i.Name == picked.ItemName))
+        {
+            StatusMessage = $"'{picked.ItemName}' is already part of this mod.";
+            SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == picked.CurrentFile && i.ItemName == picked.ItemName) ?? SelectedItem;
+            return;
+        }
+
+        JsonObject keyed;
+        try
+        {
+            var fileJson = JsonNode.Parse(File.ReadAllText(Path.Combine(_dataFolder, picked.RealPath.Replace('/', Path.DirectorySeparatorChar))))!.AsObject();
+            keyed = DataTableJson.RowsToKeyedObject(fileJson);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't read '{picked.RealPath}': {ex.Message}";
+            return;
+        }
+
+        if (keyed[picked.ItemName] is not JsonObject fields)
+        {
+            StatusMessage = $"'{picked.ItemName}' isn't in '{picked.RealPath}' anymore — the index may be stale; reopen the editor after an Update data folder run.";
+            return;
+        }
+
+        PushUndoSnapshot();
+        if (row is null)
+        {
+            row = new ExmodFileRow { CurrentFile = picked.CurrentFile };
+            _package.Rows.Add(row);
+        }
+
+        var item = new ExmodFileItem { Name = picked.ItemName };
+        // Each field needs its own JsonNode instance — a node can only ever have one parent, the
+        // same constraint DuplicateItem/MergeExistingMod already document.
+        foreach (var (fieldName, value) in fields)
+        {
+            item.Fields[fieldName] = value?.DeepClone();
+        }
+
+        row.FileItems.Add(item);
+
+        RefreshBaseDiff();
+        ReloadItems();
+        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == picked.CurrentFile && i.ItemName == picked.ItemName);
+        StatusMessage = $"Added '{picked.ItemName}' with all {item.Fields.Count} of its real game values — edit what you want changed.";
+    }
+
+    /// <summary>One pass over the extracted data folder, reading only each file's row names — a file that isn't DataTable-shaped (no Rows array, or not JSON at all) is skipped, not an error.</summary>
+    private static List<GameDataItemRef> BuildGameItemIndex(string dataFolder)
+    {
+        var index = new List<GameDataItemRef>();
+        if (!Directory.Exists(dataFolder))
+        {
+            return index;
+        }
+
+        foreach (var filePath in Directory.EnumerateFiles(dataFolder, "*.json", SearchOption.AllDirectories))
+        {
+            JsonNode? parsed;
+            try
+            {
+                parsed = JsonNode.Parse(File.ReadAllText(filePath));
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+
+            if (parsed is not JsonObject fileObject || fileObject["Rows"] is not JsonArray rows)
+            {
+                continue;
+            }
+
+            var realPath = Path.GetRelativePath(dataFolder, filePath).Replace('\\', '/');
+            var currentFile = realPath.Replace('/', '-');
+            foreach (var rowNode in rows)
+            {
+                if (rowNode is JsonObject row && row["Name"] is JsonValue nameValue && nameValue.TryGetValue<string>(out var name))
+                {
+                    index.Add(new GameDataItemRef(currentFile, realPath, name));
+                }
+            }
+        }
+
+        return index;
     }
 
     /// <summary>
