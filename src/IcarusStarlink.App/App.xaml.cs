@@ -11,6 +11,7 @@ using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Catalog.Ue4ss;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
@@ -99,6 +100,8 @@ public partial class App : Application
         builder.Services.AddSingleton<ISettingsService>(sp =>
             new AppSettingsService(appDataDirectory, sp.GetRequiredService<ILogger<AppSettingsService>>()));
         builder.Services.AddSingleton(sp => new PerformanceTracker(sp.GetRequiredService<ISettingsService>(), logsDirectory));
+        builder.Services.AddSingleton<IActivityLog, ActivityLog>();
+        builder.Services.AddSingleton<ActivityPanelViewModel>();
         builder.Services.AddSingleton<IThemeService, ThemeService>();
         builder.Services.AddSingleton<ILibraryRepository>(sp =>
             new FolderLibraryRepository(
@@ -171,6 +174,7 @@ public partial class App : Application
             sp.GetRequiredService<IUe4ssModStateService>(),
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<Func<string, ExmodEditorViewModel>>(),
+            sp.GetRequiredService<IActivityLog>(),
             Path.Combine(appDataDirectory, "Backups")));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
@@ -182,6 +186,7 @@ public partial class App : Application
             sp.GetRequiredService<IJimk72CatalogClient>(),
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<PerformanceTracker>(),
+            sp.GetRequiredService<IActivityLog>(),
             Path.Combine(appDataDirectory, "Data"),
             Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
             Path.Combine(appDataDirectory, "Backups")));

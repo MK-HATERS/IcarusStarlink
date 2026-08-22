@@ -15,9 +15,17 @@
             </StackPanel>
         </HierarchicalDataTemplate>
 
+        <!-- Phase 10 redesign: real icons replace the raw emoji markers, and hovering a row
+             reveals inline Pin/Favorite/Edit actions (RowActions, opacity 0→1 on IsMouseOver)
+             instead of only the detail pane or the right-click menu below. -->
         <DataTemplate DataType="{x:Type vm:LibraryItemViewModel}">
-            <StackPanel Orientation="Horizontal" Margin="0,2">
-                <StackPanel.ContextMenu>
+            <Grid x:Name="Row" Margin="0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Grid.ContextMenu>
                     <!-- Right-clicking selects the row first (see code-behind), so Pin/Favorite here apply to
                          the same mod the detail pane is about to show. Notes doesn't need its own entry —
                          the same right-click already surfaces the Notes box in the detail pane below. -->
@@ -29,21 +37,75 @@
                                   ToolTip="Available once Downloads links mods to their Nexus page (Phase 4)."
                                   ToolTipService.ShowOnDisabled="True"/>
                     </ContextMenu>
-                </StackPanel.ContextMenu>
-                <TextBlock Text="📌" Margin="0,0,4,0" Visibility="{Binding IsPinned, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <TextBlock Text="★" Margin="0,0,4,0" Foreground="{DynamicResource AccentBrush}"
-                           Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <TextBlock Text="✎" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                           ToolTip="Locally edited in the EXMOD editor"
-                           Visibility="{Binding IsLocallyEdited, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <TextBlock Text="📦" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                           ToolTip="A rebuilt merged pack, re-imported as its own mod"
-                           Visibility="{Binding IsMergedPack, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <TextBlock Text="{Binding Name}"/>
-                <TextBlock Text="{Binding VariantLabel, StringFormat=' — {0}'}"
-                           Foreground="{DynamicResource SecondaryForegroundBrush}"
-                           Visibility="{Binding VariantLabel, Converter={StaticResource NullToVisibilityConverter}}"/>
-            </StackPanel>
+                </Grid.ContextMenu>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Path Data="{StaticResource IconPin}" Fill="{DynamicResource AccentBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
+                          Visibility="{Binding IsPinned, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <Path Data="{StaticResource IconStar}" Fill="#FFD24C" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
+                          Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
+                          ToolTip="Locally edited in the EXMOD editor"
+                          Visibility="{Binding IsLocallyEdited, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <Path Data="{StaticResource IconPackage}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.4"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
+                          ToolTip="A rebuilt merged pack, re-imported as its own mod"
+                          Visibility="{Binding IsMergedPack, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <TextBlock Text="{Binding Name}"/>
+                    <TextBlock Text="{Binding VariantLabel, StringFormat=' — {0}'}"
+                               Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Visibility="{Binding VariantLabel, Converter={StaticResource NullToVisibilityConverter}}"/>
+                </StackPanel>
+
+                <StackPanel x:Name="RowActions" Grid.Column="2" Orientation="Horizontal" Opacity="0">
+                    <ToggleButton IsChecked="{Binding IsPinned}" Style="{StaticResource IconToggleButtonStyle}"
+                                  ToolTip="Pin" AutomationProperties.Name="Toggle pinned">
+                        <Path Data="{StaticResource IconPin}" Width="12" Height="12" Stretch="Uniform">
+                            <Path.Style>
+                                <Style TargetType="Path">
+                                    <Setter Property="Fill" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                            <Setter Property="Fill" Value="{DynamicResource AccentBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Path.Style>
+                        </Path>
+                    </ToggleButton>
+                    <ToggleButton IsChecked="{Binding IsFavorite}" Style="{StaticResource IconToggleButtonStyle}"
+                                  ToolTip="Favorite" AutomationProperties.Name="Toggle favorite">
+                        <Path Data="{StaticResource IconStar}" Width="12" Height="12" Stretch="Uniform">
+                            <Path.Style>
+                                <Style TargetType="Path">
+                                    <Setter Property="Fill" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                            <Setter Property="Fill" Value="#FFD24C"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Path.Style>
+                        </Path>
+                    </ToggleButton>
+                    <Button Style="{StaticResource IconButtonStyle}" Width="22" Height="22" ToolTip="Edit…" AutomationProperties.Name="Edit mod"
+                            Command="{Binding DataContext.EditItemCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding}"
+                            Visibility="{Binding CanEdit, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
+            <DataTemplate.Triggers>
+                <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
+                    <Setter TargetName="RowActions" Property="Opacity" Value="1"/>
+                </Trigger>
+            </DataTemplate.Triggers>
         </DataTemplate>
     </UserControl.Resources>
 
@@ -66,14 +128,41 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
-                        <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,8,0"
-                                ToolTip="Re-scan Extracted_Mods from disk"/>
-                        <Button Content="New mod…" Command="{Binding NewModCommand}" Margin="0,0,8,0"
-                                ToolTip="Create a blank EXMOD (name + author) and open it in the editor"/>
-                        <Button Content="Import EXMODZ…" Command="{Binding ImportFileCommand}" Margin="0,0,8,0"/>
-                        <Button Content="Import folder…" Command="{Binding ImportFolderCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"/>
-                        <Button Content="Import .pak…" Command="{Binding ImportPakCommand}"
-                                ToolTip="Import a prebuilt .pak as an opaque library entry — no .EXMOD, can't be browsed or edited"/>
+                        <Button Command="{Binding RefreshCommand}" Margin="0,0,8,0" ToolTip="Re-scan Extracted_Mods from disk">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Refresh" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding NewModCommand}" Margin="0,0,8,0" ToolTip="Create a blank EXMOD (name + author) and open it in the editor">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconPlus}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="New mod…" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding ImportFileCommand}" Margin="0,0,8,0">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Import EXMODZ…" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding ImportFolderCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Import folder…" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding ImportPakCommand}"
+                                ToolTip="Import a prebuilt .pak as an opaque library entry — no .EXMOD, can't be browsed or edited">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconPackage}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Import .pak…" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
 
                     <StackPanel Grid.Row="1" Margin="0,0,0,12">
@@ -125,23 +214,71 @@
                                             <TextBlock Text="{Binding SelectedItem.Description}" Style="{StaticResource PageBodyTextStyle}"/>
                                         </ScrollViewer>
 
+                                        <!-- Phase 10: pill-style icon toggles for Pinned/Favorite, matching the
+                                             row's own inline actions, instead of plain checkboxes. -->
                                         <WrapPanel Margin="0,0,0,12">
-                                            <CheckBox Content="Pinned" IsChecked="{Binding SelectedItem.IsPinned}" Margin="0,0,16,4" VerticalAlignment="Center"/>
-                                            <CheckBox Content="Favorite" IsChecked="{Binding SelectedItem.IsFavorite}" Margin="0,0,16,4" VerticalAlignment="Center"/>
-                                            <Button Content="Edit…" Command="{Binding EditSelectedCommand}" Margin="0,0,8,4"
-                                                    ToolTip="Open this mod's Item fields in the EXMOD editor"/>
-                                            <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" Margin="0,0,0,4"/>
+                                            <ToggleButton IsChecked="{Binding SelectedItem.IsPinned}" Margin="0,0,8,4">
+                                                <ToggleButton.Style>
+                                                    <Style TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+                                                        <Setter Property="Content" Value="📌 Pin"/>
+                                                        <Setter Property="Padding" Value="10,5"/>
+                                                        <Style.Triggers>
+                                                            <Trigger Property="IsChecked" Value="True">
+                                                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+                                                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                            </Trigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </ToggleButton.Style>
+                                            </ToggleButton>
+                                            <ToggleButton IsChecked="{Binding SelectedItem.IsFavorite}" Content="★ Favorite" Padding="10,5" Margin="0,0,16,4">
+                                                <ToggleButton.Style>
+                                                    <Style TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+                                                        <Style.Triggers>
+                                                            <Trigger Property="IsChecked" Value="True">
+                                                                <Setter Property="Background" Value="#332B2000"/>
+                                                                <Setter Property="BorderBrush" Value="#FFD24C"/>
+                                                                <Setter Property="Foreground" Value="#FFD24C"/>
+                                                            </Trigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </ToggleButton.Style>
+                                            </ToggleButton>
+                                            <Button Command="{Binding EditSelectedCommand}" Margin="0,0,8,4"
+                                                    ToolTip="Open this mod's Item fields in the EXMOD editor">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
+                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                                    <TextBlock Text="Edit…" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Command="{Binding DeleteSelectedCommand}" Margin="0,0,0,4">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
+                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                                    <TextBlock Text="Delete" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
                                         </WrapPanel>
 
                                         <TextBlock Text="Notes" Style="{StaticResource FieldLabelStyle}"/>
                                         <TextBox Text="{Binding SelectedItem.Notes, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0" AcceptsReturn="True" Height="60" TextWrapping="Wrap"/>
                                     </StackPanel>
 
-                                    <!-- Real EXMOD readmes conventionally carry an "ImageOnly" asset — see LibraryItemViewModel.LoadThumbnailIfPresent. -->
+                                    <!-- Phase 10: always-visible thumbnail slot — a placeholder icon when the mod
+                                         carries no real image (real EXMOD readmes conventionally carry an
+                                         "ImageOnly" asset — see LibraryItemViewModel.LoadThumbnailIfPresent). -->
                                     <Border Grid.Column="1" Width="120" Height="120" Margin="12,0,0,0" VerticalAlignment="Top"
-                                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
-                                            Visibility="{Binding SelectedItem.ThumbnailImage, Converter={StaticResource NullToVisibilityConverter}}">
-                                        <Image Source="{Binding SelectedItem.ThumbnailImage}" Stretch="Uniform" Margin="4"/>
+                                            Background="{DynamicResource CardRaisedBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6">
+                                        <Grid>
+                                            <Path Data="{StaticResource IconMountains}" Stroke="{DynamicResource FaintForegroundBrush}" StrokeThickness="1.6"
+                                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="30" Height="30" Stretch="Uniform"
+                                                  Visibility="{Binding SelectedItem.ThumbnailImage, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                            <Image Source="{Binding SelectedItem.ThumbnailImage}" Stretch="Uniform" Margin="4"
+                                                   Visibility="{Binding SelectedItem.ThumbnailImage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                        </Grid>
                                     </Border>
                                 </Grid>
 

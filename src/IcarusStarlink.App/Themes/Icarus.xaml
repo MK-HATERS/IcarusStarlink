@@ -13,4 +13,16 @@
     <SolidColorBrush x:Key="NavItemHoverBrush" Color="#1F2731"/>
     <SolidColorBrush x:Key="NavItemSelectedBrush" Color="#26303D"/>
 
+    <!-- Phase 10 redesign additions: one elevation step above CardBackground, plus semantic
+         (not accent) colors for conflict/success/info states — kept separate from AccentBrush so
+         a badge/toggle doesn't compete visually with primary actions. -->
+    <SolidColorBrush x:Key="CardRaisedBackgroundBrush" Color="#232B36"/>
+    <SolidColorBrush x:Key="FaintForegroundBrush" Color="#5B6472"/>
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="#26FF8A3D"/>
+    <SolidColorBrush x:Key="DangerBrush" Color="#FF5C72"/>
+    <SolidColorBrush x:Key="DangerSoftBrush" Color="#26FF5C72"/>
+    <SolidColorBrush x:Key="SuccessBrush" Color="#52D68A"/>
+    <SolidColorBrush x:Key="SuccessSoftBrush" Color="#2052D68A"/>
+    <SolidColorBrush x:Key="InfoBrush" Color="#5FA8FF"/>
+
 </ResourceDictionary>

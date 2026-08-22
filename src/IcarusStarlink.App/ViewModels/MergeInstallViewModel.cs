@@ -10,6 +10,7 @@ using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.Jimk72;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.InstallComparison;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Patches;
@@ -44,6 +45,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     private readonly IJimk72CatalogClient _jimk72Client;
     private readonly ISettingsService _settingsService;
     private readonly PerformanceTracker _performanceTracker;
+    private readonly IActivityLog _activityLog;
     private readonly string _dataFolder;
     private readonly string _outputPakPath;
     private readonly string _backupDirectory;
@@ -84,6 +86,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     [ObservableProperty]
     private string? _conflictStatusMessage;
+
+    /// <summary>Phase 10: a proactive conflict-count badge on the queue, recomputed in the background whenever Queue changes — Review conflicts still does the same computation synchronously for the authoritative picker flow; this is a best-effort preview, not load-bearing.</summary>
+    [ObservableProperty]
+    private int _conflictCount;
+
+    public bool HasConflicts => ConflictCount > 0;
+
+    partial void OnConflictCountChanged(int value) => OnPropertyChanged(nameof(HasConflicts));
 
     // --- Profile bar (6.3) ---
     public ObservableCollection<string> ProfileNames { get; } = [];
@@ -150,7 +160,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     public MergeInstallViewModel(
         ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
         IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
-        ISettingsService settingsService, PerformanceTracker performanceTracker, string dataFolder, string outputPakPath, string backupDirectory)
+        ISettingsService settingsService, PerformanceTracker performanceTracker, IActivityLog activityLog,
+        string dataFolder, string outputPakPath, string backupDirectory)
     {
         _libraryRepository = libraryRepository;
         _rebuildService = rebuildService;
@@ -161,6 +172,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         _jimk72Client = jimk72Client;
         _settingsService = settingsService;
         _performanceTracker = performanceTracker;
+        _activityLog = activityLog;
         _dataFolder = dataFolder;
         _outputPakPath = outputPakPath;
         _backupDirectory = backupDirectory;
@@ -174,6 +186,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             _manualPicks = null;
             ConflictStatusMessage = null;
+            _ = RecomputeConflictCountAsync();
         };
 
         // This ViewModel is a DI singleton built once, so without this its own Library pane would
@@ -304,6 +317,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             SelectedProfileName = name;
             ProfileNameInput = "";
             ProfileStatusMessage = $"Created '{name}'.";
+            _activityLog.Log($"Created profile '{name}'.", ActivityKind.Success);
         }
         catch (Exception ex)
         {
@@ -324,6 +338,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             _profileStore.Save(new Profile { Name = name, MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = BuildGameplayOptionsFromUi() });
             ProfileStatusMessage = $"Saved '{name}'.";
+            _activityLog.Log($"Saved profile '{name}'.", ActivityKind.Success);
         }
         catch (Exception ex)
         {
@@ -714,6 +729,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             {
                 Warnings.Add(warning);
             }
+
+            var pickNote = _manualPicks is { Count: > 0 } picks ? $", {picks.Count} conflict(s) manually resolved" : "";
+            _activityLog.Log($"Rebuilt pack with {Queue.Count} mod(s) — {result.PackedFileCount} files packed{pickNote}.", ActivityKind.Success);
         }
         catch (Exception ex)
         {
@@ -745,6 +763,39 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         return (entriesSnapshot, packages);
     }
 
+    /// <summary>Shared by ReviewConflictsAsync and the background badge computation — both need the exact same (queued packages) -&gt; (conflicts) pipeline.</summary>
+    private async Task<(IReadOnlyList<FieldConflict> Conflicts, List<string> ModNames)> FindQueueConflictsAsync()
+    {
+        var (entries, packages) = await LoadQueuedPackagesAsync();
+        return await Task.Run(() =>
+        {
+            var classifier = new DefaultSemanticClassifier();
+            var orderedModChanges = packages.Select(p => ExmodFieldChangeMapper.ToFieldChanges(p.Package, classifier)).ToList();
+            var names = entries.Select(e => e.Name).ToList();
+            return ((IReadOnlyList<FieldConflict>)MergeEngine.FindConflicts(names, orderedModChanges), names);
+        });
+    }
+
+    /// <summary>Best-effort background refresh of ConflictCount — a malformed queued mod here just leaves the badge at its last value; ReviewConflictsAsync/Rebuild surface the real error when the user actually acts.</summary>
+    private async Task RecomputeConflictCountAsync()
+    {
+        if (Queue.Count == 0)
+        {
+            ConflictCount = 0;
+            return;
+        }
+
+        try
+        {
+            var (conflicts, _) = await FindQueueConflictsAsync();
+            ConflictCount = conflicts.Count;
+        }
+        catch (Exception)
+        {
+            ConflictCount = 0;
+        }
+    }
+
     /// <summary>
     /// The advanced conflict picker's own entry point — computes which fields two or more queued
     /// mods change differently and, if any, opens a window to let the user pick a winner per field
@@ -763,14 +814,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            var (entries, packages) = await LoadQueuedPackagesAsync();
-            var (conflicts, modNames) = await Task.Run(() =>
-            {
-                var classifier = new DefaultSemanticClassifier();
-                var orderedModChanges = packages.Select(p => ExmodFieldChangeMapper.ToFieldChanges(p.Package, classifier)).ToList();
-                var names = entries.Select(e => e.Name).ToList();
-                return (MergeEngine.FindConflicts(names, orderedModChanges), names);
-            });
+            var (conflicts, modNames) = await FindQueueConflictsAsync();
+            ConflictCount = conflicts.Count;
 
             if (conflicts.Count == 0)
             {
@@ -778,6 +823,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 ConflictStatusMessage = $"No conflicts among {modNames.Count} mod(s) — every changed field is touched by only one mod, or they all agree.";
                 return;
             }
+
+            _activityLog.Log($"{conflicts.Count} conflict(s) found among {modNames.Count} queued mod(s).", ActivityKind.Warning);
 
             var pickerViewModel = new ConflictPickerViewModel(conflicts, _manualPicks);
             var window = new ConflictPickerWindow(pickerViewModel) { Owner = Application.Current.MainWindow };
@@ -854,6 +901,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             InstallStatusMessage = result.BackupPakPath is not null
                 ? $"Installed to '{result.InstalledPakPath}'. Backed up the previous pak to '{result.BackupPakPath}'."
                 : $"Installed to '{result.InstalledPakPath}'.";
+            _activityLog.Log($"Installed pack to {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityKind.Success);
         }
         catch (Exception ex)
         {

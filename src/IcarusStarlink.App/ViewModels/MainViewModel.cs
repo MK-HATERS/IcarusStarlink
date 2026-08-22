@@ -16,6 +16,8 @@ public sealed partial class MainViewModel : ObservableObject
 
     public ObservableCollection<NavItem> NavItems { get; }
 
+    public ActivityPanelViewModel ActivityPanel { get; }
+
     public IReadOnlyList<string> AvailableThemes => _themeService.AvailableThemes;
 
     [ObservableProperty]
@@ -27,11 +29,12 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _currentThemeName;
 
-    public MainViewModel(IServiceProvider serviceProvider, IThemeService themeService, ISettingsService settingsService)
+    public MainViewModel(IServiceProvider serviceProvider, IThemeService themeService, ISettingsService settingsService, ActivityPanelViewModel activityPanel)
     {
         _serviceProvider = serviceProvider;
         _themeService = themeService;
         _settingsService = settingsService;
+        ActivityPanel = activityPanel;
 
         // Matches the real app's top-level nav: Profiles lives inside Merge & Install (a
         // profile is "saved merge list + options + UE4SS set", not an independent page), UE4SS

@@ -40,6 +40,11 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isOpaquePak;
 
+    /// <summary>Phase 10: an opaque .pak entry has no .EXMOD to edit — the inline row Edit action hides itself rather than opening an editor with nothing to show.</summary>
+    public bool CanEdit => !IsOpaquePak;
+
+    partial void OnIsOpaquePakChanged(bool value) => OnPropertyChanged(nameof(CanEdit));
+
     /// <summary>Set once the EXMOD editor's own Save action runs against this mod — the ✎ glyph.</summary>
     [ObservableProperty]
     private bool _isLocallyEdited;

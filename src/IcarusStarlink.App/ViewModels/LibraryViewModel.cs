@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
@@ -20,6 +21,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IUe4ssModStateService _ue4ssModStateService;
     private readonly ISettingsService _settingsService;
     private readonly Func<string, ExmodEditorViewModel> _editorFactory;
+    private readonly IActivityLog _activityLog;
     private readonly string _backupDirectory;
     private readonly DebounceTimer _searchDebounceTimer;
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
@@ -62,13 +64,14 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     public LibraryViewModel(
         ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
-        ISettingsService settingsService, Func<string, ExmodEditorViewModel> editorFactory, string backupDirectory)
+        ISettingsService settingsService, Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, string backupDirectory)
     {
         _repository = repository;
         _ue4ssModRepository = ue4ssModRepository;
         _ue4ssModStateService = ue4ssModStateService;
         _settingsService = settingsService;
         _editorFactory = editorFactory;
+        _activityLog = activityLog;
         _backupDirectory = backupDirectory;
 
         // Reload() rebuilds every row's ViewModel and re-queries the search index; without
@@ -277,6 +280,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             StatusMessage = $"Created '{entry.Name}'.";
             Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            _activityLog.Log($"Created new mod '{entry.Name}'.", ActivityKind.Success);
             OpenEditor(entry.FolderName);
         }
         catch (Exception ex)
@@ -284,6 +288,25 @@ public sealed partial class LibraryViewModel : ObservableObject
             // Same UI boundary as TryImport — folder creation can fail for the same reasons any
             // other Extracted_Mods write can (permission denied, disk full, ...).
             StatusMessage = $"Couldn't create the mod: {ex.Message}";
+        }
+    }
+
+    /// <summary>Phase 10: an inline per-row Edit action (row hover icons) — takes the row's own item directly rather than requiring it to be selected first, unlike EditSelectedCommand.</summary>
+    [RelayCommand]
+    private void EditItem(LibraryItemViewModel? item)
+    {
+        if (item is null || item.IsOpaquePak)
+        {
+            return;
+        }
+
+        try
+        {
+            OpenEditor(item.FolderName);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't open the editor: {ex.Message}";
         }
     }
 
@@ -330,6 +353,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         StatusMessage = $"Deleted '{name}'.";
         Reload();
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        _activityLog.Log($"Deleted '{name}'.", ActivityKind.Info);
     }
 
     /// <summary>Shared by ImportFolder/ImportFile/ImportPak — same try/catch/status/reload shape, differing only in which repository method actually reads sourcePath.</summary>
@@ -341,6 +365,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             StatusMessage = $"Imported '{entry.Name}'.";
             Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityKind.Success);
         }
         catch (Exception ex)
         {

@@ -1,0 +1,45 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Phase 10 redesign: a small hand-drawn icon set replacing plain-text buttons and raw emoji
+        markers. Deliberately written with ONLY absolute M/L/Z commands (plus a couple of
+        zero-length "dot" segments relying on round line caps) — no arc (A/a) or shorthand
+        (H/V/h/v) commands, even though WPF's path mini-language supports both, since this session
+        has no way to visually pre-render these before a real build+screenshot and a wrong arc
+        sweep-flag would silently draw the wrong shape. A few icons that read best as a true ring
+        (globe/clock/gear/info) pair a plain Ellipse with one of these Geometries at their use
+        site instead of trying to approximate a circle in path syntax.
+
+        Shape-only, deliberately carrying no color, so each use site sets Fill/Stroke via
+        {DynamicResource ...} directly on its own live Path element — that's what keeps an icon
+        re-theming correctly on Icarus/Dark/Light switch; a color baked into a frozen resource
+        here would not reliably update.
+    -->
+
+    <Geometry x:Key="IconPlus">M12 5L12 19 M5 12L19 12</Geometry>
+    <Geometry x:Key="IconDownload">M12 3L12 15 M7 10L12 15L17 10 M4 20L20 20</Geometry>
+    <Geometry x:Key="IconFolder">M4 6L9 6L11 8L20 8L20 18L4 18Z</Geometry>
+    <Geometry x:Key="IconPackage">M21 8L12 3L3 8L12 13L21 8Z M3 8L3 16L12 21L21 16L21 8 M12 13L12 21</Geometry>
+    <Geometry x:Key="IconPin">M12 3L17 8L12 13L7 8Z M12 13L12 21</Geometry>
+    <Geometry x:Key="IconStar">M12 2.5L14.9 8.6L21.5 9.4L16.6 13.9L17.9 20.5L12 17.3L6.1 20.5L7.4 13.9L2.5 9.4L9.1 8.6Z</Geometry>
+    <Geometry x:Key="IconPencil">M4 20L5 16L16 5L19 8L8 19Z M16 5L19 8</Geometry>
+    <Geometry x:Key="IconTrash">M5 7L19 7 M9 7L9 5L15 5L15 7 M6 7L7 20L17 20L18 7</Geometry>
+    <Geometry x:Key="IconArrowUp">M12 19L12 5 M6 11L12 5L18 11</Geometry>
+    <Geometry x:Key="IconArrowDown">M12 5L12 19 M6 13L12 19L18 13</Geometry>
+    <Geometry x:Key="IconWarning">M12 3L21.5 20L2.5 20Z M12 9L12 15.3 M12 17.2L12.01 17.2</Geometry>
+    <Geometry x:Key="IconInfo">M12 11L12 17 M12 7.6L12.01 7.6</Geometry>
+    <Geometry x:Key="IconChevronDown">M6 9L12 15L18 9</Geometry>
+    <Geometry x:Key="IconMerge">M6 4L6 10L12 14L12 20 M18 4L18 10L12 14 M9 17L12 20L15 17</Geometry>
+    <Geometry x:Key="IconClose">M6 6L18 18 M18 6L6 18</Geometry>
+    <Geometry x:Key="IconBook">M4 5L11 5L11 19L4 19Z M13 5L20 5L20 19L13 19Z M11 5L13 5 M11 19L13 19</Geometry>
+    <Geometry x:Key="IconServerBars">M4 4L20 4L20 10L4 10Z M4 14L20 14L20 20L4 20Z M7.5 7L7.51 7 M7.5 17L7.51 17</Geometry>
+    <Geometry x:Key="IconGearTeeth">M12 3L12 5.2 M12 18.8L12 21 M21 12L18.8 12 M5.2 12L3 12 M18.4 5.6L16.9 7.1 M7.1 16.9L5.6 18.4 M18.4 18.4L16.9 16.9 M7.1 7.1L5.6 5.6</Geometry>
+    <Geometry x:Key="IconMountains">M4 17L9 12L13 16L16 13L20 17</Geometry>
+    <Geometry x:Key="IconGlobeMeridian">M3 12L21 12 M12 3L12 21 M6 6.5C9 9 15 9 18 6.5 M6 17.5C9 15 15 15 18 17.5</Geometry>
+    <Geometry x:Key="IconClockHands">M12 7L12 12.3L15.5 14.3</Geometry>
+    <Geometry x:Key="IconRefreshArrow">M15 4.5L19 8L14.5 9.5Z</Geometry>
+    <Geometry x:Key="IconHelpMark">M9.7 9L9.7 8.6C9.7 6.9 11 6 12.3 6C13.7 6 15 6.8 15 8.3C15 9.6 14.1 10.2 13.2 10.8C12.4 11.3 12 11.9 12 12.9L12 13.6 M12 16.5L12.01 16.5</Geometry>
+    <Geometry x:Key="IconBell">M9 16L9 10L10.5 7L13.5 7L15 10L15 16L17.5 18L6.5 18Z M10.3 19.6L13.7 19.6</Geometry>
+
+</ResourceDictionary>

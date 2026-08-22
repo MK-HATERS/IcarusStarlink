@@ -13,4 +13,14 @@
     <SolidColorBrush x:Key="NavItemHoverBrush" Color="#2A2D2E"/>
     <SolidColorBrush x:Key="NavItemSelectedBrush" Color="#37373D"/>
 
+    <!-- Phase 10 redesign additions — see Icarus.xaml's own comment for why these exist. -->
+    <SolidColorBrush x:Key="CardRaisedBackgroundBrush" Color="#383838"/>
+    <SolidColorBrush x:Key="FaintForegroundBrush" Color="#6E6E73"/>
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="#263B82F6"/>
+    <SolidColorBrush x:Key="DangerBrush" Color="#F97066"/>
+    <SolidColorBrush x:Key="DangerSoftBrush" Color="#26F97066"/>
+    <SolidColorBrush x:Key="SuccessBrush" Color="#4ADE80"/>
+    <SolidColorBrush x:Key="SuccessSoftBrush" Color="#204ADE80"/>
+    <SolidColorBrush x:Key="InfoBrush" Color="#60A5FA"/>
+
 </ResourceDictionary>

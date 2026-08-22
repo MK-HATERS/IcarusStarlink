@@ -24,17 +24,35 @@
             <Button DockPanel.Dock="Right" Content="Delete" Command="{Binding DeleteProfileCommand}" Margin="8,0,0,0"/>
             <Button DockPanel.Dock="Right" Content="Rename" Command="{Binding RenameProfileCommand}" Margin="8,0,0,0"/>
             <Button DockPanel.Dock="Right" Content="Save" Command="{Binding SaveProfileCommand}" Margin="8,0,0,0"/>
-            <Button DockPanel.Dock="Right" Content="New" Command="{Binding NewProfileCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"/>
+            <Button DockPanel.Dock="Right" Command="{Binding NewProfileCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconPlus}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="New" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
             <TextBox Text="{Binding ProfileNameInput, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
                      ToolTip="Name to use for New or Rename"/>
         </DockPanel>
         <TextBlock Grid.Row="2" Text="{Binding ProfileStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0"/>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
-            <Button Content="Export patch…" Command="{Binding ExportPatchCommand}"
-                    ToolTip="Share the selected profile's mod list with a friend or server — bundles anything not in the community catalog"/>
-            <Button Content="Import patch…" Command="{Binding ImportPatchCommand}" Margin="8,0,0,0"
-                    ToolTip="Load a patch someone shared — recreates its profile and syncs any bundled mods into your Library"/>
+            <Button Command="{Binding ExportPatchCommand}"
+                    ToolTip="Share the selected profile's mod list with a friend or server — bundles anything not in the community catalog">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Export patch…" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <Button Command="{Binding ImportPatchCommand}" Margin="8,0,0,0"
+                    ToolTip="Load a patch someone shared — recreates its profile and syncs any bundled mods into your Library">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Import patch…" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
         </StackPanel>
         <TextBlock Grid.Row="4" Text="{Binding PatchStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
 
@@ -91,19 +109,61 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Text="Mods in merged pack (later mods win conflicts)" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                <DockPanel Grid.Row="0" Margin="0,0,0,6" LastChildFill="False">
+                    <TextBlock DockPanel.Dock="Left" Text="Mods in merged pack (later mods win conflicts)" Style="{StaticResource FieldLabelStyle}"/>
+                    <!-- Phase 10: a proactive conflict-count badge — surfaces a problem before the
+                         user thinks to click Review conflicts. -->
+                    <Border DockPanel.Dock="Right" Background="{DynamicResource DangerSoftBrush}" CornerRadius="9" Padding="7,1"
+                            Visibility="{Binding HasConflicts, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock FontFamily="Consolas" FontSize="10" Foreground="{DynamicResource DangerBrush}" FontWeight="SemiBold">
+                            <Run Text="{Binding ConflictCount, Mode=OneWay}"/><Run Text=" conflict(s)"/>
+                        </TextBlock>
+                    </Border>
+                </DockPanel>
 
-                <ListBox Grid.Row="1" ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueEntry}"
-                         DisplayMemberPath="Name" MinHeight="100"/>
+                <!-- Phase 10: a banner surfacing conflicts right above the queue, not just a count
+                     off to the side — matches the mockup's own conflict-banner treatment. Docked
+                     with the ListBox in one DockPanel so the two never overlap in the same cell. -->
+                <DockPanel Grid.Row="1" LastChildFill="True">
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBrush}"
+                            BorderThickness="1" CornerRadius="5" Padding="10,7" Margin="0,0,0,8"
+                            Visibility="{Binding HasConflicts, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DockPanel LastChildFill="True">
+                            <Button DockPanel.Dock="Right" Content="Review" Command="{Binding ReviewConflictsCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+                            <Path DockPanel.Dock="Left" Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}"
+                                  StrokeThickness="1.6" StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Top"/>
+                            <TextBlock Margin="0,0,10,0" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Center">
+                                <Run Text="{Binding ConflictCount, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"/>
+                                <Run Text=" queued mod(s) change the same field differently — Rebuild will use last-mod-wins unless you pick a winner."/>
+                            </TextBlock>
+                        </DockPanel>
+                    </Border>
+                    <ListBox ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueEntry}"
+                             DisplayMemberPath="Name" MinHeight="100"/>
+                </DockPanel>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
-                    <Button Content="Move up" Command="{Binding MoveQueueEntryUpCommand}" Margin="0,0,8,0"/>
-                    <Button Content="Move down" Command="{Binding MoveQueueEntryDownCommand}" Margin="0,0,8,0"/>
-                    <Button Content="Remove" Command="{Binding RemoveFromQueueCommand}" Margin="0,0,8,0"/>
+                    <Button Command="{Binding MoveQueueEntryUpCommand}" Style="{StaticResource IconButtonStyle}"
+                            Width="30" ToolTip="Move up" AutomationProperties.Name="Move up" Margin="0,0,4,0">
+                        <Path Data="{StaticResource IconArrowUp}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform"/>
+                    </Button>
+                    <Button Command="{Binding MoveQueueEntryDownCommand}" Style="{StaticResource IconButtonStyle}"
+                            Width="30" ToolTip="Move down" AutomationProperties.Name="Move down" Margin="0,0,10,0">
+                        <Path Data="{StaticResource IconArrowDown}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform"/>
+                    </Button>
+                    <Button Command="{Binding RemoveFromQueueCommand}" Margin="0,0,8,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                            <TextBlock Text="Remove" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                     <Button Content="Clear" Command="{Binding ClearQueueCommand}"/>
                 </StackPanel>
 
-                <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,16,0,0">
+                <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
                     <Button Content="Review conflicts" Command="{Binding ReviewConflictsCommand}"
                             ToolTip="See which fields two or more queued mods both change, and optionally pick a winner per field instead of the default last-mod-wins"/>
                     <TextBlock Text="{Binding ConflictStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
@@ -111,7 +171,13 @@
                 </StackPanel>
 
                 <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,16,0,0">
-                    <Button Content="Rebuild" Command="{Binding RebuildCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+                    <Button Command="{Binding RebuildCommand}" Style="{StaticResource PrimaryButtonStyle}">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconMerge}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                            <TextBlock Text="Rebuild" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                     <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                 </StackPanel>
@@ -130,7 +196,13 @@
                 <StackPanel Grid.Row="8" Orientation="Horizontal" Margin="0,16,0,0">
                     <!-- The one button in this whole app that writes into the real game's Content\Paks\mods —
                          deliberately not the same click as Rebuild, so it's never accidental. -->
-                    <Button Content="Install" Command="{Binding InstallCommand}"/>
+                    <Button Command="{Binding InstallCommand}">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                            <TextBlock Text="Install" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                     <TextBlock Text="{Binding InstallStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                 </StackPanel>
@@ -142,39 +214,97 @@
                 <StackPanel>
                     <TextBlock Text="Merge options" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
 
-                    <TextBlock Text="Speed Boost" FontSize="12" Margin="0,8,0,2"/>
-                    <ComboBox ItemsSource="{Binding BoostLevels}" SelectedItem="{Binding SpeedBoost}"
+                    <!-- Phase 10: the leveled options (multiple values, not on/off) are now pill
+                         selectors instead of dropdowns, matching the mockup — real hints from
+                         classic IMM's own documented numbers move onto a small (i) icon next to
+                         the label instead of hovering the control itself, since a 3-way pill has
+                         no one obvious hover target the way a ComboBox did. -->
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,2">
+                        <TextBlock Text="Speed Boost" FontSize="12"/>
+                        <Path Style="{StaticResource InfoHintIconStyle}"
                               ToolTip="Level 1: +100 move speed, +19 crouch/+50 sprint speed coefficient. Level 2: +245 move speed, +34 crouch/+100 sprint speed coefficient. (Classic IMM's own documented values.)"/>
+                    </StackPanel>
+                    <ListBox ItemsSource="{Binding BoostLevels}" SelectedItem="{Binding SpeedBoost}"
+                             Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource GameplayLevelToShortLabelConverter}}"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
-                    <TextBlock Text="Player Boost" FontSize="12" Margin="0,8,0,2"/>
-                    <ComboBox ItemsSource="{Binding BoostLevels}" SelectedItem="{Binding PlayerBoost}"
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
+                        <TextBlock Text="Player Boost" FontSize="12"/>
+                        <Path Style="{StaticResource InfoHintIconStyle}"
                               ToolTip="Level 1/2: more health/stamina/weight capacity, less food/water/oxygen consumption, faster regen, no fall damage, cold/heat resistance. (Classic IMM's own documented values.)"/>
+                    </StackPanel>
+                    <ListBox ItemsSource="{Binding BoostLevels}" SelectedItem="{Binding PlayerBoost}"
+                             Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource GameplayLevelToShortLabelConverter}}"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
-                    <TextBlock Text="XP Boost" FontSize="12" Margin="0,8,0,2"/>
-                    <ComboBox ItemsSource="{Binding BoostLevels}" SelectedItem="{Binding XpBoost}"
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
+                        <TextBlock Text="XP Boost" FontSize="12"/>
+                        <Path Style="{StaticResource InfoHintIconStyle}"
                               ToolTip="Level 1: +500% XP. Level 2: +1000% XP. (Classic IMM's own documented values.)"/>
+                    </StackPanel>
+                    <ListBox ItemsSource="{Binding BoostLevels}" SelectedItem="{Binding XpBoost}"
+                             Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource GameplayLevelToShortLabelConverter}}"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
-                    <TextBlock Text="Craft Cost" FontSize="12" Margin="0,8,0,2"/>
-                    <ComboBox ItemsSource="{Binding CraftCostReductions}" SelectedItem="{Binding CraftCost}"
-                              ToolTip="Reduces the item/resource inputs every crafting-bench recipe needs. (Classic IMM's own documented values.)"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
+                        <TextBlock Text="Craft Cost" FontSize="12"/>
+                        <Path Style="{StaticResource InfoHintIconStyle}"
+                              ToolTip="Reduces the item/resource inputs every crafting-bench recipe needs. Never touches what a recipe outputs. (Classic IMM's own documented values.)"/>
+                    </StackPanel>
+                    <ListBox ItemsSource="{Binding CraftCostReductions}" SelectedItem="{Binding CraftCost}"
+                             Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource GameplayLevelToShortLabelConverter}}"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
-                    <TextBlock Text="Stacks multiplier" FontSize="12" Margin="0,8,0,2"/>
-                    <TextBox Text="{Binding StacksMultiplierInput, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="e.g. 3 = triple every item's stack size. Blank = unchanged. No fixed levels — classic IMM never documented an exact multiplier for its own Stacks toggle."/>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
+                        <TextBlock Text="Stacks multiplier" FontSize="12"/>
+                        <Path Style="{StaticResource InfoHintIconStyle}"
+                              ToolTip="e.g. 3 = triple every item's stack size. Blank = unchanged. No fixed levels — classic IMM never documented an exact multiplier for its own Stacks toggle."/>
+                    </StackPanel>
+                    <TextBox Text="{Binding StacksMultiplierInput, UpdateSourceTrigger=PropertyChanged}"/>
 
-                    <TextBlock Text="Slots multiplier" FontSize="12" Margin="0,8,0,2"/>
-                    <TextBox Text="{Binding SlotsMultiplierInput, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="e.g. 2 = double every backpack/container's slot count. Blank = unchanged."/>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
+                        <TextBlock Text="Slots multiplier" FontSize="12"/>
+                        <Path Style="{StaticResource InfoHintIconStyle}"
+                              ToolTip="e.g. 2 = double every backpack/container's slot count. Blank = unchanged."/>
+                    </StackPanel>
+                    <TextBox Text="{Binding SlotsMultiplierInput, UpdateSourceTrigger=PropertyChanged}"/>
 
-                    <TextBlock Text="Speed Crafting %" FontSize="12" Margin="0,8,0,2"/>
-                    <TextBox Text="{Binding SpeedCraftingPercentInput, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="e.g. 50 = halve crafting time, skipping recipes with a Water/Milk/Biofuel resource input or output (same conditional logic classic IMM's changelog documents). Blank = unchanged."/>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
+                        <TextBlock Text="Speed Crafting %" FontSize="12"/>
+                        <Path Style="{StaticResource InfoHintIconStyle}"
+                              ToolTip="e.g. 50 = halve crafting time, skipping recipes with a Water/Milk/Biofuel resource input or output (same conditional logic classic IMM's changelog documents). Blank = unchanged."/>
+                    </StackPanel>
+                    <TextBox Text="{Binding SpeedCraftingPercentInput, UpdateSourceTrigger=PropertyChanged}"/>
 
-                    <CheckBox Content="Remove Weight" IsChecked="{Binding RemoveWeight}" Margin="0,12,0,0"
+                    <!-- Phase 10: genuine on/off toggles for these three, replacing plain checkboxes. -->
+                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding RemoveWeight}" Margin="0,16,0,0"
+                              Content="Remove Weight"
                               ToolTip="Zeroes out every item's own weight override — everything becomes weightless to carry"/>
-                    <CheckBox Content="Unlimited Ammo" IsChecked="{Binding UnlimitedAmmo}" Margin="0,8,0,0"
+                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding UnlimitedAmmo}" Margin="0,12,0,0"
+                              Content="Unlimited Ammo"
                               ToolTip="Weapons stop consuming ammo on fire, but still need at least 1 round in the magazine"/>
-                    <CheckBox Content="Disable Temperatures" IsChecked="{Binding DisableTemperatures}" Margin="0,8,0,0"
+                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding DisableTemperatures}" Margin="0,12,0,0"
+                              Content="Disable Temperatures"
                               ToolTip="Removes hot/cold environmental damage and temperature management entirely"/>
                 </StackPanel>
             </ScrollViewer>

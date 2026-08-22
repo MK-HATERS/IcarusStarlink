@@ -83,6 +83,16 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+
+                    <!-- Phase 10: toggles the persistent Activity drawer (see ActivityPanelView) —
+                         stays available across every page, unlike a per-page status line. -->
+                    <Button Command="{Binding ActivityPanel.ToggleCommand}" Style="{StaticResource IconButtonStyle}"
+                            Width="30" Height="30" Margin="12,0,0,0" ToolTip="Recent activity"
+                            AutomationProperties.Name="Recent activity">
+                        <Path Data="{StaticResource IconBell}" Stroke="{DynamicResource SecondaryForegroundBrush}"
+                              StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Width="16" Height="16" Stretch="Uniform"/>
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
@@ -91,6 +101,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="220"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Background="{DynamicResource PanelBackgroundBrush}"
@@ -102,7 +113,41 @@
                          Margin="0,12,0,0">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <TextBlock Text="{Binding Title}"/>
+                            <!-- Phase 10: a real icon next to every nav label — see Themes/Icons.xaml.
+                                 Only Library and Merge & Install got a full redesign this pilot, but
+                                 nav-rail icons are shell-level and cheap to add for every item. -->
+                            <StackPanel Orientation="Horizontal">
+                                <Path x:Name="NavIcon" Width="16" Height="16" Margin="0,0,10,0" Stretch="Uniform"
+                                      Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Id}" Value="downloads">
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconDownload}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Id}" Value="nexus">
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconGlobeMeridian}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Id}" Value="library">
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconBook}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Id}" Value="merge">
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconMerge}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Id}" Value="weekly-changes">
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconClockHands}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Id}" Value="server">
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconServerBars}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Id}" Value="settings">
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconGearTeeth}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Id}" Value="help">
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconHelpMark}"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
@@ -111,6 +156,12 @@
             <Border Grid.Column="1" Background="{DynamicResource ContentBackgroundBrush}">
                 <ContentControl Content="{Binding CurrentPage}"/>
             </Border>
+
+            <!-- Phase 10: the persistent Activity drawer — an Auto-width column that collapses to
+                 zero width when its content is Collapsed, the standard WPF way to get a
+                 show/hide drawer without needing a Storyboard. -->
+            <views:ActivityPanelView Grid.Column="2" Width="280" DataContext="{Binding ActivityPanel}"
+                                      Visibility="{Binding IsOpen, Converter={StaticResource BoolToVisibilityConverter}}"/>
         </Grid>
     </Grid>
 </Window>
