@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.Catalog.Nexus;
+using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Steam;
@@ -21,6 +23,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ISteamInstallLocator _steamInstallLocator;
     private readonly ICredentialStore _credentialStore;
     private readonly INexusApiClient _nexusApiClient;
+    private readonly INxmProtocolRegistrar _nxmProtocolRegistrar;
     private readonly string _dataOutputDirectory;
 
     public string Title => "Settings";
@@ -59,9 +62,20 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string? _nexusStatusMessage;
 
+    [ObservableProperty]
+    private bool _isNxmProtocolRegisteredToThisApp;
+
+    public bool IsNxmProtocolNotRegistered => !IsNxmProtocolRegisteredToThisApp;
+
+    [ObservableProperty]
+    private string? _nxmProtocolStatusMessage;
+
+    partial void OnIsNxmProtocolRegisteredToThisAppChanged(bool value) => OnPropertyChanged(nameof(IsNxmProtocolNotRegistered));
+
     public SettingsViewModel(
         ISettingsService settingsService, IUnrealPakService unrealPakService, IWeeklyChangeReportStore weeklyChangeReportStore,
-        ISteamInstallLocator steamInstallLocator, ICredentialStore credentialStore, INexusApiClient nexusApiClient, string dataOutputDirectory)
+        ISteamInstallLocator steamInstallLocator, ICredentialStore credentialStore, INexusApiClient nexusApiClient,
+        INxmProtocolRegistrar nxmProtocolRegistrar, string dataOutputDirectory)
     {
         _settingsService = settingsService;
         _unrealPakService = unrealPakService;
@@ -69,9 +83,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         _steamInstallLocator = steamInstallLocator;
         _credentialStore = credentialStore;
         _nexusApiClient = nexusApiClient;
+        _nxmProtocolRegistrar = nxmProtocolRegistrar;
         _dataOutputDirectory = dataOutputDirectory;
         _icarusContentPath = settingsService.Current.IcarusContentPath;
         _unrealPakExePath = settingsService.Current.UnrealPakExePath;
+        _isNxmProtocolRegisteredToThisApp = nxmProtocolRegistrar.IsRegisteredToThisApp();
 
         // Fire-and-forget, same shape as DownloadsViewModel's constructor-triggered
         // RefreshCatalogAsync: constructors can't be async, and CheckForGameUpdateAsync has its
@@ -317,6 +333,55 @@ public sealed partial class SettingsViewModel : ObservableObject
             // or claim the saved key is invalid when it might still be fine; Authorize will surface
             // a clearer error if the user tries it manually.
             NexusStatusMessage = "Couldn't reach Nexus to confirm your saved key — it may still be valid.";
+        }
+    }
+
+    /// <summary>
+    /// Phase 8.3c: a real, hard-to-reverse registry write (this app becomes the OS's nxm:// handler
+    /// for this Windows account), so this is the one place it can happen — never automatic, and
+    /// gated behind the user's own explicit Yes in the confirmation dialog below, not just having
+    /// clicked the button in the first place.
+    /// </summary>
+    [RelayCommand]
+    private void RegisterNxmProtocol()
+    {
+        var result = MessageBox.Show(
+            "This registers IcarusStarlink as the handler for nxm:// links (Nexus's \"Mod Manager Download\" buttons) for your Windows account.\n\n" +
+            "If another mod manager (e.g. Vortex) currently handles these, it will be replaced — you can switch back with Unregister below, or by re-registering that other app.\n\n" +
+            "Continue?",
+            "Register as Nexus download handler", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            _nxmProtocolRegistrar.Register();
+            IsNxmProtocolRegisteredToThisApp = _nxmProtocolRegistrar.IsRegisteredToThisApp();
+            NxmProtocolStatusMessage = IsNxmProtocolRegisteredToThisApp
+                ? "Registered — Nexus \"Mod Manager Download\" buttons now open IcarusStarlink."
+                : "Registration didn't take effect — try again, or check that nothing is blocking registry writes.";
+        }
+        catch (Exception ex)
+        {
+            NxmProtocolStatusMessage = $"Registration failed: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void UnregisterNxmProtocol()
+    {
+        try
+        {
+            _nxmProtocolRegistrar.Unregister();
+            IsNxmProtocolRegisteredToThisApp = _nxmProtocolRegistrar.IsRegisteredToThisApp();
+            NxmProtocolStatusMessage = "Unregistered.";
+        }
+        catch (Exception ex)
+        {
+            NxmProtocolStatusMessage = $"Couldn't unregister: {ex.Message}";
         }
     }
 }

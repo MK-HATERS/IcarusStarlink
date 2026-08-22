@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Windows;
 using IcarusStarlink.App.Services;
@@ -38,10 +39,31 @@ namespace IcarusStarlink.App;
 public partial class App : Application
 {
     private IHost? _host;
+    private SingleInstanceService? _singleInstanceService;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // A real nxm:// click launches a brand-new process by default — the OS has no idea
+        // IcarusStarlink might already be running. If we're the second one, hand our own nxm://
+        // argument (if any) to the first instance over a named pipe and exit immediately, before
+        // ever touching the DI host/game-data scans/etc. that a normal launch does.
+        var singleInstanceService = new SingleInstanceService();
+        if (!singleInstanceService.IsFirstInstance)
+        {
+            var handoffUrl = e.Args.FirstOrDefault(arg => arg.StartsWith("nxm://", StringComparison.OrdinalIgnoreCase));
+            if (handoffUrl is not null)
+            {
+                SingleInstanceService.SendToRunningInstance(handoffUrl);
+            }
+
+            singleInstanceService.Dispose();
+            Shutdown();
+            return;
+        }
+
+        _singleInstanceService = singleInstanceService;
 
         var appDataDirectory = AppContext.BaseDirectory;
         var logsDirectory = Path.Combine(appDataDirectory, "Logs");
@@ -104,6 +126,7 @@ public partial class App : Application
             new Ue4ssModRepository(Path.Combine(appDataDirectory, "Staged_UE4SS")));
         builder.Services.AddSingleton<ISteamInstallLocator, SteamInstallLocator>();
         builder.Services.AddSingleton<ICredentialStore, WindowsCredentialStore>();
+        builder.Services.AddSingleton<INxmProtocolRegistrar, NxmProtocolRegistrar>();
 
         // Transient, not a singleton — every other ViewModel in this app is constructed once and
         // reused, but the EXMOD editor is per-open-instance (Phase 7.1: classic IMM's own editor
@@ -152,6 +175,7 @@ public partial class App : Application
             sp.GetRequiredService<ISteamInstallLocator>(),
             sp.GetRequiredService<ICredentialStore>(),
             sp.GetRequiredService<INexusApiClient>(),
+            sp.GetRequiredService<INxmProtocolRegistrar>(),
             Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton<WeeklyChangesViewModel>();
 
@@ -180,10 +204,45 @@ public partial class App : Application
         // that assumption stops holding.
         var mainViewModel = _host.Services.GetRequiredService<MainViewModel>();
         Dispatcher.BeginInvoke(mainViewModel.SelectDefaultPage);
+
+        _singleInstanceService.StartListening(nxmUrl => Dispatcher.BeginInvoke(() => HandleNxmUrl(nxmUrl)));
+
+        // Handle the case where THIS launch (the first instance) was itself invoked with an
+        // nxm:// argument — e.g. the very first time the OS protocol registration is used.
+        var ownNxmArg = e.Args.FirstOrDefault(arg => arg.StartsWith("nxm://", StringComparison.OrdinalIgnoreCase));
+        if (ownNxmArg is not null)
+        {
+            Dispatcher.BeginInvoke(() => HandleNxmUrl(ownNxmArg));
+        }
+    }
+
+    private void HandleNxmUrl(string nxmUrl)
+    {
+        if (_host is null)
+        {
+            return;
+        }
+
+        if (MainWindow is not null)
+        {
+            if (MainWindow.WindowState == WindowState.Minimized)
+            {
+                MainWindow.WindowState = WindowState.Normal;
+            }
+
+            MainWindow.Activate();
+        }
+
+        var mainViewModel = _host.Services.GetRequiredService<MainViewModel>();
+        mainViewModel.SelectedNavItem = mainViewModel.NavItems.First(item => item.Id == "downloads");
+
+        var downloadsViewModel = _host.Services.GetRequiredService<DownloadsViewModel>();
+        _ = downloadsViewModel.FetchAndDownloadAsync(nxmUrl);
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _singleInstanceService?.Dispose();
         _host?.Dispose();
         Log.CloseAndFlush();
         base.OnExit(e);

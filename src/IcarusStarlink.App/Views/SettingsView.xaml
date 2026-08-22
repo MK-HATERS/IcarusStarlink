@@ -57,6 +57,26 @@
                    TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
                    Visibility="{Binding NexusStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
+        <TextBlock Text="Nexus download handler" Style="{StaticResource FieldLabelStyle}"/>
+        <TextBlock Text="Makes Nexus's own &quot;Mod Manager Download&quot; buttons open IcarusStarlink directly, landing files in Downloads' Pending Downloads tab. Optional — pasting an nxm:// link there manually always works too."
+                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="560"/>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
+                    Visibility="{Binding IsNxmProtocolNotRegistered, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Button Content="Register" Command="{Binding RegisterNxmProtocolCommand}"
+                    ToolTip="Writes a per-user registry entry (no admin rights needed) so nxm:// links launch IcarusStarlink — asks for confirmation first"/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
+                    Visibility="{Binding IsNxmProtocolRegisteredToThisApp, Converter={StaticResource BoolToVisibilityConverter}}">
+            <TextBlock Text="Registered to this app." VerticalAlignment="Center"/>
+            <Button Content="Unregister" Command="{Binding UnregisterNxmProtocolCommand}" Margin="12,0,0,0"/>
+        </StackPanel>
+
+        <TextBlock Text="{Binding NxmProtocolStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
+                   Visibility="{Binding NxmProtocolStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+
         <TextBlock Text="Update data folder" Style="{StaticResource FieldLabelStyle}"/>
         <TextBlock Text="Extracts the game's current DataTable JSON (Content\Data\data.pak) so merge/edit works against up-to-date data. Re-run this after a game update."
                    Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10"/>
