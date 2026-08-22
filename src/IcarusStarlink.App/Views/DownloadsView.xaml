@@ -59,15 +59,23 @@
                                  ToolTip="Search by name, author, or description"/>
                     </DockPanel>
 
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Author:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                        <ComboBox ItemsSource="{Binding AvailableAuthors}" SelectedItem="{Binding SelectedAuthor}" Width="160" Margin="0,0,16,0"/>
-                        <TextBlock Text="Category:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                        <ComboBox ItemsSource="{Binding AvailableCategories}" SelectedItem="{Binding SelectedCategory}" Width="160" Margin="0,0,16,0"/>
-                        <CheckBox Content="Show updates only" IsChecked="{Binding ShowUpdatesOnly}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                        <CheckBox Content="Extracted only" IsChecked="{Binding ExtractedOnly}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                        <CheckBox Content="Not downloaded only" IsChecked="{Binding NotDownloadedOnly}" VerticalAlignment="Center"/>
-                    </StackPanel>
+                    <!-- WrapPanel, not a horizontal StackPanel — at a narrow window width this row has
+                         more controls than fit on one line, and a StackPanel would just clip the
+                         overflow off the right edge with no way to reach it; WrapPanel drops the
+                         overflow onto a second line instead. -->
+                    <WrapPanel Grid.Row="1" Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
+                            <TextBlock Text="Author:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                            <ComboBox ItemsSource="{Binding AvailableAuthors}" SelectedItem="{Binding SelectedAuthor}" Width="160"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
+                            <TextBlock Text="Category:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                            <ComboBox ItemsSource="{Binding AvailableCategories}" SelectedItem="{Binding SelectedCategory}" Width="160"/>
+                        </StackPanel>
+                        <CheckBox Content="Show updates only" IsChecked="{Binding ShowUpdatesOnly}" VerticalAlignment="Center" Margin="0,0,12,4"/>
+                        <CheckBox Content="Extracted only" IsChecked="{Binding ExtractedOnly}" VerticalAlignment="Center" Margin="0,0,12,4"/>
+                        <CheckBox Content="Not downloaded only" IsChecked="{Binding NotDownloadedOnly}" VerticalAlignment="Center" Margin="0,0,0,4"/>
+                    </WrapPanel>
 
                     <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="Game week:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>

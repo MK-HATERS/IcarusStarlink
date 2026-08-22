@@ -40,13 +40,11 @@
 
         <Grid Grid.Row="5" Margin="0,16,0,0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*" MinWidth="200"/>
                 <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*" MinWidth="200"/>
                 <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="260"/>
-                <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="220"/>
+                <ColumnDefinition Width="280" MinWidth="220"/>
             </Grid.ColumnDefinitions>
 
             <!-- Library pane -->
@@ -95,7 +93,7 @@
                 <TextBlock Grid.Row="0" Text="Mods in merged pack (later mods win conflicts)" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
 
                 <ListBox Grid.Row="1" ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueEntry}"
-                         DisplayMemberPath="Name"/>
+                         DisplayMemberPath="Name" MinHeight="100"/>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
                     <Button Content="Move up" Command="{Binding MoveQueueEntryUpCommand}" Margin="0,0,8,0"/>

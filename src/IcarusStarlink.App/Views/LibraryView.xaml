@@ -71,7 +71,7 @@
                         <Button Content="New mod…" Command="{Binding NewModCommand}" Margin="0,0,8,0"
                                 ToolTip="Create a blank EXMOD (name + author) and open it in the editor"/>
                         <Button Content="Import EXMODZ…" Command="{Binding ImportFileCommand}" Margin="0,0,8,0"/>
-                        <Button Content="Import Folder…" Command="{Binding ImportFolderCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"/>
+                        <Button Content="Import folder…" Command="{Binding ImportFolderCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"/>
                         <Button Content="Import .pak…" Command="{Binding ImportPakCommand}"
                                 ToolTip="Import a prebuilt .pak as an opaque library entry — no .EXMOD, can't be browsed or edited"/>
                     </StackPanel>
@@ -98,78 +98,90 @@
                         </Border>
 
                         <Grid Grid.Column="2">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
+                            <Grid Visibility="{Binding SelectedItem, Converter={StaticResource NullToVisibilityConverter}}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
 
-                            <Grid Grid.Row="0" Visibility="{Binding SelectedItem, Converter={StaticResource NullToVisibilityConverter}}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
+                                <Grid Grid.Row="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
 
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="{Binding SelectedItem.Name}" FontSize="18" FontWeight="SemiBold"/>
-                                    <TextBlock Margin="0,2,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}">
-                                        <Run Text="{Binding SelectedItem.Author, Mode=OneWay}"/>
-                                        <Run Text=" · v"/>
-                                        <Run Text="{Binding SelectedItem.Version, Mode=OneWay}"/>
-                                    </TextBlock>
-                                    <TextBlock Text="{Binding SelectedItem.Description}" Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,12"/>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding SelectedItem.Name}" FontSize="18" FontWeight="SemiBold"/>
+                                        <TextBlock Margin="0,2,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                                            <Run Text="{Binding SelectedItem.Author, Mode=OneWay}"/>
+                                            <Run Text=" · v"/>
+                                            <Run Text="{Binding SelectedItem.Version, Mode=OneWay}"/>
+                                        </TextBlock>
+                                        <!-- MaxHeight + its own scroll, not a plain TextBlock — an unusually long
+                                             description shouldn't be able to push Pinned/Favorite/Edit/Delete/Notes
+                                             further down than a small window has room for; short descriptions
+                                             (the common case) render exactly as before with no visible scrollbar. -->
+                                        <ScrollViewer MaxHeight="80" VerticalScrollBarVisibility="Auto" Margin="0,0,0,12">
+                                            <TextBlock Text="{Binding SelectedItem.Description}" Style="{StaticResource PageBodyTextStyle}"/>
+                                        </ScrollViewer>
 
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                                        <CheckBox Content="Pinned" IsChecked="{Binding SelectedItem.IsPinned}" Margin="0,0,16,0"/>
-                                        <CheckBox Content="Favorite" IsChecked="{Binding SelectedItem.IsFavorite}" Margin="0,0,16,0"/>
-                                        <Button Content="Edit…" Command="{Binding EditSelectedCommand}" Margin="0,0,8,0"
-                                                ToolTip="Open this mod's Item fields in the EXMOD editor"/>
-                                        <Button Content="Delete" Command="{Binding DeleteSelectedCommand}"/>
+                                        <WrapPanel Margin="0,0,0,12">
+                                            <CheckBox Content="Pinned" IsChecked="{Binding SelectedItem.IsPinned}" Margin="0,0,16,4" VerticalAlignment="Center"/>
+                                            <CheckBox Content="Favorite" IsChecked="{Binding SelectedItem.IsFavorite}" Margin="0,0,16,4" VerticalAlignment="Center"/>
+                                            <Button Content="Edit…" Command="{Binding EditSelectedCommand}" Margin="0,0,8,4"
+                                                    ToolTip="Open this mod's Item fields in the EXMOD editor"/>
+                                            <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" Margin="0,0,0,4"/>
+                                        </WrapPanel>
+
+                                        <TextBlock Text="Notes" Style="{StaticResource FieldLabelStyle}"/>
+                                        <TextBox Text="{Binding SelectedItem.Notes, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0" AcceptsReturn="True" Height="60" TextWrapping="Wrap"/>
                                     </StackPanel>
 
-                                    <TextBlock Text="Notes" Style="{StaticResource FieldLabelStyle}"/>
-                                    <TextBox Text="{Binding SelectedItem.Notes, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,12" AcceptsReturn="True" Height="60" TextWrapping="Wrap"/>
+                                    <!-- Real EXMOD readmes conventionally carry an "ImageOnly" asset — see LibraryItemViewModel.LoadThumbnailIfPresent. -->
+                                    <Border Grid.Column="1" Width="120" Height="120" Margin="12,0,0,0" VerticalAlignment="Top"
+                                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
+                                            Visibility="{Binding SelectedItem.ThumbnailImage, Converter={StaticResource NullToVisibilityConverter}}">
+                                        <Image Source="{Binding SelectedItem.ThumbnailImage}" Stretch="Uniform" Margin="4"/>
+                                    </Border>
+                                </Grid>
 
-                                    <TabControl>
-                                        <TabItem Header="Changes"
-                                                 ToolTip="What this mod actually changes — read-only. For editing, see the EXMOD editor (planned).">
-                                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="8" Height="200">
-                                                <TextBox Text="{Binding SelectedItem.ChangesContent, Mode=OneWay}"
-                                                         IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
-                                                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                                                         AcceptsReturn="True" BorderThickness="0" Padding="8"/>
-                                            </Border>
-                                        </TabItem>
-                                        <TabItem Header="Files">
-                                            <Grid Margin="8">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="200"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                </Grid.ColumnDefinitions>
-                                                <ListBox Grid.Column="0" ItemsSource="{Binding SelectedItem.AssetPaths}"
-                                                         SelectedItem="{Binding SelectedItem.SelectedAssetPath}" Height="200"/>
-                                                <TextBox Grid.Column="1" Text="{Binding SelectedItem.SelectedAssetPreview, Mode=OneWay}"
-                                                         Margin="8,0,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                                                         AcceptsReturn="True" Height="200"/>
-                                            </Grid>
-                                        </TabItem>
-                                        <TabItem Header="Readme">
-                                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="8" Height="200">
-                                                <FlowDocumentScrollViewer VerticalScrollBarVisibility="Auto" Padding="8"
-                                                    Document="{Binding SelectedItem.ReadmeContent, Mode=OneWay, Converter={StaticResource MarkdownToFlowDocumentConverter}}"/>
-                                            </Border>
-                                        </TabItem>
-                                    </TabControl>
-                                </StackPanel>
-
-                                <!-- Real EXMOD readmes conventionally carry an "ImageOnly" asset — see LibraryItemViewModel.LoadThumbnailIfPresent. -->
-                                <Border Grid.Column="1" Width="120" Height="120" Margin="12,0,0,0" VerticalAlignment="Top"
-                                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
-                                        Visibility="{Binding SelectedItem.ThumbnailImage, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <Image Source="{Binding SelectedItem.ThumbnailImage}" Stretch="Uniform" Margin="4"/>
-                                </Border>
+                                <!-- Fills whatever's left below the header (Grid.Row="1"="*"), rather than
+                                     the fixed 200px each tab's content used to have — a maximized window's
+                                     extra height was previously wasted, and a small window could clip the
+                                     bottom of the fixed-height content with no way to scroll to it. -->
+                                <TabControl Grid.Row="1" Margin="0,12,0,0">
+                                    <TabItem Header="Changes"
+                                             ToolTip="What this mod actually changes — read-only. For editing, see the EXMOD editor (planned).">
+                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" MinHeight="110">
+                                            <TextBox Text="{Binding SelectedItem.ChangesContent, Mode=OneWay}"
+                                                     IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
+                                                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                                     AcceptsReturn="True" BorderThickness="0" Padding="8"/>
+                                        </Border>
+                                    </TabItem>
+                                    <TabItem Header="Files">
+                                        <Grid Margin="0,8,0,0" MinHeight="110">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="200"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <ListBox Grid.Column="0" ItemsSource="{Binding SelectedItem.AssetPaths}"
+                                                     SelectedItem="{Binding SelectedItem.SelectedAssetPath}"/>
+                                            <TextBox Grid.Column="1" Text="{Binding SelectedItem.SelectedAssetPreview, Mode=OneWay}"
+                                                     Margin="8,0,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                                     AcceptsReturn="True"/>
+                                        </Grid>
+                                    </TabItem>
+                                    <TabItem Header="Readme">
+                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" MinHeight="110">
+                                            <FlowDocumentScrollViewer VerticalScrollBarVisibility="Auto" Padding="8"
+                                                Document="{Binding SelectedItem.ReadmeContent, Mode=OneWay, Converter={StaticResource MarkdownToFlowDocumentConverter}}"/>
+                                        </Border>
+                                    </TabItem>
+                                </TabControl>
                             </Grid>
 
-                            <TextBlock Grid.Row="0" Text="Select a mod on the left to see details."
+                            <TextBlock Text="Select a mod on the left to see details."
                                        Foreground="{DynamicResource SecondaryForegroundBrush}"
                                        Visibility="{Binding SelectedItem, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                         </Grid>
