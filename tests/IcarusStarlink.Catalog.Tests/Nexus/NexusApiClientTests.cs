@@ -94,4 +94,50 @@ public class NexusApiClientTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetUpdatedModsAsync("wrong-key", "icarus", "1w"));
     }
+
+    // Real shape, confirmed against Nexus's own official node-nexus-api client source (IDownloadURL).
+    private const string RealisticDownloadLinksJson = """
+        [
+            {"URI": "https://cdn.nexusmods.com/icarus/290/1234/Nearby_Crafting-290-1-3-7.zip?some=signed-params", "name": "Nexus CDN", "short_name": "Nexus CDN"}
+        ]
+        """;
+
+    [Fact]
+    public async Task GetDownloadLinksAsync_PremiumStyle_NoKeyOrExpires_OmitsQueryString()
+    {
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            // No "?key=...&expires=..." suffix — the exact URL this call must hit for a premium account.
+            ["https://api.nexusmods.com/v1/games/icarus/mods/290/files/1234/download_link"] = RealisticDownloadLinksJson,
+        });
+
+        var links = await client.GetDownloadLinksAsync("premium-key", "icarus", 290, 1234, key: null, expires: null);
+
+        var link = Assert.Single(links);
+        Assert.Equal("Nexus CDN", link.ServerName);
+        Assert.Contains("Nearby_Crafting", link.Uri);
+    }
+
+    [Fact]
+    public async Task GetDownloadLinksAsync_NonPremiumStyle_WithKeyAndExpires_IncludesQueryString()
+    {
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://api.nexusmods.com/v1/games/icarus/mods/290/files/1234/download_link?key=abc123&expires=1700000000"] = RealisticDownloadLinksJson,
+        });
+
+        var links = await client.GetDownloadLinksAsync("some-key", "icarus", 290, 1234, key: "abc123", expires: 1700000000);
+
+        Assert.Single(links);
+    }
+
+    [Fact]
+    public async Task GetDownloadLinksAsync_RejectedOrExpiredKey_Throws()
+    {
+        var client = CreateClient(
+            new Dictionary<string, string> { ["https://api.nexusmods.com/v1/games/icarus/mods/290/files/1234/download_link?key=stale&expires=1"] = """{"message":"Key expired"}""" },
+            new Dictionary<string, HttpStatusCode> { ["https://api.nexusmods.com/v1/games/icarus/mods/290/files/1234/download_link?key=stale&expires=1"] = HttpStatusCode.Forbidden });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetDownloadLinksAsync("some-key", "icarus", 290, 1234, "stale", 1));
+    }
 }

@@ -9,6 +9,7 @@ using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
@@ -21,6 +22,7 @@ using IcarusStarlink.PakIO.Patches;
 using IcarusStarlink.PakIO.Rebuild;
 using IcarusStarlink.Storage.Catalog;
 using IcarusStarlink.Storage.Library;
+using IcarusStarlink.Storage.Nexus;
 using IcarusStarlink.Storage.Profiles;
 using IcarusStarlink.Storage.Secrets;
 using IcarusStarlink.Storage.Settings;
@@ -81,6 +83,10 @@ public partial class App : Application
             new NexusWatchlistStore(
                 Path.Combine(appDataDirectory, "Cache"),
                 sp.GetRequiredService<ILogger<NexusWatchlistStore>>()));
+        builder.Services.AddSingleton<IPendingDownloadStore>(sp =>
+            new PendingDownloadStore(
+                Path.Combine(appDataDirectory, "Cache"),
+                sp.GetRequiredService<ILogger<PendingDownloadStore>>()));
         builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
         builder.Services.AddSingleton<IUnrealPakService, UnrealPakService>();
         builder.Services.AddSingleton<IWeeklyChangeReportStore>(sp =>
@@ -126,7 +132,18 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Data"),
             Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
             Path.Combine(appDataDirectory, "Backups")));
-        builder.Services.AddSingleton<DownloadsViewModel>();
+        builder.Services.AddSingleton(sp => new DownloadsViewModel(
+            sp.GetRequiredService<IDaedalusCatalogClient>(),
+            sp.GetRequiredService<IJimk72CatalogClient>(),
+            sp.GetRequiredService<IGitHubRepoDateClient>(),
+            sp.GetRequiredService<ILibraryRepository>(),
+            sp.GetRequiredService<INexusWatchlistStore>(),
+            sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<INexusApiClient>(),
+            sp.GetRequiredService<ICredentialStore>(),
+            sp.GetRequiredService<IPendingDownloadStore>(),
+            sp.GetRequiredService<HttpClient>(),
+            Path.Combine(appDataDirectory, "Pending_Downloads")));
         builder.Services.AddSingleton(sp => new NexusBrowserViewModel(Path.Combine(appDataDirectory, "WebView2")));
         builder.Services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<ISettingsService>(),

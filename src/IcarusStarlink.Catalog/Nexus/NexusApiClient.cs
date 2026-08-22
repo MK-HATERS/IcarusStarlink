@@ -51,6 +51,32 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         return [.. entries.Select(e => new NexusUpdateEntry(e.ModId, e.LatestFileUpdate, e.LatestModActivity))];
     }
 
+    public async Task<IReadOnlyList<NexusDownloadLink>> GetDownloadLinksAsync(
+        string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default)
+    {
+        // key/expires are appended together or not at all — matches the official client's own
+        // request-building logic exactly (a premium account's API key alone is sufficient; a
+        // non-premium account needs both, taken from the nxm:// link itself).
+        var url = $"{BaseUrl}/games/{gameDomain}/mods/{modId}/files/{fileId}/download_link";
+        if (key is not null && expires is not null)
+        {
+            url += $"?key={Uri.EscapeDataString(key)}&expires={expires}";
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("apikey", apiKey);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            throw new InvalidOperationException("Nexus rejected this download request — the key may be wrong, expired, or you may need to be signed in as a premium member to use manager downloads without one.");
+        }
+
+        response.EnsureSuccessStatusCode();
+        var links = await response.Content.ReadFromJsonAsync<List<DownloadLinkDto>>(cancellationToken) ?? [];
+        return [.. links.Select(l => new NexusDownloadLink(l.Uri, l.Name, l.ShortName))];
+    }
+
     private sealed class ValidateResponseDto
     {
         [JsonPropertyName("user_id")]
@@ -82,5 +108,17 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
         [JsonPropertyName("latest_mod_activity")]
         public long LatestModActivity { get; init; }
+    }
+
+    private sealed class DownloadLinkDto
+    {
+        [JsonPropertyName("URI")]
+        public string Uri { get; init; } = "";
+
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = "";
+
+        [JsonPropertyName("short_name")]
+        public string ShortName { get; init; } = "";
     }
 }

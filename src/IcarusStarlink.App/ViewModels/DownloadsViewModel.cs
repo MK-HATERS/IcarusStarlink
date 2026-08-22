@@ -15,6 +15,7 @@ using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 
@@ -38,7 +39,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private readonly ISettingsService _settingsService;
     private readonly INexusApiClient _nexusApiClient;
     private readonly ICredentialStore _credentialStore;
+    private readonly IPendingDownloadStore _pendingDownloadStore;
     private readonly HttpClient _downloadHttpClient;
+    private readonly string _pendingDownloadsDirectory;
     private readonly DispatcherTimer _searchDebounceTimer;
 
     private IReadOnlyList<CatalogEntry> _allCatalogEntries = [];
@@ -143,6 +146,18 @@ public sealed partial class DownloadsViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCheckingNexusUpdates;
 
+    // --- Pending Downloads tab ---
+    public ObservableCollection<PendingDownloadItemViewModel> PendingDownloads { get; } = [];
+
+    [ObservableProperty]
+    private string _manualNxmUrl = "";
+
+    [ObservableProperty]
+    private bool _isFetchingDownload;
+
+    [ObservableProperty]
+    private string? _pendingDownloadStatusMessage;
+
     public DownloadsViewModel(
         IDaedalusCatalogClient daedalusClient,
         IJimk72CatalogClient jimk72Client,
@@ -152,7 +167,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
         ISettingsService settingsService,
         INexusApiClient nexusApiClient,
         ICredentialStore credentialStore,
-        HttpClient downloadHttpClient)
+        IPendingDownloadStore pendingDownloadStore,
+        HttpClient downloadHttpClient,
+        string pendingDownloadsDirectory)
     {
         _daedalusClient = daedalusClient;
         _jimk72Client = jimk72Client;
@@ -162,7 +179,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
         _settingsService = settingsService;
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
+        _pendingDownloadStore = pendingDownloadStore;
         _downloadHttpClient = downloadHttpClient;
+        _pendingDownloadsDirectory = pendingDownloadsDirectory;
 
         _showAuthorColumn = settingsService.Current.CatalogShowAuthorColumn;
         _showVersionColumn = settingsService.Current.CatalogShowVersionColumn;
@@ -180,6 +199,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         };
 
         ReloadNexusEntries();
+        ReloadPendingDownloads();
 
         // Constructors can't be async; this is the same "fire it and let the method itself
         // handle every failure" shape a WPF event handler already has to use for async work —
@@ -604,6 +624,168 @@ public sealed partial class DownloadsViewModel : ObservableObject
         finally
         {
             IsCheckingNexusUpdates = false;
+        }
+    }
+
+    [RelayCommand]
+    private Task FetchNxmUrl()
+    {
+        if (string.IsNullOrWhiteSpace(ManualNxmUrl))
+        {
+            PendingDownloadStatusMessage = "Paste an nxm:// link first.";
+            return Task.CompletedTask;
+        }
+
+        var url = ManualNxmUrl.Trim();
+        ManualNxmUrl = "";
+        return FetchAndDownloadAsync(url);
+    }
+
+    /// <summary>
+    /// Phase 8.3b's real download pipeline — parse the nxm:// link, resolve it to a real CDN URL
+    /// via Nexus's own API, download the bytes, and record it in Pending Downloads. Public (not
+    /// private) since this is also the eventual landing point for a real nxm:// link handed off
+    /// from the OS protocol handler once that's wired up — the manual paste box exercises the
+    /// exact same path in the meantime.
+    /// </summary>
+    public async Task FetchAndDownloadAsync(string nxmUrlText)
+    {
+        NxmUrl nxmUrl;
+        try
+        {
+            nxmUrl = NxmUrl.Parse(nxmUrlText);
+        }
+        catch (FormatException ex)
+        {
+            PendingDownloadStatusMessage = $"Not a usable nxm link: {ex.Message}";
+            return;
+        }
+
+        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+        if (apiKey is null)
+        {
+            PendingDownloadStatusMessage = "Sign in with your Nexus API key in Settings first.";
+            return;
+        }
+
+        IsFetchingDownload = true;
+        try
+        {
+            var links = await _nexusApiClient.GetDownloadLinksAsync(
+                apiKey, nxmUrl.GameDomain, nxmUrl.ModId, nxmUrl.FileId, nxmUrl.Key, nxmUrl.Expires);
+            var link = links.FirstOrDefault();
+            if (link is null)
+            {
+                PendingDownloadStatusMessage = "Nexus didn't return a download link for this file.";
+                return;
+            }
+
+            using var response = await _downloadHttpClient.GetAsync(link.Uri);
+            response.EnsureSuccessStatusCode();
+
+            var fileName = response.Content.Headers.ContentDisposition?.FileNameStar?.Trim('"')
+                ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
+                ?? Path.GetFileName(new Uri(link.Uri).LocalPath);
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                fileName = $"nexus_{nxmUrl.ModId}_{nxmUrl.FileId}.zip";
+            }
+
+            Directory.CreateDirectory(_pendingDownloadsDirectory);
+            var localPath = Path.Combine(_pendingDownloadsDirectory, fileName);
+            await using (var fileStream = File.Create(localPath))
+            {
+                await response.Content.CopyToAsync(fileStream);
+            }
+
+            _pendingDownloadStore.Add(new PendingDownloadEntry
+            {
+                ModId = nxmUrl.ModId,
+                FileId = nxmUrl.FileId,
+                FileName = fileName,
+                LocalFilePath = localPath,
+                DownloadedAtUtc = DateTimeOffset.UtcNow,
+            });
+            ReloadPendingDownloads();
+            PendingDownloadStatusMessage = $"Downloaded '{fileName}' — see Pending Downloads below.";
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as everywhere else — a stale/expired nxm key, a network hiccup, or
+            // a disk-full save all show a status message rather than crashing the app.
+            PendingDownloadStatusMessage = $"Download failed: {ex.Message}";
+        }
+        finally
+        {
+            IsFetchingDownload = false;
+        }
+    }
+
+    [RelayCommand]
+    private void ActivatePendingDownload(PendingDownloadItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var isPak = string.Equals(Path.GetExtension(item.LocalFilePath), ".pak", StringComparison.OrdinalIgnoreCase);
+            var entry = isPak ? _libraryRepository.ImportPak(item.LocalFilePath) : _libraryRepository.Import(item.LocalFilePath);
+
+            _pendingDownloadStore.Remove(item.ModId, item.FileId);
+            ReloadPendingDownloads();
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            PendingDownloadStatusMessage = $"Imported '{entry.Name}' into your Library.";
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as Library's own ImportFolder/ImportFile — a malformed archive or a
+            // locked file shows a status message instead of crashing the app. Deliberately leaves
+            // the entry in Pending Downloads (and the file on disk) on failure, so nothing is lost
+            // and the user can retry or Discard explicitly.
+            PendingDownloadStatusMessage = $"Import failed: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void DiscardPendingDownload(PendingDownloadItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (File.Exists(item.LocalFilePath))
+            {
+                File.Delete(item.LocalFilePath);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort cleanup — even if the file can't be deleted right now (locked by another
+            // process), still drop it from the tracked list; a stray file at worst just sits there
+            // unreferenced instead of blocking the user from moving on.
+            PendingDownloadStatusMessage = $"Removed from the list, but couldn't delete the file: {ex.Message}";
+            _pendingDownloadStore.Remove(item.ModId, item.FileId);
+            ReloadPendingDownloads();
+            return;
+        }
+
+        _pendingDownloadStore.Remove(item.ModId, item.FileId);
+        ReloadPendingDownloads();
+        PendingDownloadStatusMessage = $"Discarded '{item.FileName}'.";
+    }
+
+    private void ReloadPendingDownloads()
+    {
+        PendingDownloads.Clear();
+        foreach (var entry in _pendingDownloadStore.Entries.OrderByDescending(e => e.DownloadedAtUtc))
+        {
+            PendingDownloads.Add(new PendingDownloadItemViewModel(entry));
         }
     }
 

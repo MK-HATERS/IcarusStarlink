@@ -220,6 +220,60 @@
                                Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"/>
                 </Grid>
             </TabItem>
+
+            <TabItem Header="Pending Downloads">
+                <Grid Margin="0,12,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,8">
+                        <Run Text="Files land here after a Nexus &quot;Mod Manager Download&quot; — activate one to import it into your Library, or discard it."/>
+                    </TextBlock>
+
+                    <DockPanel Grid.Row="1" Margin="0,0,0,8" LastChildFill="True">
+                        <Button DockPanel.Dock="Right" Content="Fetch" Command="{Binding FetchNxmUrlCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                ToolTip="Manually paste and fetch an nxm:// link — the same path a real 'Mod Manager Download' click will eventually use"/>
+                        <TextBox Text="{Binding ManualNxmUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
+                                 ToolTip="Paste an nxm://icarus/mods/&lt;id&gt;/files/&lt;id&gt; link"/>
+                    </DockPanel>
+
+                    <DataGrid Grid.Row="2" ItemsSource="{Binding PendingDownloads}" AutoGenerateColumns="False" IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="3*"/>
+                            <DataGridTextColumn Header="Mod ID" Binding="{Binding ModId}" Width="80"/>
+                            <DataGridTextColumn Header="Downloaded" Binding="{Binding DownloadedAtUtc, StringFormat='{}{0:g}'}" Width="150"/>
+                            <DataGridTemplateColumn Header="" Width="180">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button Content="Activate" Margin="4,2"
+                                                    Command="{Binding DataContext.ActivatePendingDownloadCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip="Import this file into your Library"/>
+                                            <Button Content="Discard" Margin="4,2"
+                                                    Command="{Binding DataContext.DiscardPendingDownloadCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip="Delete the downloaded file and remove it from this list"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock Text="Fetching…" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   Visibility="{Binding IsFetchingDownload, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock Text="{Binding PendingDownloadStatusMessage}" VerticalAlignment="Center" Margin="8,0,0,0"
+                                   Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
         </TabControl>
     </Grid>
 </UserControl>
