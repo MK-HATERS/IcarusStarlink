@@ -23,6 +23,9 @@ internal sealed class LibraryMeta
     /// <summary>The real Nexus mod ID, set at import time for a Nexus-sourced entry — see LibraryEntry.NexusModId.</summary>
     public int? NexusModId { get; set; }
 
+    /// <summary>The community catalog's own stable entry ID, set at Download &amp; extract time for a Database-sourced entry — see LibraryEntry.CatalogEntryId.</summary>
+    public string? CatalogEntryId { get; set; }
+
     /// <summary>User-chosen display name, overriding the EXMOD's own declared name (or, for an opaque pak, NexusName/the pak filename) without touching the mod's real folder name, FileName, or underlying file content. Null = show the default name.</summary>
     public string? DisplayNameOverride { get; set; }
 

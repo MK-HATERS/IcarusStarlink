@@ -437,6 +437,26 @@ public class FolderLibraryRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void Import_WithCatalogEntryId_RecordsItAndSurvivesRenameAndRestart()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        string folderName;
+        using (var repo = CreateRepository())
+        {
+            var entry = repo.Import(_sourceDir, source: "Database", catalogEntryId: "daedalus-abc123");
+            folderName = entry.FolderName;
+            Assert.Equal("daedalus-abc123", entry.CatalogEntryId);
+
+            // The whole point of the stable ID: a Rename must not sever the catalog link.
+            repo.SetDisplayNameOverride(folderName, "My Renamed Mod");
+            Assert.Equal("daedalus-abc123", repo.GetAll().Single().CatalogEntryId);
+        }
+
+        using var reopened = CreateRepository();
+        Assert.Equal("daedalus-abc123", reopened.GetAll().Single().CatalogEntryId);
+    }
+
+    [Fact]
     public void Import_WithNexusModId_RecordsItOnTheEntry()
     {
         ExmodFolder.Write(_sourceDir, BuildFixture());

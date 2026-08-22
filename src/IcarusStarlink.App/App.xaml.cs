@@ -181,6 +181,7 @@ public partial class App : Application
             sp.GetRequiredService<IJimk72CatalogClient>(),
             sp.GetRequiredService<Func<string, ExmodEditorViewModel>>(),
             sp.GetRequiredService<IActivityLog>(),
+            sp.GetRequiredService<HttpClient>(),
             Path.Combine(appDataDirectory, "Backups")));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),

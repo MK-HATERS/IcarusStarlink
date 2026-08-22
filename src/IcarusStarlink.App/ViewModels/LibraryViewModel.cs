@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.IO;
+using System.Net.Http;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -33,6 +35,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IJimk72CatalogClient _jimk72Client;
     private readonly Func<string, ExmodEditorViewModel> _editorFactory;
     private readonly IActivityLog _activityLog;
+    private readonly HttpClient _downloadHttpClient;
     private readonly string _backupDirectory;
     private readonly DebounceTimer _searchDebounceTimer;
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
@@ -59,6 +62,10 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private int _groupCount;
 
+    /// <summary>Null when every folder on disk read cleanly — see Reload()'s own comment for what sets it.</summary>
+    [ObservableProperty]
+    private string? _unreadableFoldersMessage;
+
     /// <summary>
     /// Library's UE4SS tab (Phase 8.5 rework) — the single place to manage UE4SS mods, replacing
     /// the old split between this read-only tab and Merge & Install's own separate Staged/Attached
@@ -83,8 +90,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
         ISettingsService settingsService, IUnrealPakService unrealPakService, INexusApiClient nexusApiClient,
         ICredentialStore credentialStore, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
-        Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, string backupDirectory)
+        Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient, string backupDirectory)
     {
+        _downloadHttpClient = downloadHttpClient;
         _repository = repository;
         _ue4ssModRepository = ue4ssModRepository;
         _ue4ssModStateService = ue4ssModStateService;
@@ -317,6 +325,124 @@ public sealed partial class LibraryViewModel : ObservableObject
             // Same UI boundary as TryImport — folder creation can fail for the same reasons any
             // other Extracted_Mods write can (permission denied, disk full, ...).
             StatusMessage = $"Couldn't create the mod: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// The action behind the "Update available" badge. A Database-sourced mod genuinely updates in
+    /// place: re-download from the catalog, then replace (delete-then-reimport under the same
+    /// "Replace, not accumulate" rule Install/patch-import already use), carrying pin/favorite/
+    /// notes across the swap. A Nexus-sourced mod opens its mod page instead — a real in-app Nexus
+    /// download needs a file ID this app doesn't have (only the mod ID), so the honest action is
+    /// the page where the user's own click starts a Mod Manager Download through the existing
+    /// nxm:// pipeline.
+    /// </summary>
+    [RelayCommand]
+    private async Task GetUpdateAsync(LibraryItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        if (string.Equals(item.Source, "Nexus", StringComparison.OrdinalIgnoreCase))
+        {
+            item.OpenOnNexusCommand.Execute(null);
+            StatusMessage = "Opened the mod's Nexus page — use its Mod Manager Download button to pull the update through this app.";
+            return;
+        }
+
+        StatusMessage = $"Updating '{item.Name}'…";
+        try
+        {
+            var failedSources = new List<string>();
+            var daedalusTask = CatalogSourceFetch.FetchAsync(_daedalusClient.FetchAsync, "Daedalus", failedSources);
+            var jimk72Task = CatalogSourceFetch.FetchAsync(_jimk72Client.FetchAsync, "Jimk72", failedSources);
+            await Task.WhenAll(daedalusTask, jimk72Task);
+            var allEntries = daedalusTask.Result.Concat(jimk72Task.Result).ToList();
+
+            // Same ID-first, name-fallback matching CheckForUpdatesAsync itself uses.
+            var catalogEntry = (item.CatalogEntryId is not null ? allEntries.FirstOrDefault(e => e.Id == item.CatalogEntryId) : null)
+                ?? allEntries.FirstOrDefault(e => CatalogKey.Normalize(e.Name, e.Author) == CatalogKey.Normalize(item.Name, item.Author));
+            if (catalogEntry is null)
+            {
+                StatusMessage = $"Couldn't find '{item.Name}' in the catalog anymore.";
+                return;
+            }
+
+            var downloadUrl = catalogEntry.ExmodzUrl ?? catalogEntry.PakUrl;
+            if (downloadUrl is null)
+            {
+                StatusMessage = $"'{catalogEntry.Name}' has no downloadable file listed.";
+                return;
+            }
+
+            var isExmodz = catalogEntry.ExmodzUrl is not null;
+            var tempPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_{Guid.NewGuid():N}{(isExmodz ? ".EXMODZ" : ".pak")}");
+            try
+            {
+                var bytes = await _downloadHttpClient.GetByteArrayAsync(downloadUrl);
+                await File.WriteAllBytesAsync(tempPath, bytes);
+
+                // Captured before the delete so the swap doesn't silently drop them; cancel any
+                // pending debounced notes save first, same reasoning DeleteSelected documents.
+                var (folderName, isPinned, isFavorite, notes) = (item.FolderName, item.IsPinned, item.IsFavorite, item.Notes);
+                var displayNameOverride = _repository.GetAll()
+                    .FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase))?.DisplayNameOverride;
+                item.CancelPendingSave();
+
+                // Snapshot first, so the delete-then-reimport below can genuinely roll back — a
+                // download that parsed as bytes can still fail import validation, and without this
+                // that failure would lose the working old copy.
+                _repository.BackupMod(folderName);
+                _repository.Delete(folderName);
+
+                try
+                {
+                    var imported = isExmodz
+                        ? _repository.Import(tempPath, source: "Database", catalogEntryId: catalogEntry.Id)
+                        : _repository.ImportPak(tempPath, source: "Database", catalogEntryId: catalogEntry.Id);
+                    if (isPinned || isFavorite || !string.IsNullOrEmpty(notes))
+                    {
+                        _repository.UpdateMetadata(imported.FolderName, isPinned, isFavorite, notes);
+                    }
+
+                    if (displayNameOverride is not null)
+                    {
+                        _repository.SetDisplayNameOverride(imported.FolderName, displayNameOverride);
+                    }
+
+                    StatusMessage = $"Updated '{imported.Name}' to v{imported.Version}.";
+                    _activityLog.Log($"Updated '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
+                }
+                catch (Exception importEx)
+                {
+                    var restored = _repository.RestoreLatestModBackup(folderName);
+                    StatusMessage = restored
+                        ? $"Update failed ({importEx.Message}) — your previous copy was restored from its backup."
+                        : $"Update failed: {importEx.Message}";
+                }
+
+                Reload();
+                WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            }
+            finally
+            {
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch (Exception)
+                {
+                    // Best-effort temp cleanup, same as Downloads' own download path.
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Failures before the swap starts (catalog fetch, download) — the mod on disk is
+            // untouched at this point; the swap itself has its own backup-and-restore path above.
+            StatusMessage = $"Update failed: {ex.Message}";
         }
     }
 
@@ -566,6 +692,13 @@ public sealed partial class LibraryViewModel : ObservableObject
         ModCount = groups.Sum(g => g.Entries.Count);
         GroupCount = groups.Count(g => g.IsFamily);
 
+        // A folder that's visibly on disk but unreadable (corrupt EXMOD, locked file) was only
+        // ever explained in the log file — surfaced here so "why isn't my mod showing?" has an
+        // answer in the UI itself.
+        UnreadableFoldersMessage = _repository.UnreadableFolders.Count > 0
+            ? $"{_repository.UnreadableFolders.Count} folder(s) couldn't be read and aren't shown: {string.Join(", ", _repository.UnreadableFolders)}. Check the mod's own files (a corrupt .EXMOD is the usual cause), or see the log."
+            : null;
+
         var seenFolders = new HashSet<string>();
         var seenGroupKeys = new HashSet<string>();
         var targetRootItems = new List<object>();
@@ -772,15 +905,24 @@ public sealed partial class LibraryViewModel : ObservableObject
                     var jimk72Task = CatalogSourceFetch.FetchAsync(_jimk72Client.FetchAsync, "Jimk72", failedSources);
                     await Task.WhenAll(daedalusTask, jimk72Task);
 
+                    // ID-first, name-fallback — same rename-safe matching Downloads'
+                    // ApplyCatalogFilters now uses, for the same reason (a renamed/oddly-named mod
+                    // still checks correctly when its stable CatalogEntryId was recorded at
+                    // Download & extract time).
+                    var catalogVersionById = new Dictionary<string, string>();
                     var catalogVersionByKey = new Dictionary<(string Name, string Author), string>();
                     foreach (var catalogEntry in daedalusTask.Result.Concat(jimk72Task.Result))
                     {
+                        catalogVersionById[catalogEntry.Id] = catalogEntry.Version;
                         catalogVersionByKey[CatalogKey.Normalize(catalogEntry.Name, catalogEntry.Author)] = catalogEntry.Version;
                     }
 
                     foreach (var item in databaseItems)
                     {
-                        if (!catalogVersionByKey.TryGetValue(CatalogKey.Normalize(item.Name, item.Author), out var catalogVersion))
+                        var catalogVersion = item.CatalogEntryId is not null && catalogVersionById.TryGetValue(item.CatalogEntryId, out var byId)
+                            ? byId
+                            : catalogVersionByKey.GetValueOrDefault(CatalogKey.Normalize(item.Name, item.Author));
+                        if (catalogVersion is null)
                         {
                             continue;
                         }

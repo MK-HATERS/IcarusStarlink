@@ -52,7 +52,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
 
     public void Refresh() => RescanAll();
 
-    public LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null)
+    public LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null)
     {
         // Unlike Import()'s own EXMOD path (whose folder name comes from Package.FileName — already
         // guaranteed safe by AssetPathGuard running inside ExmodJson.Parse, per Import()'s own
@@ -76,12 +76,13 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         // even still exist by the time something needs this list.
         var sourceManifestPath = Path.Combine(Path.GetDirectoryName(pakFilePath)!, InstallManifestNames.PakManifest);
         var mergedPackModNames = File.Exists(sourceManifestPath)
-            ? File.ReadAllLines(sourceManifestPath).Skip(1).Where(line => !string.IsNullOrWhiteSpace(line)).ToList()
+            ? ModListText.ParseNames(File.ReadAllText(sourceManifestPath)).ToList()
             : null;
 
         var meta = new LibraryMeta
         {
-            ImportedAtUtc = DateTimeOffset.UtcNow, Source = source, NexusModId = nexusModId, MergedPackModNames = mergedPackModNames,
+            ImportedAtUtc = DateTimeOffset.UtcNow, Source = source, NexusModId = nexusModId,
+            CatalogEntryId = catalogEntryId, MergedPackModNames = mergedPackModNames,
         };
         _metaStore.Save(folderName, meta);
 
@@ -93,7 +94,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         return entry;
     }
 
-    public LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null)
+    public LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null)
     {
         if (sourcePath.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
         {
@@ -111,7 +112,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
 
         ExmodFolder.Write(targetFolder, contents);
-        var meta = new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow, Source = source, NexusModId = nexusModId };
+        var meta = new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow, Source = source, NexusModId = nexusModId, CatalogEntryId = catalogEntryId };
         _metaStore.Save(folderName, meta);
 
         // Surgical: this is the only mod whose content is actually new — no need to re-read
@@ -252,8 +253,10 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
     /// <summary>
     /// Replaces the mod's current folder content with its own most recent backup — a real
     /// point-in-time restore (the folder is deleted first, not merged), so an edit made since the
-    /// backup is genuinely undone rather than just overwritten field-by-field. Returns false (not
-    /// an error) if no backup exists yet for this mod.
+    /// backup is genuinely undone rather than just overwritten field-by-field. A missing folder is
+    /// tolerated, not an error: restoring a mod that was deleted since the backup was taken (e.g.
+    /// Get update's own delete-then-reimport failing halfway) is exactly the rescue this exists
+    /// for. Returns false (not an error) only when no backup exists at all for this mod.
     /// </summary>
     public bool RestoreLatestModBackup(string folderName)
     {
@@ -263,8 +266,12 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
             return false;
         }
 
-        var folder = ResolveFolder(folderName);
-        Directory.Delete(folder, recursive: true);
+        var folder = Path.Combine(_extractedModsDirectory, folderName);
+        if (Directory.Exists(folder))
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+
         FolderBackup.CopyDirectory(backupPath, folder);
 
         RescanAll();
@@ -336,6 +343,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
     private void RescanAll()
     {
         var scanned = new List<(LibraryEntry Entry, string SearchableContent)>();
+        var unreadable = new List<string>();
 
         foreach (var folder in Directory.EnumerateDirectories(_extractedModsDirectory))
         {
@@ -367,12 +375,17 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
                 // before the main window is even shown — one locked/permission-denied/
                 // mid-write folder must not be able to crash the whole app at launch.
                 _logger.LogWarning(ex, "Skipped '{Folder}' while scanning the library — could not read it", folder);
+                unreadable.Add(Path.GetFileName(folder));
             }
         }
 
         _cachedEntries = [.. scanned.Select(t => t.Entry)];
+        UnreadableFolders = unreadable;
         _searchIndex.Rebuild(scanned);
     }
+
+    /// <summary>See ILibraryRepository — recomputed by every RescanAll (construction, Refresh, restore, rename), so it always reflects the same scan the cached entries came from.</summary>
+    public IReadOnlyList<string> UnreadableFolders { get; private set; } = [];
 
     /// <summary>Convenience overload for a single-folder classification with no precomputed list (ListAssetPaths, ReadReadme) — walks the folder itself, then delegates.</summary>
     private static (bool HasExmod, string? PakPath) ClassifyModFolder(string folder) =>
@@ -424,6 +437,8 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         IsLocallyEdited = meta.IsLocallyEdited,
         Source = meta.Source,
         NexusModId = meta.NexusModId,
+        CatalogEntryId = meta.CatalogEntryId,
+        DisplayNameOverride = meta.DisplayNameOverride,
     };
 
     private static LibraryEntry ToOpaquePakEntry(string folderName, string pakFilePath, LibraryMeta meta)
@@ -454,6 +469,8 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
             IsLocallyEdited = meta.IsLocallyEdited,
             Source = meta.Source,
             NexusModId = meta.NexusModId,
+            CatalogEntryId = meta.CatalogEntryId,
+            DisplayNameOverride = meta.DisplayNameOverride,
             MergedPackModNames = meta.MergedPackModNames,
         };
     }

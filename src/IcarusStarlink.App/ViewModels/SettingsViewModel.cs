@@ -241,6 +241,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         SavedMessage = _settingsService.Save()
             ? $"Saved at {DateTime.Now:T}"
             : "Failed to save settings — check the logs.";
+        WeakReferenceMessenger.Default.Send(new SettingsSavedMessage());
     }
 
     [RelayCommand]

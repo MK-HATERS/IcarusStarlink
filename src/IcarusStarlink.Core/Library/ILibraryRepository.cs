@@ -4,14 +4,17 @@ public interface ILibraryRepository
 {
     IReadOnlyList<LibraryEntry> GetAll();
 
+    /// <summary>Folder names under Extracted_Mods the last scan couldn't read (corrupt EXMOD JSON, a locked file) — skipped-and-logged rather than crashing the scan, but surfaced here so the UI can say WHY a folder that's visibly on disk isn't in the Library, instead of that answer living only in a log file.</summary>
+    IReadOnlyList<string> UnreadableFolders { get; }
+
     /// <summary>Empty/whitespace query returns everything, matching GetAll().</summary>
     IReadOnlyList<LibraryEntry> Search(string query);
 
     /// <summary>sourcePath is either a loose mod folder or an .EXMODZ file. source (e.g. "Nexus"/"Database") is purely informational, stored as LibraryEntry.Source — null for a manual/local import. nexusModId is stored as LibraryEntry.NexusModId, for later update-checking — only meaningful when source is "Nexus".</summary>
-    LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null);
+    LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null);
 
     /// <summary>Imports a prebuilt .pak as an opaque library entry — see LibraryEntry.IsOpaquePak. source/nexusModId are the same provenance tags Import(string, string?, int?) takes.</summary>
-    LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null);
+    LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null);
 
     /// <summary>
     /// Records real name/author/description/version fetched from the Nexus API for an opaque .pak

@@ -216,6 +216,16 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // but, until now, never Registered to receive it from anywhere else.
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((MergeInstallViewModel)recipient).ReloadLibrary());
 
+        // Without this, the Install/"Update install" label goes stale after the user changes the
+        // Icarus Content path in Settings — the check below only otherwise runs at construction
+        // and after this page's own install/remove actions.
+        // The message parameter needs a real name: naming it "_" would make it shadow the discard,
+        // so "_ = task" inside would try assigning the Task to the message parameter itself.
+        WeakReferenceMessenger.Default.Register<SettingsSavedMessage>(this, (recipient, message) =>
+        {
+            _ = ((MergeInstallViewModel)recipient).RefreshHasExistingInstallAsync();
+        });
+
         _ = RefreshHasExistingInstallAsync();
     }
 

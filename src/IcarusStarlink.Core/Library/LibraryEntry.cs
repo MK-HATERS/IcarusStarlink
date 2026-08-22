@@ -36,6 +36,12 @@ public sealed class LibraryEntry
     /// <summary>The real Nexus mod ID, set at import time for a Source == "Nexus" entry — needed to look up its current version for update-checking. Null for anything not Nexus-sourced.</summary>
     public int? NexusModId { get; set; }
 
+    /// <summary>The community catalog's own stable entry ID, set at Download &amp; extract time for a Source == "Database" entry — the Database counterpart of NexusModId, so the Downloaded badge and update-checking survive a Rename the way name-matching can't. Null for older imports and anything not Database-sourced (those fall back to name-matching).</summary>
+    public string? CatalogEntryId { get; set; }
+
+    /// <summary>The raw user-chosen rename, when one exists — Name above already reflects it, but a consumer replacing this entry (Get update's delete-then-reimport) needs the override itself to re-apply, since it can't reconstruct "was Name overridden or natural?" from Name alone.</summary>
+    public string? DisplayNameOverride { get; set; }
+
     /// <summary>Set once the EXMOD editor's own Save action runs against this mod — the ✎ glyph.</summary>
     public bool IsLocallyEdited { get; set; }
 

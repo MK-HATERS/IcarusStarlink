@@ -397,19 +397,22 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
     // Downloaded/Outdated status is cross-referenced against the Library by (Name, Author),
     // there being no other shared key — LibraryEntry doesn't record which catalog entry (if any)
-    // a mod came from. Verified live during Phase 4 development: this can miss a real match, e.g.
-    // Daedalus's own catalog lists "Aberiu's Supply Crates" but the actual downloaded EXMOD's own
-    // internal name field is "Aberiu_Supply_Crates" (an underscore-joined FileName-style string,
-    // not the curated display name) — a real mod stays correctly imported and fully usable, just
-    // not visually flagged "Downloaded" back in this table. The same class of imperfect match
-    // DaedalusCatalogClient already accepts for its own tags.json cross-reference; closing it
-    // properly would mean Library recording real provenance (which catalog entry a download came
-    // from) at import time, which is more surface area than a status badge currently justifies.
+    // Downloaded/Outdated status matches by the catalog's own stable entry ID first
+    // (LibraryEntry.CatalogEntryId, recorded at Download & extract time — survives a Rename and a
+    // mod whose internal name differs from the catalog's curated display name, e.g. the real
+    // "Aberiu's Supply Crates" vs its EXMOD's own "Aberiu_Supply_Crates"), then falls back to the
+    // original (Name, Author) normalization for anything imported before the ID existed or brought
+    // in manually rather than through Download & extract.
     private void ApplyCatalogFilters()
     {
         var previouslySelectedId = SelectedCatalogEntry?.Entry.Id;
 
-        var libraryByKey = _libraryRepository.GetAll()
+        var libraryEntries = _libraryRepository.GetAll();
+        var libraryByCatalogId = libraryEntries
+            .Where(e => e.CatalogEntryId is not null)
+            .GroupBy(e => e.CatalogEntryId!)
+            .ToDictionary(g => g.Key, g => g.First().Version);
+        var libraryByKey = libraryEntries
             .GroupBy(e => CatalogKey.Normalize(e.Name, e.Author))
             .ToDictionary(g => g.Key, g => g.First().Version);
 
@@ -442,7 +445,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         var rows = query
             .Select(e => new CatalogEntryViewModel(
                 e,
-                libraryByKey.GetValueOrDefault(CatalogKey.Normalize(e.Name, e.Author)),
+                libraryByCatalogId.GetValueOrDefault(e.Id) ?? libraryByKey.GetValueOrDefault(CatalogKey.Normalize(e.Name, e.Author)),
                 GitHubRepoKey.Extract(e.PakUrl ?? e.ExmodzUrl) is { } repoKey ? _repoPushedDates.GetValueOrDefault(repoKey) : null))
             .Where(row => !ShowUpdatesOnly || row.IsOutdated)
             .Where(row => !ExtractedOnly || row.IsDownloaded)
@@ -512,9 +515,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
             var bytes = await _downloadHttpClient.GetByteArrayAsync(downloadUrl);
             await File.WriteAllBytesAsync(tempPath, bytes);
 
+            // catalogEntryId is the Database counterpart of the Nexus pipeline's nexusModId — the
+            // stable link that keeps the Downloaded badge and update-checking working after a
+            // Rename, which name-matching alone can't survive.
             var imported = isExmodz
-                ? _libraryRepository.Import(tempPath, source: "Database")
-                : _libraryRepository.ImportPak(tempPath, source: "Database");
+                ? _libraryRepository.Import(tempPath, source: "Database", catalogEntryId: catalogEntry.Id)
+                : _libraryRepository.ImportPak(tempPath, source: "Database", catalogEntryId: catalogEntry.Id);
             _activityLog.Log($"Downloaded and imported '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
             return (true, $"Downloaded and imported '{imported.Name}'.");
         }

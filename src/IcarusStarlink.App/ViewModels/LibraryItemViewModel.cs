@@ -63,6 +63,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// <summary>The real Nexus mod ID — only meaningful when Source == "Nexus", needed by LibraryViewModel.CheckForUpdatesAsync to look up this mod's current version.</summary>
     public int? NexusModId { get; private set; }
 
+    /// <summary>The community catalog's own stable entry ID — the Database counterpart of NexusModId; keeps update-checking rename-safe for Database-sourced mods.</summary>
+    public string? CatalogEntryId { get; private set; }
+
     /// <summary>Whether this row has a stable Nexus mod ID to link out to — drives the "Open on Nexus" context menu item's enabled state.</summary>
     public bool HasNexusLink => NexusModId is not null;
 
@@ -180,6 +183,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         _isLocallyEdited = entry.IsLocallyEdited;
         _source = entry.Source;
         NexusModId = entry.NexusModId;
+        CatalogEntryId = entry.CatalogEntryId;
         MergedPackModNames = entry.MergedPackModNames;
 
         // Assigning the backing fields directly (not the generated properties) means this
@@ -219,6 +223,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         Source = entry.Source;
         NexusModId = entry.NexusModId;
         OnPropertyChanged(nameof(HasNexusLink));
+        CatalogEntryId = entry.CatalogEntryId;
         MergedPackModNames = entry.MergedPackModNames;
         OnPropertyChanged(nameof(IsMergedPack));
 

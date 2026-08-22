@@ -228,6 +228,9 @@
                         </TextBlock>
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding UpdateCheckStatusMessage}"
                                    Visibility="{Binding UpdateCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <TextBlock Margin="0,4,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}"
+                                   Text="{Binding UnreadableFoldersMessage}"
+                                   Visibility="{Binding UnreadableFoldersMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                     </StackPanel>
 
                     <Grid Grid.Row="2">
@@ -273,6 +276,13 @@
                                                     <Run Text="Update available: v"/><Run Text="{Binding SelectedItem.LatestVersion, Mode=OneWay}"/>
                                                 </TextBlock>
                                             </Border>
+                                            <Button Margin="6,0,0,0" Padding="7,2" VerticalAlignment="Center" FontSize="11"
+                                                    Command="{Binding GetUpdateCommand}" CommandParameter="{Binding SelectedItem}"
+                                                    Visibility="{Binding SelectedItem.HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                    ToolTip="Database mod: re-downloads from the catalog and replaces this copy in place (pin/favorite/notes kept, backup taken first). Nexus mod: opens its page — use Mod Manager Download there."
+                                                    AutomationProperties.Name="Get update">
+                                                <TextBlock Text="Get update" VerticalAlignment="Center"/>
+                                            </Button>
                                         </StackPanel>
                                         <TextBlock Margin="0,2,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}">
                                             <Run Text="{Binding SelectedItem.Author, Mode=OneWay}"/>
