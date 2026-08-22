@@ -92,10 +92,57 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         var dto = await response.Content.ReadFromJsonAsync<ModInfoResponseDto>(cancellationToken)
             ?? throw new HttpRequestException("Nexus's mod-info endpoint returned an empty response.");
 
-        // Nexus's own web UI renders "name"/"summary" as HTML, so entities like "&amp;" are real
-        // content, not an API quirk — decode here, at the boundary, rather than leaking raw HTML
-        // entities into a plain-text UI (Library's detail pane) that never otherwise deals in HTML.
-        return new NexusModInfo(WebUtility.HtmlDecode(dto.Name), dto.Author, WebUtility.HtmlDecode(dto.Summary), dto.Version);
+        return ToModInfo(dto);
+    }
+
+    public async Task<IReadOnlyList<NexusModInfo>> GetModListAsync(
+        string apiKey, string gameDomain, NexusModList list, CancellationToken cancellationToken = default)
+    {
+        var path = list switch
+        {
+            NexusModList.Trending => "trending",
+            NexusModList.Latest => "latest_added",
+            _ => "latest_updated",
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{path}");
+        request.Headers.Add("apikey", apiKey);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            throw new InvalidOperationException("Nexus rejected the stored API key.");
+        }
+
+        response.EnsureSuccessStatusCode();
+        var dtos = await response.Content.ReadFromJsonAsync<List<ModInfoResponseDto>>(cancellationToken) ?? [];
+        return [.. dtos.Select(ToModInfo)];
+    }
+
+    // Nexus's own web UI renders "name"/"summary" as HTML, so entities like "&amp;" are real
+    // content, not an API quirk — decoded here, at the boundary, rather than leaking raw HTML
+    // entities into a plain-text UI (Library's detail pane) that never otherwise deals in HTML.
+    private static NexusModInfo ToModInfo(ModInfoResponseDto dto) => new(
+        dto.ModId, WebUtility.HtmlDecode(dto.Name), dto.Author, WebUtility.HtmlDecode(dto.Summary), dto.Version, dto.PictureUrl);
+
+    public async Task<IReadOnlyList<NexusModFile>> GetModFilesAsync(
+        string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{modId}/files");
+        request.Headers.Add("apikey", apiKey);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            throw new InvalidOperationException("Nexus rejected the stored API key.");
+        }
+
+        response.EnsureSuccessStatusCode();
+        // The response wraps the array — { "files": [...], "file_updates": [...] } — per the
+        // official client's own IModFiles shape, not a bare array like the browse lists.
+        var dto = await response.Content.ReadFromJsonAsync<ModFilesResponseDto>(cancellationToken)
+            ?? throw new HttpRequestException("Nexus's mod-files endpoint returned an empty response.");
+        return [.. dto.Files.Select(f => new NexusModFile(f.FileId, f.FileName, f.Name, f.Version, f.CategoryName, f.IsPrimary))];
     }
 
     private sealed class ValidateResponseDto
@@ -145,6 +192,9 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
     private sealed class ModInfoResponseDto
     {
+        [JsonPropertyName("mod_id")]
+        public int ModId { get; init; }
+
         // Absent when the mod is under moderation, per Nexus's own documented IModInfo shape.
         [JsonPropertyName("name")]
         public string? Name { get; init; }
@@ -157,5 +207,35 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
         [JsonPropertyName("version")]
         public string Version { get; init; } = "";
+
+        [JsonPropertyName("picture_url")]
+        public string? PictureUrl { get; init; }
+    }
+
+    private sealed class ModFilesResponseDto
+    {
+        [JsonPropertyName("files")]
+        public List<ModFileDto> Files { get; init; } = [];
+    }
+
+    private sealed class ModFileDto
+    {
+        [JsonPropertyName("file_id")]
+        public int FileId { get; init; }
+
+        [JsonPropertyName("file_name")]
+        public string FileName { get; init; } = "";
+
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = "";
+
+        [JsonPropertyName("version")]
+        public string Version { get; init; } = "";
+
+        [JsonPropertyName("category_name")]
+        public string? CategoryName { get; init; }
+
+        [JsonPropertyName("is_primary")]
+        public bool IsPrimary { get; init; }
     }
 }

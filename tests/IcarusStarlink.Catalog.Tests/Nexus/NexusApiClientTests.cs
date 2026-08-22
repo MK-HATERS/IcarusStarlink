@@ -218,4 +218,92 @@ public class NexusApiClientTests
         Assert.Null(result.Name);
         Assert.Equal("SomeAuthor", result.Author);
     }
+
+    [Fact]
+    public async Task GetModInfoAsync_RealisticShape_ParsesModIdAndPictureUrl()
+    {
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://api.nexusmods.com/v1/games/icarus/mods/289"] = """
+                {"mod_id": 289, "author": "Rada", "version": "2.6", "name": "Rada's Cheat Menu",
+                 "picture_url": "https://staticdelivery.nexusmods.com/mods/5869/images/289/header.jpg"}
+                """,
+        });
+
+        var result = await client.GetModInfoAsync("some-key", "icarus", 289);
+
+        Assert.NotNull(result);
+        Assert.Equal(289, result.ModId);
+        Assert.Equal("https://staticdelivery.nexusmods.com/mods/5869/images/289/header.jpg", result.PictureUrl);
+    }
+
+    [Theory]
+    [InlineData(NexusModList.Trending, "https://api.nexusmods.com/v1/games/icarus/mods/trending")]
+    [InlineData(NexusModList.Latest, "https://api.nexusmods.com/v1/games/icarus/mods/latest_added")]
+    [InlineData(NexusModList.Updated, "https://api.nexusmods.com/v1/games/icarus/mods/latest_updated")]
+    public async Task GetModListAsync_EachKind_HitsItsOwnRealEndpointAndParsesTheArray(NexusModList kind, string expectedUrl)
+    {
+        // A JSON array of the same IModInfo objects the single-mod endpoint returns — confirmed
+        // against Nexus's own official node-nexus-api client source (getTrending/getLatestAdded/
+        // getLatestUpdated all share IModInfo[]).
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            [expectedUrl] = """
+                [
+                  {"mod_id": 10, "name": "Mod A &amp; Friends", "author": "AuthorA", "version": "1.0",
+                   "summary": "First.", "picture_url": "https://staticdelivery.nexusmods.com/a.jpg"},
+                  {"mod_id": 20, "name": "Mod B", "author": "AuthorB", "version": "2.0", "summary": "Second."}
+                ]
+                """,
+        });
+
+        var result = await client.GetModListAsync("some-key", "icarus", kind);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(10, result[0].ModId);
+        Assert.Equal("Mod A & Friends", result[0].Name);
+        Assert.Equal("https://staticdelivery.nexusmods.com/a.jpg", result[0].PictureUrl);
+        Assert.Equal(20, result[1].ModId);
+        Assert.Null(result[1].PictureUrl);
+    }
+
+    [Fact]
+    public async Task GetModFilesAsync_RealisticWrappedShape_ParsesTheFilesArray()
+    {
+        // The response wraps the array ({"files":[...],"file_updates":[...]}) per the official
+        // client's IModFiles — unlike the browse lists, which return a bare array.
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://api.nexusmods.com/v1/games/icarus/mods/289/files"] = """
+                {
+                  "files": [
+                    {"file_id": 1111, "name": "Cheat Menu", "version": "2.6", "category_name": "MAIN",
+                     "is_primary": true, "file_name": "CheatMenu-289-2-6.zip", "size_kb": 500},
+                    {"file_id": 900, "name": "Old", "version": "2.5", "category_name": "OLD_VERSION",
+                     "is_primary": false, "file_name": "CheatMenu-289-2-5.zip", "size_kb": 480}
+                  ],
+                  "file_updates": []
+                }
+                """,
+        });
+
+        var result = await client.GetModFilesAsync("some-key", "icarus", 289);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(1111, result[0].FileId);
+        Assert.Equal("CheatMenu-289-2-6.zip", result[0].FileName);
+        Assert.True(result[0].IsPrimary);
+        Assert.Equal("OLD_VERSION", result[1].CategoryName);
+    }
+
+    [Fact]
+    public async Task GetModListAsync_RejectedKey_ThrowsInvalidOperation()
+    {
+        var url = "https://api.nexusmods.com/v1/games/icarus/mods/trending";
+        var client = CreateClient(
+            new Dictionary<string, string> { [url] = """{"message":"Invalid API Key"}""" },
+            new Dictionary<string, HttpStatusCode> { [url] = HttpStatusCode.Unauthorized });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetModListAsync("wrong-key", "icarus", NexusModList.Trending));
+    }
 }

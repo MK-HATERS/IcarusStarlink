@@ -9,39 +9,177 @@
     <Grid Margin="32,32,32,20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
+        <DockPanel Grid.Row="0" LastChildFill="False">
+            <TextBlock DockPanel.Dock="Left" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
+            <!-- W1: two modes over one nav item. The active mode's own button is disabled — doubling
+                 as the "you are here" indicator, same convention as elsewhere. -->
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Browse" Command="{Binding ShowBrowseCommand}" IsEnabled="{Binding IsFullSiteMode}"
+                        ToolTip="A native mod list driven by your saved Nexus API key — no website sign-in needed"/>
+                <Button Content="Full site" Command="{Binding ShowFullSiteCommand}" IsEnabled="{Binding IsBrowseMode}" Margin="6,0,0,0"
+                        ToolTip="The real nexusmods.com in an embedded browser — search, mod pages, and Mod Manager Download clicks live here"/>
+            </StackPanel>
+        </DockPanel>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,12">
-            <Button x:Name="BackButton" Content="◀" Padding="10,4" Click="BackButton_Click" ToolTip="Back"/>
-            <Button x:Name="ForwardButton" Content="▶" Padding="10,4" Margin="4,0,0,0" Click="ForwardButton_Click" ToolTip="Forward"/>
-            <Button Content="⟳" Padding="10,4" Margin="4,0,0,0" Click="ReloadButton_Click" ToolTip="Reload"/>
-            <Button Content="Icarus mods" Padding="10,4" Margin="4,0,0,0" Click="HomeButton_Click" ToolTip="Back to the Icarus mods page"/>
-            <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                    CornerRadius="4" Margin="12,0,0,0" Padding="10,6" VerticalAlignment="Center" MinWidth="300">
-                <TextBlock x:Name="UrlText" Text="" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                           TextTrimming="CharacterEllipsis"/>
+        <!-- Browse mode: the native, API-driven catalog. -->
+        <Grid Grid.Row="1" Margin="0,12,0,0" DataContext="{Binding Catalog}"
+              Visibility="{Binding DataContext.IsBrowseMode, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <DockPanel Grid.Row="0" Margin="0,0,0,10" LastChildFill="False">
+                <ListBox DockPanel.Dock="Left" ItemsSource="{Binding ListKinds}" SelectedItem="{Binding SelectedList}"
+                         Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}"
+                         ToolTip="Nexus's own curated lists — searching needs the Full site view (Nexus's API has no search endpoint)">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <Button DockPanel.Dock="Left" Command="{Binding RefreshCommand}" Margin="10,0,0,0" AutomationProperties.Name="Refresh list">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                        <TextBlock Text="Refresh" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <TextBlock DockPanel.Dock="Left" Text="Loading…" VerticalAlignment="Center" Margin="12,0,0,0"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}"
+                           Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                <TextBlock DockPanel.Dock="Left" Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" TextWrapping="Wrap"
+                           Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+            </DockPanel>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Mods}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Width="320" Margin="0,0,12,12" Background="{DynamicResource CardBackgroundBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+                                <StackPanel>
+                                    <Grid Height="150" Background="{DynamicResource CardRaisedBackgroundBrush}" ClipToBounds="True">
+                                        <Path Data="{StaticResource IconMountains}" Stroke="{DynamicResource FaintForegroundBrush}" StrokeThickness="1.6"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                              Width="30" Height="30" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <!-- A string URL binds straight to Source — WPF downloads it async itself; a null
+                                             or failed URL just leaves the placeholder behind it showing. -->
+                                        <Image Source="{Binding Mod.PictureUrl}" Stretch="UniformToFill"/>
+                                    </Grid>
+                                    <StackPanel Margin="12,10,12,12">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Mod.Name}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding Mod.Name}"/>
+                                            <!-- This machine's own status, computed locally — Nexus's API exposes no
+                                                 site-notification feed to sync the website's own badges from. -->
+                                            <Border Margin="6,0,0,0" CornerRadius="8" Padding="6,1" VerticalAlignment="Center"
+                                                    Background="{DynamicResource InfoBrush}"
+                                                    Visibility="{Binding LocalBadge, Converter={StaticResource NullToVisibilityConverter}}">
+                                                <TextBlock Text="{Binding LocalBadge}" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
+                                            </Border>
+                                            <Border Margin="4,0,0,0" CornerRadius="8" Padding="6,1" VerticalAlignment="Center"
+                                                    Background="{DynamicResource AccentBrush}"
+                                                    ToolTip="A newer version than your Library copy"
+                                                    Visibility="{Binding HasUpdate, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                <TextBlock Text="Update" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Margin="0,1,0,6" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                                            <Run Text="{Binding Mod.Author, Mode=OneWay}"/><Run Text=" · v"/><Run Text="{Binding Mod.Version, Mode=OneWay}"/>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding Mod.Summary}" Style="{StaticResource PageBodyTextStyle}" FontSize="12"
+                                                   TextWrapping="Wrap" MaxHeight="52" ClipToBounds="True" ToolTip="{Binding Mod.Summary}"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                            <Button Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"
+                                                    Command="{Binding DataContext.DownloadModCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding Mod}"
+                                                    ToolTip="Downloads the mod's main file straight into Pending Downloads (needs Nexus Premium — otherwise use Open page's Mod Manager Download)"
+                                                    AutomationProperties.Name="Download mod">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
+                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
+                                                    <TextBlock Text="Download" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Command="{Binding DataContext.TrackModCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding Mod}"
+                                                    ToolTip="Add to Downloads' Nexus watchlist, so it's checked for updates"
+                                                    AutomationProperties.Name="Track mod">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource IconPlus}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
+                                                    <TextBlock Text="Track" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Margin="8,0,0,0"
+                                                    Command="{Binding DataContext.OpenModPageCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding Mod}"
+                                                    ToolTip="Open the mod's page in your browser — downloads start there via Mod Manager Download"
+                                                    AutomationProperties.Name="Open mod page">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource IconGlobeMeridian}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
+                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
+                                                    <TextBlock Text="Open page" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- Full site mode: Phase 8.3a's embedded browser, unchanged mechanics — the WebView2
+             stays in the tree (Collapsed, never detached) so its one-time init/dispose lifecycle
+             in code-behind keeps working exactly as before. -->
+        <Grid Grid.Row="1" Margin="0,8,0,0"
+              Visibility="{Binding IsFullSiteMode, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+                <Button x:Name="BackButton" Content="◀" Padding="10,4" Click="BackButton_Click" ToolTip="Back"/>
+                <Button x:Name="ForwardButton" Content="▶" Padding="10,4" Margin="4,0,0,0" Click="ForwardButton_Click" ToolTip="Forward"/>
+                <Button Content="⟳" Padding="10,4" Margin="4,0,0,0" Click="ReloadButton_Click" ToolTip="Reload"/>
+                <Button Content="Icarus mods" Padding="10,4" Margin="4,0,0,0" Click="HomeButton_Click" ToolTip="Back to the Icarus mods page"/>
+                <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                        CornerRadius="4" Margin="12,0,0,0" Padding="10,6" VerticalAlignment="Center" MinWidth="300">
+                    <TextBlock x:Name="UrlText" Text="" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               TextTrimming="CharacterEllipsis"/>
+                </Border>
+            </StackPanel>
+
+            <!-- Only one of these two is ever shown — see NexusBrowserView.xaml.cs's runtime check.
+                 Source is set in code-behind, only after EnsureCoreWebView2Async completes with this
+                 app's own custom-UserDataFolder environment — setting it here would let the control
+                 auto-initialize with WebView2's default environment first. -->
+            <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" ClipToBounds="True">
+                <wv2:WebView2 x:Name="Browser"/>
             </Border>
-        </StackPanel>
 
-        <!-- Only one of these two is ever shown — see NexusBrowserView.xaml.cs's runtime check.
-             Source is set in code-behind, only after EnsureCoreWebView2Async completes with this
-             app's own custom-UserDataFolder environment — setting it here would let the control
-             auto-initialize with WebView2's default environment first. -->
-        <Border Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" ClipToBounds="True">
-            <wv2:WebView2 x:Name="Browser"/>
-        </Border>
-
-        <StackPanel x:Name="RuntimeMissingPanel" Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center"
-                    MaxWidth="480" Visibility="Collapsed">
-            <TextBlock Text="Microsoft Edge WebView2 Runtime isn't installed" FontSize="16" FontWeight="SemiBold"
-                       TextWrapping="Wrap" HorizontalAlignment="Center" Margin="0,0,0,8"/>
-            <TextBlock Text="This embedded browser needs it — it's a small, free Microsoft component, separate from installing Edge itself. Most Windows 10/11 PCs already have it; yours doesn't yet."
-                       Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,16"/>
-            <Button Content="Get WebView2 Runtime…" Click="GetRuntimeButton_Click" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Center"/>
-        </StackPanel>
+            <StackPanel x:Name="RuntimeMissingPanel" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                        MaxWidth="480" Visibility="Collapsed">
+                <TextBlock Text="Microsoft Edge WebView2 Runtime isn't installed" FontSize="16" FontWeight="SemiBold"
+                           TextWrapping="Wrap" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                <TextBlock Text="This embedded browser needs it — it's a small, free Microsoft component, separate from installing Edge itself. Most Windows 10/11 PCs already have it; yours doesn't yet."
+                           Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,16"/>
+                <Button Content="Get WebView2 Runtime…" Click="GetRuntimeButton_Click" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
     </Grid>
 </UserControl>
