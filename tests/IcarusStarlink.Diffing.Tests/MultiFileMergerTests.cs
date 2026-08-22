@@ -46,6 +46,24 @@ public class MultiFileMergerTests
     }
 
     [Fact]
+    public void Apply_ChangeCurrentFileCasingDiffersFromBaseTableKeyCasing_StillMatchesRatherThanSkipping()
+    {
+        var baseItems = JsonNode.Parse("""{"Sword": {"Damage": 10}}""")!.AsObject();
+        var change = new FieldChange("items-d_itemsstatic.json", "Sword", "Damage", null, JsonValue.Create(99), ValueSemantic.Scalar);
+        // OrdinalIgnoreCase, matching how RebuildService.ReadBaseTables (the only real production
+        // caller) actually constructs this — MultiFileMerger.Apply relies on the caller's own
+        // dictionary already using a case-insensitive comparer, it doesn't enforce one itself.
+        var baseTablesByFile = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase) { ["Items-D_ItemsStatic.json"] = baseItems };
+        var report = new MergeReport();
+
+        var result = MultiFileMerger.Apply(baseTablesByFile, [change], report);
+
+        Assert.Empty(report.Warnings);
+        var merged = Assert.Single(result).Value;
+        Assert.Equal(99, merged["Sword"]!["Damage"]!.GetValue<int>());
+    }
+
+    [Fact]
     public void Apply_ChangesForUnknownFile_SkipsWithWarning()
     {
         var change = new FieldChange("Unknown-D_File.json", "Row", "Field", null, JsonValue.Create(1), ValueSemantic.Scalar);

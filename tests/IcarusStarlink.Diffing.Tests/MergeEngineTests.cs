@@ -179,6 +179,22 @@ public class MergeEngineTests
     }
 
     [Fact]
+    public void Merge_TwoModsSameFieldDifferentCurrentFileCasing_StillConflictResolvedTogether()
+    {
+        // Two mods' own EXMOD files disagree on casing for the exact same real Windows path
+        // ("Items-D_ItemsStatic.json" vs "items-d_itemsstatic.json") — different extraction tools
+        // aren't guaranteed to agree. Both must land in the same conflict group, not be treated as
+        // two independent, unrelated files.
+        var modA = new List<FieldChange> { new("Items-D_ItemsStatic.json", "Sword", "Damage", null, JsonValue.Create(20), ValueSemantic.Scalar) };
+        var modB = new List<FieldChange> { new("items-d_itemsstatic.json", "Sword", "Damage", null, JsonValue.Create(30), ValueSemantic.Scalar) };
+
+        var resolved = MergeEngine.Merge([modA, modB], new MergeRuleRegistry());
+
+        var change = Assert.Single(resolved);
+        Assert.Equal(30, change.NewValue!.GetValue<int>());
+    }
+
+    [Fact]
     public void Merge_GameplayTagQuery_DuplicateEntriesAreNotRepeated()
     {
         var modA = new List<FieldChange>

@@ -14,7 +14,7 @@ public static class MergeEngine
         MergeRuleRegistry registry,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null)
     {
-        var groups = new Dictionary<(string CurrentFile, string ItemName, string FieldName), List<FieldChange>>();
+        var groups = new Dictionary<(string CurrentFile, string ItemName, string FieldName), List<FieldChange>>(FieldChangeKeyComparer.Instance);
 
         foreach (var modChanges in orderedModChanges)
         {

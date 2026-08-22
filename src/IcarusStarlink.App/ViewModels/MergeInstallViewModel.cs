@@ -40,7 +40,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     private readonly string _dataFolder;
     private readonly string _outputPakPath;
     private readonly string _backupDirectory;
-    private string? _lastManifestPath;
 
     public string Title => "Merge & Install";
 
@@ -226,7 +225,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             var missingCount = 0;
             foreach (var folderName in profile.MergeQueueFolderNames)
             {
-                var entry = _libraryRepository.GetAll().FirstOrDefault(e => e.FolderName == folderName);
+                var entry = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
                 if (entry is not null)
                 {
                     Queue.Add(entry);
@@ -518,7 +517,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             ExmodzArchive.Write(tempPath, contents);
 
-            var existing = _libraryRepository.GetAll().FirstOrDefault(e => e.FolderName == contents.Package.FileName);
+            var existing = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, contents.Package.FileName, StringComparison.OrdinalIgnoreCase));
             if (existing is not null)
             {
                 _libraryRepository.Delete(existing.FolderName);
@@ -540,7 +539,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             return;
         }
 
-        if (Queue.Any(q => q.FolderName == entry.FolderName))
+        if (Queue.Any(q => string.Equals(q.FolderName, entry.FolderName, StringComparison.OrdinalIgnoreCase)))
         {
             StatusMessage = $"'{entry.Name}' is already in the queue.";
             return;
@@ -667,7 +666,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
             var result = await _rebuildService.RebuildAsync(
                 packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath);
-            _lastManifestPath = result.ManifestPath;
 
             StatusMessage = $"Built '{result.OutputPakPath}' — {result.PackedFileCount} files packed, "
                 + $"{result.MergedFileCount} data table(s) merged.";
@@ -715,13 +713,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         try
         {
             var result = await _installService.InstallAsync(
-                _outputPakPath, _lastManifestPath, _settingsService.Current.IcarusContentPath!, _backupDirectory);
+                _outputPakPath, _settingsService.Current.IcarusContentPath!, _backupDirectory);
 
             // Replace, not accumulate: ImportPak would otherwise derive a fresh "_2"/"_3"-suffixed
             // folder name every time (its own collision-avoidance rule), leaving one stale Library
             // entry behind per install instead of one entry that stays current.
             var installedFolderName = Path.GetFileNameWithoutExtension(_outputPakPath);
-            var existing = _libraryRepository.GetAll().FirstOrDefault(e => e.FolderName == installedFolderName);
+            var existing = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, installedFolderName, StringComparison.OrdinalIgnoreCase));
             if (existing is not null)
             {
                 _libraryRepository.Delete(existing.FolderName);

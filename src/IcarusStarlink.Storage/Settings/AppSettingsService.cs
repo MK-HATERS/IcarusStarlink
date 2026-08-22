@@ -33,8 +33,12 @@ public sealed class AppSettingsService : ISettingsService
             var json = File.ReadAllText(_settingsFilePath);
             return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
+            // Scoped the same way every sibling store's Load() is (NexusWatchlistStore,
+            // PendingDownloadStore, FtpSiteStore, LibraryMetaStore) — a genuinely corrupt/
+            // inaccessible file falls back to defaults, but a real programming bug elsewhere isn't
+            // silently masked as "corrupt settings".
             _logger.LogWarning(ex, "Failed to load settings from {Path}; falling back to defaults", _settingsFilePath);
             return new AppSettings();
         }

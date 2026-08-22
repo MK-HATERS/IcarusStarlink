@@ -14,6 +14,8 @@ public class InstallServiceTests : IDisposable
     public InstallServiceTests()
     {
         _stagedPakPath = Path.Combine(_tempDir, "Staged_Build", "ISL-Merged_P.pak");
+        // Same deterministic sibling path InstallAsync itself now derives from stagedPakPath —
+        // no longer a separate parameter, so this is just where the fixture file needs to sit.
         _stagedManifestPath = Path.Combine(_tempDir, "Staged_Build", "ISL-Merged.txt");
         _fakeContentPath = Path.Combine(_tempDir, "FakeIcarusContent");
         _backupDirectory = Path.Combine(_tempDir, "Backups");
@@ -32,13 +34,13 @@ public class InstallServiceTests : IDisposable
         File.Delete(_stagedPakPath);
 
         await Assert.ThrowsAsync<FileNotFoundException>(() =>
-            _service.InstallAsync(_stagedPakPath, _stagedManifestPath, _fakeContentPath, _backupDirectory));
+            _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory));
     }
 
     [Fact]
     public async Task InstallAsync_NoExistingTarget_CopiesPakAndManifestWithNoBackup()
     {
-        var result = await _service.InstallAsync(_stagedPakPath, _stagedManifestPath, _fakeContentPath, _backupDirectory);
+        var result = await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
 
         Assert.Null(result.BackupPakPath);
         Assert.Equal(TargetPakPath, result.InstalledPakPath);
@@ -47,12 +49,29 @@ public class InstallServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task InstallAsync_ManifestPathNull_StillInstallsThePak()
+    public async Task InstallAsync_NoManifestAlongsideThePak_StillInstallsThePak()
     {
-        var result = await _service.InstallAsync(_stagedPakPath, stagedManifestPath: null, _fakeContentPath, _backupDirectory);
+        File.Delete(_stagedManifestPath);
+
+        var result = await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
 
         Assert.True(File.Exists(result.InstalledPakPath));
         Assert.False(File.Exists(TargetManifestPath));
+    }
+
+    [Fact]
+    public async Task InstallAsync_ManifestPresentButNotPassedIn_IsStillCopied()
+    {
+        // Regression test for the bug this signature change fixes: the manifest path used to be a
+        // caller-supplied, in-memory-cached parameter (MergeInstallViewModel's _lastManifestPath)
+        // that went stale after an app restart. It's now always derived from stagedPakPath itself,
+        // so a manifest sitting right next to the staged pak is found and copied even though
+        // nothing in this test ever told InstallAsync where it was.
+        var result = await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+
+        Assert.True(File.Exists(TargetManifestPath));
+        Assert.Equal(await File.ReadAllTextAsync(_stagedManifestPath), await File.ReadAllTextAsync(TargetManifestPath));
+        Assert.NotNull(result);
     }
 
     [Fact]
@@ -61,7 +80,7 @@ public class InstallServiceTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(TargetPakPath)!);
         await File.WriteAllTextAsync(TargetPakPath, "old pak bytes");
 
-        var result = await _service.InstallAsync(_stagedPakPath, _stagedManifestPath, _fakeContentPath, _backupDirectory);
+        var result = await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
 
         Assert.NotNull(result.BackupPakPath);
         Assert.Equal("old pak bytes", await File.ReadAllTextAsync(result.BackupPakPath!));
@@ -77,7 +96,7 @@ public class InstallServiceTests : IDisposable
         for (var i = 1; i <= 6; i++)
         {
             await File.WriteAllTextAsync(_stagedPakPath, $"staged pak v{i} bytes");
-            await _service.InstallAsync(_stagedPakPath, _stagedManifestPath, _fakeContentPath, _backupDirectory);
+            await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
             // Backup filenames are timestamped to the second — without this, two installs in the
             // same second would collide on the same backup filename and silently overwrite each
             // other instead of producing six distinct backups to prune from.
@@ -93,7 +112,7 @@ public class InstallServiceTests : IDisposable
     {
         Assert.False(Directory.Exists(Path.Combine(_fakeContentPath, "Paks", "mods")));
 
-        await _service.InstallAsync(_stagedPakPath, _stagedManifestPath, _fakeContentPath, _backupDirectory);
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
 
         Assert.True(File.Exists(TargetPakPath));
     }
@@ -109,7 +128,7 @@ public class InstallServiceTests : IDisposable
     [Fact]
     public async Task GetInstalledStateAsync_AfterInstall_ReadsBackModNames()
     {
-        await _service.InstallAsync(_stagedPakPath, _stagedManifestPath, _fakeContentPath, _backupDirectory);
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
 
         var state = await _service.GetInstalledStateAsync(_fakeContentPath);
 

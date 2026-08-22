@@ -111,6 +111,33 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RebuildAsync_TwoModsSameFieldDifferentCurrentFileCasing_LaterModStillWinsInsteadOfBothWritingSeparately()
+    {
+        // Different EXMOD authors' extraction tools aren't guaranteed to emit CurrentFile with
+        // consistent casing for the exact same real (case-insensitive) Windows path — modA and
+        // modB must still be treated as touching the same file and conflict-resolved together,
+        // not staged as two separate writes to the same physical destination.
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var modA = MakeMod("Mod A", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var modB = MakeMod("Mod B", "crafting-d_processorrecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(2) });
+        var pakService = new FakeUnrealPakService();
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath);
+
+        // Exactly one staged file for the pair (not two, one per casing variant) — the winning
+        // group's own CurrentFile casing (whichever mod's it happens to be) decides the on-disk
+        // output filename's casing, which Windows itself doesn't care about, so this looks it up
+        // case-insensitively rather than assuming which one survived.
+        Assert.Equal(1, result.MergedFileCount);
+        var stagedEntry = Assert.Single(pakService.StagedFileContentsAtCallTime, kv =>
+            kv.Key.Equals("data/Crafting/D_ProcessorRecipes.json", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("\"CraftTime\": 2", stagedEntry.Value);
+    }
+
+    [Fact]
     public async Task RebuildAsync_CurrentFileWithNoMatchingBaseData_AddsWarningNotThrow()
     {
         var mod = MakeMod("Ghost Mod", "NoSuchCategory-D_Missing.json", "Item",

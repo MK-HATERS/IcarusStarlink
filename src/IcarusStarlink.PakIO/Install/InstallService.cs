@@ -9,7 +9,7 @@ namespace IcarusStarlink.PakIO.Install;
 public sealed class InstallService : IInstallService
 {
     public Task<InstallResult> InstallAsync(
-        string stagedPakPath, string? stagedManifestPath, string icarusContentPath, string backupDirectory,
+        string stagedPakPath, string icarusContentPath, string backupDirectory,
         CancellationToken cancellationToken = default)
     {
         if (!File.Exists(stagedPakPath))
@@ -25,9 +25,14 @@ public sealed class InstallService : IInstallService
 
         File.Copy(stagedPakPath, targetPakPath, overwrite: true);
 
-        if (stagedManifestPath is not null && File.Exists(stagedManifestPath))
+        // Same deterministic sibling path RebuildService.WriteManifest always writes to — derived
+        // here rather than cached by the caller, so a manifest from an earlier Rebuild (this
+        // session or a previous one) is never silently missed just because the in-memory path
+        // wasn't carried forward (e.g. after an app restart).
+        var stagedManifestPath = Path.Combine(Path.GetDirectoryName(stagedPakPath)!, InstallManifestNames.PakManifest);
+        if (File.Exists(stagedManifestPath))
         {
-            var targetManifestPath = Path.Combine(modsDirectory, Path.GetFileName(stagedManifestPath));
+            var targetManifestPath = Path.Combine(modsDirectory, InstallManifestNames.PakManifest);
             File.Copy(stagedManifestPath, targetManifestPath, overwrite: true);
         }
 

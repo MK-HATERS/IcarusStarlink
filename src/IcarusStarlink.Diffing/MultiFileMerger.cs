@@ -10,9 +10,12 @@ public static class MultiFileMerger
         IReadOnlyList<FieldChange> resolvedChanges,
         MergeReport? report = null)
     {
-        var result = new Dictionary<string, JsonObject>();
+        var result = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var fileGroup in resolvedChanges.GroupBy(c => c.CurrentFile))
+        // CurrentFile denotes a real (case-insensitive) Windows file path — grouped the same way
+        // MergeEngine already keys its own conflict groups, so two mods that both edited "the
+        // same" file under different casing still land together here too.
+        foreach (var fileGroup in resolvedChanges.GroupBy(c => c.CurrentFile, StringComparer.OrdinalIgnoreCase))
         {
             if (!baseTablesByFile.TryGetValue(fileGroup.Key, out var baseTable))
             {

@@ -38,7 +38,12 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             .Concat(GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions))
             .Distinct();
         var (baseTablesByFile, originalFileJsonByFile) = ReadBaseTables(requiredFiles, dataFolder, report);
-        var mergedTables = new Dictionary<string, JsonObject>(MultiFileMerger.Apply(baseTablesByFile, resolvedChanges, report));
+        // The Dictionary(IDictionary) copy constructor does NOT inherit the source's comparer, so
+        // this has to be specified again explicitly — otherwise mergedTables would silently revert
+        // to case-sensitive keys even though baseTablesByFile/MultiFileMerger.Apply's own result
+        // are both already case-insensitive.
+        var mergedTables = new Dictionary<string, JsonObject>(
+            MultiFileMerger.Apply(baseTablesByFile, resolvedChanges, report), StringComparer.OrdinalIgnoreCase);
 
         // Gameplay options apply as a final pass over the already-merged result — matching classic
         // IMM's own documented behavior ("these new options are added after the mods are all
@@ -83,10 +88,14 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     private static (Dictionary<string, JsonObject> Keyed, Dictionary<string, JsonObject> Original) ReadBaseTables(
         IEnumerable<string> currentFiles, string dataFolder, MergeReport report)
     {
-        var keyed = new Dictionary<string, JsonObject>();
-        var original = new Dictionary<string, JsonObject>();
+        // OrdinalIgnoreCase throughout — CurrentFile denotes a real Windows file path, and
+        // different EXMOD authors' extraction tools aren't guaranteed to emit it with consistent
+        // casing (MergeEngine/MultiFileMerger key their own dictionaries the same case-insensitive
+        // way for the same reason).
+        var keyed = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
+        var original = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var currentFile in currentFiles.Distinct())
+        foreach (var currentFile in currentFiles.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var realRelativePath = currentFile.Replace('-', '/');
             var basePath = Path.Combine(dataFolder, realRelativePath);

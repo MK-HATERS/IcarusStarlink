@@ -262,8 +262,13 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         try
         {
-            var daedalusTask = _daedalusClient.FetchAsync();
-            var jimk72Task = _jimk72Client.FetchAsync();
+            // Each source is isolated the same way GitHubRepoDateClient already isolates its own
+            // per-repo fetches — one source being down (a transient outage, a renamed endpoint)
+            // shouldn't discard the other source's already-successful results via a shared
+            // Task.WhenAll failure.
+            var failedSources = new List<string>();
+            var daedalusTask = FetchCatalogSourceAsync(_daedalusClient.FetchAsync, "Daedalus", failedSources);
+            var jimk72Task = FetchCatalogSourceAsync(_jimk72Client.FetchAsync, "Jimk72", failedSources);
             await Task.WhenAll(daedalusTask, jimk72Task);
 
             _allCatalogEntries = [.. daedalusTask.Result, .. jimk72Task.Result];
@@ -295,7 +300,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
             SelectedAuthor = AvailableAuthors.Contains(previousAuthor) ? previousAuthor : AllAuthors;
             SelectedCategory = AvailableCategories.Contains(previousCategory) ? previousCategory : AllCategories;
 
-            CatalogStatusMessage = $"Loaded {_allCatalogEntries.Count} mods.";
+            CatalogStatusMessage = failedSources.Count > 0
+                ? $"Loaded {_allCatalogEntries.Count} mods — {string.Join(" and ", failedSources)} unavailable, try Refresh again."
+                : $"Loaded {_allCatalogEntries.Count} mods.";
             // Inside the try, not after the whole try/catch/finally: this method is invoked
             // fire-and-forget (`_ = RefreshCatalogAsync();`) from the constructor specifically
             // because its own top-level try/catch was meant to guarantee no unobserved exception
@@ -338,6 +345,25 @@ public sealed partial class DownloadsViewModel : ObservableObject
         finally
         {
             IsLoadingCatalog = false;
+        }
+    }
+
+    /// <summary>Isolates one catalog source's fetch from the other — a failure here is recorded in failedSources and returns an empty list, rather than throwing and (via the caller's shared Task.WhenAll) discarding the other source's own already-successful result too.</summary>
+    private static async Task<IReadOnlyList<CatalogEntry>> FetchCatalogSourceAsync(
+        Func<CancellationToken, Task<IReadOnlyList<CatalogEntry>>> fetch, string sourceName, List<string> failedSources)
+    {
+        try
+        {
+            return await fetch(default);
+        }
+        catch (Exception)
+        {
+            lock (failedSources)
+            {
+                failedSources.Add(sourceName);
+            }
+
+            return [];
         }
     }
 

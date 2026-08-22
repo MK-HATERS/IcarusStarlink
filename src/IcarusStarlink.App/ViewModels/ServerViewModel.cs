@@ -154,20 +154,29 @@ public sealed partial class ServerViewModel : ObservableObject
             RemotePath = RemotePathInput, EncryptionMode = EncryptionModeInput,
         };
 
-        _siteStore.Save(site);
-
-        // Blank means "keep whatever's already saved" — only touches the credential when the user
-        // actually typed something, so re-saving other fields (e.g. a corrected host) doesn't
-        // require re-entering a password that hasn't changed.
-        if (!string.IsNullOrEmpty(PasswordInput))
+        try
         {
-            _credentialStore.Save(CredentialTargets.FtpSite(id), PasswordInput);
-            PasswordInput = "";
-        }
+            _siteStore.Save(site);
 
-        ReloadSites();
-        SelectedSite = Sites.FirstOrDefault(s => s.Id == id);
-        SiteStatusMessage = $"Saved '{site.Name}'.";
+            // Blank means "keep whatever's already saved" — only touches the credential when the
+            // user actually typed something, so re-saving other fields (e.g. a corrected host)
+            // doesn't require re-entering a password that hasn't changed.
+            if (!string.IsNullOrEmpty(PasswordInput))
+            {
+                _credentialStore.Save(CredentialTargets.FtpSite(id), PasswordInput);
+                PasswordInput = "";
+            }
+
+            ReloadSites();
+            SelectedSite = Sites.FirstOrDefault(s => s.Id == id);
+            SiteStatusMessage = $"Saved '{site.Name}'.";
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as everywhere else — a locked/permission-denied ftp_sites.json, or
+            // a Credential Manager failure, shows a status message instead of crashing the app.
+            SiteStatusMessage = $"Couldn't save site: {ex.Message}";
+        }
     }
 
     [RelayCommand]
@@ -179,11 +188,18 @@ public sealed partial class ServerViewModel : ObservableObject
             return;
         }
 
-        _siteStore.Delete(site.Id);
-        _credentialStore.Delete(CredentialTargets.FtpSite(site.Id));
-        ReloadSites();
-        NewSite();
-        SiteStatusMessage = $"Deleted '{site.Name}'.";
+        try
+        {
+            _siteStore.Delete(site.Id);
+            _credentialStore.Delete(CredentialTargets.FtpSite(site.Id));
+            ReloadSites();
+            NewSite();
+            SiteStatusMessage = $"Deleted '{site.Name}'.";
+        }
+        catch (Exception ex)
+        {
+            SiteStatusMessage = $"Couldn't delete site: {ex.Message}";
+        }
     }
 
     /// <summary>
@@ -221,9 +237,9 @@ public sealed partial class ServerViewModel : ObservableObject
         IsConnecting = true;
         ConnectionStatusMessage = "Connecting…";
 
+        var client = _ftpClientFactory();
         try
         {
-            var client = _ftpClientFactory();
             await client.ConnectAsync(site, password);
             _connectedClient = client;
             IsConnected = true;
@@ -233,7 +249,11 @@ public sealed partial class ServerViewModel : ObservableObject
         catch (Exception ex)
         {
             // Same UI boundary as everywhere else — a wrong password, unreachable host, or
-            // firewall/port issue shows a status message, not a crash.
+            // firewall/port issue shows a status message, not a crash. The client itself is only
+            // ever assigned to _connectedClient (and thus only ever disposed via Disconnect) once
+            // ConnectAsync has actually succeeded — dispose it here too, or a failed attempt leaks
+            // its underlying socket/TLS session.
+            await client.DisposeAsync();
             ConnectionStatusMessage = $"Couldn't connect: {ex.Message}";
         }
         finally

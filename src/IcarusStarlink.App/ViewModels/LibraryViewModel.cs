@@ -259,7 +259,17 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        OpenEditor(SelectedItem.FolderName);
+        try
+        {
+            OpenEditor(SelectedItem.FolderName);
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as NewMod's own identical OpenEditor call — the mod's .EXMOD can
+            // have gone missing, become ambiguous, or be locked by another process since Library
+            // last scanned it.
+            StatusMessage = $"Couldn't open the editor: {ex.Message}";
+        }
     }
 
     [RelayCommand]
