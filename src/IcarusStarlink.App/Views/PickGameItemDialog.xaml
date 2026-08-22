@@ -21,9 +21,21 @@
                    Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
         <Grid Grid.Row="1" Margin="0,0,0,8">
-            <TextBox x:Name="FilterBox" TextChanged="FilterBox_TextChanged"/>
-            <TextBlock x:Name="FilterPlaceholder" Text="e.g. Stone_Pickaxe, or a file like D_ProcessorRecipes…"
-                       Style="{StaticResource PlaceholderTextStyle}"/>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Grid Grid.Column="0">
+                <TextBox x:Name="FilterBox" TextChanged="FilterBox_TextChanged"/>
+                <TextBlock x:Name="FilterPlaceholder" Text="e.g. Stone_Pickaxe, or a file like D_ProcessorRecipes…"
+                           Style="{StaticResource PlaceholderTextStyle}"/>
+            </Grid>
+            <!-- Classic IMM's "View Originals with modded items hidden" workflow — after a game
+                 patch, what's LEFT visible with this checked is exactly what the mod hasn't
+                 accounted for yet. -->
+            <CheckBox x:Name="HideCoveredBox" Grid.Column="1" Content="Hide items already in this mod"
+                      Margin="10,0,0,0" VerticalAlignment="Center" Checked="HideCoveredBox_Changed" Unchecked="HideCoveredBox_Changed"
+                      ToolTip="Shows only items this mod does NOT already touch — the quickest way to spot what's new in a file after a game update"/>
         </Grid>
 
         <!-- ListBox virtualizes by default — the real game data is ~10k+ rows across ~300 files,

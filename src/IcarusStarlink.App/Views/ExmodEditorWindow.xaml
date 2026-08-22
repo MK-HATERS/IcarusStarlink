@@ -60,6 +60,8 @@
                         ToolTip="Add one of the game's own real data files to this mod, with no items yet"/>
                 <Button Content="Merge existing mod into this one…" Command="{Binding MergeExistingModCommand}" Margin="0,0,8,4"
                         ToolTip="Copy another Library mod's own items into this one — an item already here is left alone"/>
+                <Button Content="Search game data…" Command="{Binding SearchGameDataCommand}" Margin="0,0,8,4"
+                        ToolTip="Find any item by name, and everywhere its name is referenced inside other items' JSON — e.g. every recipe that consumes it"/>
             </WrapPanel>
 
             <StackPanel Grid.Row="4" Margin="0,8,0,0">

@@ -5,35 +5,63 @@ using IcarusStarlink.App.ViewModels;
 
 namespace IcarusStarlink.App.Views;
 
-/// <summary>"Add item from game data" — picks one real DataTable row out of the whole extracted game data (classic IMM's own "Add Item to Mod", its changelog's most-iterated editor feature). The index is built once by ExmodEditorViewModel and handed in, so reopening the dialog costs nothing.</summary>
+/// <summary>
+/// "Add item from game data" — picks one real DataTable row out of the whole extracted game data
+/// (classic IMM's own "Add Item to Mod", its changelog's most-iterated editor feature). The index
+/// is built once by ExmodEditorViewModel and handed in, so reopening the dialog costs nothing.
+/// The "hide items already in this mod" toggle is classic IMM's other companion workflow ("View
+/// Originals with modded items hidden"): with it on, what remains visible in a file is exactly
+/// what the mod hasn't accounted for — the fast way to spot rows a game patch added.
+/// </summary>
 public partial class PickGameItemDialog : Window
 {
     private readonly IReadOnlyList<GameDataItemRef> _allItems;
+    private readonly IReadOnlySet<string> _coveredKeys;
 
     public GameDataItemRef? SelectedItem { get; private set; }
 
-    public PickGameItemDialog(IReadOnlyList<GameDataItemRef> items)
+    /// <param name="coveredKeys">Keys (see CoverageKey) of items the mod already touches — drives the hide toggle. Empty set disables nothing; the toggle just has no effect.</param>
+    public PickGameItemDialog(IReadOnlyList<GameDataItemRef> items, IReadOnlySet<string> coveredKeys)
     {
         InitializeComponent();
         _allItems = items;
-        ItemsListBox.ItemsSource = _allItems;
-        UpdateCount(_allItems.Count);
+        _coveredKeys = coveredKeys;
+        ApplyFilter();
         Loaded += (_, _) => FilterBox.Focus();
     }
+
+    public static string CoverageKey(string currentFile, string itemName) => $"{currentFile}|{itemName}".ToLowerInvariant();
 
     private void FilterBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         FilterPlaceholder.Visibility = FilterBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-
-        var filter = FilterBox.Text.Trim();
-        var filtered = string.IsNullOrEmpty(filter)
-            ? _allItems
-            : [.. _allItems.Where(i => i.Display.Contains(filter, StringComparison.OrdinalIgnoreCase))];
-        ItemsListBox.ItemsSource = filtered;
-        UpdateCount(filtered.Count);
+        ApplyFilter();
     }
 
-    private void UpdateCount(int count) => CountText.Text = $"{count:N0} item(s) across the extracted game data";
+    private void HideCoveredBox_Changed(object sender, RoutedEventArgs e) => ApplyFilter();
+
+    private void ApplyFilter()
+    {
+        var filter = FilterBox.Text.Trim();
+        var hideCovered = HideCoveredBox.IsChecked == true;
+
+        IEnumerable<GameDataItemRef> query = _allItems;
+        if (hideCovered)
+        {
+            query = query.Where(i => !_coveredKeys.Contains(CoverageKey(i.CurrentFile, i.ItemName)));
+        }
+
+        if (!string.IsNullOrEmpty(filter))
+        {
+            query = query.Where(i => i.Display.Contains(filter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var filtered = query.ToList();
+        ItemsListBox.ItemsSource = filtered;
+        CountText.Text = hideCovered
+            ? $"{filtered.Count:N0} item(s) this mod doesn't touch yet"
+            : $"{filtered.Count:N0} item(s) across the extracted game data";
+    }
 
     private void Add_Click(object sender, RoutedEventArgs e)
     {

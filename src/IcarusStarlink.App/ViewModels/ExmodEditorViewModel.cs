@@ -24,6 +24,9 @@ public sealed record GameDataItemRef(string CurrentFile, string RealPath, string
     public string Display => $"{RealPath} — {ItemName}";
 }
 
+/// <summary>One row plus its own serialized JSON — the searchable unit for the Search game data window's reference search. Kept separate from GameDataItemRef so the (much lighter) add-item picker never pays for the serialized text it doesn't use.</summary>
+public sealed record GameDataSearchEntry(string RealPath, string ItemName, string RowJson);
+
 /// <summary>Which of the editor's three views (spec: "Item fields, File JSON, or Full EXMOD JSON views") is showing in the right-hand pane.</summary>
 public enum ExmodEditorViewMode
 {
@@ -355,7 +358,13 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
-        var dialog = new PickGameItemDialog(_gameItemIndex) { Owner = Application.Current.MainWindow };
+        // What this mod already touches, for the picker's own "hide items already in this mod"
+        // toggle (classic IMM's View-Originals-with-modded-hidden workflow).
+        var coveredKeys = _package.Rows
+            .SelectMany(r => r.FileItems.Select(i => PickGameItemDialog.CoverageKey(r.CurrentFile, i.Name)))
+            .ToHashSet();
+
+        var dialog = new PickGameItemDialog(_gameItemIndex, coveredKeys) { Owner = Application.Current.MainWindow };
         if (dialog.ShowDialog() != true || dialog.SelectedItem is not { } picked)
         {
             return;
@@ -408,6 +417,83 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         ReloadItems();
         SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == picked.CurrentFile && i.ItemName == picked.ItemName);
         StatusMessage = $"Added '{picked.ItemName}' with all {item.Fields.Count} of its real game values — edit what you want changed.";
+    }
+
+    /// <summary>Built once, on the first "Search game data" click — heavier than _gameItemIndex (it keeps each row's serialized JSON for the reference search), so the two stay separate lazily-built caches.</summary>
+    private IReadOnlyList<GameDataSearchEntry>? _gameSearchIndex;
+
+    /// <summary>
+    /// Classic IMM's "Search Original JSON" — find an item by name AND everywhere its name/value is
+    /// referenced inside other items' JSON across the whole extracted game data (which recipes
+    /// consume 'Wood'; which items grant a stat). Non-modal, like the editor itself — a research
+    /// companion meant to sit beside the fields being edited.
+    /// </summary>
+    [RelayCommand]
+    private async Task SearchGameDataAsync()
+    {
+        if (_gameSearchIndex is null)
+        {
+            StatusMessage = "Indexing the game data for search…";
+            try
+            {
+                var dataFolder = _dataFolder;
+                _gameSearchIndex = await Task.Run(() => BuildGameSearchIndex(dataFolder));
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Couldn't read the game data folder: {ex.Message}";
+                return;
+            }
+
+            StatusMessage = null;
+        }
+
+        if (_gameSearchIndex.Count == 0)
+        {
+            StatusMessage = "No game data found — run Update data folder in Settings first.";
+            return;
+        }
+
+        var window = new SearchGameDataWindow(_gameSearchIndex, _dataFolder) { Owner = Application.Current.MainWindow };
+        window.Show();
+    }
+
+    private static List<GameDataSearchEntry> BuildGameSearchIndex(string dataFolder)
+    {
+        var index = new List<GameDataSearchEntry>();
+        if (!Directory.Exists(dataFolder))
+        {
+            return index;
+        }
+
+        foreach (var filePath in Directory.EnumerateFiles(dataFolder, "*.json", SearchOption.AllDirectories))
+        {
+            JsonNode? parsed;
+            try
+            {
+                parsed = JsonNode.Parse(File.ReadAllText(filePath));
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+
+            if (parsed is not JsonObject fileObject || fileObject["Rows"] is not JsonArray rows)
+            {
+                continue;
+            }
+
+            var realPath = Path.GetRelativePath(dataFolder, filePath).Replace('\\', '/');
+            foreach (var rowNode in rows)
+            {
+                if (rowNode is JsonObject row && row["Name"] is JsonValue nameValue && nameValue.TryGetValue<string>(out var name))
+                {
+                    index.Add(new GameDataSearchEntry(realPath, name, row.ToJsonString()));
+                }
+            }
+        }
+
+        return index;
     }
 
     /// <summary>One pass over the extracted data folder, reading only each file's row names — a file that isn't DataTable-shaped (no Rows array, or not JSON at all) is skipped, not an error.</summary>
