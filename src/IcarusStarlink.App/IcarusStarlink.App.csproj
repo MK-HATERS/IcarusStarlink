@@ -9,6 +9,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Ships next to the exe in every build output, matching the spec's own "Run Uninstall.bat
+         in the Workshop folder" — there's no separate publish/packaging step yet for this to be
+         staged into instead. -->
+    <None Include="Uninstall.bat">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.11" />
