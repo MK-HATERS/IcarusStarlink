@@ -127,6 +127,7 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
             Path.Combine(appDataDirectory, "Backups")));
         builder.Services.AddSingleton<DownloadsViewModel>();
+        builder.Services.AddSingleton(sp => new NexusBrowserViewModel(Path.Combine(appDataDirectory, "WebView2")));
         builder.Services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUnrealPakService>(),

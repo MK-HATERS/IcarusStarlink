@@ -40,6 +40,9 @@ public sealed partial class MainViewModel : ObservableObject
         NavItems =
         [
             new NavItem("downloads", "Downloads", typeof(DownloadsViewModel)),
+            // Its own top-level item rather than a Downloads sub-tab, per explicit user request
+            // (Phase 8.3) — grouped right next to Downloads since both are mod-sourcing pages.
+            new NavItem("nexus", "Nexus", typeof(NexusBrowserViewModel)),
             new NavItem("library", "Library", typeof(LibraryViewModel)),
             new NavItem("merge", "Merge & Install", typeof(MergeInstallViewModel)),
             new NavItem("weekly-changes", "Weekly Changes", typeof(WeeklyChangesViewModel)),
