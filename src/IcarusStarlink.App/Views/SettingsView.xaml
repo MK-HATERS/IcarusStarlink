@@ -12,15 +12,33 @@
 
         <TextBlock Text="Icarus Content folder (…\Icarus\Icarus\Content)" Style="{StaticResource FieldLabelStyle}"/>
         <DockPanel Margin="0,6,0,20">
-            <Button Content="Browse…" Command="{Binding BrowseIcarusContentFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"/>
-            <Button Content="Auto-detect" Command="{Binding AutoDetectIcarusContentFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
-                    ToolTip="Looks for Icarus through your own Steam install (registry + library folders) and fills this in if found"/>
+            <Button Command="{Binding BrowseIcarusContentFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0" AutomationProperties.Name="Browse">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Browse…" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <Button Command="{Binding AutoDetectIcarusContentFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
+                    ToolTip="Looks for Icarus through your own Steam install (registry + library folders) and fills this in if found"
+                    AutomationProperties.Name="Auto-detect">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Auto-detect" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
             <TextBox Text="{Binding IcarusContentPath, UpdateSourceTrigger=PropertyChanged}"/>
         </DockPanel>
 
         <TextBlock Text="UnrealPak.exe path" Style="{StaticResource FieldLabelStyle}"/>
         <DockPanel Margin="0,6,0,20">
-            <Button Content="Browse…" Command="{Binding BrowseUnrealPakExeCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"/>
+            <Button Command="{Binding BrowseUnrealPakExeCommand}" DockPanel.Dock="Right" Margin="8,0,0,0" AutomationProperties.Name="Browse">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Browse…" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
             <TextBox Text="{Binding UnrealPakExePath, UpdateSourceTrigger=PropertyChanged}"/>
         </DockPanel>
 
@@ -36,8 +54,14 @@
 
         <StackPanel Visibility="{Binding NexusSignedInAs, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}">
             <DockPanel Margin="0,0,0,8">
-                <Button Content="Get API key…" Command="{Binding OpenNexusApiKeyPageCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
-                        ToolTip="Opens your Nexus account's API Access page in your browser"/>
+                <Button Command="{Binding OpenNexusApiKeyPageCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
+                        ToolTip="Opens your Nexus account's API Access page in your browser" AutomationProperties.Name="Get API key">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="{StaticResource IconGlobeMeridian}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                        <TextBlock Text="Get API key…" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
                 <TextBox Text="{Binding NexusApiKeyInput, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="Paste your Nexus Personal API Key here"/>
             </DockPanel>
@@ -64,8 +88,15 @@
 
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
                     Visibility="{Binding IsNxmProtocolNotRegistered, Converter={StaticResource BoolToVisibilityConverter}}">
-            <Button Content="Register" Command="{Binding RegisterNxmProtocolCommand}"
-                    ToolTip="Writes a per-user registry entry (no admin rights needed) so nxm:// links launch IcarusStarlink — asks for confirmation first"/>
+            <Button Command="{Binding RegisterNxmProtocolCommand}"
+                    ToolTip="Writes a per-user registry entry (no admin rights needed) so nxm:// links launch IcarusStarlink — asks for confirmation first"
+                    AutomationProperties.Name="Register">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconGlobeMeridian}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Register" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
@@ -82,9 +113,16 @@
         <TextBlock Text="UE4SS is Icarus's separate Lua/scripting mod framework (Binaries\Win64) — installing/updating it is unrelated to the EXMOD/pak system above. Your existing mods and settings are never overwritten."
                    Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="560"/>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Content="{Binding Ue4ssInstallButtonLabel}" Command="{Binding InstallOrUpdateUe4ssCommand}"
+            <Button Command="{Binding InstallOrUpdateUe4ssCommand}"
                     IsEnabled="{Binding CanInstallOrUpdateUe4ss}"
-                    ToolTip="Downloads the latest stable UE4SS release from GitHub and installs it into Binaries\Win64 — backs up what's there first, asks for confirmation before writing anything"/>
+                    ToolTip="Downloads the latest stable UE4SS release from GitHub and installs it into Binaries\Win64 — backs up what's there first, asks for confirmation before writing anything"
+                    AutomationProperties.Name="{Binding Ue4ssInstallButtonLabel}">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="{Binding Ue4ssInstallButtonLabel}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
             <TextBlock Text="{Binding Ue4ssStatusText}" VerticalAlignment="Center" Margin="12,0,0,0"
                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
         </StackPanel>
@@ -99,7 +137,12 @@
                    TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,10"
                    Visibility="{Binding GameDataOutdatedMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-            <Button Content="Update data folder" Command="{Binding UpdateDataFolderCommand}"/>
+            <Button Command="{Binding UpdateDataFolderCommand}" AutomationProperties.Name="Update data folder">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Update data folder" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
             <TextBlock Text="{Binding DataFolderStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
         </StackPanel>
@@ -107,10 +150,16 @@
         <TextBlock Text="Diagnostics &amp; safety" Style="{StaticResource FieldLabelStyle}"/>
         <TextBlock Text="If you run into a bug, export a diagnostics zip (logs + sanitized settings, never API keys or tokens) to attach to your report."
                    Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="560"/>
-        <CheckBox Content="Performance tracking" IsChecked="{Binding PerformanceTrackingEnabled}" Margin="0,0,0,10"
+        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Performance tracking" IsChecked="{Binding PerformanceTrackingEnabled}" Margin="0,0,0,10"
                   ToolTip="Off by default. When on, logs how long Rebuild/Install/catalog-refresh take to a separate app.perf log file — useful if something feels slow and you want to show real numbers in a bug report."/>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-            <Button Content="Export diagnostics zip…" Command="{Binding ExportDiagnosticsCommand}"/>
+            <Button Command="{Binding ExportDiagnosticsCommand}" AutomationProperties.Name="Export diagnostics zip">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Export diagnostics zip…" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
             <TextBlock Text="{Binding DiagnosticsStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
         </StackPanel>
@@ -137,10 +186,22 @@
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Content="Check for updates" Command="{Binding CheckForAppUpdatesCommand}" IsEnabled="{Binding CanCheckForAppUpdates}"/>
-            <Button Content="Update now" Command="{Binding OpenLatestReleasePageCommand}" Margin="8,0,0,0"
+            <Button Command="{Binding CheckForAppUpdatesCommand}" IsEnabled="{Binding CanCheckForAppUpdates}" AutomationProperties.Name="Check for updates">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Check for updates" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <Button Command="{Binding OpenLatestReleasePageCommand}" Margin="8,0,0,0"
                     Visibility="{Binding IsAppUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
-                    ToolTip="Opens the release's GitHub page in your browser so you can download and run it manually"/>
+                    ToolTip="Opens the release's GitHub page in your browser so you can download and run it manually"
+                    AutomationProperties.Name="Update now">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Update now" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
         </StackPanel>
         <TextBlock Text="{Binding AppUpdateStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
                    TextWrapping="Wrap" MaxWidth="560"

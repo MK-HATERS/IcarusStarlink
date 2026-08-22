@@ -37,8 +37,20 @@
                          DisplayMemberPath="Name" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"/>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
-                    <Button Content="New" Command="{Binding NewSiteCommand}"/>
-                    <Button Content="Delete" Command="{Binding DeleteSiteCommand}" Margin="8,0,0,0"/>
+                    <Button Command="{Binding NewSiteCommand}" AutomationProperties.Name="New">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconPlus}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                            <TextBlock Text="New" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Margin="8,0,0,0" Command="{Binding DeleteSiteCommand}" AutomationProperties.Name="Delete">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                            <TextBlock Text="Delete" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
 
                 <ScrollViewer Grid.Row="3" Margin="0,16,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -71,8 +83,21 @@
                     <TextBlock Text="{Binding SiteStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                        <Button Content="Connect" Command="{Binding ConnectCommand}" IsEnabled="{Binding IsNotConnected}"
-                                Visibility="{Binding IsNotConnected, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <Button Command="{Binding ConnectCommand}" IsEnabled="{Binding IsNotConnected}"
+                                Visibility="{Binding IsNotConnected, Converter={StaticResource BoolToVisibilityConverter}}"
+                                Style="{StaticResource PrimaryButtonStyle}" AutomationProperties.Name="Connect">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconServerBars}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.6"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Connect" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Phase 10: a semantic status badge alongside Disconnect, matching the
+                             pill-badge language used for Downloads' Status column. -->
+                        <Border Background="{DynamicResource SuccessSoftBrush}" CornerRadius="9" Padding="7,3" Margin="0,0,10,0"
+                                Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="CONNECTED" FontFamily="Consolas" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource SuccessBrush}"/>
+                        </Border>
                         <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     </StackPanel>
                     <TextBlock Text="{Binding ConnectionStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
@@ -90,9 +115,24 @@
 
                 <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
                     <TextBlock Text="{Binding CurrentRemotePath}" VerticalAlignment="Center" FontFamily="Consolas"/>
-                    <Button Content="Up" Command="{Binding NavigateUpCommand}" Margin="12,0,0,0"/>
-                    <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="8,0,0,0"/>
-                    <Button Content="Open folder" Command="{Binding NavigateIntoCommand}" CommandParameter="{Binding SelectedRemoteEntry}" Margin="8,0,0,0"/>
+                    <Button Command="{Binding NavigateUpCommand}" Style="{StaticResource IconButtonStyle}" Width="28" Margin="12,0,0,0"
+                            ToolTip="Up" AutomationProperties.Name="Up">
+                        <Path Data="{StaticResource IconArrowUp}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform"/>
+                    </Button>
+                    <Button Command="{Binding RefreshCommand}" Margin="8,0,0,0" AutomationProperties.Name="Refresh">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                            <TextBlock Text="Refresh" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding NavigateIntoCommand}" CommandParameter="{Binding SelectedRemoteEntry}" Margin="8,0,0,0" AutomationProperties.Name="Open folder">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                            <TextBlock Text="Open folder" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
 
                 <DataGrid Grid.Row="1" ItemsSource="{Binding RemoteEntries}" SelectedItem="{Binding SelectedRemoteEntry}"
@@ -106,12 +146,34 @@
                 </DataGrid>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
-                    <Button Content="Upload…" Command="{Binding UploadCommand}"
-                            ToolTip="Uploads a local file into the current remote folder"/>
-                    <Button Content="Download…" Command="{Binding DownloadCommand}" Margin="8,0,0,0"
-                            ToolTip="Downloads the selected remote file to a location you choose"/>
-                    <Button Content="Delete" Command="{Binding DeleteRemoteCommand}" Margin="8,0,0,0"
-                            ToolTip="Deletes the selected remote file from the server — asks for confirmation first"/>
+                    <Button Command="{Binding UploadCommand}"
+                            ToolTip="Uploads a local file into the current remote folder" AutomationProperties.Name="Upload">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0" RenderTransformOrigin="0.5,0.5">
+                                <Path.RenderTransform>
+                                    <RotateTransform Angle="180"/>
+                                </Path.RenderTransform>
+                            </Path>
+                            <TextBlock Text="Upload…" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding DownloadCommand}" Margin="8,0,0,0"
+                            ToolTip="Downloads the selected remote file to a location you choose" AutomationProperties.Name="Download">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                            <TextBlock Text="Download…" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding DeleteRemoteCommand}" Margin="8,0,0,0"
+                            ToolTip="Deletes the selected remote file from the server — asks for confirmation first" AutomationProperties.Name="Delete">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                            <TextBlock Text="Delete" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </Grid>
 
