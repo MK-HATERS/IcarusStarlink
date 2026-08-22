@@ -1,5 +1,5 @@
-using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Core.Catalog;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -8,7 +8,7 @@ namespace IcarusStarlink.App.ViewModels;
 public sealed partial class NexusWatchlistItemViewModel : ObservableObject
 {
     private readonly Action<int, string> _onNameChanged;
-    private readonly DispatcherTimer _nameSaveDebounceTimer;
+    private readonly DebounceTimer _nameSaveDebounceTimer;
 
     public int NexusId { get; }
     public string Url { get; }
@@ -33,12 +33,7 @@ public sealed partial class NexusWatchlistItemViewModel : ObservableObject
         _name = entry.Name;
         _onNameChanged = onNameChanged;
 
-        _nameSaveDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-        _nameSaveDebounceTimer.Tick += (_, _) =>
-        {
-            _nameSaveDebounceTimer.Stop();
-            _onNameChanged(NexusId, Name);
-        };
+        _nameSaveDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(500), () => _onNameChanged(NexusId, Name));
     }
 
     /// <summary>
@@ -47,11 +42,7 @@ public sealed partial class NexusWatchlistItemViewModel : ObservableObject
     /// watchlist so a stale timer firing after Remove() can't write this entry's old name back
     /// into the store under a NexusId a later Add() might reuse.
     /// </summary>
-    public void CancelPendingSave() => _nameSaveDebounceTimer.Stop();
+    public void CancelPendingSave() => _nameSaveDebounceTimer.Cancel();
 
-    partial void OnNameChanged(string value)
-    {
-        _nameSaveDebounceTimer.Stop();
-        _nameSaveDebounceTimer.Start();
-    }
+    partial void OnNameChanged(string value) => _nameSaveDebounceTimer.Restart();
 }

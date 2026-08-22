@@ -1,3 +1,4 @@
+using IcarusStarlink.Core.Patches;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;

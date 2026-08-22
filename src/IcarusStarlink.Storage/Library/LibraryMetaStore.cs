@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
 namespace IcarusStarlink.Storage.Library;
@@ -13,37 +12,18 @@ namespace IcarusStarlink.Storage.Library;
 /// </summary>
 internal sealed class LibraryMetaStore(string metaDirectory, ILogger logger)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
-    public LibraryMeta Load(string folderName)
-    {
-        var path = GetPath(folderName);
-        if (!File.Exists(path))
-        {
-            return new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow };
-        }
-
-        try
-        {
-            var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<LibraryMeta>(json, JsonOptions) ?? new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow };
-        }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-        {
-            // IOException/UnauthorizedAccessException (sidecar transiently locked or
-            // permission-denied) matter here as much as JsonException: RescanAll's own catch
-            // covers both, but if this method let either propagate, the *whole mod* — whose own
-            // .EXMOD package is perfectly readable — would vanish from the Library instead of
-            // just falling back to default pin/favorite/notes for this one entry.
-            logger.LogWarning(ex, "Failed to load library metadata from {Path}; falling back to defaults", path);
-            return new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow };
-        }
-    }
+    // IOException/UnauthorizedAccessException (sidecar transiently locked or permission-denied)
+    // matter here as much as JsonException — JsonFileStore.Load's own catch covers all three, so
+    // if this failed and let one propagate, the *whole mod* (whose own .EXMOD package is perfectly
+    // readable) would vanish from the Library instead of just falling back to default
+    // pin/favorite/notes for this one entry.
+    public LibraryMeta Load(string folderName) =>
+        JsonFileStore.Load(GetPath(folderName), () => new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow }, logger);
 
     public void Save(string folderName, LibraryMeta meta)
     {
         Directory.CreateDirectory(metaDirectory);
-        File.WriteAllText(GetPath(folderName), JsonSerializer.Serialize(meta, JsonOptions));
+        JsonFileStore.Save(GetPath(folderName), meta);
     }
 
     public void Delete(string folderName)

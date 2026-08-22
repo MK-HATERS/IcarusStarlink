@@ -1,4 +1,3 @@
-using System.Text.Json;
 using IcarusStarlink.Core.Settings;
 using Microsoft.Extensions.Logging;
 
@@ -6,8 +5,6 @@ namespace IcarusStarlink.Storage.Settings;
 
 public sealed class AppSettingsService : ISettingsService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
     private readonly string _settingsFilePath;
     private readonly ILogger<AppSettingsService> _logger;
 
@@ -18,42 +15,22 @@ public sealed class AppSettingsService : ISettingsService
         _logger = logger;
         Directory.CreateDirectory(appDataDirectory);
         _settingsFilePath = Path.Combine(appDataDirectory, "settings.json");
-        Current = Load();
-    }
-
-    private AppSettings Load()
-    {
-        if (!File.Exists(_settingsFilePath))
-        {
-            return new AppSettings();
-        }
-
-        try
-        {
-            var json = File.ReadAllText(_settingsFilePath);
-            return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
-        }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-        {
-            // Scoped the same way every sibling store's Load() is (NexusWatchlistStore,
-            // PendingDownloadStore, FtpSiteStore, LibraryMetaStore) — a genuinely corrupt/
-            // inaccessible file falls back to defaults, but a real programming bug elsewhere isn't
-            // silently masked as "corrupt settings".
-            _logger.LogWarning(ex, "Failed to load settings from {Path}; falling back to defaults", _settingsFilePath);
-            return new AppSettings();
-        }
+        Current = JsonFileStore.Load(_settingsFilePath, () => new AppSettings(), _logger);
     }
 
     public bool Save()
     {
         try
         {
-            var json = JsonSerializer.Serialize(Current, JsonOptions);
-            File.WriteAllText(_settingsFilePath, json);
+            JsonFileStore.Save(_settingsFilePath, Current);
             return true;
         }
         catch (Exception ex)
         {
+            // Deliberately broader than Load()'s scoped catch: Save is just serialize+write, with
+            // much less surface for a masked programming bug, so catching anything here (disk
+            // full, a removable drive unplugged mid-write, etc.) and reporting failure via the
+            // bool return is the safer default.
             _logger.LogWarning(ex, "Failed to save settings to {Path}", _settingsFilePath);
             return false;
         }

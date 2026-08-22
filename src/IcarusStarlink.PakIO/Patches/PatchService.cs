@@ -1,7 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
-using IcarusStarlink.Core.Profiles;
+using IcarusStarlink.Core.Patches;
 using IcarusStarlink.PakIO.Container;
 
 namespace IcarusStarlink.PakIO.Patches;

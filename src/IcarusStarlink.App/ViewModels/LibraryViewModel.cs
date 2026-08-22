@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Windows;
-using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -22,7 +21,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly ISettingsService _settingsService;
     private readonly Func<string, ExmodEditorViewModel> _editorFactory;
     private readonly string _backupDirectory;
-    private readonly DispatcherTimer _searchDebounceTimer;
+    private readonly DebounceTimer _searchDebounceTimer;
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
     private readonly Dictionary<string, LibraryGroupViewModel> _groupsByKey = [];
 
@@ -75,12 +74,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         // Reload() rebuilds every row's ViewModel and re-queries the search index; without
         // debouncing, every keystroke would pay that cost plus re-trigger the still-selected
         // item's EnsureDetailsLoaded (a fresh instance loses its "already loaded" state).
-        _searchDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        _searchDebounceTimer.Tick += (_, _) =>
-        {
-            _searchDebounceTimer.Stop();
-            Reload();
-        };
+        _searchDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), () => Reload());
 
         // This VM is a DI singleton, constructed once and never re-scanned on its own — without
         // this, a mod imported from Downloads (a different page, sharing the same
@@ -92,11 +86,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         ReloadInstalledUe4ssMods();
     }
 
-    partial void OnSearchTextChanged(string value)
-    {
-        _searchDebounceTimer.Stop();
-        _searchDebounceTimer.Start();
-    }
+    partial void OnSearchTextChanged(string value) => _searchDebounceTimer.Restart();
 
     partial void OnSelectedItemChanged(LibraryItemViewModel? value) => value?.EnsureDetailsLoaded();
 

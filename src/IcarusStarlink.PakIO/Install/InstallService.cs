@@ -10,7 +10,7 @@ public sealed class InstallService : IInstallService
 {
     public Task<InstallResult> InstallAsync(
         string stagedPakPath, string icarusContentPath, string backupDirectory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         if (!File.Exists(stagedPakPath))
         {
@@ -36,10 +36,10 @@ public sealed class InstallService : IInstallService
             File.Copy(stagedManifestPath, targetManifestPath, overwrite: true);
         }
 
-        return Task.FromResult(new InstallResult(targetPakPath, backupPakPath));
-    }
+        return new InstallResult(targetPakPath, backupPakPath);
+    }, cancellationToken);
 
-    public Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default)
+    public Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var pakManifestPath = Path.Combine(icarusContentPath, "Paks", "mods", InstallManifestNames.PakManifest);
         var modNames = File.Exists(pakManifestPath)
@@ -47,6 +47,6 @@ public sealed class InstallService : IInstallService
             ? File.ReadAllLines(pakManifestPath).Skip(1).Where(line => !string.IsNullOrWhiteSpace(line)).ToList()
             : [];
 
-        return Task.FromResult(new InstalledState(modNames));
-    }
+        return new InstalledState(modNames);
+    }, cancellationToken);
 }

@@ -3,9 +3,11 @@ namespace IcarusStarlink.PakIO.Install;
 /// <summary>
 /// Keep-last-5 backup helper shared by every service that overwrites something in the real game
 /// folder (InstallService's pak/UE4SS-mod-folder writes, Ue4ssLoaderInstallService's loader writes)
-/// — extracted so the backup+prune algorithm only needs implementing once.
+/// — extracted so the backup+prune algorithm only needs implementing once. Public (not internal)
+/// so Storage's Ue4ssModRepository can reuse CopyDirectory too, rather than maintaining its own
+/// separate copy of the same recursive-copy logic.
 /// </summary>
-internal static class FolderBackup
+public static class FolderBackup
 {
     private const int MaxBackups = 5;
 

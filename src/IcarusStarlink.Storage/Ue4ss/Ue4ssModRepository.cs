@@ -1,4 +1,5 @@
 using IcarusStarlink.Core.Ue4ss;
+using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Ue4ss;
 
 namespace IcarusStarlink.Storage.Ue4ss;
@@ -18,9 +19,12 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
 
     public string Import(string zipFilePath)
     {
-        var folderName = MakeUniqueFolderName(Ue4ssModArchive.DeriveFolderName(zipFilePath));
+        // Opens and scans the zip's entries once — DeriveFolderName+Extract used to each do this
+        // independently, opening and scanning the same archive twice for every import.
+        using var archive = Ue4ssModArchive.Open(zipFilePath);
+        var folderName = MakeUniqueFolderName(archive.DerivedFolderName);
         var targetFolder = Path.Combine(_stagedDirectory, folderName);
-        Ue4ssModArchive.Extract(zipFilePath, targetFolder);
+        archive.ExtractTo(targetFolder);
         return folderName;
     }
 
@@ -42,22 +46,8 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
         }
 
         var targetName = MakeUniqueFolderName(folderName);
-        CopyDirectory(sourceFolder, Path.Combine(_stagedDirectory, targetName));
+        FolderBackup.CopyDirectory(sourceFolder, Path.Combine(_stagedDirectory, targetName));
         return targetName;
-    }
-
-    private static void CopyDirectory(string sourceDir, string destDir)
-    {
-        Directory.CreateDirectory(destDir);
-        foreach (var file in Directory.GetFiles(sourceDir))
-        {
-            File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)));
-        }
-
-        foreach (var subDir in Directory.GetDirectories(sourceDir))
-        {
-            CopyDirectory(subDir, Path.Combine(destDir, Path.GetFileName(subDir)));
-        }
     }
 
     private string MakeUniqueFolderName(string name)

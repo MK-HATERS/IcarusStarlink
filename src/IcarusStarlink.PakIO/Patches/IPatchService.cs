@@ -1,4 +1,4 @@
-using IcarusStarlink.Core.Profiles;
+using IcarusStarlink.Core.Patches;
 using IcarusStarlink.PakIO.Container;
 
 namespace IcarusStarlink.PakIO.Patches;

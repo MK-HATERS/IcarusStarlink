@@ -51,6 +51,20 @@ public static class ExmodFolder
         return ReadPackage(exmodFilePath, new ExmodSizeBudget($"Folder '{folderPath}'"));
     }
 
+    /// <summary>
+    /// Same as ReadPackageOnly, but skips its own Directory.EnumerateFiles walk in favor of a file
+    /// list the caller already has — for a caller (FolderLibraryRepository.RescanAll) that already
+    /// walked the folder itself for its own reasons (e.g. to check for a .pak file too) and would
+    /// otherwise pay for the exact same recursive walk twice per folder, once per caller. The
+    /// caller is responsible for the list being a reasonably fresh snapshot of the same folder —
+    /// same TOCTOU caveat SnapshotFiles' own callers already accept.
+    /// </summary>
+    public static ExmodPackage ReadPackageOnly(string folderPath, IReadOnlyList<string> precomputedFiles)
+    {
+        var exmodFilePath = FindExmodFile(precomputedFiles, folderPath);
+        return ReadPackage(exmodFilePath, new ExmodSizeBudget($"Folder '{folderPath}'"));
+    }
+
     /// <summary>Lists asset relative paths without reading any file's content — for a Files-tab-style listing before the user picks one to preview.</summary>
     public static IReadOnlyList<string> ListAssetPaths(string folderPath)
     {

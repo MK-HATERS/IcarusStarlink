@@ -97,6 +97,35 @@ public class Ue4ssModArchiveTests : IDisposable
         Assert.Throws<FormatException>(() => Ue4ssModArchive.Extract(path, Path.Combine(_dir, "staged", "MyMod")));
     }
 
+    [Fact]
+    public void Open_DerivedFolderNameThenExtractTo_BothReflectTheSameSingleScan()
+    {
+        // The real point of Open() — a caller (Ue4ssModRepository.Import) needs both the derived
+        // name AND extraction, off one opened/scanned archive rather than two independent ones.
+        var zip = MakeZip("download.zip", ("NearbyCrafting/Scripts/main.lua", "-- lua"), ("NearbyCrafting/enabled.txt", "on"));
+        var dest = Path.Combine(_dir, "staged", "NearbyCrafting");
+
+        using var handle = Ue4ssModArchive.Open(zip);
+        Assert.Equal("NearbyCrafting", handle.DerivedFolderName);
+        handle.ExtractTo(dest);
+
+        Assert.Equal("-- lua", File.ReadAllText(Path.Combine(dest, "Scripts", "main.lua")));
+        Assert.Equal("on", File.ReadAllText(Path.Combine(dest, "enabled.txt")));
+    }
+
+    [Fact]
+    public void Open_LooseFilesWithNoWrapper_DerivedFolderNameFallsBackToZipFileName()
+    {
+        // A file sitting directly at the zip root (enabled.txt, one path segment) is what makes
+        // this "loose" — a single-entry zip whose one entry happens to sit under a folder would
+        // trivially "wrap", which is a different, already-covered case.
+        var zip = MakeZip("MyMod.zip", ("Scripts/main.lua", "-- lua"), ("enabled.txt", "on"));
+
+        using var handle = Ue4ssModArchive.Open(zip);
+
+        Assert.Equal("MyMod", handle.DerivedFolderName);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

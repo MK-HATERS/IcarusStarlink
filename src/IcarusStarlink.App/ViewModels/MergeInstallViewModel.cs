@@ -9,6 +9,7 @@ using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Core.InstallComparison;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Patches;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.Container;
@@ -450,10 +451,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// exactly what the patch carries. A referenced (non-bundled) mod is matched by (Name, Author)
     /// against the local Library; if it's missing, this reports it rather than failing the whole
     /// import — same SkipWithWarning philosophy as everywhere else the merge pipeline can hit a
-    /// gap. Synchronous: unlike Export, nothing here needs the network.
+    /// gap. ImportAsync itself doesn't need the network (unlike Export), but this still awaits it
+    /// properly rather than blocking the UI thread on a zip read/extract that can take real time
+    /// for a patch with bundled EXMODZ content.
     /// </summary>
     [RelayCommand]
-    private void ImportPatch()
+    private async Task ImportPatchAsync()
     {
         var dialog = new OpenFileDialog
         {
@@ -467,7 +470,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            var contents = _patchService.ImportAsync(dialog.FileName).GetAwaiter().GetResult();
+            var contents = await _patchService.ImportAsync(dialog.FileName);
             var resolvedFolderNames = new List<string>();
             var missing = new List<string>();
 
@@ -660,9 +663,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // Queue order = merge priority (index 0 lowest, matching MergeEngine's own
             // convention) — read fresh from disk each Rebuild rather than caching, so an edit
             // made outside the app (or via the EXMOD editor once Phase 7 lands) is picked up.
-            var packages = Queue
+            // The snapshot itself is taken synchronously on the UI thread (cheap, no I/O) so a
+            // user edit to Queue (Add/Remove) mid-rebuild can't race with the actual disk reads,
+            // which are the slow part and run off-thread on that fixed snapshot instead.
+            var entriesSnapshot = Queue.ToList();
+            var packages = await Task.Run(() => entriesSnapshot
                 .Select(entry => ExmodFolder.Read(_libraryRepository.GetFolderPath(entry.FolderName)))
-                .ToList();
+                .ToList());
 
             var result = await _rebuildService.RebuildAsync(
                 packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath);

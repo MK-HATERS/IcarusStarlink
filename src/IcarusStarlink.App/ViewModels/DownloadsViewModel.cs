@@ -3,11 +3,11 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Text.RegularExpressions;
-using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.GitHub;
@@ -42,7 +42,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private readonly IPendingDownloadStore _pendingDownloadStore;
     private readonly HttpClient _downloadHttpClient;
     private readonly string _pendingDownloadsDirectory;
-    private readonly DispatcherTimer _searchDebounceTimer;
+    private readonly DebounceTimer _searchDebounceTimer;
 
     private IReadOnlyList<CatalogEntry> _allCatalogEntries = [];
 
@@ -191,12 +191,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         _showStatusColumn = settingsService.Current.CatalogShowStatusColumn;
         _showLastUpdatedColumn = settingsService.Current.CatalogShowLastUpdatedColumn;
 
-        _searchDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        _searchDebounceTimer.Tick += (_, _) =>
-        {
-            _searchDebounceTimer.Stop();
-            ApplyCatalogFilters();
-        };
+        _searchDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), ApplyCatalogFilters);
 
         ReloadNexusEntries();
         ReloadPendingDownloads();
@@ -212,11 +207,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         _ = RunNexusUpdateCheckAsync(isAutomatic: true);
     }
 
-    partial void OnCatalogSearchTextChanged(string value)
-    {
-        _searchDebounceTimer.Stop();
-        _searchDebounceTimer.Start();
-    }
+    partial void OnCatalogSearchTextChanged(string value) => _searchDebounceTimer.Restart();
 
     partial void OnSelectedAuthorChanged(string value) => ApplyCatalogFilters();
     partial void OnSelectedCategoryChanged(string value) => ApplyCatalogFilters();

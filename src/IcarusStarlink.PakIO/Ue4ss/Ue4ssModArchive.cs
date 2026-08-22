@@ -15,44 +15,69 @@ namespace IcarusStarlink.PakIO.Ue4ss;
 /// </summary>
 public static class Ue4ssModArchive
 {
+    /// <summary>Convenience wrapper for a caller that only needs the derived name, not extraction too — opens and scans the zip on its own. Prefer Open() when a caller needs both (the common case, Import), so the zip is only opened and scanned once.</summary>
     public static string DeriveFolderName(string zipFilePath)
     {
-        using var archive = ZipFile.OpenRead(zipFilePath);
-        var wrappingFolder = FindSingleWrappingFolder(archive);
-        return wrappingFolder ?? Path.GetFileNameWithoutExtension(zipFilePath);
+        using var handle = Open(zipFilePath);
+        return handle.DerivedFolderName;
     }
 
+    /// <summary>Convenience wrapper for a caller that only needs extraction, not the derived name too.</summary>
     public static void Extract(string zipFilePath, string destinationFolder)
     {
-        using var archive = ZipFile.OpenRead(zipFilePath);
-        var wrappingFolder = FindSingleWrappingFolder(archive);
-        var sizeBudget = new ExmodSizeBudget("UE4SS mod archive");
+        using var handle = Open(zipFilePath);
+        handle.ExtractTo(destinationFolder);
+    }
 
-        foreach (var entry in archive.Entries)
+    /// <summary>Opens the zip once and scans its entries once — the caller can read DerivedFolderName and/or call ExtractTo any number of times off the same open archive before disposing.</summary>
+    public static Handle Open(string zipFilePath) => new(zipFilePath);
+
+    public sealed class Handle : IDisposable
+    {
+        private readonly ZipArchive _archive;
+        private readonly string? _wrappingFolder;
+
+        internal Handle(string zipFilePath)
         {
-            if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\'))
-            {
-                continue; // a directory entry, nothing to write
-            }
-
-            var relativePath = entry.FullName.Replace('\\', '/');
-            if (wrappingFolder is not null)
-            {
-                // Strip the zip's own wrapping folder — the caller's destinationFolder name
-                // (already disambiguated against collisions) is what actually lands on disk, not
-                // whatever the zip happened to be named internally.
-                relativePath = relativePath[(wrappingFolder.Length + 1)..];
-            }
-
-            var destPath = AssetPathGuard.ResolveWithinDirectory(destinationFolder, relativePath);
-
-            sizeBudget.Charge($"UE4SS mod entry '{entry.FullName}'", entry.Length);
-
-            Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
-            using var entryStream = entry.Open();
-            using var fileStream = File.Create(destPath);
-            entryStream.CopyTo(fileStream);
+            _archive = ZipFile.OpenRead(zipFilePath);
+            _wrappingFolder = FindSingleWrappingFolder(_archive);
+            DerivedFolderName = _wrappingFolder ?? Path.GetFileNameWithoutExtension(zipFilePath);
         }
+
+        public string DerivedFolderName { get; }
+
+        public void ExtractTo(string destinationFolder)
+        {
+            var sizeBudget = new ExmodSizeBudget("UE4SS mod archive");
+
+            foreach (var entry in _archive.Entries)
+            {
+                if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\'))
+                {
+                    continue; // a directory entry, nothing to write
+                }
+
+                var relativePath = entry.FullName.Replace('\\', '/');
+                if (_wrappingFolder is not null)
+                {
+                    // Strip the zip's own wrapping folder — the caller's destinationFolder name
+                    // (already disambiguated against collisions) is what actually lands on disk,
+                    // not whatever the zip happened to be named internally.
+                    relativePath = relativePath[(_wrappingFolder.Length + 1)..];
+                }
+
+                var destPath = AssetPathGuard.ResolveWithinDirectory(destinationFolder, relativePath);
+
+                sizeBudget.Charge($"UE4SS mod entry '{entry.FullName}'", entry.Length);
+
+                Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
+                using var entryStream = entry.Open();
+                using var fileStream = File.Create(destPath);
+                entryStream.CopyTo(fileStream);
+            }
+        }
+
+        public void Dispose() => _archive.Dispose();
     }
 
     /// <summary>Every entry sits under the same single top-level segment → that's a wrapping folder. Any loose entry directly at the root, or more than one distinct top-level segment, means there isn't one.</summary>

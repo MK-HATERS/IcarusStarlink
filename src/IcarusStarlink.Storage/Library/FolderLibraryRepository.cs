@@ -211,11 +211,15 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
             {
                 var folderName = Path.GetFileName(folder);
                 var meta = _metaStore.Load(folderName);
-                var (hasExmod, pakPath) = ClassifyModFolder(folder);
+                // One walk of the folder, reused for both the classify check and (if it turns out
+                // to be an EXMOD mod) the actual package read — ReadPackageOnly's own single-arg
+                // overload would otherwise re-walk the exact same folder a second time.
+                var files = Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).ToList();
+                var (hasExmod, pakPath) = ClassifyModFolder(files);
 
                 if (hasExmod)
                 {
-                    var package = ExmodFolder.ReadPackageOnly(folder);
+                    var package = ExmodFolder.ReadPackageOnly(folder, files);
                     scanned.Add((ToEntry(folderName, package, meta), BuildSearchableContent(package)));
                 }
                 else
@@ -238,21 +242,24 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         _searchIndex.Rebuild(scanned);
     }
 
+    /// <summary>Convenience overload for a single-folder classification with no precomputed list (ListAssetPaths, ReadReadme) — walks the folder itself, then delegates.</summary>
+    private static (bool HasExmod, string? PakPath) ClassifyModFolder(string folder) =>
+        ClassifyModFolder(Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).ToList());
+
     /// <summary>
-    /// One scan classifies a folder as EXMOD-based vs. opaque-pak vs. neither, rather than two
-    /// separate calls each re-walking the folder (which is what an earlier version of this method
-    /// did) — a smaller version of the same TOCTOU concern ExmodFolder.ReadPackageOnly's own
-    /// single-snapshot design addresses (see its class doc comment). This still can't close the
-    /// gap against ExmodFolder's own *internal* re-scan when ReadPackageOnly/ListAssetPaths are
-    /// called afterward — closing that fully would mean PakIO accepting a pre-computed file list
-    /// instead of always re-walking the folder itself, which is more surface area than this
-    /// narrow, external-concurrent-modification-only race currently justifies.
+    /// Classifies a folder as EXMOD-based vs. opaque-pak vs. neither, given a file list the caller
+    /// already walked — RescanAll walks each folder exactly once and reuses that same list for
+    /// both this check and (if it turns out to be an EXMOD mod) ExmodFolder.ReadPackageOnly's own
+    /// precomputed-list overload, rather than each independently re-walking the folder. Still can't
+    /// close the gap against a genuinely concurrent external modification between RescanAll's own
+    /// walk and whatever it does with the result — the same TOCTOU caveat ExmodFolder's own
+    /// SnapshotFiles callers already accept (see its class doc comment).
     /// </summary>
-    private static (bool HasExmod, string? PakPath) ClassifyModFolder(string folder)
+    private static (bool HasExmod, string? PakPath) ClassifyModFolder(IReadOnlyList<string> files)
     {
         var hasExmod = false;
         string? pakPath = null;
-        foreach (var filePath in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+        foreach (var filePath in files)
         {
             if (filePath.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase))
             {

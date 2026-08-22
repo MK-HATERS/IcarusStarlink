@@ -27,46 +27,63 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         CancellationToken cancellationToken = default)
     {
         var report = new MergeReport();
-        var classifier = new DefaultSemanticClassifier();
 
-        var orderedModChanges = queuedMods
-            .Select(mod => ExmodFieldChangeMapper.ToFieldChanges(mod.Package, classifier))
-            .ToList();
-        var resolvedChanges = MergeEngine.Merge(orderedModChanges, new MergeRuleRegistry());
-
-        var requiredFiles = resolvedChanges.Select(c => c.CurrentFile)
-            .Concat(GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions))
-            .Distinct();
-        var (baseTablesByFile, originalFileJsonByFile) = ReadBaseTables(requiredFiles, dataFolder, report);
-        // The Dictionary(IDictionary) copy constructor does NOT inherit the source's comparer, so
-        // this has to be specified again explicitly — otherwise mergedTables would silently revert
-        // to case-sensitive keys even though baseTablesByFile/MultiFileMerger.Apply's own result
-        // are both already case-insensitive.
-        var mergedTables = new Dictionary<string, JsonObject>(
-            MultiFileMerger.Apply(baseTablesByFile, resolvedChanges, report), StringComparer.OrdinalIgnoreCase);
-
-        // Gameplay options apply as a final pass over the already-merged result — matching classic
-        // IMM's own documented behavior ("these new options are added after the mods are all
-        // merged") — and can target a file no queued mod's own FieldChange touches at all (options
-        // work with an empty queue too), so make sure those land here even though
-        // MultiFileMerger.Apply only ever populates entries for files a FieldChange actually
-        // touches.
-        foreach (var file in GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions))
+        // The merge computation (reading every required base-game JSON file, resolving field
+        // conflicts, applying gameplay options) is synchronous and, for a large queue, not cheap —
+        // offloaded via Task.Run so it doesn't block the calling (UI) thread the way running it
+        // bare ahead of this method's first real await used to.
+        var (mergedTables, originalFileJsonByFile) = await Task.Run(() =>
         {
-            if (!mergedTables.ContainsKey(file) && baseTablesByFile.TryGetValue(file, out var baseTable))
+            var classifier = new DefaultSemanticClassifier();
+
+            var orderedModChanges = queuedMods
+                .Select(mod => ExmodFieldChangeMapper.ToFieldChanges(mod.Package, classifier))
+                .ToList();
+            var resolvedChanges = MergeEngine.Merge(orderedModChanges, new MergeRuleRegistry());
+
+            var requiredFiles = resolvedChanges.Select(c => c.CurrentFile)
+                .Concat(GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions))
+                .Distinct();
+            var (baseTablesByFile, originalJson) = ReadBaseTables(requiredFiles, dataFolder, report);
+            // The Dictionary(IDictionary) copy constructor does NOT inherit the source's comparer, so
+            // this has to be specified again explicitly — otherwise merged would silently revert
+            // to case-sensitive keys even though baseTablesByFile/MultiFileMerger.Apply's own result
+            // are both already case-insensitive.
+            var merged = new Dictionary<string, JsonObject>(
+                MultiFileMerger.Apply(baseTablesByFile, resolvedChanges, report), StringComparer.OrdinalIgnoreCase);
+
+            // Gameplay options apply as a final pass over the already-merged result — matching classic
+            // IMM's own documented behavior ("these new options are added after the mods are all
+            // merged") — and can target a file no queued mod's own FieldChange touches at all (options
+            // work with an empty queue too), so make sure those land here even though
+            // MultiFileMerger.Apply only ever populates entries for files a FieldChange actually
+            // touches.
+            foreach (var file in GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions))
             {
-                mergedTables[file] = baseTable;
+                if (!merged.ContainsKey(file) && baseTablesByFile.TryGetValue(file, out var baseTable))
+                {
+                    merged[file] = baseTable;
+                }
             }
-        }
-        GameplayOptionsApplier.Apply(gameplayOptions, mergedTables, report);
+            GameplayOptionsApplier.Apply(gameplayOptions, merged, report);
+
+            return (Merged: merged, Original: originalJson);
+        }, cancellationToken);
 
         var stagingDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"Rebuild_{Guid.NewGuid():N}");
         Directory.CreateDirectory(stagingDirectory);
 
         try
         {
-            StageMergedTables(mergedTables, originalFileJsonByFile, stagingDirectory);
-            StageAssets(queuedMods, stagingDirectory);
+            // Same reasoning as the merge computation above — writing every merged table plus every
+            // queued mod's own binary assets to disk is synchronous file I/O, offloaded so it doesn't
+            // block the UI thread either. Still inside this try/finally, so staging cleanup below is
+            // guaranteed even if a write here fails.
+            await Task.Run(() =>
+            {
+                StageMergedTables(mergedTables, originalFileJsonByFile, stagingDirectory);
+                StageAssets(queuedMods, stagingDirectory);
+            }, cancellationToken);
 
             var packedFileCount = await unrealPakService.CreatePakAsync(unrealPakExePath, stagingDirectory, outputPakPath, cancellationToken);
             var manifestPath = WriteManifest(queuedMods, outputPakPath);

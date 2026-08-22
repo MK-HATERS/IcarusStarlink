@@ -1,4 +1,6 @@
-namespace IcarusStarlink.Core.Profiles;
+using IcarusStarlink.Core.Profiles;
+
+namespace IcarusStarlink.Core.Patches;
 
 /// <summary>
 /// The portable, shareable form of a Profile — "Export a patch for friends/servers" per the

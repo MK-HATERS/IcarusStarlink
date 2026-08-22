@@ -1,4 +1,3 @@
-using System.Text.Json;
 using IcarusStarlink.Core.Server;
 using Microsoft.Extensions.Logging;
 
@@ -6,8 +5,6 @@ namespace IcarusStarlink.Storage.Server;
 
 public sealed class FtpSiteStore : IFtpSiteStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
     private readonly string _filePath;
     private readonly ILogger<FtpSiteStore> _logger;
     private readonly List<FtpSiteProfile> _sites;
@@ -17,7 +14,7 @@ public sealed class FtpSiteStore : IFtpSiteStore
         _logger = logger;
         Directory.CreateDirectory(appDataDirectory);
         _filePath = Path.Combine(appDataDirectory, "ftp_sites.json");
-        _sites = Load();
+        _sites = JsonFileStore.Load(_filePath, () => new List<FtpSiteProfile>(), _logger);
     }
 
     public IReadOnlyList<FtpSiteProfile> GetAll() => _sites;
@@ -35,28 +32,5 @@ public sealed class FtpSiteStore : IFtpSiteStore
         SaveToDisk();
     }
 
-    private List<FtpSiteProfile> Load()
-    {
-        if (!File.Exists(_filePath))
-        {
-            return [];
-        }
-
-        try
-        {
-            var json = File.ReadAllText(_filePath);
-            return JsonSerializer.Deserialize<List<FtpSiteProfile>>(json, JsonOptions) ?? [];
-        }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-        {
-            _logger.LogWarning(ex, "Failed to load FTP sites from {Path}; starting empty", _filePath);
-            return [];
-        }
-    }
-
-    private void SaveToDisk()
-    {
-        var json = JsonSerializer.Serialize(_sites, JsonOptions);
-        File.WriteAllText(_filePath, json);
-    }
+    private void SaveToDisk() => JsonFileStore.Save(_filePath, _sites);
 }

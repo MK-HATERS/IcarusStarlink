@@ -1,4 +1,3 @@
-using System.Text.Json;
 using IcarusStarlink.Core.Nexus;
 using Microsoft.Extensions.Logging;
 
@@ -6,8 +5,6 @@ namespace IcarusStarlink.Storage.Nexus;
 
 public sealed class PendingDownloadStore : IPendingDownloadStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
     private readonly string _filePath;
     private readonly ILogger<PendingDownloadStore> _logger;
     private readonly List<PendingDownloadEntry> _entries;
@@ -19,7 +16,7 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
         _logger = logger;
         Directory.CreateDirectory(appDataDirectory);
         _filePath = Path.Combine(appDataDirectory, "pending_downloads.json");
-        _entries = Load();
+        _entries = JsonFileStore.Load(_filePath, () => new List<PendingDownloadEntry>(), _logger);
     }
 
     public void Add(PendingDownloadEntry entry)
@@ -35,28 +32,5 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
         Save();
     }
 
-    private List<PendingDownloadEntry> Load()
-    {
-        if (!File.Exists(_filePath))
-        {
-            return [];
-        }
-
-        try
-        {
-            var json = File.ReadAllText(_filePath);
-            return JsonSerializer.Deserialize<List<PendingDownloadEntry>>(json, JsonOptions) ?? [];
-        }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-        {
-            _logger.LogWarning(ex, "Failed to load pending downloads from {Path}; starting empty", _filePath);
-            return [];
-        }
-    }
-
-    private void Save()
-    {
-        var json = JsonSerializer.Serialize(_entries, JsonOptions);
-        File.WriteAllText(_filePath, json);
-    }
+    private void Save() => JsonFileStore.Save(_filePath, _entries);
 }

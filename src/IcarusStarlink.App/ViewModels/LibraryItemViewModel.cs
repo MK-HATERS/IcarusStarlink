@@ -1,8 +1,8 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows.Media.Imaging;
-using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
@@ -17,7 +17,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     private readonly ILibraryRepository _repository;
     private readonly Action<string> _reportStatus;
     private readonly Action _onPinnedChanged;
-    private readonly DispatcherTimer _notesSaveDebounceTimer;
+    private readonly DebounceTimer _notesSaveDebounceTimer;
     private bool _detailsLoaded;
 
     public string FolderName { get; }
@@ -106,12 +106,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         // LostFocus trigger) — debounced the same way LibraryViewModel debounces search, so
         // typing a whole sentence doesn't fire a disk write and an FTS5 index update per
         // keystroke. Pinned/Favorite stay immediate: those are single clicks, not rapid-repeat.
-        _notesSaveDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-        _notesSaveDebounceTimer.Tick += (_, _) =>
-        {
-            _notesSaveDebounceTimer.Stop();
-            SaveMetadata();
-        };
+        _notesSaveDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(500), SaveMetadata);
     }
 
     /// <summary>
@@ -182,7 +177,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// (MakeUniqueFolderName only avoids collisions with what currently exists on disk), since
     /// UpdateMetadata's only existence check is Directory.Exists on that name.
     /// </summary>
-    public void CancelPendingSave() => _notesSaveDebounceTimer.Stop();
+    public void CancelPendingSave() => _notesSaveDebounceTimer.Cancel();
 
     partial void OnIsPinnedChanged(bool value)
     {
@@ -198,11 +193,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     partial void OnIsFavoriteChanged(bool value) => SaveMetadata();
 
-    partial void OnNotesChanged(string value)
-    {
-        _notesSaveDebounceTimer.Stop();
-        _notesSaveDebounceTimer.Start();
-    }
+    partial void OnNotesChanged(string value) => _notesSaveDebounceTimer.Restart();
 
     partial void OnSelectedAssetPathChanged(string? value)
     {

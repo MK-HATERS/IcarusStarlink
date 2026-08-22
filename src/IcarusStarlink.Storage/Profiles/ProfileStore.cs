@@ -7,8 +7,6 @@ namespace IcarusStarlink.Storage.Profiles;
 /// <summary>One JSON file per profile under profilesDirectory, named after the profile itself — simple enough that a user could inspect/back these up by hand, matching the app's broader "your files are yours" storage philosophy.</summary>
 public sealed class ProfileStore : IProfileStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
     private readonly string _profilesDirectory;
     private readonly ILogger<ProfileStore> _logger;
 
@@ -36,21 +34,21 @@ public sealed class ProfileStore : IProfileStore
         try
         {
             var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<Profile>(json, JsonOptions)
+            return JsonSerializer.Deserialize<Profile>(json, JsonFileStore.Options)
                 ?? throw new FormatException($"Profile '{name}' is empty or corrupt.");
         }
         catch (JsonException ex)
         {
+            // Unlike every sibling store, a corrupt profile is re-thrown rather than falling back
+            // to a default — silently discarding a specific profile the user asked for by name
+            // would be a worse surprise than an error message. Still worth logging, the same way
+            // the sibling stores log their own fallback-to-default case.
+            _logger.LogWarning(ex, "Failed to load profile '{Name}' from {Path}", name, path);
             throw new FormatException($"Profile '{name}' is corrupt.", ex);
         }
     }
 
-    public void Save(Profile profile)
-    {
-        var path = ResolvePath(profile.Name);
-        var json = JsonSerializer.Serialize(profile, JsonOptions);
-        File.WriteAllText(path, json);
-    }
+    public void Save(Profile profile) => JsonFileStore.Save(ResolvePath(profile.Name), profile);
 
     public void Delete(string name)
     {
