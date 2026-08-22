@@ -28,6 +28,9 @@
         <DataTemplate DataType="{x:Type vm:WeeklyChangesViewModel}">
             <views:WeeklyChangesView/>
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ServerViewModel}">
+            <views:ServerView/>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid>

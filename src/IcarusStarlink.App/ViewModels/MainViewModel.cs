@@ -46,6 +46,10 @@ public sealed partial class MainViewModel : ObservableObject
             new NavItem("library", "Library", typeof(LibraryViewModel)),
             new NavItem("merge", "Merge & Install", typeof(MergeInstallViewModel)),
             new NavItem("weekly-changes", "Weekly Changes", typeof(WeeklyChangesViewModel)),
+            // A narrower revival of the spec's original "Server" nav item, cut from v1 entirely —
+            // FTP file management for a dedicated server's mods folder (Phase 8.5), not the full
+            // remote-agent/control page the original spec described.
+            new NavItem("server", "Server", typeof(ServerViewModel)),
             new NavItem("settings", "Settings", typeof(SettingsViewModel)),
         ];
 

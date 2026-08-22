@@ -9,4 +9,7 @@ namespace IcarusStarlink.Core.Secrets;
 public static class CredentialTargets
 {
     public const string NexusApiKey = "IcarusStarlink:NexusApiKey";
+
+    /// <summary>Keyed by the site's own stable Id (not its display name) so renaming a saved FTP site doesn't orphan its saved password.</summary>
+    public static string FtpSite(Guid siteId) => $"IcarusStarlink:FtpSite:{siteId:N}";
 }

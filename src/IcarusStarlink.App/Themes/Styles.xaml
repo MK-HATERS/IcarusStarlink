@@ -7,6 +7,7 @@
     <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
     <converters:MarkdownToFlowDocumentConverter x:Key="MarkdownToFlowDocumentConverter"/>
     <converters:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
+    <converters:BoolToFolderFileConverter x:Key="BoolToFolderFileConverter"/>
 
     <Style TargetType="{x:Type Window}">
         <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}"/>
@@ -44,6 +45,17 @@
     </Style>
 
     <Style TargetType="{x:Type TextBox}">
+        <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="8,6"/>
+        <Setter Property="CaretBrush" Value="{DynamicResource ForegroundBrush}"/>
+    </Style>
+
+    <!-- PasswordBox doesn't inherit TextBox's implicit style (a different control type) — same
+         look, applied separately. -->
+    <Style TargetType="{x:Type PasswordBox}">
         <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>

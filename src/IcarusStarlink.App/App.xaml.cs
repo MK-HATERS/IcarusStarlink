@@ -14,6 +14,7 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Secrets;
+using IcarusStarlink.Core.Server;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Steam;
 using IcarusStarlink.Core.Ue4ss;
@@ -27,6 +28,7 @@ using IcarusStarlink.Storage.Library;
 using IcarusStarlink.Storage.Nexus;
 using IcarusStarlink.Storage.Profiles;
 using IcarusStarlink.Storage.Secrets;
+using IcarusStarlink.Storage.Server;
 using IcarusStarlink.Storage.Settings;
 using IcarusStarlink.Storage.Steam;
 using IcarusStarlink.Storage.Ue4ss;
@@ -131,6 +133,14 @@ public partial class App : Application
         builder.Services.AddSingleton<INxmProtocolRegistrar, NxmProtocolRegistrar>();
         builder.Services.AddSingleton<IUe4ssLoaderInstallService, Ue4ssLoaderInstallService>();
         builder.Services.AddHttpClient<IUe4ssReleaseClient, Ue4ssReleaseClient>();
+        builder.Services.AddSingleton<IFtpSiteStore>(sp =>
+            new FtpSiteStore(
+                Path.Combine(appDataDirectory, "Cache"),
+                sp.GetRequiredService<ILogger<FtpSiteStore>>()));
+        // A fresh IFtpClient per connect, not a shared singleton — one instance = one live
+        // connection (see FluentFtpClient's own doc comment), and ServerViewModel replaces it on
+        // every Connect/Disconnect cycle.
+        builder.Services.AddSingleton<Func<IFtpClient>>(() => new FluentFtpClient());
 
         // Transient, not a singleton — every other ViewModel in this app is constructed once and
         // reused, but the EXMOD editor is per-open-instance (Phase 7.1: classic IMM's own editor
@@ -187,6 +197,10 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Backups"),
             Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton<WeeklyChangesViewModel>();
+        builder.Services.AddSingleton(sp => new ServerViewModel(
+            sp.GetRequiredService<IFtpSiteStore>(),
+            sp.GetRequiredService<ICredentialStore>(),
+            sp.GetRequiredService<Func<IFtpClient>>()));
 
         builder.Services.AddSingleton<MainWindow>();
 
