@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.Cryptography;
 using System.Text;
 using IcarusStarlink.Core.Secrets;
 
@@ -43,7 +44,13 @@ public sealed class WindowsCredentialStore : ICredentialStore
         }
         finally
         {
+            // FreeHGlobal only returns the block to the allocator, it doesn't scrub it — without
+            // zeroing first, the plaintext secret stays readable in this process's unmanaged heap
+            // (e.g. via a crash dump) for however long until something else happens to overwrite
+            // that memory. CryptographicOperations.ZeroMemory clears the managed copy the same way.
+            ZeroUnmanagedMemory(blob, secretBytes.Length);
             Marshal.FreeHGlobal(blob);
+            CryptographicOperations.ZeroMemory(secretBytes);
         }
     }
 
@@ -66,11 +73,27 @@ public sealed class WindowsCredentialStore : ICredentialStore
 
             var bytes = new byte[credential.CredentialBlobSize];
             Marshal.Copy(credential.CredentialBlob, bytes, 0, bytes.Length);
-            return Encoding.Unicode.GetString(bytes);
+            try
+            {
+                return Encoding.Unicode.GetString(bytes);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(bytes);
+            }
         }
         finally
         {
             CredFree(credentialPtr);
+        }
+    }
+
+    /// <summary>Marshal has no built-in memset — CryptographicOperations.ZeroMemory only covers managed spans, not a raw unmanaged pointer.</summary>
+    private static void ZeroUnmanagedMemory(IntPtr pointer, int length)
+    {
+        for (var i = 0; i < length; i++)
+        {
+            Marshal.WriteByte(pointer, i, 0);
         }
     }
 

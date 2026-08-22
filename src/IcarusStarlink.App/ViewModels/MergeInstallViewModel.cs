@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.Jimk72;
@@ -150,6 +152,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         ReloadLibrary();
         ReloadProfileNames();
+
+        // This ViewModel is a DI singleton built once, so without this its own Library pane would
+        // never learn about a mod imported/deleted from Library or Downloads until the app
+        // restarts — this Send()s LibraryChangedMessage itself (after ImportPatchAsync/InstallAsync)
+        // but, until now, never Registered to receive it from anywhere else.
+        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((MergeInstallViewModel)recipient).ReloadLibrary());
     }
 
     /// <summary>
@@ -387,8 +395,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            var daedalusTask = _daedalusClient.FetchAsync();
-            var jimk72Task = _jimk72Client.FetchAsync();
+            // Isolated per-source, same as Downloads' own catalog refresh — a transient blip in
+            // either source shouldn't fail the whole export; a mod from the source that failed
+            // just gets treated as "not in catalog" (bundled) instead.
+            var failedSources = new List<string>();
+            var daedalusTask = CatalogSourceFetch.FetchAsync(_daedalusClient.FetchAsync, "Daedalus", failedSources);
+            var jimk72Task = CatalogSourceFetch.FetchAsync(_jimk72Client.FetchAsync, "Jimk72", failedSources);
             await Task.WhenAll(daedalusTask, jimk72Task);
             var catalogKeys = daedalusTask.Result.Concat(jimk72Task.Result)
                 .Select(e => CatalogKey.Normalize(e.Name, e.Author))
@@ -433,6 +445,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 ? $"Exported '{profileName}' to '{dialog.FileName}' — {bundledContents.Count} mod(s) bundled, " +
                     $"{mods.Count - bundledContents.Count} referenced from the community catalog."
                 : $"Exported '{profileName}' to '{dialog.FileName}' — every mod is in the community catalog, nothing bundled.";
+            if (failedSources.Count > 0)
+            {
+                // Not a failure — a mod from the unreachable source was conservatively treated as
+                // "not in catalog" and bundled instead, so the export is still complete and correct,
+                // just possibly larger than it needed to be.
+                PatchStatusMessage += $" ({string.Join(", ", failedSources)} couldn't be reached — affected mods were bundled rather than referenced.)";
+            }
         }
         catch (Exception ex)
         {
@@ -711,6 +730,19 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         if (!File.Exists(_outputPakPath))
         {
             InstallStatusMessage = "Nothing staged yet — click Rebuild first.";
+            return;
+        }
+
+        // Same explicit Yes/No gate as every other real-machine write this app makes (the nxm://
+        // registry registration, the UE4SS loader install) — this one specifically overwrites the
+        // user's actual installed mod pack, so it shouldn't ever be reachable via a single
+        // accidental click.
+        var confirmResult = MessageBox.Show(
+            $"This copies the staged pak into '{_settingsService.Current.IcarusContentPath}\\Paks\\mods', overwriting whatever's currently installed there.\n\n" +
+            "The existing pak is backed up first (last 5 kept).\n\nContinue?",
+            "Install to Icarus", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirmResult != MessageBoxResult.Yes)
+        {
             return;
         }
 

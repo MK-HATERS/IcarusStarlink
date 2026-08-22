@@ -179,6 +179,15 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// </summary>
     public void CancelPendingSave() => _notesSaveDebounceTimer.Cancel();
 
+    /// <summary>
+    /// Call before dropping this instance from a cache it's still reachable from (e.g. a
+    /// search/filter reload evicting a row that's no longer in the results) but whose underlying
+    /// mod folder isn't actually going anywhere — unlike CancelPendingSave (for an actual delete),
+    /// discarding an in-flight Notes edit here would silently lose what the user just typed instead
+    /// of just saving it a little early.
+    /// </summary>
+    public void FlushPendingSave() => _notesSaveDebounceTimer.Flush();
+
     partial void OnIsPinnedChanged(bool value)
     {
         // Explicit sequencing, not a PropertyChanged subscription on the LibraryViewModel side:

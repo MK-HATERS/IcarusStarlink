@@ -44,5 +44,13 @@ public sealed partial class NexusWatchlistItemViewModel : ObservableObject
     /// </summary>
     public void CancelPendingSave() => _nameSaveDebounceTimer.Cancel();
 
+    /// <summary>
+    /// Call before rebuilding the watchlist collection from a store reload (the entry itself isn't
+    /// being removed from the store) — unlike CancelPendingSave, saves a pending edit immediately
+    /// rather than discarding it, so a name the user just typed isn't silently lost just because a
+    /// reload happened to run before the debounce elapsed.
+    /// </summary>
+    public void FlushPendingSave() => _nameSaveDebounceTimer.Flush();
+
     partial void OnNameChanged(string value) => _nameSaveDebounceTimer.Restart();
 }

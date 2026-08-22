@@ -21,7 +21,12 @@ public sealed class NxmProtocolRegistrar : INxmProtocolRegistrar
     {
         using var key = Registry.CurrentUser.OpenSubKey($@"{KeyPath}\shell\open\command");
         var command = key?.GetValue("") as string;
-        return command is not null && command.Contains(ExePath, StringComparison.OrdinalIgnoreCase);
+        // Exact match against Register()'s own written form, not a substring Contains — a loose
+        // Contains would false-positive whenever this build's own exe path happens to be a
+        // substring of some other registered command (e.g. a sibling install whose folder path
+        // contains this one's), reporting "registered to this app" when the registry actually
+        // points somewhere else.
+        return string.Equals(command, $"\"{ExePath}\" \"%1\"", StringComparison.OrdinalIgnoreCase);
     }
 
     public void Register()

@@ -17,7 +17,15 @@ public partial class NexusBrowserView : UserControl
     {
         InitializeComponent();
         Loaded += NexusBrowserView_Loaded;
+        Unloaded += NexusBrowserView_Unloaded;
     }
+
+    // NexusBrowserViewModel is a DI singleton, but this View is instantiated fresh by MainWindow's
+    // DataTemplate every time nav switches to it — WebView2 only auto-disposes when its owning
+    // Window closes, not on removal from a dynamic content area, so switching Library -> Nexus ->
+    // Library -> Nexus repeatedly would otherwise leak a new browser-process environment each time
+    // instead of cleanly releasing the previous one.
+    private void NexusBrowserView_Unloaded(object sender, RoutedEventArgs e) => Browser.Dispose();
 
     private async void NexusBrowserView_Loaded(object sender, RoutedEventArgs e)
     {

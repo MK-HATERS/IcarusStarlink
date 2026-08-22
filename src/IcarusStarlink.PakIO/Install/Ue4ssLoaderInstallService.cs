@@ -31,7 +31,10 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
         return new Ue4ssLoaderStatus(IsInstalled: true, InstalledVersion: version);
     }
 
-    public Task InstallOrUpdateAsync(string icarusContentPath, string downloadedZipPath, string backupDirectory, CancellationToken cancellationToken = default)
+    public Task InstallOrUpdateAsync(string icarusContentPath, string downloadedZipPath, string backupDirectory, CancellationToken cancellationToken = default) =>
+        Task.Run(() => InstallOrUpdateCore(icarusContentPath, downloadedZipPath, backupDirectory), cancellationToken);
+
+    private static void InstallOrUpdateCore(string icarusContentPath, string downloadedZipPath, string backupDirectory)
     {
         var win64Folder = Ue4ssGamePaths.ResolveWin64Folder(icarusContentPath);
         var loaderFolder = Ue4ssGamePaths.ResolveLoaderFolder(icarusContentPath);
@@ -80,9 +83,7 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
             Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
             using var entryStream = entry.Open();
             using var fileStream = File.Create(destPath);
-            entryStream.CopyTo(fileStream);
+            BoundedZipEntryCopy.CopyBounded(entryStream, fileStream, entry.Length, entry.FullName);
         }
-
-        return Task.CompletedTask;
     }
 }

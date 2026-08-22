@@ -33,6 +33,11 @@ public sealed class InstallService : IInstallService
         if (File.Exists(stagedManifestPath))
         {
             var targetManifestPath = Path.Combine(modsDirectory, InstallManifestNames.PakManifest);
+            // Backed up too, same as the pak itself — without this, installing a pak built from a
+            // smaller queue than what's currently listed silently loses the previous manifest (and
+            // its "installed mods" record GetInstalledStateAsync reads below) with no way to
+            // recover what was previously installed.
+            FolderBackup.BackupFile(targetManifestPath, backupDirectory);
             File.Copy(stagedManifestPath, targetManifestPath, overwrite: true);
         }
 

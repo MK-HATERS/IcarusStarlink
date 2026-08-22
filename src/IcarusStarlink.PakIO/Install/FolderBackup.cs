@@ -38,7 +38,11 @@ public static class FolderBackup
         var baseName = Path.GetFileNameWithoutExtension(sourceFile);
         var extension = Path.GetExtension(sourceFile);
         var backupPath = Path.Combine(backupDirectory, $"{baseName}_{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}{extension}");
-        File.Copy(sourceFile, backupPath);
+        // overwrite: true, matching CopyDirectory's own File.Copy below — the timestamp is only
+        // second-granularity, so two backups of the same file within one second (a quick retry)
+        // would otherwise collide on an identical path and throw instead of just landing the
+        // second, near-identical copy on top of the first.
+        File.Copy(sourceFile, backupPath, overwrite: true);
 
         PruneOldFileBackups(backupDirectory, baseName, extension);
         return backupPath;

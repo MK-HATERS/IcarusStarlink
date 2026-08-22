@@ -40,7 +40,19 @@ public static class Ue4ssModArchive
         internal Handle(string zipFilePath)
         {
             _archive = ZipFile.OpenRead(zipFilePath);
-            _wrappingFolder = FindSingleWrappingFolder(_archive);
+            try
+            {
+                // A malformed zip can throw while FindSingleWrappingFolder enumerates entries —
+                // without this, the constructor would throw before ever returning an object for
+                // `using` to dispose, leaking the just-opened archive's file handle.
+                _wrappingFolder = FindSingleWrappingFolder(_archive);
+            }
+            catch
+            {
+                _archive.Dispose();
+                throw;
+            }
+
             DerivedFolderName = _wrappingFolder ?? Path.GetFileNameWithoutExtension(zipFilePath);
         }
 
@@ -68,12 +80,16 @@ public static class Ue4ssModArchive
 
                 var destPath = AssetPathGuard.ResolveWithinDirectory(destinationFolder, relativePath);
 
+                // Charging the budget against the zip's own *declared* size (from the central
+                // directory) only stops a bomb if the actual decompressed bytes are also bounded to
+                // match — a crafted entry can declare a small Length but decompress to far more, and
+                // entryStream.CopyTo would happily write all of it before this ever noticed.
                 sizeBudget.Charge($"UE4SS mod entry '{entry.FullName}'", entry.Length);
 
                 Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
                 using var entryStream = entry.Open();
                 using var fileStream = File.Create(destPath);
-                entryStream.CopyTo(fileStream);
+                BoundedZipEntryCopy.CopyBounded(entryStream, fileStream, entry.Length, entry.FullName);
             }
         }
 

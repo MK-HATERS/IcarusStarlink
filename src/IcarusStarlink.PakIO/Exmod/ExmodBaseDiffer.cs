@@ -30,7 +30,8 @@ public static class ExmodBaseDiffer
             }
 
             var baseFileJson = JsonNode.Parse(File.ReadAllText(basePath))!.AsObject();
-            var baseKeyed = DataTableJson.RowsToKeyedObject(baseFileJson);
+            var baseKeyed = DataTableJson.RowsToKeyedObject(baseFileJson, duplicateName => report?.AddWarning(
+                $"'{row.CurrentFile}' has more than one row named '{duplicateName}' — only the last one was kept."));
             var moddedKeyed = ToKeyedObject(row);
 
             changes.AddRange(TableDiffer.Diff(baseKeyed, moddedKeyed, row.CurrentFile, classifier, report));

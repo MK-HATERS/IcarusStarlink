@@ -276,6 +276,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             var entry = _repository.CreateBlankMod(dialog.ModName, dialog.ModAuthor);
             StatusMessage = $"Created '{entry.Name}'.";
             Reload();
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             OpenEditor(entry.FolderName);
         }
         catch (Exception ex)
@@ -328,6 +329,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         SelectedItem = null;
         StatusMessage = $"Deleted '{name}'.";
         Reload();
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
     }
 
     /// <summary>Shared by ImportFolder/ImportFile/ImportPak — same try/catch/status/reload shape, differing only in which repository method actually reads sourcePath.</summary>
@@ -338,6 +340,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             var entry = importer(sourcePath);
             StatusMessage = $"Imported '{entry.Name}'.";
             Reload();
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         }
         catch (Exception ex)
         {
@@ -398,9 +401,16 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         SyncRootItems(targetRootItems);
 
-        // Drop cached instances for mods/families no longer present/matching, so these don't grow forever.
+        // Drop cached instances for mods/families no longer present/matching, so these don't grow
+        // forever. FlushPendingSave() first, not CancelPendingSave() — the mod's folder isn't going
+        // anywhere here (unlike DeleteSelected), so a pending Notes edit should be saved a little
+        // early, not silently discarded; without this, an orphaned timer could fire later and write
+        // the edit to disk after a fresh instance for the same mod (built from the now-stale
+        // repository read) has already replaced this one, leaving the visible Notes field stale
+        // relative to what's actually on disk.
         foreach (var staleFolderName in _itemsByFolderName.Keys.Except(seenFolders).ToList())
         {
+            _itemsByFolderName[staleFolderName].FlushPendingSave();
             _itemsByFolderName.Remove(staleFolderName);
         }
 

@@ -466,6 +466,19 @@ public sealed partial class SettingsViewModel : ObservableObject
         Ue4ssInstalledVersion = status.InstalledVersion;
     }
 
+    // Only Browse…/Auto-detect route through this — the constructor assigns the backing field
+    // directly (bypassing the generated setter, and this hook with it) before calling
+    // RefreshUe4ssStatus() itself further down, so there's no double-call on startup. Without this,
+    // pointing Settings at a game install that already has UE4SS kept showing "Not installed" until
+    // the user clicked Install anyway or restarted the app.
+    partial void OnIcarusContentPathChanged(string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            RefreshUe4ssStatus();
+        }
+    }
+
     /// <summary>Best-effort, once per launch — offline or GitHub-unreachable just leaves Ue4ssLatestRelease null (Install/Update stays disabled) rather than surfacing an error nobody asked for.</summary>
     private async Task CheckUe4ssLatestReleaseAsync()
     {

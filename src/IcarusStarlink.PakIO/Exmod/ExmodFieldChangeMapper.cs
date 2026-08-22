@@ -49,7 +49,13 @@ public static class ExmodFieldChangeMapper
     /// </summary>
     public static List<ExmodFileRow> FromFieldChanges(IEnumerable<FieldChange> changes)
     {
-        var itemsByFileThenName = new Dictionary<string, Dictionary<string, ExmodFileItem>>();
+        // OrdinalIgnoreCase on the outer (CurrentFile) key only — same reasoning as MergeEngine/
+        // MultiFileMerger/RebuildService's own CurrentFile-keyed dictionaries (a real Windows file
+        // path, not guaranteed consistent casing across EXMOD authors' extraction tools) — without
+        // it, two FieldChanges referencing the same file under different casing would fragment into
+        // two separate ExmodFileRow entries instead of merging into one. ItemName (the inner key)
+        // stays case-sensitive, a real JSON property name rather than a file path.
+        var itemsByFileThenName = new Dictionary<string, Dictionary<string, ExmodFileItem>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var change in changes)
         {

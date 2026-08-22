@@ -50,7 +50,13 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
 
     public LibraryEntry ImportPak(string pakFilePath)
     {
-        var baseName = Path.GetFileNameWithoutExtension(pakFilePath);
+        // Unlike Import()'s own EXMOD path (whose folder name comes from Package.FileName — already
+        // guaranteed safe by AssetPathGuard running inside ExmodJson.Parse, per Import()'s own
+        // comment), this name comes straight from whatever file name the caller passed — in
+        // practice, a Nexus download's own Content-Disposition file name, chosen by a remote
+        // server/mirror. Sanitized here so a Windows-reserved device name or a trailing dot/space
+        // can't reach Directory.CreateDirectory/File.Copy below and throw an unhandled exception.
+        var baseName = SanitizeFolderNameCandidate(Path.GetFileNameWithoutExtension(pakFilePath));
         var folderName = MakeUniqueFolderName(baseName);
         var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
         Directory.CreateDirectory(targetFolder);
@@ -330,6 +336,32 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         }
 
         return text.ToString();
+    }
+
+    private static readonly HashSet<string> ReservedWindowsDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+
+    /// <summary>Makes an externally-sourced name safe to use as a single Windows folder-name component — replaces invalid filename characters, trims trailing dots/spaces (Windows silently strips these, which can otherwise produce a confusingly different name than what was asked for), and dodges reserved device names.</summary>
+    private static string SanitizeFolderNameCandidate(string candidate)
+    {
+        var sanitized = new string([.. candidate.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)])
+            .TrimEnd('.', ' ');
+
+        if (string.IsNullOrWhiteSpace(sanitized))
+        {
+            sanitized = "mod";
+        }
+
+        if (ReservedWindowsDeviceNames.Contains(sanitized))
+        {
+            sanitized += "_mod";
+        }
+
+        return sanitized;
     }
 
     private string MakeUniqueFolderName(string fileName)

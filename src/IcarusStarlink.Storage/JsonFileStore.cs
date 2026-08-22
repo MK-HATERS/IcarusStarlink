@@ -40,5 +40,17 @@ internal static class JsonFileStore
         }
     }
 
-    public static void Save<T>(string filePath, T value) => File.WriteAllText(filePath, JsonSerializer.Serialize(value, Options));
+    /// <summary>
+    /// Writes to a temp file in the same directory, then File.Move(overwrite: true)'s it into
+    /// place — not a direct File.WriteAllText, which truncates filePath in place and would leave it
+    /// as malformed JSON if the process is killed mid-write (a crash, forced shutdown, or power
+    /// loss). The temp file's own name is unique per call so two concurrent Save calls to the same
+    /// path can't collide with each other's in-progress write.
+    /// </summary>
+    public static void Save<T>(string filePath, T value)
+    {
+        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
+        File.WriteAllText(tempPath, JsonSerializer.Serialize(value, Options));
+        File.Move(tempPath, filePath, overwrite: true);
+    }
 }

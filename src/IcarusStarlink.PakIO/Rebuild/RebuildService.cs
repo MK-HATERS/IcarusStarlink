@@ -126,7 +126,8 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
 
             var fileJson = JsonNode.Parse(File.ReadAllText(basePath))!.AsObject();
             original[currentFile] = fileJson;
-            keyed[currentFile] = DataTableJson.RowsToKeyedObject(fileJson);
+            keyed[currentFile] = DataTableJson.RowsToKeyedObject(fileJson, duplicateName => report.AddWarning(
+                $"'{currentFile}' has more than one row named '{duplicateName}' — only the last one was kept, so a merge against the others' baseline is invisible."));
         }
 
         return (keyed, original);

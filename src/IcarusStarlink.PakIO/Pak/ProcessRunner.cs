@@ -34,7 +34,23 @@ public sealed class ProcessRunner : IProcessRunner
         process.Start();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
-        await process.WaitForExitAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // WaitForExitAsync throwing on cancellation doesn't terminate the child itself — without
+            // this, a cancelled build would leave the real OS process (e.g. UnrealPak.exe) running
+            // indefinitely with open handles into the staging directory, which would then make the
+            // caller's own cleanup of that directory fail.
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+
+            throw;
+        }
 
         return new ProcessRunResult(process.ExitCode, stdout.ToString(), stderr.ToString());
     }

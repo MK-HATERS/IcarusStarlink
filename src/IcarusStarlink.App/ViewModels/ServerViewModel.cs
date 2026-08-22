@@ -62,9 +62,12 @@ public sealed partial class ServerViewModel : ObservableObject
     [ObservableProperty]
     private bool _isConnected;
 
-    public bool IsNotConnected => !IsConnected;
+    // Also false while IsConnecting — the Connect button binds IsEnabled to this, so a slow
+    // handshake can't be double-clicked into creating a second concurrent IFtpClient.
+    public bool IsNotConnected => !IsConnected && !IsConnecting;
 
     partial void OnIsConnectedChanged(bool value) => OnPropertyChanged(nameof(IsNotConnected));
+    partial void OnIsConnectingChanged(bool value) => OnPropertyChanged(nameof(IsNotConnected));
 
     [ObservableProperty]
     private bool _isConnecting;
@@ -211,6 +214,16 @@ public sealed partial class ServerViewModel : ObservableObject
     [RelayCommand]
     private async Task ConnectAsync()
     {
+        // IsEnabled on the Connect button is bound to IsNotConnected, which only flips false once
+        // this method has already returned — without this guard, a second click during a slow
+        // handshake would create and connect a second IFtpClient, and whichever finished second
+        // would silently overwrite _connectedClient, orphaning the first (never disposed, never
+        // reachable by Disconnect again).
+        if (IsConnecting)
+        {
+            return;
+        }
+
         if (SelectedSite is not { } site)
         {
             ConnectionStatusMessage = "Select or save a site first.";

@@ -205,6 +205,13 @@ public sealed partial class DownloadsViewModel : ObservableObject
         // moment Downloads opens for a user who's never configured Nexus at all; the manual
         // Check for updates button surfaces that message on an explicit click instead.
         _ = RunNexusUpdateCheckAsync(isAutomatic: true);
+
+        // This ViewModel Sends LibraryChangedMessage itself (after a download/extract, an
+        // Activate, or an import) but, until now, never Registered to receive it — so the IMM
+        // Database's Downloaded/Outdated/installed-version status went stale after an import or
+        // delete that happened elsewhere (Library, or Merge & Install's own Install) until an
+        // unrelated filter change happened to recompute it.
+        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((DownloadsViewModel)recipient).ApplyCatalogFilters());
     }
 
     partial void OnCatalogSearchTextChanged(string value) => _searchDebounceTimer.Restart();
@@ -258,8 +265,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
             // shouldn't discard the other source's already-successful results via a shared
             // Task.WhenAll failure.
             var failedSources = new List<string>();
-            var daedalusTask = FetchCatalogSourceAsync(_daedalusClient.FetchAsync, "Daedalus", failedSources);
-            var jimk72Task = FetchCatalogSourceAsync(_jimk72Client.FetchAsync, "Jimk72", failedSources);
+            var daedalusTask = CatalogSourceFetch.FetchAsync(_daedalusClient.FetchAsync, "Daedalus", failedSources);
+            var jimk72Task = CatalogSourceFetch.FetchAsync(_jimk72Client.FetchAsync, "Jimk72", failedSources);
             await Task.WhenAll(daedalusTask, jimk72Task);
 
             _allCatalogEntries = [.. daedalusTask.Result, .. jimk72Task.Result];
@@ -336,25 +343,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
         finally
         {
             IsLoadingCatalog = false;
-        }
-    }
-
-    /// <summary>Isolates one catalog source's fetch from the other — a failure here is recorded in failedSources and returns an empty list, rather than throwing and (via the caller's shared Task.WhenAll) discarding the other source's own already-successful result too.</summary>
-    private static async Task<IReadOnlyList<CatalogEntry>> FetchCatalogSourceAsync(
-        Func<CancellationToken, Task<IReadOnlyList<CatalogEntry>>> fetch, string sourceName, List<string> failedSources)
-    {
-        try
-        {
-            return await fetch(default);
-        }
-        catch (Exception)
-        {
-            lock (failedSources)
-            {
-                failedSources.Add(sourceName);
-            }
-
-            return [];
         }
     }
 
@@ -837,6 +825,15 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private void ReloadNexusEntries()
     {
         var previouslySelectedId = SelectedNexusEntry?.NexusId;
+
+        // Every row is rebuilt fresh below (no instance reuse, unlike Library's own cache), so any
+        // row mid-debounce on a just-typed name needs its pending save flushed now — otherwise
+        // Clear() would either lose the edit (if the timer never got a chance to fire) or let an
+        // orphaned timer write it later against a NexusId a brand-new row instance won't reflect.
+        foreach (var entry in NexusEntries)
+        {
+            entry.FlushPendingSave();
+        }
 
         NexusEntries.Clear();
         var query = _watchlistStore.Entries.AsEnumerable();

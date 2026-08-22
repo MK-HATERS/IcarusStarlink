@@ -13,7 +13,14 @@ namespace IcarusStarlink.PakIO.DataChanges;
 /// </summary>
 public static class DataTableJson
 {
-    public static JsonObject RowsToKeyedObject(JsonObject dataTableFile)
+    /// <summary>
+    /// onDuplicateRow, if given, is called with the row name whenever two Rows entries share the
+    /// same "Name" — without it, the second silently overwrites the first with no diagnostic at
+    /// all, which every real caller in this codebase used to accept implicitly. Not every caller
+    /// has a report to feed a warning into (e.g. Weekly Changes' own tracker), so this stays opt-in
+    /// rather than a required parameter.
+    /// </summary>
+    public static JsonObject RowsToKeyedObject(JsonObject dataTableFile, Action<string>? onDuplicateRow = null)
     {
         var result = new JsonObject();
         if (dataTableFile["Rows"] is not JsonArray rows)
@@ -30,6 +37,11 @@ public static class DataTableJson
                 // A row with no string "Name" can't be addressed by TableDiffer's keyed shape at
                 // all — skip it rather than fail the whole file over one malformed entry.
                 continue;
+            }
+
+            if (result.ContainsKey(name))
+            {
+                onDuplicateRow?.Invoke(name);
             }
 
             var rowCopy = row.DeepClone()!.AsObject();

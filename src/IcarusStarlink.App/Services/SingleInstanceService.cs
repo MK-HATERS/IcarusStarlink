@@ -41,8 +41,16 @@ public sealed class SingleInstanceService : IDisposable
                 {
                     using var server = new NamedPipeServerStream(PipeName, PipeDirection.In, maxNumberOfServerInstances: 1);
                     await server.WaitForConnectionAsync(token);
+
+                    // A client that connects but never writes (crashes between Connect and
+                    // WriteLine, gets paused by a debugger/AV) would otherwise block this read
+                    // forever — since maxNumberOfServerInstances is 1, that wedges every later
+                    // nxm:// handoff for the rest of this app's life, since no new server could ever
+                    // be created to accept them.
+                    using var readTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    readTimeoutCts.CancelAfter(TimeSpan.FromSeconds(5));
                     using var reader = new StreamReader(server);
-                    var message = await reader.ReadLineAsync(token);
+                    var message = await reader.ReadLineAsync(readTimeoutCts.Token);
                     if (!string.IsNullOrWhiteSpace(message))
                     {
                         onMessageReceived(message);
