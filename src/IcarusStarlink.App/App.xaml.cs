@@ -68,6 +68,16 @@ public partial class App : Application
 
         _singleInstanceService = singleInstanceService;
 
+        // Started immediately, before the (potentially slow — DI host build, HTTP client
+        // registration, Library scan, window show) rest of startup below: a second instance only
+        // waits a few seconds on SendToRunningInstance before giving up silently, so if the pipe
+        // server didn't exist yet until after all of that finished, a real nxm:// click during a
+        // cold app start could easily lose the race and vanish with no error anywhere. Safe to
+        // call this early — HandleNxmUrl below runs via Dispatcher.BeginInvoke, which the WPF
+        // message loop won't actually pump until OnStartup returns, by which point _host (assigned
+        // further down) is always already set.
+        singleInstanceService.StartListening(nxmUrl => Dispatcher.BeginInvoke(() => HandleNxmUrl(nxmUrl)));
+
         var appDataDirectory = AppContext.BaseDirectory;
         var logsDirectory = Path.Combine(appDataDirectory, "Logs");
         Directory.CreateDirectory(logsDirectory);
@@ -227,8 +237,6 @@ public partial class App : Application
         // that assumption stops holding.
         var mainViewModel = _host.Services.GetRequiredService<MainViewModel>();
         Dispatcher.BeginInvoke(mainViewModel.SelectDefaultPage);
-
-        _singleInstanceService.StartListening(nxmUrl => Dispatcher.BeginInvoke(() => HandleNxmUrl(nxmUrl)));
 
         // Handle the case where THIS launch (the first instance) was itself invoked with an
         // nxm:// argument — e.g. the very first time the OS protocol registration is used.

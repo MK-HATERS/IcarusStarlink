@@ -63,7 +63,11 @@ public sealed class SingleInstanceService : IDisposable
         try
         {
             using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
-            client.Connect(timeout: 2000);
+            // Generous even though the first instance now starts listening immediately on launch
+            // (before its own DI host build/window show) — a genuinely cold Debug-build start
+            // (JIT warm-up, disk cache cold) can still take a few seconds, and there's no real
+            // downside to waiting longer here: this process is about to exit either way.
+            client.Connect(timeout: 8000);
             using var writer = new StreamWriter(client) { AutoFlush = true };
             writer.WriteLine(message);
         }

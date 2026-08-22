@@ -65,10 +65,19 @@ public sealed partial class MainViewModel : ObservableObject
     /// Defaults to Library specifically, not NavItems[0] — Downloads (now first, matching the
     /// real app's nav order) is still an empty placeholder page until Phase 4, and landing there
     /// on launch would be a worse first impression than the one page that's actually functional.
+    /// Only sets it if nothing else already has — both this and a real nxm:// handoff's own nav
+    /// switch to Downloads are queued via Dispatcher.BeginInvoke from App.xaml.cs's OnStartup, and
+    /// which one the dispatcher actually runs first is a genuine race (the handoff arrives on a
+    /// background named-pipe thread, this one is queued synchronously near the end of OnStartup) —
+    /// without this guard, the handoff arriving first would just get silently clobbered back to
+    /// Library a moment later.
     /// </summary>
     public void SelectDefaultPage()
     {
-        SelectedNavItem = NavItems.First(item => item.Id == "library");
+        if (SelectedNavItem is null)
+        {
+            SelectedNavItem = NavItems.First(item => item.Id == "library");
+        }
     }
 
     partial void OnSelectedNavItemChanged(NavItem? value)
