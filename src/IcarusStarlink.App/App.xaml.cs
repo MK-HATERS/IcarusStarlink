@@ -21,6 +21,7 @@ using IcarusStarlink.Core.Server;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Steam;
 using IcarusStarlink.Core.Ue4ss;
+using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
@@ -137,6 +138,7 @@ public partial class App : Application
                 sp.GetRequiredService<ILogger<WeeklyChangeReportStore>>()));
         builder.Services.AddSingleton<IRebuildService, RebuildService>();
         builder.Services.AddSingleton<IInstallService, InstallService>();
+        builder.Services.AddSingleton<IPakCompareService, PakCompareService>();
         builder.Services.AddSingleton<IProfileStore>(sp =>
             new ProfileStore(
                 Path.Combine(appDataDirectory, "Profiles"),
@@ -193,6 +195,7 @@ public partial class App : Application
             sp.GetRequiredService<IDaedalusCatalogClient>(),
             sp.GetRequiredService<IJimk72CatalogClient>(),
             sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<IPakCompareService>(),
             sp.GetRequiredService<PerformanceTracker>(),
             sp.GetRequiredService<IActivityLog>(),
             Path.Combine(appDataDirectory, "Data"),

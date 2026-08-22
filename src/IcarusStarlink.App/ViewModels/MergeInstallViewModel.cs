@@ -17,6 +17,7 @@ using IcarusStarlink.Core.Patches;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Diffing;
+using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.GameplayToggles;
@@ -44,6 +45,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     private readonly IDaedalusCatalogClient _daedalusClient;
     private readonly IJimk72CatalogClient _jimk72Client;
     private readonly ISettingsService _settingsService;
+    private readonly IPakCompareService _pakCompareService;
     private readonly PerformanceTracker _performanceTracker;
     private readonly IActivityLog _activityLog;
     private readonly string _dataFolder;
@@ -180,7 +182,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     public MergeInstallViewModel(
         ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
         IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
-        ISettingsService settingsService, PerformanceTracker performanceTracker, IActivityLog activityLog,
+        ISettingsService settingsService, IPakCompareService pakCompareService, PerformanceTracker performanceTracker, IActivityLog activityLog,
         string dataFolder, string outputPakPath, string backupDirectory)
     {
         _libraryRepository = libraryRepository;
@@ -191,6 +193,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         _daedalusClient = daedalusClient;
         _jimk72Client = jimk72Client;
         _settingsService = settingsService;
+        _pakCompareService = pakCompareService;
         _performanceTracker = performanceTracker;
         _activityLog = activityLog;
         _dataFolder = dataFolder;
@@ -856,6 +859,19 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             Queue.Move(index, index + 1);
         }
+    }
+
+    /// <summary>
+    /// Big-plan item 8b: opens the pak-vs-pak comparison window (non-modal, like the editor's own
+    /// research windows) — built for verifying this app's rebuilt pak against classic IMM's own
+    /// installed merged pak during migration, but works for any two paks.
+    /// </summary>
+    [RelayCommand]
+    private void ComparePaks()
+    {
+        var viewModel = new PakCompareViewModel(_pakCompareService, _settingsService, _outputPakPath);
+        var window = new PakCompareWindow(viewModel) { Owner = Application.Current.MainWindow };
+        window.Show();
     }
 
     /// <summary>
