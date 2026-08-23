@@ -11,6 +11,7 @@
     <converters:GameplayLevelToShortLabelConverter x:Key="GameplayLevelToShortLabelConverter"/>
     <converters:ProgressToWidthConverter x:Key="ProgressToWidthConverter"/>
     <converters:LibraryEntryQueuedConverter x:Key="LibraryEntryQueuedConverter"/>
+    <converters:HexToBrushConverter x:Key="HexToBrushConverter"/>
 
     <Style TargetType="{x:Type Window}">
         <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}"/>

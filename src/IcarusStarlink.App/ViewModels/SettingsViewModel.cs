@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog.AppUpdate;
@@ -15,6 +16,7 @@ using IcarusStarlink.Catalog.Ue4ss;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Skins;
 using IcarusStarlink.Core.Steam;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Install;
@@ -36,6 +38,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IUe4ssReleaseClient _ue4ssReleaseClient;
     private readonly IAppUpdateClient _appUpdateClient;
     private readonly HttpClient _httpClient;
+    private readonly IThemeService _themeService;
+    private readonly ICustomSkinStore _customSkinStore;
     private readonly string _backupDirectory;
     private readonly string _dataOutputDirectory;
     private readonly string _logsDirectory;
@@ -147,6 +151,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         ISteamInstallLocator steamInstallLocator, ICredentialStore credentialStore, INexusApiClient nexusApiClient,
         INxmProtocolRegistrar nxmProtocolRegistrar, IUe4ssLoaderInstallService ue4ssLoaderInstallService,
         IUe4ssReleaseClient ue4ssReleaseClient, IAppUpdateClient appUpdateClient, HttpClient httpClient,
+        IThemeService themeService, ICustomSkinStore customSkinStore,
         string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath)
     {
         _settingsService = settingsService;
@@ -160,6 +165,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ue4ssReleaseClient = ue4ssReleaseClient;
         _appUpdateClient = appUpdateClient;
         _httpClient = httpClient;
+        _themeService = themeService;
+        _customSkinStore = customSkinStore;
         _backupDirectory = backupDirectory;
         _dataOutputDirectory = dataOutputDirectory;
         _logsDirectory = logsDirectory;
@@ -182,6 +189,150 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ = InitializeNexusStatusAsync();
         _ = CheckUe4ssLatestReleaseAsync();
         _ = CheckForAppUpdatesOnLaunchAsync();
+
+        LoadSkinTokens();
+    }
+
+    // --- Custom skin (big-plan item 6) ---
+
+    /// <summary>Display order + plain-language description per token, so the editor reads as "what part of the UI is this" rather than a bare brush-key dump. Tokens the themes define but this list doesn't know still show (appended at the end, keyed name as its own description) — the editor can't silently drop a token added to the theme files later.</summary>
+    private static readonly (string Key, string Description)[] SkinTokenOrder =
+    [
+        ("WindowBackgroundBrush", "Window background"),
+        ("PanelBackgroundBrush", "Side panels and nav rail"),
+        ("ContentBackgroundBrush", "Page content background"),
+        ("CardBackgroundBrush", "Cards and input boxes"),
+        ("CardRaisedBackgroundBrush", "Raised cards (one step lighter)"),
+        ("ForegroundBrush", "Main text"),
+        ("SecondaryForegroundBrush", "Secondary text"),
+        ("FaintForegroundBrush", "Faint text and disabled items"),
+        ("AccentBrush", "Accent — buttons and highlights"),
+        ("AccentForegroundBrush", "Text on accent buttons"),
+        ("AccentSoftBrush", "Soft accent fill (badges)"),
+        ("BorderBrush", "Borders"),
+        ("NavItemHoverBrush", "Nav item hover"),
+        ("NavItemSelectedBrush", "Nav item selected"),
+        ("DangerBrush", "Danger / removals"),
+        ("DangerSoftBrush", "Soft danger fill (badges)"),
+        ("SuccessBrush", "Success / additions"),
+        ("SuccessSoftBrush", "Soft success fill (badges)"),
+        ("InfoBrush", "Info"),
+    ];
+
+    public System.Collections.ObjectModel.ObservableCollection<SkinTokenViewModel> SkinTokens { get; } = [];
+
+    [ObservableProperty]
+    private string? _skinStatusMessage;
+
+    private void LoadSkinTokens()
+    {
+        var defaults = _themeService.GetThemeColors("Icarus");
+        var saved = _customSkinStore.Load()?.Colors ?? [];
+
+        SkinTokens.Clear();
+        foreach (var (key, description) in SkinTokenOrder)
+        {
+            if (!defaults.ContainsKey(key))
+            {
+                continue;
+            }
+
+            SkinTokens.Add(new SkinTokenViewModel(key, description)
+            {
+                Hex = saved.GetValueOrDefault(key) ?? defaults[key],
+            });
+        }
+
+        foreach (var (key, hex) in defaults)
+        {
+            if (!SkinTokens.Any(t => t.Key == key))
+            {
+                SkinTokens.Add(new SkinTokenViewModel(key, key) { Hex = saved.GetValueOrDefault(key) ?? hex });
+            }
+        }
+    }
+
+    [RelayCommand]
+    private void SaveSkin()
+    {
+        var invalid = SkinTokens.Where(t => !ThemeService.TryParseColor(t.Hex.Trim(), out _)).Select(t => t.Key).ToList();
+        if (invalid.Count > 0)
+        {
+            SkinStatusMessage = $"Not saved — these aren't valid hex colors (#RRGGBB or #AARRGGBB): {string.Join(", ", invalid)}.";
+            return;
+        }
+
+        try
+        {
+            _customSkinStore.Save(new CustomSkin
+            {
+                Colors = SkinTokens.ToDictionary(t => t.Key, t => t.Hex.Trim()),
+            });
+
+            if (_settingsService.Current.ThemeName == ThemeService.CustomThemeName)
+            {
+                _themeService.ApplyTheme(ThemeService.CustomThemeName);
+                SkinStatusMessage = "Skin saved and applied.";
+            }
+            else
+            {
+                SkinStatusMessage = "Skin saved — pick the Custom theme (top right) to see it.";
+            }
+        }
+        catch (Exception ex)
+        {
+            SkinStatusMessage = $"Couldn't save the skin: {ex.Message}";
+        }
+    }
+
+    /// <summary>Fills the editor's boxes from a built-in theme's own values as a starting point — doesn't save or apply anything until Save skin is clicked.</summary>
+    [RelayCommand]
+    private void CopyThemeIntoSkin(string themeName)
+    {
+        var colors = _themeService.GetThemeColors(themeName);
+        foreach (var token in SkinTokens)
+        {
+            if (colors.TryGetValue(token.Key, out var hex))
+            {
+                token.Hex = hex;
+            }
+        }
+
+        SkinStatusMessage = $"Copied the {themeName} theme's values — adjust and Save skin.";
+    }
+
+    [RelayCommand]
+    private void OpenSkinFile()
+    {
+        try
+        {
+            if (_customSkinStore.Load() is null)
+            {
+                _customSkinStore.Save(new CustomSkin
+                {
+                    Colors = SkinTokens.ToDictionary(t => t.Key, t => t.Hex.Trim()),
+                });
+            }
+
+            Process.Start(new ProcessStartInfo(_customSkinStore.FilePath) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            SkinStatusMessage = $"Couldn't open the skin file: {ex.Message}";
+        }
+    }
+
+    /// <summary>Re-reads the skin file into the editor (and re-applies it if Custom is active) — the companion to hand-editing via OpenSkinFile.</summary>
+    [RelayCommand]
+    private void ReloadSkinFile()
+    {
+        LoadSkinTokens();
+        if (_settingsService.Current.ThemeName == ThemeService.CustomThemeName)
+        {
+            _themeService.ApplyTheme(ThemeService.CustomThemeName);
+        }
+
+        SkinStatusMessage = "Skin file reloaded.";
     }
 
     [RelayCommand]

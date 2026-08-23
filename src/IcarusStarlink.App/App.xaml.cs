@@ -19,6 +19,7 @@ using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Server;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Skins;
 using IcarusStarlink.Core.Steam;
 using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Compare;
@@ -34,6 +35,7 @@ using IcarusStarlink.Storage.Profiles;
 using IcarusStarlink.Storage.Secrets;
 using IcarusStarlink.Storage.Server;
 using IcarusStarlink.Storage.Settings;
+using IcarusStarlink.Storage.Skins;
 using IcarusStarlink.Storage.Steam;
 using IcarusStarlink.Storage.Ue4ss;
 using Microsoft.Extensions.DependencyInjection;
@@ -103,6 +105,10 @@ public partial class App : Application
         builder.Services.AddSingleton(sp => new PerformanceTracker(sp.GetRequiredService<ISettingsService>(), logsDirectory));
         builder.Services.AddSingleton<IActivityLog, ActivityLog>();
         builder.Services.AddSingleton<ActivityPanelViewModel>();
+        builder.Services.AddSingleton<ICustomSkinStore>(sp =>
+            new CustomSkinStore(
+                Path.Combine(appDataDirectory, "custom_skin.json"),
+                sp.GetRequiredService<ILogger<CustomSkinStore>>()));
         builder.Services.AddSingleton<IThemeService, ThemeService>();
         builder.Services.AddSingleton<ILibraryRepository>(sp =>
             new FolderLibraryRepository(
@@ -232,6 +238,8 @@ public partial class App : Application
             sp.GetRequiredService<IUe4ssReleaseClient>(),
             sp.GetRequiredService<IAppUpdateClient>(),
             sp.GetRequiredService<HttpClient>(),
+            sp.GetRequiredService<IThemeService>(),
+            sp.GetRequiredService<ICustomSkinStore>(),
             Path.Combine(appDataDirectory, "Backups"),
             Path.Combine(appDataDirectory, "Data"),
             logsDirectory,
