@@ -126,11 +126,19 @@
                 </TreeView>
             </Grid>
 
-            <!-- Queue + Rebuild + Install pane -->
+            <!-- Queue + Rebuild + Install pane, split into four clear zones (queue management,
+                 build & install, verify, uninstall) with real section headers/dividers instead of
+                 one long undifferentiated vertical stack. -->
             <Grid Grid.Column="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -211,14 +219,17 @@
                             ToolTip="Saves the current queue as your baseline — these mods are auto-added (lowest priority) to every profile's queue from now on. Click with an empty queue to clear the baseline."/>
                 </WrapPanel>
 
-                <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
+                <Border Grid.Row="3" Style="{StaticResource SectionDividerStyle}" Margin="0,14,0,10"/>
+                <TextBlock Grid.Row="4" Text="Build &amp; install" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8"/>
+
+                <StackPanel Grid.Row="5" Orientation="Horizontal">
                     <Button Content="Review conflicts" Command="{Binding ReviewConflictsCommand}"
                             ToolTip="See which fields two or more queued mods both change, and optionally pick a winner per field instead of the default last-mod-wins"/>
                     <TextBlock Text="{Binding ConflictStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                 </StackPanel>
 
-                <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,16,0,0">
+                <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,12,0,0">
                     <!-- One button now does the whole "merge, then install" flow — chained internally
                          (RebuildAndInstallCommand), not merged into one method, so the real-game-write
                          confirmation dialog still appears only right before that actual write, after
@@ -237,7 +248,7 @@
                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                 </StackPanel>
 
-                <Grid Grid.Row="5" Margin="0,8,0,0" Visibility="{Binding IsRebuilding, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid Grid.Row="7" Margin="0,8,0,0" Visibility="{Binding IsRebuilding, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -247,10 +258,13 @@
                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
                 </Grid>
 
-                <ListBox Grid.Row="6" ItemsSource="{Binding Warnings}" Margin="0,8,0,0" MaxHeight="120"
+                <ListBox Grid.Row="8" ItemsSource="{Binding Warnings}" Margin="0,8,0,0" MaxHeight="120"
                          Foreground="{DynamicResource AccentBrush}" FontSize="12"/>
 
-                <StackPanel Grid.Row="7" Orientation="Horizontal" Margin="0,16,0,0">
+                <Border Grid.Row="9" Style="{StaticResource SectionDividerStyle}" Margin="0,14,0,10"/>
+                <TextBlock Grid.Row="10" Text="Verify" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8"/>
+
+                <StackPanel Grid.Row="11" Orientation="Horizontal">
                     <Button Content="Compare to installed" Command="{Binding CompareToInstalledCommand}"
                             ToolTip="Preview what Install would actually change, by reading what this app can tell is currently installed."/>
                     <Button Content="Compare paks…" Command="{Binding ComparePaksCommand}" Margin="8,0,0,0"
@@ -258,9 +272,12 @@
                     <TextBlock Text="{Binding ComparisonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                 </StackPanel>
-                <ListBox Grid.Row="8" ItemsSource="{Binding ComparisonEntries}" Margin="0,8,0,0" MaxHeight="120" FontSize="12" FontFamily="Consolas"/>
+                <ListBox Grid.Row="12" ItemsSource="{Binding ComparisonEntries}" Margin="0,8,0,0" MaxHeight="120" FontSize="12" FontFamily="Consolas"/>
 
-                <StackPanel Grid.Row="9" Orientation="Horizontal" Margin="0,16,0,0">
+                <Border Grid.Row="13" Style="{StaticResource SectionDividerStyle}" Margin="0,14,0,10"/>
+                <TextBlock Grid.Row="14" Text="Uninstall" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8"/>
+
+                <StackPanel Grid.Row="15" Orientation="Horizontal">
                     <!-- The spec's "Copy built pack to game" / Retry: installs the already-staged
                          pak without remerging. Shown only when there is one to copy. -->
                     <Button Command="{Binding CopyToGameCommand}" Margin="0,0,8,0"
@@ -291,13 +308,14 @@
                  even with an empty queue — matching classic IMM's own documented behavior. -->
             <ScrollViewer Grid.Column="4" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
-                    <TextBlock Text="Merge options" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                    <TextBlock Text="Merge options" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8"/>
 
                     <!-- Phase 10: the leveled options (multiple values, not on/off) are now pill
                          selectors instead of dropdowns, matching the mockup — real hints from
                          classic IMM's own documented numbers move onto a small (i) icon next to
                          the label instead of hovering the control itself, since a 3-way pill has
                          no one obvious hover target the way a ComboBox did. -->
+                    <TextBlock Text="PLAYER BOOSTS" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource FaintForegroundBrush}"/>
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,2">
                         <TextBlock Text="Speed Boost" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
@@ -346,7 +364,9 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
+                    <Border Style="{StaticResource SectionDividerStyle}" Margin="0,16,0,10"/>
+                    <TextBlock Text="CRAFTING &amp; ECONOMY" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,2">
                         <TextBlock Text="Craft Cost" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
                                 ToolTip="Reduces the item/resource inputs every crafting-bench recipe needs. Never touches what a recipe outputs. Free (Creative mode) zeroes every input outright rather than rounding it down. (Classic IMM's own documented values.)">
@@ -408,8 +428,11 @@
                             Value="{Binding SpeedCraftingPercent}" Margin="0,4,0,0"
                             ToolTip="Drag or click to set — 0 means unchanged"/>
 
+                    <Border Style="{StaticResource SectionDividerStyle}" Margin="0,16,0,10"/>
+                    <TextBlock Text="OTHER TOGGLES" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource FaintForegroundBrush}"/>
+
                     <!-- Phase 10: genuine on/off toggles for these three, replacing plain checkboxes. -->
-                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding RemoveWeight}" Margin="0,16,0,0"
+                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding RemoveWeight}" Margin="0,8,0,0"
                               Content="Remove Weight"
                               ToolTip="Zeroes out every item's own weight override — everything becomes weightless to carry"/>
                     <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding UnlimitedAmmo}" Margin="0,12,0,0"

@@ -30,6 +30,8 @@
     <Geometry x:Key="IconWarning">M12 3L21.5 20L2.5 20Z M12 9L12 15.3 M12 17.2L12.01 17.2</Geometry>
     <Geometry x:Key="IconInfo">M12 11L12 17 M12 7.6L12.01 7.6</Geometry>
     <Geometry x:Key="IconChevronDown">M6 9L12 15L18 9</Geometry>
+    <Geometry x:Key="IconChevronLeft">M15 6L9 12L15 18</Geometry>
+    <Geometry x:Key="IconChevronRight">M9 6L15 12L9 18</Geometry>
     <Geometry x:Key="IconMerge">M6 4L6 10L12 14L12 20 M18 4L18 10L12 14 M9 17L12 20L15 17</Geometry>
     <Geometry x:Key="IconBook">M4 5L11 5L11 19L4 19Z M13 5L20 5L20 19L13 19Z M11 5L13 5 M11 19L13 19</Geometry>
     <Geometry x:Key="IconServerBars">M4 4L20 4L20 10L4 10Z M4 14L20 14L20 20L4 20Z M7.5 7L7.51 7 M7.5 17L7.51 17</Geometry>

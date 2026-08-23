@@ -74,11 +74,20 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
 
     private const int AllPageSize = 30;
 
-    /// <summary>The catalog's own total in All mode, so Load more knows when everything is already loaded.</summary>
+    /// <summary>The catalog's own total in All mode, so page navigation knows how many pages exist — 229 real mods would mean 8 "Load more" clicks to reach the end, so this is real Prev/Next paging (replaces the shown page) rather than an ever-growing appended list.</summary>
     private int _allTotalCount;
 
+    /// <summary>0-based offset of the currently-shown page in All mode — reset to 0 whenever the browse kind, search text, or an explicit Refresh changes what's being paged through.</summary>
+    private int _allPageOffset;
+
     [ObservableProperty]
-    private bool _canLoadMore;
+    private bool _canGoToPreviousPage;
+
+    [ObservableProperty]
+    private bool _canGoToNextPage;
+
+    [ObservableProperty]
+    private string? _pageDisplay;
 
     /// <summary>Hides mods this install already has (In Library or sitting in Pending Downloads) — a "what am I missing" view.</summary>
     [ObservableProperty]
@@ -150,13 +159,22 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     [RelayCommand]
     private Task Refresh() => LoadAsync();
 
-    private async Task LoadAsync()
+    /// <summary>A fresh load — kind/search change or an explicit Refresh — always starts back at page 1 of All, since the offset from a previous browse/search context wouldn't mean anything here.</summary>
+    private Task LoadAsync()
+    {
+        _allPageOffset = 0;
+        return LoadPageAsync();
+    }
+
+    private async Task LoadPageAsync()
     {
         var version = ++_loadVersion;
         var searchText = SearchText.Trim();
         var isSearch = searchText.Length > 0;
         var isAll = !isSearch && SelectedKind == "All";
-        CanLoadMore = false;
+        CanGoToPreviousPage = false;
+        CanGoToNextPage = false;
+        PageDisplay = null;
 
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
         // Search and the All list work even with no key (the v2 GraphQL endpoint answers
@@ -179,7 +197,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             }
             else if (isAll)
             {
-                var page = await _nexusApiClient.ListAllModsAsync(apiKey, "icarus", offset: 0, count: AllPageSize);
+                var page = await _nexusApiClient.ListAllModsAsync(apiKey, "icarus", offset: _allPageOffset, count: AllPageSize);
                 mods = page.Mods;
                 _allTotalCount = page.TotalCount;
             }
@@ -196,7 +214,14 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             // A null Name means the mod is under moderation (Nexus's own documented shape) — a
             // card with no name, no summary, and nothing to open isn't worth rendering.
             _lastFetched = [.. mods.Where(m => m.Name is not null)];
-            CanLoadMore = isAll && mods.Count < _allTotalCount;
+            if (isAll)
+            {
+                CanGoToPreviousPage = _allPageOffset > 0;
+                CanGoToNextPage = _allPageOffset + AllPageSize < _allTotalCount;
+                var totalPages = Math.Max(1, (int)Math.Ceiling(_allTotalCount / (double)AllPageSize));
+                PageDisplay = $"Page {_allPageOffset / AllPageSize + 1} of {totalPages}";
+            }
+
             RebuildRows();
             UpdateStatusAfterLoad(isSearch, isAll, searchText);
         }
@@ -216,46 +241,28 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         }
     }
 
-    /// <summary>Appends the next page of the All list — offset is simply how many are already loaded, so a re-click can never skip or double-fetch a slice.</summary>
     [RelayCommand]
-    private async Task LoadMoreAsync()
+    private Task NextPageAsync()
     {
-        if (IsLoading || SearchText.Trim().Length > 0 || SelectedKind != "All")
+        if (IsLoading || !CanGoToNextPage)
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        var version = _loadVersion;
-        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
-        IsLoading = true;
-        try
-        {
-            var page = await _nexusApiClient.ListAllModsAsync(apiKey, "icarus", offset: _lastFetched.Count, count: AllPageSize);
-            if (version != _loadVersion)
-            {
-                return;
-            }
+        _allPageOffset += AllPageSize;
+        return LoadPageAsync();
+    }
 
-            _allTotalCount = page.TotalCount;
-            _lastFetched = [.. _lastFetched, .. page.Mods.Where(m => m.Name is not null)];
-            CanLoadMore = _lastFetched.Count < _allTotalCount;
-            RebuildRows();
-            UpdateStatusAfterLoad(isSearch: false, isAll: true, searchText: "");
-        }
-        catch (Exception ex)
+    [RelayCommand]
+    private Task PreviousPageAsync()
+    {
+        if (IsLoading || !CanGoToPreviousPage)
         {
-            if (version == _loadVersion)
-            {
-                StatusMessage = $"Couldn't load more: {ex.Message}";
-            }
+            return Task.CompletedTask;
         }
-        finally
-        {
-            if (version == _loadVersion)
-            {
-                IsLoading = false;
-            }
-        }
+
+        _allPageOffset = Math.Max(0, _allPageOffset - AllPageSize);
+        return LoadPageAsync();
     }
 
     private void UpdateStatusAfterLoad(bool isSearch, bool isAll, string searchText)
@@ -266,7 +273,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                 : isSearch ? $"No mods match '{searchText}'."
                 : "Nexus returned nothing for this list right now.")
             : isSearch ? $"{Mods.Count} result(s) for '{searchText}'."
-            : isAll ? $"{Mods.Count} shown · {_lastFetched.Count} of {_allTotalCount} loaded."
+            : isAll ? $"{Mods.Count} shown of {_allTotalCount} total."
             : null;
     }
 
@@ -327,13 +334,9 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Direct download from the card — looks up the mod's primary file (the half a download needs
-    /// that the browse lists don't carry), then hands "nxm://icarus/mods/{id}/files/{fileId}" to
-    /// DownloadsViewModel.FetchAndDownloadAsync: the exact pipeline a real website Mod Manager
-    /// Download click already runs, landing the file in Pending Downloads the same way. A
-    /// synthesized link has no key/expires, which the download_link endpoint only accepts for a
-    /// premium account — a non-premium key gets Nexus's rejection surfaced with a pointer at the
-    /// website's own Mod Manager Download button, which works for everyone.
+    /// Direct download from the card — delegates the whole "find the primary file, fetch it"
+    /// pipeline to DownloadsViewModel.ResolvePrimaryFileAndFetchAsync, the same shared helper the
+    /// manual paste box uses when given a plain mod-page URL, so this logic exists in one place.
     /// </summary>
     [RelayCommand]
     private async Task DownloadModAsync(NexusModInfo? mod)
@@ -343,40 +346,10 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             return;
         }
 
-        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
-        if (apiKey is null)
-        {
-            StatusMessage = "Sign in with your Nexus API key in Settings first.";
-            return;
-        }
-
         StatusMessage = $"Finding '{mod.Name}''s main file…";
-        try
-        {
-            var files = await _nexusApiClient.GetModFilesAsync(apiKey, "icarus", mod.ModId);
-            var file = files.FirstOrDefault(f => f.IsPrimary)
-                ?? files.FirstOrDefault(f => string.Equals(f.CategoryName, "MAIN", StringComparison.OrdinalIgnoreCase))
-                ?? files.FirstOrDefault();
-            if (file is null)
-            {
-                StatusMessage = $"'{mod.Name}' has no downloadable files listed.";
-                return;
-            }
-
-            await Downloads.FetchAndDownloadAsync($"nxm://icarus/mods/{mod.ModId}/files/{file.FileId}");
-            StatusMessage = Downloads.PendingDownloadStatusMessage;
-            RebuildRows();
-        }
-        catch (InvalidOperationException ex)
-        {
-            // Nexus's own rejection — for a non-premium account, direct API downloads aren't
-            // allowed at all; the website's Mod Manager Download button is the path that works.
-            StatusMessage = $"{ex.Message} Non-premium accounts can't download via the API directly — use Open page and its Mod Manager Download button instead.";
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Download failed: {ex.Message}";
-        }
+        await Downloads.ResolvePrimaryFileAndFetchAsync(mod.ModId);
+        StatusMessage = Downloads.PendingDownloadStatusMessage;
+        RebuildRows();
     }
 
     /// <summary>

@@ -574,13 +574,61 @@ public sealed partial class DownloadsViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(ManualNxmUrl))
         {
-            PendingDownloadStatusMessage = "Paste an nxm:// link first.";
+            PendingDownloadStatusMessage = "Paste a Nexus mod page URL or an nxm:// link first.";
             return Task.CompletedTask;
         }
 
-        var url = ManualNxmUrl.Trim();
+        var text = ManualNxmUrl.Trim();
         ManualNxmUrl = "";
-        return FetchAndDownloadAsync(url);
+
+        // A plain mod-page URL (what's actually in a browser's address bar — an nxm:// link isn't
+        // something most users ever see or copy) resolves the same way a card's own Download
+        // button does: look up the primary file, then fetch through the real nxm pipeline.
+        return NexusModWebUrl.TryParseModIdFromUrl(text, out var nexusModId)
+            ? ResolvePrimaryFileAndFetchAsync(nexusModId)
+            : FetchAndDownloadAsync(text);
+    }
+
+    /// <summary>
+    /// Resolves a bare Nexus mod ID to its primary downloadable file, then runs it through
+    /// FetchAndDownloadAsync — the same two-step DownloadModAsync uses. Shared here so the manual
+    /// paste box (given a plain mod-page URL) and NexusCatalogViewModel's own per-card Download
+    /// button don't each carry their own copy of "find the primary file" logic.
+    /// </summary>
+    public async Task ResolvePrimaryFileAndFetchAsync(int nexusModId)
+    {
+        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+        if (apiKey is null)
+        {
+            PendingDownloadStatusMessage = "Sign in with your Nexus API key in Settings first.";
+            return;
+        }
+
+        PendingDownloadStatusMessage = $"Finding mod #{nexusModId}'s main file…";
+        try
+        {
+            var files = await _nexusApiClient.GetModFilesAsync(apiKey, "icarus", nexusModId);
+            var file = files.FirstOrDefault(f => f.IsPrimary)
+                ?? files.FirstOrDefault(f => string.Equals(f.CategoryName, "MAIN", StringComparison.OrdinalIgnoreCase))
+                ?? files.FirstOrDefault();
+            if (file is null)
+            {
+                PendingDownloadStatusMessage = $"Mod #{nexusModId} has no downloadable files listed.";
+                return;
+            }
+
+            await FetchAndDownloadAsync($"nxm://icarus/mods/{nexusModId}/files/{file.FileId}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Nexus's own rejection — for a non-premium account, direct API downloads aren't
+            // allowed at all; the website's Mod Manager Download button is the path that works.
+            PendingDownloadStatusMessage = $"{ex.Message} Non-premium accounts can't download via the API directly — use Open page and its Mod Manager Download button instead.";
+        }
+        catch (Exception ex)
+        {
+            PendingDownloadStatusMessage = $"Couldn't find that mod's file: {ex.Message}";
+        }
     }
 
     /// <summary>
@@ -599,7 +647,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
         catch (FormatException ex)
         {
-            PendingDownloadStatusMessage = $"Not a usable nxm link: {ex.Message}";
+            PendingDownloadStatusMessage = $"That doesn't look like a Nexus mod page URL or an nxm:// link: {ex.Message}";
             return;
         }
 

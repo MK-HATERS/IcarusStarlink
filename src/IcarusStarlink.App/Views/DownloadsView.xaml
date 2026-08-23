@@ -289,7 +289,7 @@
 
                     <DockPanel Grid.Row="1" Margin="0,0,0,8" LastChildFill="True">
                         <Button DockPanel.Dock="Right" Command="{Binding FetchNxmUrlCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                ToolTip="Manually paste and fetch an nxm:// link — the same path a real 'Mod Manager Download' click will eventually use"
+                                ToolTip="Paste a Nexus mod page URL (fetches its main file) or an nxm:// link"
                                 AutomationProperties.Name="Fetch">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
@@ -299,7 +299,7 @@
                         </Button>
                         <Grid Margin="0,0,8,0">
                             <TextBox Text="{Binding ManualNxmUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                            <TextBlock Text="Fetch a download link by hand, e.g. nxm://icarus/mods/290/files/12345" Style="{StaticResource PlaceholderTextStyle}"
+                            <TextBlock Text="Mod page URL, e.g. https://www.nexusmods.com/icarus/mods/304 (or an nxm:// link)" Style="{StaticResource PlaceholderTextStyle}" TextTrimming="CharacterEllipsis"
                                        Visibility="{Binding ManualNxmUrl, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                         </Grid>
                     </DockPanel>
@@ -358,7 +358,7 @@
                                 </Style.Triggers>
                             </Style>
                         </TextBlock.Style>
-                        <Run Text="No downloads waiting. Click Download on a Nexus page card, use a Mod Manager Download button on the website, or paste an nxm:// link above (e.g. nxm://icarus/mods/290/files/12345)."/>
+                        <Run Text="No downloads waiting. Click Download on a Nexus page card, use a Mod Manager Download button on the website, or paste a mod page URL above."/>
                     </TextBlock>
 
                     <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
