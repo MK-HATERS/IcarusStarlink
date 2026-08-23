@@ -348,6 +348,33 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RebuildAsync_QueuedModAlsoTouchesStatsGranted_BuiltInGameplayOptionStillWinsByDefault()
+    {
+        // Phase 1 of the EXMOD/merge-options plan made Speed/Player/XP Boost and Disable
+        // Temperatures real FieldChanges instead of a separate post-merge pass — this proves the
+        // "built-in wins" default this always had is unchanged (a genuine no-regression check), even
+        // though the conflict is now visible to MergeEngine.FindConflicts (see
+        // GameplayOptionsFieldChangeGeneratorTests for that half).
+        WriteBaseTable("Stats/D_CharacterStartingStats.json",
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Base_Stats","StatsGranted":{}}]}""");
+        var mod = MakeMod("Speed Mod", "Stats-D_CharacterStartingStats.json", "Base_Stats",
+            new() { ["StatsGranted"] = new System.Text.Json.Nodes.JsonObject { ["(Value=\"BaseMovementSpeed_+\")"] = 999 } });
+        var pakService = new FakeUnrealPakService();
+        var service = new RebuildService(pakService);
+
+        await service.RebuildAsync(
+            [mod], new GameplayOptions { SpeedBoost = BoostLevel.Level1 }, _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        var stagedJson = pakService.StagedFileContentsAtCallTime["data/Stats/D_CharacterStartingStats.json"];
+        var stagedNode = System.Text.Json.Nodes.JsonNode.Parse(stagedJson)!;
+        var statsGranted = stagedNode["Rows"]![0]!["StatsGranted"]!.AsObject();
+        // The built-in Speed Boost's own real documented value (Level 1 = 455), not the queued
+        // mod's 999 — same default this had before Phase 1, just now a real, visible conflict
+        // resolution instead of a silent post-merge overwrite.
+        Assert.Equal(455, (int)statsGranted["(Value=\"BaseMovementSpeed_+\")"]!);
+    }
+
+    [Fact]
     public async Task RebuildAsync_CleansUpItsOwnStagingDirectory()
     {
         WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");

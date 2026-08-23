@@ -43,6 +43,18 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             var orderedModChanges = queuedMods
                 .Select(mod => ExmodFieldChangeMapper.ToFieldChanges(mod.Package, classifier))
                 .ToList();
+
+            // Category 1 gameplay options (Speed/Player/XP Boost, Disable Temperatures — the ones
+            // that write into one fixed row) become one more entry here, appended last so they stay
+            // highest-priority — matching the "built-in wins" default this always had — but now as
+            // a real MergeEngine participant: a queued mod also touching Base_Stats.StatsGranted
+            // shows up as a genuine, visible conflict instead of a silent post-merge overwrite.
+            var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(gameplayOptions, dataFolder, report);
+            if (fixedOptionChanges.Count > 0)
+            {
+                orderedModChanges.Add(fixedOptionChanges);
+            }
+
             var resolvedChanges = MergeEngine.Merge(orderedModChanges, new MergeRuleRegistry(), manualPicks);
 
             var requiredFiles = resolvedChanges.Select(c => c.CurrentFile)

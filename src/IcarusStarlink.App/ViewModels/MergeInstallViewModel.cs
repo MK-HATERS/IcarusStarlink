@@ -205,16 +205,30 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     private static string ShortLabel(object level) =>
         (string)LevelLabelConverter.Convert(level, typeof(string), null, CultureInfo.InvariantCulture);
 
-    partial void OnSpeedBoostChanged(BoostLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
-    partial void OnPlayerBoostChanged(BoostLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
-    partial void OnXpBoostChanged(XpBoostLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    // Speed/Player/XP Boost and Disable Temperatures (Category 1 — the ones that became a real
+    // FieldChange in Phase 1 of the EXMOD/merge-options plan) also invalidate any existing manual
+    // conflict picks and recompute the badge — toggling one of these changes whether the "Built-in
+    // gameplay options" synthetic entry even exists, which can change what a stored pick's index
+    // means the same way an Add/Remove/Move/Clear on Queue already does. Category 2 options
+    // (Craft Cost, Stacks/Slots multiplier, ...) stay their own separate post-merge pass (unchanged
+    // by that plan) and only need the summary refresh, not a conflict recompute.
+    partial void OnSpeedBoostChanged(BoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
+    partial void OnPlayerBoostChanged(BoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
+    partial void OnXpBoostChanged(XpBoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
+    partial void OnDisableTemperaturesChanged(bool value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
     partial void OnCraftCostChanged(CraftCostReduction value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnStacksMultiplierLevelChanged(MultiplierLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnSlotsMultiplierLevelChanged(MultiplierLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnSpeedCraftingPercentChanged(int value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnRemoveWeightChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnUnlimitedAmmoChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
-    partial void OnDisableTemperaturesChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+
+    private void InvalidateManualPicks()
+    {
+        _manualPicks = null;
+        ConflictStatusMessage = null;
+        _ = RecomputeConflictCountAsync();
+    }
 
     // --- Installed vs this list (6.6) ---
     /// <summary>"+ Name" (would be added), "- Name" (would be removed), "= Name" (unchanged) — a preview of what clicking Install would actually do, not run automatically since it needs a real read of the game folder.</summary>
@@ -251,11 +265,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // comment for why an Add/Remove/Move/Clear can silently change what a pick's index means.
         Queue.CollectionChanged += (_, _) =>
         {
-            _manualPicks = null;
-            ConflictStatusMessage = null;
+            InvalidateManualPicks();
             OnPropertyChanged(nameof(HasQueuedMods));
             OnPropertyChanged(nameof(IsQueueEmpty));
-            _ = RecomputeConflictCountAsync();
         };
 
         // Without this, the Install/"Update install" label goes stale after the user changes the
@@ -1144,15 +1156,31 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         return (exmodEntries, packages, prebuiltPakFilePaths);
     }
 
-    /// <summary>Shared by ReviewConflictsAsync and the background badge computation — both need the exact same (queued packages) -&gt; (conflicts) pipeline.</summary>
+    /// <summary>
+    /// Shared by ReviewConflictsAsync and the background badge computation — both need the exact
+    /// same (queued packages) -&gt; (conflicts) pipeline. Also folds in the same "Built-in gameplay
+    /// options" synthetic entry RebuildService itself appends (GameplayOptionsFieldChangeGenerator)
+    /// so a Speed/Player/XP Boost or Disable Temperatures conflict against a queued mod shows up
+    /// here too, not just in the real Rebuild — this is a preview, so any warnings the generator
+    /// would log (e.g. a missing base file) are discarded rather than surfaced.
+    /// </summary>
     private async Task<(IReadOnlyList<FieldConflict> Conflicts, List<string> ModNames)> FindQueueConflictsAsync()
     {
         var (entries, packages, _) = await LoadQueuedPackagesAsync();
+        var gameplayOptions = BuildGameplayOptionsFromUi();
         return await Task.Run(() =>
         {
             var classifier = new DefaultSemanticClassifier();
             var orderedModChanges = packages.Select(p => ExmodFieldChangeMapper.ToFieldChanges(p.Package, classifier)).ToList();
             var names = entries.Select(e => e.Name).ToList();
+
+            var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(gameplayOptions, _dataFolder, new MergeReport());
+            if (fixedOptionChanges.Count > 0)
+            {
+                orderedModChanges.Add(fixedOptionChanges);
+                names.Add("Built-in gameplay options");
+            }
+
             return ((IReadOnlyList<FieldConflict>)MergeEngine.FindConflicts(names, orderedModChanges), names);
         });
     }

@@ -216,84 +216,9 @@ public class GameplayOptionsApplierTests
         Assert.True((bool)tables["Tools-D_FirearmData.json"]["Pistol_Handgun"]!["bUnlimitedAmmo"]!);
     }
 
-    [Fact]
-    public void Apply_DisableTemperatures_OverridesTheIsTemperatureEnabledStat()
-    {
-        var tables = new Dictionary<string, JsonObject>
-        {
-            ["Stats-D_CharacterStartingStats.json"] = new()
-            {
-                ["Base_Stats"] = Row("""{"StatsGranted": {"(Value=\"IsTemperatureEnabled_?\")": 1}}"""),
-            },
-        };
-
-        GameplayOptionsApplier.Apply(new GameplayOptions { DisableTemperatures = true }, tables, new MergeReport());
-
-        var statsGranted = tables["Stats-D_CharacterStartingStats.json"]["Base_Stats"]!["StatsGranted"]!.AsObject();
-        Assert.Equal(0, (int)statsGranted["(Value=\"IsTemperatureEnabled_?\")"]!);
-    }
-
-    [Fact]
-    public void Apply_XpBoost_AddsExperienceStatWithoutRemovingExistingGrants()
-    {
-        var tables = new Dictionary<string, JsonObject>
-        {
-            ["Stats-D_CharacterStartingStats.json"] = new()
-            {
-                ["Base_Stats"] = Row("""{"StatsGranted": {"(Value=\"BaseMaximumHealth_+\")": 300}}"""),
-            },
-        };
-
-        GameplayOptionsApplier.Apply(new GameplayOptions { XpBoost = XpBoostLevel.Level3 }, tables, new MergeReport());
-
-        var statsGranted = tables["Stats-D_CharacterStartingStats.json"]["Base_Stats"]!["StatsGranted"]!.AsObject();
-        Assert.Equal(1000, (int)statsGranted["(Value=\"BaseExperience_+%\")"]!);
-        Assert.Equal(300, (int)statsGranted["(Value=\"BaseMaximumHealth_+\")"]!);
-    }
-
-    [Theory]
-    [InlineData(XpBoostLevel.Level1, 200)]
-    [InlineData(XpBoostLevel.Level2, 500)]
-    [InlineData(XpBoostLevel.Level3, 1000)]
-    public void Apply_XpBoost_EachLevelWritesItsOwnDocumentedPercent(XpBoostLevel level, int expectedPercent)
-    {
-        var tables = new Dictionary<string, JsonObject>
-        {
-            ["Stats-D_CharacterStartingStats.json"] = new() { ["Base_Stats"] = Row("""{"StatsGranted": {}}""") },
-        };
-
-        GameplayOptionsApplier.Apply(new GameplayOptions { XpBoost = level }, tables, new MergeReport());
-
-        var statsGranted = tables["Stats-D_CharacterStartingStats.json"]["Base_Stats"]!["StatsGranted"]!.AsObject();
-        Assert.Equal(expectedPercent, (int)statsGranted["(Value=\"BaseExperience_+%\")"]!);
-    }
-
-    [Fact]
-    public void Apply_SpeedBoostAndPlayerBoostTogether_BothWriteIntoTheSameStatsGrantedWithoutClobberingEachOther()
-    {
-        var tables = new Dictionary<string, JsonObject>
-        {
-            ["Stats-D_CharacterStartingStats.json"] = new() { ["Base_Stats"] = Row("""{"StatsGranted": {}}""") },
-        };
-
-        GameplayOptionsApplier.Apply(
-            new GameplayOptions { SpeedBoost = BoostLevel.Level1, PlayerBoost = BoostLevel.Level1 }, tables, new MergeReport());
-
-        var statsGranted = tables["Stats-D_CharacterStartingStats.json"]["Base_Stats"]!["StatsGranted"]!.AsObject();
-        Assert.Equal(455, (int)statsGranted["(Value=\"BaseMovementSpeed_+\")"]!);
-        Assert.Equal(350, (int)statsGranted["(Value=\"BaseMaximumHealth_+\")"]!);
-    }
-
-    [Fact]
-    public void Apply_CharacterStatsFileMissingBaseStatsRow_AddsWarningInsteadOfThrowing()
-    {
-        var tables = new Dictionary<string, JsonObject> { ["Stats-D_CharacterStartingStats.json"] = [] };
-        var report = new MergeReport();
-
-        GameplayOptionsApplier.Apply(new GameplayOptions { XpBoost = XpBoostLevel.Level1 }, tables, report);
-
-        Assert.Contains(report.Warnings, w => w.Contains("Base_Stats"));
-    }
+    // Speed Boost/Player Boost/XP Boost/Disable Temperatures moved to
+    // GameplayOptionsFieldChangeGeneratorTests.cs — they're real FieldChanges now
+    // (GameplayOptionsFieldChangeGenerator), not something GameplayOptionsApplier.Apply handles.
 
     [Fact]
     public void Apply_NoTablesPresentForAnEnabledOption_DoesNotThrow()

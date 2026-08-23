@@ -4,7 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         mc:Ignorable="d"
-        Title="Rename mod" Height="200" Width="380" ResizeMode="NoResize"
+        Title="Rename mod" SizeToContent="Height" Width="380" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource ContentBackgroundBrush}">
 
