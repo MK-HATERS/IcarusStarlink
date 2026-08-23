@@ -86,7 +86,7 @@ public sealed partial class HelpViewModel : ObservableObject
 
             **The one-click migration:**
 
-            - In **Settings**, under **Migrate from classic IMM**, click **Import IMM mod list…** and pick classic IMM's own `LastMergedMods.txt` (in its install folder). If you pick the `IMM_Merged_Mod.txt` from your game's Paks\mods folder instead, you'll be asked to point at your IMM folder too, since the mods themselves aren't stored near it.
+            - In **Settings**, on the **Migrate from IMM** tab, click **Import IMM mod list…** and pick classic IMM's own `LastMergedMods.txt` (in its install folder). If you pick the `IMM_Merged_Mod.txt` from your game's Paks\mods folder instead, you'll be asked to point at your IMM folder too, since the mods themselves aren't stored near it.
             - Every mod on that list is copied straight out of IMM's own folder into your Library — offline, instantly, and at exactly the versions you were already running.
             - Each mod is matched against the community database and, failing that, searched for on Nexus, so update checks work from day one. Mods that can't be identified still work fine; they just won't check for updates until you right-click → **Link to Nexus ID…**.
             - Your merge list is rebuilt in **Merge & Install** in the same order, so you can click **Install** immediately.
@@ -130,7 +130,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Track** adds it to the Nexus watchlist on the Downloads page, so it gets checked for updates.
             - **Open page** opens the mod on nexusmods.com in your normal browser — where you're already signed in, and where non-Premium downloads happen.
 
-            Clicking a real **Mod Manager Download** button on Nexus's own site can hand the file straight to this app instead of downloading it manually, but that needs a one-time setup step: in **Settings → Nexus download handler**, click **Register**. It asks for confirmation first (it's a real Windows registry change, and it replaces another mod manager if one's already registered for this). Files land in **Pending Downloads** either way — you always Activate them from there.
+            Clicking a real **Mod Manager Download** button on Nexus's own site can hand the file straight to this app instead of downloading it manually, but that needs a one-time setup step: in **Settings**, on the **Nexus** tab under **Download handler**, click **Register**. It asks for confirmation first (it's a real Windows registry change, and it replaces another mod manager if one's already registered for this). Files land in **Pending Downloads** either way — you always Activate them from there.
             """),
 
         new("Saves", """
@@ -162,12 +162,12 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Settings & Diagnostics", """
             # Settings & Diagnostics
 
-            Beyond the Content folder / UnrealPak setup covered in Getting started:
+            Settings is split into tabs. Beyond **Game & tools** (covered in Getting started) and **Migrate from IMM**:
 
-            - **Nexus Mods** — sign in with your own Personal API Key (a plain account-wide token from Nexus's own Account Settings page — not tied to this or any other app).
+            - **Nexus** — sign in with your own Personal API Key (a plain account-wide token from Nexus's own Account Settings page — not tied to this or any other app), and optionally register the nxm:// download handler.
             - **UE4SS** — install/update the loader itself, separate from the per-mod enable/disable on the Library page.
-            - **Performance tracking** — off by default. Turn it on to log how long Rebuild/Install/catalog-refresh actually take, to a separate `app.perf` log file — useful if something feels slow and you want real numbers for a bug report.
-            - **Export diagnostics zip…** bundles your logs plus a sanitized copy of your settings (nothing sensitive — real keys and passwords live in Windows Credential Manager, never in a settings file) into one zip to attach to a bug report.
+            - **Maintenance** — app updates, plus **Performance tracking** (off by default; logs how long Rebuild/Install/catalog-refresh actually take to a separate `app.perf` log file) and **Export diagnostics zip…**, which bundles your logs plus a sanitized copy of your settings (nothing sensitive — real keys and passwords live in Windows Credential Manager, never in a settings file) into one zip to attach to a bug report.
+            - **Appearance** — the Custom theme's skin editor.
             """),
 
         new("Keyboard shortcuts", """

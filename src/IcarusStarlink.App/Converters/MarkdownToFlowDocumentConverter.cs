@@ -15,7 +15,15 @@ public sealed class MarkdownToFlowDocumentConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        var document = new FlowDocument { PagePadding = new Thickness(0) };
+        // FlowDocument's own default is the system SERIF face — visibly out of place against the
+        // rest of the app, so match the app's UI font explicitly (affects Help, Library's Readme
+        // tab, and the What's New dialog alike).
+        var document = new FlowDocument
+        {
+            PagePadding = new Thickness(0),
+            FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+            FontSize = 13,
+        };
         if (value is not string text || string.IsNullOrWhiteSpace(text))
         {
             return document;

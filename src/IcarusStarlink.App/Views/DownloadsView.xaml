@@ -76,8 +76,12 @@
                                 <TextBlock Text="Refresh" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <TextBox Text="{Binding CatalogSearchText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
-                                 ToolTip="Search by name, author, or description"/>
+                        <Grid Margin="0,0,8,0">
+                            <TextBox Text="{Binding CatalogSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Search by name, author, or description"/>
+                            <TextBlock Text="Search mods by name, author, or description…" Style="{StaticResource PlaceholderTextStyle}"
+                                       Visibility="{Binding CatalogSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
                     </DockPanel>
 
                     <!-- WrapPanel, not a horizontal StackPanel — at a narrow window width this row has
@@ -200,6 +204,10 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Text="Select a mod to see its details and download it."
+                                       Style="{StaticResource PageBodyTextStyle}" Margin="0,8,0,0"
+                                       Visibility="{Binding SelectedCatalogEntry, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
 
                             <StackPanel Grid.Row="0" Visibility="{Binding SelectedCatalogEntry, Converter={StaticResource NullToVisibilityConverter}}">
                                 <Border Height="120" Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
