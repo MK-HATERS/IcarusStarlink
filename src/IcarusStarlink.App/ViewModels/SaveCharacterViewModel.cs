@@ -105,14 +105,14 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
         {
             if (!seen.Contains(rowName))
             {
-                Talents.Add(new SaveTalentViewModel(rowName, new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank), 0, _onDirtyChanged));
+                Talents.Add(new SaveTalentViewModel(rowName, new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank, info.IsDefaultUnlocked), 0, _onDirtyChanged));
             }
         }
     }
 
     internal static TalentDisplayInfo DisplayInfoFor(SaveGameNames names, string rowName) =>
         names.Talents.TryGetValue(rowName, out var info)
-            ? new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank)
+            ? new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank, info.IsDefaultUnlocked)
             : TalentDisplayInfo.Fallback(rowName);
 
     partial void OnNameChanged(string value) => _onDirtyChanged();

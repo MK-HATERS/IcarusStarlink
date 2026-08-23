@@ -35,6 +35,19 @@ public interface ISaveRepository
     /// <summary>Same contract as SaveProfile. The list replaces the file's character array wholesale, so duplicate/remove-slot operations are just list operations for the caller.</summary>
     string SaveCharacters(string steamId, IReadOnlyList<JsonObject> characters);
 
+    /// <summary>
+    /// The slot's binary flags_&lt;SteamID&gt;.dat — a THIRD unlock store the game keeps beside the
+    /// JSON ones (confirmed against a real save: account-wide character-flag IDs like
+    /// Talent_RepairBench and Mission_Olympus_Unlock live here, NOT in any UnlockedFlags array).
+    /// Format, confirmed by parsing the real file: int32 string length, null-terminated ASCII
+    /// SteamID, int32 count, then count int32 flag IDs. Null when the slot has no such file —
+    /// the editor shows the section only when the game itself has created one.
+    /// </summary>
+    IReadOnlyList<int>? LoadBinaryFlags(string steamId);
+
+    /// <summary>Same contract as SaveProfile: full slot backup first, then an atomic write of the binary flags file. Returns the backup path.</summary>
+    string SaveBinaryFlags(string steamId, IReadOnlyList<int> flagIds);
+
     /// <summary>Zips the entire slot folder into this app's own save_backups cache (never inside the game's folders). Returns the zip path.</summary>
     string BackupSlot(string steamId);
 

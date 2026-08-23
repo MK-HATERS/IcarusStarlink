@@ -201,6 +201,71 @@ public sealed class SaveRepositoryTests : IDisposable
         Assert.Contains(paths[^1], remaining);
     }
 
+    [Fact]
+    public void LoadBinaryFlags_NoFile_ReturnsNull()
+    {
+        Assert.Null(_repository.LoadBinaryFlags(SteamId));
+    }
+
+    [Fact]
+    public void LoadBinaryFlags_ParsesTheRealFormat()
+    {
+        // The real format, confirmed against the user's own flags_<SteamID>.dat: int32 string
+        // length (counting the null terminator), null-terminated ASCII SteamID, int32 count,
+        // count * int32 flag IDs.
+        WriteBinaryFlagsFile([3, 7, 22]);
+
+        var flags = _repository.LoadBinaryFlags(SteamId);
+
+        Assert.Equal([3, 7, 22], flags);
+    }
+
+    [Fact]
+    public void SaveBinaryFlags_RoundTrips_AndBacksUpFirst()
+    {
+        WriteBinaryFlagsFile([3, 7]);
+
+        var backupPath = _repository.SaveBinaryFlags(SteamId, [3, 7, 22, 27]);
+
+        Assert.Equal([3, 7, 22, 27], _repository.LoadBinaryFlags(SteamId));
+
+        // The backup holds the PRE-edit file — proof it was taken before the write.
+        using var zip = ZipFile.OpenRead(backupPath);
+        var entry = zip.GetEntry($"flags_{SteamId}.dat");
+        Assert.NotNull(entry);
+        using var stream = new MemoryStream();
+        entry.Open().CopyTo(stream);
+        // Header (4 + 18) + count (4) + 2 IDs (8) = the original 2-flag file, not the edited one.
+        Assert.Equal(4 + SteamId.Length + 1 + 4 + 2 * 4, stream.Length);
+    }
+
+    [Fact]
+    public void LoadBinaryFlags_TruncatedFile_ThrowsFormatException()
+    {
+        File.WriteAllBytes(Path.Combine(_playerData, SteamId, $"flags_{SteamId}.dat"), [1, 0, 0]);
+
+        Assert.Throws<FormatException>(() => _repository.LoadBinaryFlags(SteamId));
+    }
+
+    private void WriteBinaryFlagsFile(int[] flagIds)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.ASCII, leaveOpen: true))
+        {
+            var idBytes = System.Text.Encoding.ASCII.GetBytes(SteamId);
+            writer.Write(idBytes.Length + 1);
+            writer.Write(idBytes);
+            writer.Write((byte)0);
+            writer.Write(flagIds.Length);
+            foreach (var id in flagIds)
+            {
+                writer.Write(id);
+            }
+        }
+
+        File.WriteAllBytes(Path.Combine(_playerData, SteamId, $"flags_{SteamId}.dat"), stream.ToArray());
+    }
+
     private sealed class FakeLocator : ISteamInstallLocator
     {
         public string? FindIcarusContentPath() => null;

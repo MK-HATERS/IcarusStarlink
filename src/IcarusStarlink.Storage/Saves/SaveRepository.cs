@@ -104,6 +104,68 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         return backupPath;
     }
 
+    public IReadOnlyList<int>? LoadBinaryFlags(string steamId)
+    {
+        var path = Path.Combine(ResolveSlot(steamId), $"flags_{steamId}.dat");
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        // int32 strLen, null-terminated ASCII SteamID, int32 count, count * int32 IDs — the format
+        // confirmed by parsing the user's real file (strLen counts the null terminator).
+        var bytes = File.ReadAllBytes(path);
+        if (bytes.Length < 8)
+        {
+            throw new FormatException($"'{Path.GetFileName(path)}' is too short to be a flags file.");
+        }
+
+        var strLen = BitConverter.ToInt32(bytes, 0);
+        var countOffset = 4 + strLen;
+        if (strLen < 1 || bytes.Length < countOffset + 4)
+        {
+            throw new FormatException($"'{Path.GetFileName(path)}' has an invalid header.");
+        }
+
+        var count = BitConverter.ToInt32(bytes, countOffset);
+        var idsOffset = countOffset + 4;
+        if (count < 0 || bytes.Length < idsOffset + count * 4L)
+        {
+            throw new FormatException($"'{Path.GetFileName(path)}' declares {count} flags but is truncated.");
+        }
+
+        var ids = new List<int>(count);
+        for (var i = 0; i < count; i++)
+        {
+            ids.Add(BitConverter.ToInt32(bytes, idsOffset + i * 4));
+        }
+
+        return ids;
+    }
+
+    public string SaveBinaryFlags(string steamId, IReadOnlyList<int> flagIds)
+    {
+        var slotFolder = ResolveSlot(steamId);
+        var backupPath = BackupSlot(steamId);
+
+        var idBytes = System.Text.Encoding.ASCII.GetBytes(steamId);
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.ASCII, leaveOpen: true))
+        {
+            writer.Write(idBytes.Length + 1); // length includes the null terminator
+            writer.Write(idBytes);
+            writer.Write((byte)0);
+            writer.Write(flagIds.Count);
+            foreach (var id in flagIds)
+            {
+                writer.Write(id);
+            }
+        }
+
+        WriteBytesAtomically(Path.Combine(slotFolder, $"flags_{steamId}.dat"), stream.ToArray());
+        return backupPath;
+    }
+
     public string BackupSlot(string steamId)
     {
         var slotFolder = ResolveSlot(steamId);
@@ -214,6 +276,13 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
     {
         var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
         File.WriteAllText(tempPath, content);
+        File.Move(tempPath, filePath, overwrite: true);
+    }
+
+    private static void WriteBytesAtomically(string filePath, byte[] bytes)
+    {
+        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
+        File.WriteAllBytes(tempPath, bytes);
         File.Move(tempPath, filePath, overwrite: true);
     }
 }

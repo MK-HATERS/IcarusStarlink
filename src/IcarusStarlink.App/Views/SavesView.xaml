@@ -286,6 +286,29 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+
+                        <!-- The game keeps a THIRD unlock store beside the JSON ones: a binary
+                             flags_<SteamID>.dat of account-wide character-flag unlocks (mission
+                             rewards, talent-granted recipes). Shown only when the game itself has
+                             created the file for this slot. -->
+                        <StackPanel Visibility="{Binding HasBinaryFlags, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="Account-wide unlocks (binary flags file)" Style="{StaticResource FieldLabelStyle}" Margin="0,14,0,2"/>
+                            <TextBlock Text="From the slot's own flags file, which the game keeps separately from the JSON flags above — mission and talent-granted unlocks live here."
+                                       Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                            <ItemsControl ItemsSource="{Binding FilteredBinaryFlags}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding Name}" IsChecked="{Binding IsUnlocked}"
+                                                  Margin="0,2,16,2" ToolTip="{Binding Id}"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

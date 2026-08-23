@@ -44,6 +44,7 @@ public sealed partial class SavesViewModel : ObservableObject
 
     private JsonObject? _profile;
     private List<JsonObject> _characterNodes = [];
+    private List<int>? _binaryFlagIds;
 
     public string Title => "Saves";
 
@@ -80,6 +81,7 @@ public sealed partial class SavesViewModel : ObservableObject
         Characters.Any(c => c.IsDirty)
         || Currencies.Any(c => c.IsDirty)
         || AccountFlags.Any(f => f.IsDirty)
+        || BinaryFlags.Any(f => f.IsDirty)
         || WorkshopTalents.Any(t => t.IsDirty);
 
     public SavesViewModel(ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames)
@@ -91,13 +93,22 @@ public sealed partial class SavesViewModel : ObservableObject
         RefreshSlots();
     }
 
-    // --- Flags (character flags on the selected character; account flags on the profile) ---
+    // --- Flags (character flags on the selected character; account flags on the profile;
+    //     binary flags in the slot's own flags_<SteamID>.dat — a third store the game keeps
+    //     OUTSIDE the JSON, holding account-wide character-flag unlocks) ---
 
     public ObservableCollection<SaveFlagViewModel> AccountFlags { get; } = [];
+
+    public ObservableCollection<SaveFlagViewModel> BinaryFlags { get; } = [];
 
     public ObservableCollection<SaveFlagViewModel> FilteredCharacterFlags { get; } = [];
 
     public ObservableCollection<SaveFlagViewModel> FilteredAccountFlags { get; } = [];
+
+    public ObservableCollection<SaveFlagViewModel> FilteredBinaryFlags { get; } = [];
+
+    /// <summary>The binary section shows only when the game itself has created the file — this editor never invents one for a slot that has none.</summary>
+    public bool HasBinaryFlags => BinaryFlags.Count > 0;
 
     [ObservableProperty]
     private string _flagSearchText = "";
@@ -122,6 +133,15 @@ public sealed partial class SavesViewModel : ObservableObject
             if (Matches(flag.Name))
             {
                 FilteredAccountFlags.Add(flag);
+            }
+        }
+
+        FilteredBinaryFlags.Clear();
+        foreach (var flag in BinaryFlags)
+        {
+            if (Matches(flag.Name))
+            {
+                FilteredBinaryFlags.Add(flag);
             }
         }
 
@@ -151,7 +171,9 @@ public sealed partial class SavesViewModel : ObservableObject
         var search = TalentSearchText.Trim();
         foreach (var talent in SelectedCharacter?.Talents ?? [])
         {
-            if (!ShowUnlearnedTalents && !talent.IsLearned && !talent.IsDirty)
+            // "Only what this character has" includes bDefaultUnlocked talents — the game grants
+            // those from the start without writing them into the save, so rank alone under-reports.
+            if (!ShowUnlearnedTalents && !talent.IsUnlockedInGame && !talent.IsDirty)
             {
                 continue;
             }
@@ -203,8 +225,10 @@ public sealed partial class SavesViewModel : ObservableObject
         Characters.Clear();
         Currencies.Clear();
         Backups.Clear();
+        BinaryFlags.Clear();
         _profile = null;
         _characterNodes = [];
+        _binaryFlagIds = null;
         SelectedCharacter = null;
 
         if (SelectedSlot is null)
@@ -233,6 +257,7 @@ public sealed partial class SavesViewModel : ObservableObject
             }
 
             BuildAccountFlags();
+            BuildBinaryFlags();
             BuildWorkshopTalents();
             SelectedCharacter = Characters.FirstOrDefault();
             RefreshBackupsList();
@@ -259,6 +284,45 @@ public sealed partial class SavesViewModel : ObservableObject
         {
             AccountFlags.Add(new SaveFlagViewModel(id, _gameNames.AccountFlagName(id), unlocked.Contains(id), NotifyDirtyChanged));
         }
+    }
+
+    /// <summary>
+    /// The slot's flags_&lt;SteamID&gt;.dat holds account-wide unlocks as CHARACTER-flag row indexes
+    /// (confirmed against the real file: every ID mapped to a real D_CharacterFlags name —
+    /// Talent_RepairBench, Mission_Olympus_Unlock, Unlocked_Bait…). Without reading it, unlocks
+    /// the player genuinely has would show as locked — the exact bug report that led here.
+    /// </summary>
+    private void BuildBinaryFlags()
+    {
+        BinaryFlags.Clear();
+        _binaryFlagIds = null;
+        if (SelectedSlot is null)
+        {
+            OnPropertyChanged(nameof(HasBinaryFlags));
+            return;
+        }
+
+        try
+        {
+            _binaryFlagIds = _repository.LoadBinaryFlags(SelectedSlot.SteamId) is { } ids ? [.. ids] : null;
+        }
+        catch (FormatException)
+        {
+            // An unreadable flags file just means the section stays hidden — the JSON-side editing
+            // still works, and hiding beats showing toggles that couldn't be written back safely.
+        }
+
+        if (_binaryFlagIds is { } unlocked)
+        {
+            var set = unlocked.ToHashSet();
+            var count = Math.Max(_gameNames.CharacterFlagNames.Count, set.Count > 0 ? set.Max() + 1 : 0);
+            for (var id = 0; id < count; id++)
+            {
+                BinaryFlags.Add(new SaveFlagViewModel(id, _gameNames.CharacterFlagName(id), set.Contains(id), NotifyDirtyChanged));
+            }
+        }
+
+        OnPropertyChanged(nameof(HasBinaryFlags));
     }
 
     private void BuildWorkshopTalents()
@@ -289,7 +353,7 @@ public sealed partial class SavesViewModel : ObservableObject
         {
             if (rowName.StartsWith("Workshop_", StringComparison.OrdinalIgnoreCase) && !seen.Contains(rowName))
             {
-                WorkshopTalents.Add(new SaveTalentViewModel(rowName, new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank), 0, NotifyDirtyChanged));
+                WorkshopTalents.Add(new SaveTalentViewModel(rowName, new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank, info.IsDefaultUnlocked), 0, NotifyDirtyChanged));
             }
         }
     }
@@ -482,6 +546,18 @@ public sealed partial class SavesViewModel : ObservableObject
             _repository.SaveCharacters(SelectedSlot.SteamId, _characterNodes);
             _repository.SaveProfile(SelectedSlot.SteamId, _profile!);
 
+            // The binary flags file is written only when actually edited — same minimal-diff
+            // philosophy as the JSON arrays: the file's own ordering is kept for flags that stay
+            // set, newly-set ones append.
+            if (_binaryFlagIds is { } original && BinaryFlags.Any(f => f.IsDirty))
+            {
+                var nowSet = BinaryFlags.Where(f => f.IsUnlocked).Select(f => f.Id).ToHashSet();
+                var newIds = original.Where(nowSet.Contains).ToList();
+                newIds.AddRange(nowSet.Except(original).OrderBy(i => i));
+                _repository.SaveBinaryFlags(SelectedSlot.SteamId, newIds);
+                _binaryFlagIds = newIds;
+            }
+
             foreach (var character in Characters)
             {
                 character.MarkClean();
@@ -493,6 +569,11 @@ public sealed partial class SavesViewModel : ObservableObject
             }
 
             foreach (var flag in AccountFlags)
+            {
+                flag.MarkClean();
+            }
+
+            foreach (var flag in BinaryFlags)
             {
                 flag.MarkClean();
             }

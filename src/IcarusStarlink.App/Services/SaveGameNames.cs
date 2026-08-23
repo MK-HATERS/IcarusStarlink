@@ -68,6 +68,17 @@ public sealed class SaveGameNames(string dataFolder)
                     continue;
                 }
 
+                // "Reroute" (92 rows) and "MutuallyExclusive" (6 rows) are invisible tree-plumbing
+                // nodes — 0x0 size, no rewards, no display name — that route lines between real
+                // talents in the game's own tree UI. They are not talents a player can have, so
+                // they never belong in an editor's list. (A save that somehow carries one still
+                // shows it, via the fallback path — nothing in the save is ever hidden.)
+                if (row.TryGetProperty("TalentType", out var talentType)
+                    && talentType.GetString() is "Reroute" or "MutuallyExclusive")
+                {
+                    continue;
+                }
+
                 var tree = row.TryGetProperty("TalentTree", out var treeRef) && treeRef.TryGetProperty("RowName", out var treeName)
                     ? treeName.GetString() ?? ""
                     : "";
@@ -75,11 +86,16 @@ public sealed class SaveGameNames(string dataFolder)
                     ? rewards.GetArrayLength()
                     : 1;
 
+                // 49 real talents (Stone Axe, basic stacks, ...) are unlocked from the start and
+                // NEVER written into a save — without this bit the editor would show them "locked".
+                var defaultUnlocked = row.TryGetProperty("bDefaultUnlocked", out var b) && b.ValueKind == JsonValueKind.True;
+
                 talents.TryAdd(talentName, new TalentInfo(
                     ParseLocText(row, "DisplayName") ?? talentName,
                     ParseLocText(row, "Description") ?? "",
                     tree,
-                    maxRank));
+                    maxRank,
+                    defaultUnlocked));
             }
         }
         catch (Exception)
@@ -104,4 +120,5 @@ public sealed class SaveGameNames(string dataFolder)
 }
 
 /// <param name="MaxRank">The most ranks this talent can hold, from its own Rewards tiers — what the editor caps rank controls at.</param>
-public sealed record TalentInfo(string DisplayName, string Description, string Tree, int MaxRank);
+/// <param name="IsDefaultUnlocked">The row's own bDefaultUnlocked — the game grants it from the start WITHOUT writing it into the save, so the editor must show it as unlocked even at rank 0.</param>
+public sealed record TalentInfo(string DisplayName, string Description, string Tree, int MaxRank, bool IsDefaultUnlocked);
