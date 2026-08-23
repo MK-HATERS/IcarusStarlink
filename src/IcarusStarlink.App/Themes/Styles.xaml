@@ -88,6 +88,23 @@
         <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
     </Style>
 
+    <!-- Section header + divider for long multi-section pages (Settings first): groups need a
+         visibly LARGER tier than FieldLabelStyle, which is also every field label inside a
+         section — without it a long scroll reads as one flat list. Divider goes ABOVE a header
+         (never after the page title). -->
+    <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="15"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+        <Setter Property="Margin" Value="0,0,0,4"/>
+    </Style>
+
+    <Style x:Key="SectionDividerStyle" TargetType="Border">
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="0,1,0,0"/>
+        <Setter Property="Margin" Value="0,26,0,16"/>
+    </Style>
+
     <Style x:Key="PlaceholderPageStyle" TargetType="StackPanel">
         <Setter Property="Margin" Value="32"/>
     </Style>

@@ -4,317 +4,365 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-    <StackPanel Style="{StaticResource PlaceholderPageStyle}" MaxWidth="640" HorizontalAlignment="Left">
-        <TextBlock Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
-        <TextBlock Text="Point IcarusStarlink at your game install and UnrealPak tool."
-                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,20"/>
 
-        <TextBlock Text="Icarus Content folder (…\Icarus\Icarus\Content)" Style="{StaticResource FieldLabelStyle}"/>
-        <DockPanel Margin="0,6,0,20">
-            <Button Command="{Binding BrowseIcarusContentFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0" AutomationProperties.Name="Browse">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Browse…" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <Button Command="{Binding AutoDetectIcarusContentFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
-                    ToolTip="Looks for Icarus through your own Steam install (registry + library folders) and fills this in if found"
-                    AutomationProperties.Name="Auto-detect">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Auto-detect" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <TextBox Text="{Binding IcarusContentPath, UpdateSourceTrigger=PropertyChanged}"/>
-        </DockPanel>
+    <Grid Margin="32,32,32,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-        <TextBlock Text="UnrealPak.exe path" Style="{StaticResource FieldLabelStyle}"/>
-        <DockPanel Margin="0,6,0,20">
-            <Button Command="{Binding BrowseUnrealPakExeCommand}" DockPanel.Dock="Right" Margin="8,0,0,0" AutomationProperties.Name="Browse">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Browse…" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <TextBox Text="{Binding UnrealPakExePath, UpdateSourceTrigger=PropertyChanged}"/>
-        </DockPanel>
+        <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
 
-        <WrapPanel Margin="0,-12,0,8">
-            <Button Command="{Binding InstallBundledUnrealPakCommand}" IsEnabled="{Binding CanInstallBundledUnrealPak}"
-                    Content="{Binding InstallUnrealPakButtonLabel}"
-                    ToolTip="Puts the copy shipped with this app (UnrealPak 4.27 — the UE4 version Icarus itself uses) into Tools\UnrealPak next to the exe. Reinstalling repairs a broken copy. A newer UnrealPak is deliberately NOT offered: UE5 builds write pak formats Icarus's engine can't load."
-                    ToolTipService.ShowOnDisabled="True"/>
-            <Button Content="Check" Command="{Binding VerifyUnrealPakCommand}" Margin="8,0,0,0"
-                    ToolTip="Actually runs the configured UnrealPak.exe to confirm it works, and reports its engine version"/>
-            <TextBlock Text="{Binding UnrealPakStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="420"
-                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"
-                       Visibility="{Binding UnrealPakStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-        </WrapPanel>
+        <!-- Tabbed like Downloads/Saves/Library — one topic per tab instead of one long scroll. -->
+        <TabControl Grid.Row="1">
 
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-            <Button Content="Save settings" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
-            <TextBlock Text="{Binding SavedMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
-        </StackPanel>
+            <!-- ===================== Game & tools ===================== -->
+            <TabItem Header="Game &amp; tools">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
+                    <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                        <TextBlock Text="The Icarus install and the UnrealPak tool used to build mod paks."
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,14"/>
 
-        <TextBlock Text="Nexus Mods" Style="{StaticResource FieldLabelStyle}"/>
-        <TextBlock Text="Sign in with your own Nexus Personal API Key to enable update checks for your tracked mods (Downloads' Nexus Mods tab)."
-                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="560"/>
+                        <TextBlock Text="Icarus Content folder (…\Icarus\Icarus\Content)" Style="{StaticResource FieldLabelStyle}"/>
+                        <DockPanel Margin="0,6,0,20">
+                            <Button Command="{Binding BrowseIcarusContentFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0" AutomationProperties.Name="Browse">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Browse…" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding AutoDetectIcarusContentFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
+                                    ToolTip="Looks for Icarus through your own Steam install (registry + library folders) and fills this in if found"
+                                    AutomationProperties.Name="Auto-detect">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Auto-detect" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <TextBox Text="{Binding IcarusContentPath, UpdateSourceTrigger=PropertyChanged}"/>
+                        </DockPanel>
 
-        <StackPanel Visibility="{Binding NexusSignedInAs, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}">
-            <DockPanel Margin="0,0,0,8">
-                <Button Command="{Binding OpenNexusApiKeyPageCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
-                        ToolTip="Opens your Nexus account's API Access page in your browser" AutomationProperties.Name="Get API key">
-                    <StackPanel Orientation="Horizontal">
-                        <Path Data="{StaticResource IconGlobeMeridian}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
-                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                        <TextBlock Text="Get API key…" VerticalAlignment="Center"/>
+                        <TextBlock Text="UnrealPak.exe path" Style="{StaticResource FieldLabelStyle}"/>
+                        <DockPanel Margin="0,6,0,8">
+                            <Button Command="{Binding BrowseUnrealPakExeCommand}" DockPanel.Dock="Right" Margin="8,0,0,0" AutomationProperties.Name="Browse">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Browse…" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <TextBox Text="{Binding UnrealPakExePath, UpdateSourceTrigger=PropertyChanged}"/>
+                        </DockPanel>
+
+                        <WrapPanel Margin="0,0,0,12">
+                            <Button Command="{Binding InstallBundledUnrealPakCommand}" IsEnabled="{Binding CanInstallBundledUnrealPak}"
+                                    Content="{Binding InstallUnrealPakButtonLabel}"
+                                    ToolTip="Puts the copy shipped with this app (UnrealPak 4.27 — the UE4 version Icarus itself uses) into Tools\UnrealPak next to the exe. Reinstalling repairs a broken copy. A newer UnrealPak is deliberately NOT offered: UE5 builds write pak formats Icarus's engine can't load."
+                                    ToolTipService.ShowOnDisabled="True"/>
+                            <Button Content="Check" Command="{Binding VerifyUnrealPakCommand}" Margin="8,0,0,0"
+                                    ToolTip="Actually runs the configured UnrealPak.exe to confirm it works, and reports its engine version"/>
+                            <TextBlock Text="{Binding UnrealPakStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="420"
+                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"
+                                       Visibility="{Binding UnrealPakStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        </WrapPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,24">
+                            <Button Content="Save settings" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+                            <TextBlock Text="{Binding SavedMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+                        </StackPanel>
+
+                        <TextBlock Text="Update data folder" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Text="Extracts the game's current DataTable JSON (Content\Data\data.pak) so merge/edit works against up-to-date data. Re-run this after a game update."
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10"/>
+                        <TextBlock Text="{Binding GameDataOutdatedMessage}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"
+                                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,10"
+                                   Visibility="{Binding GameDataOutdatedMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Command="{Binding UpdateDataFolderCommand}" AutomationProperties.Name="Update data folder">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Update data folder" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <TextBlock Text="{Binding DataFolderStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+                        </StackPanel>
                     </StackPanel>
-                </Button>
-                <TextBox Text="{Binding NexusApiKeyInput, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="Paste your Nexus Personal API Key here"/>
-            </DockPanel>
-            <Button Content="Authorize" Command="{Binding AuthorizeNexusCommand}" HorizontalAlignment="Left"
-                    IsEnabled="{Binding CanAuthorizeNexus}"
-                    ToolTip="Validates the key with Nexus itself and, if it's accepted, saves it to Windows Credential Manager"/>
-        </StackPanel>
+                </ScrollViewer>
+            </TabItem>
 
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
-                    Visibility="{Binding NexusSignedInAs, Converter={StaticResource NullToVisibilityConverter}}">
-            <TextBlock VerticalAlignment="Center">
-                <Run Text="Signed in as "/><Run Text="{Binding NexusSignedInAs, Mode=OneWay}" FontWeight="SemiBold"/>
-            </TextBlock>
-            <Button Content="Sign out" Command="{Binding SignOutNexusCommand}" Margin="12,0,0,0"/>
-        </StackPanel>
+            <!-- ===================== Migrate from IMM ===================== -->
+            <TabItem Header="Migrate from IMM">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
+                    <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                        <TextBlock Text="Already using Jimk72's Icarus Mod Manager? Pick its merged mod list and everything comes across in one go: each mod is copied out of IMM's own folder into your Library, linked to the mod database or Nexus where that can be worked out, and your merge list is rebuilt in Merge &amp; Install in the same order — nothing to re-pick by hand. Classic IMM's own files are only read, never changed."
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,14" MaxWidth="600"/>
+                        <DockPanel Margin="0,0,0,10">
+                            <Button Command="{Binding BrowseImmFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0" AutomationProperties.Name="Browse IMM folder">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Browse…" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Grid>
+                                <TextBox Text="{Binding ImmFolderPath, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Optional — leave empty and this is worked out from wherever the mod list you pick lives. Set it if your IMM install is somewhere else."/>
+                                <TextBlock Text="IMM's install folder, e.g. C:\Icarus Software — where IcarusModManager.exe lives (optional)"
+                                           Style="{StaticResource PlaceholderTextStyle}"
+                                           Visibility="{Binding ImmFolderPath, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                            </Grid>
+                        </DockPanel>
 
-        <TextBlock Text="{Binding NexusStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
-                   Visibility="{Binding NexusStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <Button Command="{Binding ImportImmModListCommand}" IsEnabled="{Binding CanMigrateFromImm}"
+                                    AutomationProperties.Name="Import IMM mod list"
+                                    ToolTip="Pick LastMergedMods.txt from your classic IMM folder (or the IMM_Merged_Mod.txt next to the pak it installed into your game)">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Import IMM mod list…" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <TextBlock Text="{Binding MigrationStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="420"
+                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+                        </StackPanel>
+                        <ListBox ItemsSource="{Binding MigrationResults}" MaxHeight="180" FontSize="12"
+                                 Visibility="{Binding HasMigrationResults, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
 
-        <TextBlock Text="Nexus download handler" Style="{StaticResource FieldLabelStyle}"/>
-        <TextBlock Text="Makes Nexus's own &quot;Mod Manager Download&quot; buttons open IcarusStarlink directly, landing files in Downloads' Pending Downloads tab. Optional — pasting an nxm:// link there manually always works too."
-                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="560"/>
+            <!-- ===================== Nexus ===================== -->
+            <TabItem Header="Nexus">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
+                    <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                        <TextBlock Text="One sign-in powers everything Nexus in this app: browsing on the Nexus page, update checks for tracked mods, and direct downloads."
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,14"/>
 
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
-                    Visibility="{Binding IsNxmProtocolNotRegistered, Converter={StaticResource BoolToVisibilityConverter}}">
-            <Button Command="{Binding RegisterNxmProtocolCommand}"
-                    ToolTip="Writes a per-user registry entry (no admin rights needed) so nxm:// links launch IcarusStarlink — asks for confirmation first"
-                    AutomationProperties.Name="Register">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconGlobeMeridian}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Register" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-        </StackPanel>
+                        <TextBlock Text="Account" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                        <StackPanel Visibility="{Binding NexusSignedInAs, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}">
+                            <DockPanel Margin="0,0,0,8">
+                                <Button Command="{Binding OpenNexusApiKeyPageCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
+                                        ToolTip="Opens your Nexus account's API Access page in your browser" AutomationProperties.Name="Get API key">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Path Data="{StaticResource IconGlobeMeridian}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Get API key…" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <TextBox Text="{Binding NexusApiKeyInput, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Paste your Nexus Personal API Key here"/>
+                            </DockPanel>
+                            <Button Content="Authorize" Command="{Binding AuthorizeNexusCommand}" HorizontalAlignment="Left"
+                                    IsEnabled="{Binding CanAuthorizeNexus}"
+                                    ToolTip="Validates the key with Nexus itself and, if it's accepted, saves it to Windows Credential Manager"/>
+                        </StackPanel>
 
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
-                    Visibility="{Binding IsNxmProtocolRegisteredToThisApp, Converter={StaticResource BoolToVisibilityConverter}}">
-            <TextBlock Text="Registered to this app." VerticalAlignment="Center"/>
-            <Button Content="Unregister" Command="{Binding UnregisterNxmProtocolCommand}" Margin="12,0,0,0"/>
-        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
+                                    Visibility="{Binding NexusSignedInAs, Converter={StaticResource NullToVisibilityConverter}}">
+                            <TextBlock VerticalAlignment="Center">
+                                <Run Text="Signed in as "/><Run Text="{Binding NexusSignedInAs, Mode=OneWay}" FontWeight="SemiBold"/>
+                            </TextBlock>
+                            <Button Content="Sign out" Command="{Binding SignOutNexusCommand}" Margin="12,0,0,0"/>
+                        </StackPanel>
 
-        <TextBlock Text="{Binding NxmProtocolStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
-                   Visibility="{Binding NxmProtocolStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <TextBlock Text="{Binding NexusStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
+                                   Visibility="{Binding NexusStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-        <TextBlock Text="UE4SS" Style="{StaticResource FieldLabelStyle}"/>
-        <TextBlock Text="UE4SS is Icarus's separate Lua/scripting mod framework (Binaries\Win64) — installing/updating it is unrelated to the EXMOD/pak system above. Your existing mods and settings are never overwritten."
-                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="560"/>
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Command="{Binding InstallOrUpdateUe4ssCommand}"
-                    IsEnabled="{Binding CanInstallOrUpdateUe4ss}"
-                    ToolTip="Downloads the latest stable UE4SS release from GitHub and installs it into Binaries\Win64 — backs up what's there first, asks for confirmation before writing anything"
-                    AutomationProperties.Name="{Binding Ue4ssInstallButtonLabel}">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="{Binding Ue4ssInstallButtonLabel}" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <Button Command="{Binding UninstallUe4ssCommand}" Margin="8,0,0,0"
-                    Visibility="{Binding IsUe4ssInstalled, Converter={StaticResource BoolToVisibilityConverter}}"
-                    ToolTip="Removes the UE4SS loader completely (dwmapi.dll + the ue4ss folder). Your own mods are moved back to this app's staging first, everything removed is backed up, and Icarus's own files are never touched. Asks for confirmation."
-                    AutomationProperties.Name="Uninstall UE4SS">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Uninstall UE4SS" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <TextBlock Text="{Binding Ue4ssStatusText}" VerticalAlignment="Center" Margin="12,0,0,0"
-                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
-        </StackPanel>
-        <TextBlock Text="{Binding Ue4ssStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
-                   Visibility="{Binding Ue4ssStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <TextBlock Text="Download handler (nxm:// links)" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Text="Makes Nexus's own &quot;Mod Manager Download&quot; buttons open IcarusStarlink directly, landing files in Downloads' Pending Downloads tab. Optional — pasting an nxm:// link there manually always works too."
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10"/>
 
-        <TextBlock Text="Update data folder" Style="{StaticResource FieldLabelStyle}"/>
-        <TextBlock Text="Extracts the game's current DataTable JSON (Content\Data\data.pak) so merge/edit works against up-to-date data. Re-run this after a game update."
-                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10"/>
-        <TextBlock Text="{Binding GameDataOutdatedMessage}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"
-                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,10"
-                   Visibility="{Binding GameDataOutdatedMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-            <Button Command="{Binding UpdateDataFolderCommand}" AutomationProperties.Name="Update data folder">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Update data folder" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <TextBlock Text="{Binding DataFolderStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
-        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
+                                    Visibility="{Binding IsNxmProtocolNotRegistered, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Button Command="{Binding RegisterNxmProtocolCommand}"
+                                    ToolTip="Writes a per-user registry entry (no admin rights needed) so nxm:// links launch IcarusStarlink — asks for confirmation first"
+                                    AutomationProperties.Name="Register">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconGlobeMeridian}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Register" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
 
-        <TextBlock Text="Migrate from classic IMM" Style="{StaticResource FieldLabelStyle}"/>
-        <TextBlock Text="Already using Jimk72's Icarus Mod Manager? Pick its merged mod list and everything comes across in one go: each mod is copied out of IMM's own folder into your Library, linked to the mod database or Nexus where that can be worked out, and your merge list is rebuilt in Merge &amp; Install in the same order — nothing to re-pick by hand. Classic IMM's own files are only read, never changed."
-                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="600"/>
-        <DockPanel Margin="0,0,0,10">
-            <Button Command="{Binding BrowseImmFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0" AutomationProperties.Name="Browse IMM folder">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Browse…" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <Grid>
-                <TextBox Text="{Binding ImmFolderPath, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="Optional — leave empty and this is worked out from wherever the mod list you pick lives. Set it if your IMM install is somewhere else."/>
-                <TextBlock Text="Classic IMM folder (optional — found automatically from the mod list)"
-                           Style="{StaticResource PlaceholderTextStyle}"
-                           Visibility="{Binding ImmFolderPath, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-            </Grid>
-        </DockPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
+                                    Visibility="{Binding IsNxmProtocolRegisteredToThisApp, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="Registered to this app." VerticalAlignment="Center"/>
+                            <Button Content="Unregister" Command="{Binding UnregisterNxmProtocolCommand}" Margin="12,0,0,0"/>
+                        </StackPanel>
 
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-            <Button Command="{Binding ImportImmModListCommand}" IsEnabled="{Binding CanMigrateFromImm}"
-                    AutomationProperties.Name="Import IMM mod list"
-                    ToolTip="Pick LastMergedMods.txt from your classic IMM folder (or the IMM_Merged_Mod.txt next to the pak it installed into your game)">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Import IMM mod list…" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <TextBlock Text="{Binding MigrationStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="420"
-                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
-        </StackPanel>
-        <ListBox ItemsSource="{Binding MigrationResults}" MaxHeight="180" Margin="0,0,0,20" FontSize="12"
-                 Visibility="{Binding HasMigrationResults, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock Text="{Binding NxmProtocolStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   TextWrapping="Wrap" MaxWidth="560"
+                                   Visibility="{Binding NxmProtocolStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
 
-        <TextBlock Text="Diagnostics &amp; safety" Style="{StaticResource FieldLabelStyle}"/>
-        <TextBlock Text="If you run into a bug, export a diagnostics zip (logs + sanitized settings, never API keys or tokens) to attach to your report."
-                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="560"/>
-        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Performance tracking" IsChecked="{Binding PerformanceTrackingEnabled}" Margin="0,0,0,10"
-                  ToolTip="Off by default. When on, logs how long Rebuild/Install/catalog-refresh take to a separate app.perf log file — useful if something feels slow and you want to show real numbers in a bug report."/>
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-            <Button Command="{Binding ExportDiagnosticsCommand}" AutomationProperties.Name="Export diagnostics zip">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Export diagnostics zip…" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <TextBlock Text="{Binding DiagnosticsStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
-        </StackPanel>
+            <!-- ===================== UE4SS ===================== -->
+            <TabItem Header="UE4SS">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
+                    <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                        <TextBlock Text="UE4SS is Icarus's separate Lua/scripting mod framework (Binaries\Win64) — installing/updating it is unrelated to the EXMOD/pak system. Your existing mods and settings are never overwritten."
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,14"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Command="{Binding InstallOrUpdateUe4ssCommand}"
+                                    IsEnabled="{Binding CanInstallOrUpdateUe4ss}"
+                                    ToolTip="Downloads the latest stable UE4SS release from GitHub and installs it into Binaries\Win64 — backs up what's there first, asks for confirmation before writing anything"
+                                    AutomationProperties.Name="{Binding Ue4ssInstallButtonLabel}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="{Binding Ue4ssInstallButtonLabel}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding UninstallUe4ssCommand}" Margin="8,0,0,0"
+                                    Visibility="{Binding IsUe4ssInstalled, Converter={StaticResource BoolToVisibilityConverter}}"
+                                    ToolTip="Removes the UE4SS loader completely (dwmapi.dll + the ue4ss folder). Your own mods are moved back to this app's staging first, everything removed is backed up, and Icarus's own files are never touched. Asks for confirmation."
+                                    AutomationProperties.Name="Uninstall UE4SS">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Uninstall UE4SS" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <TextBlock Text="{Binding Ue4ssStatusText}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding Ue4ssStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   TextWrapping="Wrap" MaxWidth="560"
+                                   Visibility="{Binding Ue4ssStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
 
-        <TextBlock Text="App updates" Style="{StaticResource FieldLabelStyle}"/>
-        <TextBlock Margin="0,4,0,10">
-            <Run Text="You have v"/><Run Text="{Binding InstalledAppVersion, Mode=OneWay}"/><Run Text=" installed."/>
-        </TextBlock>
+            <!-- ===================== Maintenance ===================== -->
+            <TabItem Header="Maintenance">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
+                    <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                        <TextBlock Text="App updates" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Margin="0,4,0,10">
+                            <Run Text="You have v"/><Run Text="{Binding InstalledAppVersion, Mode=OneWay}"/><Run Text=" installed."/>
+                        </TextBlock>
 
-        <StackPanel Visibility="{Binding HasNoSavedGitHubToken, Converter={StaticResource BoolToVisibilityConverter}}">
-            <TextBlock Text="IcarusStarlink's own GitHub repo is currently private — a personal access token (repo scope) is needed to check for and download updates."
-                       Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10" TextWrapping="Wrap" MaxWidth="560"/>
-            <DockPanel Margin="0,0,0,8">
-                <Button Content="Save token" Command="{Binding SaveGitHubTokenCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"/>
-                <PasswordBox x:Name="GitHubTokenBox" DockPanel.Dock="Left" PasswordChanged="GitHubTokenBox_PasswordChanged"
-                             ToolTip="Paste a GitHub personal access token here — never stored in settings.json, only Windows Credential Manager"/>
-            </DockPanel>
-        </StackPanel>
+                        <StackPanel Visibility="{Binding HasNoSavedGitHubToken, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="IcarusStarlink's own GitHub repo is currently private — a personal access token (repo scope) is needed to check for and download updates."
+                                       Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10"/>
+                            <DockPanel Margin="0,0,0,8">
+                                <Button Content="Save token" Command="{Binding SaveGitHubTokenCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"/>
+                                <PasswordBox x:Name="GitHubTokenBox" DockPanel.Dock="Left" PasswordChanged="GitHubTokenBox_PasswordChanged"
+                                             ToolTip="Paste a GitHub personal access token here — never stored in settings.json, only Windows Credential Manager"/>
+                            </DockPanel>
+                        </StackPanel>
 
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
-                    Visibility="{Binding HasSavedGitHubToken, Converter={StaticResource BoolToVisibilityConverter}}">
-            <TextBlock Text="GitHub token saved." VerticalAlignment="Center"/>
-            <Button Content="Clear" Command="{Binding ClearGitHubTokenCommand}" Margin="12,0,0,0"/>
-        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
+                                    Visibility="{Binding HasSavedGitHubToken, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="GitHub token saved." VerticalAlignment="Center"/>
+                            <Button Content="Clear" Command="{Binding ClearGitHubTokenCommand}" Margin="12,0,0,0"/>
+                        </StackPanel>
 
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Command="{Binding CheckForAppUpdatesCommand}" IsEnabled="{Binding CanCheckForAppUpdates}" AutomationProperties.Name="Check for updates">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Check for updates" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <Button Command="{Binding UpdateNowCommand}" Margin="8,0,0,0"
-                    Visibility="{Binding IsAppUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
-                    ToolTip="Downloads the new version and installs it in place — the app closes, updates itself, and reopens. Your mods, profiles, and settings are never touched."
-                    AutomationProperties.Name="Update now">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Update now" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <Button Content="Open release page" Command="{Binding OpenLatestReleasePageCommand}" Margin="8,0,0,0"
-                    Visibility="{Binding IsAppUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
-                    ToolTip="The manual fallback — opens the release's GitHub page in your browser instead"/>
-        </StackPanel>
-        <TextBlock Text="{Binding AppUpdateStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                   TextWrapping="Wrap" MaxWidth="560"
-                   Visibility="{Binding AppUpdateStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Command="{Binding CheckForAppUpdatesCommand}" IsEnabled="{Binding CanCheckForAppUpdates}" AutomationProperties.Name="Check for updates">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Check for updates" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding UpdateNowCommand}" Margin="8,0,0,0"
+                                    Visibility="{Binding IsAppUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
+                                    ToolTip="Downloads the new version and installs it in place — the app closes, updates itself, and reopens. Your mods, profiles, and settings are never touched."
+                                    AutomationProperties.Name="Update now">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Update now" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Content="Open release page" Command="{Binding OpenLatestReleasePageCommand}" Margin="8,0,0,0"
+                                    Visibility="{Binding IsAppUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
+                                    ToolTip="The manual fallback — opens the release's GitHub page in your browser instead"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding AppUpdateStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
+                                   Visibility="{Binding AppUpdateStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-        <TextBlock Text="Custom skin" Style="{StaticResource FieldLabelStyle}" Margin="0,24,0,0"/>
-        <TextBlock Text="Make the app look however you want: edit any color below (hex, #RRGGBB or #AARRGGBB with transparency), then Save skin. Pick the Custom theme in the top-right corner to use it. The skin lives in a plain JSON file you can also edit by hand or share."
-                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="640"/>
+                        <TextBlock Text="Diagnostics &amp; safety" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Text="If you run into a bug, export a diagnostics zip (logs + sanitized settings, never API keys or tokens) to attach to your report."
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10"/>
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Performance tracking" IsChecked="{Binding PerformanceTrackingEnabled}" Margin="0,0,0,10"
+                                  ToolTip="Off by default. When on, logs how long Rebuild/Install/catalog-refresh take to a separate app.perf log file — useful if something feels slow and you want to show real numbers in a bug report."/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Command="{Binding ExportDiagnosticsCommand}" AutomationProperties.Name="Export diagnostics zip">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Export diagnostics zip…" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <TextBlock Text="{Binding DiagnosticsStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
 
-        <ItemsControl ItemsSource="{Binding SkinTokens}" MaxWidth="760" HorizontalAlignment="Left">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <UniformGrid Columns="2"/>
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <Grid Margin="0,0,16,6">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4" VerticalAlignment="Center"
-                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                                Background="{Binding Hex, Converter={StaticResource HexToBrushConverter}}"/>
-                        <TextBlock Grid.Column="1" Text="{Binding Description}" VerticalAlignment="Center" Margin="8,0"
-                                   ToolTip="{Binding Key}" TextTrimming="CharacterEllipsis"/>
-                        <TextBox Grid.Column="2" Text="{Binding Hex, UpdateSourceTrigger=PropertyChanged}" Width="96"
-                                 FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"/>
-                    </Grid>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
+            <!-- ===================== Appearance ===================== -->
+            <TabItem Header="Appearance">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
+                    <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                        <TextBlock Text="Make the app look however you want: edit any color below (hex, #RRGGBB or #AARRGGBB with transparency), then Save skin. Pick the Custom theme in the top-right corner to use it. The skin lives in a plain JSON file you can also edit by hand or share."
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,14" MaxWidth="640"/>
 
-        <WrapPanel Margin="0,10,0,0">
-            <Button Content="Save skin" Command="{Binding SaveSkinCommand}"
-                    ToolTip="Saves these colors to the skin file — applied immediately if the Custom theme is active"/>
-            <Button Content="Copy Icarus" Command="{Binding CopyThemeIntoSkinCommand}" CommandParameter="Icarus" Margin="8,0,0,0"
-                    ToolTip="Fill the boxes from the Icarus theme's values as a starting point (nothing saved until Save skin)"/>
-            <Button Content="Copy Dark" Command="{Binding CopyThemeIntoSkinCommand}" CommandParameter="Dark" Margin="8,0,0,0"
-                    ToolTip="Fill the boxes from the Dark theme's values as a starting point (nothing saved until Save skin)"/>
-            <Button Content="Copy Light" Command="{Binding CopyThemeIntoSkinCommand}" CommandParameter="Light" Margin="8,0,0,0"
-                    ToolTip="Fill the boxes from the Light theme's values as a starting point (nothing saved until Save skin)"/>
-            <Button Content="Open skin file" Command="{Binding OpenSkinFileCommand}" Margin="8,0,0,0"
-                    ToolTip="Opens the skin's own JSON file for hand-editing or sharing"/>
-            <Button Content="Reload skin file" Command="{Binding ReloadSkinFileCommand}" Margin="8,0,0,0"
-                    ToolTip="Re-reads the file into this editor after hand-editing it"/>
-        </WrapPanel>
-        <TextBlock Text="{Binding SkinStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                   TextWrapping="Wrap" MaxWidth="640" Margin="0,6,0,0"
-                   Visibility="{Binding SkinStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-    </StackPanel>
-    </ScrollViewer>
+                        <ItemsControl ItemsSource="{Binding SkinTokens}" MaxWidth="760" HorizontalAlignment="Left">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="2"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,16,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4" VerticalAlignment="Center"
+                                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                Background="{Binding Hex, Converter={StaticResource HexToBrushConverter}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Description}" VerticalAlignment="Center" Margin="8,0"
+                                                   ToolTip="{Binding Key}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBox Grid.Column="2" Text="{Binding Hex, UpdateSourceTrigger=PropertyChanged}" Width="96"
+                                                 FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <WrapPanel Margin="0,10,0,0">
+                            <Button Content="Save skin" Command="{Binding SaveSkinCommand}"
+                                    ToolTip="Saves these colors to the skin file — applied immediately if the Custom theme is active"/>
+                            <Button Content="Copy Icarus" Command="{Binding CopyThemeIntoSkinCommand}" CommandParameter="Icarus" Margin="8,0,0,0"
+                                    ToolTip="Fill the boxes from the Icarus theme's values as a starting point (nothing saved until Save skin)"/>
+                            <Button Content="Copy Dark" Command="{Binding CopyThemeIntoSkinCommand}" CommandParameter="Dark" Margin="8,0,0,0"
+                                    ToolTip="Fill the boxes from the Dark theme's values as a starting point (nothing saved until Save skin)"/>
+                            <Button Content="Copy Light" Command="{Binding CopyThemeIntoSkinCommand}" CommandParameter="Light" Margin="8,0,0,0"
+                                    ToolTip="Fill the boxes from the Light theme's values as a starting point (nothing saved until Save skin)"/>
+                            <Button Content="Open skin file" Command="{Binding OpenSkinFileCommand}" Margin="8,0,0,0"
+                                    ToolTip="Opens the skin's own JSON file for hand-editing or sharing"/>
+                            <Button Content="Reload skin file" Command="{Binding ReloadSkinFileCommand}" Margin="8,0,0,0"
+                                    ToolTip="Re-reads the file into this editor after hand-editing it"/>
+                        </WrapPanel>
+                        <TextBlock Text="{Binding SkinStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   TextWrapping="Wrap" MaxWidth="640" Margin="0,6,0,0"
+                                   Visibility="{Binding SkinStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </Grid>
 </UserControl>
