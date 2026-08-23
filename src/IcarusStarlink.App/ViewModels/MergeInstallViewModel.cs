@@ -1099,6 +1099,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             }
 
             CanCopyToGame = true;
+            ImportBuiltPakIntoLibrary();
 
             var pickNote = _manualPicks is { Count: > 0 } picks ? $", {picks.Count} conflict(s) manually resolved" : "";
             _activityLog.Log($"Rebuilt pack with {Queue.Count} mod(s) — {result.PackedFileCount} files packed{pickNote}.", ActivityEntryKind.Success);
@@ -1114,6 +1115,32 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             IsRebuilding = false;
         }
+    }
+
+    /// <summary>
+    /// Imports the just-built pak into Library so it's a real, inspectable, re-mountable entry the
+    /// moment it exists — not only after a full Install. Build and Install (Copy to game) are two
+    /// genuinely separate steps under the hood already (RebuildAsync only ever writes to this app's
+    /// own Staged_Build folder; InstallAsync is the one thing that touches the real game folder,
+    /// gated behind its own confirmation) — this closes the one gap that made Build not feel like
+    /// its own first-class result: previously the pak only became a Library entry after a successful
+    /// Install, so a build the user didn't (yet) choose to install had nowhere to be seen or reused
+    /// from later.
+    ///
+    /// "Replace, not accumulate": ImportPak would otherwise derive a fresh "_2"/"_3"-suffixed folder
+    /// name every time (its own collision-avoidance rule), leaving one stale Library entry behind
+    /// per build instead of one that stays current.
+    /// </summary>
+    private void ImportBuiltPakIntoLibrary()
+    {
+        var builtFolderName = Path.GetFileNameWithoutExtension(_outputPakPath);
+        var existing = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, builtFolderName, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            _libraryRepository.Delete(existing.FolderName);
+        }
+        _libraryRepository.ImportPak(_outputPakPath);
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
     }
 
     /// <summary>
@@ -1295,17 +1322,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             var result = await _installService.InstallAsync(
                 _outputPakPath, _settingsService.Current.IcarusContentPath!, _backupDirectory);
 
-            // Replace, not accumulate: ImportPak would otherwise derive a fresh "_2"/"_3"-suffixed
-            // folder name every time (its own collision-avoidance rule), leaving one stale Library
-            // entry behind per install instead of one entry that stays current.
-            var installedFolderName = Path.GetFileNameWithoutExtension(_outputPakPath);
-            var existing = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, installedFolderName, StringComparison.OrdinalIgnoreCase));
-            if (existing is not null)
-            {
-                _libraryRepository.Delete(existing.FolderName);
-            }
-            _libraryRepository.ImportPak(_outputPakPath);
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            // Also done right after a successful RebuildAsync now, so this is redundant when
+            // reached through the combined Install button (nothing about the pak's own content
+            // changes between the two) — but InstallAsync is also reachable on its own via Copy to
+            // game, without a fresh Rebuild immediately before it, where this is the only thing that
+            // keeps the Library entry current.
+            ImportBuiltPakIntoLibrary();
 
             InstallStatusMessage = result.BackupPakPath is not null
                 ? $"Installed to '{result.InstalledPakPath}'. Backed up the previous pak to '{result.BackupPakPath}'."
