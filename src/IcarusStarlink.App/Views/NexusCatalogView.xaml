@@ -19,37 +19,47 @@
 
         <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
 
-        <DockPanel Grid.Row="1" Margin="0,12,0,10" LastChildFill="False">
-            <Grid DockPanel.Dock="Left" Width="240" Margin="0,0,10,0" VerticalAlignment="Center">
+        <!-- WrapPanel, not DockPanel: with the filter toggles this row can outgrow one line at a
+             normal window width, and a DockPanel crushes the overflow instead of wrapping it —
+             the same fix Downloads' own filter row already needed. -->
+        <WrapPanel Grid.Row="1" Margin="0,12,0,10">
+            <Grid Width="240" Margin="0,0,10,4" VerticalAlignment="Center">
                 <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="Search every Icarus mod on Nexus — clear to go back to the lists"/>
                 <TextBlock Text="Search all Icarus mods…" Style="{StaticResource PlaceholderTextStyle}"
                            Visibility="{Binding SearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
             </Grid>
-            <ListBox DockPanel.Dock="Left" ItemsSource="{Binding ListKinds}" SelectedItem="{Binding SelectedList}"
+            <ListBox ItemsSource="{Binding BrowseKinds}" SelectedItem="{Binding SelectedKind}" VerticalAlignment="Center" Margin="0,0,0,4"
                      Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}"
-                     ToolTip="Nexus's own curated lists — clear the search box to use them">
+                     ToolTip="All = every Icarus mod on Nexus, most endorsed first. Trending/Latest/Updated are Nexus's own curated lists (they need a signed-in API key). Clear the search box to use these.">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <TextBlock Text="{Binding}"/>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
-            <Button DockPanel.Dock="Left" Command="{Binding RefreshCommand}" Margin="10,0,0,0" AutomationProperties.Name="Refresh list">
+            <Button Command="{Binding RefreshCommand}" Margin="10,0,0,4" VerticalAlignment="Center" AutomationProperties.Name="Refresh list">
                 <StackPanel Orientation="Horizontal">
                     <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
                     <TextBlock Text="Refresh" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
-            <TextBlock DockPanel.Dock="Left" Text="Loading…" VerticalAlignment="Center" Margin="12,0,0,0"
+            <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Hide ones you have"
+                      IsChecked="{Binding HideOwned}" Margin="14,0,0,4" VerticalAlignment="Center"
+                      ToolTip="Hides mods already in your Library or waiting in Pending Downloads — what's left is what you don't have yet"/>
+            <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Updates only"
+                      IsChecked="{Binding UpdatesOnly}" Margin="12,0,0,4" VerticalAlignment="Center"
+                      ToolTip="Shows only mods whose Nexus version differs from your Library copy's — works best on the All list"/>
+            <TextBlock Text="Loading…" VerticalAlignment="Center" Margin="12,0,0,4"
                        Foreground="{DynamicResource SecondaryForegroundBrush}"
                        Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibilityConverter}}"/>
-            <TextBlock DockPanel.Dock="Left" Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+            <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,4" MaxWidth="420"
                        Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" TextWrapping="Wrap"
                        Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-        </DockPanel>
+        </WrapPanel>
 
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
             <ItemsControl ItemsSource="{Binding Mods}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -132,6 +142,16 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+            <Button HorizontalAlignment="Left" Margin="0,4,0,12" Command="{Binding LoadMoreCommand}"
+                    Visibility="{Binding CanLoadMore, Converter={StaticResource BoolToVisibilityConverter}}"
+                    ToolTip="Fetches the next page of the All list" AutomationProperties.Name="Load more">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Load more" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            </StackPanel>
         </ScrollViewer>
     </Grid>
 </UserControl>

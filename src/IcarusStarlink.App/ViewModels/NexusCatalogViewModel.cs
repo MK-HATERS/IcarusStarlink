@@ -48,12 +48,40 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     /// <summary>This IS the Nexus page — there is no wrapper ViewModel around it any more (the embedded browser it used to sit beside was removed as redundant with signing in via Settings).</summary>
     public string Title => "Nexus";
 
-    public static IReadOnlyList<NexusModList> ListKinds { get; } = Enum.GetValues<NexusModList>();
+    /// <summary>"All" (the whole catalog via GraphQL, most-endorsed first, paged) plus Nexus's three curated v1 lists. All is the default: it works even before an API key is configured, so the page is never empty on first visit.</summary>
+    public static IReadOnlyList<string> BrowseKinds { get; } = ["All", .. Enum.GetValues<NexusModList>().Select(k => k.ToString())];
 
     public ObservableCollection<NexusCatalogRow> Mods { get; } = [];
 
     [ObservableProperty]
-    private NexusModList _selectedList = NexusModList.Trending;
+    private string _selectedKind = "All";
+
+    private const int AllPageSize = 30;
+
+    /// <summary>The catalog's own total in All mode, so Load more knows when everything is already loaded.</summary>
+    private int _allTotalCount;
+
+    [ObservableProperty]
+    private bool _canLoadMore;
+
+    /// <summary>Hides mods this install already has (In Library or sitting in Pending Downloads) — a "what am I missing" view.</summary>
+    [ObservableProperty]
+    private bool _hideOwned;
+
+    /// <summary>Shows only mods whose live Nexus version differs from the Library copy's — a "what can I update" view.</summary>
+    [ObservableProperty]
+    private bool _updatesOnly;
+
+    partial void OnHideOwnedChanged(bool value) => ApplyDisplayFilters();
+
+    partial void OnUpdatesOnlyChanged(bool value) => ApplyDisplayFilters();
+
+    private void ApplyDisplayFilters()
+    {
+        var searchText = SearchText.Trim();
+        RebuildRows();
+        UpdateStatusAfterLoad(searchText.Length > 0, searchText.Length == 0 && SelectedKind == "All", searchText);
+    }
 
     /// <summary>Non-empty switches the page from the curated lists to live GraphQL search results; clearing it goes back to the selected list. Debounced so typing doesn't fire a network round-trip per keystroke — same 250ms pattern Library's own search box uses.</summary>
     [ObservableProperty]
@@ -91,7 +119,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         _ = LoadAsync();
     }
 
-    partial void OnSelectedListChanged(NexusModList value) => _ = LoadAsync();
+    partial void OnSelectedKindChanged(string value) => _ = LoadAsync();
 
     partial void OnSearchTextChanged(string value) => _searchDebounceTimer.Restart();
 
@@ -103,14 +131,16 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         var version = ++_loadVersion;
         var searchText = SearchText.Trim();
         var isSearch = searchText.Length > 0;
+        var isAll = !isSearch && SelectedKind == "All";
+        CanLoadMore = false;
 
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
-        // Search works even with no key (the v2 GraphQL endpoint answers unauthenticated —
-        // confirmed live); only the curated v1 lists genuinely require one.
-        if (apiKey is null && !isSearch)
+        // Search and the All list work even with no key (the v2 GraphQL endpoint answers
+        // unauthenticated — confirmed live); only the curated v1 lists genuinely require one.
+        if (apiKey is null && !isSearch && !isAll)
         {
             Mods.Clear();
-            StatusMessage = "Sign in with your Nexus API key in Settings to browse the lists — search still works, or use Full site below.";
+            StatusMessage = "Sign in with your Nexus API key in Settings to use this list — All and search work without one.";
             return;
         }
 
@@ -118,9 +148,22 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         StatusMessage = null;
         try
         {
-            var mods = isSearch
-                ? await _nexusApiClient.SearchModsAsync(apiKey, "icarus", searchText)
-                : await _nexusApiClient.GetModListAsync(apiKey!, "icarus", SelectedList);
+            IReadOnlyList<NexusModInfo> mods;
+            if (isSearch)
+            {
+                mods = await _nexusApiClient.SearchModsAsync(apiKey, "icarus", searchText);
+            }
+            else if (isAll)
+            {
+                var page = await _nexusApiClient.ListAllModsAsync(apiKey, "icarus", offset: 0, count: AllPageSize);
+                mods = page.Mods;
+                _allTotalCount = page.TotalCount;
+            }
+            else
+            {
+                mods = await _nexusApiClient.GetModListAsync(apiKey!, "icarus", Enum.Parse<NexusModList>(SelectedKind));
+            }
+
             if (version != _loadVersion)
             {
                 return;
@@ -129,11 +172,9 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             // A null Name means the mod is under moderation (Nexus's own documented shape) — a
             // card with no name, no summary, and nothing to open isn't worth rendering.
             _lastFetched = [.. mods.Where(m => m.Name is not null)];
+            CanLoadMore = isAll && mods.Count < _allTotalCount;
             RebuildRows();
-
-            StatusMessage = Mods.Count == 0
-                ? (isSearch ? $"No mods match '{searchText}'." : "Nexus returned nothing for this list right now.")
-                : (isSearch ? $"{Mods.Count} result(s) for '{searchText}'." : null);
+            UpdateStatusAfterLoad(isSearch, isAll, searchText);
         }
         catch (Exception ex)
         {
@@ -149,6 +190,60 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                 IsLoading = false;
             }
         }
+    }
+
+    /// <summary>Appends the next page of the All list — offset is simply how many are already loaded, so a re-click can never skip or double-fetch a slice.</summary>
+    [RelayCommand]
+    private async Task LoadMoreAsync()
+    {
+        if (IsLoading || SearchText.Trim().Length > 0 || SelectedKind != "All")
+        {
+            return;
+        }
+
+        var version = _loadVersion;
+        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+        IsLoading = true;
+        try
+        {
+            var page = await _nexusApiClient.ListAllModsAsync(apiKey, "icarus", offset: _lastFetched.Count, count: AllPageSize);
+            if (version != _loadVersion)
+            {
+                return;
+            }
+
+            _allTotalCount = page.TotalCount;
+            _lastFetched = [.. _lastFetched, .. page.Mods.Where(m => m.Name is not null)];
+            CanLoadMore = _lastFetched.Count < _allTotalCount;
+            RebuildRows();
+            UpdateStatusAfterLoad(isSearch: false, isAll: true, searchText: "");
+        }
+        catch (Exception ex)
+        {
+            if (version == _loadVersion)
+            {
+                StatusMessage = $"Couldn't load more: {ex.Message}";
+            }
+        }
+        finally
+        {
+            if (version == _loadVersion)
+            {
+                IsLoading = false;
+            }
+        }
+    }
+
+    private void UpdateStatusAfterLoad(bool isSearch, bool isAll, string searchText)
+    {
+        var filtered = HideOwned || UpdatesOnly;
+        StatusMessage = Mods.Count == 0
+            ? (_lastFetched.Count > 0 && filtered ? "Nothing matches the filters."
+                : isSearch ? $"No mods match '{searchText}'."
+                : "Nexus returned nothing for this list right now.")
+            : isSearch ? $"{Mods.Count} result(s) for '{searchText}'."
+            : isAll ? $"{Mods.Count} shown · {_lastFetched.Count} of {_allTotalCount} loaded."
+            : null;
     }
 
     private void RebuildRows()
@@ -172,6 +267,19 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                 && !string.IsNullOrEmpty(libraryEntry.Version)
                 && !string.IsNullOrEmpty(mod.Version)
                 && !string.Equals(libraryEntry.Version, mod.Version, StringComparison.OrdinalIgnoreCase);
+
+            // The display filters: HideOwned drops what this install already has (In Library or a
+            // file waiting in Pending Downloads — Tracked is just a bookmark, not ownership);
+            // UpdatesOnly keeps only cards whose live version differs from the Library copy's.
+            if (HideOwned && badge is "In Library" or "Downloaded")
+            {
+                continue;
+            }
+
+            if (UpdatesOnly && !hasUpdate)
+            {
+                continue;
+            }
 
             Mods.Add(new NexusCatalogRow(mod, badge, hasUpdate));
         }

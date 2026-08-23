@@ -250,6 +250,42 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
             n.ModId, WebUtility.HtmlDecode(n.Name), n.Author, WebUtility.HtmlDecode(n.Summary), n.Version, n.PictureUrl))];
     }
 
+    public async Task<NexusModPage> ListAllModsAsync(
+        string? apiKey, string gameDomain, int offset, int count, CancellationToken cancellationToken = default)
+    {
+        // Same v2 GraphQL endpoint as SearchModsAsync, without the name filter: offset/count
+        // paging and the endorsements-DESC sort were both confirmed by live probes against the
+        // real endpoint (icarus answered 229 total, page slices genuinely advanced) — not guessed.
+        var payload = new Dictionary<string, object?>
+        {
+            ["query"] = "query All($filter: ModsFilter, $count: Int, $offset: Int, $sort: [ModsSort!]) { mods(filter: $filter, count: $count, offset: $offset, sort: $sort) { nodes { modId name version summary pictureUrl author } totalCount } }",
+            ["variables"] = new Dictionary<string, object?>
+            {
+                ["filter"] = new Dictionary<string, object?>
+                {
+                    ["gameDomainName"] = new Dictionary<string, string> { ["value"] = gameDomain, ["op"] = "EQUALS" },
+                },
+                ["count"] = count,
+                ["offset"] = offset,
+                ["sort"] = new[] { new Dictionary<string, object?> { ["endorsements"] = new Dictionary<string, string> { ["direction"] = "DESC" } } },
+            },
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, GraphQlUrl) { Content = JsonContent.Create(payload) };
+        if (apiKey is not null)
+        {
+            request.Headers.Add("apikey", apiKey);
+        }
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var dto = await response.Content.ReadFromJsonAsync<GraphResponseDto>(cancellationToken);
+
+        var mods = (dto?.Data?.Mods?.Nodes ?? []).Select(n => new NexusModInfo(
+            n.ModId, WebUtility.HtmlDecode(n.Name), n.Author, WebUtility.HtmlDecode(n.Summary), n.Version, n.PictureUrl)).ToList();
+        return new NexusModPage(mods, dto?.Data?.Mods?.TotalCount ?? mods.Count);
+    }
+
     private sealed class ModFilesResponseDto
     {
         [JsonPropertyName("files")]
@@ -294,6 +330,9 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
     {
         [JsonPropertyName("nodes")]
         public List<GraphModDto> Nodes { get; init; } = [];
+
+        [JsonPropertyName("totalCount")]
+        public int TotalCount { get; init; }
     }
 
     private sealed class GraphModDto

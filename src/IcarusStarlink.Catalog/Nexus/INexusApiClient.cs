@@ -53,7 +53,18 @@ public interface INexusApiClient
     /// so search works even before a key is configured — pass the key when there is one.
     /// </summary>
     Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A page of the game's WHOLE mod catalog, most-endorsed first — the "browse everything" view
+    /// the three curated v1 lists can't provide. Served by the same v2 GraphQL endpoint as search
+    /// (offset/count paging and endorsement sort both confirmed by live probing), so it also
+    /// answers unauthenticated — pass the key when there is one.
+    /// </summary>
+    Task<NexusModPage> ListAllModsAsync(string? apiKey, string gameDomain, int offset, int count, CancellationToken cancellationToken = default);
 }
+
+/// <summary>One page of ListAllModsAsync — the slice plus the catalog's own total, so the UI can say "N of M shown" and know whether more remain.</summary>
+public sealed record NexusModPage(IReadOnlyList<NexusModInfo> Mods, int TotalCount);
 
 /// <summary>Which of Nexus's v1 browse lists GetModListAsync fetches. Names double as the UI's own pill labels, so they read as words, not endpoint paths.</summary>
 public enum NexusModList

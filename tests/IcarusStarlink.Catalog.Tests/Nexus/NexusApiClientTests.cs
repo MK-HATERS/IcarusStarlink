@@ -338,6 +338,28 @@ public class NexusApiClientTests
     }
 
     [Fact]
+    public async Task ListAllModsAsync_ParsesNodesAndTotalCount()
+    {
+        // Same GraphQL wrapper shape as search, plus the totalCount the pager needs — the
+        // 229-mod total matches what the live probe of the real endpoint answered.
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://api.nexusmods.com/v2/graphql"] = """
+                {"data":{"mods":{"nodes":[
+                  {"modId":9,"name":"zenProgression","version":"1.1","summary":"s","pictureUrl":null,"author":"zen"},
+                  {"modId":22,"name":"Caramel Stack size Plus","version":"18","summary":null,"pictureUrl":null,"author":"Caramel"}
+                ],"totalCount":229}}}
+                """,
+        });
+
+        var page = await client.ListAllModsAsync(null, "icarus", offset: 0, count: 2);
+
+        Assert.Equal(2, page.Mods.Count);
+        Assert.Equal(9, page.Mods[0].ModId);
+        Assert.Equal(229, page.TotalCount);
+    }
+
+    [Fact]
     public async Task GetModListAsync_RejectedKey_ThrowsInvalidOperation()
     {
         var url = "https://api.nexusmods.com/v1/games/icarus/mods/trending";
