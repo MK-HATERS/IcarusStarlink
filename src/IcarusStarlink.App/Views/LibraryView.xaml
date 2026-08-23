@@ -48,6 +48,19 @@
                  given most rows are top-level (unindented). -->
             <Grid x:Name="Row" Margin="0,3"
                   Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                <Grid.Style>
+                    <!-- Ctrl/Shift-click bulk selection for "Add to merge queue" — a soft accent
+                         wash, distinct from the TreeView's own native selection highlight, so a
+                         user can tell "picked for the merge queue" apart from "currently viewing
+                         details for" at a glance. -->
+                    <Style TargetType="Grid">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSelectedForBulk}" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
                     <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
@@ -69,6 +82,21 @@
                          to whatever opened the menu, so it stays inside the real visual tree) exposes that
                          Tag back to the MenuItem below. -->
                     <ContextMenu>
+                        <!-- The primary reason to right-click a mod at all now that Merge & Install
+                             has no browsing pane of its own — Ctrl/Shift-click first to select more
+                             than one, this adds the whole bulk selection (see EnsureBulkSelected in
+                             code-behind), or just this row alone if nothing else is selected. -->
+                        <MenuItem Command="{Binding PlacementTarget.Tag.AddToMergeQueueCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  ToolTip="Adds the selected mod(s) to Merge &amp; Install's queue">
+                            <MenuItem.Header>
+                                <TextBlock>
+                                    <Run Text="Add to merge queue"/>
+                                    <Run Text=" ("/><Run Text="{Binding PlacementTarget.Tag.BulkSelectedCount, RelativeSource={RelativeSource AncestorType=ContextMenu}, Mode=OneWay}"/><Run Text=")"/>
+                                </TextBlock>
+                            </MenuItem.Header>
+                        </MenuItem>
+                        <Separator/>
                         <MenuItem Header="Pinned" IsCheckable="True" IsChecked="{Binding IsPinned}"/>
                         <MenuItem Header="Favorite" IsCheckable="True" IsChecked="{Binding IsFavorite}"/>
                         <Separator/>
@@ -308,6 +336,24 @@
                                 <TextBlock Text="Check for updates" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
+
+                        <!-- Discoverable alternative to the row context menu's own "Add to merge
+                             queue" — only appears once Ctrl/Shift-click has actually selected 2+
+                             rows, since a single mod is just as easy to add via right-click alone. -->
+                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Margin="0,4,10,4"
+                                Visibility="{Binding HasBulkSelection, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <Button Command="{Binding AddToMergeQueueCommand}" Margin="0,0,8,0"
+                                Visibility="{Binding HasBulkSelection, Converter={StaticResource BoolToVisibilityConverter}}"
+                                ToolTip="Adds the selected mods to Merge &amp; Install's queue"
+                                AutomationProperties.Name="Add to merge queue">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconMerge}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock VerticalAlignment="Center">
+                                    <Run Text="Add to merge queue ("/><Run Text="{Binding BulkSelectedCount, Mode=OneWay}"/><Run Text=")"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
 
                     <!-- Folded in from the former standalone Downloads page's own "Mods" tab: paste
@@ -442,6 +488,7 @@
                                   HorizontalContentAlignment="Stretch"
                                   SelectedItemChanged="LibraryTree_SelectedItemChanged"
                                   PreviewMouseRightButtonDown="LibraryTree_PreviewMouseRightButtonDown"
+                                  PreviewMouseLeftButtonDown="LibraryTree_PreviewMouseLeftButtonDown"
                                   MouseDoubleClick="LibraryTree_MouseDoubleClick"/>
                     </Border>
                 </Grid>

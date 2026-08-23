@@ -39,6 +39,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IPendingDownloadStore _pendingDownloadStore;
     private readonly IModVersionComparer _modVersionComparer;
 
+    /// <summary>Resolved lazily (Merge & Install is constructed on first navigation, not at DI composition time) — same pattern SettingsViewModel already uses to reach it. Only invoked once the user actually adds something to the queue from here, so opening Library alone never forces Merge & Install into existence.</summary>
+    private readonly Func<MergeInstallViewModel> _mergeInstallViewModel;
+
     /// <summary>The IMM Database tab now lives directly on this page (folded in from the former standalone Downloads page), so DownloadsViewModel is needed immediately on Library's own first render — no more lazy resolution for this one. Nexus stays its own separate page and stays lazy.</summary>
     public DownloadsViewModel Downloads { get; }
 
@@ -101,6 +104,13 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private string? _updateCheckStatusMessage;
 
+    /// <summary>Ctrl/Shift-click multi-select, for "Add to merge queue" — the only way mods reach Merge & Install's queue now that its own Library pane is gone. A plain list (not a HashSet): insertion order isn't meaningful here, but ObservableCollection gives free CollectionChanged notification for HasBulkSelection/BulkSelectedCount.</summary>
+    public ObservableCollection<LibraryItemViewModel> BulkSelectedItems { get; } = [];
+
+    public bool HasBulkSelection => BulkSelectedItems.Count > 0;
+
+    public int BulkSelectedCount => BulkSelectedItems.Count;
+
     public LibraryViewModel(
         ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
         IUe4ssModMetaStore ue4ssModMetaStore,
@@ -109,9 +119,10 @@ public sealed partial class LibraryViewModel : ObservableObject
         Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
         IPendingDownloadStore pendingDownloadStore, IModVersionComparer modVersionComparer,
         DownloadsViewModel downloadsViewModel, Func<NexusCatalogViewModel> nexusCatalogViewModel,
-        IActiveDownloadsTracker activeDownloadsTracker, string backupDirectory)
+        IActiveDownloadsTracker activeDownloadsTracker, Func<MergeInstallViewModel> mergeInstallViewModel, string backupDirectory)
     {
         _modVersionComparer = modVersionComparer;
+        _mergeInstallViewModel = mergeInstallViewModel;
         _activeDownloadsTracker = activeDownloadsTracker;
         Downloads = downloadsViewModel;
         _nexusCatalogViewModel = nexusCatalogViewModel;
@@ -141,6 +152,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) =>
         {
             var self = (LibraryViewModel)recipient;
+            // A full resync can replace row instances outright — a stale bulk selection referencing
+            // an orphaned instance would show a nonzero count with nothing actually highlighted.
+            self.ClearBulkSelection();
             self.Reload(fullResync: true);
             // A UE4SS mod downloaded through Downloads' own pipeline sends this same message (see
             // DownloadsViewModel.ClassifyAndImportExtractedModAsync) — without this, the UE4SS tab
@@ -154,6 +168,12 @@ public sealed partial class LibraryViewModel : ObservableObject
         // whenever something else happens to trigger a reload.
         _activeDownloadsTracker.Current.CollectionChanged += (_, _) => Reload();
 
+        BulkSelectedItems.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasBulkSelection));
+            OnPropertyChanged(nameof(BulkSelectedCount));
+        };
+
         Reload();
         ReloadInstalledUe4ssMods();
 
@@ -166,6 +186,62 @@ public sealed partial class LibraryViewModel : ObservableObject
     partial void OnSearchTextChanged(string value) => _searchDebounceTimer.Restart();
 
     partial void OnSelectedItemChanged(LibraryItemViewModel? value) => value?.EnsureDetailsLoaded();
+
+    /// <summary>Ctrl-click: toggles this row's own membership, called from LibraryView's code-behind on a plain (non-Ctrl) click first to clear whatever was previously selected — so a fresh click always starts a new bulk selection rather than adding to a stale one.</summary>
+    public void ToggleBulkSelection(LibraryItemViewModel item)
+    {
+        if (item.IsSelectedForBulk)
+        {
+            item.IsSelectedForBulk = false;
+            BulkSelectedItems.Remove(item);
+        }
+        else
+        {
+            item.IsSelectedForBulk = true;
+            BulkSelectedItems.Add(item);
+        }
+    }
+
+    public void ClearBulkSelection()
+    {
+        foreach (var item in BulkSelectedItems)
+        {
+            item.IsSelectedForBulk = false;
+        }
+
+        BulkSelectedItems.Clear();
+    }
+
+    /// <summary>Right-click: a row that's already part of a multi-selection stays part of it (so right-clicking any one of several Ctrl-selected rows adds all of them); right-clicking a row outside the current selection replaces it with just that row — the same convention Explorer uses.</summary>
+    public void EnsureBulkSelected(LibraryItemViewModel item)
+    {
+        if (!item.IsSelectedForBulk)
+        {
+            ClearBulkSelection();
+            item.IsSelectedForBulk = true;
+            BulkSelectedItems.Add(item);
+        }
+    }
+
+    /// <summary>Sends the current bulk selection (or, with none active, just the passed-in row — a right-click with no prior Ctrl-click) to Merge & Install's queue.</summary>
+    [RelayCommand]
+    private void AddToMergeQueue(LibraryItemViewModel? item)
+    {
+        var folderNames = BulkSelectedItems.Count > 0
+            ? BulkSelectedItems.Select(i => i.FolderName).ToList()
+            : item is not null ? [item.FolderName] : [];
+
+        if (folderNames.Count == 0)
+        {
+            return;
+        }
+
+        _mergeInstallViewModel().AddToQueueByFolderNames(folderNames);
+        ClearBulkSelection();
+        StatusMessage = folderNames.Count == 1
+            ? $"Added '{folderNames[0]}' to the merge queue."
+            : $"Added {folderNames.Count} mods to the merge queue.";
+    }
 
     [RelayCommand]
     private void ReloadInstalledUe4ssMods()
@@ -482,8 +558,10 @@ public sealed partial class LibraryViewModel : ObservableObject
                 // Captured before the delete so the swap doesn't silently drop them; cancel any
                 // pending debounced notes save first, same reasoning DeleteSelected documents.
                 var (folderName, isPinned, isFavorite, notes) = (item.FolderName, item.IsPinned, item.IsFavorite, item.Notes);
-                var displayNameOverride = _repository.GetAll()
-                    .FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase))?.DisplayNameOverride;
+                var originalEntry = _repository.GetAll()
+                    .FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+                var displayNameOverride = originalEntry?.DisplayNameOverride;
+                var originalCatalogEntryId = originalEntry?.CatalogEntryId;
                 item.CancelPendingSave();
 
                 // Snapshot first, so the delete-then-reimport below can genuinely roll back — a
@@ -519,6 +597,31 @@ public sealed partial class LibraryViewModel : ObservableObject
                 catch (Exception importEx)
                 {
                     var restored = _repository.RestoreLatestModBackup(folderName);
+                    if (restored)
+                    {
+                        // RestoreLatestModBackup only brings back the mod's own EXMOD/asset folder —
+                        // BackupMod never captured the .immmeta.json sidecar (it's scoped to the
+                        // mod's own folder, and the sidecar lives elsewhere), and Delete() above
+                        // deleted that sidecar outright with nothing to recreate it. Without this, a
+                        // failed update silently reset Pin/Favorite/Notes/display name/Source/catalog
+                        // link to blank even though the mod's real content came back fine — a real
+                        // bug found live ("the source was forgotten").
+                        if (isPinned || isFavorite || !string.IsNullOrEmpty(notes))
+                        {
+                            _repository.UpdateMetadata(folderName, isPinned, isFavorite, notes);
+                        }
+
+                        if (displayNameOverride is not null)
+                        {
+                            _repository.SetDisplayNameOverride(folderName, displayNameOverride);
+                        }
+
+                        if (originalCatalogEntryId is not null)
+                        {
+                            _repository.SetCatalogEntry(folderName, originalCatalogEntryId);
+                        }
+                    }
+
                     StatusMessage = restored
                         ? $"Update failed ({importEx.Message}) — your previous copy was restored from its backup."
                         : $"Update failed: {importEx.Message}";

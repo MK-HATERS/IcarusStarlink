@@ -691,6 +691,81 @@
         </Setter>
     </Style>
 
+    <!-- Redesign round 2: a themed Expander for progressive disclosure — rarer/advanced sections
+         (Merge & Install's options/verify/uninstall/import panels, Settings' Data folder block)
+         collapse behind these instead of always competing for space with the primary action.
+         Retemplated rather than just re-styled, since stock Expander has no room in its default
+         header for a right-aligned chevron next to left-aligned custom header content. The header
+         is its own inner ToggleButton (not the outer Expander's real IsExpanded trigger) so the
+         chevron glyph can swap on ITS OWN IsChecked without needing a style on the Expander's own
+         template root to reach into a nested named element across two template boundaries. -->
+    <Style TargetType="{x:Type Expander}">
+        <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Expander}">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8">
+                        <DockPanel LastChildFill="True">
+                            <ToggleButton DockPanel.Dock="Top" Cursor="Hand"
+                                          IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="{x:Type ToggleButton}">
+                                        <Border x:Name="HeaderBg" Background="Transparent" Padding="12,10" CornerRadius="8">
+                                            <DockPanel LastChildFill="True">
+                                                <Path x:Name="Chevron" DockPanel.Dock="Right" Data="{StaticResource IconChevronRight}"
+                                                      Stroke="{DynamicResource FaintForegroundBrush}" StrokeThickness="1.6"
+                                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                      Width="12" Height="12" Stretch="Uniform" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                <ContentPresenter Content="{Binding Header, RelativeSource={RelativeSource AncestorType={x:Type Expander}}}"
+                                                                  VerticalAlignment="Center"/>
+                                            </DockPanel>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="Chevron" Property="Data" Value="{StaticResource IconChevronDown}"/>
+                                            </Trigger>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="HeaderBg" Property="Background" Value="{DynamicResource NavItemHoverBrush}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <Border x:Name="ContentHost" DockPanel.Dock="Bottom" Padding="12,0,12,12">
+                                <ContentPresenter/>
+                            </Border>
+                        </DockPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsExpanded" Value="False">
+                            <Setter TargetName="ContentHost" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A header for an Expander that also shows a dynamic one-line summary of its current state
+         when collapsed (matching the redesign mockup's "state" text) — e.g. "2 active" for Merge
+         options, or "Verify · Uninstall" for Advanced actions. Title/state are the header's own
+         two TextBlocks; per-usage content supplies the actual text. -->
+    <Style x:Key="ExpanderHeaderTitleStyle" TargetType="TextBlock">
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+    </Style>
+
+    <Style x:Key="ExpanderHeaderStateStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11.5"/>
+        <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
+        <Setter Property="Margin" Value="10,0,0,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
     <!-- Phase 10 redesign: a small (i) glyph carrying a real ToolTip — Merge & Install's leveled
          options (Speed Boost, Craft Cost, ...) use this next to their label instead of relying on
          hovering the pill selector itself, which has no one obvious hover target.

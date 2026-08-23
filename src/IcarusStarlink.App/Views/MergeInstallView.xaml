@@ -3,7 +3,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             xmlns:core="clr-namespace:IcarusStarlink.Core.Library;assembly=IcarusStarlink.Core"
              mc:Ignorable="d">
 
     <Grid Margin="32">
@@ -40,105 +39,66 @@
         </DockPanel>
         <TextBlock Grid.Row="2" Text="{Binding ProfileStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0"/>
 
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
-            <Button Command="{Binding ExportPatchCommand}"
-                    ToolTip="Share the selected profile's mod list with a friend or server — bundles anything not in the community catalog"
-                    AutomationProperties.Name="Export patch">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Export patch…" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <Button Command="{Binding ImportPatchCommand}" Margin="8,0,0,0"
-                    ToolTip="Load a patch someone shared — recreates its profile and syncs any bundled mods into your Library"
-                    AutomationProperties.Name="Import patch">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Import patch…" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <Button Command="{Binding ImportImmModListCommand}" Margin="8,0,0,0"
-                    ToolTip="Load a classic IMM merge list (LastMergedMods.txt / IMM_Merged_Mod.txt) — rebuilds the queue from it in the list's own order, reporting any mod not in your Library yet"
-                    AutomationProperties.Name="Import IMM mod list">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Import IMM mod list…" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-        </StackPanel>
+        <!-- Import & migrate: collapsed by default — export/import a patch and importing a classic-
+             IMM mod list are real but occasional actions, not something a returning user needs to
+             see every time. -->
+        <Expander Grid.Row="3" Margin="0,16,0,0" IsExpanded="False">
+            <Expander.Header>
+                <DockPanel LastChildFill="False">
+                    <TextBlock DockPanel.Dock="Left" Text="Import &amp; migrate" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                    <TextBlock DockPanel.Dock="Left" Text="Export patch · Import patch · Import IMM mod list" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                </DockPanel>
+            </Expander.Header>
+            <StackPanel Orientation="Horizontal">
+                <Button Command="{Binding ExportPatchCommand}"
+                        ToolTip="Share the selected profile's mod list with a friend or server — bundles anything not in the community catalog"
+                        AutomationProperties.Name="Export patch">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                        <TextBlock Text="Export patch…" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding ImportPatchCommand}" Margin="8,0,0,0"
+                        ToolTip="Load a patch someone shared — recreates its profile and syncs any bundled mods into your Library"
+                        AutomationProperties.Name="Import patch">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                        <TextBlock Text="Import patch…" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding ImportImmModListCommand}" Margin="8,0,0,0"
+                        ToolTip="Load a classic IMM merge list (LastMergedMods.txt / IMM_Merged_Mod.txt) — rebuilds the queue from it in the list's own order, reporting any mod not in your Library yet"
+                        AutomationProperties.Name="Import IMM mod list">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                        <TextBlock Text="Import IMM mod list…" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Expander>
         <TextBlock Grid.Row="4" Text="{Binding PatchStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
 
+        <!-- Two columns now, not three: Library's own browsing pane left this page entirely
+             (redesign-round-2 pilot) — mods reach the queue from Library itself (multi-select +
+             right-click "Add to merge queue"), so this page only ever needs to own the queue and
+             the merge options. -->
         <Grid Grid.Row="5" Margin="0,16,0,0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" MinWidth="200"/>
+                <ColumnDefinition Width="*" MinWidth="260"/>
                 <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="*" MinWidth="200"/>
-                <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="280" MinWidth="220"/>
+                <ColumnDefinition Width="320" MinWidth="260"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Library pane -->
+            <!-- Queue + Rebuild + Install pane. The primary action (Install) stays always visible;
+                 Verify and Uninstall — real but occasional — collapse into one "Advanced actions"
+                 section below it. -->
             <Grid Grid.Column="0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-
-                <TextBlock Grid.Row="0" Text="Library" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
-
-                <TreeView Grid.Row="1" x:Name="LibraryTree" ItemsSource="{Binding LibraryRootItems}"
-                          SelectedItemChanged="LibraryTree_SelectedItemChanged" MouseDoubleClick="LibraryTree_MouseDoubleClick"
-                          BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
-                          ToolTip="Double-click a mod to add it to the merge queue">
-                    <TreeView.Resources>
-                        <HierarchicalDataTemplate DataType="{x:Type core:LibraryGroup}" ItemsSource="{Binding Entries}">
-                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
-                        </HierarchicalDataTemplate>
-                        <DataTemplate DataType="{x:Type core:LibraryEntry}">
-                            <StackPanel Orientation="Horizontal">
-                                <!-- No .EXMOD field-level data — Rebuild unpacks it and folds its
-                                     contents into the merged pak instead of field-merging it. -->
-                                <Path Data="{StaticResource IconPackage}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.4"
-                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"
-                                      Margin="0,0,5,0" VerticalAlignment="Center"
-                                      ToolTip="Prebuilt .pak — no field-level merge; its files are folded into the merged pak as-is on Rebuild"
-                                      Visibility="{Binding IsOpaquePak, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                <Path Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" Data="{StaticResource IconCheck}"
-                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"
-                                      Margin="0,0,5,0" VerticalAlignment="Center"
-                                      ToolTip="Already in the merge queue">
-                                    <Path.Visibility>
-                                        <MultiBinding Converter="{StaticResource LibraryEntryQueuedConverter}">
-                                            <Binding/>
-                                            <Binding Path="DataContext.Queue" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
-                                            <Binding Path="DataContext.Queue.Count" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
-                                        </MultiBinding>
-                                    </Path.Visibility>
-                                </Path>
-                                <TextBlock Text="{Binding Name}"/>
-                                <TextBlock Text="{Binding Author, StringFormat=' · {0}'}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
-                            </StackPanel>
-                        </DataTemplate>
-                    </TreeView.Resources>
-                </TreeView>
-            </Grid>
-
-            <!-- Queue + Rebuild + Install pane, split into four clear zones (queue management,
-                 build & install, verify, uninstall) with real section headers/dividers instead of
-                 one long undifferentiated vertical stack. -->
-            <Grid Grid.Column="2">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -177,6 +137,15 @@
                                 <Run Text=" queued mod(s) change the same field differently — Rebuild will use last-mod-wins unless you pick a winner."/>
                             </TextBlock>
                         </DockPanel>
+                    </Border>
+                    <!-- The only way mods reach this queue now (redesign-round-2 pilot) — points the
+                         user at Library rather than leaving an unexplained empty list. -->
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,8"
+                            Visibility="{Binding IsQueueEmpty, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                            <Run Text="No mods queued yet. Go to "/><Run Text="Library" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text=", select one or more mods (Ctrl/Shift-click for more than one), then right-click → "/><Run Text="Add to merge queue" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text="."/>
+                        </TextBlock>
                     </Border>
                     <ListBox ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueEntry}" MinHeight="100">
                         <ListBox.ItemTemplate>
@@ -261,55 +230,73 @@
                 <ListBox Grid.Row="8" ItemsSource="{Binding Warnings}" Margin="0,8,0,0" MaxHeight="120"
                          Foreground="{DynamicResource AccentBrush}" FontSize="12"/>
 
-                <Border Grid.Row="9" Style="{StaticResource SectionDividerStyle}" Margin="0,14,0,10"/>
-                <TextBlock Grid.Row="10" Text="Verify" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8"/>
-
-                <StackPanel Grid.Row="11" Orientation="Horizontal">
-                    <Button Content="Compare to installed" Command="{Binding CompareToInstalledCommand}"
-                            ToolTip="Preview what Install would actually change, by reading what this app can tell is currently installed."/>
-                    <Button Content="Compare paks…" Command="{Binding ComparePaksCommand}" Margin="8,0,0,0"
-                            ToolTip="Unpack any two .pak files and see exactly how they differ, row by row — e.g. verify this app's rebuilt pak against classic IMM's own installed merged pak."/>
-                    <TextBlock Text="{Binding ComparisonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                               Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
-                </StackPanel>
-                <ListBox Grid.Row="12" ItemsSource="{Binding ComparisonEntries}" Margin="0,8,0,0" MaxHeight="120" FontSize="12" FontFamily="Consolas"/>
-
-                <Border Grid.Row="13" Style="{StaticResource SectionDividerStyle}" Margin="0,14,0,10"/>
-                <TextBlock Grid.Row="14" Text="Uninstall" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8"/>
-
-                <StackPanel Grid.Row="15" Orientation="Horizontal">
-                    <!-- The spec's "Copy built pack to game" / Retry: installs the already-staged
-                         pak without remerging. Shown only when there is one to copy. -->
-                    <Button Command="{Binding CopyToGameCommand}" Margin="0,0,8,0"
-                            Visibility="{Binding CanCopyToGame, Converter={StaticResource BoolToVisibilityConverter}}"
-                            ToolTip="Copies the already-built pak into the game without rebuilding it — use this if Icarus was running when Install failed"
-                            AutomationProperties.Name="Copy to game">
+                <!-- Verify + Uninstall: real, occasionally-needed tools, folded into one collapsed
+                     section instead of two always-visible ones — neither competes with Install for
+                     a new user's attention, but both stay one click away. -->
+                <Expander Grid.Row="9" Margin="0,14,0,0" IsExpanded="False">
+                    <Expander.Header>
+                        <DockPanel LastChildFill="False">
+                            <TextBlock DockPanel.Dock="Left" Text="Advanced actions" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                            <TextBlock DockPanel.Dock="Left" Text="Verify · Uninstall" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                        </DockPanel>
+                    </Expander.Header>
+                    <StackPanel>
+                        <TextBlock Text="Verify" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8" FontSize="13"/>
                         <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                            <TextBlock Text="Copy to game" VerticalAlignment="Center"/>
+                            <Button Content="Compare to installed" Command="{Binding CompareToInstalledCommand}"
+                                    ToolTip="Preview what Install would actually change, by reading what this app can tell is currently installed."/>
+                            <Button Content="Compare paks…" Command="{Binding ComparePaksCommand}" Margin="8,0,0,0"
+                                    ToolTip="Unpack any two .pak files and see exactly how they differ, row by row — e.g. verify this app's rebuilt pak against classic IMM's own installed merged pak."/>
+                            <TextBlock Text="{Binding ComparisonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                         </StackPanel>
-                    </Button>
-                    <Button Command="{Binding RemoveFromGameCommand}"
-                            ToolTip="Uninstalls IcarusStarlink's pak from the real game folder — doesn't touch your Library"
-                            AutomationProperties.Name="Remove from game">
+                        <ListBox ItemsSource="{Binding ComparisonEntries}" Margin="0,8,0,0" MaxHeight="120" FontSize="12" FontFamily="Consolas"/>
+
+                        <Border Style="{StaticResource SectionDividerStyle}" Margin="0,14,0,10"/>
+                        <TextBlock Text="Uninstall" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8" FontSize="13"/>
                         <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
-                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                            <TextBlock Text="Remove from game" VerticalAlignment="Center"/>
+                            <!-- The spec's "Copy built pack to game" / Retry: installs the already-staged
+                                 pak without remerging. Shown only when there is one to copy. -->
+                            <Button Command="{Binding CopyToGameCommand}" Margin="0,0,8,0"
+                                    Visibility="{Binding CanCopyToGame, Converter={StaticResource BoolToVisibilityConverter}}"
+                                    ToolTip="Copies the already-built pak into the game without rebuilding it — use this if Icarus was running when Install failed"
+                                    AutomationProperties.Name="Copy to game">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Copy to game" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding RemoveFromGameCommand}"
+                                    ToolTip="Uninstalls IcarusStarlink's pak from the real game folder — doesn't touch your Library"
+                                    AutomationProperties.Name="Remove from game">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Remove from game" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <TextBlock Text="{Binding InstallStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                         </StackPanel>
-                    </Button>
-                    <TextBlock Text="{Binding InstallStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                               Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
-                </StackPanel>
+                    </StackPanel>
+                </Expander>
             </Grid>
 
             <!-- Gameplay-toggle merge options: applied as a final pass after the queue is merged,
-                 even with an empty queue — matching classic IMM's own documented behavior. -->
-            <ScrollViewer Grid.Column="4" VerticalScrollBarVisibility="Auto">
+                 even with an empty queue — matching classic IMM's own documented behavior.
+                 Collapsed by default (redesign-round-2 pilot): a new user landing on this page
+                 doesn't need to parse 8 controls across 3 groups just to find Install, but the
+                 collapsed header's own summary keeps whatever IS active from being hidden. -->
+            <Expander Grid.Column="2" VerticalAlignment="Top" IsExpanded="False">
+                <Expander.Header>
+                    <DockPanel LastChildFill="False">
+                        <TextBlock DockPanel.Dock="Left" Text="Merge options" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                        <TextBlock DockPanel.Dock="Left" Text="{Binding ActiveOptionsSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                    </DockPanel>
+                </Expander.Header>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="620">
                 <StackPanel>
-                    <TextBlock Text="Merge options" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8"/>
-
                     <!-- Phase 10: the leveled options (multiple values, not on/off) are now pill
                          selectors instead of dropdowns, matching the mockup — real hints from
                          classic IMM's own documented numbers move onto a small (i) icon next to
@@ -442,7 +429,8 @@
                               Content="Disable Temperatures"
                               ToolTip="Removes hot/cold environmental damage and temperature management entirely"/>
                 </StackPanel>
-            </ScrollViewer>
+                </ScrollViewer>
+            </Expander>
 
         </Grid>
     </Grid>

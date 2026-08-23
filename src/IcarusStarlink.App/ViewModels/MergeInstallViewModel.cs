@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Converters;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
@@ -54,20 +56,22 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     public string Title => "Merge & Install";
 
-    /// <summary>Each element is either a LibraryGroup (a real family) or a bare LibraryEntry (standalone) — same type-per-DataTemplate routing Library's own RootItems already uses.</summary>
-    public ObservableCollection<object> LibraryRootItems { get; } = [];
-
     /// <summary>
     /// Mods queued for the next Rebuild — a mix of real EXMOD mods (field-merged against base game
     /// data) and opaque/prebuilt .pak entries (LibraryEntry.IsOpaquePak, no .EXMOD — unpacked and
     /// folded into the same merged pak instead, see RebuildService). Both live in one list since
     /// both end up in the same output; LoadQueuedPackagesAsync is what splits them back apart for
-    /// RebuildService's own two-parameter signature.
+    /// RebuildService's own two-parameter signature. Mods reach this queue from Library's own
+    /// multi-select + "Add to merge queue" action (AddToQueueByFolderNames) — this page no longer
+    /// carries its own Library browsing pane, per the redesign-round-2 pilot.
     /// </summary>
     public ObservableCollection<LibraryEntry> Queue { get; } = [];
 
-    [ObservableProperty]
-    private LibraryEntry? _selectedLibraryItem;
+    /// <summary>Drives the empty-queue hint pointing the user at Library, now that this page has no browsing pane of its own to invite them into.</summary>
+    public bool HasQueuedMods => Queue.Count > 0;
+
+    /// <summary>A real computed property, not BoolToVisibilityConverter+ConverterParameter="Invert" — that shape has bitten this app before (see the boolean-converter mistake memory).</summary>
+    public bool IsQueueEmpty => !HasQueuedMods;
 
     [ObservableProperty]
     private LibraryEntry? _selectedQueueEntry;
@@ -175,6 +179,43 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private bool _disableTemperatures;
 
+    private static readonly GameplayLevelToShortLabelConverter LevelLabelConverter = new();
+
+    /// <summary>A compact one-line summary of which gameplay options are currently on — shown in the collapsed "Merge options" Expander header so folding that panel away doesn't hide active state.</summary>
+    public string ActiveOptionsSummary
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (SpeedBoost != BoostLevel.Off) parts.Add($"Speed Boost {ShortLabel(SpeedBoost)}");
+            if (PlayerBoost != BoostLevel.Off) parts.Add($"Player Boost {ShortLabel(PlayerBoost)}");
+            if (XpBoost != XpBoostLevel.Off) parts.Add($"XP Boost {ShortLabel(XpBoost)}");
+            if (CraftCost != CraftCostReduction.Off) parts.Add($"Craft Cost {ShortLabel(CraftCost)}");
+            if (StacksMultiplierLevel != MultiplierLevel.Off) parts.Add($"Stacks {ShortLabel(StacksMultiplierLevel)}");
+            if (SlotsMultiplierLevel != MultiplierLevel.Off) parts.Add($"Slots {ShortLabel(SlotsMultiplierLevel)}");
+            if (SpeedCraftingPercent > 0) parts.Add($"Speed Crafting {SpeedCraftingPercent}%");
+            if (RemoveWeight) parts.Add("Remove Weight");
+            if (UnlimitedAmmo) parts.Add("Unlimited Ammo");
+            if (DisableTemperatures) parts.Add("Disable Temperatures");
+
+            return parts.Count == 0 ? "No options active" : string.Join(" · ", parts);
+        }
+    }
+
+    private static string ShortLabel(object level) =>
+        (string)LevelLabelConverter.Convert(level, typeof(string), null, CultureInfo.InvariantCulture);
+
+    partial void OnSpeedBoostChanged(BoostLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnPlayerBoostChanged(BoostLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnXpBoostChanged(XpBoostLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnCraftCostChanged(CraftCostReduction value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnStacksMultiplierLevelChanged(MultiplierLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnSlotsMultiplierLevelChanged(MultiplierLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnSpeedCraftingPercentChanged(int value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnRemoveWeightChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnUnlimitedAmmoChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnDisableTemperaturesChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+
     // --- Installed vs this list (6.6) ---
     /// <summary>"+ Name" (would be added), "- Name" (would be removed), "= Name" (unchanged) — a preview of what clicking Install would actually do, not run automatically since it needs a real read of the game folder.</summary>
     public ObservableCollection<string> ComparisonEntries { get; } = [];
@@ -203,7 +244,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         _outputPakPath = outputPakPath;
         _backupDirectory = backupDirectory;
 
-        ReloadLibrary();
         ReloadProfileNames();
         PrependBaselineMods();
 
@@ -213,14 +253,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             _manualPicks = null;
             ConflictStatusMessage = null;
+            OnPropertyChanged(nameof(HasQueuedMods));
+            OnPropertyChanged(nameof(IsQueueEmpty));
             _ = RecomputeConflictCountAsync();
         };
-
-        // This ViewModel is a DI singleton built once, so without this its own Library pane would
-        // never learn about a mod imported/deleted from Library or Downloads until the app
-        // restarts — this Send()s LibraryChangedMessage itself (after ImportPatchAsync/InstallAsync)
-        // but, until now, never Registered to receive it from anywhere else.
-        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((MergeInstallViewModel)recipient).ReloadLibrary());
 
         // Without this, the Install/"Update install" label goes stale after the user changes the
         // Icarus Content path in Settings — the check below only otherwise runs at construction
@@ -264,25 +300,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // Best-effort — the button label just stays whatever it already was.
         }
     });
-
-    /// <summary>
-    /// Every Library entry shows here, including opaque .pak entries (LibraryEntry.IsOpaquePak,
-    /// marked with a small package icon in the row template) — matching Library's own page, which
-    /// already shows both kinds together. An opaque entry has no .EXMOD to merge, but it can still
-    /// be added to Queue: Rebuild unpacks it and folds its contents into the same merged pak
-    /// instead of field-merging it (see RebuildService/LoadQueuedPackagesAsync).
-    /// </summary>
-    public void ReloadLibrary()
-    {
-        var groups = VariantGrouping.Group(_libraryRepository.GetAll())
-            .OrderBy(g => g.DisplayName, StringComparer.OrdinalIgnoreCase);
-
-        LibraryRootItems.Clear();
-        foreach (var group in groups)
-        {
-            LibraryRootItems.Add(group.IsFamily ? group : group.Entries[0]);
-        }
-    }
 
     private void ReloadProfileNames()
     {
@@ -703,7 +720,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
             _profileStore.Save(new Profile { Name = contents.Manifest.ProfileName, MergeQueueFolderNames = resolvedFolderNames, Options = contents.Manifest.Options });
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-            ReloadLibrary();
             ReloadProfileNames();
             // Triggers OnSelectedProfileNameChanged, which populates Queue from the just-saved
             // profile and reports its own "N mod(s) no longer in your Library" count — reused as-is
@@ -788,21 +804,46 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Spec: "skip mods already inside it; pack can replace individuals; new mods can sit beside
-    /// the pack and merge on top" — the queue rules for a merged pack re-imported into Library.
+    /// Called from Library's own "Add to merge queue" action (Ctrl/Shift-click multi-select +
+    /// right-click, or the toolbar button once 2+ rows are selected) — the only way mods reach this
+    /// queue now that this page's own Library browsing pane is gone (redesign-round-2 pilot). Each
+    /// folder name is looked up fresh via the repository rather than requiring Library to hold onto
+    /// a LibraryEntry reference of its own.
     /// </summary>
-    [RelayCommand]
-    private void AddToQueue()
+    public void AddToQueueByFolderNames(IReadOnlyList<string> folderNames)
     {
-        if (SelectedLibraryItem is not { } entry)
+        if (folderNames.Count == 0)
         {
             return;
         }
 
+        var byFolder = _libraryRepository.GetAll().ToDictionary(e => e.FolderName, StringComparer.OrdinalIgnoreCase);
+        var addedCount = 0;
+        foreach (var folderName in folderNames)
+        {
+            if (byFolder.TryGetValue(folderName, out var entry) && AddEntryToQueue(entry))
+            {
+                addedCount++;
+            }
+        }
+
+        StatusMessage = addedCount == folderNames.Count
+            ? $"Added {addedCount} mod(s) to the merge queue."
+            : $"Added {addedCount} of {folderNames.Count} mod(s) to the merge queue — see status for the rest.";
+        _activityLog.Log($"Added {addedCount} mod(s) to the merge queue from Library.", ActivityEntryKind.Info);
+    }
+
+    /// <summary>
+    /// Spec: "skip mods already inside it; pack can replace individuals; new mods can sit beside
+    /// the pack and merge on top" — the queue rules for a merged pack re-imported into Library.
+    /// Returns whether the entry actually got added, so a bulk caller can tally a real count.
+    /// </summary>
+    private bool AddEntryToQueue(LibraryEntry entry)
+    {
         if (Queue.Any(q => string.Equals(q.FolderName, entry.FolderName, StringComparison.OrdinalIgnoreCase)))
         {
             StatusMessage = $"'{entry.Name}' is already in the queue.";
-            return;
+            return false;
         }
 
         // Adding a mod that's already folded into a merged pack sitting in the queue is a no-op —
@@ -812,7 +853,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         if (coveringPack is not null)
         {
             StatusMessage = $"'{entry.Name}' is already inside '{coveringPack.Name}', which is already queued.";
-            return;
+            return false;
         }
 
         // Adding a merged pack replaces whichever of its own constituent mods are already queued
@@ -833,6 +874,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
 
         Queue.Add(entry);
+        return true;
     }
 
     [RelayCommand]

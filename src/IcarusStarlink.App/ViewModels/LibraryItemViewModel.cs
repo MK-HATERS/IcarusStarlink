@@ -133,6 +133,10 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isFavorite;
 
+    /// <summary>Ctrl/Shift-click multi-select state, for the "Add to merge queue" action — this page no longer has Merge & Install's own browsing pane to drag mods across from, so this is the whole hand-off mechanism. Purely a row-highlight/bulk-action flag, unrelated to IsPinned/IsFavorite's own persisted metadata.</summary>
+    [ObservableProperty]
+    private bool _isSelectedForBulk;
+
     [ObservableProperty]
     private string _notes;
 

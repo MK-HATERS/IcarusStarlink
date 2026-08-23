@@ -89,23 +89,97 @@ public partial class LibraryView : UserControl
         }
     }
 
+    /// <summary>
+    /// Walks up from a raw hit-test source to the nearest TreeViewItem. VisualTreeHelper.GetParent
+    /// throws for anything that isn't a real Visual/Visual3D — a real crash found live:
+    /// OriginalSource can be a System.Windows.Documents.Run (a ContentElement, not a Visual — WPF
+    /// re-raises routed input events onto inline text elements like Run/Hyperlink so they can still
+    /// participate, which is exactly what a MenuItem's own Run-based Header content produces).
+    /// GetParentAny below only falls back to LogicalTreeHelper for that one non-Visual hop (Run → its
+    /// containing TextBlock), then resumes the normal, already-tested VisualTreeHelper walk — safer
+    /// than switching the whole walk to LogicalTreeHelper, which templated content doesn't always
+    /// mirror exactly.
+    /// </summary>
+    private static DependencyObject? FindTreeViewItemAncestor(DependencyObject? start)
+    {
+        var element = start;
+        while (element is not null and not TreeViewItem)
+        {
+            element = GetParentAny(element);
+        }
+
+        return element;
+    }
+
+    private static DependencyObject? GetParentAny(DependencyObject child) =>
+        child is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D
+            ? System.Windows.Media.VisualTreeHelper.GetParent(child)
+            : LogicalTreeHelper.GetParent(child);
+
     // TreeView doesn't select an item on right-click the way ListBox does, so a context menu's
     // Pin/Favorite bindings (which target the right-clicked row's own DataContext regardless)
     // would apply to the correct mod but leave the tree's own highlight and the detail pane
     // pointing at whatever was selected before — right-clicking a mod should feel like clicking
     // it. Walking up from the raw hit-test source to the nearest TreeViewItem and selecting it
     // is the standard WPF workaround for TreeView's missing select-on-right-click behavior.
+    //
+    // Also ensures the right-clicked row is part of the bulk (Ctrl/Shift-click) selection before
+    // the context menu's own "Add to merge queue" item evaluates PlacementTarget.Tag.BulkSelectedCount
+    // — a row already part of a multi-selection stays part of it, one clicked fresh replaces it,
+    // matching Explorer's own right-click convention.
     private void LibraryTree_PreviewMouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        var element = e.OriginalSource as DependencyObject;
-        while (element is not null and not TreeViewItem)
+        var element = FindTreeViewItemAncestor(e.OriginalSource as DependencyObject);
+
+        if (element is not TreeViewItem treeViewItem)
         {
-            element = System.Windows.Media.VisualTreeHelper.GetParent(element);
+            return;
         }
 
-        if (element is TreeViewItem item)
+        treeViewItem.IsSelected = true;
+        if (treeViewItem.DataContext is LibraryItemViewModel item && DataContext is LibraryViewModel viewModel)
         {
-            item.IsSelected = true;
+            viewModel.EnsureBulkSelected(item);
+        }
+    }
+
+    /// <summary>
+    /// Ctrl-click toggles a row's own bulk-selection membership (for "Add to merge queue");
+    /// a plain click clears whatever was previously bulk-selected, so a fresh click always starts a
+    /// new selection rather than silently adding to a stale one. Deliberately doesn't set
+    /// e.Handled — TreeView's own normal single-select (SelectedItemChanged → SelectedItem →
+    /// EnsureDetailsLoaded) still runs for whatever was actually clicked, Ctrl held or not; the only
+    /// side effect is the detail pane tracking the last-clicked row even during a multi-select,
+    /// which is harmless.
+    /// </summary>
+    private void LibraryTree_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (DataContext is not LibraryViewModel viewModel)
+        {
+            return;
+        }
+
+        var element = FindTreeViewItemAncestor(e.OriginalSource as DependencyObject);
+
+        var isCtrlHeld = System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Control);
+
+        if (element is not TreeViewItem { DataContext: LibraryItemViewModel item })
+        {
+            if (!isCtrlHeld)
+            {
+                viewModel.ClearBulkSelection();
+            }
+
+            return;
+        }
+
+        if (isCtrlHeld)
+        {
+            viewModel.ToggleBulkSelection(item);
+        }
+        else if (viewModel.BulkSelectedItems.Count > 0)
+        {
+            viewModel.ClearBulkSelection();
         }
     }
 

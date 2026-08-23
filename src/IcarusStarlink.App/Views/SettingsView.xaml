@@ -73,22 +73,38 @@
                                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
                         </StackPanel>
 
-                        <TextBlock Text="Update data folder" Style="{StaticResource FieldLabelStyle}"/>
-                        <TextBlock Text="Extracts the game's current DataTable JSON (Content\Data\data.pak) so merge/edit works against up-to-date data. Re-run this after a game update."
-                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10"/>
+                        <!-- The "Icarus has been updated" alert stays outside the Expander, always
+                             visible regardless of collapse state — a real actionable warning, not
+                             routine status. -->
                         <TextBlock Text="{Binding GameDataOutdatedMessage}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"
                                    TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,10"
                                    Visibility="{Binding GameDataOutdatedMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-                        <StackPanel Orientation="Horizontal">
-                            <Button Command="{Binding UpdateDataFolderCommand}" AutomationProperties.Name="Update data folder">
+
+                        <!-- Collapsed by default (redesign-round-2 pilot) — a routine "set it and
+                             forget it" action for most users, re-opened only when Icarus actually
+                             updates. -->
+                        <Expander IsExpanded="False">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="False">
+                                    <TextBlock DockPanel.Dock="Left" Text="Update data folder" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock DockPanel.Dock="Left" Text="{Binding DataFolderSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                            <StackPanel>
+                                <TextBlock Text="Extracts the game's current DataTable JSON (Content\Data\data.pak) so merge/edit works against up-to-date data. Re-run this after a game update."
+                                           Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10"/>
                                 <StackPanel Orientation="Horizontal">
-                                    <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
-                                    <TextBlock Text="Update data folder" VerticalAlignment="Center"/>
+                                    <Button Command="{Binding UpdateDataFolderCommand}" AutomationProperties.Name="Update data folder">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                                            <TextBlock Text="Update data folder" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBlock Text="{Binding DataFolderStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                               Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
                                 </StackPanel>
-                            </Button>
-                            <TextBlock Text="{Binding DataFolderStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
-                        </StackPanel>
+                            </StackPanel>
+                        </Expander>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

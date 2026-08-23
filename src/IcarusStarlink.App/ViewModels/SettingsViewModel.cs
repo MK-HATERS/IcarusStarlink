@@ -74,6 +74,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string? _gameDataOutdatedMessage;
 
+    /// <summary>Shown in the "Update data folder" Expander's collapsed header — reads straight from settings rather than caching, since the only thing that changes it (UpdateDataFolderAsync) already explicitly notifies this property when it does.</summary>
+    public string DataFolderSummary => _settingsService.Current.LastDataFolderUpdatedAt is { } updatedAt
+        ? $"last updated {updatedAt.ToLocalTime():yyyy-MM-dd}"
+        : "never updated";
+
     [ObservableProperty]
     private string _nexusApiKeyInput = "";
 
@@ -317,7 +322,6 @@ public sealed partial class SettingsViewModel : ObservableObject
             // listening, and the queue would silently stay empty (found live).
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             var mergeInstall = _mergeInstallViewModel();
-            mergeInstall.ReloadLibrary();
             mergeInstall.LoadModListFromFile(dialog.FileName);
 
             var linked = new List<string>();
@@ -707,6 +711,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             _settingsService.Current.LastDataPakHash = await _unrealPakService.TryGetDataPakHashAsync(IcarusContentPath);
             _settingsService.Save();
             GameDataOutdatedMessage = null;
+            OnPropertyChanged(nameof(DataFolderSummary));
             WeakReferenceMessenger.Default.Send(new WeeklyChangeReportUpdatedMessage());
 
             DataFolderStatusMessage = $"Extracted {result.ExtractedFileCount} files. {DescribeChangeReport(result.ChangeReport)}";

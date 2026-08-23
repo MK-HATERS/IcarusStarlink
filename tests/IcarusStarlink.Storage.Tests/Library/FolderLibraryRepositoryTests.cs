@@ -760,6 +760,50 @@ public class FolderLibraryRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void Delete_ThenRestoreLatestModBackup_SidecarMetadataDoesNotComeBackOnItsOwn()
+    {
+        // A real bug found live (LibraryViewModel.GetUpdateAsync's own failure-recovery path):
+        // Delete() removes the .immmeta.json sidecar (Source/CatalogEntryId/Pin/Favorite/Notes)
+        // right alongside the mod's own folder, but RestoreLatestModBackup only ever restored the
+        // folder — BackupMod never captured the sidecar in the first place, since a mod backup is
+        // scoped to the mod's own folder. This test locks in that contract (the sidecar does NOT
+        // come back on its own) so a caller that deletes-then-restores knows it must explicitly
+        // re-apply metadata afterward, the way the real fix now does.
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        repo.SetCatalogEntry(folderName, "daedalus-abc123");
+        repo.UpdateMetadata(folderName, isPinned: true, isFavorite: true, notes: "my notes");
+        Assert.Equal("Database", repo.GetAll().Single().Source);
+
+        repo.BackupMod(folderName);
+        repo.Delete(folderName);
+        Assert.Empty(repo.GetAll());
+
+        var restored = repo.RestoreLatestModBackup(folderName);
+        Assert.True(restored);
+
+        var entryAfterRestore = repo.GetAll().Single();
+        Assert.Null(entryAfterRestore.Source);
+        Assert.Null(entryAfterRestore.CatalogEntryId);
+        Assert.False(entryAfterRestore.IsPinned);
+        Assert.False(entryAfterRestore.IsFavorite);
+        Assert.Equal("", entryAfterRestore.Notes);
+
+        // The fix: re-applying metadata via the same setters Import(source:,catalogEntryId:) would
+        // have used brings the entry back to its exact pre-delete state.
+        repo.SetCatalogEntry(folderName, "daedalus-abc123");
+        repo.UpdateMetadata(folderName, isPinned: true, isFavorite: true, notes: "my notes");
+
+        var entryAfterFix = repo.GetAll().Single();
+        Assert.Equal("Database", entryAfterFix.Source);
+        Assert.Equal("daedalus-abc123", entryAfterFix.CatalogEntryId);
+        Assert.True(entryAfterFix.IsPinned);
+        Assert.True(entryAfterFix.IsFavorite);
+        Assert.Equal("my notes", entryAfterFix.Notes);
+    }
+
+    [Fact]
     public void RestoreLatestModBackup_NoBackupYet_ReturnsFalseAndLeavesTheModUntouched()
     {
         ExmodFolder.Write(_sourceDir, BuildFixture());
