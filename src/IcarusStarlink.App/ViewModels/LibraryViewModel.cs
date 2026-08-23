@@ -37,6 +37,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IJimk72CatalogClient _jimk72Client;
     private readonly Func<string, ExmodEditorViewModel> _editorFactory;
     private readonly IActivityLog _activityLog;
+    private readonly IActiveDownloadsTracker _activeDownloadsTracker;
     private readonly HttpClient _downloadHttpClient;
     private readonly IPendingDownloadStore _pendingDownloadStore;
     private readonly IModVersionComparer _modVersionComparer;
@@ -102,9 +103,10 @@ public sealed partial class LibraryViewModel : ObservableObject
         Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
         IPendingDownloadStore pendingDownloadStore, IModVersionComparer modVersionComparer,
         Func<DownloadsViewModel> downloadsViewModel, Func<NexusCatalogViewModel> nexusCatalogViewModel,
-        string backupDirectory)
+        IActiveDownloadsTracker activeDownloadsTracker, string backupDirectory)
     {
         _modVersionComparer = modVersionComparer;
+        _activeDownloadsTracker = activeDownloadsTracker;
         _downloadsViewModel = downloadsViewModel;
         _nexusCatalogViewModel = nexusCatalogViewModel;
         _downloadHttpClient = downloadHttpClient;
@@ -132,6 +134,11 @@ public sealed partial class LibraryViewModel : ObservableObject
         // ILibraryRepository) wouldn't show up here until the user happened to trigger some
         // unrelated reload (a search edit, or this page's own Refresh button).
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((LibraryViewModel)recipient).Reload(fullResync: true));
+
+        // A download in progress shows as a stub row here (see Reload's own use of this) — starting
+        // or finishing one needs Reload to re-run so the stub appears/disappears promptly, not just
+        // whenever something else happens to trigger a reload.
+        _activeDownloadsTracker.Current.CollectionChanged += (_, _) => Reload();
 
         Reload();
         ReloadInstalledUe4ssMods();
@@ -849,6 +856,16 @@ public sealed partial class LibraryViewModel : ObservableObject
         var seenFolders = new HashSet<string>();
         var seenGroupKeys = new HashSet<string>();
         var targetRootItems = new List<object>();
+
+        // A download in flight shows as a stub row at the top — no folder on disk yet to have
+        // become a real LibraryEntry, so it can't come from _repository.Search above. It disappears
+        // the moment the download finishes (success or failure) via the tracker's own CollectionChanged
+        // triggering another Reload — a successful one is replaced by the real imported entry via
+        // the LibraryChangedMessage DownloadsViewModel already sends right after activating it.
+        foreach (var download in _activeDownloadsTracker.Current)
+        {
+            targetRootItems.Add(new DownloadStubViewModel(download.DisplayName));
+        }
 
         foreach (var group in groups)
         {

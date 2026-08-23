@@ -43,6 +43,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private readonly IPendingDownloadStore _pendingDownloadStore;
     private readonly HttpClient _downloadHttpClient;
     private readonly IActivityLog _activityLog;
+    private readonly IActiveDownloadsTracker _activeDownloadsTracker;
     private readonly string _pendingDownloadsDirectory;
     private readonly DebounceTimer _searchDebounceTimer;
 
@@ -170,6 +171,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         HttpClient downloadHttpClient,
         PerformanceTracker performanceTracker,
         IActivityLog activityLog,
+        IActiveDownloadsTracker activeDownloadsTracker,
         string pendingDownloadsDirectory)
     {
         _daedalusClient = daedalusClient;
@@ -184,6 +186,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         _pendingDownloadStore = pendingDownloadStore;
         _downloadHttpClient = downloadHttpClient;
         _activityLog = activityLog;
+        _activeDownloadsTracker = activeDownloadsTracker;
         _pendingDownloadsDirectory = pendingDownloadsDirectory;
 
         _showAuthorColumn = settingsService.Current.CatalogShowAuthorColumn;
@@ -595,7 +598,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// paste box (given a plain mod-page URL) and NexusCatalogViewModel's own per-card Download
     /// button don't each carry their own copy of "find the primary file" logic.
     /// </summary>
-    public async Task ResolvePrimaryFileAndFetchAsync(int nexusModId)
+    public async Task ResolvePrimaryFileAndFetchAsync(int nexusModId, string? displayName = null)
     {
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
         if (apiKey is null)
@@ -617,7 +620,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 return;
             }
 
-            await FetchAndDownloadAsync($"nxm://icarus/mods/{nexusModId}/files/{file.FileId}");
+            await FetchAndDownloadAsync($"nxm://icarus/mods/{nexusModId}/files/{file.FileId}", displayName);
         }
         catch (InvalidOperationException ex)
         {
@@ -633,12 +636,18 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
     /// <summary>
     /// Phase 8.3b's real download pipeline — parse the nxm:// link, resolve it to a real CDN URL
-    /// via Nexus's own API, download the bytes, and record it in Pending Downloads. Public (not
-    /// private) since this is also the eventual landing point for a real nxm:// link handed off
-    /// from the OS protocol handler once that's wired up — the manual paste box exercises the
-    /// exact same path in the meantime.
+    /// via Nexus's own API, download the bytes, record it in Pending Downloads, then immediately
+    /// activate it (the same classify-and-import logic ActivatePendingDownloadAsync already has,
+    /// which already tells an EXMOD mod from a prebuilt pak from a UE4SS mod). A successful
+    /// download just becomes a normal Library (or UE4SS) entry with no separate click needed —
+    /// per direct feedback, a downloaded mod should "blend in" automatically. displayName (when
+    /// the caller already knows it — a Nexus card's own mod.Name) drives the Library page's
+    /// in-progress stub; falls back to "mod #N" for a raw pasted link, which has no name to show
+    /// until Nexus's own headers reveal the real file name partway through. Public (not private)
+    /// since this is also the eventual landing point for a real nxm:// link handed off from the OS
+    /// protocol handler — the manual paste box exercises the exact same path in the meantime.
     /// </summary>
-    public async Task FetchAndDownloadAsync(string nxmUrlText)
+    public async Task FetchAndDownloadAsync(string nxmUrlText, string? displayName = null)
     {
         NxmUrl nxmUrl;
         try
@@ -658,6 +667,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
             return;
         }
 
+        var trackerKey = $"{nxmUrl.ModId}:{nxmUrl.FileId}";
+        _activeDownloadsTracker.Start(trackerKey, displayName ?? $"Mod #{nxmUrl.ModId}");
         IsFetchingDownload = true;
         try
         {
@@ -697,7 +708,13 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 DownloadedAtUtc = DateTimeOffset.UtcNow,
             });
             ReloadPendingDownloads();
-            PendingDownloadStatusMessage = $"Downloaded '{fileName}' — see Pending Downloads below.";
+            PendingDownloadStatusMessage = $"Downloaded '{fileName}' — importing…";
+
+            var justDownloaded = PendingDownloads.FirstOrDefault(p => p.ModId == nxmUrl.ModId && p.FileId == nxmUrl.FileId);
+            if (justDownloaded is not null)
+            {
+                await ActivatePendingDownloadAsync(justDownloaded);
+            }
         }
         catch (Exception ex)
         {
@@ -708,6 +725,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         finally
         {
             IsFetchingDownload = false;
+            _activeDownloadsTracker.Finish(trackerKey);
         }
     }
 

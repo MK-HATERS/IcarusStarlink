@@ -725,6 +725,33 @@
         <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
 
+    <!-- A continuously-spinning circular indicator — Library's own in-progress download stub uses
+         this rather than the linear ProgressBar (Rebuild's own progress is already a bar; a
+         download's real byte-level progress isn't tracked, so an indeterminate spinner is honest
+         about that, and a "circle" is literally what was asked for). Reuses IconRefreshArrow (it's
+         already a circular-arrow shape) instead of hand-authoring a new arc geometry. -->
+    <Style x:Key="SpinnerIconStyle" TargetType="{x:Type Path}">
+        <Setter Property="Data" Value="{StaticResource IconRefreshArrow}"/>
+        <Setter Property="Fill" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="Stretch" Value="Uniform"/>
+        <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+        <Setter Property="RenderTransform">
+            <Setter.Value>
+                <RotateTransform Angle="0"/>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetProperty="RenderTransform.Angle"
+                                         From="0" To="360" Duration="0:0:1" RepeatBehavior="Forever"/>
+                    </Storyboard>
+                </BeginStoryboard>
+            </EventTrigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- Phase 10 redesign: an on/off toggle switch for genuine feature flags (Remove Weight,
          Unlimited Ammo, ...) — retemplates CheckBox rather than introducing a new control type, so
          it stays a normal IsChecked binding target everywhere it's used. NOT used for real

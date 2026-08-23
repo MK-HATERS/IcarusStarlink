@@ -106,6 +106,7 @@ public partial class App : Application
             new AppSettingsService(appDataDirectory, sp.GetRequiredService<ILogger<AppSettingsService>>()));
         builder.Services.AddSingleton(sp => new PerformanceTracker(sp.GetRequiredService<ISettingsService>(), logsDirectory));
         builder.Services.AddSingleton<IActivityLog, ActivityLog>();
+        builder.Services.AddSingleton<IActiveDownloadsTracker, ActiveDownloadsTracker>();
         builder.Services.AddSingleton<ActivityPanelViewModel>();
         builder.Services.AddSingleton<ICustomSkinStore>(sp =>
             new CustomSkinStore(
@@ -200,6 +201,7 @@ public partial class App : Application
             sp.GetRequiredService<IModVersionComparer>(),
             sp.GetRequiredService<DownloadsViewModel>,
             sp.GetRequiredService<NexusCatalogViewModel>,
+            sp.GetRequiredService<IActiveDownloadsTracker>(),
             Path.Combine(appDataDirectory, "Backups")));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
@@ -229,6 +231,7 @@ public partial class App : Application
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<PerformanceTracker>(),
             sp.GetRequiredService<IActivityLog>(),
+            sp.GetRequiredService<IActiveDownloadsTracker>(),
             Path.Combine(appDataDirectory, "Pending_Downloads")));
         builder.Services.AddSingleton<NexusCatalogViewModel>();
         builder.Services.AddSingleton<ISaveRepository>(sp =>

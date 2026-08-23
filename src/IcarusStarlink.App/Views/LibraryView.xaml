@@ -15,6 +15,19 @@
             </StackPanel>
         </HierarchicalDataTemplate>
 
+        <!-- A download in progress — not a real mod yet, so no context menu/selection/detail pane,
+             just a name and a spinner. Disappears on its own once the download finishes (success
+             blends into a real row above via the normal LibraryChangedMessage reload; failure just
+             removes the stub with nothing left behind). -->
+        <DataTemplate DataType="{x:Type vm:DownloadStubViewModel}">
+            <StackPanel Orientation="Horizontal" Margin="0,2" IsHitTestVisible="False">
+                <Path Style="{StaticResource SpinnerIconStyle}" Width="12" Height="12" Margin="0,0,7,0"/>
+                <TextBlock FontStyle="Italic" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                    <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text=" — downloading…"/>
+                </TextBlock>
+            </StackPanel>
+        </DataTemplate>
+
         <!-- Phase 10 redesign: real icons replace the raw emoji markers, and hovering a row
              reveals inline Pin/Favorite/Edit actions (RowActions, opacity 0→1 on IsMouseOver)
              instead of only the detail pane or the right-click menu below. -->

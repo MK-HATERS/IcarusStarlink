@@ -347,7 +347,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         }
 
         StatusMessage = $"Finding '{mod.Name}''s main file…";
-        await Downloads.ResolvePrimaryFileAndFetchAsync(mod.ModId);
+        await Downloads.ResolvePrimaryFileAndFetchAsync(mod.ModId, mod.Name);
         StatusMessage = Downloads.PendingDownloadStatusMessage;
         RebuildRows();
     }
