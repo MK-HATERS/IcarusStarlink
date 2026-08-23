@@ -8,7 +8,7 @@ using IcarusStarlink.PakIO.Exmod;
 
 if (args.Length == 0)
 {
-    Console.WriteLine("usage: capture|list-controls|click|set-text|seed-library|select-by-text|expand|is-expanded|right-click|real-left-click ...");
+    Console.WriteLine("usage: capture|list-controls|click|set-text|seed-library|select-by-text|expand|is-expanded|right-click|context-menu-click|real-left-click ...");
     return 1;
 }
 
@@ -49,6 +49,9 @@ switch (args[0])
         break;
     case "right-click":
         RightClick(int.Parse(args[1]), args[2]);
+        break;
+    case "context-menu-click":
+        ContextMenuClick(int.Parse(args[1]), args[2], args[3]);
         break;
     case "real-left-click":
         RealLeftClick(int.Parse(args[1]), args[2]);
@@ -325,6 +328,46 @@ static void SelectComboItem(int pid, string exactText, int comboIndex = 0)
         }
     }
     throw new InvalidOperationException($"No selectable ancestor found for combo item '{exactText}'");
+}
+
+// A ContextMenu is its own top-level HWND and closes the moment focus leaves it — so right-click
+// in one WinTools process and click-the-item in the next never works (the menu is already gone by
+// the time the second process enumerates). Same root cause, and same fix, as SelectComboItem:
+// do both halves in one process run. Uses a real synthesized right-click to open the menu, then
+// UI Automation to invoke the item (the menu item itself has a proper InvokePattern, so no second
+// coordinate-based click is needed — which also sidesteps this dev machine's multi-monitor
+// coordinate flakiness for the half that can avoid it).
+static void ContextMenuClick(int pid, string rowText, string menuItemText)
+{
+    var root = GetRoot(pid);
+    var textEl = root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, rowText))
+        .Cast<AutomationElement>()
+        .FirstOrDefault()
+        ?? throw new InvalidOperationException($"No element with exact text '{rowText}' found");
+
+    var rect = textEl.Current.BoundingRectangle;
+    var x = (int)(rect.Left + rect.Width / 2);
+    var y = (int)(rect.Top + rect.Height / 2);
+    NativeMethods.SetCursorPos(x, y);
+    NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
+    NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero);
+    System.Threading.Thread.Sleep(400);
+
+    var menuItem = GetAllRoots(pid)
+        .SelectMany(r => r.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)).Cast<AutomationElement>())
+        .FirstOrDefault(m => m.Current.Name.Equals(menuItemText, StringComparison.OrdinalIgnoreCase))
+        ?? GetAllRoots(pid)
+            .SelectMany(r => r.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)).Cast<AutomationElement>())
+            .FirstOrDefault(m => m.Current.Name.Contains(menuItemText, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"No MenuItem containing '{menuItemText}' found in the open context menu");
+
+    if (!menuItem.Current.IsEnabled)
+    {
+        throw new InvalidOperationException($"MenuItem '{menuItem.Current.Name}' is disabled");
+    }
+
+    ((InvokePattern)menuItem.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+    Console.WriteLine($"context-menu invoked '{menuItem.Current.Name}' on '{rowText}'");
 }
 
 static AutomationElement FindTreeViewItemAncestor(int pid, string exactText)

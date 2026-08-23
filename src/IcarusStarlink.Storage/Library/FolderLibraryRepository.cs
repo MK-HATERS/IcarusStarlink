@@ -251,6 +251,8 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
 
     public bool HasModBackup(string folderName) => FindLatestModBackupPath(folderName) is not null;
 
+    public string? TryGetLatestModBackupPath(string folderName) => FindLatestModBackupPath(folderName);
+
     /// <summary>
     /// Replaces the mod's current folder content with its own most recent backup — a real
     /// point-in-time restore (the folder is deleted first, not merged), so an edit made since the

@@ -145,6 +145,7 @@ public partial class App : Application
         builder.Services.AddSingleton<IRebuildService, RebuildService>();
         builder.Services.AddSingleton<IInstallService, InstallService>();
         builder.Services.AddSingleton<IPakCompareService, PakCompareService>();
+        builder.Services.AddSingleton<IModVersionComparer, ModVersionComparer>();
         builder.Services.AddSingleton<IProfileStore>(sp =>
             new ProfileStore(
                 Path.Combine(appDataDirectory, "Profiles"),
@@ -191,6 +192,7 @@ public partial class App : Application
             sp.GetRequiredService<IActivityLog>(),
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<IPendingDownloadStore>(),
+            sp.GetRequiredService<IModVersionComparer>(),
             Path.Combine(appDataDirectory, "Backups")));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),

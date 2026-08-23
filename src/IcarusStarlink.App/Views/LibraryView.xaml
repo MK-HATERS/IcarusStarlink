@@ -55,6 +55,11 @@
                                   CommandParameter="{Binding}" IsEnabled="{Binding HasModBackup}"
                                   ToolTip="Replaces this mod's current content with its most recent backup"
                                   ToolTipService.ShowOnDisabled="True"/>
+                        <MenuItem Header="See what changed vs previous version…"
+                                  Command="{Binding PlacementTarget.Tag.CompareToPreviousVersionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}" IsEnabled="{Binding HasModBackup}"
+                                  ToolTip="Shows exactly which values and files the author changed between your previous copy and the current one — read-only, nothing is restored"
+                                  ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="Open on Nexus" Command="{Binding OpenOnNexusCommand}" IsEnabled="{Binding HasNexusLink}"
                                   ToolTip="Open this mod's Nexus page in your browser"
                                   ToolTipService.ShowOnDisabled="True"/>

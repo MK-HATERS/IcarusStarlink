@@ -72,53 +72,11 @@
 
             <DataGrid Grid.Column="2" ItemsSource="{Binding SelectedFile.Rows}">
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Item" Binding="{Binding ItemName}" Width="160"/>
-                    <DataGridTextColumn Header="Field" Binding="{Binding FieldName}" Width="140"/>
-                    <!-- Same semantic-badge template as WeeklyChangesView's own Change column. -->
-                    <DataGridTemplateColumn Header="Change" Width="110">
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate>
-                                <Border CornerRadius="8" Padding="7,2" HorizontalAlignment="Left" VerticalAlignment="Center">
-                                    <Border.Style>
-                                        <Style TargetType="Border">
-                                            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding ChangeKind}" Value="new item">
-                                                    <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}"/>
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding ChangeKind}" Value="row removed">
-                                                    <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}"/>
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding ChangeKind}" Value="field removed">
-                                                    <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Border.Style>
-                                    <TextBlock Text="{Binding ChangeKind}" FontSize="10.5" FontFamily="Consolas">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding ChangeKind}" Value="new item">
-                                                        <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding ChangeKind}" Value="row removed">
-                                                        <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding ChangeKind}" Value="field removed">
-                                                        <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                </Border>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
-                    <DataGridTextColumn Header="Value in first pak" Binding="{Binding OldValueDisplay}" Width="240"/>
-                    <DataGridTextColumn Header="Value in second pak" Binding="{Binding NewValueDisplay}" Width="240"/>
+                    <DataGridTextColumn Header="Item" Binding="{Binding ItemName}" Width="140"/>
+                    <DataGridTextColumn Header="Field" Binding="{Binding FieldName}" Width="130"/>
+                    <DataGridTemplateColumn Header="Change" Width="100" CellTemplate="{StaticResource ChangeKindBadgeTemplate}"/>
+                    <DataGridTextColumn Header="Value in first pak" Binding="{Binding OldValueDisplay}" Width="*" MinWidth="90"/>
+                    <DataGridTextColumn Header="Value in second pak" Binding="{Binding NewValueDisplay}" Width="*" MinWidth="90"/>
                 </DataGrid.Columns>
             </DataGrid>
         </Grid>

@@ -59,6 +59,9 @@ public interface ILibraryRepository
     /// <summary>Replaces this mod's current folder content with its own most recent backup (a real point-in-time restore — the folder is deleted first, not merged with what's there). Returns false if no backup exists yet.</summary>
     bool RestoreLatestModBackup(string folderName);
 
+    /// <summary>The most recent backup's own folder path, or null if this mod has none — for reading a previous version (e.g. comparing what an update changed) without restoring over the current one.</summary>
+    string? TryGetLatestModBackupPath(string folderName);
+
     /// <summary>
     /// Creates a genuinely new mod — an empty EXMOD (no Rows yet) under a fresh Extracted_Mods
     /// folder — for the "New mod…" action, which doesn't read from an existing folder/zip the way

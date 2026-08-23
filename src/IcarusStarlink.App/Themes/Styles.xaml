@@ -13,6 +13,50 @@
     <converters:LibraryEntryQueuedConverter x:Key="LibraryEntryQueuedConverter"/>
     <converters:HexToBrushConverter x:Key="HexToBrushConverter"/>
 
+    <!-- The semantic change badge shared by every "what changed" grid (Weekly Changes, pak
+         comparison, mod version comparison) — all three render the same ChangedRowViewModel, so
+         the badge lives here once rather than being copy-pasted per view. "new item" reads as an
+         addition (success), "row removed"/"field removed" as a removal (danger), "changed" as
+         neutral accent. -->
+    <DataTemplate x:Key="ChangeKindBadgeTemplate">
+        <Border CornerRadius="8" Padding="7,2" HorizontalAlignment="Left" VerticalAlignment="Center">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding ChangeKind}" Value="new item">
+                            <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding ChangeKind}" Value="row removed">
+                            <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding ChangeKind}" Value="field removed">
+                            <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <TextBlock Text="{Binding ChangeKind}" FontSize="10.5" FontFamily="Consolas">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ChangeKind}" Value="new item">
+                                <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding ChangeKind}" Value="row removed">
+                                <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding ChangeKind}" Value="field removed">
+                                <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </Border>
+    </DataTemplate>
+
     <Style TargetType="{x:Type Window}">
         <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}"/>
         <Setter Property="TextElement.Foreground" Value="{DynamicResource ForegroundBrush}"/>

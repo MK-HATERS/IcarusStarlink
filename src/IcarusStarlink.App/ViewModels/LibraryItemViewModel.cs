@@ -69,8 +69,17 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// <summary>Whether this row has a stable Nexus mod ID to link out to — drives the "Open on Nexus" context menu item's enabled state.</summary>
     public bool HasNexusLink => NexusModId is not null;
 
-    /// <summary>Deliberately not cached — a ContextMenu re-measures (and so re-evaluates its bindings) fresh each time it opens, so a plain live check here always reflects whatever Backup mod most recently did, with no extra change-notification plumbing needed.</summary>
+    /// <summary>
+    /// Live check rather than cached state — but it still needs an explicit notification when a
+    /// backup is created (see NotifyBackupStateChanged). WPF keeps one ContextMenu instance per
+    /// row and evaluates its bindings when that menu is first opened, NOT on every open, so
+    /// without the notification a row whose menu had been opened once before its first backup
+    /// existed kept "Restore latest backup"/"See what changed" disabled forever. Found live.
+    /// </summary>
     public bool HasModBackup => _repository.HasModBackup(FolderName);
+
+    /// <summary>Call after this mod gains a backup so the context menu items gated on HasModBackup enable without needing a full Library reload.</summary>
+    public void NotifyBackupStateChanged() => OnPropertyChanged(nameof(HasModBackup));
 
     /// <summary>
     /// Closes a stale gap: the context menu item was hardcoded disabled since Phase 3.5 ("Available

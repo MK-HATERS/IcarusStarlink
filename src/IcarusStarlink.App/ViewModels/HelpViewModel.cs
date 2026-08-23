@@ -78,6 +78,41 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Pending Downloads** — where a real Nexus "Mod Manager Download" click lands (see the Nexus page for how that's wired up), or where a manually pasted `nxm://` link goes. Activate a file to import it into your Library, or discard it.
             """),
 
+        new("Coming from classic IMM", """
+            # Coming from classic IMM
+
+            Already using Jimk72's Icarus Mod Manager? You don't have to rebuild your setup by hand.
+
+            **Bring your merged mod list across:**
+
+            - In **Merge & Install**, click **Import IMM mod list…** and pick classic IMM's own `LastMergedMods.txt` (in its install folder), or the `IMM_Merged_Mod.txt` sitting next to the pak it installed into your game.
+            - Every mod in that list that's already in your Library gets queued, in the same order. Anything it can't match is reported by name rather than silently dropped, so you know exactly what's left to get.
+            - For the ones it couldn't match: get them from **Downloads**, then import the list again. If a mod is in your Library under a different name, right-click it → **Rename…**, or **Link to Nexus ID…** so update checks find it.
+            - Then click **Install** as usual. Your existing classic-IMM pak is backed up before it's replaced.
+
+            **Check the two tools agree (optional, but reassuring):**
+
+            After rebuilding here, use **Compare paks…** (also on Merge & Install) with classic IMM's own installed `IMM_Merged_Mod_P.pak` as the second pak. Every game file both packs touch should come back with no differences — that's a direct, value-by-value confirmation that this app merged your list the same way classic IMM did.
+
+            Nothing about importing a list touches classic IMM's own files — it only reads them.
+            """),
+
+        new("Comparing versions & paks", """
+            # Comparing versions & paks
+
+            Two different "what actually changed?" tools.
+
+            **See what a mod author changed in an update**
+
+            Right-click any mod in **Library** → **See what changed vs previous version…**, or answer **Yes** when an update asks. You get a value-by-value list: which items and fields the author changed (old value beside new), what they added or removed, and which asset files (models, textures, icons) changed.
+
+            This needs an earlier copy to compare against. You'll have one automatically after any update this app installs, or you can take one yourself at any time with right-click → **Create mod backup**. Comparing is read-only — nothing is restored or overwritten.
+
+            **Compare two paks**
+
+            **Compare paks…** on Merge & Install unpacks any two `.pak` files and diffs their contents: game data is compared value by value (formatting differences don't count), everything else byte for byte. Useful for confirming a rebuilt pack matches one from another tool, or for seeing what a prebuilt pak actually contains. Both paks are only read — extraction happens in a temp folder that's cleaned up afterwards.
+            """),
+
         new("Nexus", """
             # Nexus
 

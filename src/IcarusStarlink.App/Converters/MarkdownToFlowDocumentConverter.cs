@@ -6,10 +6,10 @@ using System.Windows.Documents;
 namespace IcarusStarlink.App.Converters;
 
 /// <summary>
-/// Renders a small, hand-rolled Markdown subset — "# "/"## " headers, "**bold**" spans, and
-/// "- "/"* " bullet lines — into a FlowDocument for a read-only RichTextBox. Not a general
-/// Markdown parser: real EXMOD readmes only use these few constructs, and pulling in a full
-/// Markdown library would be a lot of dependency weight for a handful of rules.
+/// Renders a small, hand-rolled Markdown subset — "# "/"## " headers, "**bold**" spans,
+/// "`code`" spans, and "- "/"* " bullet lines — into a FlowDocument for a read-only RichTextBox.
+/// Not a general Markdown parser: real EXMOD readmes only use these few constructs, and pulling in
+/// a full Markdown library would be a lot of dependency weight for a handful of rules.
 /// </summary>
 public sealed class MarkdownToFlowDocumentConverter : IValueConverter
 {
@@ -61,7 +61,12 @@ public sealed class MarkdownToFlowDocumentConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();
 
-    /// <summary>Splits on "**bold**" spans only — the one inline construct real EXMOD readmes use.</summary>
+    /// <summary>
+    /// Handles "**bold**" first, then "`code`" within each resulting plain segment — the two inline
+    /// constructs actually used by real EXMOD readmes and this app's own Help topics. Code spans
+    /// were rendering as literal backticks before (paths like `Content\Paks\mods` appear all over
+    /// the Help text), which reads as a typo rather than as markup.
+    /// </summary>
     private static void AddInlines(Paragraph paragraph, string line)
     {
         var segments = line.Split("**");
@@ -72,7 +77,31 @@ public sealed class MarkdownToFlowDocumentConverter : IValueConverter
                 continue;
             }
 
-            paragraph.Inlines.Add(i % 2 == 1 ? new Bold(new Run(segments[i])) : new Run(segments[i]));
+            if (i % 2 == 1)
+            {
+                paragraph.Inlines.Add(new Bold(new Run(segments[i])));
+                continue;
+            }
+
+            AddCodeAwareRuns(paragraph, segments[i]);
+        }
+    }
+
+    private static void AddCodeAwareRuns(Paragraph paragraph, string text)
+    {
+        var parts = text.Split('`');
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (parts[i].Length == 0)
+            {
+                continue;
+            }
+
+            // An unpaired backtick leaves a trailing odd segment — rendering it as code anyway is
+            // closer to the author's intent than showing a stray backtick.
+            paragraph.Inlines.Add(i % 2 == 1
+                ? new Run(parts[i]) { FontFamily = new System.Windows.Media.FontFamily("Consolas") }
+                : new Run(parts[i]));
         }
     }
 }

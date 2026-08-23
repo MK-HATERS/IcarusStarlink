@@ -18,6 +18,7 @@ using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
+using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.Pak;
 using Microsoft.Win32;
 
@@ -38,6 +39,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IActivityLog _activityLog;
     private readonly HttpClient _downloadHttpClient;
     private readonly IPendingDownloadStore _pendingDownloadStore;
+    private readonly IModVersionComparer _modVersionComparer;
     private readonly string _backupDirectory;
     private readonly DebounceTimer _searchDebounceTimer;
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
@@ -93,8 +95,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         ISettingsService settingsService, IUnrealPakService unrealPakService, INexusApiClient nexusApiClient,
         ICredentialStore credentialStore, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
         Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
-        IPendingDownloadStore pendingDownloadStore, string backupDirectory)
+        IPendingDownloadStore pendingDownloadStore, IModVersionComparer modVersionComparer, string backupDirectory)
     {
+        _modVersionComparer = modVersionComparer;
         _downloadHttpClient = downloadHttpClient;
         _pendingDownloadStore = pendingDownloadStore;
         _repository = repository;
@@ -429,6 +432,12 @@ public sealed partial class LibraryViewModel : ObservableObject
 
                     StatusMessage = $"Updated '{imported.Name}' to v{imported.Version}.";
                     _activityLog.Log($"Updated '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
+
+                    // The backup taken above is the mod's own previous version, so "what did the
+                    // author actually change?" is answerable right now — offered rather than shown
+                    // automatically, since an update the user just wanted applied shouldn't force a
+                    // window open.
+                    await OfferVersionComparisonAsync(imported.Name, imported.FolderName);
                 }
                 catch (Exception importEx)
                 {
@@ -473,11 +482,71 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             _repository.BackupMod(item.FolderName);
+            item.NotifyBackupStateChanged();
             StatusMessage = $"Backed up '{item.Name}'.";
         }
         catch (Exception ex)
         {
             StatusMessage = $"Backup failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// "See what the author changed" — compares this mod's most recent backup (its previous
+    /// version, whether that backup came from an update or a manual Create mod backup) against
+    /// what's installed now. Read-only: nothing is restored, moved, or written.
+    /// </summary>
+    [RelayCommand]
+    private async Task CompareToPreviousVersionAsync(LibraryItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        await ShowVersionComparisonAsync(item.Name, item.FolderName);
+    }
+
+    /// <summary>Asks first, then shows — the post-update half of the same comparison the context menu offers on demand.</summary>
+    private async Task OfferVersionComparisonAsync(string modName, string folderName)
+    {
+        var answer = MessageBox.Show(
+            $"'{modName}' was updated.\n\nSee what the author changed between your old version and this one?",
+            "Update installed", MessageBoxButton.YesNo, MessageBoxImage.Information);
+        if (answer == MessageBoxResult.Yes)
+        {
+            await ShowVersionComparisonAsync(modName, folderName);
+        }
+    }
+
+    private async Task ShowVersionComparisonAsync(string modName, string folderName)
+    {
+        var previousVersionPath = _repository.TryGetLatestModBackupPath(folderName);
+        if (previousVersionPath is null)
+        {
+            StatusMessage = $"There's no earlier copy of '{modName}' to compare against — this app only has one once it's updated or backed up (right-click → Create mod backup).";
+            return;
+        }
+
+        StatusMessage = $"Comparing '{modName}' against its previous version…";
+        try
+        {
+            var result = await _modVersionComparer.CompareAsync(
+                previousVersionPath, _repository.GetFolderPath(folderName), _settingsService.Current.UnrealPakExePath);
+
+            var window = new ModVersionCompareWindow(new ModVersionCompareViewModel(modName, result))
+            {
+                Owner = Application.Current.MainWindow,
+            };
+            window.Show();
+
+            StatusMessage = result.IsIdentical
+                ? $"'{modName}' is identical to its previous version."
+                : $"Showing what changed in '{modName}'.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't compare versions: {ex.Message}";
         }
     }
 
