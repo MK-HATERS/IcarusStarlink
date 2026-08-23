@@ -148,9 +148,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - Saving and restoring are **refused while Icarus is running** — the game holds these files and rewrites them on exit, so an edit made mid-session would be lost.
             - A manual **Backup now** before experimenting is still the smart move.
 
-            **What's editable today:** character name and XP (raw XP is the honest control — the game derives level from it), and the profile currencies (Ren, Exotics, Red, Stabilized, Biomass, Uranium, Licences, Respec points). The Overview shows character cards and an account snapshot; click a card to edit it. Everything the editor doesn't understand — cosmetics, talents, flags, timestamps — is preserved exactly as-is when saving.
-
-            More sections (cosmetics, talents, items, bestiary, accolades, flags) are planned as their own later additions.
+            **What's editable today:** character name and XP (raw XP is the honest control — the game derives level from it); profile currencies (Ren, Exotics, Red, Stabilized, Biomass, Uranium, Licences, Respec points); character talents and account-wide Workshop research, each searchable with a rank +/− and a "Show unlearned" toggle; character/account/binary unlock flags, as searchable chips; account-wide Bestiary encounter points (with a Set max per creature); account-wide Accolade completion; the account-wide Items bank (view real item names and remove one — full item creation/stat editing isn't offered, since a malformed item is easy to create by hand and hard to notice); and raw Cosmetic hash values per character (there's no known way to map these to option names, so it's a raw editor, not a picker — still useful for copying an exact look between your own characters). The Overview shows character cards and an account snapshot; click a card to edit it. Everything the editor doesn't understand — item internals (durability, alterations, upgrades), Loadouts (equipped gear sets), raw Bestiary/Accolade progress counters, timestamps — is preserved exactly as-is when saving.
             """),
 
         new("Server (FTP)", """

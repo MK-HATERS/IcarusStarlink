@@ -6,6 +6,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Services;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Saves;
 
@@ -45,6 +46,10 @@ public sealed partial class SavesViewModel : ObservableObject
     private JsonObject? _profile;
     private List<JsonObject> _characterNodes = [];
     private List<int>? _binaryFlagIds;
+    private JsonObject? _accoladesRoot;
+    private JsonObject? _bestiaryRoot;
+    private JsonObject? _metaInventoryRoot;
+    private bool _metaInventoryDirty;
 
     public string Title => "Saves (Beta)";
 
@@ -82,7 +87,10 @@ public sealed partial class SavesViewModel : ObservableObject
         || Currencies.Any(c => c.IsDirty)
         || AccountFlags.Any(f => f.IsDirty)
         || BinaryFlags.Any(f => f.IsDirty)
-        || WorkshopTalents.Any(t => t.IsDirty);
+        || WorkshopTalents.Any(t => t.IsDirty)
+        || Accolades.Any(a => a.IsDirty)
+        || BestiaryEntries.Any(b => b.IsDirty)
+        || _metaInventoryDirty;
 
     public SavesViewModel(ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames)
     {
@@ -118,34 +126,21 @@ public sealed partial class SavesViewModel : ObservableObject
     private void RefreshFlagFilter()
     {
         // 45 + 100 rows — a straight rebuild per keystroke is cheaper than filter plumbing.
-        FilteredCharacterFlags.Clear();
-        foreach (var flag in SelectedCharacter?.Flags ?? [])
+        ApplyFlagFilter(SelectedCharacter?.Flags ?? [], FilteredCharacterFlags);
+        ApplyFlagFilter(AccountFlags, FilteredAccountFlags);
+        ApplyFlagFilter(BinaryFlags, FilteredBinaryFlags);
+    }
+
+    private void ApplyFlagFilter(IEnumerable<SaveFlagViewModel> source, ObservableCollection<SaveFlagViewModel> target)
+    {
+        target.Clear();
+        foreach (var flag in source)
         {
-            if (Matches(flag.Name))
+            if (string.IsNullOrWhiteSpace(FlagSearchText) || flag.Name.Contains(FlagSearchText.Trim(), StringComparison.OrdinalIgnoreCase))
             {
-                FilteredCharacterFlags.Add(flag);
+                target.Add(flag);
             }
         }
-
-        FilteredAccountFlags.Clear();
-        foreach (var flag in AccountFlags)
-        {
-            if (Matches(flag.Name))
-            {
-                FilteredAccountFlags.Add(flag);
-            }
-        }
-
-        FilteredBinaryFlags.Clear();
-        foreach (var flag in BinaryFlags)
-        {
-            if (Matches(flag.Name))
-            {
-                FilteredBinaryFlags.Add(flag);
-            }
-        }
-
-        bool Matches(string name) => string.IsNullOrWhiteSpace(FlagSearchText) || name.Contains(FlagSearchText.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     // --- Talents (character talents on the selected character; workshop research on the profile) ---
@@ -226,9 +221,16 @@ public sealed partial class SavesViewModel : ObservableObject
         Currencies.Clear();
         Backups.Clear();
         BinaryFlags.Clear();
+        Accolades.Clear();
+        BestiaryEntries.Clear();
+        MetaInventoryItems.Clear();
         _profile = null;
         _characterNodes = [];
         _binaryFlagIds = null;
+        _accoladesRoot = null;
+        _bestiaryRoot = null;
+        _metaInventoryRoot = null;
+        _metaInventoryDirty = false;
         SelectedCharacter = null;
 
         if (SelectedSlot is null)
@@ -259,6 +261,14 @@ public sealed partial class SavesViewModel : ObservableObject
             BuildAccountFlags();
             BuildBinaryFlags();
             BuildWorkshopTalents();
+
+            _accoladesRoot = _repository.LoadAccolades(SelectedSlot.SteamId);
+            BuildAccolades();
+            _bestiaryRoot = _repository.LoadBestiary(SelectedSlot.SteamId);
+            BuildBestiaryEntries();
+            _metaInventoryRoot = _repository.LoadMetaInventory(SelectedSlot.SteamId);
+            BuildMetaInventoryItems();
+
             SelectedCharacter = Characters.FirstOrDefault();
             RefreshBackupsList();
             StatusMessage = null;
@@ -356,6 +366,260 @@ public sealed partial class SavesViewModel : ObservableObject
                 WorkshopTalents.Add(new SaveTalentViewModel(rowName, new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank, info.IsDefaultUnlocked), 0, NotifyDirtyChanged));
             }
         }
+    }
+
+    // --- Accolades (account-wide, Accolades.json — a separate file from Profile.json) ---
+
+    public ObservableCollection<SaveAccoladeViewModel> Accolades { get; } = [];
+
+    public ObservableCollection<SaveAccoladeViewModel> FilteredAccolades { get; } = [];
+
+    [ObservableProperty]
+    private string _accoladeSearchText = "";
+
+    partial void OnAccoladeSearchTextChanged(string value) => RefreshAccoladeFilter();
+
+    private void RefreshAccoladeFilter()
+    {
+        FilteredAccolades.Clear();
+        var search = AccoladeSearchText.Trim();
+        foreach (var accolade in Accolades)
+        {
+            if (search.Length == 0
+                || accolade.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || accolade.Category.Contains(search, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredAccolades.Add(accolade);
+            }
+        }
+    }
+
+    /// <summary>CompletedAccolades only — PlayerTrackers/PlayerTaskListTrackers (the raw progress counters behind eligibility) are preserved untouched, out of scope for this editor.</summary>
+    private void BuildAccolades()
+    {
+        Accolades.Clear();
+        var completed = _accoladesRoot?["CompletedAccolades"] is JsonArray array
+            ? array.OfType<JsonObject>()
+                .Select(entry => entry["Accolade"]?["RowName"]?.GetValue<string>())
+                .Where(name => name is not null)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)!
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (rowName, info) in _gameNames.Accolades)
+        {
+            Accolades.Add(new SaveAccoladeViewModel(rowName, info.DisplayName, info.Description, info.Category, completed.Contains(rowName), NotifyDirtyChanged));
+            seen.Add(rowName);
+        }
+
+        // A completed accolade the current data tables don't recognize (an old save vs. an updated
+        // game) still shows, by RowName — same "never hide anything in the save" rule Talents' own
+        // fallback path uses.
+        foreach (var rowName in completed.Except(seen))
+        {
+            Accolades.Add(new SaveAccoladeViewModel(rowName, rowName, "", "", true, NotifyDirtyChanged));
+        }
+
+        RefreshAccoladeFilter();
+    }
+
+    // --- Bestiary (account-wide, BestiaryData.json — a separate file from Profile.json) ---
+
+    public ObservableCollection<SaveBestiaryEntryViewModel> BestiaryEntries { get; } = [];
+
+    public ObservableCollection<SaveBestiaryEntryViewModel> FilteredBestiaryEntries { get; } = [];
+
+    [ObservableProperty]
+    private string _bestiarySearchText = "";
+
+    partial void OnBestiarySearchTextChanged(string value) => RefreshBestiaryFilter();
+
+    private void RefreshBestiaryFilter()
+    {
+        FilteredBestiaryEntries.Clear();
+        var search = BestiarySearchText.Trim();
+        foreach (var entry in BestiaryEntries)
+        {
+            if (search.Length == 0 || entry.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredBestiaryEntries.Add(entry);
+            }
+        }
+    }
+
+    /// <summary>BestiaryTracking only — FishTracking (a separate fishing sub-tracker) is preserved untouched, out of scope for this editor.</summary>
+    private void BuildBestiaryEntries()
+    {
+        BestiaryEntries.Clear();
+        var points = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (_bestiaryRoot?["BestiaryTracking"] is JsonArray array)
+        {
+            foreach (var entry in array.OfType<JsonObject>())
+            {
+                if (entry["BestiaryGroup"]?["RowName"]?.GetValue<string>() is { } rowName)
+                {
+                    points[rowName] = entry["NumPoints"]?.GetValue<int>() ?? 0;
+                }
+            }
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (rowName, info) in _gameNames.BestiaryCreatures)
+        {
+            BestiaryEntries.Add(new SaveBestiaryEntryViewModel(rowName, info.DisplayName, info.PointsRequired, info.IsBoss, points.GetValueOrDefault(rowName), NotifyDirtyChanged));
+            seen.Add(rowName);
+        }
+
+        foreach (var (rowName, currentPoints) in points)
+        {
+            if (!seen.Contains(rowName))
+            {
+                BestiaryEntries.Add(new SaveBestiaryEntryViewModel(rowName, rowName, 0, false, currentPoints, NotifyDirtyChanged));
+            }
+        }
+
+        RefreshBestiaryFilter();
+    }
+
+    /// <summary>Writes Accolades back into its own root node — same minimal-diff order-preserving rule as ApplyProfileEdits, just against Accolades.json's CompletedAccolades array instead of Profile.json's UnlockedFlags.</summary>
+    private void ApplyAccoladeEdits()
+    {
+        if (_accoladesRoot is null)
+        {
+            return;
+        }
+
+        var nowCompleted = Accolades.Where(a => a.IsCompleted).Select(a => a.RowName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var newArray = new JsonArray();
+        if (_accoladesRoot["CompletedAccolades"] is JsonArray existing)
+        {
+            foreach (var entry in existing.OfType<JsonObject>())
+            {
+                // Kept exactly as the game wrote it (TimeCompleted/ProspectID preserved) — only
+                // whether it stays in the list changes here, never its own fields.
+                if (entry["Accolade"]?["RowName"]?.GetValue<string>() is { } rowName && nowCompleted.Contains(rowName))
+                {
+                    newArray.Add(entry.DeepClone());
+                }
+            }
+        }
+
+        var alreadyWritten = newArray.OfType<JsonObject>()
+            .Select(e => e["Accolade"]?["RowName"]?.GetValue<string>())
+            .Where(n => n is not null)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)!;
+        foreach (var accolade in Accolades)
+        {
+            if (accolade.IsCompleted && !alreadyWritten.Contains(accolade.RowName))
+            {
+                newArray.Add(new JsonObject
+                {
+                    ["Accolade"] = new JsonObject { ["RowName"] = accolade.RowName, ["DataTableName"] = "D_Accolades" },
+                    ["TimeCompleted"] = DateTime.Now.ToString("yyyy.MM.dd-HH.mm.ss"),
+                    ["ProspectID"] = "",
+                });
+            }
+        }
+
+        _accoladesRoot["CompletedAccolades"] = newArray;
+    }
+
+    /// <summary>Writes BestiaryEntries back into its own root node — a plain per-row rebuild (unlike the array-membership rewrite pattern above) since every tracked creature always has exactly one NumPoints entry, not a present/absent one.</summary>
+    private void ApplyBestiaryEdits()
+    {
+        if (_bestiaryRoot is null)
+        {
+            return;
+        }
+
+        var newArray = new JsonArray();
+        foreach (var entry in BestiaryEntries)
+        {
+            if (int.TryParse(entry.PointsText, out var points) && points > 0)
+            {
+                newArray.Add(new JsonObject
+                {
+                    ["BestiaryGroup"] = new JsonObject { ["RowName"] = entry.RowName, ["DataTableName"] = "D_BestiaryData" },
+                    ["NumPoints"] = points,
+                });
+            }
+        }
+
+        _bestiaryRoot["BestiaryTracking"] = newArray;
+    }
+
+    // --- Items (account-wide, MetaInventory.json — a separate file from Profile.json) ---
+
+    public ObservableCollection<SaveInventoryItemViewModel> MetaInventoryItems { get; } = [];
+
+    public ObservableCollection<SaveInventoryItemViewModel> FilteredMetaInventoryItems { get; } = [];
+
+    [ObservableProperty]
+    private string _itemSearchText = "";
+
+    partial void OnItemSearchTextChanged(string value) => RefreshItemFilter();
+
+    private void RefreshItemFilter()
+    {
+        FilteredMetaInventoryItems.Clear();
+        var search = ItemSearchText.Trim();
+        foreach (var item in MetaInventoryItems)
+        {
+            if (search.Length == 0
+                || item.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || item.RowName.Contains(search, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredMetaInventoryItems.Add(item);
+            }
+        }
+    }
+
+    private void BuildMetaInventoryItems()
+    {
+        MetaInventoryItems.Clear();
+        _metaInventoryDirty = false;
+        if (_metaInventoryRoot?["Items"] is JsonArray array)
+        {
+            foreach (var entry in array.OfType<JsonObject>())
+            {
+                var rowName = entry["ItemStaticData"]?["RowName"]?.GetValue<string>() ?? "?";
+                var info = _gameNames.Items.GetValueOrDefault(rowName);
+                MetaInventoryItems.Add(new SaveInventoryItemViewModel(entry, info?.DisplayName ?? rowName, rowName, info?.Weight ?? 0, info?.MaxStack ?? 1));
+            }
+        }
+
+        RefreshItemFilter();
+    }
+
+    /// <summary>Deliberately view + delete only (see SaveInventoryItemViewModel's own doc comment) — every surviving item's Node is its own original JsonObject, written back completely untouched.</summary>
+    [RelayCommand]
+    private void DeleteMetaInventoryItem(SaveInventoryItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        MetaInventoryItems.Remove(item);
+        FilteredMetaInventoryItems.Remove(item);
+        _metaInventoryDirty = true;
+        NotifyDirtyChanged();
+    }
+
+    private void ApplyMetaInventoryEdits()
+    {
+        if (_metaInventoryRoot is null)
+        {
+            return;
+        }
+
+        var newArray = new JsonArray();
+        foreach (var item in MetaInventoryItems)
+        {
+            newArray.Add(item.Node.DeepClone());
+        }
+
+        _metaInventoryRoot["Items"] = newArray;
     }
 
     /// <summary>Writes AccountFlags/WorkshopTalents back into the profile node — the profile-level counterpart of SaveCharacterViewModel.ApplyToNode, same minimal-diff rules.</summary>
@@ -558,6 +822,29 @@ public sealed partial class SavesViewModel : ObservableObject
                 _binaryFlagIds = newIds;
             }
 
+            // Accolades.json/BestiaryData.json are separate files from Profile.json — each SaveXxx
+            // call takes its own full-slot backup, so these only write (and only add a backup) when
+            // that specific section actually changed, same conditional-write reasoning BinaryFlags
+            // above already uses, rather than always re-writing every file on every Save click.
+            if (Accolades.Any(a => a.IsDirty))
+            {
+                ApplyAccoladeEdits();
+                _repository.SaveAccolades(SelectedSlot.SteamId, _accoladesRoot!);
+            }
+
+            if (BestiaryEntries.Any(b => b.IsDirty))
+            {
+                ApplyBestiaryEdits();
+                _repository.SaveBestiary(SelectedSlot.SteamId, _bestiaryRoot!);
+            }
+
+            if (_metaInventoryDirty)
+            {
+                ApplyMetaInventoryEdits();
+                _repository.SaveMetaInventory(SelectedSlot.SteamId, _metaInventoryRoot!);
+                _metaInventoryDirty = false;
+            }
+
             foreach (var character in Characters)
             {
                 character.MarkClean();
@@ -583,6 +870,16 @@ public sealed partial class SavesViewModel : ObservableObject
                 talent.MarkClean();
             }
 
+            foreach (var accolade in Accolades)
+            {
+                accolade.MarkClean();
+            }
+
+            foreach (var entry in BestiaryEntries)
+            {
+                entry.MarkClean();
+            }
+
             OnPropertyChanged(nameof(HasUnsavedChanges));
             RefreshBackupsList();
             StatusMessage = "Saved. A backup of the previous state was kept.";
@@ -603,14 +900,7 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        try
-        {
-            Process.Start(new ProcessStartInfo(Path.GetDirectoryName(any.FilePath)!) { UseShellExecute = true });
-        }
-        catch (Exception)
-        {
-            // Best-effort open-in-Explorer, same convention as every other open action.
-        }
+        UrlOpener.TryOpen(Path.GetDirectoryName(any.FilePath)!);
     }
 
     /// <summary>The game holds these files and rewrites them on exit — any edit made while it runs is lost or half-read, so save/restore refuse rather than race it.</summary>

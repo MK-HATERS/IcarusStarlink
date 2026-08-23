@@ -74,6 +74,21 @@ public partial class LibraryView : UserControl
         }
     }
 
+    /// <summary>
+    /// Double-clicking a mod row opens it in its own pop-out window (ModDetailWindow) — non-modal,
+    /// so multiple can be open at once, mirroring the EXMOD editor's own per-mod window shape.
+    /// SelectedItemChanged always fires first (same ordering MergeInstallView's own double-click
+    /// handler relies on), so LibraryViewModel.SelectedItem already reflects whatever was actually
+    /// clicked — a real mod row, or null for a group header/empty space, which this simply ignores.
+    /// </summary>
+    private void LibraryTree_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (DataContext is LibraryViewModel { SelectedItem: { } item } viewModel)
+        {
+            new ModDetailWindow(item, viewModel) { Owner = Window.GetWindow(this) }.Show();
+        }
+    }
+
     // TreeView doesn't select an item on right-click the way ListBox does, so a context menu's
     // Pin/Favorite bindings (which target the right-clicked row's own DataContext regardless)
     // would apply to the correct mod but leave the tree's own highlight and the detail pane

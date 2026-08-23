@@ -1,8 +1,8 @@
-using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.ViewModels;
 
 namespace IcarusStarlink.App.Views;
@@ -76,13 +76,6 @@ public partial class SearchGameDataWindow : Window
         }
 
         var realPath = Path.Combine(_dataFolder, row.RealPath.Replace('/', Path.DirectorySeparatorChar));
-        try
-        {
-            Process.Start(new ProcessStartInfo(realPath) { UseShellExecute = true });
-        }
-        catch (Exception)
-        {
-            // Best-effort open-in-OS-editor, same convention as the editor's Open original file.
-        }
+        UrlOpener.TryOpen(realPath);
     }
 }

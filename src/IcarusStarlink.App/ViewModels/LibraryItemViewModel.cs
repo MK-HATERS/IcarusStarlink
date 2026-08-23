@@ -97,16 +97,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             return;
         }
 
-        try
-        {
-            System.Diagnostics.Process.Start(
-                new System.Diagnostics.ProcessStartInfo(NexusModWebUrl.For(nexusModId)) { UseShellExecute = true });
-        }
-        catch (Exception)
-        {
-            // Opening the default browser is best-effort UX, not a core operation — swallow rather
-            // than crash the app if the OS can't find a handler for the URL.
-        }
+        UrlOpener.TryOpen(NexusModWebUrl.For(nexusModId));
     }
 
     /// <summary>

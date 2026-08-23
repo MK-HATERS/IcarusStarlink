@@ -1,0 +1,145 @@
+<Window x:Class="IcarusStarlink.App.Views.ExmodPaneWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        mc:Ignorable="d"
+        Title="{Binding PaneTitle, RelativeSource={RelativeSource Self}}" Height="600" Width="640" MinHeight="300" MinWidth="420"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <!--
+    A popped-out editor pane — one of the three views (Item fields / File JSON / Full EXMOD JSON),
+    detached into its own window so it can sit alongside the main editor window (or another popped-
+    out pane) instead of only ever showing one view at a time. DataContext is the SAME
+    ExmodEditorViewModel the main editor window uses (set by ExmodEditorViewModel.PopOutCurrentView),
+    not a copy — every view already edits the same live in-memory package, so a field changed here
+    shows up immediately if the main window's own Item fields pane is reselected, and Save from
+    either window writes everything. FixedViewMode never changes after construction (this window
+    always shows the one pane it was opened for), so unlike the main window's own view-mode buttons,
+    there's no switcher here — just that one pane's content plus its own Save/Apply controls.
+    -->
+    <Window.InputBindings>
+        <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCommand}"/>
+    </Window.InputBindings>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="{Binding SelectedItem.Display}" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,8"/>
+
+        <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
+                Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Fields}" Margin="8">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="160"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Column="0" Text="{Binding FieldName}" VerticalAlignment="Top" Margin="0,4,8,0" TextWrapping="Wrap"/>
+
+                                    <StackPanel Grid.Column="1">
+                                        <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}"
+                                                 AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas"
+                                                 ToolTip="This mod's current value for this field, as JSON. An orange border means it differs from the real game's own default (see 'base' below).">
+                                            <TextBox.Style>
+                                                <Style TargetType="TextBox">
+                                                    <Setter Property="BorderThickness" Value="1"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                                                            <Setter Property="BorderBrush" Value="#FFB84D"/>
+                                                            <Setter Property="BorderThickness" Value="2"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBox.Style>
+                                        </TextBox>
+                                        <TextBlock Text="{Binding BaseValueText, StringFormat='base (vanilla game): {0}'}" FontSize="11"
+                                                   Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding OriginalValueText, StringFormat='was (before this edit): {0}'}" FontSize="11"
+                                                   Foreground="{DynamicResource AccentBrush}" Margin="0,2,0,0"
+                                                   Visibility="{Binding IsChangedFromOriginal, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        <TextBlock Text="{Binding ParseError}" FontSize="11" Foreground="#E05555" Margin="0,2,0,0"
+                                                   Visibility="{Binding ParseError, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                    </StackPanel>
+
+                                    <Button Grid.Column="2" Content="✕" Padding="6,2" VerticalAlignment="Top" Margin="8,0,0,0"
+                                            ToolTip="Remove this field"
+                                            Command="{Binding DataContext.RemoveFieldCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
+                Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
+            <TextBox Text="{Binding FileJsonText, UpdateSourceTrigger=PropertyChanged}"
+                     AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
+                     BorderThickness="0" Background="Transparent"
+                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                     ToolTip="This file's items and fields as raw JSON. Edit freely, then click Apply file JSON below to update the mod — nothing here is saved until you do."/>
+        </Border>
+
+        <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
+                Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
+            <TextBox Text="{Binding FullExmodJsonText, UpdateSourceTrigger=PropertyChanged}"
+                     AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
+                     BorderThickness="0" Background="Transparent"
+                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                     ToolTip="The whole mod's .EXMOD as raw JSON. Edit freely, then click Apply full EXMOD JSON below to update the mod — nothing here is saved until you do."/>
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0"
+                    Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
+            <Grid Width="160">
+                <TextBox Text="{Binding NewFieldName, UpdateSourceTrigger=PropertyChanged}" ToolTip="Field name"/>
+                <TextBlock Text="e.g. MaxStack" Style="{StaticResource PlaceholderTextStyle}"
+                           Visibility="{Binding NewFieldName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+            </Grid>
+            <Grid Width="200" Margin="8,0,0,0">
+                <TextBox Text="{Binding NewFieldValue, UpdateSourceTrigger=PropertyChanged}" ToolTip="JSON value, e.g. 1313 or &quot;text&quot;"/>
+                <TextBlock Text="e.g. 1313 or &quot;text&quot;" Style="{StaticResource PlaceholderTextStyle}"
+                           Visibility="{Binding NewFieldValue, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+            </Grid>
+            <Button Content="Add field" Command="{Binding AddFieldCommand}" Margin="8,0,0,0"
+                    ToolTip="Adds this field to the selected item"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
+                    Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
+            <Button Content="Apply file JSON" Command="{Binding ApplyFileJsonCommand}"
+                    ToolTip="Re-parse this box and replace the selected item's file in the mod"/>
+            <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                       Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
+                    Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
+            <Button Content="Apply full EXMOD JSON" Command="{Binding ApplyFullExmodJsonCommand}"
+                    ToolTip="Re-parse this box and replace the whole mod's contents"/>
+            <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                       Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">
+            <Button Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                    ToolTip="Writes every change so far to this mod's .EXMOD file — from any view or window, they all edit the same mod"/>
+            <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                       Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+        </StackPanel>
+    </Grid>
+</Window>

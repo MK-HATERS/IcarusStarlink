@@ -17,6 +17,9 @@ public sealed class SaveGameNames(string dataFolder)
     private IReadOnlyList<string>? _characterFlagNames;
     private IReadOnlyList<string>? _accountFlagNames;
     private IReadOnlyDictionary<string, TalentInfo>? _talents;
+    private IReadOnlyDictionary<string, AccoladeInfo>? _accolades;
+    private IReadOnlyDictionary<string, BestiaryCreatureInfo>? _bestiaryCreatures;
+    private IReadOnlyDictionary<string, ItemInfo>? _items;
 
     public IReadOnlyList<string> CharacterFlagNames => _characterFlagNames ??= LoadRowNames(Path.Combine("Flags", "D_CharacterFlags.json"));
 
@@ -24,6 +27,15 @@ public sealed class SaveGameNames(string dataFolder)
 
     /// <summary>Everything the save editor wants to know about each talent, keyed by the RowName the save stores. MaxRank comes from the row's own Rewards tier count (a reward-less row — blueprint/workshop unlocks, 1312 of 2227 — is a single-rank unlock).</summary>
     public IReadOnlyDictionary<string, TalentInfo> Talents => _talents ??= LoadTalents();
+
+    /// <summary>Every accolade, keyed by the RowName Accolades.json's CompletedAccolades[].Accolade.RowName stores.</summary>
+    public IReadOnlyDictionary<string, AccoladeInfo> Accolades => _accolades ??= LoadAccolades();
+
+    /// <summary>Every trackable creature, keyed by the RowName BestiaryData.json's BestiaryTracking[].BestiaryGroup.RowName stores.</summary>
+    public IReadOnlyDictionary<string, BestiaryCreatureInfo> BestiaryCreatures => _bestiaryCreatures ??= LoadBestiaryCreatures();
+
+    /// <summary>Every item, keyed by the RowName MetaInventory.json's Items[].ItemStaticData.RowName stores (a D_ItemsStatic row). D_ItemsStatic itself carries no display name — see LoadItems' own comment for the real two-hop chain this resolves.</summary>
+    public IReadOnlyDictionary<string, ItemInfo> Items => _items ??= LoadItems();
 
     public string CharacterFlagName(int id) => id >= 0 && id < CharacterFlagNames.Count ? CharacterFlagNames[id] : $"Flag {id}";
 
@@ -106,6 +118,147 @@ public sealed class SaveGameNames(string dataFolder)
         return talents;
     }
 
+    private IReadOnlyDictionary<string, AccoladeInfo> LoadAccolades()
+    {
+        var accolades = new Dictionary<string, AccoladeInfo>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var path = Path.Combine(dataFolder, "Accolades", "D_Accolades.json");
+            if (!File.Exists(path))
+            {
+                return accolades;
+            }
+
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+            {
+                if (!row.TryGetProperty("Name", out var name) || name.GetString() is not { } rowName)
+                {
+                    continue;
+                }
+
+                var category = row.TryGetProperty("Category", out var categoryRef) && categoryRef.TryGetProperty("Value", out var categoryValue)
+                    ? categoryValue.GetString() ?? ""
+                    : "";
+                var goalCount = row.TryGetProperty("GoalCount", out var goal) && goal.ValueKind == JsonValueKind.Number ? goal.GetInt32() : 0;
+
+                accolades.TryAdd(rowName, new AccoladeInfo(
+                    ParseLocText(row, "DisplayName") ?? rowName,
+                    ParseLocText(row, "Description") ?? "",
+                    category,
+                    goalCount));
+            }
+        }
+        catch (Exception)
+        {
+            // Missing/corrupt table just means accolades show by RowName with no description.
+        }
+
+        return accolades;
+    }
+
+    private IReadOnlyDictionary<string, BestiaryCreatureInfo> LoadBestiaryCreatures()
+    {
+        var creatures = new Dictionary<string, BestiaryCreatureInfo>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var path = Path.Combine(dataFolder, "Bestiary", "D_BestiaryData.json");
+            if (!File.Exists(path))
+            {
+                return creatures;
+            }
+
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+            {
+                if (!row.TryGetProperty("Name", out var name) || name.GetString() is not { } rowName)
+                {
+                    continue;
+                }
+
+                var pointsRequired = row.TryGetProperty("TotalPointsRequired", out var points) && points.ValueKind == JsonValueKind.Number ? points.GetInt32() : 0;
+                var isBoss = row.TryGetProperty("bIsBoss", out var boss) && boss.ValueKind == JsonValueKind.True;
+
+                creatures.TryAdd(rowName, new BestiaryCreatureInfo(
+                    ParseLocText(row, "CreatureName") ?? rowName,
+                    pointsRequired,
+                    isBoss));
+            }
+        }
+        catch (Exception)
+        {
+            // Missing/corrupt table just means creatures show by RowName with no points goal.
+        }
+
+        return creatures;
+    }
+
+    /// <summary>
+    /// D_ItemsStatic (what a MetaInventory item's ItemStaticData.RowName points at) is a pure
+    /// ECS/trait-composite table — each row just references sub-tables by RowName for whichever
+    /// traits it has (Meshable, Buildable, Itemable, ...), and carries NO display name of its own.
+    /// Confirmed by tracing a real item end to end: the name lives in D_Itemable (the trait table
+    /// for "can be held in an inventory"), keyed by the ROW'S OWN Itemable.RowName reference, not
+    /// by the item's own top-level Name. So this is a genuine two-hop resolution — unlike every
+    /// other lookup in this class — built once here rather than repeated at every call site. A
+    /// D_ItemsStatic row with no Itemable trait (a pure building/world-only piece, never held) has
+    /// no entry here at all; callers fall back to the raw RowName for those.
+    /// </summary>
+    private IReadOnlyDictionary<string, ItemInfo> LoadItems()
+    {
+        var items = new Dictionary<string, ItemInfo>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var itemablePath = Path.Combine(dataFolder, "Traits", "D_Itemable.json");
+            if (!File.Exists(itemablePath))
+            {
+                return items;
+            }
+
+            var itemableInfo = new Dictionary<string, (string DisplayName, int Weight, int MaxStack)>(StringComparer.OrdinalIgnoreCase);
+            using (var itemableDoc = JsonDocument.Parse(File.ReadAllText(itemablePath)))
+            {
+                foreach (var row in itemableDoc.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (row.TryGetProperty("Name", out var name) && name.GetString() is { } itemableRowName)
+                    {
+                        var weight = row.TryGetProperty("Weight", out var w) && w.ValueKind == JsonValueKind.Number ? w.GetInt32() : 0;
+                        var maxStack = row.TryGetProperty("MaxStack", out var m) && m.ValueKind == JsonValueKind.Number ? m.GetInt32() : 1;
+                        itemableInfo[itemableRowName] = (ParseLocText(row, "DisplayName") ?? itemableRowName, weight, maxStack);
+                    }
+                }
+            }
+
+            var staticPath = Path.Combine(dataFolder, "Items", "D_ItemsStatic.json");
+            if (!File.Exists(staticPath))
+            {
+                return items;
+            }
+
+            using var staticDoc = JsonDocument.Parse(File.ReadAllText(staticPath));
+            foreach (var row in staticDoc.RootElement.GetProperty("Rows").EnumerateArray())
+            {
+                if (!row.TryGetProperty("Name", out var name) || name.GetString() is not { } rowName)
+                {
+                    continue;
+                }
+
+                if (row.TryGetProperty("Itemable", out var itemableRef) && itemableRef.TryGetProperty("RowName", out var itemableRowNameEl)
+                    && itemableRowNameEl.GetString() is { } itemableRowName && itemableRowName != "None"
+                    && itemableInfo.TryGetValue(itemableRowName, out var info))
+                {
+                    items.TryAdd(rowName, new ItemInfo(info.DisplayName, info.Weight, info.MaxStack));
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Missing/corrupt tables just means items show by their raw RowName.
+        }
+
+        return items;
+    }
+
     /// <summary>The tables wrap localized text as NSLOCTEXT("Table", "Key", "The English text") — the last quoted argument is the display string.</summary>
     private static string? ParseLocText(JsonElement row, string property)
     {
@@ -122,3 +275,10 @@ public sealed class SaveGameNames(string dataFolder)
 /// <param name="MaxRank">The most ranks this talent can hold, from its own Rewards tiers — what the editor caps rank controls at.</param>
 /// <param name="IsDefaultUnlocked">The row's own bDefaultUnlocked — the game grants it from the start WITHOUT writing it into the save, so the editor must show it as unlocked even at rank 0.</param>
 public sealed record TalentInfo(string DisplayName, string Description, string Tree, int MaxRank, bool IsDefaultUnlocked);
+
+public sealed record AccoladeInfo(string DisplayName, string Description, string Category, int GoalCount);
+
+/// <param name="PointsRequired">The row's own TotalPointsRequired — what the editor treats as "maxed out" for a Set to max action.</param>
+public sealed record BestiaryCreatureInfo(string DisplayName, int PointsRequired, bool IsBoss);
+
+public sealed record ItemInfo(string DisplayName, int Weight, int MaxStack);

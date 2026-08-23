@@ -18,6 +18,9 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
     private const string CharactersFileName = "Characters.json";
     private const string ProfileFileName = "Profile.json";
     private const string CharactersArrayKey = "Characters.json";
+    private const string AccoladesFileName = "Accolades.json";
+    private const string BestiaryFileName = "BestiaryData.json";
+    private const string MetaInventoryFileName = "MetaInventory.json";
 
     /// <summary>Matches the game's own formatting (observed: tabs + CRLF), so edited files diff cleanly against game-written ones.</summary>
     private static readonly JsonSerializerOptions GameStyleJson = new()
@@ -102,6 +105,46 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         var root = new JsonObject { [CharactersArrayKey] = array };
         WriteAtomically(Path.Combine(ResolveSlot(steamId), CharactersFileName), root.ToJsonString(GameStyleJson));
         return backupPath;
+    }
+
+    public JsonObject LoadAccolades(string steamId) => LoadOptionalObject(steamId, AccoladesFileName, () => new JsonObject { ["CompletedAccolades"] = new JsonArray() });
+
+    public string SaveAccolades(string steamId, JsonObject accolades)
+    {
+        var backupPath = BackupSlot(steamId);
+        WriteAtomically(Path.Combine(ResolveSlot(steamId), AccoladesFileName), accolades.ToJsonString(GameStyleJson));
+        return backupPath;
+    }
+
+    public JsonObject LoadBestiary(string steamId) => LoadOptionalObject(steamId, BestiaryFileName, () => new JsonObject { ["BestiaryTracking"] = new JsonArray(), ["FishTracking"] = new JsonArray() });
+
+    public string SaveBestiary(string steamId, JsonObject bestiary)
+    {
+        var backupPath = BackupSlot(steamId);
+        WriteAtomically(Path.Combine(ResolveSlot(steamId), BestiaryFileName), bestiary.ToJsonString(GameStyleJson));
+        return backupPath;
+    }
+
+    public JsonObject LoadMetaInventory(string steamId) => LoadOptionalObject(steamId, MetaInventoryFileName, () => new JsonObject { ["InventoryID"] = "MetaInventoryID_Main", ["Items"] = new JsonArray() });
+
+    public string SaveMetaInventory(string steamId, JsonObject metaInventory)
+    {
+        var backupPath = BackupSlot(steamId);
+        WriteAtomically(Path.Combine(ResolveSlot(steamId), MetaInventoryFileName), metaInventory.ToJsonString(GameStyleJson));
+        return backupPath;
+    }
+
+    /// <summary>Shared by LoadAccolades/LoadBestiary/LoadMetaInventory — unlike Profile.json (guaranteed present for anything ListSlots calls a real slot), these files may not exist yet for a character that hasn't triggered that system, so a missing file degrades to an empty-shaped default rather than throwing.</summary>
+    private JsonObject LoadOptionalObject(string steamId, string fileName, Func<JsonObject> defaultValue)
+    {
+        var path = Path.Combine(ResolveSlot(steamId), fileName);
+        if (!File.Exists(path))
+        {
+            return defaultValue();
+        }
+
+        return JsonNode.Parse(File.ReadAllText(path)) as JsonObject
+            ?? throw new FormatException($"{fileName} isn't a JSON object.");
     }
 
     public IReadOnlyList<int>? LoadBinaryFlags(string steamId)

@@ -202,6 +202,130 @@ public sealed class SaveRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void LoadAccolades_NoFile_ReturnsEmptyShapedDefault()
+    {
+        var accolades = _repository.LoadAccolades(SteamId);
+
+        Assert.Empty(accolades["CompletedAccolades"]!.AsArray());
+    }
+
+    [Fact]
+    public void SaveAccolades_RoundTrip_BacksUpFirst()
+    {
+        File.WriteAllText(Path.Combine(_playerData, SteamId, "Accolades.json"), """
+            {
+                "CompletedAccolades": [ { "Accolade": { "RowName": "EquipFullArmour", "DataTableName": "D_Accolades" }, "TimeCompleted": "2026.01.01-00.00.00", "ProspectID": "" } ],
+                "PlayerTrackers": { "(RowName=\"TimeSurvived\",DataTableName=\"D_PlayerTrackers\")": 500 }
+            }
+            """);
+
+        var accolades = _repository.LoadAccolades(SteamId);
+        accolades["CompletedAccolades"]!.AsArray().Add(new JsonObject
+        {
+            ["Accolade"] = new JsonObject { ["RowName"] = "WolvesKilled10", ["DataTableName"] = "D_Accolades" },
+            ["TimeCompleted"] = "2026.02.01-00.00.00",
+            ["ProspectID"] = "",
+        });
+
+        var backupPath = _repository.SaveAccolades(SteamId, accolades);
+
+        // The backup holds the PRE-edit content — one completed accolade, not two.
+        using (var zip = ZipFile.OpenRead(backupPath))
+        using (var reader = new StreamReader(zip.GetEntry("Accolades.json")!.Open()))
+        {
+            Assert.DoesNotContain("WolvesKilled10", reader.ReadToEnd());
+        }
+
+        var reloaded = _repository.LoadAccolades(SteamId);
+        Assert.Equal(2, reloaded["CompletedAccolades"]!.AsArray().Count);
+        // PlayerTrackers, which this editor never touches, survives untouched.
+        Assert.Equal(500, reloaded["PlayerTrackers"]!["(RowName=\"TimeSurvived\",DataTableName=\"D_PlayerTrackers\")"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void LoadBestiary_NoFile_ReturnsEmptyShapedDefault()
+    {
+        var bestiary = _repository.LoadBestiary(SteamId);
+
+        Assert.Empty(bestiary["BestiaryTracking"]!.AsArray());
+        Assert.Empty(bestiary["FishTracking"]!.AsArray());
+    }
+
+    [Fact]
+    public void SaveBestiary_RoundTrip_PreservesFishTracking()
+    {
+        File.WriteAllText(Path.Combine(_playerData, SteamId, "BestiaryData.json"), """
+            {
+                "BestiaryTracking": [ { "BestiaryGroup": { "RowName": "Forest_Wolf", "DataTableName": "D_BestiaryData" }, "NumPoints": 500 } ],
+                "FishTracking": [ { "FishRow": { "RowName": "Fish_09", "DataTableName": "D_FishData" }, "MaxQuality": 43, "CaughtCount": 4 } ]
+            }
+            """);
+
+        var bestiary = _repository.LoadBestiary(SteamId);
+        bestiary["BestiaryTracking"]![0]!["NumPoints"] = 1300;
+
+        _repository.SaveBestiary(SteamId, bestiary);
+
+        var reloaded = _repository.LoadBestiary(SteamId);
+        Assert.Equal(1300, reloaded["BestiaryTracking"]![0]!["NumPoints"]!.GetValue<int>());
+        // FishTracking, which this editor never touches, survives untouched.
+        Assert.Equal("Fish_09", reloaded["FishTracking"]![0]!["FishRow"]!["RowName"]!.GetValue<string>());
+        Assert.Equal(4, reloaded["FishTracking"]![0]!["CaughtCount"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void LoadMetaInventory_NoFile_ReturnsEmptyShapedDefault()
+    {
+        var inventory = _repository.LoadMetaInventory(SteamId);
+
+        Assert.Equal("MetaInventoryID_Main", inventory["InventoryID"]!.GetValue<string>());
+        Assert.Empty(inventory["Items"]!.AsArray());
+    }
+
+    [Fact]
+    public void SaveMetaInventory_RoundTrip_PreservesFieldsTheEditorDoesntKnow()
+    {
+        File.WriteAllText(Path.Combine(_playerData, SteamId, "MetaInventory.json"), """
+            {
+                "InventoryID": "MetaInventoryID_Main",
+                "Items": [
+                    {
+                        "ItemStaticData": { "RowName": "Wood_Wall", "DataTableName": "D_ItemsStatic" },
+                        "ItemDynamicData": [ { "PropertyType": "Durability", "Value": 10000 } ],
+                        "DatabaseGUID": "B96AF2F2-377A-4171-8FAD-66900673996C",
+                        "ItemOwnerLookupId": -1
+                    },
+                    {
+                        "ItemStaticData": { "RowName": "Sulfur", "DataTableName": "D_ItemsStatic" },
+                        "DatabaseGUID": "11111111-2222-3333-4444-555555555555",
+                        "ItemOwnerLookupId": -1
+                    }
+                ]
+            }
+            """);
+
+        var inventory = _repository.LoadMetaInventory(SteamId);
+        // Simulate deleting the second item — the only edit this editor's Items tab actually offers.
+        inventory["Items"]!.AsArray().RemoveAt(1);
+
+        var backupPath = _repository.SaveMetaInventory(SteamId, inventory);
+
+        // The backup holds the PRE-edit content — both items still present.
+        using (var zip = ZipFile.OpenRead(backupPath))
+        using (var reader = new StreamReader(zip.GetEntry("MetaInventory.json")!.Open()))
+        {
+            Assert.Contains("Sulfur", reader.ReadToEnd());
+        }
+
+        var reloaded = _repository.LoadMetaInventory(SteamId);
+        var remaining = Assert.Single(reloaded["Items"]!.AsArray());
+        Assert.Equal("Wood_Wall", remaining!["ItemStaticData"]!["RowName"]!.GetValue<string>());
+        // Fields this editor never touches survive untouched on the item that remains.
+        Assert.Equal("B96AF2F2-377A-4171-8FAD-66900673996C", remaining["DatabaseGUID"]!.GetValue<string>());
+        Assert.Equal(10000, remaining["ItemDynamicData"]![0]!["Value"]!.GetValue<int>());
+    }
+
+    [Fact]
     public void LoadBinaryFlags_NoFile_ReturnsNull()
     {
         Assert.Null(_repository.LoadBinaryFlags(SteamId));

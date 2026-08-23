@@ -312,6 +312,138 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
+
+            <!-- Bestiary: encounter points per creature, from the account-wide BestiaryData.json.
+                 Points required to fully unlock a creature's field-guide entry come from the game's
+                 own D_BestiaryData table (TotalPointsRequired) — Set max fills that in directly. -->
+            <TabItem Header="Bestiary">
+                <Grid Margin="0,10,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Width="240" HorizontalAlignment="Left" Margin="0,0,0,10">
+                        <TextBox Text="{Binding BestiarySearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                        <TextBlock Text="Search creatures…" Style="{StaticResource PlaceholderTextStyle}"
+                                   Visibility="{Binding BestiarySearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                    </Grid>
+
+                    <ListBox Grid.Row="1" ItemsSource="{Binding FilteredBestiaryEntries}" HorizontalContentAlignment="Stretch">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="2">
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBox Text="{Binding PointsText, UpdateSourceTrigger=PropertyChanged}" Width="70" FontFamily="Consolas" TextAlignment="Right"/>
+                                        <TextBlock Text="{Binding PointsRequired, StringFormat=' / {0}'}" VerticalAlignment="Center" Margin="4,0,0,0"
+                                                   Foreground="{DynamicResource SecondaryForegroundBrush}" FontFamily="Consolas" FontSize="12"/>
+                                        <Button Content="Set max" Command="{Binding SetMaxCommand}" Padding="8,2" Margin="8,0,0,0"
+                                                ToolTip="Fills in this creature's own TotalPointsRequired — fully unlocks its field-guide entry"/>
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock FontSize="12.5">
+                                            <Run Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
+                                        </TextBlock>
+                                        <TextBlock Text="Boss" FontSize="11" Foreground="{DynamicResource AccentBrush}"
+                                                   Visibility="{Binding IsBoss, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
+
+            <!-- Accolades: completion chips, from the account-wide Accolades.json. Only
+                 CompletedAccolades is editable here — the raw progress counters that make an
+                 accolade eligible (PlayerTrackers/PlayerTaskListTrackers) are preserved untouched. -->
+            <TabItem Header="Accolades">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                    <StackPanel>
+                        <Grid Width="240" HorizontalAlignment="Left" Margin="0,0,0,10">
+                            <TextBox Text="{Binding AccoladeSearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Search accolades…" Style="{StaticResource PlaceholderTextStyle}"
+                                       Visibility="{Binding AccoladeSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding FilteredAccolades}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding DisplayName}" IsChecked="{Binding IsCompleted}"
+                                              Margin="0,2,16,2" ToolTip="{Binding Description}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Cosmetics: raw Customization_* hashes for the selected character — no name mapping
+                 exists (confirmed by direct testing, see SaveCosmeticFieldViewModel), so this is a
+                 raw editor, not a picker. Still useful for copying an exact look between your own
+                 characters. -->
+            <TabItem Header="Cosmetics">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                    <StackPanel MaxWidth="480" HorizontalAlignment="Left"
+                                Visibility="{Binding SelectedCharacter, Converter={StaticResource NullToVisibilityConverter}}">
+                        <TextBlock Text="These are raw hash values with no known way to map them to option names — useful mainly for copying an exact look from one of your own characters to another (read the value here, paste it there)."
+                                   Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Male" IsChecked="{Binding SelectedCharacter.IsMale}" Margin="0,0,0,12"/>
+
+                        <ItemsControl ItemsSource="{Binding SelectedCharacter.Cosmetics}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <DockPanel Margin="0,3,0,3">
+                                        <TextBlock DockPanel.Dock="Left" Text="{Binding Key}" Width="220" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas"/>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Items: the account-wide MetaInventory bank — view + delete only (see
+                 SaveInventoryItemViewModel's own doc comment for why per-field editing isn't
+                 offered). Real display names resolved through D_ItemsStatic's own Itemable trait
+                 reference into D_Itemable, since D_ItemsStatic rows carry no name of their own. -->
+            <TabItem Header="Items">
+                <Grid Margin="0,10,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Width="240" HorizontalAlignment="Left" Margin="0,0,0,10">
+                        <TextBox Text="{Binding ItemSearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                        <TextBlock Text="Search items…" Style="{StaticResource PlaceholderTextStyle}"
+                                   Visibility="{Binding ItemSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                    </Grid>
+
+                    <ListBox Grid.Row="1" ItemsSource="{Binding FilteredMetaInventoryItems}" HorizontalContentAlignment="Stretch">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="2">
+                                    <Button DockPanel.Dock="Right" Content="Delete" Padding="8,2"
+                                            Command="{Binding DataContext.DeleteMetaInventoryItemCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip="Removes this item from the meta bank — nothing else in the bank is touched"/>
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5">
+                                        <Run Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/><Run Text="  "/><Run Text="{Binding WeightDisplay, Mode=OneWay}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/><Run Text="  "/><Run Text="{Binding MaxStackDisplay, Mode=OneWay}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
+                                    </TextBlock>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
         </TabControl>
 
         <!-- Save bar sits under the tabs, always visible -->

@@ -160,6 +160,10 @@ public partial class App : Application
         builder.Services.AddSingleton<IUe4ssModRepository>(sp =>
             new Ue4ssModRepository(Path.Combine(appDataDirectory, "Staged_UE4SS")));
         builder.Services.AddSingleton<IUe4ssModStateService, Ue4ssModStateService>();
+        builder.Services.AddSingleton<IUe4ssModMetaStore>(sp =>
+            new Ue4ssModMetaStore(
+                Path.Combine(appDataDirectory, "Ue4ss_Meta"),
+                sp.GetRequiredService<ILogger<Ue4ssModMetaStore>>()));
         builder.Services.AddSingleton<ISteamInstallLocator, SteamInstallLocator>();
         builder.Services.AddSingleton<ICredentialStore, WindowsCredentialStore>();
         builder.Services.AddSingleton<INxmProtocolRegistrar, NxmProtocolRegistrar>();
@@ -188,12 +192,11 @@ public partial class App : Application
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IUe4ssModRepository>(),
             sp.GetRequiredService<IUe4ssModStateService>(),
+            sp.GetRequiredService<IUe4ssModMetaStore>(),
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUnrealPakService>(),
             sp.GetRequiredService<INexusApiClient>(),
             sp.GetRequiredService<ICredentialStore>(),
-            sp.GetRequiredService<IDaedalusCatalogClient>(),
-            sp.GetRequiredService<IJimk72CatalogClient>(),
             sp.GetRequiredService<Func<string, ExmodEditorViewModel>>(),
             sp.GetRequiredService<IActivityLog>(),
             sp.GetRequiredService<HttpClient>(),
@@ -224,6 +227,7 @@ public partial class App : Application
             sp.GetRequiredService<IGitHubRepoDateClient>(),
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IUe4ssModRepository>(),
+            sp.GetRequiredService<IUe4ssModMetaStore>(),
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<INexusApiClient>(),
             sp.GetRequiredService<ICredentialStore>(),

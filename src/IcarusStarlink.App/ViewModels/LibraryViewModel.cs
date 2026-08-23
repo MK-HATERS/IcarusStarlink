@@ -9,8 +9,6 @@ using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog;
-using IcarusStarlink.Catalog.Daedalus;
-using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
@@ -29,12 +27,11 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly ILibraryRepository _repository;
     private readonly IUe4ssModRepository _ue4ssModRepository;
     private readonly IUe4ssModStateService _ue4ssModStateService;
+    private readonly IUe4ssModMetaStore _ue4ssModMetaStore;
     private readonly ISettingsService _settingsService;
     private readonly IUnrealPakService _unrealPakService;
     private readonly INexusApiClient _nexusApiClient;
     private readonly ICredentialStore _credentialStore;
-    private readonly IDaedalusCatalogClient _daedalusClient;
-    private readonly IJimk72CatalogClient _jimk72Client;
     private readonly Func<string, ExmodEditorViewModel> _editorFactory;
     private readonly IActivityLog _activityLog;
     private readonly IActiveDownloadsTracker _activeDownloadsTracker;
@@ -55,6 +52,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly DebounceTimer _searchDebounceTimer;
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
     private readonly Dictionary<string, LibraryGroupViewModel> _groupsByKey = [];
+
+    /// <summary>Whether a mod folder is still present in this page's own current listing — used by ModDetailWindow to close itself if the mod it's showing gets deleted while its pop-out window is open.</summary>
+    public bool ContainsMod(string folderName) => _itemsByFolderName.ContainsKey(folderName);
 
     public string Title => "Library";
 
@@ -103,8 +103,9 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     public LibraryViewModel(
         ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
+        IUe4ssModMetaStore ue4ssModMetaStore,
         ISettingsService settingsService, IUnrealPakService unrealPakService, INexusApiClient nexusApiClient,
-        ICredentialStore credentialStore, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
+        ICredentialStore credentialStore,
         Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
         IPendingDownloadStore pendingDownloadStore, IModVersionComparer modVersionComparer,
         DownloadsViewModel downloadsViewModel, Func<NexusCatalogViewModel> nexusCatalogViewModel,
@@ -119,12 +120,11 @@ public sealed partial class LibraryViewModel : ObservableObject
         _repository = repository;
         _ue4ssModRepository = ue4ssModRepository;
         _ue4ssModStateService = ue4ssModStateService;
+        _ue4ssModMetaStore = ue4ssModMetaStore;
         _settingsService = settingsService;
         _unrealPakService = unrealPakService;
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
-        _daedalusClient = daedalusClient;
-        _jimk72Client = jimk72Client;
         _editorFactory = editorFactory;
         _activityLog = activityLog;
         _backupDirectory = backupDirectory;
@@ -138,7 +138,16 @@ public sealed partial class LibraryViewModel : ObservableObject
         // this, a mod imported from Downloads (a different page, sharing the same
         // ILibraryRepository) wouldn't show up here until the user happened to trigger some
         // unrelated reload (a search edit, or this page's own Refresh button).
-        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((LibraryViewModel)recipient).Reload(fullResync: true));
+        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) =>
+        {
+            var self = (LibraryViewModel)recipient;
+            self.Reload(fullResync: true);
+            // A UE4SS mod downloaded through Downloads' own pipeline sends this same message (see
+            // DownloadsViewModel.ClassifyAndImportExtractedModAsync) — without this, the UE4SS tab
+            // stayed stale until Refresh was clicked by hand, even though Library's own Mods tab
+            // already refreshed correctly.
+            self.ReloadInstalledUe4ssMods();
+        });
 
         // A download in progress shows as a stub row here (see Reload's own use of this) — starting
         // or finishing one needs Reload to re-run so the stub appears/disappears promptly, not just
@@ -174,12 +183,31 @@ public sealed partial class LibraryViewModel : ObservableObject
             var modsFolder = Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath);
             var states = _ue4ssModStateService.GetAll(modsFolder);
 
+            // This reload also runs on every LibraryChangedMessage (an unrelated import/delete/link
+            // elsewhere in the app, not just this page's own Refresh/Apply) — rebuilding every row
+            // from scratch would otherwise silently drop an unsaved pending enable/disable toggle
+            // and any already-fetched "Update available" badge each time, neither of which is
+            // persisted anywhere else. Snapshot by name first, then reapply onto the fresh rows.
+            var previousByName = Ue4ssMods.ToDictionary(m => m.Name);
+
             Ue4ssMods.Clear();
             foreach (var state in states)
             {
-                Ue4ssMods.Add(new Ue4ssModRowViewModel(state.Name, state.IsEnabled, RecomputeHasPendingUe4ssChanges));
+                var meta = _ue4ssModMetaStore.Load(state.Name);
+                var row = new Ue4ssModRowViewModel(state.Name, state.IsEnabled, meta.NexusModId, meta.NexusVersion, RecomputeHasPendingUe4ssChanges);
+                if (previousByName.TryGetValue(state.Name, out var previous))
+                {
+                    if (previous.IsDirty)
+                    {
+                        row.IsEnabled = previous.IsEnabled;
+                    }
+
+                    row.LatestVersion = previous.LatestVersion;
+                }
+
+                Ue4ssMods.Add(row);
             }
-            HasPendingUe4ssChanges = false;
+            RecomputeHasPendingUe4ssChanges();
 
             Ue4ssStatusMessage = states.Count == 0 ? "No UE4SS mods found." : null;
         }
@@ -267,8 +295,14 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// A prebuilt .pak carries no embedded name/author of its own (unlike an EXMOD), so right after
+    /// import this offers to link it to a real Nexus mod ID immediately — rather than leaving that
+    /// to the separate "Link to Nexus ID…" context-menu action on an already-imported mod, which is
+    /// easy to never discover for something imported this way in the first place.
+    /// </summary>
     [RelayCommand]
-    private void ImportPak()
+    private async Task ImportPak()
     {
         var dialog = new OpenFileDialog
         {
@@ -276,10 +310,32 @@ public sealed partial class LibraryViewModel : ObservableObject
             Filter = "Unreal pak package (*.pak)|*.pak",
         };
 
-        if (dialog.ShowDialog() == true)
+        if (dialog.ShowDialog() != true)
         {
-            TryImport(dialog.FileName, path => _repository.ImportPak(path));
+            return;
         }
+
+        var entry = TryImport(dialog.FileName, path => _repository.ImportPak(path));
+        if (entry is null)
+        {
+            return;
+        }
+
+        var linkPrompt = MessageBox.Show(
+            $"'{entry.Name}' was imported as an opaque .pak — it has no name/author of its own until you tell it where it came from.\n\nIs this a Nexus mod? Link it now so IcarusStarlink can show its real name and check for updates.",
+            "Link to Nexus?", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (linkPrompt != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        var nexusDialog = new LinkNexusDialog { Owner = Application.Current.MainWindow };
+        if (nexusDialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        await LinkFolderToNexusAsync(entry.FolderName, entry.Name, nexusDialog.NexusModId);
     }
 
     [RelayCommand]
@@ -394,11 +450,11 @@ public sealed partial class LibraryViewModel : ObservableObject
         StatusMessage = $"Updating '{item.Name}'…";
         try
         {
-            var failedSources = new List<string>();
-            var daedalusTask = CatalogSourceFetch.FetchAsync(_daedalusClient.FetchAsync, "Daedalus", failedSources);
-            var jimk72Task = CatalogSourceFetch.FetchAsync(_jimk72Client.FetchAsync, "Jimk72", failedSources);
-            await Task.WhenAll(daedalusTask, jimk72Task);
-            var allEntries = daedalusTask.Result.Concat(jimk72Task.Result).ToList();
+            // Reuses Downloads' own cached catalog (fetching once if it hasn't yet) instead of an
+            // independent re-fetch of both sources — the "Update available" badge that led here was
+            // itself computed from a catalog check that already ran (CheckForUpdatesAsync, below),
+            // so this isn't working from data any staler than what justified showing the button.
+            var allEntries = await Downloads.GetOrFetchCatalogAsync();
 
             // Same ID-first, name-fallback matching CheckForUpdatesAsync itself uses.
             var catalogEntry = (item.CatalogEntryId is not null ? allEntries.FirstOrDefault(e => e.Id == item.CatalogEntryId) : null)
@@ -655,19 +711,25 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
+        await LinkFolderToNexusAsync(item.FolderName, item.Name, dialog.NexusModId);
+    }
+
+    /// <summary>Shared by LinkToNexus (the context-menu action on an already-imported mod) and ImportPak's own post-import prompt — records the ID, then best-effort-enriches real name/author/version from the API (a rejected/missing key just means the ID link itself still succeeds without the extra display data).</summary>
+    private async Task LinkFolderToNexusAsync(string folderName, string displayName, int nexusModId)
+    {
         try
         {
-            _repository.LinkToNexus(item.FolderName, dialog.NexusModId);
+            _repository.LinkToNexus(folderName, nexusModId);
 
             var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
             if (apiKey is not null)
             {
                 try
                 {
-                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", dialog.NexusModId);
+                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", nexusModId);
                     if (info is not null)
                     {
-                        _repository.SetNexusMetadata(item.FolderName, info.Name, info.Author, info.Summary, info.Version);
+                        _repository.SetNexusMetadata(folderName, info.Name, info.Author, info.Summary, info.Version);
                     }
                 }
                 catch (Exception)
@@ -676,7 +738,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 }
             }
 
-            StatusMessage = $"Linked '{item.Name}' to Nexus mod #{dialog.NexusModId}.";
+            StatusMessage = $"Linked '{displayName}' to Nexus mod #{nexusModId}.";
             Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         }
@@ -799,8 +861,13 @@ public sealed partial class LibraryViewModel : ObservableObject
         _activityLog.Log($"Deleted '{name}'.", ActivityEntryKind.Info);
     }
 
-    /// <summary>Shared by ImportFolder/ImportFile/ImportPak — same try/catch/status/reload shape, differing only in which repository method actually reads sourcePath.</summary>
-    private void TryImport(string sourcePath, Func<string, LibraryEntry> importer)
+    /// <summary>
+    /// Shared by ImportFolder/ImportFile/ImportPak — same try/catch/status/reload shape, differing
+    /// only in which repository method actually reads sourcePath. Returns the imported entry (null
+    /// on failure, already reported via StatusMessage) so a caller like ImportPak can act on it
+    /// further — e.g. offering to link it to Nexus — without duplicating this same try/catch body.
+    /// </summary>
+    private LibraryEntry? TryImport(string sourcePath, Func<string, LibraryEntry> importer)
     {
         try
         {
@@ -809,6 +876,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
+            return entry;
         }
         catch (Exception ex)
         {
@@ -816,6 +884,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             // denied, disk full, ...) — this is the UI boundary where any of them should show a
             // friendly message instead of crashing the app.
             StatusMessage = $"Import failed: {ex.Message}";
+            return null;
         }
     }
 
@@ -1000,8 +1069,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         var databaseItems = _itemsByFolderName.Values
             .Where(i => string.Equals(i.Source, "Database", StringComparison.OrdinalIgnoreCase))
             .ToList();
+        var ue4ssItems = Ue4ssMods.Where(m => m.HasNexusLink).ToList();
 
-        if (nexusItems.Count == 0 && databaseItems.Count == 0)
+        if (nexusItems.Count == 0 && databaseItems.Count == 0 && ue4ssItems.Count == 0)
         {
             return;
         }
@@ -1012,7 +1082,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             var updatedCount = 0;
             var messages = new List<string>();
 
-            if (nexusItems.Count > 0)
+            if (nexusItems.Count > 0 || ue4ssItems.Count > 0)
             {
                 var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
                 if (apiKey is null)
@@ -1024,34 +1094,12 @@ public sealed partial class LibraryViewModel : ObservableObject
                 }
                 else
                 {
-                    var results = await Task.WhenAll(nexusItems.Select(async item =>
-                    {
-                        try
-                        {
-                            var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", item.NexusModId!.Value);
-                            return (Item: item, Version: info?.Version);
-                        }
-                        catch (Exception)
-                        {
-                            // Best-effort per-mod — one bad lookup (rate limit, a since-removed
-                            // mod) shouldn't stop the rest of the batch from checking.
-                            return (Item: item, Version: (string?)null);
-                        }
-                    }));
-
-                    foreach (var (item, version) in results)
-                    {
-                        if (string.IsNullOrEmpty(version))
-                        {
-                            continue;
-                        }
-
-                        item.LatestVersion = version;
-                        if (item.HasUpdateAvailable)
-                        {
-                            updatedCount++;
-                        }
-                    }
+                    // Same batched GetModInfoAsync pattern for both collections — a UE4SS mod's own
+                    // "current version" is whatever KnownVersion recorded at link time, since
+                    // there's no live-installed version string to read the way a Library EXMOD/pak
+                    // entry has, but the check itself (fetch, compare, count) is identical.
+                    updatedCount += await ApplyNexusVersionsAsync(nexusItems, apiKey, i => i.NexusModId!.Value, (i, v) => i.LatestVersion = v, i => i.HasUpdateAvailable);
+                    updatedCount += await ApplyNexusVersionsAsync(ue4ssItems, apiKey, r => r.NexusModId!.Value, (r, v) => r.LatestVersion = v, r => r.HasUpdateAvailable);
                 }
             }
 
@@ -1059,13 +1107,11 @@ public sealed partial class LibraryViewModel : ObservableObject
             {
                 try
                 {
-                    // Isolated per-source, same as Downloads' own catalog refresh and Export
-                    // Patch's own lookup — a transient blip in either source shouldn't fail the
-                    // whole check.
-                    var failedSources = new List<string>();
-                    var daedalusTask = CatalogSourceFetch.FetchAsync(_daedalusClient.FetchAsync, "Daedalus", failedSources);
-                    var jimk72Task = CatalogSourceFetch.FetchAsync(_jimk72Client.FetchAsync, "Jimk72", failedSources);
-                    await Task.WhenAll(daedalusTask, jimk72Task);
+                    // Reuses Downloads' own cached catalog instead of an independent re-fetch of
+                    // both sources — see GetUpdateAsync's own comment above for why this is safe;
+                    // GetOrFetchCatalogAsync fetches once if the cache is still empty, otherwise
+                    // returns immediately.
+                    var allEntries = await Downloads.GetOrFetchCatalogAsync();
 
                     // ID-first, name-fallback — same rename-safe matching Downloads'
                     // ApplyCatalogFilters now uses, for the same reason (a renamed/oddly-named mod
@@ -1073,7 +1119,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                     // Download & extract time).
                     var catalogVersionById = new Dictionary<string, string>();
                     var catalogVersionByKey = new Dictionary<(string Name, string Author), string>();
-                    foreach (var catalogEntry in daedalusTask.Result.Concat(jimk72Task.Result))
+                    foreach (var catalogEntry in allEntries)
                     {
                         catalogVersionById[catalogEntry.Id] = catalogEntry.Version;
                         catalogVersionByKey[CatalogKey.Normalize(catalogEntry.Name, catalogEntry.Author)] = catalogEntry.Version;
@@ -1113,5 +1159,47 @@ public sealed partial class LibraryViewModel : ObservableObject
         {
             IsCheckingForUpdates = false;
         }
+    }
+
+    /// <summary>
+    /// Batched per-item Nexus version lookup + apply, shared by CheckForUpdatesAsync's Library-mod
+    /// and UE4SS-mod checks above — both used to be near-identical copies differing only in which
+    /// property/type they touched. Returns how many of the checked items now have an update
+    /// available, for the caller's own running total.
+    /// </summary>
+    private async Task<int> ApplyNexusVersionsAsync<T>(
+        IReadOnlyList<T> items, string apiKey, Func<T, int> getNexusModId, Action<T, string> setLatestVersion, Func<T, bool> hasUpdateAvailable)
+    {
+        var results = await Task.WhenAll(items.Select(async item =>
+        {
+            try
+            {
+                var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", getNexusModId(item));
+                return (Item: item, Version: info?.Version);
+            }
+            catch (Exception)
+            {
+                // Best-effort per-mod — one bad lookup (rate limit, a since-removed mod) shouldn't
+                // stop the rest of the batch from checking.
+                return (Item: item, Version: (string?)null);
+            }
+        }));
+
+        var updatedCount = 0;
+        foreach (var (item, version) in results)
+        {
+            if (string.IsNullOrEmpty(version))
+            {
+                continue;
+            }
+
+            setLatestVersion(item, version);
+            if (hasUpdateAvailable(item))
+            {
+                updatedCount++;
+            }
+        }
+
+        return updatedCount;
     }
 }

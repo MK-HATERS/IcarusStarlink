@@ -130,6 +130,8 @@
                         </MultiBinding>
                     </Button.Tag>
                 </Button>
+                <Button Content="⧉ Pop out" Command="{Binding PopOutCurrentViewCommand}" Margin="16,0,0,0"
+                        ToolTip="Open whichever view is showing now in its own window, so you can keep it open alongside another view — both edit the same mod"/>
             </StackPanel>
 
             <Border Grid.Row="1" Background="{DynamicResource AccentBrush}" CornerRadius="4" Margin="0,8,0,0" Padding="8"

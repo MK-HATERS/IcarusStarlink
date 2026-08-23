@@ -400,14 +400,6 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             return;
         }
 
-        try
-        {
-            System.Diagnostics.Process.Start(
-                new System.Diagnostics.ProcessStartInfo(NexusModWebUrl.For(mod.ModId)) { UseShellExecute = true });
-        }
-        catch (Exception)
-        {
-            // Best-effort UX, same convention as every other open-a-link in this app.
-        }
+        UrlOpener.TryOpen(NexusModWebUrl.For(mod.ModId));
     }
 }

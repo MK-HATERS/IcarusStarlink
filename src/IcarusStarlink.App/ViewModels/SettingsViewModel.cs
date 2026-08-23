@@ -483,7 +483,10 @@ public sealed partial class SettingsViewModel : ObservableObject
                 });
             }
 
-            Process.Start(new ProcessStartInfo(_customSkinStore.FilePath) { UseShellExecute = true });
+            if (UrlOpener.TryOpen(_customSkinStore.FilePath) is { } ex)
+            {
+                SkinStatusMessage = $"Couldn't open the skin file: {ex.Message}";
+            }
         }
         catch (Exception ex)
         {
@@ -754,18 +757,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnIsAuthorizingNexusChanged(bool value) => OnPropertyChanged(nameof(CanAuthorizeNexus));
 
     [RelayCommand]
-    private void OpenNexusApiKeyPage()
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo("https://www.nexusmods.com/users/myaccount?tab=api") { UseShellExecute = true });
-        }
-        catch (Exception)
-        {
-            // Opening the default browser is best-effort UX, not a core operation — same
-            // swallow-and-move-on DownloadsViewModel's own OpenUrl already uses.
-        }
-    }
+    private void OpenNexusApiKeyPage() => UrlOpener.TryOpen("https://www.nexusmods.com/users/myaccount?tab=api");
 
     /// <summary>
     /// A real, live validation against Nexus's own API — "just like a new user would," per the
@@ -1301,15 +1293,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        try
-        {
-            Process.Start(new ProcessStartInfo($"https://github.com/MK-HATERS/IcarusStarlink/releases/tag/v{release.Version}") { UseShellExecute = true });
-        }
-        catch (Exception)
-        {
-            // Opening the default browser is best-effort UX, not a core operation — same
-            // swallow-and-move-on OpenNexusApiKeyPage already uses.
-        }
+        UrlOpener.TryOpen($"https://github.com/MK-HATERS/IcarusStarlink/releases/tag/v{release.Version}");
     }
 
     /// <summary>

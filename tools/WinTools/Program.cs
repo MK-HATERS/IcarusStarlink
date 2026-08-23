@@ -56,6 +56,9 @@ switch (args[0])
     case "real-left-click":
         RealLeftClick(int.Parse(args[1]), args[2]);
         break;
+    case "double-click":
+        DoubleClick(int.Parse(args[1]), args[2]);
+        break;
     case "scroll-bottom":
         ScrollBottom(int.Parse(args[1]));
         break;
@@ -449,6 +452,31 @@ static void RealLeftClick(int pid, string exactText)
     NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
     NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
     Console.WriteLine($"left-clicked '{exactText}' at ({x},{y})");
+}
+
+// A genuine synthesized double-click — two left-down/up pairs a short delay apart, well inside the
+// OS double-click time threshold, since a WPF MouseDoubleClick handler (e.g. LibraryView's own
+// open-in-a-popout-window handler) only fires off real double-click detection, not two independent
+// UI Automation invocations. Same coordinate-based approach and single-monitor/uniform-DPI caveat
+// as RealLeftClick/RightClick above.
+static void DoubleClick(int pid, string exactText)
+{
+    var root = GetRoot(pid);
+    var textEl = root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, exactText))
+        .Cast<AutomationElement>()
+        .FirstOrDefault()
+        ?? throw new InvalidOperationException($"No element with exact text '{exactText}' found");
+
+    var rect = textEl.Current.BoundingRectangle;
+    var x = (int)(rect.Left + rect.Width / 2);
+    var y = (int)(rect.Top + rect.Height / 2);
+    NativeMethods.SetCursorPos(x, y);
+    NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+    NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+    System.Threading.Thread.Sleep(80);
+    NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+    NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+    Console.WriteLine($"double-clicked '{exactText}' at ({x},{y})");
 }
 
 // Scrolls the first ScrollPattern-supporting element (this app's pages are typically one page-level

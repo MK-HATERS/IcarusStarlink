@@ -35,6 +35,24 @@ public interface ISaveRepository
     /// <summary>Same contract as SaveProfile. The list replaces the file's character array wholesale, so duplicate/remove-slot operations are just list operations for the caller.</summary>
     string SaveCharacters(string steamId, IReadOnlyList<JsonObject> characters);
 
+    /// <summary>Accolades.json as a mutable tree — CompletedAccolades (the editable list) plus PlayerTrackers/PlayerTaskListTrackers (the raw progress counters that make an accolade eligible), which this editor doesn't expose for direct editing but preserves untouched. Returns an empty-shaped object (not an error) if the file doesn't exist yet — a very new character may not have triggered the accolade system.</summary>
+    JsonObject LoadAccolades(string steamId);
+
+    /// <summary>Same contract as SaveProfile.</summary>
+    string SaveAccolades(string steamId, JsonObject accolades);
+
+    /// <summary>BestiaryData.json as a mutable tree — BestiaryTracking (creature encounter points, the editable list) plus FishTracking (preserved untouched, out of scope for this editor). Returns an empty-shaped object if the file doesn't exist yet.</summary>
+    JsonObject LoadBestiary(string steamId);
+
+    /// <summary>Same contract as SaveProfile.</summary>
+    string SaveBestiary(string steamId, JsonObject bestiary);
+
+    /// <summary>MetaInventory.json as a mutable tree — the account-wide meta item bank (InventoryID + a flat Items array). Returns an empty-shaped object if the file doesn't exist yet.</summary>
+    JsonObject LoadMetaInventory(string steamId);
+
+    /// <summary>Same contract as SaveProfile.</summary>
+    string SaveMetaInventory(string steamId, JsonObject metaInventory);
+
     /// <summary>
     /// The slot's binary flags_&lt;SteamID&gt;.dat — a THIRD unlock store the game keeps beside the
     /// JSON ones (confirmed against a real save: account-wide character-flag IDs like

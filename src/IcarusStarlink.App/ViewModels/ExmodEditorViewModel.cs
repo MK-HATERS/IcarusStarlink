@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -319,11 +318,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
-        try
-        {
-            Process.Start(new ProcessStartInfo(realPath) { UseShellExecute = true });
-        }
-        catch (Exception ex)
+        if (UrlOpener.TryOpen(realPath) is { } ex)
         {
             StatusMessage = $"Couldn't open the file: {ex.Message}";
         }
@@ -652,11 +647,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [RelayCommand]
     private void OpenModsFolder()
     {
-        try
-        {
-            Process.Start(new ProcessStartInfo(_repository.GetFolderPath(_folderName)) { UseShellExecute = true });
-        }
-        catch (Exception ex)
+        if (UrlOpener.TryOpen(_repository.GetFolderPath(_folderName)) is { } ex)
         {
             StatusMessage = $"Couldn't open the folder: {ex.Message}";
         }
@@ -677,6 +668,22 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
     [RelayCommand]
     private void SetViewMode(string mode) => ViewMode = Enum.Parse<ExmodEditorViewMode>(mode);
+
+    /// <summary>
+    /// Detaches whichever view is currently showing into its own floating window — a real gap the
+    /// pre-Phase-10 review flagged and the plan deliberately left cut ("arrangement, not
+    /// capability"): all three views already share one live ExmodEditorViewModel/ExmodPackage, so a
+    /// popped-out pane just needs its own fixed-mode window bound to that same instance, not a
+    /// second ViewModel or any new sync plumbing. Finds this VM's own hosting Window by scanning
+    /// Application.Windows (a ViewModel has no stored back-reference to it) so the pop-out is owned
+    /// by the editor window it came from, not the main app window.
+    /// </summary>
+    [RelayCommand]
+    private void PopOutCurrentView()
+    {
+        var owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(w => ReferenceEquals(w.DataContext, this));
+        new ExmodPaneWindow(this, ViewMode) { Owner = owner }.Show();
+    }
 
     [RelayCommand]
     private void ApplyFileJson()

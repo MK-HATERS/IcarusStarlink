@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -36,6 +35,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private readonly IGitHubRepoDateClient _gitHubRepoDateClient;
     private readonly ILibraryRepository _libraryRepository;
     private readonly IUe4ssModRepository _ue4ssModRepository;
+    private readonly IUe4ssModMetaStore _ue4ssModMetaStore;
     private readonly ISettingsService _settingsService;
     private readonly PerformanceTracker _performanceTracker;
     private readonly INexusApiClient _nexusApiClient;
@@ -55,8 +55,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
     // refresh doesn't wipe out dates a previous successful refresh already resolved.
     private IReadOnlyDictionary<(string Owner, string Repo), DateTimeOffset> _repoPushedDates =
         new Dictionary<(string, string), DateTimeOffset>();
-
-    public string Title => "Downloads";
 
     // --- IMM Database tab ---
     public ObservableCollection<CatalogEntryViewModel> CatalogEntries { get; } = [];
@@ -160,6 +158,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         IGitHubRepoDateClient gitHubRepoDateClient,
         ILibraryRepository libraryRepository,
         IUe4ssModRepository ue4ssModRepository,
+        IUe4ssModMetaStore ue4ssModMetaStore,
         ISettingsService settingsService,
         INexusApiClient nexusApiClient,
         ICredentialStore credentialStore,
@@ -175,6 +174,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         _gitHubRepoDateClient = gitHubRepoDateClient;
         _libraryRepository = libraryRepository;
         _ue4ssModRepository = ue4ssModRepository;
+        _ue4ssModMetaStore = ue4ssModMetaStore;
         _settingsService = settingsService;
         _performanceTracker = performanceTracker;
         _nexusApiClient = nexusApiClient;
@@ -257,6 +257,25 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
     [RelayCommand]
     private void ToggleColumnsMenu() => IsColumnsMenuOpen = !IsColumnsMenuOpen;
+
+    /// <summary>
+    /// Shared read access to the same catalog snapshot this page's own table renders from — added so
+    /// LibraryViewModel's Get update/Check for updates paths (Database-sourced mods) stop
+    /// independently re-fetching both catalog sources over the network on every single call, a
+    /// second full round-trip of the exact same data this VM already fetches and caches at startup.
+    /// Returns the cache as-is if already populated; otherwise awaits one real fetch first — avoids
+    /// a race against RefreshCatalogAsync's own fire-and-forget constructor call, which may not have
+    /// completed yet by the time a caller elsewhere asks for this early in app startup.
+    /// </summary>
+    public async Task<IReadOnlyList<CatalogEntry>> GetOrFetchCatalogAsync()
+    {
+        if (_allCatalogEntries.Count == 0)
+        {
+            await RefreshCatalogAsync();
+        }
+
+        return _allCatalogEntries;
+    }
 
     [RelayCommand]
     private async Task RefreshCatalogAsync()
@@ -565,7 +584,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
             return;
         }
 
-        OpenUrl(url);
+        UrlOpener.TryOpen(url);
     }
 
     [RelayCommand]
@@ -755,6 +774,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 else if (item.ActivatedKind == PendingDownloadActivationKind.Ue4ssMod)
                 {
                     _ue4ssModRepository.Delete(existingFolderName);
+                    // Without this, a Reinstall's own Nexus-link sidecar (Ue4ss_Meta/{folder}.json)
+                    // is orphaned on disk — never cleaned up, and a stale link if a different,
+                    // unrelated mod later happens to land under the same folder name.
+                    _ue4ssModMetaStore.Delete(existingFolderName);
                 }
             }
 
@@ -861,6 +884,11 @@ public sealed partial class DownloadsViewModel : ObservableObject
         // mod this app handles that carries no metadata file of its own to detect it by.
         var fallbackName = Path.GetFileNameWithoutExtension(originalFileName);
         var folderName = _ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName);
+        await EnrichUe4ssModFromNexusAsync(folderName, modId);
+        // Library's UE4SS tab has its own reload path (ReloadInstalledUe4ssMods), never wired to
+        // this pipeline before — without this, a UE4SS mod downloaded here silently didn't show up
+        // there until something else happened to trigger a reload (a restart, or an unrelated edit).
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         _activityLog.Log($"Activated pending download '{folderName}' as a UE4SS mod.", ActivityEntryKind.Success);
         return ($"Staged '{folderName}' as a UE4SS mod — enable it from Library's UE4SS tab, then click Apply.", folderName, PendingDownloadActivationKind.Ue4ssMod);
     }
@@ -891,6 +919,45 @@ public sealed partial class DownloadsViewModel : ObservableObject
         catch (Exception)
         {
             // Best-effort — see the doc comment above.
+        }
+    }
+
+    /// <summary>
+    /// Same reasoning as EnrichOpaquePakFromNexusAsync, but for a UE4SS mod: a UE4SS mod carries no
+    /// metadata file at all (not even a name/author), so its Nexus mod ID and version are recorded
+    /// in the separate Ue4ss_Meta sidecar store instead of LibraryMeta — that's what lets Library's
+    /// UE4SS tab show a "Nexus" badge and check for updates.
+    ///
+    /// The ID itself is saved unconditionally, BEFORE the enrichment call — matching the opaque-pak
+    /// path's own ImportPak(..., nexusModId: modId), which records the ID at import time regardless
+    /// of what SetNexusMetadata's own best-effort lookup does. Only the version lookup is
+    /// best-effort/silently-swallowed: a missing key or a rejected/failed API call still leaves the
+    /// mod correctly linked (HasNexusLink true, eligible for CheckForUpdatesAsync), just without a
+    /// known starting version yet — versus the original shape, where any enrichment failure meant
+    /// the ID was never saved at all, permanently excluding the mod from update-checking with no way
+    /// to relink it (Library's UE4SS tab has no manual "Link to Nexus…" action, unlike its Mods tab).
+    /// </summary>
+    private async Task EnrichUe4ssModFromNexusAsync(string folderName, int modId)
+    {
+        _ue4ssModMetaStore.Save(folderName, new Ue4ssModMeta { NexusModId = modId });
+
+        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+        if (apiKey is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
+            if (info is not null)
+            {
+                _ue4ssModMetaStore.Save(folderName, new Ue4ssModMeta { NexusModId = modId, NexusVersion = info.Version });
+            }
+        }
+        catch (Exception)
+        {
+            // Best-effort — see the doc comment above. The ID link above already succeeded regardless.
         }
     }
 
@@ -931,19 +998,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
         foreach (var entry in _pendingDownloadStore.Entries.OrderByDescending(e => e.DownloadedAtUtc))
         {
             PendingDownloads.Add(new PendingDownloadItemViewModel(entry, _libraryRepository, _ue4ssModRepository));
-        }
-    }
-
-    private static void OpenUrl(string url)
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-        }
-        catch (Exception)
-        {
-            // Opening the default browser is best-effort UX, not a core operation — swallow
-            // rather than crash the app if the OS can't find a handler for the URL.
         }
     }
 }

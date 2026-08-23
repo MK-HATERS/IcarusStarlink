@@ -12,6 +12,7 @@
     <converters:ProgressToWidthConverter x:Key="ProgressToWidthConverter"/>
     <converters:LibraryEntryQueuedConverter x:Key="LibraryEntryQueuedConverter"/>
     <converters:HexToBrushConverter x:Key="HexToBrushConverter"/>
+    <converters:VariantSuffixConverter x:Key="VariantSuffixConverter"/>
 
     <!-- The semantic change badge shared by every "what changed" grid (Weekly Changes, pak
          comparison, mod version comparison) — all three render the same ChangedRowViewModel, so

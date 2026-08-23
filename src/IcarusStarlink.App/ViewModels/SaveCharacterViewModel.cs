@@ -22,6 +22,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
     private readonly Action _onDirtyChanged;
     private string _originalName;
     private long _originalXp;
+    private bool _originalIsMale;
 
     [ObservableProperty]
     private string _name;
@@ -39,6 +40,12 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
 
     public ObservableCollection<SaveTalentViewModel> Talents { get; } = [];
 
+    /// <summary>Raw Customization_* hash fields — see SaveCosmeticFieldViewModel's own doc comment for why these aren't name-mapped.</summary>
+    public ObservableCollection<SaveCosmeticFieldViewModel> Cosmetics { get; } = [];
+
+    [ObservableProperty]
+    private bool _isMale;
+
     /// <summary>The prospect/location line the Overview card shows, e.g. "Prospect_Grasslands" → "Grasslands".</summary>
     public string LocationDisplay => Location.StartsWith("Prospect_", StringComparison.OrdinalIgnoreCase) ? Location["Prospect_".Length..] : Location;
 
@@ -48,7 +55,9 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
         Name != _originalName
         || (long.TryParse(XpText, out var xp) ? xp != _originalXp : XpText != _originalXp.ToString())
         || Flags.Any(f => f.IsDirty)
-        || Talents.Any(t => t.IsDirty);
+        || Talents.Any(t => t.IsDirty)
+        || Cosmetics.Any(c => c.IsDirty)
+        || IsMale != _originalIsMale;
 
     public SaveCharacterViewModel(JsonObject node, SaveGameNames names, Action onDirtyChanged)
     {
@@ -61,9 +70,30 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
         ChrSlot = node["ChrSlot"]?.GetValue<int>() ?? 0;
         Location = node["Location"]?.GetValue<string>() ?? "";
         IsDead = node["IsDead"]?.GetValue<bool>() ?? false;
+        _originalIsMale = node["Cosmetic"]?["IsMale"]?.GetValue<bool>() ?? true;
+        _isMale = _originalIsMale;
 
         BuildFlags(names);
         BuildTalents(names);
+        BuildCosmetics();
+    }
+
+    private void BuildCosmetics()
+    {
+        if (_node["Cosmetic"] is not JsonObject cosmetic)
+        {
+            return;
+        }
+
+        foreach (var (key, value) in cosmetic)
+        {
+            if (key == "IsMale" || value is null)
+            {
+                continue;
+            }
+
+            Cosmetics.Add(new SaveCosmeticFieldViewModel(key, value.GetValue<long>().ToString(), _onDirtyChanged));
+        }
     }
 
     private void BuildFlags(SaveGameNames names)
@@ -116,6 +146,8 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
             : TalentDisplayInfo.Fallback(rowName);
 
     partial void OnNameChanged(string value) => _onDirtyChanged();
+
+    partial void OnIsMaleChanged(bool value) => _onDirtyChanged();
 
     partial void OnXpTextChanged(string value)
     {
@@ -176,6 +208,23 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
         }
 
         _node["Talents"] = talentArrayNew;
+
+        // Cosmetics: values updated in place on the existing sub-object — every field this class
+        // doesn't know about (there are none here, since Cosmetics enumerates the whole object on
+        // load) stays exactly as-is, and IsMale is written alongside the raw hashes since it lives
+        // in the same sub-object.
+        if (_node["Cosmetic"] is JsonObject cosmetic)
+        {
+            foreach (var field in Cosmetics)
+            {
+                if (long.TryParse(field.ValueText, out var hash))
+                {
+                    cosmetic[field.Key] = hash;
+                }
+            }
+
+            cosmetic["IsMale"] = IsMale;
+        }
     }
 
     public void MarkClean()
@@ -195,6 +244,13 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
         {
             talent.MarkClean();
         }
+
+        foreach (var cosmetic in Cosmetics)
+        {
+            cosmetic.MarkClean();
+        }
+
+        _originalIsMale = IsMale;
     }
 
     private static List<int> ReadIntArray(JsonNode? node) =>

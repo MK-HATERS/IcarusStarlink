@@ -40,12 +40,22 @@
              reveals inline Pin/Favorite/Edit actions (RowActions, opacity 0→1 on IsMouseOver)
              instead of only the detail pane or the right-click menu below. -->
         <DataTemplate DataType="{x:Type vm:LibraryItemViewModel}">
-            <Grid x:Name="Row" Margin="0,2"
+            <!-- SharedSizeGroup on every column, matching the header Grid above (both sit inside the
+                 Mods tab's own Grid.IsSharedSizeScope="True") — the real column-alignment fix; see
+                 that Grid's own comment for why Width="*" alone never actually worked here. A
+                 nested/variant row's indentation still shifts its own columns slightly right of the
+                 header's — TreeView has no fix for that specifically, accepted as a minor tradeoff
+                 given most rows are top-level (unindented). -->
+            <Grid x:Name="Row" Margin="0,3"
                   Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
+                    <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
+                    <ColumnDefinition Width="Auto" MinWidth="110" SharedSizeGroup="ColAuthor"/>
+                    <ColumnDefinition Width="Auto" MinWidth="60" SharedSizeGroup="ColVersion"/>
+                    <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColSource"/>
+                    <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColStatus"/>
+                    <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColActions"/>
                 </Grid.ColumnDefinitions>
                 <Grid.ContextMenu>
                     <!-- Right-clicking selects the row first (see code-behind), so Pin/Favorite here apply to
@@ -115,26 +125,39 @@
                           Visibility="{Binding IsMergedPack, Converter={StaticResource BoolToVisibilityConverter}}"/>
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <TextBlock Text="{Binding Name}"/>
-                    <TextBlock Text="{Binding VariantLabel, StringFormat=' — {0}'}"
-                               Foreground="{DynamicResource SecondaryForegroundBrush}"
-                               Visibility="{Binding VariantLabel, Converter={StaticResource NullToVisibilityConverter}}"/>
-                    <!-- Phase 10 follow-up: a compact provenance badge — the tree column is narrower
-                         than the detail pane, so this stays small but still shows the full word. -->
-                    <Border Margin="6,0,0,0" CornerRadius="7" Padding="5,0" VerticalAlignment="Center"
-                            Background="{DynamicResource InfoBrush}"
-                            Visibility="{Binding HasSource, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBlock Text="{Binding Source}" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
-                    </Border>
-                    <Border Margin="6,0,0,0" CornerRadius="7" Padding="5,0" VerticalAlignment="Center"
-                            Background="{DynamicResource AccentBrush}" ToolTip="{Binding LatestVersion, StringFormat='Update available: v{0}'}"
-                            Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBlock Text="Update" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
-                    </Border>
-                </StackPanel>
+                <!-- A single TextBlock, not the StackPanel this used to be — StackPanel gives its
+                     children unbounded measure width regardless of the column's own real size, which
+                     silently defeats TextTrimming (nothing was ever actually being measured against a
+                     bounded width to trim against). VariantSuffixConverter, not StringFormat: WPF
+                     still runs String.Format even for a null source value (TargetNullValue is
+                     substituted BEFORE StringFormat, not instead of it) — confirmed live, every row
+                     rendered a bare " — " suffix even with no VariantLabel at all until this was
+                     fixed. -->
+                <TextBlock Grid.Column="1" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                    <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                </TextBlock>
 
-                <StackPanel x:Name="RowActions" Grid.Column="2" Orientation="Horizontal" Opacity="0">
+                <TextBlock Grid.Column="2" Text="{Binding Author}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="8,0,0,0"/>
+
+                <TextBlock Grid.Column="3" VerticalAlignment="Center" FontSize="12"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0">
+                    <Run Text="v"/><Run Text="{Binding Version, Mode=OneWay}"/>
+                </TextBlock>
+
+                <Border Grid.Column="4" CornerRadius="7" Padding="5,0" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="8,0,0,0"
+                        Background="{DynamicResource InfoBrush}"
+                        Visibility="{Binding HasSource, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <TextBlock Text="{Binding Source}" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
+                </Border>
+
+                <Border Grid.Column="5" CornerRadius="7" Padding="5,0" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="8,0,0,0"
+                        Background="{DynamicResource AccentBrush}" ToolTip="{Binding LatestVersion, StringFormat='Update available: v{0}'}"
+                        Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <TextBlock Text="Update" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
+                </Border>
+
+                <StackPanel x:Name="RowActions" Grid.Column="6" Orientation="Horizontal" Opacity="0" HorizontalAlignment="Right">
                     <ToggleButton IsChecked="{Binding IsPinned}" Style="{StaticResource IconToggleButtonStyle}"
                                   ToolTip="Pin" AutomationProperties.Name="Toggle pinned">
                         <Path Data="{StaticResource IconPin}" Width="12" Height="12" Stretch="Uniform">
@@ -205,8 +228,23 @@
 
         <TabControl Grid.Row="1" Margin="0,12,0,0" SelectedIndex="{Binding SelectedTabIndex}">
             <TabItem Header="Mods">
-                <Grid Margin="0,12,0,0">
+                <!-- IsSharedSizeScope + SharedSizeGroup (on the header Grid below and on the row
+                     DataTemplate's own Grid, in UserControl.Resources above) is the real fix for
+                     column alignment — a Width="*" column plainly does NOT resolve to a shared,
+                     consistent width across a TreeView's independently-templated/virtualized rows,
+                     confirmed by two failed attempts (HorizontalContentAlignment="Stretch" alone;
+                     then that plus disabling horizontal scroll) that left every row's later columns
+                     drifting by however much its own Name text's natural width differed from other
+                     rows'. SharedSizeGroup is the WPF-native mechanism built for exactly this problem
+                     — it computes one shared width per named group across every Grid in scope,
+                     including inside a virtualized ItemsControl, independent of ScrollViewer/Measure
+                     quirks. Star-sizing and SharedSizeGroup don't combine (a shared-size column is
+                     always evaluated as Auto), so Name gets a generous fixed width instead of "fill
+                     remaining space" — a real trade-off, but a correctly-aligned table beats an
+                     elastic one that doesn't line up. -->
+                <Grid Margin="0,12,0,0" Grid.IsSharedSizeScope="True">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -214,13 +252,21 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
+                    <!-- Phase 10 follow-up: grouped by purpose (refresh · create/import · check) with
+                         thin dividers between groups, rather than one undifferentiated row. Import
+                         folder… deliberately no longer carries PrimaryButtonStyle — with Fetch (row
+                         below) now also primary-styled as the headline "get a mod" action, having a
+                         second, unrelated primary button in the toolbar read as arbitrary. -->
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
-                        <Button Command="{Binding RefreshCommand}" Margin="0,0,8,0" ToolTip="Re-scan Extracted_Mods from disk" AutomationProperties.Name="Refresh">
+                        <Button Command="{Binding RefreshCommand}" Margin="0,0,10,0" ToolTip="Re-scan Extracted_Mods from disk" AutomationProperties.Name="Refresh">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
                                 <TextBlock Text="Refresh" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
+
+                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Margin="0,4,10,4"/>
+
                         <Button Command="{Binding NewModCommand}" Margin="0,0,8,0" ToolTip="Create a blank EXMOD (name + author) and open it in the editor" AutomationProperties.Name="New mod">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconPlus}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
@@ -235,14 +281,14 @@
                                 <TextBlock Text="Import EXMODZ…" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <Button Command="{Binding ImportFolderCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0" AutomationProperties.Name="Import folder">
+                        <Button Command="{Binding ImportFolderCommand}" Margin="0,0,8,0" AutomationProperties.Name="Import folder">
                             <StackPanel Orientation="Horizontal">
-                                <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
+                                <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                       StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
                                 <TextBlock Text="Import folder…" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <Button Command="{Binding ImportPakCommand}"
+                        <Button Command="{Binding ImportPakCommand}" Margin="0,0,10,0"
                                 ToolTip="Import a prebuilt .pak as an opaque library entry — no .EXMOD, can't be browsed or edited"
                                 AutomationProperties.Name="Import .pak">
                             <StackPanel Orientation="Horizontal">
@@ -251,6 +297,9 @@
                                 <TextBlock Text="Import .pak…" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
+
+                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Margin="0,4,10,4"/>
+
                         <Button Command="{Binding CheckForUpdatesCommand}" Margin="0,0,8,0"
                                 ToolTip="Checks every Nexus- or Database-sourced mod against its real current version"
                                 AutomationProperties.Name="Check for updates">
@@ -279,7 +328,7 @@
                                    Visibility="{Binding Downloads.PendingDownloadStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                         <Grid Margin="0,0,8,0">
                             <TextBox Text="{Binding Downloads.ManualNxmUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                            <TextBlock Text="Fetch from Nexus: paste a mod page URL, e.g. https://www.nexusmods.com/icarus/mods/304 (or an nxm:// link)"
+                            <TextBlock Text="e.g. nexusmods.com/icarus/mods/304 (or an nxm:// link from Mod Manager Download)"
                                        Style="{StaticResource PlaceholderTextStyle}" TextTrimming="CharacterEllipsis"
                                        Visibility="{Binding Downloads.ManualNxmUrl, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                         </Grid>
@@ -346,6 +395,7 @@
                                  ToolTip="Search by name, author, notes, or mod file/item contents"/>
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}">
                             <Run Text="{Binding ModCount, Mode=OneWay}"/><Run Text=" mod(s) · "/><Run Text="{Binding GroupCount, Mode=OneWay}"/><Run Text=" group(s)"/>
+                            <Run Text=" — double-click a mod for details, hover a row for quick actions" Foreground="{DynamicResource FaintForegroundBrush}"/>
                         </TextBlock>
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding UpdateCheckStatusMessage}"
                                    Visibility="{Binding UpdateCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
@@ -354,207 +404,46 @@
                                    Visibility="{Binding UnreadableFoldersMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                     </StackPanel>
 
-                    <Grid Grid.Row="4">
+                    <!-- Column headers — same fixed widths as the LibraryItemViewModel DataTemplate's
+                         own Grid.ColumnDefinitions above, so labels line up with an unindented
+                         (top-level) row's actual content. A TreeView has no real column-alignment
+                         mechanism, so an indented variant row drifts right of these headers by its
+                         own indent amount — accepted as a reasonable tradeoff (see the row template's
+                         own comment) now that the inline detail pane (which this replaced) is gone
+                         and double-clicking a mod opens ModDetailWindow instead. -->
+                    <Grid Grid.Row="4" Margin="4,0,4,4">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="320"/>
-                            <ColumnDefinition Width="16"/>
-                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
+                            <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
+                            <ColumnDefinition Width="Auto" MinWidth="110" SharedSizeGroup="ColAuthor"/>
+                            <ColumnDefinition Width="Auto" MinWidth="60" SharedSizeGroup="ColVersion"/>
+                            <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColSource"/>
+                            <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColStatus"/>
+                            <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColActions"/>
                         </Grid.ColumnDefinitions>
-
-                        <Border Grid.Column="0" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
-                            <TreeView x:Name="LibraryTree" ItemsSource="{Binding RootItems}" Background="Transparent" BorderThickness="0"
-                                      SelectedItemChanged="LibraryTree_SelectedItemChanged"
-                                      PreviewMouseRightButtonDown="LibraryTree_PreviewMouseRightButtonDown"/>
-                        </Border>
-
-                        <Grid Grid.Column="2">
-                            <Grid Visibility="{Binding SelectedItem, Converter={StaticResource NullToVisibilityConverter}}">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-
-                                <Grid Grid.Row="0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <StackPanel Grid.Column="0">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding SelectedItem.Name}" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                            <!-- Phase 10 follow-up: provenance badge — where this mod came from (Nexus/Database),
-                                                 null/empty for a manual import, in which case the badge collapses entirely. -->
-                                            <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
-                                                    Background="{DynamicResource InfoBrush}"
-                                                    Visibility="{Binding SelectedItem.HasSource, Converter={StaticResource BoolToVisibilityConverter}}">
-                                                <TextBlock Text="{Binding SelectedItem.Source}" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
-                                            </Border>
-                                            <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
-                                                    Background="{DynamicResource AccentBrush}"
-                                                    Visibility="{Binding SelectedItem.HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
-                                                <TextBlock FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}">
-                                                    <Run Text="Update available: v"/><Run Text="{Binding SelectedItem.LatestVersion, Mode=OneWay}"/>
-                                                </TextBlock>
-                                            </Border>
-                                            <Button Margin="6,0,0,0" Padding="7,2" VerticalAlignment="Center" FontSize="11"
-                                                    Command="{Binding GetUpdateCommand}" CommandParameter="{Binding SelectedItem}"
-                                                    Visibility="{Binding SelectedItem.HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
-                                                    ToolTip="Database mod: re-downloads from the catalog and replaces this copy in place (pin/favorite/notes kept, backup taken first). Nexus mod: opens its page — use Mod Manager Download there."
-                                                    AutomationProperties.Name="Get update">
-                                                <TextBlock Text="Get update" VerticalAlignment="Center"/>
-                                            </Button>
-                                        </StackPanel>
-                                        <TextBlock Margin="0,2,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}">
-                                            <Run Text="{Binding SelectedItem.Author, Mode=OneWay}"/>
-                                            <Run Text=" · v"/>
-                                            <Run Text="{Binding SelectedItem.Version, Mode=OneWay}"/>
-                                        </TextBlock>
-                                        <!-- MaxHeight + its own scroll, not a plain TextBlock — an unusually long
-                                             description shouldn't be able to push Pinned/Favorite/Edit/Delete/Notes
-                                             further down than a small window has room for; short descriptions
-                                             (the common case) render exactly as before with no visible scrollbar. -->
-                                        <ScrollViewer MaxHeight="80" VerticalScrollBarVisibility="Auto" Margin="0,0,0,12">
-                                            <TextBlock Text="{Binding SelectedItem.Description}" Style="{StaticResource PageBodyTextStyle}"/>
-                                        </ScrollViewer>
-
-                                        <!-- Phase 10: pill-style icon toggles for Pinned/Favorite, matching the
-                                             row's own inline actions, instead of plain checkboxes. -->
-                                        <WrapPanel Margin="0,0,0,12">
-                                            <ToggleButton IsChecked="{Binding SelectedItem.IsPinned}" Margin="0,0,8,4">
-                                                <ToggleButton.Style>
-                                                    <Style TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
-                                                        <Setter Property="Content" Value="📌 Pin"/>
-                                                        <Setter Property="Padding" Value="10,5"/>
-                                                        <Style.Triggers>
-                                                            <Trigger Property="IsChecked" Value="True">
-                                                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
-                                                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
-                                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                                            </Trigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </ToggleButton.Style>
-                                            </ToggleButton>
-                                            <ToggleButton IsChecked="{Binding SelectedItem.IsFavorite}" Content="★ Favorite" Padding="10,5" Margin="0,0,16,4">
-                                                <ToggleButton.Style>
-                                                    <Style TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
-                                                        <Style.Triggers>
-                                                            <Trigger Property="IsChecked" Value="True">
-                                                                <Setter Property="Background" Value="#332B2000"/>
-                                                                <Setter Property="BorderBrush" Value="#FFD24C"/>
-                                                                <Setter Property="Foreground" Value="#FFD24C"/>
-                                                            </Trigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </ToggleButton.Style>
-                                            </ToggleButton>
-                                            <Button Command="{Binding EditSelectedCommand}" Margin="0,0,8,4"
-                                                    ToolTip="Open this mod's Item fields in the EXMOD editor" AutomationProperties.Name="Edit selected mod">
-                                                <StackPanel Orientation="Horizontal">
-                                                    <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
-                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                                                    <TextBlock Text="Edit…" VerticalAlignment="Center"/>
-                                                </StackPanel>
-                                            </Button>
-                                            <Button Command="{Binding DeleteSelectedCommand}" Margin="0,0,0,4" AutomationProperties.Name="Delete selected mod">
-                                                <StackPanel Orientation="Horizontal">
-                                                    <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
-                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                                                    <TextBlock Text="Delete" VerticalAlignment="Center"/>
-                                                </StackPanel>
-                                            </Button>
-                                        </WrapPanel>
-
-                                        <TextBlock Text="Notes" Style="{StaticResource FieldLabelStyle}"/>
-                                        <TextBox Text="{Binding SelectedItem.Notes, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0" AcceptsReturn="True" Height="60" TextWrapping="Wrap"/>
-                                    </StackPanel>
-
-                                    <!-- Phase 10: always-visible thumbnail slot — a placeholder icon when the mod
-                                         carries no real image (real EXMOD readmes conventionally carry an
-                                         "ImageOnly" asset — see LibraryItemViewModel.LoadThumbnailIfPresent). -->
-                                    <Border Grid.Column="1" Width="120" Height="120" Margin="12,0,0,0" VerticalAlignment="Top"
-                                            Background="{DynamicResource CardRaisedBackgroundBrush}"
-                                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6">
-                                        <Grid>
-                                            <Path Data="{StaticResource IconMountains}" Stroke="{DynamicResource FaintForegroundBrush}" StrokeThickness="1.6"
-                                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="30" Height="30" Stretch="Uniform"
-                                                  Visibility="{Binding SelectedItem.ThumbnailImage, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                                            <Image Source="{Binding SelectedItem.ThumbnailImage}" Stretch="Uniform" Margin="4"
-                                                   Visibility="{Binding SelectedItem.ThumbnailImage, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                        </Grid>
-                                    </Border>
-                                </Grid>
-
-                                <!-- Fills whatever's left below the header (Grid.Row="1"="*"), rather than
-                                     the fixed 200px each tab's content used to have — a maximized window's
-                                     extra height was previously wasted, and a small window could clip the
-                                     bottom of the fixed-height content with no way to scroll to it. -->
-                                <TabControl Grid.Row="1" Margin="0,12,0,0">
-                                    <TabItem Header="Changes"
-                                             ToolTip="What this mod actually changes — read-only. For editing, see the EXMOD editor (planned).">
-                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" MinHeight="110">
-                                            <TextBox Text="{Binding SelectedItem.ChangesContent, Mode=OneWay}"
-                                                     IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
-                                                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                                                     AcceptsReturn="True" BorderThickness="0" Padding="8"/>
-                                        </Border>
-                                    </TabItem>
-                                    <TabItem Header="Files">
-                                        <Grid Margin="0,8,0,0" MinHeight="110">
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto"/>
-                                                <RowDefinition Height="*"/>
-                                            </Grid.RowDefinitions>
-
-                                            <!-- Only ever shown for an opaque .pak — its files come from an
-                                                 async UnrealPak -List call, not an instant disk read, so this
-                                                 covers "loading…" and "failed, here's why" (with a retry) alike. -->
-                                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8"
-                                                        Visibility="{Binding SelectedItem.PakListingStatus, Converter={StaticResource NullToVisibilityConverter}}">
-                                                <TextBlock Text="{Binding SelectedItem.PakListingStatus}" Foreground="{DynamicResource SecondaryForegroundBrush}" VerticalAlignment="Center"/>
-                                                <Button Content="Retry" Margin="8,0,0,0" Padding="8,2"
-                                                        Command="{Binding SelectedItem.LoadPakContentsCommand}"
-                                                        AutomationProperties.Name="Retry loading pak contents"/>
-                                            </StackPanel>
-
-                                            <Grid Grid.Row="1">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="200"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                </Grid.ColumnDefinitions>
-                                                <ListBox Grid.Column="0" ItemsSource="{Binding SelectedItem.AssetPaths}"
-                                                         SelectedItem="{Binding SelectedItem.SelectedAssetPath}"/>
-                                                <!-- Exactly one of these is populated per selected asset (see
-                                                     OnSelectedAssetPathChanged) — an image asset shows as a picture
-                                                     rather than as binary noise in the text box. -->
-                                                <TextBox Grid.Column="1" Text="{Binding SelectedItem.SelectedAssetPreview, Mode=OneWay}"
-                                                         Margin="8,0,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                                                         AcceptsReturn="True"
-                                                         Visibility="{Binding SelectedItem.SelectedAssetImage, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                                                <Border Grid.Column="1" Margin="8,0,0,0" Background="{DynamicResource CardBackgroundBrush}"
-                                                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="8"
-                                                        Visibility="{Binding SelectedItem.SelectedAssetImage, Converter={StaticResource NullToVisibilityConverter}}">
-                                                    <Image Source="{Binding SelectedItem.SelectedAssetImage}" Stretch="Uniform"
-                                                           StretchDirection="DownOnly" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                </Border>
-                                            </Grid>
-                                        </Grid>
-                                    </TabItem>
-                                    <TabItem Header="Readme">
-                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" MinHeight="110">
-                                            <FlowDocumentScrollViewer VerticalScrollBarVisibility="Auto" Padding="8"
-                                                Document="{Binding SelectedItem.ReadmeContent, Mode=OneWay, Converter={StaticResource MarkdownToFlowDocumentConverter}}"/>
-                                        </Border>
-                                    </TabItem>
-                                </TabControl>
-                            </Grid>
-
-                            <TextBlock Text="Select a mod on the left to see details."
-                                       Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                       Visibility="{Binding SelectedItem, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <TextBlock Grid.Column="1" Text="NAME" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Grid.Column="2" Text="AUTHOR" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Column="3" Text="VERSION" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Column="4" Text="SOURCE" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Column="5" Text="STATUS" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"/>
                     </Grid>
+
+                    <Border Grid.Row="5" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+                        <!-- The real column-alignment fix is Grid.IsSharedSizeScope/SharedSizeGroup
+                             (see the Mods tab's own Grid, and the header/row column definitions) —
+                             a plain Width="*" column never resolves to a shared width across a
+                             TreeView's independently-rendered rows, confirmed live. Horizontal scroll
+                             stays Auto (the TreeView default) rather than Disabled: with real
+                             fixed/shared column widths now driving layout instead of "*", scroll
+                             visibility no longer affects alignment either way, and Auto is what keeps
+                             the row-actions column (Pin/Favorite/Edit/Delete) reachable if the window
+                             is ever narrower than the columns' own combined MinWidths. -->
+                        <TreeView x:Name="LibraryTree" ItemsSource="{Binding RootItems}" Background="Transparent" BorderThickness="0"
+                                  HorizontalContentAlignment="Stretch"
+                                  SelectedItemChanged="LibraryTree_SelectedItemChanged"
+                                  PreviewMouseRightButtonDown="LibraryTree_PreviewMouseRightButtonDown"
+                                  MouseDoubleClick="LibraryTree_MouseDoubleClick"/>
+                    </Border>
                 </Grid>
             </TabItem>
 
@@ -581,8 +470,25 @@
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal" Margin="0,2">
                                     <CheckBox IsChecked="{Binding IsEnabled}" VerticalAlignment="Center" Margin="0,0,8,0"
-                                              ToolTip="Checked = enabled (in the real game Mods folder). Nothing moves until you click Apply below."/>
+                                              ToolTip="Checked = enabled (in the real game Mods folder). Nothing moves until you click Apply below."
+                                              AutomationProperties.Name="{Binding Name, StringFormat='Enable {0}'}"/>
                                     <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Width="260"/>
+                                    <!-- Set when this mod was downloaded through the Nexus pipeline (see
+                                         DownloadsViewModel.EnrichUe4ssModFromNexusAsync) — a manually
+                                         imported UE4SS mod has no link, so no badge. -->
+                                    <Border Margin="0,0,6,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
+                                            Background="{DynamicResource InfoBrush}"
+                                            ToolTip="Downloaded via Nexus — linked to its catalog page for update-checking"
+                                            Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="Nexus" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
+                                    </Border>
+                                    <Border Margin="0,0,6,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
+                                            Background="{DynamicResource AccentBrush}"
+                                            Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}">
+                                            <Run Text="Update available: v"/><Run Text="{Binding LatestVersion, Mode=OneWay}"/>
+                                        </TextBlock>
+                                    </Border>
                                     <TextBlock Text="modified" Foreground="{DynamicResource AccentBrush}" FontSize="12"
                                                VerticalAlignment="Center" Visibility="{Binding IsDirty, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                 </StackPanel>
