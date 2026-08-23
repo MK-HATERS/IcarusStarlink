@@ -58,6 +58,10 @@ public sealed partial class ServerViewModel : ObservableObject
     [ObservableProperty]
     private string? _siteStatusMessage;
 
+    /// <summary>Drives the "+ New site" Expander — collapsed by default (nothing to fill in until the user asks), opened automatically by NewSite/selecting a site, two-way bound so a user can also collapse it manually without losing anything typed.</summary>
+    [ObservableProperty]
+    private bool _isSiteFormOpen;
+
     // --- Connection + directory browser ---
     [ObservableProperty]
     private bool _isConnected;
@@ -119,6 +123,7 @@ public sealed partial class ServerViewModel : ObservableObject
         RemotePathInput = value.RemotePath;
         EncryptionModeInput = value.EncryptionMode;
         SiteStatusMessage = null;
+        IsSiteFormOpen = true;
     }
 
     [RelayCommand]
@@ -133,6 +138,7 @@ public sealed partial class ServerViewModel : ObservableObject
         RemotePathInput = "";
         EncryptionModeInput = FtpEncryptionMode.None;
         SiteStatusMessage = null;
+        IsSiteFormOpen = true;
     }
 
     [RelayCommand]

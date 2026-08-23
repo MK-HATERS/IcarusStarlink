@@ -42,7 +42,7 @@
         <!-- Import & migrate: collapsed by default — export/import a patch and importing a classic-
              IMM mod list are real but occasional actions, not something a returning user needs to
              see every time. -->
-        <Expander Grid.Row="3" Margin="0,16,0,0" IsExpanded="False">
+        <Expander Grid.Row="3" Margin="0,16,0,0" IsExpanded="False" AutomationProperties.Name="Import and migrate">
             <Expander.Header>
                 <DockPanel LastChildFill="False">
                     <TextBlock DockPanel.Dock="Left" Text="Import &amp; migrate" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
@@ -233,7 +233,7 @@
                 <!-- Verify + Uninstall: real, occasionally-needed tools, folded into one collapsed
                      section instead of two always-visible ones — neither competes with Install for
                      a new user's attention, but both stay one click away. -->
-                <Expander Grid.Row="9" Margin="0,14,0,0" IsExpanded="False">
+                <Expander Grid.Row="9" Margin="0,14,0,0" IsExpanded="False" AutomationProperties.Name="Advanced actions">
                     <Expander.Header>
                         <DockPanel LastChildFill="False">
                             <TextBlock DockPanel.Dock="Left" Text="Advanced actions" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
@@ -288,7 +288,7 @@
                  Collapsed by default (redesign-round-2 pilot): a new user landing on this page
                  doesn't need to parse 8 controls across 3 groups just to find Install, but the
                  collapsed header's own summary keeps whatever IS active from being hidden. -->
-            <Expander Grid.Column="2" VerticalAlignment="Top" IsExpanded="False">
+            <Expander Grid.Column="2" VerticalAlignment="Top" IsExpanded="False" AutomationProperties.Name="Merge options">
                 <Expander.Header>
                     <DockPanel LastChildFill="False">
                         <TextBlock DockPanel.Dock="Left" Text="Merge options" Style="{StaticResource ExpanderHeaderTitleStyle}"/>

@@ -34,14 +34,25 @@
 
                 <TextBlock Grid.Row="0" Text="Saved sites" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
                 <ListBox Grid.Row="1" ItemsSource="{Binding Sites}" SelectedItem="{Binding SelectedSite}"
-                         DisplayMemberPath="Name" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"/>
+                         BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,2">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                <TextBlock FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                                    <Run Text="{Binding Host, Mode=OneWay}"/><Run Text=":"/><Run Text="{Binding Port, Mode=OneWay}"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
-                    <Button Command="{Binding NewSiteCommand}" AutomationProperties.Name="New">
+                    <Button Command="{Binding NewSiteCommand}" AutomationProperties.Name="New site">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconPlus}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                            <TextBlock Text="New" VerticalAlignment="Center"/>
+                            <TextBlock Text="New site" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                     <Button Margin="8,0,0,0" Command="{Binding DeleteSiteCommand}" AutomationProperties.Name="Delete">
@@ -53,8 +64,22 @@
                     </Button>
                 </StackPanel>
 
-                <ScrollViewer Grid.Row="3" Margin="0,16,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <StackPanel>
+                <Grid Grid.Row="3" Margin="0,16,0,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <!-- The connection form only shows while actively creating/editing a site — opens
+                     automatically on "New site" or selecting a saved one; a user can also collapse
+                     it manually (two-way bound) without losing anything typed. -->
+                <Expander Grid.Row="0" IsExpanded="{Binding IsSiteFormOpen, Mode=TwoWay}" AutomationProperties.Name="Site details">
+                    <Expander.Header>
+                        <DockPanel LastChildFill="False">
+                            <TextBlock DockPanel.Dock="Left" Text="Site details" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                            <TextBlock DockPanel.Dock="Left" Text="Name · Host · Port · Username · Password · Remote path · Encryption" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                        </DockPanel>
+                    </Expander.Header>
+                    <StackPanel>
                     <TextBlock Text="Name" FontSize="12" Margin="0,0,0,2"/>
                     <TextBox Text="{Binding SiteNameInput, UpdateSourceTrigger=PropertyChanged}"/>
 
@@ -81,7 +106,11 @@
 
                     <Button Content="Save site" Command="{Binding SaveSiteCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,12,0,0" HorizontalAlignment="Left"/>
                     <TextBlock Text="{Binding SiteStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Expander>
 
+                <ScrollViewer Grid.Row="1" Margin="0,16,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                         <Button Command="{Binding ConnectCommand}" IsEnabled="{Binding IsNotConnected}"
                                 Visibility="{Binding IsNotConnected, Converter={StaticResource BoolToVisibilityConverter}}"
@@ -103,6 +132,7 @@
                     <TextBlock Text="{Binding ConnectionStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
                 </ScrollViewer>
+                </Grid>
             </Grid>
 
             <!-- Remote file browser -->

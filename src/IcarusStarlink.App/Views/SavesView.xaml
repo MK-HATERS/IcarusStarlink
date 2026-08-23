@@ -17,9 +17,12 @@
         <TextBlock Grid.Row="1" Text="Edits Icarus player data. Every save and restore takes a full backup of the slot first, and nothing writes while the game is running — but a manual backup before experimenting is still the smart move."
                    Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,12" TextWrapping="Wrap" MaxWidth="720"/>
 
-        <!-- Slot + backup/restore bar -->
-        <WrapPanel Grid.Row="2" Margin="0,0,0,12">
-            <ComboBox ItemsSource="{Binding Slots}" SelectedItem="{Binding SelectedSlot}" MinWidth="240"
+        <!-- Slot picker + backup/restore. The slot picker stays inline (every tab depends on it);
+             Backup now/Restore/Open backups folder — real but occasional — collapse into one
+             Expander next to it, matching Merge & Install's own "Advanced actions" pattern, so they
+             don't compete with the picker for attention on every visit. -->
+        <DockPanel Grid.Row="2" Margin="0,0,0,12" LastChildFill="True">
+            <ComboBox DockPanel.Dock="Left" ItemsSource="{Binding Slots}" SelectedItem="{Binding SelectedSlot}" MinWidth="240" Margin="0,0,8,0"
                       ToolTip="Steam player slots found under the game's own PlayerData folder">
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
@@ -27,28 +30,36 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
-            <Button Command="{Binding BackupNowCommand}" Margin="8,0,0,0" AutomationProperties.Name="Backup now"
-                    ToolTip="Zips the whole slot into this app's own save_backups cache — never inside the game's folders">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="Backup now" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <ComboBox ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}" MinWidth="230" Margin="8,0,0,0"
-                      ToolTip="Backups of this slot, newest first">
-                <ComboBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Display}"/>
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
-            </ComboBox>
-            <Button Content="Restore" Command="{Binding RestoreBackupCommand}" Margin="8,0,0,0"
-                    ToolTip="Replaces the slot with the selected backup — writes a pre_restore safety zip of the current state first, so this is itself undoable"/>
-            <Button Content="Open backups folder" Command="{Binding OpenBackupsFolderCommand}" Margin="8,0,0,0"/>
-            <TextBlock Text="{Binding LastBackupDisplay}" VerticalAlignment="Center" Margin="12,0,0,0"
-                       Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"/>
-        </WrapPanel>
+            <Expander IsExpanded="False" HorizontalAlignment="Left" AutomationProperties.Name="Backup and restore">
+                <Expander.Header>
+                    <DockPanel LastChildFill="False">
+                        <TextBlock DockPanel.Dock="Left" Text="Backup &amp; restore" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                        <TextBlock DockPanel.Dock="Left" Text="{Binding LastBackupDisplay}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                    </DockPanel>
+                </Expander.Header>
+                <WrapPanel>
+                    <Button Command="{Binding BackupNowCommand}" AutomationProperties.Name="Backup now"
+                            ToolTip="Zips the whole slot into this app's own save_backups cache — never inside the game's folders">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                            <TextBlock Text="Backup now" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <ComboBox ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}" MinWidth="230" Margin="8,0,0,0"
+                              ToolTip="Backups of this slot, newest first">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Display}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button Content="Restore" Command="{Binding RestoreBackupCommand}" Margin="8,0,0,0"
+                            ToolTip="Replaces the slot with the selected backup — writes a pre_restore safety zip of the current state first, so this is itself undoable"/>
+                    <Button Content="Open backups folder" Command="{Binding OpenBackupsFolderCommand}" Margin="8,0,0,0"/>
+                </WrapPanel>
+            </Expander>
+        </DockPanel>
 
         <TabControl Grid.Row="3" SelectedIndex="{Binding SelectedTabIndex}">
             <!-- Overview: character cards + account snapshot, per Icarus Workshop's own save

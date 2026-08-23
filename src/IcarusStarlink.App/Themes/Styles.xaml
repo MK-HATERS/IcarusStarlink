@@ -709,7 +709,16 @@
                     <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8">
                         <DockPanel LastChildFill="True">
+                            <!-- AutomationProperties.Name forwarded from whatever's set on the Expander
+                                 itself in each usage's own XAML — the Header is arbitrary content (a
+                                 title + a dynamic state string), not a plain string WPF could derive a
+                                 name from automatically, so every usage sets it explicitly. Found live:
+                                 without this, every collapsible section's real accessible name was
+                                 empty (ControlType.Group/Button, Name='') — the same "icon+text content
+                                 defeats WPF's plain-string Name auto-derivation" gap Phase 10 already
+                                 caught once for buttons, recurring here for a new control. -->
                             <ToggleButton DockPanel.Dock="Top" Cursor="Hand"
+                                          AutomationProperties.Name="{Binding (AutomationProperties.Name), RelativeSource={RelativeSource TemplatedParent}}"
                                           IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
                                 <ToggleButton.Template>
                                     <ControlTemplate TargetType="{x:Type ToggleButton}">

@@ -83,7 +83,7 @@
                         <!-- Collapsed by default (redesign-round-2 pilot) — a routine "set it and
                              forget it" action for most users, re-opened only when Icarus actually
                              updates. -->
-                        <Expander IsExpanded="False">
+                        <Expander IsExpanded="False" AutomationProperties.Name="Update data folder">
                             <Expander.Header>
                                 <DockPanel LastChildFill="False">
                                     <TextBlock DockPanel.Dock="Left" Text="Update data folder" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
