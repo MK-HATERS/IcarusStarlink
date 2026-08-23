@@ -14,7 +14,7 @@ public sealed partial class HelpViewModel : ObservableObject
             First-time setup, in order:
 
             - Open **Settings** and set your Icarus **Content folder** (…\Icarus\Icarus\Content). Click **Auto-detect** first — it reads your real Steam library and usually finds it without you browsing manually.
-            - Set **UnrealPak.exe** — point it at a copy you already have (there's no bundled/auto-downloaded one; that's a deliberate call over an unresolved question about what Epic's own license actually allows).
+            - Set **UnrealPak.exe** — on first launch the app offers to install the bundled copy next to itself (one click), or Browse… to one you already have (classic IMM ships one under its own UnrealPak folder). The bundle is UnrealPak **4.27**, the same UE4 version Icarus is built on — deliberately not "the latest": newer UE5 builds write pak formats Icarus's engine can't load. **Check** in Settings verifies your copy actually runs; **Reinstall bundled copy** repairs a broken one.
             - Click **Update data folder**. This extracts the game's current mod-relevant data so merge/edit has something real to work against — re-run it whenever the game updates.
             - Go to **Library** and import a mod (EXMODZ, a folder, or a .pak), or browse **Downloads** for one.
             """),

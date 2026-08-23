@@ -145,6 +145,8 @@ public partial class App : Application
         builder.Services.AddSingleton<IRebuildService, RebuildService>();
         builder.Services.AddSingleton<IInstallService, InstallService>();
         builder.Services.AddSingleton<IPakCompareService, PakCompareService>();
+        builder.Services.AddSingleton<IUnrealPakInstaller>(sp =>
+            new UnrealPakInstaller(sp.GetRequiredService<IProcessRunner>(), appDataDirectory));
         builder.Services.AddSingleton<IModVersionComparer, ModVersionComparer>();
         builder.Services.AddSingleton<ImmMigrationService>();
         builder.Services.AddSingleton<IProfileStore>(sp =>
@@ -244,6 +246,7 @@ public partial class App : Application
             sp.GetRequiredService<ICustomSkinStore>(),
             sp.GetRequiredService<ImmMigrationService>(),
             sp.GetRequiredService<MergeInstallViewModel>,
+            sp.GetRequiredService<IUnrealPakInstaller>(),
             Path.Combine(appDataDirectory, "Backups"),
             Path.Combine(appDataDirectory, "Data"),
             logsDirectory,
@@ -280,6 +283,13 @@ public partial class App : Application
         // that assumption stops holding.
         var mainViewModel = _host.Services.GetRequiredService<MainViewModel>();
         Dispatcher.BeginInvoke(mainViewModel.SelectDefaultPage);
+
+        // Constructed eagerly (page ViewModels are otherwise built lazily on first navigation) so
+        // its launch checks — the app-update prompt, Nexus key re-validation, and the UnrealPak
+        // first-run verify/locate/install offer — genuinely run at launch, not whenever the user
+        // first happens to open Settings. Queued behind SelectDefaultPage so the window paints
+        // and lands on its default page before any of those checks can show a dialog.
+        Dispatcher.BeginInvoke(() => _host.Services.GetRequiredService<SettingsViewModel>());
 
         // Handle the case where THIS launch (the first instance) was itself invoked with an
         // nxm:// argument — e.g. the very first time the OS protocol registration is used.

@@ -43,6 +43,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IThemeService _themeService;
     private readonly ICustomSkinStore _customSkinStore;
     private readonly ImmMigrationService _immMigrationService;
+    private readonly IUnrealPakInstaller _unrealPakInstaller;
 
     /// <summary>Resolved lazily (not injected directly) purely to avoid forcing Merge &amp; Install's own construction — with its Library scan and catalog wiring — every time Settings is opened.</summary>
     private readonly Func<MergeInstallViewModel> _mergeInstallViewModel;
@@ -158,9 +159,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         INxmProtocolRegistrar nxmProtocolRegistrar, IUe4ssLoaderInstallService ue4ssLoaderInstallService,
         IUe4ssReleaseClient ue4ssReleaseClient, IAppUpdateClient appUpdateClient, HttpClient httpClient,
         IThemeService themeService, ICustomSkinStore customSkinStore, ImmMigrationService immMigrationService,
-        Func<MergeInstallViewModel> mergeInstallViewModel,
+        Func<MergeInstallViewModel> mergeInstallViewModel, IUnrealPakInstaller unrealPakInstaller,
         string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath)
     {
+        _unrealPakInstaller = unrealPakInstaller;
         _settingsService = settingsService;
         _unrealPakService = unrealPakService;
         _weeklyChangeReportStore = weeklyChangeReportStore;
@@ -198,6 +200,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ = InitializeNexusStatusAsync();
         _ = CheckUe4ssLatestReleaseAsync();
         _ = CheckForAppUpdatesOnLaunchAsync();
+        _ = EnsureUnrealPakOnLaunchAsync();
 
         LoadSkinTokens();
     }
@@ -544,7 +547,114 @@ public sealed partial class SettingsViewModel : ObservableObject
         if (dialog.ShowDialog() == true)
         {
             UnrealPakExePath = dialog.FileName;
+            _ = VerifyUnrealPakAsync();
         }
+    }
+
+    // --- UnrealPak locate-or-install ---
+
+    [ObservableProperty]
+    private string? _unrealPakStatusMessage;
+
+    public bool CanInstallBundledUnrealPak => _unrealPakInstaller.PayloadAvailable;
+
+    /// <summary>Label flips to Reinstall once the bundled copy is what's configured — same button, and reinstalling IS the repair path for a broken copy.</summary>
+    public string InstallUnrealPakButtonLabel =>
+        string.Equals(UnrealPakExePath, _unrealPakInstaller.InstalledExePath, StringComparison.OrdinalIgnoreCase)
+            ? "Reinstall bundled copy"
+            : "Install bundled copy";
+
+    partial void OnUnrealPakExePathChanged(string? value) => OnPropertyChanged(nameof(InstallUnrealPakButtonLabel));
+
+    /// <summary>
+    /// Really runs the exe (see UnrealPakInstaller.VerifyAsync) — deliberately NOT a "check for
+    /// updates" against anything newer: UnrealPak is engine-version-specific, Icarus is a UE 4.27
+    /// title, and a newer UE5 UnrealPak writes pak formats the game's engine can't mount. The
+    /// property that matters is "4.x and intact", which is exactly what this reports.
+    /// </summary>
+    [RelayCommand]
+    private async Task VerifyUnrealPakAsync()
+    {
+        if (string.IsNullOrWhiteSpace(UnrealPakExePath))
+        {
+            UnrealPakStatusMessage = CanInstallBundledUnrealPak
+                ? "No UnrealPak.exe set — install the bundled copy, or Browse… to one you already have."
+                : "No UnrealPak.exe set — Browse… to one you already have (e.g. classic IMM's own, under its UnrealPak folder).";
+            return;
+        }
+
+        UnrealPakStatusMessage = "Checking…";
+        var result = await _unrealPakInstaller.VerifyAsync(UnrealPakExePath);
+        UnrealPakStatusMessage = result.Health switch
+        {
+            UnrealPakHealth.Ok when result.EngineVersion is not null =>
+                $"Working — UnrealPak {result.EngineVersion}"
+                + (result.EngineVersion.StartsWith('4') ? " (UE4, matches Icarus)." : " — WARNING: not a UE4 build; its paks may not load in Icarus."),
+            UnrealPakHealth.Ok => "Working.",
+            UnrealPakHealth.Missing => $"Not found at that path. {result.Detail}",
+            _ => $"Broken copy: {result.Detail} " + (CanInstallBundledUnrealPak ? "Reinstall bundled copy fixes this." : "Point at a fresh copy."),
+        };
+    }
+
+    [RelayCommand]
+    private async Task InstallBundledUnrealPakAsync()
+    {
+        try
+        {
+            UnrealPakStatusMessage = "Installing…";
+            var exePath = await _unrealPakInstaller.InstallAsync();
+            UnrealPakExePath = exePath;
+            Save();
+            await VerifyUnrealPakAsync();
+        }
+        catch (Exception ex)
+        {
+            UnrealPakStatusMessage = $"Install failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// First-launch (or any launch with no working UnrealPak): silently adopt a copy that's
+    /// already installed next to the app, else offer to install the bundled payload, else point
+    /// the user at Browse — the "verify, locate, or install next to the exe" flow. Called from
+    /// the constructor's launch checks; quiet whenever the configured path simply works.
+    /// </summary>
+    private async Task EnsureUnrealPakOnLaunchAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(UnrealPakExePath) && File.Exists(UnrealPakExePath))
+        {
+            return;
+        }
+
+        // A release zip whose Tools folder was pre-extracted (or a previous install) — adopt it
+        // without ceremony; there's nothing to ask.
+        if (File.Exists(_unrealPakInstaller.InstalledExePath))
+        {
+            UnrealPakExePath = _unrealPakInstaller.InstalledExePath;
+            Save();
+            UnrealPakStatusMessage = "Using the copy installed next to the app.";
+            return;
+        }
+
+        if (_unrealPakInstaller.PayloadAvailable)
+        {
+            var answer = MessageBox.Show(
+                "IcarusStarlink needs UnrealPak.exe to build and unpack mod paks, and none is set up yet.\n\n"
+                + "Install the bundled copy next to the app now? (Choose No to point at one you already have, in Settings.)",
+                "Set up UnrealPak", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (answer == MessageBoxResult.Yes)
+            {
+                await InstallBundledUnrealPakAsync();
+            }
+            else
+            {
+                UnrealPakStatusMessage = "No UnrealPak.exe set — install the bundled copy, or Browse… to one you already have.";
+            }
+
+            return;
+        }
+
+        UnrealPakStatusMessage = "No UnrealPak.exe set — Browse… to one you already have (e.g. classic IMM's own, under its UnrealPak folder).";
     }
 
     [RelayCommand]
