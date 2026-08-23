@@ -151,14 +151,17 @@ public class ExmodJsonTests
     }
 
     [Fact]
-    public void Parse_FileItemObjectHasADuplicateJsonKey_ThrowsFormatExceptionNotArgumentException()
+    public void Parse_FileItemObjectHasADuplicateJsonKey_KeepsTheLastValue()
     {
-        // Real-world regression: a Jimk72-authored EXMOD had a single File_Item object with
-        // "ResourceCostMultipliers" listed twice. System.Text.Json's text parser accepts a raw
-        // duplicate key (it doesn't enforce uniqueness while tokenizing), but JsonObject throws
-        // ArgumentException the first time that specific node's property dictionary is built —
-        // which, unhandled, crashed the whole app at library-scan startup instead of being
-        // skipped like every other malformed mod folder.
+        // Real-world regression, twice revised as more was learned. A Jimk72-authored EXMOD has a
+        // single File_Item object listing "ResourceCostMultipliers" twice. This originally crashed
+        // the app (raw ArgumentException from JsonObject building its property dictionary), then
+        // was made to throw FormatException so the library scan skipped the mod.
+        //
+        // Skipping turned out to be too harsh: a second real mod (Coracks_Ammo_and_Repair_x100,
+        // which repeats "description") was then invisible and unusable here despite working fine
+        // in classic IMM. Duplicates are now tolerated with last-wins — normal JSON semantics, and
+        // what those files evidently mean.
         const string json = """
             {
                 "name": "N", "author": "A", "version": "1", "description": "D", "fileName": "F",
@@ -177,7 +180,10 @@ public class ExmodJsonTests
             }
             """;
 
-        Assert.Throws<FormatException>(() => ExmodJson.Parse(json));
+        var package = ExmodJson.Parse(json);
+
+        var item = Assert.Single(Assert.Single(package.Rows).FileItems);
+        Assert.Equal("[2]", item.Fields["ResourceCostMultipliers"]!.ToJsonString());
     }
 
     [Fact]

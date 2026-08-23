@@ -545,28 +545,10 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         return sanitized;
     }
 
-    private string MakeUniqueFolderName(string fileName)
-    {
-        var candidate = fileName;
-        var suffix = 1;
-        while (Directory.Exists(Path.Combine(_extractedModsDirectory, candidate)))
-        {
-            candidate = $"{fileName}_{++suffix}";
-        }
+    private string MakeUniqueFolderName(string fileName) => ModFolders.MakeUnique(_extractedModsDirectory, fileName);
 
-        return candidate;
-    }
-
-    private string ResolveFolder(string folderName)
-    {
-        var folder = Path.Combine(_extractedModsDirectory, folderName);
-        if (!Directory.Exists(folder))
-        {
-            throw new DirectoryNotFoundException($"No library entry named '{folderName}'.");
-        }
-
-        return folder;
-    }
+    private string ResolveFolder(string folderName) =>
+        ModFolders.Resolve(_extractedModsDirectory, folderName, $"No library entry named '{folderName}'.");
 
     public void Dispose() => _searchIndex.Dispose();
 }

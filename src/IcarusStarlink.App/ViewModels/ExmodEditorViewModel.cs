@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Diffing;
@@ -131,6 +132,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [ObservableProperty]
     private string _filterText = "";
 
+    private readonly DebounceTimer _filterDebounceTimer;
+
     /// <summary>
     /// Populated by ExmodEditorWindow's code-behind SelectionChanged handler — ListBox.SelectedItems
     /// isn't a bindable DependencyProperty in stock WPF, so this is the one piece of this editor
@@ -160,6 +163,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _folderName = folderName;
         _dataFolder = dataFolder;
         _package = ExmodFolder.Read(repository.GetFolderPath(folderName)).Package;
+        _filterDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), ReloadItems);
 
         RefreshBaseDiff();
         SnapshotOriginalValues();
@@ -181,7 +185,11 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         }
     }
 
-    partial void OnFilterTextChanged(string value) => ReloadItems();
+    // Debounced like Library's and Downloads' own search boxes, which this was the last one not to
+    // match: ReloadItems rebuilds every row's ViewModel, and a mod can carry thousands of items
+    // (one real file alone has 87), so filtering on every keystroke rebuilt the whole list per
+    // character typed.
+    partial void OnFilterTextChanged(string value) => _filterDebounceTimer.Restart();
 
     partial void OnSelectedItemCountChanged(int value) => OnPropertyChanged(nameof(IsMassEditActive));
 

@@ -1,6 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 
+using IcarusStarlink.Catalog.GitHub;
+
 namespace IcarusStarlink.Catalog.Ue4ss;
 
 /// <summary>
@@ -12,7 +14,6 @@ namespace IcarusStarlink.Catalog.Ue4ss;
 /// </summary>
 public sealed partial class Ue4ssReleaseClient : IUe4ssReleaseClient
 {
-    private const string UserAgent = "IcarusStarlink";
     private const string LatestReleaseUrl = "https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases/latest";
 
     // Matches the real "basic" (non-dev, non-Xinput-variant) asset name, e.g. "UE4SS_v3.0.1.zip" —
@@ -26,10 +27,7 @@ public sealed partial class Ue4ssReleaseClient : IUe4ssReleaseClient
     public Ue4ssReleaseClient(HttpClient httpClient)
     {
         _httpClient = httpClient;
-        if (_httpClient.DefaultRequestHeaders.UserAgent.Count == 0)
-        {
-            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
-        }
+        GitHubUserAgent.EnsureOn(_httpClient);
     }
 
     public async Task<Ue4ssReleaseInfo?> GetLatestStableReleaseAsync(CancellationToken cancellationToken = default)

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.DataChanges;
+using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Pak;
 
 namespace IcarusStarlink.PakIO.Compare;
@@ -127,7 +128,11 @@ public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPak
 
         try
         {
-            var parsed = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+            // Duplicate-tolerant: a real classic-IMM merged pak contains a row listing
+            // "ResourceCostMultipliers" twice. Reading those properly beats the old behavior of
+            // giving up and byte-comparing, which reported every such file as "content differs"
+            // even when the two paks agreed on every value.
+            var parsed = DuplicateTolerantJson.Parse(File.ReadAllText(path)) as JsonObject;
             if (parsed?["Rows"] is not JsonArray)
             {
                 return null;
@@ -137,14 +142,6 @@ public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPak
         }
         catch (JsonException)
         {
-            return null;
-        }
-        catch (ArgumentException)
-        {
-            // A JSON object with the same property name twice — invalid per spec, but seen in a
-            // real classic-IMM merged pak (a duplicated "ResourceCostMultipliers" key inside one
-            // row, found live). JsonNode materializes that as ArgumentException, not
-            // JsonException; such a file can't be table-diffed, so it compares as raw content.
             return null;
         }
     }

@@ -325,12 +325,25 @@ public sealed partial class SettingsViewModel : ObservableObject
                 linked.Add($"{result.LinkedToNexusCount} linked to Nexus");
             }
 
-            var missing = result.MissingCount + result.FailedCount;
+            // "Not found" and "found but wouldn't import" are genuinely different problems with
+            // different fixes (get the mod vs. fix/replace a broken one), so they're never merged
+            // into one count — the failed ones also carry their real reason in the list below.
+            var problems = new List<string>();
+            if (result.MissingCount > 0)
+            {
+                problems.Add($"{result.MissingCount} not found in classic IMM's mods folder");
+            }
+
+            if (result.FailedCount > 0)
+            {
+                problems.Add($"{result.FailedCount} couldn't be imported");
+            }
+
             MigrationStatusMessage =
                 $"Brought over {result.ImportedCount} mod(s)"
                 + (result.AlreadyPresentCount > 0 ? $", {result.AlreadyPresentCount} already here" : "")
                 + (linked.Count > 0 ? $" ({string.Join(", ", linked)})" : "")
-                + (missing > 0 ? $" — {missing} couldn't be found, see the list below." : ".")
+                + (problems.Count > 0 ? $" — {string.Join(", ", problems)}; see the list below." : ".")
                 + " Your merge list is now queued in Merge & Install.";
         }
         catch (Exception ex)

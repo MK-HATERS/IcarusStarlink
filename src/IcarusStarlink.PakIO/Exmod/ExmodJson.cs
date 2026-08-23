@@ -19,7 +19,10 @@ public static class ExmodJson
 {
     public static ExmodPackage Parse(string json)
     {
-        var root = JsonNode.Parse(json) as JsonObject
+        // Duplicate-tolerant rather than JsonNode.Parse: real mods in the wild repeat a key inside
+        // one object, and rejecting those made a working mod completely unusable here (see
+        // DuplicateTolerantJson). Last occurrence wins, matching normal JSON semantics.
+        var root = DuplicateTolerantJson.Parse(json) as JsonObject
             ?? throw new FormatException("EXMOD JSON root is not an object.");
         return Parse(root);
     }

@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using IcarusStarlink.Catalog.GitHub;
 
 namespace IcarusStarlink.Catalog.AppUpdate;
 
@@ -16,7 +17,6 @@ namespace IcarusStarlink.Catalog.AppUpdate;
 /// </summary>
 public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
 {
-    private const string UserAgent = "IcarusStarlink";
     private const string Owner = "MK-HATERS";
     private const string Repo = "IcarusStarlink";
     private const string LatestReleaseUrl = $"https://api.github.com/repos/{Owner}/{Repo}/releases/latest";
@@ -73,10 +73,7 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
 
     private static void ApplyHeaders(HttpRequestMessage request, string? gitHubToken)
     {
-        if (!request.Headers.UserAgent.Any())
-        {
-            request.Headers.UserAgent.ParseAdd(UserAgent);
-        }
+        GitHubUserAgent.EnsureOn(request);
 
         if (!string.IsNullOrWhiteSpace(gitHubToken))
         {

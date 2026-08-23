@@ -15,11 +15,6 @@ namespace IcarusStarlink.Catalog.GitHub;
 /// </summary>
 public sealed class GitHubRepoDateClient : IGitHubRepoDateClient
 {
-    // GitHub rejects any request with no User-Agent at all (403) — "IcarusStarlink" is enough to
-    // identify the caller in GitHub's own logs; the unauthenticated repos endpoint doesn't require
-    // a product URL the way some of GitHub's other API guidance suggests for registered apps.
-    private const string UserAgent = "IcarusStarlink";
-
     // Unauthenticated GitHub API is capped at 60 requests/hour per IP overall, but also has a
     // separate, stricter *secondary* (abuse-detection) limit that reacts to burstiness rather than
     // the hourly total — capping concurrency keeps a full-catalog refresh (~40 repos today) well
@@ -31,10 +26,7 @@ public sealed class GitHubRepoDateClient : IGitHubRepoDateClient
     public GitHubRepoDateClient(HttpClient httpClient)
     {
         _httpClient = httpClient;
-        if (_httpClient.DefaultRequestHeaders.UserAgent.Count == 0)
-        {
-            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
-        }
+        GitHubUserAgent.EnsureOn(_httpClient);
     }
 
     public async Task<IReadOnlyDictionary<(string Owner, string Repo), DateTimeOffset>> FetchPushedDatesAsync(

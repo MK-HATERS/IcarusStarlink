@@ -68,26 +68,8 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
         return entries.Length == 1 && Directory.Exists(entries[0]) ? entries[0] : null;
     }
 
-    private string MakeUniqueFolderName(string name)
-    {
-        var candidate = name;
-        var suffix = 1;
-        while (Directory.Exists(Path.Combine(_stagedDirectory, candidate)))
-        {
-            candidate = $"{name}_{++suffix}";
-        }
+    private string MakeUniqueFolderName(string name) => ModFolders.MakeUnique(_stagedDirectory, name);
 
-        return candidate;
-    }
-
-    private string ResolveFolder(string folderName)
-    {
-        var folder = Path.Combine(_stagedDirectory, folderName);
-        if (!Directory.Exists(folder))
-        {
-            throw new DirectoryNotFoundException($"No staged UE4SS mod named '{folderName}'.");
-        }
-
-        return folder;
-    }
+    private string ResolveFolder(string folderName) =>
+        ModFolders.Resolve(_stagedDirectory, folderName, $"No staged UE4SS mod named '{folderName}'.");
 }

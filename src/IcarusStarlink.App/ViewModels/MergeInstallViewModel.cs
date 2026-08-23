@@ -994,6 +994,18 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         RebuildStageText = null;
         Warnings.Clear();
 
+        // A mod folder that exists on disk but can't be read never becomes a Library entry at all,
+        // so it can't be queued and silently contributes nothing to the merge. Until now the only
+        // hint was a line on the Library page — meaning a user could rebuild and install a pack
+        // quietly missing a mod they believe is included. Surfaced here, where it actually matters.
+        // Added after the Clear above, or it would be wiped before anyone saw it.
+        foreach (var folderName in _libraryRepository.UnreadableFolders)
+        {
+            Warnings.Add(
+                $"'{folderName}' is in your mods folder but couldn't be read, so it is NOT part of this build. "
+                + "Check that mod's own files (a corrupt .EXMOD is the usual cause).");
+        }
+
         try
         {
             using var perfScope = _performanceTracker.Track("Rebuild");
