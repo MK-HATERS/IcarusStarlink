@@ -1,13 +1,20 @@
+using System.Collections.ObjectModel;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
+using IcarusStarlink.App.Services;
 
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// One character, editing a small known set of fields over its raw save JsonObject — the node
-/// itself is what gets written back, so every field this class doesn't surface (cosmetic hashes,
-/// talents, flags, timestamps) survives untouched. Edits stay in the ViewModel until
-/// ApplyToNode() at save time, so closing without saving really changes nothing.
+/// One character, editing a known set of fields over its raw save JsonObject — the node itself is
+/// what gets written back, so every field this class doesn't surface (cosmetic hashes, timestamps,
+/// whole subsystems) survives untouched. Edits stay in the ViewModel until ApplyToNode() at save
+/// time, so closing without saving really changes nothing.
+///
+/// Owns its own Flags and Talents collections (names from the game's own data tables via
+/// SaveGameNames): flag ints are row indexes into D_CharacterFlags, and the talent list is the
+/// UNION of what the save has and everything D_Talents defines — an unlearned talent is just one
+/// at rank 0, so granting is ranking up, exactly how the save format itself represents it.
 /// </summary>
 public sealed partial class SaveCharacterViewModel : ObservableObject
 {
@@ -28,6 +35,10 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
 
     public bool IsDead { get; }
 
+    public ObservableCollection<SaveFlagViewModel> Flags { get; } = [];
+
+    public ObservableCollection<SaveTalentViewModel> Talents { get; } = [];
+
     /// <summary>The prospect/location line the Overview card shows, e.g. "Prospect_Grasslands" → "Grasslands".</summary>
     public string LocationDisplay => Location.StartsWith("Prospect_", StringComparison.OrdinalIgnoreCase) ? Location["Prospect_".Length..] : Location;
 
@@ -35,9 +46,11 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
 
     public bool IsDirty =>
         Name != _originalName
-        || (long.TryParse(XpText, out var xp) ? xp != _originalXp : XpText != _originalXp.ToString());
+        || (long.TryParse(XpText, out var xp) ? xp != _originalXp : XpText != _originalXp.ToString())
+        || Flags.Any(f => f.IsDirty)
+        || Talents.Any(t => t.IsDirty);
 
-    public SaveCharacterViewModel(JsonObject node, Action onDirtyChanged)
+    public SaveCharacterViewModel(JsonObject node, SaveGameNames names, Action onDirtyChanged)
     {
         _node = node;
         _onDirtyChanged = onDirtyChanged;
@@ -48,7 +61,59 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
         ChrSlot = node["ChrSlot"]?.GetValue<int>() ?? 0;
         Location = node["Location"]?.GetValue<string>() ?? "";
         IsDead = node["IsDead"]?.GetValue<bool>() ?? false;
+
+        BuildFlags(names);
+        BuildTalents(names);
     }
+
+    private void BuildFlags(SaveGameNames names)
+    {
+        var unlocked = ReadIntArray(_node["UnlockedFlags"]);
+
+        // Every flag the game's own table defines, plus any ID the save carries that the table
+        // doesn't know (an older/newer game version) — nothing in the save is ever hidden.
+        var count = Math.Max(names.CharacterFlagNames.Count, unlocked.Count > 0 ? unlocked.Max() + 1 : 0);
+        for (var id = 0; id < count; id++)
+        {
+            Flags.Add(new SaveFlagViewModel(id, names.CharacterFlagName(id), unlocked.Contains(id), _onDirtyChanged));
+        }
+    }
+
+    private void BuildTalents(SaveGameNames names)
+    {
+        var ranks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (_node["Talents"] is JsonArray talentArray)
+        {
+            foreach (var entry in talentArray.OfType<JsonObject>())
+            {
+                if (entry["RowName"]?.GetValue<string>() is { } rowName)
+                {
+                    ranks[rowName] = entry["Rank"]?.GetValue<int>() ?? 0;
+                }
+            }
+        }
+
+        // Learned first (the save's own order), then everything else the game defines at rank 0.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (rowName, rank) in ranks)
+        {
+            Talents.Add(new SaveTalentViewModel(rowName, DisplayInfoFor(names, rowName), rank, _onDirtyChanged));
+            seen.Add(rowName);
+        }
+
+        foreach (var (rowName, info) in names.Talents.OrderBy(kv => kv.Value.Tree, StringComparer.OrdinalIgnoreCase).ThenBy(kv => kv.Value.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!seen.Contains(rowName))
+            {
+                Talents.Add(new SaveTalentViewModel(rowName, new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank), 0, _onDirtyChanged));
+            }
+        }
+    }
+
+    internal static TalentDisplayInfo DisplayInfoFor(SaveGameNames names, string rowName) =>
+        names.Talents.TryGetValue(rowName, out var info)
+            ? new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank)
+            : TalentDisplayInfo.Fallback(rowName);
 
     partial void OnNameChanged(string value) => _onDirtyChanged();
 
@@ -66,6 +131,51 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
         {
             _node["XP"] = xp;
         }
+
+        // UnlockedFlags: keep the save's own ordering for flags that stay set, append newly-set
+        // ones — minimal diff against what the game itself wrote.
+        var originallyUnlocked = ReadIntArray(_node["UnlockedFlags"]);
+        var nowUnlocked = Flags.Where(f => f.IsUnlocked).Select(f => f.Id).ToHashSet();
+        var flagArray = new JsonArray();
+        foreach (var id in originallyUnlocked.Where(nowUnlocked.Contains))
+        {
+            flagArray.Add(id);
+        }
+
+        foreach (var id in nowUnlocked.Except(originallyUnlocked).OrderBy(i => i))
+        {
+            flagArray.Add(id);
+        }
+
+        _node["UnlockedFlags"] = flagArray;
+
+        // Talents: same minimal-diff shape — existing entries keep their position (rank updated in
+        // place), rank-0 entries drop out, newly-learned append. Rank 0 IS "doesn't have it" in
+        // the format, so it's never written.
+        var byRow = Talents.ToDictionary(t => t.RowName, t => t.Rank, StringComparer.OrdinalIgnoreCase);
+        var talentArrayNew = new JsonArray();
+        var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_node["Talents"] is JsonArray existing)
+        {
+            foreach (var entry in existing.OfType<JsonObject>())
+            {
+                if (entry["RowName"]?.GetValue<string>() is { } rowName && byRow.GetValueOrDefault(rowName) > 0)
+                {
+                    talentArrayNew.Add(new JsonObject { ["RowName"] = rowName, ["Rank"] = byRow[rowName] });
+                    written.Add(rowName);
+                }
+            }
+        }
+
+        foreach (var talent in Talents)
+        {
+            if (talent.Rank > 0 && !written.Contains(talent.RowName))
+            {
+                talentArrayNew.Add(new JsonObject { ["RowName"] = talent.RowName, ["Rank"] = talent.Rank });
+            }
+        }
+
+        _node["Talents"] = talentArrayNew;
     }
 
     public void MarkClean()
@@ -75,5 +185,18 @@ public sealed partial class SaveCharacterViewModel : ObservableObject
         {
             _originalXp = xp;
         }
+
+        foreach (var flag in Flags)
+        {
+            flag.MarkClean();
+        }
+
+        foreach (var talent in Talents)
+        {
+            talent.MarkClean();
+        }
     }
+
+    private static List<int> ReadIntArray(JsonNode? node) =>
+        node is JsonArray array ? [.. array.Select(n => n?.GetValue<int>() ?? -1).Where(i => i >= 0)] : [];
 }

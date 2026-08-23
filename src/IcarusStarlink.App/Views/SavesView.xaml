@@ -180,6 +180,115 @@
                     </ScrollViewer>
                 </Grid>
             </TabItem>
+            <!-- Talents: character talents searchable with rank editing; workshop research below.
+                 Every talent the game defines is available via "Show unlearned" — turning a rank
+                 up grants it (rank 0 is the format's own "doesn't have it"). -->
+            <TabItem Header="Talents">
+                <Grid Margin="0,10,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="150"/>
+                    </Grid.RowDefinitions>
+
+                    <WrapPanel Grid.Row="0" Margin="0,0,0,8">
+                        <Grid Width="240" VerticalAlignment="Center">
+                            <TextBox Text="{Binding TalentSearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Search talents…" Style="{StaticResource PlaceholderTextStyle}"
+                                       Visibility="{Binding TalentSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Show unlearned" IsChecked="{Binding ShowUnlearnedTalents}"
+                                  Margin="12,0,0,0" VerticalAlignment="Center"
+                                  ToolTip="Lists every talent the game defines, not just this character's — set a rank above 0 to grant one"/>
+                    </WrapPanel>
+
+                    <ListBox Grid.Row="1" ItemsSource="{Binding FilteredTalents}" HorizontalContentAlignment="Stretch">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="2" ToolTip="{Binding Description}">
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
+                                        <!-- Shown as rank/max — the max comes from the talent's own Rewards tiers
+                                             in the game data, and + stops there: a rank beyond it doesn't exist. -->
+                                        <TextBlock Text="{Binding RankDisplay}" MinWidth="40" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
+                                        <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" IsEnabled="{Binding CanRankUp}" AutomationProperties.Name="Rank up"/>
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock FontSize="12.5">
+                                            <Run Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding Tree}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <TextBlock Grid.Row="2" Text="Workshop research (account-wide)" Style="{StaticResource FieldLabelStyle}" Margin="0,10,0,4"/>
+                    <ListBox Grid.Row="3" ItemsSource="{Binding WorkshopTalents}" HorizontalContentAlignment="Stretch">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="2" ToolTip="{Binding Description}">
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
+                                        <TextBlock Text="{Binding RankDisplay}" MinWidth="40" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
+                                        <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" IsEnabled="{Binding CanRankUp}" AutomationProperties.Name="Rank up"/>
+                                    </StackPanel>
+                                    <TextBlock FontSize="12.5" VerticalAlignment="Center">
+                                        <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
+                                    </TextBlock>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
+
+            <!-- Flags: searchable chips, character flags + account flags — names straight from the
+                 game's own D_CharacterFlags/D_AccountFlags tables (the int in the save is the row
+                 index), so they stay correct across game updates. -->
+            <TabItem Header="Flags">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                    <StackPanel>
+                        <Grid Width="240" HorizontalAlignment="Left" Margin="0,0,0,10">
+                            <TextBox Text="{Binding FlagSearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Search flags…" Style="{StaticResource PlaceholderTextStyle}"
+                                       Visibility="{Binding FlagSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
+
+                        <TextBlock Text="Character flags" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                        <ItemsControl ItemsSource="{Binding FilteredCharacterFlags}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding Name}" IsChecked="{Binding IsUnlocked}"
+                                              Margin="0,2,16,2" ToolTip="{Binding Id}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="Account flags" Style="{StaticResource FieldLabelStyle}" Margin="0,14,0,6"/>
+                        <ItemsControl ItemsSource="{Binding FilteredAccountFlags}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding Name}" IsChecked="{Binding IsUnlocked}"
+                                              Margin="0,2,16,2" ToolTip="{Binding Id}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
         </TabControl>
 
         <!-- Save bar sits under the tabs, always visible -->

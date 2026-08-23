@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Saves;
 
@@ -38,6 +39,8 @@ public sealed partial class SavesViewModel : ObservableObject
 
     private readonly ISaveRepository _repository;
     private readonly IActivityLog _activityLog;
+    private readonly SaveGameNames _gameNames;
+    private readonly Utilities.DebounceTimer _talentSearchDebounceTimer;
 
     private JsonObject? _profile;
     private List<JsonObject> _characterNodes = [];
@@ -73,13 +76,100 @@ public sealed partial class SavesViewModel : ObservableObject
 
     public bool HasSlots => Slots.Count > 0;
 
-    public bool HasUnsavedChanges => Characters.Any(c => c.IsDirty) || Currencies.Any(c => c.IsDirty);
+    public bool HasUnsavedChanges =>
+        Characters.Any(c => c.IsDirty)
+        || Currencies.Any(c => c.IsDirty)
+        || AccountFlags.Any(f => f.IsDirty)
+        || WorkshopTalents.Any(t => t.IsDirty);
 
-    public SavesViewModel(ISaveRepository repository, IActivityLog activityLog)
+    public SavesViewModel(ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames)
     {
         _repository = repository;
         _activityLog = activityLog;
+        _gameNames = gameNames;
+        _talentSearchDebounceTimer = new Utilities.DebounceTimer(TimeSpan.FromMilliseconds(250), RefreshTalentFilter);
         RefreshSlots();
+    }
+
+    // --- Flags (character flags on the selected character; account flags on the profile) ---
+
+    public ObservableCollection<SaveFlagViewModel> AccountFlags { get; } = [];
+
+    public ObservableCollection<SaveFlagViewModel> FilteredCharacterFlags { get; } = [];
+
+    public ObservableCollection<SaveFlagViewModel> FilteredAccountFlags { get; } = [];
+
+    [ObservableProperty]
+    private string _flagSearchText = "";
+
+    partial void OnFlagSearchTextChanged(string value) => RefreshFlagFilter();
+
+    private void RefreshFlagFilter()
+    {
+        // 45 + 100 rows — a straight rebuild per keystroke is cheaper than filter plumbing.
+        FilteredCharacterFlags.Clear();
+        foreach (var flag in SelectedCharacter?.Flags ?? [])
+        {
+            if (Matches(flag.Name))
+            {
+                FilteredCharacterFlags.Add(flag);
+            }
+        }
+
+        FilteredAccountFlags.Clear();
+        foreach (var flag in AccountFlags)
+        {
+            if (Matches(flag.Name))
+            {
+                FilteredAccountFlags.Add(flag);
+            }
+        }
+
+        bool Matches(string name) => string.IsNullOrWhiteSpace(FlagSearchText) || name.Contains(FlagSearchText.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    // --- Talents (character talents on the selected character; workshop research on the profile) ---
+
+    public ObservableCollection<SaveTalentViewModel> WorkshopTalents { get; } = [];
+
+    public ObservableCollection<SaveTalentViewModel> FilteredTalents { get; } = [];
+
+    [ObservableProperty]
+    private string _talentSearchText = "";
+
+    /// <summary>Off = only what the character has; on = every talent the game defines, rank 0 included — turning one up grants it.</summary>
+    [ObservableProperty]
+    private bool _showUnlearnedTalents;
+
+    partial void OnTalentSearchTextChanged(string value) => _talentSearchDebounceTimer.Restart();
+
+    partial void OnShowUnlearnedTalentsChanged(bool value) => RefreshTalentFilter();
+
+    private void RefreshTalentFilter()
+    {
+        FilteredTalents.Clear();
+        var search = TalentSearchText.Trim();
+        foreach (var talent in SelectedCharacter?.Talents ?? [])
+        {
+            if (!ShowUnlearnedTalents && !talent.IsLearned && !talent.IsDirty)
+            {
+                continue;
+            }
+
+            if (search.Length == 0
+                || talent.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || talent.RowName.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || talent.Tree.Contains(search, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredTalents.Add(talent);
+            }
+        }
+    }
+
+    partial void OnSelectedCharacterChanged(SaveCharacterViewModel? value)
+    {
+        RefreshFlagFilter();
+        RefreshTalentFilter();
     }
 
     [RelayCommand]
@@ -130,7 +220,7 @@ public sealed partial class SavesViewModel : ObservableObject
 
             foreach (var node in _characterNodes)
             {
-                Characters.Add(new SaveCharacterViewModel(node, NotifyDirtyChanged));
+                Characters.Add(new SaveCharacterViewModel(node, _gameNames, NotifyDirtyChanged));
             }
 
             if (_profile["MetaResources"] is JsonArray resources)
@@ -142,6 +232,8 @@ public sealed partial class SavesViewModel : ObservableObject
                 }
             }
 
+            BuildAccountFlags();
+            BuildWorkshopTalents();
             SelectedCharacter = Characters.FirstOrDefault();
             RefreshBackupsList();
             StatusMessage = null;
@@ -155,6 +247,103 @@ public sealed partial class SavesViewModel : ObservableObject
     }
 
     private void NotifyDirtyChanged() => OnPropertyChanged(nameof(HasUnsavedChanges));
+
+    private void BuildAccountFlags()
+    {
+        AccountFlags.Clear();
+        var unlocked = _profile?["UnlockedFlags"] is JsonArray array
+            ? array.Select(n => n?.GetValue<int>() ?? -1).Where(i => i >= 0).ToHashSet()
+            : [];
+        var count = Math.Max(_gameNames.AccountFlagNames.Count, unlocked.Count > 0 ? unlocked.Max() + 1 : 0);
+        for (var id = 0; id < count; id++)
+        {
+            AccountFlags.Add(new SaveFlagViewModel(id, _gameNames.AccountFlagName(id), unlocked.Contains(id), NotifyDirtyChanged));
+        }
+    }
+
+    private void BuildWorkshopTalents()
+    {
+        WorkshopTalents.Clear();
+        var ranks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (_profile?["Talents"] is JsonArray talentArray)
+        {
+            foreach (var entry in talentArray.OfType<JsonObject>())
+            {
+                if (entry["RowName"]?.GetValue<string>() is { } rowName)
+                {
+                    ranks[rowName] = entry["Rank"]?.GetValue<int>() ?? 0;
+                }
+            }
+        }
+
+        // The profile's own list first (its order), then any Workshop_* talent the game defines
+        // that isn't researched yet — rank one up to research it.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (rowName, rank) in ranks)
+        {
+            WorkshopTalents.Add(new SaveTalentViewModel(rowName, SaveCharacterViewModel.DisplayInfoFor(_gameNames, rowName), rank, NotifyDirtyChanged));
+            seen.Add(rowName);
+        }
+
+        foreach (var (rowName, info) in _gameNames.Talents)
+        {
+            if (rowName.StartsWith("Workshop_", StringComparison.OrdinalIgnoreCase) && !seen.Contains(rowName))
+            {
+                WorkshopTalents.Add(new SaveTalentViewModel(rowName, new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank), 0, NotifyDirtyChanged));
+            }
+        }
+    }
+
+    /// <summary>Writes AccountFlags/WorkshopTalents back into the profile node — the profile-level counterpart of SaveCharacterViewModel.ApplyToNode, same minimal-diff rules.</summary>
+    private void ApplyProfileEdits()
+    {
+        if (_profile is null)
+        {
+            return;
+        }
+
+        var originallyUnlocked = _profile["UnlockedFlags"] is JsonArray array
+            ? array.Select(n => n?.GetValue<int>() ?? -1).Where(i => i >= 0).ToList()
+            : [];
+        var nowUnlocked = AccountFlags.Where(f => f.IsUnlocked).Select(f => f.Id).ToHashSet();
+        var flagArray = new JsonArray();
+        foreach (var id in originallyUnlocked.Where(nowUnlocked.Contains))
+        {
+            flagArray.Add(id);
+        }
+
+        foreach (var id in nowUnlocked.Except(originallyUnlocked).OrderBy(i => i))
+        {
+            flagArray.Add(id);
+        }
+
+        _profile["UnlockedFlags"] = flagArray;
+
+        var byRow = WorkshopTalents.ToDictionary(t => t.RowName, t => t.Rank, StringComparer.OrdinalIgnoreCase);
+        var talentArrayNew = new JsonArray();
+        var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_profile["Talents"] is JsonArray existing)
+        {
+            foreach (var entry in existing.OfType<JsonObject>())
+            {
+                if (entry["RowName"]?.GetValue<string>() is { } rowName && byRow.GetValueOrDefault(rowName) > 0)
+                {
+                    talentArrayNew.Add(new JsonObject { ["RowName"] = rowName, ["Rank"] = byRow[rowName] });
+                    written.Add(rowName);
+                }
+            }
+        }
+
+        foreach (var talent in WorkshopTalents)
+        {
+            if (talent.Rank > 0 && !written.Contains(talent.RowName))
+            {
+                talentArrayNew.Add(new JsonObject { ["RowName"] = talent.RowName, ["Rank"] = talent.Rank });
+            }
+        }
+
+        _profile["Talents"] = talentArrayNew;
+    }
 
     private void RefreshBackupsList()
     {
@@ -285,6 +474,8 @@ public sealed partial class SavesViewModel : ObservableObject
                 currency.ApplyToNode();
             }
 
+            ApplyProfileEdits();
+
             // Characters first, then profile: SaveProfile's own backup then already contains the
             // just-written Characters.json, so the LAST backup zip of the pair is a complete
             // post-characters/pre-profile snapshot rather than two half-states.
@@ -299,6 +490,16 @@ public sealed partial class SavesViewModel : ObservableObject
             foreach (var currency in Currencies)
             {
                 currency.MarkClean();
+            }
+
+            foreach (var flag in AccountFlags)
+            {
+                flag.MarkClean();
+            }
+
+            foreach (var talent in WorkshopTalents)
+            {
+                talent.MarkClean();
             }
 
             OnPropertyChanged(nameof(HasUnsavedChanges));

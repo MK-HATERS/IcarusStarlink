@@ -239,6 +239,7 @@ public partial class App : Application
                     "Icarus", "Saved", "PlayerData"),
                 Path.Combine(appDataDirectory, "Cache", "save_backups"),
                 sp.GetRequiredService<ISteamInstallLocator>()));
+        builder.Services.AddSingleton(new SaveGameNames(Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton<SavesViewModel>();
         builder.Services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<ISettingsService>(),
