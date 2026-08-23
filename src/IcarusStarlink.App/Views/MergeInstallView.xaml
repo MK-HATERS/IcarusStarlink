@@ -369,7 +369,7 @@
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                     </StackPanel>
-                    <ListBox ItemsSource="{Binding MultiplierOptions}" SelectedItem="{Binding StacksMultiplier}"
+                    <ListBox ItemsSource="{Binding MultiplierOptions}" SelectedItem="{Binding StacksMultiplierLevel}"
                              Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -385,7 +385,7 @@
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                     </StackPanel>
-                    <ListBox ItemsSource="{Binding MultiplierOptions}" SelectedItem="{Binding SlotsMultiplier}"
+                    <ListBox ItemsSource="{Binding MultiplierOptions}" SelectedItem="{Binding SlotsMultiplierLevel}"
                              Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
                         <ListBox.ItemTemplate>
                             <DataTemplate>

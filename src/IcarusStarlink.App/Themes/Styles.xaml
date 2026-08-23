@@ -657,12 +657,26 @@
     <!-- Phase 10 redesign: a themed ToolTip so a hint bubble matches the app's own look instead of
          the plain OS default — every existing ToolTip="..." usage across the app picks this up
          automatically since it targets the type, no per-usage change needed. -->
+    <!-- Every ToolTip in this app is set as a plain string ("ToolTip=&quot;...&quot;"), which WPF
+         hosts via its built-in string->TextBlock DataTemplate — that auto-generated TextBlock
+         defaults to NoWrap, so the Border's own MaxWidth constrained the BOX but the text inside
+         just overflowed past it toward the screen edge instead of wrapping (found live: a long
+         hint tooltip near the window's right edge rendered cut off mid-word). ContentTemplate
+         forces every tooltip's content through a wrapping TextBlock explicitly, fixing all of
+         them at once rather than each of the ~50+ call sites individually. -->
     <Style TargetType="{x:Type ToolTip}">
         <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="Padding" Value="9,7"/>
         <Setter Property="HasDropShadow" Value="True"/>
+        <Setter Property="ContentTemplate">
+            <Setter.Value>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap" MaxWidth="280"/>
+                </DataTemplate>
+            </Setter.Value>
+        </Setter>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type ToolTip}">

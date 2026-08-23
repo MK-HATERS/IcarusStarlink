@@ -153,14 +153,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private CraftCostReduction _craftCost;
 
-    /// <summary>Fixed multiplier pills, not free text — classic IMM never documented an exact number for its own Stacks/Slots toggles, but discrete common values (matching the other pill selectors' own UX) beat a bare text box a user has to guess at.</summary>
-    public static IReadOnlyList<double?> MultiplierOptions { get; } = [null, 2, 3, 4, 5, 10];
+    /// <summary>Fixed multiplier pills, not free text — classic IMM never documented an exact number for its own Stacks/Slots toggles, but discrete common values (matching the other pill selectors' own UX) beat a bare text box a user has to guess at. A real (non-nullable) enum, not a `double?` with null="Off": WPF's Selector conflates SelectedItem==null with "nothing selected" rather than "the null item is selected", so a nullable-double pill list never shows Off as highlighted on load — found live, the exact bug this enum avoids.</summary>
+    public static IReadOnlyList<MultiplierLevel> MultiplierOptions { get; } = Enum.GetValues<MultiplierLevel>();
 
     [ObservableProperty]
-    private double? _stacksMultiplier;
+    private MultiplierLevel _stacksMultiplierLevel;
 
     [ObservableProperty]
-    private double? _slotsMultiplier;
+    private MultiplierLevel _slotsMultiplierLevel;
 
     /// <summary>0 = off/unchanged — the Slider's own natural "nothing set" value, so no separate null-state to track the way the multiplier pills need one.</summary>
     [ObservableProperty]
@@ -299,8 +299,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         PlayerBoost = PlayerBoost,
         XpBoost = XpBoost,
         CraftCost = CraftCost,
-        StacksMultiplier = StacksMultiplier,
-        SlotsMultiplier = SlotsMultiplier,
+        StacksMultiplier = StacksMultiplierLevel.ToMultiplier(),
+        SlotsMultiplier = SlotsMultiplierLevel.ToMultiplier(),
         SpeedCraftingReductionPercent = SpeedCraftingPercent > 0 ? SpeedCraftingPercent : null,
         RemoveWeight = RemoveWeight,
         UnlimitedAmmo = UnlimitedAmmo,
@@ -313,8 +313,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         PlayerBoost = options.PlayerBoost;
         XpBoost = options.XpBoost;
         CraftCost = options.CraftCost;
-        StacksMultiplier = options.StacksMultiplier;
-        SlotsMultiplier = options.SlotsMultiplier;
+        StacksMultiplierLevel = MultiplierLevelExtensions.FromMultiplier(options.StacksMultiplier);
+        SlotsMultiplierLevel = MultiplierLevelExtensions.FromMultiplier(options.SlotsMultiplier);
         SpeedCraftingPercent = options.SpeedCraftingReductionPercent is { } percent ? (int)Math.Round(percent) : 0;
         RemoveWeight = options.RemoveWeight;
         UnlimitedAmmo = options.UnlimitedAmmo;
@@ -1333,4 +1333,47 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             InstallStatusMessage = $"Remove failed: {ex.Message}";
         }
     }
+}
+
+/// <summary>
+/// The Stacks/Slots multiplier pills' own fixed values — a UI-only concept, not part of
+/// GameplayOptions itself (that stays a free `double?`, since a hand-edited profile or an imported
+/// patch could carry any positive multiplier, not just one of these five presets). A real enum,
+/// not a `double?` list with null="Off": WPF's Selector treats SelectedItem==null as "nothing
+/// selected" rather than "the null entry is selected", so a nullable-double pill never showed Off
+/// as highlighted on load — a real bug, found live, that this enum sidesteps entirely by giving
+/// "Off" a real, non-null value like every other pill selector on this page already has.
+/// </summary>
+public enum MultiplierLevel
+{
+    Off,
+    Times2,
+    Times3,
+    Times4,
+    Times5,
+    Times10,
+}
+
+public static class MultiplierLevelExtensions
+{
+    public static double? ToMultiplier(this MultiplierLevel level) => level switch
+    {
+        MultiplierLevel.Times2 => 2,
+        MultiplierLevel.Times3 => 3,
+        MultiplierLevel.Times4 => 4,
+        MultiplierLevel.Times5 => 5,
+        MultiplierLevel.Times10 => 10,
+        _ => null,
+    };
+
+    /// <summary>The closest preset for a stored value — an exact match for anything this UI itself ever wrote. A value from outside the preset set (hand-edited JSON, an imported patch) falls back to Off rather than guessing a nearest match, since silently rounding someone's real number to a different one would be worse than just not pre-selecting a pill for it.</summary>
+    public static MultiplierLevel FromMultiplier(double? value) => value switch
+    {
+        2 => MultiplierLevel.Times2,
+        3 => MultiplierLevel.Times3,
+        4 => MultiplierLevel.Times4,
+        5 => MultiplierLevel.Times5,
+        10 => MultiplierLevel.Times10,
+        _ => MultiplierLevel.Off,
+    };
 }
