@@ -50,6 +50,14 @@ public interface ILibraryRepository
     /// </summary>
     void LinkToNexus(string folderName, int nexusModId);
 
+    /// <summary>
+    /// Connects an already-imported mod to its community-catalog entry (sets Source to "Database"
+    /// plus the stable catalog ID) so update checks find it — the Database counterpart of
+    /// LinkToNexus, for mods that arrived some other way than a catalog download (a migration from
+    /// classic IMM, a folder import).
+    /// </summary>
+    void SetCatalogEntry(string folderName, string catalogEntryId);
+
     /// <summary>Snapshots this mod's whole folder before a risky edit — a real point-in-time backup, independent of the EXMOD editor's own transient per-field preview. Keeps the last 5. Returns the backup's own path.</summary>
     string BackupMod(string folderName);
 

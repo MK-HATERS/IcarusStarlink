@@ -235,6 +235,25 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         }
     }
 
+    public void SetCatalogEntry(string folderName, string catalogEntryId)
+    {
+        ResolveFolder(folderName);
+
+        var meta = _metaStore.Load(folderName);
+        meta.CatalogEntryId = catalogEntryId;
+        meta.Source = "Database";
+        _metaStore.Save(folderName, meta);
+
+        // Same surgical cached-entry update LinkToNexus does — nothing about the mod's own files
+        // changed, so a full rescan would be pure waste.
+        var existing = _cachedEntries.Find(e => e.FolderName == folderName);
+        if (existing is not null)
+        {
+            existing.CatalogEntryId = catalogEntryId;
+            existing.Source = "Database";
+        }
+    }
+
     /// <summary>
     /// Snapshots a mod's whole folder before a risky edit — independent of the EXMOD editor's own
     /// per-field "was (before this edit)" preview, which only ever remembers the single most recent

@@ -138,7 +138,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             var manifestPath = WriteManifest(queuedMods, prebuiltPakFilePaths, outputPakPath);
 
             progress?.Report(new RebuildStageProgress("Done.", 100));
-            return new RebuildResult(mergedTables.Count, packedFileCount, outputPakPath, manifestPath, report.Warnings);
+            return new RebuildResult(mergedTables.Count, packedFileCount, outputPakPath, manifestPath, report.Warnings, report.Notes);
         }
         finally
         {

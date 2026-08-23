@@ -27,7 +27,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Import EXMODZ… / Import folder… / Import .pak…** bring a mod in three different ways. A .pak import has no .EXMOD, so it can't be browsed or edited — it's an opaque entry.
             - **New mod…** creates a blank EXMOD (just a name and author) and opens it straight in the editor.
             - Pin/Favorite/Notes are yours to organize with — none of them affect merging.
-            - The ✎ glyph means a mod was edited in the EXMOD editor; 📦 means it's a rebuilt merged pack re-imported as its own entry.
+            - The ✎ glyph means a mod was edited in the EXMOD editor; 📦 means it's a rebuilt merged pak re-imported as its own entry.
             - Several versions of the same mod (different bag sizes, presets, etc.) show up grouped as one family if the EXMOD declares `variantGroup` — expand the group and add whichever variant you want to the queue.
             - The **UE4SS mods** tab is a separate list, covered on its own page below.
             """),
@@ -35,7 +35,7 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Merge & Install", """
             # Merge & Install
 
-            The core workflow: build one merged pack from everything in your queue, then install it into the game.
+            The core workflow: build one merged pak from everything in your queue, then install it into the game.
 
             - Drag mods from your **Library** pane into the **queue** with **Add to queue**. Order matters — later entries win when two mods change the same thing, unless you override that (see Merge conflicts below).
             - **Rebuild** merges the queue against real base game data and packs a `.pak` — this only ever writes to this app's own staging folder, never your game.
@@ -81,14 +81,17 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Coming from classic IMM", """
             # Coming from classic IMM
 
-            Already using Jimk72's Icarus Mod Manager? You don't have to rebuild your setup by hand.
+            Already using Jimk72's Icarus Mod Manager? Bring the whole setup across in one click — you don't have to re-download anything or rebuild your mod list by hand.
 
-            **Bring your merged mod list across:**
+            **The one-click migration:**
 
-            - In **Merge & Install**, click **Import IMM mod list…** and pick classic IMM's own `LastMergedMods.txt` (in its install folder), or the `IMM_Merged_Mod.txt` sitting next to the pak it installed into your game.
-            - Every mod in that list that's already in your Library gets queued, in the same order. Anything it can't match is reported by name rather than silently dropped, so you know exactly what's left to get.
-            - For the ones it couldn't match: get them from **Downloads**, then import the list again. If a mod is in your Library under a different name, right-click it → **Rename…**, or **Link to Nexus ID…** so update checks find it.
-            - Then click **Install** as usual. Your existing classic-IMM pak is backed up before it's replaced.
+            - In **Settings**, under **Migrate from classic IMM**, click **Import IMM mod list…** and pick classic IMM's own `LastMergedMods.txt` (in its install folder). If you pick the `IMM_Merged_Mod.txt` from your game's Paks\mods folder instead, you'll be asked to point at your IMM folder too, since the mods themselves aren't stored near it.
+            - Every mod on that list is copied straight out of IMM's own folder into your Library — offline, instantly, and at exactly the versions you were already running.
+            - Each mod is matched against the community database and, failing that, searched for on Nexus, so update checks work from day one. Mods that can't be identified still work fine; they just won't check for updates until you right-click → **Link to Nexus ID…**.
+            - Your merge list is rebuilt in **Merge & Install** in the same order, so you can click **Install** immediately.
+            - Anything that couldn't be found is listed by name rather than silently dropped — get those from **Downloads**, then run the migration again.
+
+            Classic IMM's own files are only ever read. Your existing classic-IMM pak is backed up before this app replaces it.
 
             **Check the two tools agree (optional, but reassuring):**
 

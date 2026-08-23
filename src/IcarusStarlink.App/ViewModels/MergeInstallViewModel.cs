@@ -229,6 +229,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             _ = ((MergeInstallViewModel)recipient).RefreshHasExistingInstallAsync();
         });
 
+
         _ = RefreshHasExistingInstallAsync();
     }
 
@@ -264,7 +265,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// be added to Queue: Rebuild unpacks it and folds its contents into the same merged pak
     /// instead of field-merging it (see RebuildService/LoadQueuedPackagesAsync).
     /// </summary>
-    private void ReloadLibrary()
+    public void ReloadLibrary()
     {
         var groups = VariantGrouping.Group(_libraryRepository.GetAll())
             .OrderBy(g => g.DisplayName, StringComparer.OrdinalIgnoreCase);
@@ -609,9 +610,20 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             return;
         }
 
+        LoadModListFromFile(dialog.FileName);
+    }
+
+    /// <summary>
+    /// The queue-rebuilding half of Import IMM mod list, separated from its own file dialog so the
+    /// classic-IMM migration (Settings) can finish the job it starts: bringing the mods over is
+    /// only half a migration — the user's actual merge list, in its real order, is the other half,
+    /// and having to rebuild that by hand is exactly what migrating is supposed to avoid.
+    /// </summary>
+    public void LoadModListFromFile(string modListPath)
+    {
         try
         {
-            var names = ModListText.ParseNames(File.ReadAllText(dialog.FileName));
+            var names = ModListText.ParseNames(File.ReadAllText(modListPath));
             if (names.Count == 0)
             {
                 StatusMessage = "That file has no mod names in it.";
@@ -1006,6 +1018,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             foreach (var warning in result.Warnings)
             {
                 Warnings.Add(warning);
+            }
+
+            // Notes go in the same list, prefixed rather than styled separately: they're read at
+            // the same moment for the same reason ("did anything about this build need my
+            // attention?"), and the prefix keeps "this is fine" distinguishable from "this failed".
+            foreach (var note in result.Notes)
+            {
+                Warnings.Add($"Note: {note}");
             }
 
             var pickNote = _manualPicks is { Count: > 0 } picks ? $", {picks.Count} conflict(s) manually resolved" : "";

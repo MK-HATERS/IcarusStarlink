@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
@@ -13,6 +14,7 @@ using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog.AppUpdate;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Catalog.Ue4ss;
+using IcarusStarlink.Core.Migration;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
@@ -40,6 +42,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly HttpClient _httpClient;
     private readonly IThemeService _themeService;
     private readonly ICustomSkinStore _customSkinStore;
+    private readonly ImmMigrationService _immMigrationService;
+
+    /// <summary>Resolved lazily (not injected directly) purely to avoid forcing Merge &amp; Install's own construction — with its Library scan and catalog wiring — every time Settings is opened.</summary>
+    private readonly Func<MergeInstallViewModel> _mergeInstallViewModel;
     private readonly string _backupDirectory;
     private readonly string _dataOutputDirectory;
     private readonly string _logsDirectory;
@@ -151,7 +157,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         ISteamInstallLocator steamInstallLocator, ICredentialStore credentialStore, INexusApiClient nexusApiClient,
         INxmProtocolRegistrar nxmProtocolRegistrar, IUe4ssLoaderInstallService ue4ssLoaderInstallService,
         IUe4ssReleaseClient ue4ssReleaseClient, IAppUpdateClient appUpdateClient, HttpClient httpClient,
-        IThemeService themeService, ICustomSkinStore customSkinStore,
+        IThemeService themeService, ICustomSkinStore customSkinStore, ImmMigrationService immMigrationService,
+        Func<MergeInstallViewModel> mergeInstallViewModel,
         string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath)
     {
         _settingsService = settingsService;
@@ -167,6 +174,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         _httpClient = httpClient;
         _themeService = themeService;
         _customSkinStore = customSkinStore;
+        _immMigrationService = immMigrationService;
+        _mergeInstallViewModel = mergeInstallViewModel;
         _backupDirectory = backupDirectory;
         _dataOutputDirectory = dataOutputDirectory;
         _logsDirectory = logsDirectory;
@@ -191,6 +200,147 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ = CheckForAppUpdatesOnLaunchAsync();
 
         LoadSkinTokens();
+    }
+
+    // --- Migrate from classic IMM ---
+
+    [ObservableProperty]
+    private bool _isMigratingFromImm;
+
+    /// <summary>Computed bool rather than an inverting converter — the same pattern CanCheckForAppUpdates already uses, and the one this codebase settled on after repeated trouble with converter parameters.</summary>
+    public bool CanMigrateFromImm => !IsMigratingFromImm;
+
+    partial void OnIsMigratingFromImmChanged(bool value) => OnPropertyChanged(nameof(CanMigrateFromImm));
+
+    [ObservableProperty]
+    private string? _migrationStatusMessage;
+
+    /// <summary>Optional — left empty, the classic IMM folder is worked out from wherever the picked mod list lives. Set it when your install isn't laid out that way (or just to be explicit).</summary>
+    [ObservableProperty]
+    private string? _immFolderPath;
+
+    [RelayCommand]
+    private void BrowseImmFolder()
+    {
+        var dialog = new OpenFolderDialog { Title = "Select your classic IMM folder (the one containing Extracted_Mods)" };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        ImmFolderPath = dialog.FolderName;
+        MigrationStatusMessage = ImmInstallPaths.LooksLikeInstallRoot(dialog.FolderName)
+            ? "Classic IMM folder set — now pick its mod list."
+            : $"Careful: that folder has no Extracted_Mods + {ImmExtractedMods.FileName} in it, so it may not be a classic IMM install.";
+    }
+
+    public ObservableCollection<string> MigrationResults { get; } = [];
+
+    public bool HasMigrationResults => MigrationResults.Count > 0;
+
+    /// <summary>
+    /// One-click migration: pick a classic IMM merge list, and every mod it names is copied out of
+    /// IMM's own Extracted_Mods folder into this Library, linked to its Database or Nexus source
+    /// where that can be determined, and finally queued in Merge &amp; Install in the list's own
+    /// order — so the user's existing merge setup comes across whole instead of being rebuilt by
+    /// hand.
+    /// </summary>
+    [RelayCommand]
+    private async Task ImportImmModListAsync()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Pick your classic IMM mod list (LastMergedMods.txt or IMM_Merged_Mod.txt)",
+            Filter = "Mod list (*.txt)|*.txt|All files (*.*)|*.*",
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        // An explicitly-chosen folder always wins — nobody's IMM install has to live where anyone
+        // else's does, and auto-detection only works when the list happens to sit inside it.
+        var installRoot = !string.IsNullOrWhiteSpace(ImmFolderPath) && ImmInstallPaths.LooksLikeInstallRoot(ImmFolderPath)
+            ? ImmFolderPath
+            : ImmInstallPaths.FindInstallRoot(dialog.FileName);
+
+        if (installRoot is null)
+        {
+            // A list taken from the game's own Paks\mods folder has no IMM install anywhere near
+            // it, so the mods themselves can't be found without being told where they live.
+            MigrationStatusMessage = "That list isn't inside a classic IMM folder — pick your Icarus Software folder so the mods can be found.";
+            var folderDialog = new OpenFolderDialog { Title = "Select your classic IMM folder (the one containing Extracted_Mods)" };
+            if (folderDialog.ShowDialog() != true)
+            {
+                MigrationStatusMessage = null;
+                return;
+            }
+
+            if (!ImmInstallPaths.LooksLikeInstallRoot(folderDialog.FolderName))
+            {
+                MigrationStatusMessage = $"'{folderDialog.FolderName}' doesn't look like a classic IMM folder — it needs an Extracted_Mods folder and an {ImmExtractedMods.FileName} file.";
+                return;
+            }
+
+            installRoot = folderDialog.FolderName;
+        }
+
+        // Shown back in the box so it's visible what was used, and reusable next time.
+        ImmFolderPath = installRoot;
+
+        IsMigratingFromImm = true;
+        MigrationResults.Clear();
+        OnPropertyChanged(nameof(HasMigrationResults));
+
+        try
+        {
+            var progress = new Progress<string>(message => MigrationStatusMessage = message);
+            var result = await _immMigrationService.MigrateAsync(dialog.FileName, installRoot, progress);
+
+            foreach (var mod in result.Mods)
+            {
+                MigrationResults.Add(mod.Display);
+            }
+
+            OnPropertyChanged(nameof(HasMigrationResults));
+
+            // The mods are here; now bring the merge list itself across, which is the half that
+            // actually saves the user rebuilding their setup. Resolved directly rather than
+            // announced by message: page ViewModels are constructed lazily on first navigation,
+            // so a user who migrates before ever opening Merge & Install would have no instance
+            // listening, and the queue would silently stay empty (found live).
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            var mergeInstall = _mergeInstallViewModel();
+            mergeInstall.ReloadLibrary();
+            mergeInstall.LoadModListFromFile(dialog.FileName);
+
+            var linked = new List<string>();
+            if (result.LinkedToDatabaseCount > 0)
+            {
+                linked.Add($"{result.LinkedToDatabaseCount} linked to the mod database");
+            }
+
+            if (result.LinkedToNexusCount > 0)
+            {
+                linked.Add($"{result.LinkedToNexusCount} linked to Nexus");
+            }
+
+            var missing = result.MissingCount + result.FailedCount;
+            MigrationStatusMessage =
+                $"Brought over {result.ImportedCount} mod(s)"
+                + (result.AlreadyPresentCount > 0 ? $", {result.AlreadyPresentCount} already here" : "")
+                + (linked.Count > 0 ? $" ({string.Join(", ", linked)})" : "")
+                + (missing > 0 ? $" — {missing} couldn't be found, see the list below." : ".")
+                + " Your merge list is now queued in Merge & Install.";
+        }
+        catch (Exception ex)
+        {
+            MigrationStatusMessage = $"Migration failed: {ex.Message}";
+        }
+        finally
+        {
+            IsMigratingFromImm = false;
+        }
     }
 
     // --- Custom skin (big-plan item 6) ---

@@ -146,6 +146,7 @@ public partial class App : Application
         builder.Services.AddSingleton<IInstallService, InstallService>();
         builder.Services.AddSingleton<IPakCompareService, PakCompareService>();
         builder.Services.AddSingleton<IModVersionComparer, ModVersionComparer>();
+        builder.Services.AddSingleton<ImmMigrationService>();
         builder.Services.AddSingleton<IProfileStore>(sp =>
             new ProfileStore(
                 Path.Combine(appDataDirectory, "Profiles"),
@@ -242,6 +243,8 @@ public partial class App : Application
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<IThemeService>(),
             sp.GetRequiredService<ICustomSkinStore>(),
+            sp.GetRequiredService<ImmMigrationService>(),
+            sp.GetRequiredService<MergeInstallViewModel>,
             Path.Combine(appDataDirectory, "Backups"),
             Path.Combine(appDataDirectory, "Data"),
             logsDirectory,

@@ -15,6 +15,15 @@ public static class TableApplier
     {
         var result = baseTable.DeepClone()!.AsObject();
 
+        // Reported once per item rather than once per field: an EXMOD-sourced change always
+        // carries IsNewItem: true (the format doesn't record whether the row existed when the mod
+        // was made), so without this a mod whose target row a game patch RENAMED OR REMOVED
+        // silently gets a half-formed row invented for it — no error, just content that quietly
+        // doesn't work in game. Surfacing it is the only way a user can tell "this mod adds new
+        // content" from "this mod is out of date for this game version".
+        var createdItems = new HashSet<string>(StringComparer.Ordinal);
+        var createdItemFieldCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+
         foreach (var change in changes)
         {
             if (result[change.ItemName] is not JsonObject row)
@@ -28,6 +37,13 @@ public static class TableApplier
 
                 row = new JsonObject();
                 result[change.ItemName] = row;
+                createdItems.Add($"{change.CurrentFile}|{change.ItemName}");
+            }
+
+            var createdKey = $"{change.CurrentFile}|{change.ItemName}";
+            if (createdItems.Contains(createdKey))
+            {
+                createdItemFieldCounts[createdKey] = createdItemFieldCounts.GetValueOrDefault(createdKey) + 1;
             }
 
             // IsFieldRemoved (not NewValue == null — see FieldChange) distinguishes "remove the
@@ -40,6 +56,22 @@ public static class TableApplier
             {
                 row[change.FieldName] = change.NewValue?.DeepClone();
             }
+        }
+
+        foreach (var createdKey in createdItems)
+        {
+            var separator = createdKey.IndexOf('|');
+            var currentFile = createdKey[..separator];
+            var itemName = createdKey[(separator + 1)..];
+            var fieldCount = createdItemFieldCounts.GetValueOrDefault(createdKey);
+
+            // Deliberately not phrased as an error — adding new content is exactly what many mods
+            // legitimately do. The field count is the useful signal: a real new item defines many
+            // fields, while one or two usually means a mod editing a row this game version no
+            // longer has.
+            report?.AddNote(
+                $"'{itemName}' isn't in the game's current {currentFile} — created as a new item ({fieldCount} field(s)). "
+                + "That's normal for a mod that adds content; if this mod only meant to edit existing items, it's likely out of date for this game version and needs editing.");
         }
 
         return result;

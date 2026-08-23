@@ -16,27 +16,12 @@ public static class MergeEngine
         MergeRuleRegistry registry,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null)
     {
-        var groups = new Dictionary<(string CurrentFile, string ItemName, string FieldName), List<FieldChange>>(FieldChangeKeyComparer.Instance);
-
-        foreach (var modChanges in orderedModChanges)
-        {
-            foreach (var change in modChanges)
-            {
-                var key = (change.CurrentFile, change.ItemName, change.FieldName);
-                if (!groups.TryGetValue(key, out var list))
-                {
-                    list = [];
-                    groups[key] = list;
-                }
-
-                list.Add(change);
-            }
-        }
-
+        var groups = GroupByField(orderedModChanges);
         var resolved = new List<FieldChange>(groups.Count);
 
-        foreach (var (key, changes) in groups)
+        foreach (var (key, perMod) in groups)
         {
+            var changes = perMod.Select(c => c.Change).ToList();
             if (manualPicks is not null && manualPicks.TryGetValue(key, out var pickedIndex))
             {
                 if (pickedIndex < 0 || pickedIndex >= changes.Count)
@@ -62,14 +47,13 @@ public static class MergeEngine
     }
 
     /// <summary>
-    /// Finds every field two or more of orderedModChanges' mods touch with genuinely different
-    /// values — the set a human might want to review before Rebuild, via the advanced conflict
-    /// picker Merge's own manualPicks parameter feeds into. A field only both mods happen to set to
-    /// the identical value isn't included: there's nothing to pick between. modNames must be the
-    /// same length as orderedModChanges, in the same queue order (index 0 = lowest priority) — each
-    /// returned FieldConflict.Candidates is built by walking both lists together, so a picked
-    /// Candidates[i] lines up with the pickedIndex Merge itself expects only when Merge is later
-    /// called with this exact same orderedModChanges (same mods, same order, same queue snapshot).
+    /// Finds every field two or more DIFFERENT mods touch with genuinely different values — the set
+    /// a human might want to review before Rebuild, via the advanced conflict picker Merge's own
+    /// manualPicks parameter feeds into. A field several mods happen to set to the identical value
+    /// isn't included: there's nothing to pick between. modNames must be the same length as
+    /// orderedModChanges, in the same queue order (index 0 = lowest priority) — a picked
+    /// Candidates[i] lines up with the pickedIndex Merge expects because both methods group through
+    /// the same GroupByField, so they always produce the same one-entry-per-mod ordering.
     /// </summary>
     public static IReadOnlyList<FieldConflict> FindConflicts(
         IReadOnlyList<string> modNames, IReadOnlyList<IReadOnlyList<FieldChange>> orderedModChanges)
@@ -79,7 +63,31 @@ public static class MergeEngine
             throw new ArgumentException("modNames must have exactly one entry per orderedModChanges entry.", nameof(modNames));
         }
 
-        var groups = new Dictionary<(string CurrentFile, string ItemName, string FieldName), List<ConflictCandidate>>(FieldChangeKeyComparer.Instance);
+        return [.. GroupByField(orderedModChanges)
+            .Select(kv => (kv.Key, Candidates: kv.Value.Select(c => new ConflictCandidate(modNames[c.ModIndex], c.Change)).ToList()))
+            .Where(g => g.Candidates.Count > 1
+                        && !g.Candidates.All(c => JsonNode.DeepEquals(c.Change.NewValue, g.Candidates[0].Change.NewValue)))
+            .Select(g => new FieldConflict(g.Key.CurrentFile, g.Key.ItemName, g.Key.FieldName, g.Candidates))];
+    }
+
+    /// <summary>
+    /// Groups every mod's changes by (file, item, field), keeping AT MOST ONE entry per mod — the
+    /// last value that mod itself supplies for that field.
+    ///
+    /// The one-per-mod part matters, and was learned from real mod data: a single .EXMOD's
+    /// File_Items list can name the same item more than once (a real example — laanp-ExtraDeployables
+    /// lists Prop_PaperTowels twice, with different recipe Inputs). Those duplicates are not a merge
+    /// conflict anyone can resolve — no user can "pick between" one mod and itself — and the merged
+    /// output only ever holds one value per field anyway, since TableApplier assigns
+    /// [item][field] and the last assignment wins. Collapsing here makes that explicit, keeps the
+    /// conflict picker showing only genuine mod-vs-mod disagreements, and — because Merge and
+    /// FindConflicts both group through this one method — guarantees a picked candidate index still
+    /// means the same thing to both.
+    /// </summary>
+    private static Dictionary<(string CurrentFile, string ItemName, string FieldName), List<(int ModIndex, FieldChange Change)>> GroupByField(
+        IReadOnlyList<IReadOnlyList<FieldChange>> orderedModChanges)
+    {
+        var groups = new Dictionary<(string CurrentFile, string ItemName, string FieldName), List<(int ModIndex, FieldChange Change)>>(FieldChangeKeyComparer.Instance);
 
         for (var i = 0; i < orderedModChanges.Count; i++)
         {
@@ -92,12 +100,20 @@ public static class MergeEngine
                     groups[key] = list;
                 }
 
-                list.Add(new ConflictCandidate(modNames[i], change));
+                // Same mod touching this field again: replace its own earlier entry rather than
+                // adding a second candidate for it, preserving its position in queue order.
+                var existingIndex = list.FindIndex(c => c.ModIndex == i);
+                if (existingIndex >= 0)
+                {
+                    list[existingIndex] = (i, change);
+                }
+                else
+                {
+                    list.Add((i, change));
+                }
             }
         }
 
-        return [.. groups
-            .Where(kv => kv.Value.Count > 1 && !kv.Value.All(c => JsonNode.DeepEquals(c.Change.NewValue, kv.Value[0].Change.NewValue)))
-            .Select(kv => new FieldConflict(kv.Key.CurrentFile, kv.Key.ItemName, kv.Key.FieldName, kv.Value))];
+        return groups;
     }
 }

@@ -138,7 +138,7 @@
                 </Grid.RowDefinitions>
 
                 <DockPanel Grid.Row="0" Margin="0,0,0,6" LastChildFill="False">
-                    <TextBlock DockPanel.Dock="Left" Text="Mods in merged pack (later mods win conflicts)" Style="{StaticResource FieldLabelStyle}"/>
+                    <TextBlock DockPanel.Dock="Left" Text="Mods in merged pak (later mods win conflicts)" Style="{StaticResource FieldLabelStyle}"/>
                     <!-- Phase 10: a proactive conflict-count badge — surfaces a problem before the
                          user thinks to click Review conflicts. -->
                     <Border DockPanel.Dock="Right" Background="{DynamicResource DangerSoftBrush}" CornerRadius="9" Padding="7,1"

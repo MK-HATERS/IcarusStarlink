@@ -699,20 +699,37 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void DeleteSelected()
+    private void DeleteSelected() => DeleteMod(SelectedItem);
+
+    /// <summary>The context-menu counterpart of DeleteSelected — takes the clicked row directly, so deleting doesn't require selecting first.</summary>
+    [RelayCommand]
+    private void DeleteItem(LibraryItemViewModel? item) => DeleteMod(item);
+
+    private void DeleteMod(LibraryItemViewModel? item)
     {
-        if (SelectedItem is null)
+        if (item is null)
         {
             return;
         }
 
-        var name = SelectedItem.Name;
+        // Deleting removes the mod's real folder from disk and can't be undone from here — and a
+        // right-click menu is far easier to hit by accident than the detail pane's own button, so
+        // both paths ask, matching how every other irreversible action in this app behaves.
+        var confirm = MessageBox.Show(
+            $"Delete '{item.Name}' from your Library?\n\nIts folder is removed from disk. This can't be undone (unless you made a backup first).",
+            "Delete mod", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        var name = item.Name;
         // Cancel first: a pending debounced notes save firing after Delete() below could write
         // this entry's metadata into a different mod that reuses the same freed folder name.
-        SelectedItem.CancelPendingSave();
+        item.CancelPendingSave();
         try
         {
-            _repository.Delete(SelectedItem.FolderName);
+            _repository.Delete(item.FolderName);
         }
         catch (Exception ex)
         {
@@ -724,7 +741,11 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        SelectedItem = null;
+        if (SelectedItem == item)
+        {
+            SelectedItem = null;
+        }
+
         StatusMessage = $"Deleted '{name}'.";
         Reload();
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());

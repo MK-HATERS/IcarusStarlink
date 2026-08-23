@@ -147,6 +147,42 @@
                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
         </StackPanel>
 
+        <TextBlock Text="Migrate from classic IMM" Style="{StaticResource FieldLabelStyle}"/>
+        <TextBlock Text="Already using Jimk72's Icarus Mod Manager? Pick its merged mod list and everything comes across in one go: each mod is copied out of IMM's own folder into your Library, linked to the mod database or Nexus where that can be worked out, and your merge list is rebuilt in Merge &amp; Install in the same order — nothing to re-pick by hand. Classic IMM's own files are only read, never changed."
+                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="600"/>
+        <DockPanel Margin="0,0,0,10">
+            <Button Command="{Binding BrowseImmFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0" AutomationProperties.Name="Browse IMM folder">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Browse…" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <Grid>
+                <TextBox Text="{Binding ImmFolderPath, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="Optional — leave empty and this is worked out from wherever the mod list you pick lives. Set it if your IMM install is somewhere else."/>
+                <TextBlock Text="Classic IMM folder (optional — found automatically from the mod list)"
+                           Style="{StaticResource PlaceholderTextStyle}"
+                           Visibility="{Binding ImmFolderPath, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+            </Grid>
+        </DockPanel>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+            <Button Command="{Binding ImportImmModListCommand}" IsEnabled="{Binding CanMigrateFromImm}"
+                    AutomationProperties.Name="Import IMM mod list"
+                    ToolTip="Pick LastMergedMods.txt from your classic IMM folder (or the IMM_Merged_Mod.txt next to the pak it installed into your game)">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Import IMM mod list…" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <TextBlock Text="{Binding MigrationStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="420"
+                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+        </StackPanel>
+        <ListBox ItemsSource="{Binding MigrationResults}" MaxHeight="180" Margin="0,0,0,20" FontSize="12"
+                 Visibility="{Binding HasMigrationResults, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
         <TextBlock Text="Diagnostics &amp; safety" Style="{StaticResource FieldLabelStyle}"/>
         <TextBlock Text="If you run into a bug, export a diagnostics zip (logs + sanitized settings, never API keys or tokens) to attach to your report."
                    Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap" MaxWidth="560"/>

@@ -39,6 +39,10 @@ public class MultiFileMergerTests
         var mergedFiles = MultiFileMerger.Apply(baseTablesByFile, resolved, report);
 
         Assert.Empty(report.Warnings);
+        // Mod A adds LaserSwordRecipe, which base data doesn't have — reported as a note, not a
+        // warning: it's exactly what an add-content mod is supposed to do, but it's also the only
+        // visible symptom of a mod gone stale against a newer game version, so it isn't silent.
+        Assert.Contains(report.Notes, n => n.Contains("LaserSwordRecipe", StringComparison.Ordinal));
         Assert.Equal(2, mergedFiles.Count);
         Assert.Equal(25, mergedFiles["Items-D_ItemsStatic.json"]["Sword"]!["Damage"]!.GetValue<int>());
         Assert.Equal(1, mergedFiles["Crafting-D_ProcessorRecipes.json"]["SwordRecipe"]!["CraftTime"]!.GetValue<int>());
