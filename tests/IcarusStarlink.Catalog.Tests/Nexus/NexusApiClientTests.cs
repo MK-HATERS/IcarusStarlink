@@ -346,7 +346,8 @@ public class NexusApiClientTests
         {
             ["https://api.nexusmods.com/v2/graphql"] = """
                 {"data":{"mods":{"nodes":[
-                  {"modId":9,"name":"zenProgression","version":"1.1","summary":"s","pictureUrl":null,"author":"zen"},
+                  {"modId":9,"name":"zenProgression","version":"1.1","summary":"s","pictureUrl":null,"author":"zen",
+                   "createdAt":"2021-12-12T10:00:00Z","updatedAt":"2026-08-01T09:30:00Z"},
                   {"modId":22,"name":"Caramel Stack size Plus","version":"18","summary":null,"pictureUrl":null,"author":"Caramel"}
                 ],"totalCount":229}}}
                 """,
@@ -357,6 +358,12 @@ public class NexusApiClientTests
         Assert.Equal(2, page.Mods.Count);
         Assert.Equal(9, page.Mods[0].ModId);
         Assert.Equal(229, page.TotalCount);
+        // The dates parse (GraphQL createdAt/updatedAt, ISO 8601) and the card line reflects both;
+        // a node without them yields null so the UI hides the line rather than showing "published ".
+        Assert.Equal(new DateTimeOffset(2021, 12, 12, 10, 0, 0, TimeSpan.Zero), page.Mods[0].CreatedAt);
+        Assert.Contains("published", page.Mods[0].DatesDisplay);
+        Assert.Contains("updated", page.Mods[0].DatesDisplay);
+        Assert.Null(page.Mods[1].DatesDisplay);
     }
 
     [Fact]

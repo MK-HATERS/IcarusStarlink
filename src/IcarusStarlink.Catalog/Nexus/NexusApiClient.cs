@@ -124,7 +124,8 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
     // content, not an API quirk — decoded here, at the boundary, rather than leaking raw HTML
     // entities into a plain-text UI (Library's detail pane) that never otherwise deals in HTML.
     private static NexusModInfo ToModInfo(ModInfoResponseDto dto) => new(
-        dto.ModId, WebUtility.HtmlDecode(dto.Name), dto.Author, WebUtility.HtmlDecode(dto.Summary), dto.Version, dto.PictureUrl);
+        dto.ModId, WebUtility.HtmlDecode(dto.Name), dto.Author, WebUtility.HtmlDecode(dto.Summary), dto.Version, dto.PictureUrl,
+        dto.CreatedTime, dto.UpdatedTime);
 
     public async Task<IReadOnlyList<NexusModFile>> GetModFilesAsync(
         string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
@@ -211,6 +212,12 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
         [JsonPropertyName("picture_url")]
         public string? PictureUrl { get; init; }
+
+        [JsonPropertyName("created_time")]
+        public DateTimeOffset? CreatedTime { get; init; }
+
+        [JsonPropertyName("updated_time")]
+        public DateTimeOffset? UpdatedTime { get; init; }
     }
 
     public async Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(
@@ -224,7 +231,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         // available anyway, since authenticated requests get the account's own rate limits.
         var payload = new Dictionary<string, object?>
         {
-            ["query"] = "query Search($filter: ModsFilter, $count: Int) { mods(filter: $filter, count: $count) { nodes { modId name version summary pictureUrl author } totalCount } }",
+            ["query"] = "query Search($filter: ModsFilter, $count: Int) { mods(filter: $filter, count: $count) { nodes { modId name version summary pictureUrl author createdAt updatedAt } totalCount } }",
             ["variables"] = new Dictionary<string, object?>
             {
                 ["filter"] = new Dictionary<string, object?>
@@ -247,7 +254,8 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         var dto = await response.Content.ReadFromJsonAsync<GraphResponseDto>(cancellationToken);
 
         return [.. (dto?.Data?.Mods?.Nodes ?? []).Select(n => new NexusModInfo(
-            n.ModId, WebUtility.HtmlDecode(n.Name), n.Author, WebUtility.HtmlDecode(n.Summary), n.Version, n.PictureUrl))];
+            n.ModId, WebUtility.HtmlDecode(n.Name), n.Author, WebUtility.HtmlDecode(n.Summary), n.Version, n.PictureUrl,
+            n.CreatedAt, n.UpdatedAt))];
     }
 
     public async Task<NexusModPage> ListAllModsAsync(
@@ -258,7 +266,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         // real endpoint (icarus answered 229 total, page slices genuinely advanced) — not guessed.
         var payload = new Dictionary<string, object?>
         {
-            ["query"] = "query All($filter: ModsFilter, $count: Int, $offset: Int, $sort: [ModsSort!]) { mods(filter: $filter, count: $count, offset: $offset, sort: $sort) { nodes { modId name version summary pictureUrl author } totalCount } }",
+            ["query"] = "query All($filter: ModsFilter, $count: Int, $offset: Int, $sort: [ModsSort!]) { mods(filter: $filter, count: $count, offset: $offset, sort: $sort) { nodes { modId name version summary pictureUrl author createdAt updatedAt } totalCount } }",
             ["variables"] = new Dictionary<string, object?>
             {
                 ["filter"] = new Dictionary<string, object?>
@@ -282,7 +290,8 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         var dto = await response.Content.ReadFromJsonAsync<GraphResponseDto>(cancellationToken);
 
         var mods = (dto?.Data?.Mods?.Nodes ?? []).Select(n => new NexusModInfo(
-            n.ModId, WebUtility.HtmlDecode(n.Name), n.Author, WebUtility.HtmlDecode(n.Summary), n.Version, n.PictureUrl)).ToList();
+            n.ModId, WebUtility.HtmlDecode(n.Name), n.Author, WebUtility.HtmlDecode(n.Summary), n.Version, n.PictureUrl,
+            n.CreatedAt, n.UpdatedAt)).ToList();
         return new NexusModPage(mods, dto?.Data?.Mods?.TotalCount ?? mods.Count);
     }
 
@@ -354,5 +363,11 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
         [JsonPropertyName("author")]
         public string Author { get; init; } = "";
+
+        [JsonPropertyName("createdAt")]
+        public DateTimeOffset? CreatedAt { get; init; }
+
+        [JsonPropertyName("updatedAt")]
+        public DateTimeOffset? UpdatedAt { get; init; }
     }
 }

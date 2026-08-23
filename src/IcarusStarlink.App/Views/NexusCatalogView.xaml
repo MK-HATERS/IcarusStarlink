@@ -97,9 +97,12 @@
                                             <TextBlock Text="Update" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
                                         </Border>
                                     </StackPanel>
-                                    <TextBlock Margin="0,1,0,6" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                                    <TextBlock Margin="0,1,0,0" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
                                         <Run Text="{Binding Mod.Author, Mode=OneWay}"/><Run Text=" · v"/><Run Text="{Binding Mod.Version, Mode=OneWay}"/>
                                     </TextBlock>
+                                    <TextBlock Text="{Binding Mod.DatesDisplay}" Margin="0,1,0,6" FontSize="10.5"
+                                               Foreground="{DynamicResource FaintForegroundBrush}"
+                                               Visibility="{Binding Mod.DatesDisplay, Converter={StaticResource NullToVisibilityConverter}}"/>
                                     <TextBlock Text="{Binding Mod.Summary}" Style="{StaticResource PageBodyTextStyle}" FontSize="12"
                                                TextWrapping="Wrap" MaxHeight="52" ClipToBounds="True" ToolTip="{Binding Mod.Summary}"/>
                                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
