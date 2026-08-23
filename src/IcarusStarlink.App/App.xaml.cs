@@ -199,7 +199,7 @@ public partial class App : Application
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<IPendingDownloadStore>(),
             sp.GetRequiredService<IModVersionComparer>(),
-            sp.GetRequiredService<DownloadsViewModel>,
+            sp.GetRequiredService<DownloadsViewModel>(),
             sp.GetRequiredService<NexusCatalogViewModel>,
             sp.GetRequiredService<IActiveDownloadsTracker>(),
             Path.Combine(appDataDirectory, "Backups")));
@@ -331,11 +331,14 @@ public partial class App : Application
             MainWindow.Activate();
         }
 
+        // The pending-downloads / Fetch pipeline lives on Library's own Mods tab now — land there
+        // (tab index 0) instead of the removed standalone Downloads page.
         var mainViewModel = _host.Services.GetRequiredService<MainViewModel>();
-        mainViewModel.SelectedNavItem = mainViewModel.NavItems.First(item => item.Id == "downloads");
+        mainViewModel.SelectedNavItem = mainViewModel.NavItems.First(item => item.Id == "library");
 
-        var downloadsViewModel = _host.Services.GetRequiredService<DownloadsViewModel>();
-        _ = downloadsViewModel.FetchAndDownloadAsync(nxmUrl);
+        var libraryViewModel = _host.Services.GetRequiredService<LibraryViewModel>();
+        libraryViewModel.SelectedTabIndex = 0;
+        _ = libraryViewModel.Downloads.FetchAndDownloadAsync(nxmUrl);
     }
 
     protected override void OnExit(ExitEventArgs e)

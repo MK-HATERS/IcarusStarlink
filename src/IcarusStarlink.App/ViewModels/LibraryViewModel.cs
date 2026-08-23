@@ -42,9 +42,14 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IPendingDownloadStore _pendingDownloadStore;
     private readonly IModVersionComparer _modVersionComparer;
 
-    /// <summary>Resolved lazily so opening Library doesn't force the whole Downloads/Nexus stack (catalog fetches, API clients) to construct alongside it.</summary>
-    private readonly Func<DownloadsViewModel> _downloadsViewModel;
+    /// <summary>The IMM Database tab now lives directly on this page (folded in from the former standalone Downloads page), so DownloadsViewModel is needed immediately on Library's own first render — no more lazy resolution for this one. Nexus stays its own separate page and stays lazy.</summary>
+    public DownloadsViewModel Downloads { get; }
+
     private readonly Func<NexusCatalogViewModel> _nexusCatalogViewModel;
+
+    /// <summary>0 = Mods, 1 = UE4SS mods, 2 = IMM Database — set programmatically by "Find in Database" (a Library row's own context-menu action) to jump straight to the right tab.</summary>
+    [ObservableProperty]
+    private int _selectedTabIndex;
 
     private readonly string _backupDirectory;
     private readonly DebounceTimer _searchDebounceTimer;
@@ -102,12 +107,12 @@ public sealed partial class LibraryViewModel : ObservableObject
         ICredentialStore credentialStore, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
         Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
         IPendingDownloadStore pendingDownloadStore, IModVersionComparer modVersionComparer,
-        Func<DownloadsViewModel> downloadsViewModel, Func<NexusCatalogViewModel> nexusCatalogViewModel,
+        DownloadsViewModel downloadsViewModel, Func<NexusCatalogViewModel> nexusCatalogViewModel,
         IActiveDownloadsTracker activeDownloadsTracker, string backupDirectory)
     {
         _modVersionComparer = modVersionComparer;
         _activeDownloadsTracker = activeDownloadsTracker;
-        _downloadsViewModel = downloadsViewModel;
+        Downloads = downloadsViewModel;
         _nexusCatalogViewModel = nexusCatalogViewModel;
         _downloadHttpClient = downloadHttpClient;
         _pendingDownloadStore = pendingDownloadStore;
@@ -507,12 +512,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
     }
 
-    /// <summary>
-    /// Takes the user to this mod in the community Database, pre-searched by name — the spec's
-    /// "open DB from a library row". Resolving the target ViewModel directly (rather than
-    /// announcing the search by message) is deliberate: page ViewModels are built lazily on first
-    /// navigation, so a message would land on nobody if Downloads had never been opened.
-    /// </summary>
+    /// <summary>Takes the user to this mod in the community Database, pre-searched by name — the spec's "open DB from a library row". The IMM Database tab now lives on this same page, so this is just a tab switch, not a cross-page navigation.</summary>
     [RelayCommand]
     private void FindInDatabase(LibraryItemViewModel? item)
     {
@@ -521,10 +521,8 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var downloads = _downloadsViewModel();
-        downloads.SelectedTabIndex = 0;
-        downloads.CatalogSearchText = item.Name;
-        WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("downloads"));
+        Downloads.CatalogSearchText = item.Name;
+        SelectedTabIndex = 2;
     }
 
     /// <summary>The spec's "Nexus search from a library row" — searches Nexus for this mod by name, for a mod that has no Nexus link yet.</summary>

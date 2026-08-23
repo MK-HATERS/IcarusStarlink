@@ -4,9 +4,17 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
+             xmlns:utilities="clr-namespace:IcarusStarlink.App.Utilities"
              mc:Ignorable="d">
 
     <UserControl.Resources>
+        <!-- DataGridColumn.Visibility can't reach a nested VM via ElementName (see BindingProxy's
+             own doc comment) — every toggleable IMM Database column binds through this proxy
+             instead. Points at Downloads specifically (not the page's own DataContext), since the
+             column-visibility properties live on DownloadsViewModel, folded in from the former
+             standalone Downloads page along with the IMM Database tab itself. -->
+        <utilities:BindingProxy x:Key="ViewModelProxy" Data="{Binding Downloads}"/>
+
         <HierarchicalDataTemplate DataType="{x:Type vm:LibraryGroupViewModel}" ItemsSource="{Binding Items}">
             <StackPanel Orientation="Horizontal" Margin="0,2">
                 <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
@@ -195,10 +203,12 @@
 
         <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
 
-        <TabControl Grid.Row="1" Margin="0,12,0,0">
+        <TabControl Grid.Row="1" Margin="0,12,0,0" SelectedIndex="{Binding SelectedTabIndex}">
             <TabItem Header="Mods">
                 <Grid Margin="0,12,0,0">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
@@ -251,7 +261,87 @@
                         </Button>
                     </StackPanel>
 
-                    <StackPanel Grid.Row="1" Margin="0,0,0,12">
+                    <!-- Folded in from the former standalone Downloads page's own "Mods" tab: paste
+                         a Nexus mod page URL (or an nxm:// link) to fetch and auto-import a mod
+                         without going through the Nexus page at all. -->
+                    <DockPanel Grid.Row="1" Margin="0,0,0,10" LastChildFill="True">
+                        <Button DockPanel.Dock="Right" Command="{Binding Downloads.FetchNxmUrlCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                ToolTip="Paste a Nexus mod page URL (fetches its main file) or an nxm:// link — imports automatically once downloaded"
+                                AutomationProperties.Name="Fetch">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Fetch" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding Downloads.PendingDownloadStatusMessage}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                   Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" TextWrapping="Wrap" MaxWidth="260"
+                                   Visibility="{Binding Downloads.PendingDownloadStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <Grid Margin="0,0,8,0">
+                            <TextBox Text="{Binding Downloads.ManualNxmUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Fetch from Nexus: paste a mod page URL, e.g. https://www.nexusmods.com/icarus/mods/304 (or an nxm:// link)"
+                                       Style="{StaticResource PlaceholderTextStyle}" TextTrimming="CharacterEllipsis"
+                                       Visibility="{Binding Downloads.ManualNxmUrl, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
+                    </DockPanel>
+
+                    <!-- Only shown when something genuinely needs attention — a successful download
+                         already auto-imports and just becomes a normal row above, so the common case
+                         is this section not appearing at all. -->
+                    <StackPanel Grid.Row="2" Margin="0,0,0,10">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Downloads.PendingDownloads.Count}" Value="0">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="Downloads needing attention" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                        <DataGrid ItemsSource="{Binding Downloads.PendingDownloads}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="150">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="3*"/>
+                                <DataGridTextColumn Header="Mod ID" Binding="{Binding ModId}" Width="80"/>
+                                <DataGridTextColumn Header="Downloaded" Binding="{Binding DownloadedAtUtc, StringFormat='{}{0:g}'}" Width="140"/>
+                                <DataGridTemplateColumn Header="" Width="320">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="Deleted from Library — click to reinstall" VerticalAlignment="Center" Margin="0,0,8,0"
+                                                           Foreground="{DynamicResource DangerBrush}" FontSize="11" TextWrapping="Wrap" MaxWidth="130"
+                                                           Visibility="{Binding WasDeleted, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                <Button Margin="4,2"
+                                                        Command="{Binding DataContext.Downloads.ActivatePendingDownloadCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip="Import this file into your Library — Reinstall replaces what's currently there"
+                                                        AutomationProperties.Name="{Binding ActionLabel}">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
+                                                        <TextBlock Text="{Binding ActionLabel}" VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Button>
+                                                <Button Margin="4,2"
+                                                        Command="{Binding DataContext.Downloads.DiscardPendingDownloadCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip="Delete the downloaded file and remove it from this list"
+                                                        AutomationProperties.Name="Discard">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
+                                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
+                                                        <TextBlock Text="Discard" VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Button>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="3" Margin="0,0,0,12">
                         <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                                  ToolTip="Search by name, author, notes, or mod file/item contents"/>
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -264,7 +354,7 @@
                                    Visibility="{Binding UnreadableFoldersMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                     </StackPanel>
 
-                    <Grid Grid.Row="2">
+                    <Grid Grid.Row="4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="320"/>
                             <ColumnDefinition Width="16"/>
@@ -502,6 +592,235 @@
                     <Button Grid.Row="3" Content="Apply" Command="{Binding ApplyUe4ssChangesCommand}"
                             IsEnabled="{Binding HasPendingUe4ssChanges}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,8,0,0"
                             ToolTip="Moves every checked/unchecked mod to match — backs up anything removed from the game folder first"/>
+                </Grid>
+            </TabItem>
+
+            <!-- Last, per explicit placement request — folded in from the former standalone
+                 Downloads page. Every binding here targets Downloads (the nested DownloadsViewModel),
+                 not this page's own LibraryViewModel DataContext. -->
+            <TabItem Header="IMM Database">
+                <Grid Margin="0,12,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="True">
+                        <Grid DockPanel.Dock="Right" Margin="8,0,0,0">
+                            <Button x:Name="ColumnsButton" Command="{Binding Downloads.ToggleColumnsMenuCommand}" AutomationProperties.Name="Columns">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconGearTeeth}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Columns" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Popup PlacementTarget="{Binding ElementName=ColumnsButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
+                                   IsOpen="{Binding Downloads.IsColumnsMenuOpen, Mode=TwoWay}"
+                                   DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1" CornerRadius="4" Padding="10" MinWidth="170">
+                                    <StackPanel>
+                                        <TextBlock Text="Columns" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                                        <CheckBox Content="Author" IsChecked="{Binding Downloads.ShowAuthorColumn}" Margin="0,3"/>
+                                        <CheckBox Content="Version" IsChecked="{Binding Downloads.ShowVersionColumn}" Margin="0,3"/>
+                                        <CheckBox Content="Inst.Ver" IsChecked="{Binding Downloads.ShowInstalledVersionColumn}" Margin="0,3"/>
+                                        <CheckBox Content="Compat." IsChecked="{Binding Downloads.ShowCompatibilityColumn}" Margin="0,3"/>
+                                        <CheckBox Content="Category" IsChecked="{Binding Downloads.ShowCategoryColumn}" Margin="0,3"/>
+                                        <CheckBox Content="Status" IsChecked="{Binding Downloads.ShowStatusColumn}" Margin="0,3"/>
+                                        <CheckBox Content="Last Updated" IsChecked="{Binding Downloads.ShowLastUpdatedColumn}" Margin="0,3"/>
+                                    </StackPanel>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <Button DockPanel.Dock="Right" Content="Clear filters" Command="{Binding Downloads.ClearCatalogFiltersCommand}" Margin="8,0,0,0"/>
+                        <Button DockPanel.Dock="Right" Command="{Binding Downloads.DownloadAndExtractSelectedCommand}" Margin="8,0,0,0"
+                                ToolTip="Downloads and imports every selected mod, one after another — Ctrl/Shift-click rows to select more than one"
+                                Visibility="{Binding Downloads.HasCatalogSelectionForBatch, Converter={StaticResource BoolToVisibilityConverter}}"
+                                AutomationProperties.Name="Download and extract selected">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="{Binding Downloads.SelectedCatalogEntryCount, StringFormat='Download selected ({0})'}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button DockPanel.Dock="Right" Command="{Binding Downloads.RefreshCatalogCommand}" Style="{StaticResource PrimaryButtonStyle}" AutomationProperties.Name="Refresh">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource AccentForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Refresh" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Grid Margin="0,0,8,0">
+                            <TextBox Text="{Binding Downloads.CatalogSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Search by name, author, or description"/>
+                            <TextBlock Text="Search mods by name, author, or description…" Style="{StaticResource PlaceholderTextStyle}"
+                                       Visibility="{Binding Downloads.CatalogSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
+                    </DockPanel>
+
+                    <!-- WrapPanel, not a horizontal StackPanel — at a narrow window width this row has
+                         more controls than fit on one line, and a StackPanel would just clip the
+                         overflow off the right edge with no way to reach it; WrapPanel drops the
+                         overflow onto a second line instead. -->
+                    <WrapPanel Grid.Row="1" Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
+                            <TextBlock Text="Author:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                            <ComboBox ItemsSource="{Binding Downloads.AvailableAuthors}" SelectedItem="{Binding Downloads.SelectedAuthor}" Width="160"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
+                            <TextBlock Text="Category:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                            <ComboBox ItemsSource="{Binding Downloads.AvailableCategories}" SelectedItem="{Binding Downloads.SelectedCategory}" Width="160"/>
+                        </StackPanel>
+                        <CheckBox Content="Show updates only" IsChecked="{Binding Downloads.ShowUpdatesOnly}" VerticalAlignment="Center" Margin="0,0,12,4"/>
+                        <CheckBox Content="Extracted only" IsChecked="{Binding Downloads.ExtractedOnly}" VerticalAlignment="Center" Margin="0,0,12,4"/>
+                        <CheckBox Content="Not downloaded only" IsChecked="{Binding Downloads.NotDownloadedOnly}" VerticalAlignment="Center" Margin="0,0,0,4"/>
+                    </WrapPanel>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Game week:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        <TextBox Text="{Binding Downloads.GameWeek, UpdateSourceTrigger=PropertyChanged}" Width="60" Margin="0,0,12,0"/>
+                        <CheckBox Content="Hide older weeks" IsChecked="{Binding Downloads.HideOlderWeeks}" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                        <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12">
+                            <Run Text="{Binding Downloads.CatalogShownCount, Mode=OneWay}"/><Run Text=" shown / "/><Run Text="{Binding Downloads.CatalogTotalCount, Mode=OneWay}"/><Run Text=" in catalog"/>
+                        </TextBlock>
+                        <TextBlock Text=" — loading…" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" FontSize="12"
+                                   Visibility="{Binding Downloads.IsLoadingCatalog, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    </StackPanel>
+
+                    <Grid Grid.Row="3">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="280"/>
+                        </Grid.ColumnDefinitions>
+
+                        <DataGrid Grid.Column="0" x:Name="CatalogGrid" ItemsSource="{Binding Downloads.CatalogEntries}" SelectedItem="{Binding Downloads.SelectedCatalogEntry}"
+                                  SelectionChanged="CatalogGrid_SelectionChanged">
+                            <DataGrid.RowStyle>
+                                <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsOutdated}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsDownloaded}" Value="True">
+                                            <Setter Property="FontStyle" Value="Italic"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.RowStyle>
+                            <DataGrid.Columns>
+                                <!-- Fixed pixel widths on every column, not Star ("*"): a Star column
+                                     always redistributes space among its sibling Star columns on any
+                                     resize, so dragging one wider steals width from the others instead
+                                     of growing the grid's total content width — which is also why no
+                                     horizontal scrollbar could ever appear. Fixed widths let content
+                                     genuinely overflow the viewport, so resizing one column no longer
+                                     crunches the rest; the DataGrid's default ControlTemplate already
+                                     shows a horizontal scrollbar (HorizontalScrollBarVisibility="Auto"
+                                     is its own built-in default) once that happens. -->
+                                <DataGridTextColumn Header="Mod Name" Binding="{Binding Name}" Width="220"/>
+                                <DataGridTextColumn Header="Author" Binding="{Binding Author}" Width="120"
+                                                     Visibility="{Binding Data.ShowAuthorColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="70"
+                                                     Visibility="{Binding Data.ShowVersionColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <DataGridTextColumn Header="Inst.Ver" Binding="{Binding InstalledVersion}" Width="70"
+                                                     Visibility="{Binding Data.ShowInstalledVersionColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <DataGridTextColumn Header="Compat." Binding="{Binding CompatibilityDisplay}" Width="70"
+                                                     Visibility="{Binding Data.ShowCompatibilityColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <DataGridTextColumn Header="Category" Binding="{Binding CategoryDisplay}" Width="150"
+                                                     Visibility="{Binding Data.ShowCategoryColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <DataGridTemplateColumn Header="Status" Width="90"
+                                                         Visibility="{Binding Data.ShowStatusColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <!-- Phase 10: a small semantic badge instead of plain text — same
+                                                 pill treatment Merge & Install's conflict badge uses. -->
+                                            <Border CornerRadius="8" Padding="7,2" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="{DynamicResource CardRaisedBackgroundBrush}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsOutdated}" Value="True">
+                                                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsDownloaded}" Value="True">
+                                                                <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="{Binding Status}" FontSize="10.5" FontFamily="Consolas">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsOutdated}" Value="True">
+                                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsDownloaded}" Value="True">
+                                                                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Border>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="Last Updated" Binding="{Binding LastUpdatedDisplay}" Width="90"
+                                                     Visibility="{Binding Data.ShowLastUpdatedColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <Grid Grid.Column="2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Text="Select a mod to see its details and download it."
+                                       Style="{StaticResource PageBodyTextStyle}" Margin="0,8,0,0"
+                                       Visibility="{Binding Downloads.SelectedCatalogEntry, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+
+                            <StackPanel Grid.Row="0" Visibility="{Binding Downloads.SelectedCatalogEntry, Converter={StaticResource NullToVisibilityConverter}}">
+                                <Border Height="120" Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1" CornerRadius="6" Margin="0,0,0,8">
+                                    <Path Data="{StaticResource IconMountains}" Stroke="{DynamicResource FaintForegroundBrush}" StrokeThickness="1.6"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="30" Height="30" Stretch="Uniform"/>
+                                </Border>
+                                <TextBlock Text="{Binding Downloads.SelectedCatalogEntry.Name}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <TextBlock Margin="0,2,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                                    <Run Text="{Binding Downloads.SelectedCatalogEntry.Author, Mode=OneWay}"/>
+                                    <Run Text=" · v"/>
+                                    <Run Text="{Binding Downloads.SelectedCatalogEntry.Version, Mode=OneWay}"/>
+                                </TextBlock>
+                                <TextBlock Text="{Binding Downloads.SelectedCatalogEntry.Entry.Description}" Style="{StaticResource PageBodyTextStyle}" MaxWidth="260" Margin="0,0,0,12"/>
+                                <Button Command="{Binding Downloads.DownloadAndExtractCommand}"
+                                        Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,0,8"
+                                        IsEnabled="{Binding Downloads.SelectedCatalogEntry.HasDownloadableFile}"
+                                        AutomationProperties.Name="Download and extract">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Download &amp; extract" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Command="{Binding Downloads.OpenCatalogReadmeCommand}" AutomationProperties.Name="Open readme">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Open readme" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+
+                    <TextBlock Grid.Row="4" Margin="0,8,0,0" Text="{Binding Downloads.CatalogStatusMessage}"
+                               Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"/>
                 </Grid>
             </TabItem>
         </TabControl>

@@ -47,11 +47,14 @@ public sealed partial class MainViewModel : ObservableObject
         // profile is "saved merge list + options + UE4SS set", not an independent page), UE4SS
         // shows up as a sub-tab of Library plus a per-profile section of Merge & Install, and
         // Diagnostics is a section inside Settings — none of the three get their own nav item.
+        // Downloads isn't its own nav item either any more — its IMM Database tab and its
+        // pending-downloads list both moved onto Library itself (a downloaded mod already blends
+        // straight into Library's own list once it finishes, so a separate "Downloads" page just
+        // duplicated the same job).
         NavItems =
         [
-            new NavItem("downloads", "Downloads", typeof(DownloadsViewModel)),
             // Its own top-level item rather than a Downloads sub-tab, per explicit user request
-            // (Phase 8.3) — grouped right next to Downloads since both are mod-sourcing pages.
+            // (Phase 8.3).
             new NavItem("nexus", "Nexus", typeof(NexusCatalogViewModel)),
             new NavItem("library", "Library", typeof(LibraryViewModel)),
             new NavItem("merge", "Merge & Install", typeof(MergeInstallViewModel)),

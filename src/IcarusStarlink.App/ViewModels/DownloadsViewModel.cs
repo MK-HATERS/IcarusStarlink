@@ -69,10 +69,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
     [ObservableProperty]
     private string _catalogSearchText = "";
 
-    /// <summary>Which tab is showing (0 = IMM Database, 1 = Nexus Mods, 2 = Pending Downloads). Bound so another page can land the user on a specific tab — Library's "Find in Database" is useless if it arrives on whichever tab was last open.</summary>
-    [ObservableProperty]
-    private int _selectedTabIndex;
-
     [ObservableProperty]
     private string _selectedAuthor = AllAuthors;
 
@@ -107,7 +103,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     [ObservableProperty]
     private int _catalogShownCount;
 
-    /// <summary>DataGrid.SelectedItems isn't a bindable DependencyProperty — set from DownloadsView's own code-behind SelectionChanged handler, same limitation/workaround the EXMOD editor's mass-edit selection already uses.</summary>
+    /// <summary>DataGrid.SelectedItems isn't a bindable DependencyProperty — set from LibraryView's own code-behind SelectionChanged handler (the IMM Database tab now lives there), same limitation/workaround the EXMOD editor's mass-edit selection already uses.</summary>
     private IReadOnlyList<CatalogEntryViewModel> _selectedCatalogEntriesForBatch = [];
 
     [ObservableProperty]
@@ -520,7 +516,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
     }
 
-    /// <summary>Called from DownloadsView's own DataGrid.SelectionChanged code-behind — DataGrid.SelectedItems isn't a bindable DependencyProperty, same limitation the EXMOD editor's own mass-edit selection already works around.</summary>
+    /// <summary>Called from LibraryView's own DataGrid.SelectionChanged code-behind (the IMM Database tab lives there now) — DataGrid.SelectedItems isn't a bindable DependencyProperty, same limitation the EXMOD editor's own mass-edit selection already works around.</summary>
     public void SetSelectedCatalogEntries(IReadOnlyList<CatalogEntryViewModel> entries)
     {
         _selectedCatalogEntriesForBatch = entries;

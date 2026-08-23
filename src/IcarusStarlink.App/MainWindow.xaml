@@ -22,9 +22,6 @@
         <DataTemplate DataType="{x:Type vm:MergeInstallViewModel}">
             <views:MergeInstallView/>
         </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:DownloadsViewModel}">
-            <views:DownloadsView/>
-        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
             <views:SettingsView/>
         </DataTemplate>
@@ -129,9 +126,6 @@
                                 <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
                             </StackPanel>
                             <DataTemplate.Triggers>
-                                <DataTrigger Binding="{Binding Id}" Value="downloads">
-                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconDownload}"/>
-                                </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="nexus">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconGlobeMeridian}"/>
                                 </DataTrigger>

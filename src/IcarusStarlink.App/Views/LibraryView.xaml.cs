@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using IcarusStarlink.App.ViewModels;
@@ -90,6 +91,15 @@ public partial class LibraryView : UserControl
         if (element is TreeViewItem item)
         {
             item.IsSelected = true;
+        }
+    }
+
+    /// <summary>DataGrid.SelectedItems isn't a bindable DependencyProperty — forwards the current multi-selection into DownloadsViewModel for DownloadAndExtractSelectedCommand, same workaround the EXMOD editor's mass-edit selection already uses. Moved here from the former standalone Downloads page along with the IMM Database tab itself.</summary>
+    private void CatalogGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is LibraryViewModel viewModel)
+        {
+            viewModel.Downloads.SetSelectedCatalogEntries([.. CatalogGrid.SelectedItems.Cast<CatalogEntryViewModel>()]);
         }
     }
 }
