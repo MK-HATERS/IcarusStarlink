@@ -18,6 +18,7 @@ using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Server;
+using IcarusStarlink.Core.Saves;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Skins;
 using IcarusStarlink.Core.Steam;
@@ -34,6 +35,7 @@ using IcarusStarlink.Storage.Nexus;
 using IcarusStarlink.Storage.Profiles;
 using IcarusStarlink.Storage.Secrets;
 using IcarusStarlink.Storage.Server;
+using IcarusStarlink.Storage.Saves;
 using IcarusStarlink.Storage.Settings;
 using IcarusStarlink.Storage.Skins;
 using IcarusStarlink.Storage.Steam;
@@ -230,6 +232,14 @@ public partial class App : Application
             sp.GetRequiredService<IActivityLog>(),
             Path.Combine(appDataDirectory, "Pending_Downloads")));
         builder.Services.AddSingleton<NexusCatalogViewModel>();
+        builder.Services.AddSingleton<ISaveRepository>(sp =>
+            new SaveRepository(
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Icarus", "Saved", "PlayerData"),
+                Path.Combine(appDataDirectory, "Cache", "save_backups"),
+                sp.GetRequiredService<ISteamInstallLocator>()));
+        builder.Services.AddSingleton<SavesViewModel>();
         builder.Services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUnrealPakService>(),

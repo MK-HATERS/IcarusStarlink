@@ -55,6 +55,8 @@ public sealed partial class MainViewModel : ObservableObject
             // FTP file management for a dedicated server's mods folder (Phase 8.5), not the full
             // remote-agent/control page the original spec described.
             new NavItem("server", "Server", typeof(ServerViewModel)),
+            // Between Server and Settings, matching the real Icarus Workshop's own nav order.
+            new NavItem("saves", "Saves", typeof(SavesViewModel)),
             new NavItem("settings", "Settings", typeof(SettingsViewModel)),
             new NavItem("help", "Help", typeof(HelpViewModel)),
         ];

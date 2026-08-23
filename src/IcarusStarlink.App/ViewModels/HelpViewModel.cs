@@ -133,6 +133,23 @@ public sealed partial class HelpViewModel : ObservableObject
             Clicking a real **Mod Manager Download** button on Nexus's own site can hand the file straight to this app instead of downloading it manually, but that needs a one-time setup step: in **Settings → Nexus download handler**, click **Register**. It asks for confirmation first (it's a real Windows registry change, and it replaces another mod manager if one's already registered for this). Files land in **Pending Downloads** either way — you always Activate them from there.
             """),
 
+        new("Saves", """
+            # Saves
+
+            Edits Icarus player data — the files under `%LocalAppData%\Icarus\Saved\PlayerData`. Player slots are found automatically, with your Steam name read from Steam's own local files (nothing goes online).
+
+            **Safety first, always:**
+
+            - Every **Save** and every **Restore** takes a full backup of the whole slot automatically before touching anything. Backups are zips in this app's own `Cache\save_backups` — never inside the game's folders.
+            - **Restore** additionally writes a `pre_restore` zip of the slot as it currently is, so even restoring the wrong backup is undoable.
+            - Saving and restoring are **refused while Icarus is running** — the game holds these files and rewrites them on exit, so an edit made mid-session would be lost.
+            - A manual **Backup now** before experimenting is still the smart move.
+
+            **What's editable today:** character name and XP (raw XP is the honest control — the game derives level from it), and the profile currencies (Ren, Exotics, Red, Stabilized, Biomass, Uranium, Licences, Respec points). The Overview shows character cards and an account snapshot; click a card to edit it. Everything the editor doesn't understand — cosmetics, talents, flags, timestamps — is preserved exactly as-is when saving.
+
+            More sections (cosmetics, talents, items, bestiary, accolades, flags) are planned as their own later additions.
+            """),
+
         new("Server (FTP)", """
             # Server (FTP)
 

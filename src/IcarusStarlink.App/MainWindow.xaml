@@ -16,6 +16,9 @@
         <DataTemplate DataType="{x:Type vm:NexusCatalogViewModel}">
             <views:NexusCatalogView/>
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SavesViewModel}">
+            <views:SavesView/>
+        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:MergeInstallViewModel}">
             <views:MergeInstallView/>
         </DataTemplate>
@@ -140,6 +143,9 @@
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="server">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconServerBars}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Id}" Value="saves">
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconPerson}"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="settings">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconGearTeeth}"/>

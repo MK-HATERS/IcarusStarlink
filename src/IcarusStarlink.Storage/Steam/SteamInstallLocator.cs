@@ -47,6 +47,61 @@ public sealed class SteamInstallLocator(ILogger<SteamInstallLocator> logger) : I
         return null;
     }
 
+    public string? TryGetPersonaName(string steamId64)
+    {
+        try
+        {
+            var steamPath = GetSteamPath();
+            if (steamPath is null)
+            {
+                return null;
+            }
+
+            var vdfPath = Path.Combine(steamPath, "config", "loginusers.vdf");
+            if (!File.Exists(vdfPath))
+            {
+                return null;
+            }
+
+            // loginusers.vdf keys each account block by SteamID64 with a "PersonaName" line inside
+            // (confirmed against the real file). A targeted scan beats a full VDF parser here: find
+            // the ID's block, then the first PersonaName after it but before the next account block.
+            var lines = File.ReadAllLines(vdfPath);
+            var inBlock = false;
+            foreach (var line in lines)
+            {
+                var trimmed = line.Trim();
+                if (trimmed == $"\"{steamId64}\"")
+                {
+                    inBlock = true;
+                    continue;
+                }
+
+                if (inBlock)
+                {
+                    // A new quoted-number key at this level means the next account's block started.
+                    if (trimmed.Length > 2 && trimmed[0] == '"' && trimmed[^1] == '"' && trimmed[1..^1].All(char.IsDigit))
+                    {
+                        return null;
+                    }
+
+                    var match = System.Text.RegularExpressions.Regex.Match(trimmed, "^\"PersonaName\"\\s+\"(.*)\"$");
+                    if (match.Success)
+                    {
+                        return match.Groups[1].Value;
+                    }
+                }
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Couldn't resolve a persona name for {SteamId}.", steamId64);
+            return null;
+        }
+    }
+
     private string? GetSteamPath()
     {
         try

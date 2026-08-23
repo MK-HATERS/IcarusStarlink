@@ -41,5 +41,8 @@
     <Geometry x:Key="IconHelpMark">M9.7 9L9.7 8.6C9.7 6.9 11 6 12.3 6C13.7 6 15 6.8 15 8.3C15 9.6 14.1 10.2 13.2 10.8C12.4 11.3 12 11.9 12 12.9L12 13.6 M12 16.5L12.01 16.5</Geometry>
     <Geometry x:Key="IconBell">M9 16L9 10L10.5 7L13.5 7L15 10L15 16L17.5 18L6.5 18Z M10.3 19.6L13.7 19.6</Geometry>
     <Geometry x:Key="IconCheck">M5 12.5L9.5 17L19 6.5</Geometry>
+    <!-- A person (the Saves page): diamond head + arched shoulders — same no-arc discipline as
+         the rest of this set (round joins/caps soften it into reading as head-and-torso at 16px). -->
+    <Geometry x:Key="IconPerson">M12 3.5L14.6 6L12 8.5L9.4 6Z M5.5 20L5.5 17.5L9 13.5L15 13.5L18.5 17.5L18.5 20</Geometry>
 
 </ResourceDictionary>
