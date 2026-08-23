@@ -43,6 +43,19 @@ public class GameplayOptionsApplierTests
     }
 
     [Fact]
+    public void Apply_StacksMultiplier_FieldRenamedInGameData_WarnsInsteadOfSilentlyDoingNothing()
+    {
+        // Simulates a future game update renaming MaxStack — every row present, none carrying the
+        // field this option relies on. Before Phase 2 this just silently did nothing; now it warns.
+        var tables = Table("Traits-D_Itemable.json", new JsonObject { ["Item_Fiber"] = Row("""{"StackLimit": 200}""") });
+        var report = new MergeReport();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { StacksMultiplier = 3 }, tables, report);
+
+        Assert.Contains(report.Warnings, w => w.Contains("Stacks multiplier") && w.Contains("MaxStack"));
+    }
+
+    [Fact]
     public void Apply_StacksMultiplier_NeverScalesBelowOne()
     {
         var tables = Table("Traits-D_Itemable.json", new JsonObject { ["Item_X"] = Row("""{"MaxStack": 2}""") });
@@ -71,6 +84,17 @@ public class GameplayOptionsApplierTests
     }
 
     [Fact]
+    public void Apply_RemoveWeight_FieldRenamedInGameData_WarnsInsteadOfSilentlyDoingNothing()
+    {
+        var tables = Table("Traits-D_Itemable.json", new JsonObject { ["Item_Stone"] = Row("""{"ItemWeight": 300}""") });
+        var report = new MergeReport();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { RemoveWeight = true }, tables, report);
+
+        Assert.Contains(report.Warnings, w => w.Contains("Remove Weight") && w.Contains("Weight"));
+    }
+
+    [Fact]
     public void Apply_SlotsMultiplier_ScalesStartingSlots()
     {
         var tables = Table("Inventory-D_InventoryInfo.json", new JsonObject { ["Backpack"] = Row("""{"StartingSlots": 24}""") });
@@ -78,6 +102,17 @@ public class GameplayOptionsApplierTests
         GameplayOptionsApplier.Apply(new GameplayOptions { SlotsMultiplier = 2 }, tables, new MergeReport());
 
         Assert.Equal(48, (int)tables["Inventory-D_InventoryInfo.json"]["Backpack"]!["StartingSlots"]!);
+    }
+
+    [Fact]
+    public void Apply_SlotsMultiplier_FieldRenamedInGameData_WarnsInsteadOfSilentlyDoingNothing()
+    {
+        var tables = Table("Inventory-D_InventoryInfo.json", new JsonObject { ["Backpack"] = Row("""{"SlotCount": 24}""") });
+        var report = new MergeReport();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SlotsMultiplier = 2 }, tables, report);
+
+        Assert.Contains(report.Warnings, w => w.Contains("Slots multiplier") && w.Contains("StartingSlots"));
     }
 
     [Fact]
@@ -147,6 +182,17 @@ public class GameplayOptionsApplierTests
     }
 
     [Fact]
+    public void Apply_CraftCostReduction_NeitherFileHasInputsOrResourceInputs_WarnsInsteadOfSilentlyDoingNothing()
+    {
+        var tables = Table("Crafting-D_ProcessorRecipes.json", new JsonObject { ["Dough_Bread"] = Row("""{"Ingredients": []}""") });
+        var report = new MergeReport();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { CraftCost = CraftCostReduction.FiftyPercent }, tables, report);
+
+        Assert.Contains(report.Warnings, w => w.Contains("Craft Cost") && w.Contains("Inputs"));
+    }
+
+    [Fact]
     public void Apply_SpeedCrafting_ScalesRequiredMillijoulesOnRecipesWithNoResourceInputOrOutput()
     {
         var tables = new Dictionary<string, JsonObject>
@@ -199,6 +245,22 @@ public class GameplayOptionsApplierTests
     }
 
     [Fact]
+    public void Apply_SpeedCrafting_NoEligibleRecipes_WarnsInsteadOfSilentlyDoingNothing()
+    {
+        // Every row present, but every one has a ResourceInputs entry — none is eligible, matching
+        // the exact silent-failure shape a game update removing RequiredMillijoules would also cause.
+        var tables = Table("Crafting-D_ProcessorRecipes.json", new JsonObject
+        {
+            ["Dough_Bread"] = Row("""{"RequiredMillijoules": 2500, "ResourceInputs": [{"Type": {"Value": "Water"}, "RequiredUnits": 100}]}"""),
+        });
+        var report = new MergeReport();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SpeedCraftingReductionPercent = 50 }, tables, report);
+
+        Assert.Contains(report.Warnings, w => w.Contains("Speed Crafting") && w.Contains("RequiredMillijoules"));
+    }
+
+    [Fact]
     public void Apply_UnlimitedAmmo_SetsFlagOnEveryWeaponRowRegardlessOfExistingOverride()
     {
         var tables = new Dictionary<string, JsonObject>
@@ -214,6 +276,20 @@ public class GameplayOptionsApplierTests
 
         Assert.True((bool)tables["Tools-D_FirearmData.json"]["Wood_Bow"]!["bUnlimitedAmmo"]!);
         Assert.True((bool)tables["Tools-D_FirearmData.json"]["Pistol_Handgun"]!["bUnlimitedAmmo"]!);
+    }
+
+    [Fact]
+    public void Apply_UnlimitedAmmo_TableHasNoRowsAtAll_WarnsInsteadOfSilentlyDoingNothing()
+    {
+        // Unlike the other options, this one sets its field on every row regardless of any prior
+        // value — so the only way to have "zero rows to touch" is the table itself being empty
+        // (e.g. a game update removed every firearm row, or renamed the file's own row set away).
+        var tables = Table("Tools-D_FirearmData.json", new JsonObject());
+        var report = new MergeReport();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { UnlimitedAmmo = true }, tables, report);
+
+        Assert.Contains(report.Warnings, w => w.Contains("Unlimited Ammo"));
     }
 
     // Speed Boost/Player Boost/XP Boost/Disable Temperatures moved to

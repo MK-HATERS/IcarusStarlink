@@ -68,12 +68,18 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             var merged = new Dictionary<string, JsonObject>(
                 MultiFileMerger.Apply(baseTablesByFile, resolvedChanges, report), StringComparer.OrdinalIgnoreCase);
 
-            // Gameplay options apply as a final pass over the already-merged result — matching classic
-            // IMM's own documented behavior ("these new options are added after the mods are all
-            // merged") — and can target a file no queued mod's own FieldChange touches at all (options
-            // work with an empty queue too), so make sure those land here even though
-            // MultiFileMerger.Apply only ever populates entries for files a FieldChange actually
-            // touches.
+            // Category 2 gameplay options (Stacks/Slots/Craft Cost/Speed Crafting/Unlimited Ammo/
+            // Remove Weight — GameplayOptionsApplier.Apply) apply as a genuinely final pass over the
+            // already-merged result — matching classic IMM's own documented behavior ("these new
+            // options are added after the mods are all merged") — and deliberately still work this
+            // way after Phase 1 moved Category 1 (Speed/Player/XP Boost, Disable Temperatures) into
+            // a real FieldChange: Category 2 is a COMPOUNDING operation (new = current merged value
+            // × factor), not a "pick one candidate value" resolution, so routing it through
+            // MergeEngine the same way would silently break that compounding (a queued mod also
+            // touching e.g. MaxStack would get its own value overwritten outright instead of scaled).
+            // Can target a file no queued mod's own FieldChange touches at all (options work with an
+            // empty queue too), so make sure those land here even though MultiFileMerger.Apply only
+            // ever populates entries for files a FieldChange actually touches.
             foreach (var file in GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions))
             {
                 if (!merged.ContainsKey(file) && baseTablesByFile.TryGetValue(file, out var baseTable))
