@@ -255,6 +255,18 @@
                 <ListBox Grid.Row="8" ItemsSource="{Binding ComparisonEntries}" Margin="0,8,0,0" MaxHeight="120" FontSize="12" FontFamily="Consolas"/>
 
                 <StackPanel Grid.Row="9" Orientation="Horizontal" Margin="0,16,0,0">
+                    <!-- The spec's "Copy built pack to game" / Retry: installs the already-staged
+                         pak without remerging. Shown only when there is one to copy. -->
+                    <Button Command="{Binding CopyToGameCommand}" Margin="0,0,8,0"
+                            Visibility="{Binding CanCopyToGame, Converter={StaticResource BoolToVisibilityConverter}}"
+                            ToolTip="Copies the already-built pak into the game without rebuilding it — use this if Icarus was running when Install failed"
+                            AutomationProperties.Name="Copy to game">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                            <TextBlock Text="Copy to game" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                     <Button Command="{Binding RemoveFromGameCommand}"
                             ToolTip="Uninstalls IcarusStarlink's pak from the real game folder — doesn't touch your Library"
                             AutomationProperties.Name="Remove from game">

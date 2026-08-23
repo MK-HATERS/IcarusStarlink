@@ -241,6 +241,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// </summary>
     private Task RefreshHasExistingInstallAsync() => Task.Run(() =>
     {
+        // A staged pak on disk is all Copy to game needs — independent of whether anything is
+        // currently installed in the game folder.
+        CanCopyToGame = File.Exists(_outputPakPath);
+
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
             HasExistingInstall = false;
@@ -1040,6 +1044,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 Warnings.Add($"Note: {note}");
             }
 
+            CanCopyToGame = true;
+
             var pickNote = _manualPicks is { Count: > 0 } picks ? $", {picks.Count} conflict(s) manually resolved" : "";
             _activityLog.Log($"Rebuilt pack with {Queue.Count} mod(s) — {result.PackedFileCount} files packed{pickNote}.", ActivityEntryKind.Success);
         }
@@ -1237,13 +1243,45 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             _activityLog.Log($"Installed pack to {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityEntryKind.Success);
             HasExistingInstall = true;
         }
+        catch (IOException ex)
+        {
+            // Overwhelmingly the "Icarus is still running" case, which is worth naming rather than
+            // showing a raw file-sharing error — and it's exactly when Copy to game (no rebuild)
+            // is the right next click, so offer it.
+            InstallStatusMessage =
+                $"Install failed — the pak is in use: {ex.Message} "
+                + "Close Icarus if it's running, then click 'Copy to game' (no need to rebuild).";
+            CanCopyToGame = true;
+        }
         catch (Exception ex)
         {
-            // Same UI boundary as everywhere else — a locked target file (the game running), a
-            // missing/wrong Content path, or a permissions issue should show a status message,
-            // not crash the app. Retry is just clicking Install again once the cause is cleared.
+            // Same UI boundary as everywhere else — a missing/wrong Content path or a permissions
+            // issue should show a status message, not crash the app.
             InstallStatusMessage = $"Install failed: {ex.Message}";
         }
+    }
+
+    /// <summary>Shown once an install has failed on a locked file, or whenever a staged pak already exists — the spec's own "Copy built pack to game" / Retry affordance.</summary>
+    [ObservableProperty]
+    private bool _canCopyToGame;
+
+    /// <summary>
+    /// The spec's "Copy built pack to game": installs the already-staged pak WITHOUT remerging.
+    /// Mechanically the same as Install's second half — it shares InstallAsync rather than
+    /// duplicating it — but reachable on its own, which matters in the case it exists for: the
+    /// game held the file open, nothing about the staged pak changed, and rebuilding it again to
+    /// retry the copy is pure waste.
+    /// </summary>
+    [RelayCommand]
+    private async Task CopyToGameAsync()
+    {
+        if (!File.Exists(_outputPakPath))
+        {
+            InstallStatusMessage = "Nothing staged yet — click Install first to build one.";
+            return;
+        }
+
+        await InstallAsync();
     }
 
     /// <summary>

@@ -60,6 +60,14 @@
                                   CommandParameter="{Binding}" IsEnabled="{Binding HasModBackup}"
                                   ToolTip="Shows exactly which values and files the author changed between your previous copy and the current one — read-only, nothing is restored"
                                   ToolTipService.ShowOnDisabled="True"/>
+                        <MenuItem Header="Find in Database"
+                                  Command="{Binding PlacementTarget.Tag.FindInDatabaseCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  ToolTip="Search the community mod database for this mod by name"/>
+                        <MenuItem Header="Search Nexus for this"
+                                  Command="{Binding PlacementTarget.Tag.SearchNexusForCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  ToolTip="Search Nexus for this mod by name — useful when it has no Nexus link yet"/>
                         <MenuItem Header="Open on Nexus" Command="{Binding OpenOnNexusCommand}" IsEnabled="{Binding HasNexusLink}"
                                   ToolTip="Open this mod's Nexus page in your browser"
                                   ToolTipService.ShowOnDisabled="True"/>
@@ -414,9 +422,19 @@
                                                 </Grid.ColumnDefinitions>
                                                 <ListBox Grid.Column="0" ItemsSource="{Binding SelectedItem.AssetPaths}"
                                                          SelectedItem="{Binding SelectedItem.SelectedAssetPath}"/>
+                                                <!-- Exactly one of these is populated per selected asset (see
+                                                     OnSelectedAssetPathChanged) — an image asset shows as a picture
+                                                     rather than as binary noise in the text box. -->
                                                 <TextBox Grid.Column="1" Text="{Binding SelectedItem.SelectedAssetPreview, Mode=OneWay}"
                                                          Margin="8,0,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                                                         AcceptsReturn="True"/>
+                                                         AcceptsReturn="True"
+                                                         Visibility="{Binding SelectedItem.SelectedAssetImage, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                                <Border Grid.Column="1" Margin="8,0,0,0" Background="{DynamicResource CardBackgroundBrush}"
+                                                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="8"
+                                                        Visibility="{Binding SelectedItem.SelectedAssetImage, Converter={StaticResource NullToVisibilityConverter}}">
+                                                    <Image Source="{Binding SelectedItem.SelectedAssetImage}" Stretch="Uniform"
+                                                           StretchDirection="DownOnly" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
                                             </Grid>
                                         </Grid>
                                     </TabItem>

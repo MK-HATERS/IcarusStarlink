@@ -164,6 +164,10 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private string? _selectedAssetPreview;
 
+    /// <summary>Set instead of SelectedAssetPreview when the picked asset is a decodable image — exactly one of the two is ever non-null, which is what the Files tab switches its preview pane on.</summary>
+    [ObservableProperty]
+    private BitmapImage? _selectedAssetImage;
+
     /// <summary>
     /// Set from an asset conventionally named "ImageOnly" (any common image extension) if the
     /// mod package has one — a real convention from classic IMM's own format ("Added support for
@@ -314,6 +318,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     partial void OnSelectedAssetPathChanged(string? value)
     {
+        SelectedAssetImage = null;
+
         if (value is null)
         {
             SelectedAssetPreview = null;
@@ -333,6 +339,16 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         try
         {
             var bytes = _repository.ReadAssetContent(FolderName, value);
+
+            // The spec's "preview text/images" — an image asset used to render as binary noise in
+            // the text box, since every non-text file fell through to the byte-count message.
+            if (ImageExtensions.Contains(Path.GetExtension(value)) && TryDecodeImage(bytes) is { } image)
+            {
+                SelectedAssetImage = image;
+                SelectedAssetPreview = null;
+                return;
+            }
+
             SelectedAssetPreview = LooksLikeText(bytes)
                 ? System.Text.Encoding.UTF8.GetString(bytes)
                 : $"(binary file — {bytes.Length:N0} bytes, no preview)";
@@ -488,7 +504,20 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
         try
         {
-            var bytes = _repository.ReadAssetContent(FolderName, thumbnailPath);
+            ThumbnailImage = TryDecodeImage(_repository.ReadAssetContent(FolderName, thumbnailPath));
+        }
+        catch (Exception)
+        {
+            // The read itself can fail (locked/vanished file) separately from the decode — both
+            // are cosmetic here, per this method's own contract.
+        }
+    }
+
+    /// <summary>Decodes image bytes to a frozen bitmap, or null if they aren't a decodable image. Frozen so it can be handed to the UI thread's bindings safely and never re-reads the (already disposed) stream.</summary>
+    private static BitmapImage? TryDecodeImage(byte[] bytes)
+    {
+        try
+        {
             using var stream = new MemoryStream(bytes);
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
@@ -496,12 +525,13 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             bitmap.StreamSource = stream;
             bitmap.EndInit();
             bitmap.Freeze();
-            ThumbnailImage = bitmap;
+            return bitmap;
         }
         catch (Exception)
         {
-            // Corrupt file, or a "ImageOnly.png" that isn't actually a decodable image — leave
-            // ThumbnailImage unset and move on.
+            // A file with an image extension that isn't actually a decodable image — treat it as
+            // "not an image" rather than an error.
+            return null;
         }
     }
 

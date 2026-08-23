@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Navigation;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.Core.Settings;
@@ -58,6 +60,19 @@ public sealed partial class MainViewModel : ObservableObject
         ];
 
         _currentThemeName = settingsService.Current.ThemeName;
+
+        // Lets a page hand the user off to another one (Library's "Find in Database" / "Search
+        // Nexus for this"). Registered on the shell rather than handled by the sender because only
+        // the shell owns which page is showing.
+        WeakReferenceMessenger.Default.Register<NavigateToPageMessage>(this, (recipient, message) =>
+        {
+            var viewModel = (MainViewModel)recipient;
+            var target = viewModel.NavItems.FirstOrDefault(item => item.Id == message.NavItemId);
+            if (target is not null)
+            {
+                viewModel.SelectedNavItem = target;
+            }
+        });
 
         // Deliberately not selecting a default page here: the first page (Library) resolves a
         // repository whose constructor scans Extracted_Mods, and this constructor runs before

@@ -194,6 +194,8 @@ public partial class App : Application
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<IPendingDownloadStore>(),
             sp.GetRequiredService<IModVersionComparer>(),
+            sp.GetRequiredService<DownloadsViewModel>,
+            sp.GetRequiredService<NexusCatalogViewModel>,
             Path.Combine(appDataDirectory, "Backups")));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),

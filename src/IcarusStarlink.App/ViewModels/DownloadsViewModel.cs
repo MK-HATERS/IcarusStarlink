@@ -69,6 +69,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
     [ObservableProperty]
     private string _catalogSearchText = "";
 
+    /// <summary>Which tab is showing (0 = IMM Database, 1 = Nexus Mods, 2 = Pending Downloads). Bound so another page can land the user on a specific tab — Library's "Find in Database" is useless if it arrives on whichever tab was last open.</summary>
+    [ObservableProperty]
+    private int _selectedTabIndex;
+
     [ObservableProperty]
     private string _selectedAuthor = AllAuthors;
 

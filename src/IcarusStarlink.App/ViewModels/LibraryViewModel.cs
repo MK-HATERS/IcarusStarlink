@@ -40,6 +40,11 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly HttpClient _downloadHttpClient;
     private readonly IPendingDownloadStore _pendingDownloadStore;
     private readonly IModVersionComparer _modVersionComparer;
+
+    /// <summary>Resolved lazily so opening Library doesn't force the whole Downloads/Nexus stack (catalog fetches, API clients) to construct alongside it.</summary>
+    private readonly Func<DownloadsViewModel> _downloadsViewModel;
+    private readonly Func<NexusCatalogViewModel> _nexusCatalogViewModel;
+
     private readonly string _backupDirectory;
     private readonly DebounceTimer _searchDebounceTimer;
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
@@ -95,9 +100,13 @@ public sealed partial class LibraryViewModel : ObservableObject
         ISettingsService settingsService, IUnrealPakService unrealPakService, INexusApiClient nexusApiClient,
         ICredentialStore credentialStore, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
         Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
-        IPendingDownloadStore pendingDownloadStore, IModVersionComparer modVersionComparer, string backupDirectory)
+        IPendingDownloadStore pendingDownloadStore, IModVersionComparer modVersionComparer,
+        Func<DownloadsViewModel> downloadsViewModel, Func<NexusCatalogViewModel> nexusCatalogViewModel,
+        string backupDirectory)
     {
         _modVersionComparer = modVersionComparer;
+        _downloadsViewModel = downloadsViewModel;
+        _nexusCatalogViewModel = nexusCatalogViewModel;
         _downloadHttpClient = downloadHttpClient;
         _pendingDownloadStore = pendingDownloadStore;
         _repository = repository;
@@ -489,6 +498,39 @@ public sealed partial class LibraryViewModel : ObservableObject
         {
             StatusMessage = $"Backup failed: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Takes the user to this mod in the community Database, pre-searched by name — the spec's
+    /// "open DB from a library row". Resolving the target ViewModel directly (rather than
+    /// announcing the search by message) is deliberate: page ViewModels are built lazily on first
+    /// navigation, so a message would land on nobody if Downloads had never been opened.
+    /// </summary>
+    [RelayCommand]
+    private void FindInDatabase(LibraryItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        var downloads = _downloadsViewModel();
+        downloads.SelectedTabIndex = 0;
+        downloads.CatalogSearchText = item.Name;
+        WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("downloads"));
+    }
+
+    /// <summary>The spec's "Nexus search from a library row" — searches Nexus for this mod by name, for a mod that has no Nexus link yet.</summary>
+    [RelayCommand]
+    private void SearchNexusFor(LibraryItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        _nexusCatalogViewModel().SearchText = item.Name;
+        WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("nexus"));
     }
 
     /// <summary>
