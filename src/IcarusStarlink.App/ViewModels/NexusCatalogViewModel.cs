@@ -45,6 +45,9 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     /// <summary>The last successful fetch, kept so local badges can be recomputed (a Library import/delete elsewhere, a Track click) without another API round-trip.</summary>
     private IReadOnlyList<NexusModInfo> _lastFetched = [];
 
+    /// <summary>This IS the Nexus page — there is no wrapper ViewModel around it any more (the embedded browser it used to sit beside was removed as redundant with signing in via Settings).</summary>
+    public string Title => "Nexus";
+
     public static IReadOnlyList<NexusModList> ListKinds { get; } = Enum.GetValues<NexusModList>();
 
     public ObservableCollection<NexusCatalogRow> Mods { get; } = [];

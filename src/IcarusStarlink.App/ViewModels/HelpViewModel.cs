@@ -119,9 +119,17 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Nexus", """
             # Nexus
 
-            An embedded, real Nexus Mods browser — log in with your own Nexus account inside it, same as any browser tab; nothing about your login is shared anywhere else.
+            A native list of Icarus mods on Nexus, driven by the API key you save once in **Settings** — there's no embedded web browser and no second sign-in. Search covers every Icarus mod on Nexus; the **Trending / Latest / Updated** pills are Nexus's own curated lists (clear the search box to use them).
 
-            Clicking a real "Mod Manager Download" button on Nexus's own site can hand the file straight to this app instead of downloading it manually, but that needs a one-time setup step: in **Settings → Nexus download handler**, click **Register**. It asks for confirmation first (it's a real Windows registry change, and it replaces another mod manager if one's already registered for this). Files still land in Downloads' **Pending Downloads** tab either way — you always have to Activate them there.
+            Because the list is ours rather than a web page, each mod shows what YOUR machine knows about it: **In Library**, **Downloaded**, **Tracked**, and an **Update** badge when Nexus has a newer version than your copy.
+
+            Per mod:
+
+            - **Download** pulls the main file straight into Downloads' **Pending Downloads**. This uses Nexus's API directly, which requires a Nexus Premium account.
+            - **Track** adds it to the Nexus watchlist on the Downloads page, so it gets checked for updates.
+            - **Open page** opens the mod on nexusmods.com in your normal browser — where you're already signed in, and where non-Premium downloads happen.
+
+            Clicking a real **Mod Manager Download** button on Nexus's own site can hand the file straight to this app instead of downloading it manually, but that needs a one-time setup step: in **Settings → Nexus download handler**, click **Register**. It asks for confirmation first (it's a real Windows registry change, and it replaces another mod manager if one's already registered for this). Files land in **Pending Downloads** either way — you always Activate them from there.
             """),
 
         new("Server (FTP)", """

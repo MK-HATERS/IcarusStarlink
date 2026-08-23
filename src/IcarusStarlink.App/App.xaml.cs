@@ -226,9 +226,6 @@ public partial class App : Application
             sp.GetRequiredService<IActivityLog>(),
             Path.Combine(appDataDirectory, "Pending_Downloads")));
         builder.Services.AddSingleton<NexusCatalogViewModel>();
-        builder.Services.AddSingleton(sp => new NexusBrowserViewModel(
-            sp.GetRequiredService<NexusCatalogViewModel>(),
-            Path.Combine(appDataDirectory, "WebView2")));
         builder.Services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUnrealPakService>(),
