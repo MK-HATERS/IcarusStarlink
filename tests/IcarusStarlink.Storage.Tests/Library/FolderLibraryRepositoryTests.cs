@@ -35,6 +35,24 @@ public class FolderLibraryRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void Construction_MalformedExmodJson_SkipsFolderInsteadOfCrashing()
+    {
+        // Found live, not by inspection: a single .EXMOD containing invalid JSON threw
+        // JsonException straight through RescanAll's catch filter, crashing the whole app at
+        // startup — the exact failure mode that catch exists to prevent.
+        var brokenFolder = Path.Combine(_extractedModsDir, "BrokenMod");
+        Directory.CreateDirectory(brokenFolder);
+        File.WriteAllText(Path.Combine(brokenFolder, "BrokenMod.EXMOD"), "not valid json at all");
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+
+        using var repo = CreateRepository();
+        repo.Import(_sourceDir);
+
+        Assert.Single(repo.GetAll());
+        Assert.Equal("BrokenMod", Assert.Single(repo.UnreadableFolders));
+    }
+
+    [Fact]
     public void Import_FromFolder_AddsEntryToLibrary()
     {
         ExmodFolder.Write(_sourceDir, BuildFixture());

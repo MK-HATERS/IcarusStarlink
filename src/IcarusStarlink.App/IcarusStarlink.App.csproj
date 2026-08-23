@@ -6,7 +6,21 @@
     <ProjectReference Include="..\IcarusStarlink.PakIO\IcarusStarlink.PakIO.csproj" />
     <ProjectReference Include="..\IcarusStarlink.Catalog\IcarusStarlink.Catalog.csproj" />
     <ProjectReference Include="..\IcarusStarlink.Storage\IcarusStarlink.Storage.csproj" />
+    <!-- Build-order only (no assembly reference) — the target below copies the built updater exe
+         into this app's own output so it ships alongside, ready for "Update now" to stage a temp
+         copy of it and hand off. -->
+    <ProjectReference Include="..\IcarusStarlink.Updater\IcarusStarlink.Updater.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <Target Name="CopyUpdaterToOutput" AfterTargets="Build">
+    <ItemGroup>
+      <UpdaterFiles Include="..\IcarusStarlink.Updater\bin\$(Configuration)\net10.0\IcarusStarlink.Updater.exe;
+                             ..\IcarusStarlink.Updater\bin\$(Configuration)\net10.0\IcarusStarlink.Updater.dll;
+                             ..\IcarusStarlink.Updater\bin\$(Configuration)\net10.0\IcarusStarlink.Updater.runtimeconfig.json;
+                             ..\IcarusStarlink.Updater\bin\$(Configuration)\net10.0\IcarusStarlink.Updater.deps.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(UpdaterFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
 
   <ItemGroup>
     <!-- Ships next to the exe in every build output, matching the spec's own "Run Uninstall.bat

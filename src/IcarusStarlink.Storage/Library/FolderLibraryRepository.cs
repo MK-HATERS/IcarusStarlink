@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO;
 using IcarusStarlink.PakIO.Container;
@@ -369,11 +370,14 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
                     scanned.Add((entry, entry.Name));
                 }
             }
-            catch (Exception ex) when (ex is FormatException or IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is FormatException or JsonException or IOException or UnauthorizedAccessException)
             {
                 // This runs during construction, which the app's default nav page resolves
                 // before the main window is even shown — one locked/permission-denied/
-                // mid-write folder must not be able to crash the whole app at launch.
+                // mid-write/malformed folder must not be able to crash the whole app at launch.
+                // (JsonException found the hard way: a single .EXMOD containing invalid JSON
+                // crashed startup outright, discovered live while testing the updater's relaunch
+                // against a copied-aside install seeded with a deliberately-fake mod file.)
                 _logger.LogWarning(ex, "Skipped '{Folder}' while scanning the library — could not read it", folder);
                 unreadable.Add(Path.GetFileName(folder));
             }

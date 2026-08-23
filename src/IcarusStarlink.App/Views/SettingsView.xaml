@@ -192,9 +192,9 @@
                     <TextBlock Text="Check for updates" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
-            <Button Command="{Binding OpenLatestReleasePageCommand}" Margin="8,0,0,0"
+            <Button Command="{Binding UpdateNowCommand}" Margin="8,0,0,0"
                     Visibility="{Binding IsAppUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
-                    ToolTip="Opens the release's GitHub page in your browser so you can download and run it manually"
+                    ToolTip="Downloads the new version and installs it in place — the app closes, updates itself, and reopens. Your mods, profiles, and settings are never touched."
                     AutomationProperties.Name="Update now">
                 <StackPanel Orientation="Horizontal">
                     <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
@@ -202,6 +202,9 @@
                     <TextBlock Text="Update now" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
+            <Button Content="Open release page" Command="{Binding OpenLatestReleasePageCommand}" Margin="8,0,0,0"
+                    Visibility="{Binding IsAppUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
+                    ToolTip="The manual fallback — opens the release's GitHub page in your browser instead"/>
         </StackPanel>
         <TextBlock Text="{Binding AppUpdateStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
                    TextWrapping="Wrap" MaxWidth="560"

@@ -15,5 +15,6 @@
     <Project Path="tests/IcarusStarlink.Diffing.Tests/IcarusStarlink.Diffing.Tests.csproj" />
     <Project Path="tests/IcarusStarlink.PakIO.Tests/IcarusStarlink.PakIO.Tests.csproj" />
     <Project Path="tests/IcarusStarlink.Storage.Tests/IcarusStarlink.Storage.Tests.csproj" />
+    <Project Path="tests/IcarusStarlink.Updater.Tests/IcarusStarlink.Updater.Tests.csproj" />
   </Folder>
 </Solution>

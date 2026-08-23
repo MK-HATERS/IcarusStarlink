@@ -854,12 +854,113 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
+    [ObservableProperty]
+    private bool _isInstallingAppUpdate;
+
     /// <summary>
-    /// Opens the release's own GitHub page rather than downloading/installing automatically — the
-    /// spec's own documented manual fallback. A fully automated download-extract-relaunch pipeline
-    /// is real, hard-to-reverse surgery on this app's own running files; that's the Updater.exe
-    /// project's eventual job, deliberately not built out in this pass.
+    /// Big-plan item 4 — the real automated in-place update: download the release zip, extract it,
+    /// stage a TEMP copy of Updater.exe (so its own file in the install folder can be replaced
+    /// too), hand off (this process's id, the install dir, the new files, the exe to relaunch),
+    /// and exit. Updater.exe waits for this process to fully exit, copies the new build over the
+    /// install directory WITHOUT deleting anything (user data is safe by construction — see
+    /// UpdateApplier), and relaunches the app. Gated behind its own explicit Yes/No, like every
+    /// other self-affecting action in this app.
     /// </summary>
+    [RelayCommand]
+    private async Task UpdateNowAsync()
+    {
+        if (LatestAppUpdateRelease is null)
+        {
+            return;
+        }
+
+        var confirmed = MessageBox.Show(
+            $"Download and install v{LatestAppUpdateRelease.Version} now?\n\nThe app will close, update itself, and reopen. Your mods, profiles, and settings are not touched.",
+            "Install update", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirmed == MessageBoxResult.Yes)
+        {
+            await InstallAppUpdateAsync();
+        }
+    }
+
+    private async Task InstallAppUpdateAsync()
+    {
+        if (LatestAppUpdateRelease is not { } release || IsInstallingAppUpdate)
+        {
+            return;
+        }
+
+        IsInstallingAppUpdate = true;
+        try
+        {
+            var token = _credentialStore.Read(CredentialTargets.GitHubToken);
+            var workDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"AppUpdate_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(workDirectory);
+
+            AppUpdateStatusMessage = $"Downloading v{release.Version}…";
+            var zipPath = Path.Combine(workDirectory, "update.zip");
+            await _appUpdateClient.DownloadAssetAsync(release, token, zipPath);
+
+            AppUpdateStatusMessage = "Preparing update…";
+            var extractDirectory = Path.Combine(workDirectory, "new");
+            await Task.Run(() => System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, extractDirectory));
+
+            // Tolerate a release zip that wraps everything in a single top-level folder — a common
+            // way zips get built — as long as the app exe is findable one level down.
+            var newFilesRoot = extractDirectory;
+            if (!File.Exists(Path.Combine(newFilesRoot, "IcarusStarlink.App.exe")))
+            {
+                var subdirectories = Directory.GetDirectories(newFilesRoot);
+                if (subdirectories.Length == 1 && File.Exists(Path.Combine(subdirectories[0], "IcarusStarlink.App.exe")))
+                {
+                    newFilesRoot = subdirectories[0];
+                }
+                else
+                {
+                    AppUpdateStatusMessage = "The downloaded release zip doesn't contain IcarusStarlink.App.exe — not installing it.";
+                    return;
+                }
+            }
+
+            // The updater must run from OUTSIDE the install folder or it couldn't replace its own
+            // files: stage its four files into the temp work folder and launch from there.
+            var installDirectory = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+            var updaterStaging = Path.Combine(workDirectory, "updater");
+            Directory.CreateDirectory(updaterStaging);
+            string[] updaterFiles = ["IcarusStarlink.Updater.exe", "IcarusStarlink.Updater.dll", "IcarusStarlink.Updater.runtimeconfig.json", "IcarusStarlink.Updater.deps.json"];
+            foreach (var fileName in updaterFiles)
+            {
+                var source = Path.Combine(installDirectory, fileName);
+                if (!File.Exists(source))
+                {
+                    AppUpdateStatusMessage = $"Couldn't stage the updater — {fileName} is missing next to the app.";
+                    return;
+                }
+
+                File.Copy(source, Path.Combine(updaterStaging, fileName));
+            }
+
+            var appExePath = Path.Combine(installDirectory, "IcarusStarlink.App.exe");
+            Process.Start(new ProcessStartInfo(Path.Combine(updaterStaging, "IcarusStarlink.Updater.exe"))
+            {
+                ArgumentList = { Environment.ProcessId.ToString(), installDirectory, newFilesRoot, appExePath },
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+
+            Application.Current.Shutdown();
+        }
+        catch (Exception ex)
+        {
+            AppUpdateStatusMessage = $"Update failed before anything was changed: {ex.Message}";
+        }
+        finally
+        {
+            IsInstallingAppUpdate = false;
+        }
+    }
+
+    /// <summary>The manual fallback next to the automated Update now — opens the release's own GitHub page in the browser.</summary>
     [RelayCommand]
     private void OpenLatestReleasePage()
     {
@@ -926,11 +1027,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         var result = MessageBox.Show(
-            $"IcarusStarlink v{release.Version} is available — you're on v{InstalledAppVersion}.\n\nOpen the release page to download it?",
+            $"IcarusStarlink v{release.Version} is available — you're on v{InstalledAppVersion}.\n\nDownload and install it now? The app will close, update itself, and reopen — your mods, profiles, and settings are not touched.",
             "Update available", MessageBoxButton.YesNo, MessageBoxImage.Information);
         if (result == MessageBoxResult.Yes)
         {
-            OpenLatestReleasePage();
+            await InstallAppUpdateAsync();
         }
     }
 }
