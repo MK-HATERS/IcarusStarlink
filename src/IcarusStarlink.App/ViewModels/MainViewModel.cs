@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -19,6 +20,10 @@ public sealed partial class MainViewModel : ObservableObject
     public ObservableCollection<NavItem> NavItems { get; }
 
     public ActivityPanelViewModel ActivityPanel { get; }
+
+    /// <summary>Shown in the header next to the app name — same InformationalVersion source Settings' "App updates" section reads (the +sha suffix is already suppressed in the csproj).</summary>
+    public string AppVersionDisplay { get; } =
+        $"v{Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "?"}";
 
     public IReadOnlyList<string> AvailableThemes => _themeService.AvailableThemes;
 
@@ -56,7 +61,9 @@ public sealed partial class MainViewModel : ObservableObject
             // remote-agent/control page the original spec described.
             new NavItem("server", "Server", typeof(ServerViewModel)),
             // Between Server and Settings, matching the real Icarus Workshop's own nav order.
-            new NavItem("saves", "Saves", typeof(SavesViewModel)),
+            // Marked Beta while the deeper editing tabs (cosmetics, items, bestiary...) are
+            // still landing — per the user's own call before the first release carries it.
+            new NavItem("saves", "Saves (Beta)", typeof(SavesViewModel)),
             new NavItem("settings", "Settings", typeof(SettingsViewModel)),
             new NavItem("help", "Help", typeof(HelpViewModel)),
         ];

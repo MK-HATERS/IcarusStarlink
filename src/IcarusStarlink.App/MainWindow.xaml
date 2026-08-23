@@ -6,7 +6,7 @@
         xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
         xmlns:views="clr-namespace:IcarusStarlink.App.Views"
         mc:Ignorable="d"
-        Title="IcarusStarlink" Height="720" Width="1180" MinHeight="680" MinWidth="900"
+        Title="Icarus Starlink" Height="720" Width="1180" MinHeight="680" MinWidth="900"
         WindowStartupLocation="CenterScreen">
 
     <Window.Resources>
@@ -55,8 +55,11 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="IcarusStarlink" FontSize="18" FontWeight="Bold"
+                    <TextBlock Text="Icarus Starlink" FontSize="18" FontWeight="Bold"
                                Foreground="{DynamicResource AccentBrush}"/>
+                    <TextBlock Text="{Binding AppVersionDisplay, Mode=OneTime}" FontSize="12" Margin="6,0,0,0"
+                               VerticalAlignment="Bottom"
+                               Foreground="{DynamicResource FaintForegroundBrush}"/>
                     <TextBlock Text="mod manager for Icarus" FontSize="12" Margin="10,0,0,0"
                                VerticalAlignment="Bottom"
                                Foreground="{DynamicResource SecondaryForegroundBrush}"/>

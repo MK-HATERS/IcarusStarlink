@@ -46,7 +46,7 @@ public sealed partial class SavesViewModel : ObservableObject
     private List<JsonObject> _characterNodes = [];
     private List<int>? _binaryFlagIds;
 
-    public string Title => "Saves";
+    public string Title => "Saves (Beta)";
 
     public ObservableCollection<SaveSlot> Slots { get; } = [];
 
