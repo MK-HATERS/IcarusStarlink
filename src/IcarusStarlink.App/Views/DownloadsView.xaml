@@ -248,19 +248,61 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="Nexus Mods">
+            <!-- One tab for everything Nexus-mod-shaped: the tracked watchlist on top, and the
+                 downloads waiting to install below it (they were a separate "Pending Downloads"
+                 tab, but nothing non-Nexus ever lands there — one place is easier to follow).
+                 The header badge counts files waiting to install; the dot means a download is
+                 in flight right now. -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Mods"/>
+                        <Border CornerRadius="8" Padding="6,1" Margin="6,0,0,0" VerticalAlignment="Center"
+                                Background="{DynamicResource AccentBrush}" ToolTip="Downloads waiting to install">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding PendingDownloads.Count}" Value="0">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Text="{Binding PendingDownloads.Count}" FontSize="10" FontFamily="Consolas"
+                                       Foreground="{DynamicResource AccentForegroundBrush}"/>
+                        </Border>
+                        <Ellipse Width="7" Height="7" Margin="6,0,0,0" Fill="{DynamicResource AccentBrush}" VerticalAlignment="Center"
+                                 ToolTip="A download is in progress"
+                                 Visibility="{Binding IsFetchingDownload, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    </StackPanel>
+                </TabItem.Header>
+                <!-- Scrolls as one page (same pattern as Settings' tabs) — the two lists size to
+                     their content within min/max bounds instead of fighting over a fixed height
+                     that clips whichever loses at a small window size. -->
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <Grid Margin="0,12,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBox Grid.Row="0" Text="{Binding NexusFilterText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
-                             ToolTip="Filter my Nexus list…"/>
+                    <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                        <TextBlock Text="Tracked mods" Style="{StaticResource SectionHeaderStyle}"/>
+                        <TextBlock Text="Mods you follow — Check for updates flags the ones Nexus says changed recently."
+                                   Style="{StaticResource PageBodyTextStyle}" HorizontalAlignment="Left"/>
+                    </StackPanel>
 
+                    <!-- One toolbar row, same shape as the IMM Database tab's own: filter fills the
+                         remaining space on the left, the "add" action docks to the right — instead
+                         of two competing full-width boxes stacked on top of each other. -->
                     <DockPanel Grid.Row="1" Margin="0,0,0,8" LastChildFill="True">
                         <Button DockPanel.Dock="Right" Command="{Binding AddNexusUrlCommand}" Style="{StaticResource PrimaryButtonStyle}" AutomationProperties.Name="Add mod URL">
                             <StackPanel Orientation="Horizontal">
@@ -269,11 +311,20 @@
                                 <TextBlock Text="Add mod URL" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <TextBox Text="{Binding NewNexusUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
-                                 ToolTip="Paste a nexusmods.com/icarus/mods/&lt;id&gt; URL"/>
+                        <Grid DockPanel.Dock="Right" Width="280" Margin="16,0,8,0">
+                            <TextBox Text="{Binding NewNexusUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Mod page URL, e.g. …/icarus/mods/304" Style="{StaticResource PlaceholderTextStyle}"
+                                       Visibility="{Binding NewNexusUrl, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
+                        <Grid>
+                            <TextBox Text="{Binding NexusFilterText, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Filter tracked mods…" Style="{StaticResource PlaceholderTextStyle}"
+                                       Visibility="{Binding NexusFilterText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
                     </DockPanel>
 
-                    <DataGrid Grid.Row="2" ItemsSource="{Binding NexusEntries}" SelectedItem="{Binding SelectedNexusEntry}">
+                    <DataGrid Grid.Row="2" ItemsSource="{Binding NexusEntries}" SelectedItem="{Binding SelectedNexusEntry}"
+                              MinHeight="110" MaxHeight="320">
                         <DataGrid.RowStyle>
                             <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                                 <Style.Triggers>
@@ -301,6 +352,24 @@
                         </DataGrid.Columns>
                     </DataGrid>
 
+                    <!-- Overlays the empty grid's body, centered — a first-visit user should see
+                         how to get something in here, not a blank rectangle. -->
+                    <TextBlock Grid.Row="2" Margin="12,44,12,0" HorizontalAlignment="Left" VerticalAlignment="Top"
+                               IsHitTestVisible="False">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource PageBodyTextStyle}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding NexusEntries.Count}" Value="0">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                        <Run Text="Nothing tracked yet. Paste a mod page URL above (e.g. https://www.nexusmods.com/icarus/mods/304) and click Add mod URL, or click Track on any mod on the Nexus page."/>
+                    </TextBlock>
+
+                    <!-- Row-selection actions sit directly under the grid they act on. -->
                     <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
                         <Button Command="{Binding BrowseOnNexusCommand}" Margin="0,0,8,0" AutomationProperties.Name="Browse on Nexus">
                             <StackPanel Orientation="Horizontal">
@@ -346,23 +415,16 @@
 
                     <TextBlock Grid.Row="4" Margin="0,8,0,0" Text="{Binding NexusStatusMessage}"
                                Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"/>
-                </Grid>
-            </TabItem>
 
-            <TabItem Header="Pending Downloads">
-                <Grid Margin="0,12,0,0">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
+                    <!-- Downloads waiting to install — was its own "Pending Downloads" tab. -->
+                    <StackPanel Grid.Row="5" Margin="0,4,0,10">
+                        <Border Style="{StaticResource SectionDividerStyle}" Margin="0,10,0,14"/>
+                        <TextBlock Text="Downloads waiting to install" Style="{StaticResource SectionHeaderStyle}"/>
+                        <TextBlock Style="{StaticResource PageBodyTextStyle}" HorizontalAlignment="Left"
+                                   Text="Files land here from the Nexus page's Download button or a website &quot;Mod Manager Download&quot; — activate one to import it into your Library, or discard it."/>
+                    </StackPanel>
 
-                    <TextBlock Grid.Row="0" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,8">
-                        <Run Text="Files land here after a Nexus &quot;Mod Manager Download&quot; — activate one to import it into your Library, or discard it."/>
-                    </TextBlock>
-
-                    <DockPanel Grid.Row="1" Margin="0,0,0,8" LastChildFill="True">
+                    <DockPanel Grid.Row="6" Margin="0,0,0,8" LastChildFill="True">
                         <Button DockPanel.Dock="Right" Command="{Binding FetchNxmUrlCommand}" Style="{StaticResource PrimaryButtonStyle}"
                                 ToolTip="Manually paste and fetch an nxm:// link — the same path a real 'Mod Manager Download' click will eventually use"
                                 AutomationProperties.Name="Fetch">
@@ -372,11 +434,14 @@
                                 <TextBlock Text="Fetch" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <TextBox Text="{Binding ManualNxmUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
-                                 ToolTip="Paste an nxm://icarus/mods/&lt;id&gt;/files/&lt;id&gt; link"/>
+                        <Grid Margin="0,0,8,0">
+                            <TextBox Text="{Binding ManualNxmUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Fetch a download link by hand, e.g. nxm://icarus/mods/290/files/12345" Style="{StaticResource PlaceholderTextStyle}"
+                                       Visibility="{Binding ManualNxmUrl, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
                     </DockPanel>
 
-                    <DataGrid Grid.Row="2" ItemsSource="{Binding PendingDownloads}" AutoGenerateColumns="False" IsReadOnly="True">
+                    <DataGrid Grid.Row="7" ItemsSource="{Binding PendingDownloads}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="200">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="3*"/>
                             <DataGridTextColumn Header="Mod ID" Binding="{Binding ModId}" Width="80"/>
@@ -417,14 +482,31 @@
                         </DataGrid.Columns>
                     </DataGrid>
 
-                    <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
-                        <TextBlock Text="Fetching…" VerticalAlignment="Center"
-                                   Foreground="{DynamicResource SecondaryForegroundBrush}"
+                    <!-- Same first-visit-hint idea as the tracked list, stacked under the grid
+                         (this row is Auto-sized, so an overlay would sit on the header row). -->
+                    <TextBlock Grid.Row="8" Margin="4,6,4,0" HorizontalAlignment="Left" IsHitTestVisible="False">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource PageBodyTextStyle}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding PendingDownloads.Count}" Value="0">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                        <Run Text="No downloads waiting. Click Download on a Nexus page card, use a Mod Manager Download button on the website, or paste an nxm:// link above (e.g. nxm://icarus/mods/290/files/12345)."/>
+                    </TextBlock>
+
+                    <StackPanel Grid.Row="9" Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock Text="Fetching…" VerticalAlignment="Center" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource AccentBrush}"
                                    Visibility="{Binding IsFetchingDownload, Converter={StaticResource BoolToVisibilityConverter}}"/>
                         <TextBlock Text="{Binding PendingDownloadStatusMessage}" VerticalAlignment="Center" Margin="8,0,0,0"
                                    Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"/>
                     </StackPanel>
                 </Grid>
+                </ScrollViewer>
             </TabItem>
         </TabControl>
     </Grid>
