@@ -86,4 +86,105 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
             BoundedZipEntryCopy.CopyBounded(entryStream, fileStream, entry.Length, entry.FullName);
         }
     }
+
+    public IReadOnlyList<string> ListUserAddedMods(string icarusContentPath)
+    {
+        var modsFolder = Ue4ssGamePaths.ResolveModsFolder(icarusContentPath);
+        if (!Directory.Exists(modsFolder))
+        {
+            return [];
+        }
+
+        var frameworkOwned = ReadFrameworkModNames(modsFolder);
+        return [.. Directory.GetDirectories(modsFolder)
+            .Select(d => Path.GetFileName(d)!)
+            .Where(name => !frameworkOwned.Contains(name))
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    public Task<Ue4ssUninstallResult> UninstallAsync(
+        string icarusContentPath, string stagedModsDirectory, string backupDirectory, CancellationToken cancellationToken = default) =>
+        Task.Run(() =>
+        {
+            var loaderFolder = Ue4ssGamePaths.ResolveLoaderFolder(icarusContentPath);
+            var dwmapiPath = Ue4ssGamePaths.ResolveDwmapiPath(icarusContentPath);
+            var modsFolder = Ue4ssGamePaths.ResolveModsFolder(icarusContentPath);
+
+            // Ordering is the safety argument, so it's spelled out:
+            // 1. PRESERVE — every user-added mod is copied into this app's staging first, so even
+            //    a failure right after this point has lost nothing of the user's.
+            // 2. BACKUP the whole ue4ss folder + dwmapi.dll (keep-last-5, the installer's own
+            //    rotation) — the full-undo path, framework mods and all.
+            // 3. DELETE — only after both of the above have succeeded.
+            var preservedMods = new List<string>();
+            foreach (var modName in ListUserAddedMods(icarusContentPath))
+            {
+                var target = UniqueDirectoryName(stagedModsDirectory, modName);
+                FolderBackup.CopyDirectory(Path.Combine(modsFolder, modName), Path.Combine(stagedModsDirectory, target));
+                preservedMods.Add(target);
+            }
+
+            var ue4ssBackupDirectory = Path.Combine(backupDirectory, "UE4SS-Loader");
+            FolderBackup.BackupFolder(loaderFolder, ue4ssBackupDirectory);
+            FolderBackup.BackupFile(dwmapiPath, ue4ssBackupDirectory);
+
+            if (Directory.Exists(loaderFolder))
+            {
+                Directory.Delete(loaderFolder, recursive: true);
+            }
+
+            if (File.Exists(dwmapiPath))
+            {
+                File.Delete(dwmapiPath);
+            }
+
+            return new Ue4ssUninstallResult(preservedMods, ue4ssBackupDirectory);
+        }, cancellationToken);
+
+    /// <summary>
+    /// Framework-owned = listed in UE4SS's OWN mods.json (its bundled mod manifest — confirmed
+    /// against a real install: exactly the 8 framework mods appear there, user-added ones don't),
+    /// plus the shared\ infrastructure folder, which is framework code rather than a mod. The
+    /// deliberate failure direction: a mod we can't classify counts as USER-ADDED and gets
+    /// preserved — worst case some framework mods survive in staging, never the reverse.
+    /// </summary>
+    private static HashSet<string> ReadFrameworkModNames(string modsFolder)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "shared" };
+
+        try
+        {
+            var modsJsonPath = Path.Combine(modsFolder, "mods.json");
+            if (File.Exists(modsJsonPath))
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(modsJsonPath));
+                foreach (var entry in document.RootElement.EnumerateArray())
+                {
+                    if (entry.TryGetProperty("mod_name", out var name) && name.GetString() is { } modName)
+                    {
+                        names.Add(modName);
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // A malformed mods.json just means nothing beyond shared\ classifies as framework —
+            // which errs toward preserving, per the contract above.
+        }
+
+        return names;
+    }
+
+    private static string UniqueDirectoryName(string rootDirectory, string desiredName)
+    {
+        var candidate = desiredName;
+        var suffix = 1;
+        while (Directory.Exists(Path.Combine(rootDirectory, candidate)))
+        {
+            candidate = $"{desiredName}_{++suffix}";
+        }
+
+        return candidate;
+    }
 }

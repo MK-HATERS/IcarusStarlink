@@ -66,6 +66,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - Check or uncheck mods, then click **Apply** — checked mods get moved into the game's Mods folder, unchecked ones get moved back out here (backed up first). Nothing happens until you click Apply.
             - **Import…** stages a UE4SS mod from a downloaded zip, disabled by default.
             - Settings has a separate **Install/Update UE4SS** action for the loader itself (the framework, not a mod) — that's a different, more sensitive action with its own confirmation, since it writes into `Binaries\Win64` rather than the Mods subfolder.
+            - **Uninstall UE4SS** (Settings, next to Install) removes the loader completely. Your own mods are moved back to this app's staging first — the confirmation names them before anything happens — everything removed is backed up (last 5 kept), and Icarus's own files are never touched.
             """),
 
         new("Downloads", """

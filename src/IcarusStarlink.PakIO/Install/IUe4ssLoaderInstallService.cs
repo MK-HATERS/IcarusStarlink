@@ -18,4 +18,19 @@ public interface IUe4ssLoaderInstallService
     /// this method performs the write unconditionally once called.
     /// </summary>
     Task InstallOrUpdateAsync(string icarusContentPath, string downloadedZipPath, string backupDirectory, CancellationToken cancellationToken = default);
+
+    /// <summary>The names of the user's OWN mods currently in the game's Mods folder — everything that isn't framework-owned (listed in UE4SS's own mods.json, or the shared\ infrastructure folder). What UninstallAsync will preserve; surfaced separately so the confirmation dialog can name them before anything happens.</summary>
+    IReadOnlyList<string> ListUserAddedMods(string icarusContentPath);
+
+    /// <summary>
+    /// Full UE4SS uninstall: moves every user-added mod folder back to stagedModsDirectory first
+    /// (nothing of the user's is ever deleted), backs up the whole ue4ss\ folder + dwmapi.dll
+    /// (keep-last-5, same rotation the installer uses), then removes dwmapi.dll and the ue4ss\
+    /// folder. Icarus's own files are never touched — UE4SS lives entirely in those two paths.
+    /// Caller owns the confirmation gate, same as InstallOrUpdateAsync.
+    /// </summary>
+    Task<Ue4ssUninstallResult> UninstallAsync(string icarusContentPath, string stagedModsDirectory, string backupDirectory, CancellationToken cancellationToken = default);
 }
+
+/// <param name="PreservedUserMods">User mod folders moved to staging (their names after any collision-suffixing), so the report can say where they went.</param>
+public sealed record Ue4ssUninstallResult(IReadOnlyList<string> PreservedUserMods, string BackupPath);

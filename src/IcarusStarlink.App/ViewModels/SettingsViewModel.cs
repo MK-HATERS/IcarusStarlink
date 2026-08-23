@@ -44,6 +44,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ICustomSkinStore _customSkinStore;
     private readonly ImmMigrationService _immMigrationService;
     private readonly IUnrealPakInstaller _unrealPakInstaller;
+    private readonly string _stagedUe4ssDirectory;
 
     /// <summary>Resolved lazily (not injected directly) purely to avoid forcing Merge &amp; Install's own construction — with its Library scan and catalog wiring — every time Settings is opened.</summary>
     private readonly Func<MergeInstallViewModel> _mergeInstallViewModel;
@@ -160,9 +161,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         IUe4ssReleaseClient ue4ssReleaseClient, IAppUpdateClient appUpdateClient, HttpClient httpClient,
         IThemeService themeService, ICustomSkinStore customSkinStore, ImmMigrationService immMigrationService,
         Func<MergeInstallViewModel> mergeInstallViewModel, IUnrealPakInstaller unrealPakInstaller,
-        string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath)
+        string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath,
+        string stagedUe4ssDirectory)
     {
         _unrealPakInstaller = unrealPakInstaller;
+        _stagedUe4ssDirectory = stagedUe4ssDirectory;
         _settingsService = settingsService;
         _unrealPakService = unrealPakService;
         _weeklyChangeReportStore = weeklyChangeReportStore;
@@ -998,6 +1001,62 @@ public sealed partial class SettingsViewModel : ObservableObject
                 // Best-effort cleanup of a temp file — leaving a stray one behind isn't worth
                 // surfacing over whatever the install itself already reported.
             }
+        }
+    }
+
+    /// <summary>
+    /// The last item of the big plan, deliberately saved for last: removes the UE4SS loader
+    /// entirely (dwmapi.dll + the ue4ss folder). The safety story, in order: the user's own mods —
+    /// everything NOT in UE4SS's own mods.json manifest — are moved to this app's staging first,
+    /// the whole install is backed up (keep-last-5), and only then does anything get deleted.
+    /// Icarus's own files are never touched; UE4SS lives entirely in those two paths.
+    /// </summary>
+    [RelayCommand]
+    private async Task UninstallUe4ssAsync()
+    {
+        if (string.IsNullOrWhiteSpace(IcarusContentPath))
+        {
+            Ue4ssStatusMessage = "Set the Icarus Content folder first.";
+            return;
+        }
+
+        if (!IsUe4ssInstalled)
+        {
+            Ue4ssStatusMessage = "UE4SS isn't installed — nothing to remove.";
+            return;
+        }
+
+        // The user's own mods are named in the warning itself, so what's about to be preserved is
+        // visible BEFORE anything happens, not discovered from a report afterwards.
+        var userMods = _ue4ssLoaderInstallService.ListUserAddedMods(IcarusContentPath);
+        var userModsLine = userMods.Count > 0
+            ? $"Your own {userMods.Count} mod(s) — {string.Join(", ", userMods)} — are moved back to this app's staging first (re-enable them if you ever reinstall UE4SS).\n\n"
+            : "No mods of your own were found in its Mods folder.\n\n";
+
+        var result = MessageBox.Show(
+            "This removes the UE4SS loader completely from your game's Binaries\\Win64 folder (dwmapi.dll and the ue4ss folder) — "
+            + "Lua/scripting mods stop working until it's reinstalled.\n\n"
+            + userModsLine
+            + "Everything removed is backed up first (last 5 kept), and Icarus's own files are not touched.\n\nContinue?",
+            "Uninstall UE4SS", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Ue4ssStatusMessage = "Uninstalling…";
+            var uninstallResult = await _ue4ssLoaderInstallService.UninstallAsync(IcarusContentPath, _stagedUe4ssDirectory, _backupDirectory);
+
+            RefreshUe4ssStatus();
+            Ue4ssStatusMessage = uninstallResult.PreservedUserMods.Count > 0
+                ? $"UE4SS removed. Your {uninstallResult.PreservedUserMods.Count} mod(s) were kept in this app's staging; the rest is backed up."
+                : "UE4SS removed. A backup was kept.";
+        }
+        catch (Exception ex)
+        {
+            Ue4ssStatusMessage = $"Uninstall failed: {ex.Message}";
         }
     }
 

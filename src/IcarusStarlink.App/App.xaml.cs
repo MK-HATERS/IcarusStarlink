@@ -250,7 +250,8 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Backups"),
             Path.Combine(appDataDirectory, "Data"),
             logsDirectory,
-            Path.Combine(appDataDirectory, "settings.json")));
+            Path.Combine(appDataDirectory, "settings.json"),
+            Path.Combine(appDataDirectory, "Staged_UE4SS")));
         builder.Services.AddSingleton<WeeklyChangesViewModel>();
         builder.Services.AddSingleton(sp => new ServerViewModel(
             sp.GetRequiredService<IFtpSiteStore>(),
