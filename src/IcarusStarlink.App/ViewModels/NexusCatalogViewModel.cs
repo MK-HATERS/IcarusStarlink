@@ -18,9 +18,12 @@ namespace IcarusStarlink.App.ViewModels;
 /// "you have this" badges from, so these are computed locally instead (which also makes them
 /// honest about THIS install rather than any device the account ever touched): LocalBadge says the
 /// strongest local relationship (In Library &gt; Downloaded &gt; Tracked), HasUpdate compares the
-/// card's live version against the Library copy's.
+/// card's live version against the Library copy's. IsTracked is watchlist MEMBERSHIP specifically
+/// (not the same as LocalBadge=="Tracked" — a mod can be both tracked AND already in the Library,
+/// where LocalBadge shows the stronger "In Library" but the Track toggle still needs to know it's
+/// tracked), so the Tracked filter and the card's Track/Untrack button both key off this instead.
 /// </summary>
-public sealed record NexusCatalogRow(NexusModInfo Mod, string? LocalBadge, bool HasUpdate);
+public sealed record NexusCatalogRow(NexusModInfo Mod, string? LocalBadge, bool HasUpdate, bool IsTracked);
 
 /// <summary>
 /// The native "Browse" half of the Nexus page (W1) — a real mod list with images driven by the
@@ -72,9 +75,15 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     [ObservableProperty]
     private bool _updatesOnly;
 
+    /// <summary>Shows only mods you've tracked (added to Downloads' watchlist) — the Nexus page's own view of "my list", replacing a separate tracked-mods grid with a filter on the same live cards.</summary>
+    [ObservableProperty]
+    private bool _trackedOnly;
+
     partial void OnHideOwnedChanged(bool value) => ApplyDisplayFilters();
 
     partial void OnUpdatesOnlyChanged(bool value) => ApplyDisplayFilters();
+
+    partial void OnTrackedOnlyChanged(bool value) => ApplyDisplayFilters();
 
     private void ApplyDisplayFilters()
     {
@@ -236,7 +245,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
 
     private void UpdateStatusAfterLoad(bool isSearch, bool isAll, string searchText)
     {
-        var filtered = HideOwned || UpdatesOnly;
+        var filtered = HideOwned || UpdatesOnly || TrackedOnly;
         StatusMessage = Mods.Count == 0
             ? (_lastFetched.Count > 0 && filtered ? "Nothing matches the filters."
                 : isSearch ? $"No mods match '{searchText}'."
@@ -267,10 +276,13 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                 && !string.IsNullOrEmpty(libraryEntry.Version)
                 && !string.IsNullOrEmpty(mod.Version)
                 && !string.Equals(libraryEntry.Version, mod.Version, StringComparison.OrdinalIgnoreCase);
+            var isTracked = trackedModIds.Contains(mod.ModId);
 
             // The display filters: HideOwned drops what this install already has (In Library or a
             // file waiting in Pending Downloads — Tracked is just a bookmark, not ownership);
-            // UpdatesOnly keeps only cards whose live version differs from the Library copy's.
+            // UpdatesOnly keeps only cards whose live version differs from the Library copy's;
+            // TrackedOnly keys off watchlist membership directly, not the LocalBadge string, since
+            // a mod already in the Library still needs to show here if it's also tracked.
             if (HideOwned && badge is "In Library" or "Downloaded")
             {
                 continue;
@@ -281,7 +293,12 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                 continue;
             }
 
-            Mods.Add(new NexusCatalogRow(mod, badge, hasUpdate));
+            if (TrackedOnly && !isTracked)
+            {
+                continue;
+            }
+
+            Mods.Add(new NexusCatalogRow(mod, badge, hasUpdate, isTracked));
         }
     }
 
@@ -338,7 +355,12 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         }
     }
 
-    /// <summary>Adds the mod to Downloads' Nexus watchlist — with its real name straight away, unlike the Add-mod-URL path's "Nexus mod #N" placeholder (there we only have a URL; here the API already told us the name).</summary>
+    /// <summary>
+    /// Toggles the mod's membership in Downloads' Nexus watchlist — Track adds it (with its real
+    /// name straight away, unlike the Add-mod-URL path's "Nexus mod #N" placeholder, since the API
+    /// already told us the name here); clicking again on an already-tracked mod removes it. One
+    /// command for both directions, so the same card button works whichever state it's in.
+    /// </summary>
     [RelayCommand]
     private void TrackMod(NexusModInfo? mod)
     {
@@ -349,13 +371,22 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
 
         try
         {
-            _watchlistStore.Add(new NexusWatchlistEntry
+            if (_watchlistStore.Entries.Any(e => e.NexusId == mod.ModId))
             {
-                NexusId = mod.ModId,
-                Url = NexusModWebUrl.For(mod.ModId),
-                Name = mod.Name ?? $"Nexus mod #{mod.ModId}",
-            });
-            StatusMessage = $"Tracking '{mod.Name}' — see Downloads → Nexus Mods.";
+                _watchlistStore.Remove(mod.ModId);
+                StatusMessage = $"Stopped tracking '{mod.Name}'.";
+            }
+            else
+            {
+                _watchlistStore.Add(new NexusWatchlistEntry
+                {
+                    NexusId = mod.ModId,
+                    Url = NexusModWebUrl.For(mod.ModId),
+                    Name = mod.Name ?? $"Nexus mod #{mod.ModId}",
+                });
+                StatusMessage = $"Tracking '{mod.Name}' — see Downloads → Nexus Mods.";
+            }
+
             RebuildRows();
         }
         catch (Exception ex)

@@ -311,9 +311,9 @@
                                 <TextBlock Text="Add mod URL" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <Grid DockPanel.Dock="Right" Width="280" Margin="16,0,8,0">
+                        <Grid DockPanel.Dock="Right" Width="330" Margin="16,0,8,0">
                             <TextBox Text="{Binding NewNexusUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                            <TextBlock Text="Mod page URL, e.g. …/icarus/mods/304" Style="{StaticResource PlaceholderTextStyle}"
+                            <TextBlock Text="Mod page URL, e.g. https://www.nexusmods.com/icarus/mods/304" Style="{StaticResource PlaceholderTextStyle}" TextTrimming="CharacterEllipsis"
                                        Visibility="{Binding NewNexusUrl, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                         </Grid>
                         <Grid>

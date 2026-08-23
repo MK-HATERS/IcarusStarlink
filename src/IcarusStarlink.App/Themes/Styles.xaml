@@ -179,6 +179,49 @@
         </Setter>
     </Style>
 
+    <!-- Same "retemplate, reuse ProgressToWidthConverter for the fill" pattern as ProgressBar
+         above. PART_Track is the one contract WPF requires — Slider's own OnApplyTemplate finds it
+         by name and wires Value/Minimum/Maximum/dragging to it automatically, so no explicit
+         bindings belong on the Track element itself. IsMoveToPointEnabled (set here, not in the
+         template) makes a plain click jump the thumb to that point, not just dragging. -->
+    <Style TargetType="{x:Type Slider}">
+        <Setter Property="Height" Value="22"/>
+        <Setter Property="IsMoveToPointEnabled" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Slider}">
+                    <Grid>
+                        <Border x:Name="PART_TrackBackground" Height="6" CornerRadius="3" VerticalAlignment="Center"
+                                Background="{DynamicResource CardBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"/>
+                        <Border Height="6" CornerRadius="3" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                Background="{DynamicResource AccentBrush}" IsHitTestVisible="False">
+                            <Border.Width>
+                                <MultiBinding Converter="{StaticResource ProgressToWidthConverter}">
+                                    <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Value"/>
+                                    <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Maximum"/>
+                                    <Binding ElementName="PART_TrackBackground" Path="ActualWidth"/>
+                                </MultiBinding>
+                            </Border.Width>
+                        </Border>
+                        <Track x:Name="PART_Track">
+                            <Track.Thumb>
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="{x:Type Thumb}">
+                                            <Ellipse Width="16" Height="16" Fill="{DynamicResource AccentBrush}"
+                                                     Stroke="{DynamicResource WindowBackgroundBrush}" StrokeThickness="2"/>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- The Template has to be replaced, not just recolored: WPF's own default ContextMenu
          template paints a light "icon gutter" strip down the left edge and a light band behind
          separators, neither of which the Background property reaches. Against this app's dark
@@ -635,7 +678,15 @@
 
     <!-- Phase 10 redesign: a small (i) glyph carrying a real ToolTip — Merge & Install's leveled
          options (Speed Boost, Craft Cost, ...) use this next to their label instead of relying on
-         hovering the pill selector itself, which has no one obvious hover target. -->
+         hovering the pill selector itself, which has no one obvious hover target.
+
+         IconInfo is an open geometry (two disjoint line segments — no Fill), so a bare Path only
+         hit-tests along its actual stroke pixels: a sliver a couple pixels wide inside a nominal
+         13x13 box, which is why hovering it did nothing in practice (found live — the ToolTip WAS
+         wired correctly, the icon just had almost no hoverable area). InfoHintIconStyle now styles
+         the VISUAL only; InfoHintTouchTargetStyle wraps it in a Border with a real Background, so
+         the whole square area hit-tests, not just the thin lines drawn inside it. ToolTip/Cursor
+         belong on the Border now, not the Path. -->
     <Style x:Key="InfoHintIconStyle" TargetType="{x:Type Path}">
         <Setter Property="Data" Value="{StaticResource IconInfo}"/>
         <Setter Property="Stroke" Value="{DynamicResource FaintForegroundBrush}"/>
@@ -645,14 +696,19 @@
         <Setter Property="Width" Value="13"/>
         <Setter Property="Height" Value="13"/>
         <Setter Property="Stretch" Value="Uniform"/>
+        <Setter Property="IsHitTestVisible" Value="False"/>
+    </Style>
+
+    <!-- Deliberately no Setter.Value literal Child here — a Style can't hand out a shared element
+         instance to more than one Border (WPF throws "already the logical child of another
+         element" on the second use), so each call site nests its own Path explicitly. -->
+    <Style x:Key="InfoHintTouchTargetStyle" TargetType="{x:Type Border}">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Width" Value="22"/>
+        <Setter Property="Height" Value="20"/>
         <Setter Property="Cursor" Value="Help"/>
-        <Setter Property="Margin" Value="5,0,0,0"/>
+        <Setter Property="Margin" Value="2,0,0,0"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
-        <Style.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Stroke" Value="{DynamicResource InfoBrush}"/>
-            </Trigger>
-        </Style.Triggers>
     </Style>
 
     <!-- Phase 10 redesign: an on/off toggle switch for genuine feature flags (Remove Weight,

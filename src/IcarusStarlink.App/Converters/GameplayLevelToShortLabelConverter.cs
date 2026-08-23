@@ -4,7 +4,7 @@ using IcarusStarlink.Core.Profiles;
 
 namespace IcarusStarlink.App.Converters;
 
-/// <summary>Phase 10: short pill labels for Merge & Install's leveled gameplay options — the raw enum names (TwentyFivePercent, Level1, ...) are too long for a small pill button.</summary>
+/// <summary>Phase 10: short pill labels for Merge & Install's leveled gameplay options — the raw enum names (TwentyFivePercent, Level1, ...) are too long for a small pill button. Also handles the Stacks/Slots multiplier pills' own double? options (null = "Off", else "Nx").</summary>
 public sealed class GameplayLevelToShortLabelConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value switch
@@ -16,6 +16,8 @@ public sealed class GameplayLevelToShortLabelConverter : IValueConverter
         CraftCostReduction.TwentyFivePercent => "25%",
         CraftCostReduction.FiftyPercent => "50%",
         CraftCostReduction.Creative => "Free",
+        null => "Off",
+        double multiplier => $"{multiplier:0.#}x",
         _ => value?.ToString() ?? "",
     };
 

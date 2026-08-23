@@ -153,15 +153,18 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private CraftCostReduction _craftCost;
 
-    /// <summary>Free-text multiplier/percentage inputs, not fixed levels — classic IMM never documented an exact number for its own Stacks/Slots/Speed Crafting toggles, unlike the dropdowns above.</summary>
-    [ObservableProperty]
-    private string _stacksMultiplierInput = "";
+    /// <summary>Fixed multiplier pills, not free text — classic IMM never documented an exact number for its own Stacks/Slots toggles, but discrete common values (matching the other pill selectors' own UX) beat a bare text box a user has to guess at.</summary>
+    public static IReadOnlyList<double?> MultiplierOptions { get; } = [null, 2, 3, 4, 5, 10];
 
     [ObservableProperty]
-    private string _slotsMultiplierInput = "";
+    private double? _stacksMultiplier;
 
     [ObservableProperty]
-    private string _speedCraftingPercentInput = "";
+    private double? _slotsMultiplier;
+
+    /// <summary>0 = off/unchanged — the Slider's own natural "nothing set" value, so no separate null-state to track the way the multiplier pills need one.</summary>
+    [ObservableProperty]
+    private int _speedCraftingPercent;
 
     [ObservableProperty]
     private bool _removeWeight;
@@ -296,9 +299,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         PlayerBoost = PlayerBoost,
         XpBoost = XpBoost,
         CraftCost = CraftCost,
-        StacksMultiplier = ParsePositiveDouble(StacksMultiplierInput),
-        SlotsMultiplier = ParsePositiveDouble(SlotsMultiplierInput),
-        SpeedCraftingReductionPercent = ParsePositiveDouble(SpeedCraftingPercentInput),
+        StacksMultiplier = StacksMultiplier,
+        SlotsMultiplier = SlotsMultiplier,
+        SpeedCraftingReductionPercent = SpeedCraftingPercent > 0 ? SpeedCraftingPercent : null,
         RemoveWeight = RemoveWeight,
         UnlimitedAmmo = UnlimitedAmmo,
         DisableTemperatures = DisableTemperatures,
@@ -310,16 +313,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         PlayerBoost = options.PlayerBoost;
         XpBoost = options.XpBoost;
         CraftCost = options.CraftCost;
-        StacksMultiplierInput = options.StacksMultiplier?.ToString() ?? "";
-        SlotsMultiplierInput = options.SlotsMultiplier?.ToString() ?? "";
-        SpeedCraftingPercentInput = options.SpeedCraftingReductionPercent?.ToString() ?? "";
+        StacksMultiplier = options.StacksMultiplier;
+        SlotsMultiplier = options.SlotsMultiplier;
+        SpeedCraftingPercent = options.SpeedCraftingReductionPercent is { } percent ? (int)Math.Round(percent) : 0;
         RemoveWeight = options.RemoveWeight;
         UnlimitedAmmo = options.UnlimitedAmmo;
         DisableTemperatures = options.DisableTemperatures;
     }
-
-    private static double? ParsePositiveDouble(string text) =>
-        double.TryParse(text, out var value) && value > 0 ? value : null;
 
     /// <summary>Selecting a profile replaces the current queue with that profile's own saved one — a profile *is* "a saved merge list" per the spec, not something merged alongside the current queue.</summary>
     partial void OnSelectedProfileNameChanged(string? value)

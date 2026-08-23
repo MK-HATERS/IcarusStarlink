@@ -50,6 +50,9 @@
             <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Updates only"
                       IsChecked="{Binding UpdatesOnly}" Margin="12,0,0,4" VerticalAlignment="Center"
                       ToolTip="Shows only mods whose Nexus version differs from your Library copy's — works best on the All list"/>
+            <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Tracked"
+                      IsChecked="{Binding TrackedOnly}" Margin="12,0,0,4" VerticalAlignment="Center"
+                      ToolTip="Shows only mods you've tracked — click Track on a card to add one, click again to untrack"/>
             <TextBlock Text="Loading…" VerticalAlignment="Center" Margin="12,0,0,4"
                        Foreground="{DynamicResource SecondaryForegroundBrush}"
                        Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibilityConverter}}"/>
@@ -117,14 +120,52 @@
                                                 <TextBlock Text="Download" VerticalAlignment="Center"/>
                                             </StackPanel>
                                         </Button>
+                                        <!-- Same button toggles Track/Untrack — TrackModCommand checks
+                                             watchlist membership itself, so the click always does
+                                             the opposite of whatever IsTracked shows right now. -->
                                         <Button Command="{Binding DataContext.TrackModCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                CommandParameter="{Binding Mod}"
-                                                ToolTip="Add to Downloads' Nexus watchlist, so it's checked for updates"
-                                                AutomationProperties.Name="Track mod">
+                                                CommandParameter="{Binding Mod}">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                    <Setter Property="ToolTip" Value="Add to Downloads' Nexus watchlist, so it's checked for updates"/>
+                                                    <Setter Property="AutomationProperties.Name" Value="Track mod"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsTracked}" Value="True">
+                                                            <Setter Property="ToolTip" Value="Stop tracking this mod"/>
+                                                            <Setter Property="AutomationProperties.Name" Value="Untrack mod"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
                                             <StackPanel Orientation="Horizontal">
-                                                <Path Data="{StaticResource IconPlus}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
-                                                <TextBlock Text="Track" VerticalAlignment="Center"/>
+                                                <Path Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
+                                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round">
+                                                    <Path.Style>
+                                                        <Style TargetType="Path">
+                                                            <Setter Property="Data" Value="{StaticResource IconPlus}"/>
+                                                            <Setter Property="Stroke" Value="{DynamicResource ForegroundBrush}"/>
+                                                            <Setter Property="StrokeThickness" Value="1.8"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsTracked}" Value="True">
+                                                                    <Setter Property="Data" Value="{StaticResource IconCheck}"/>
+                                                                    <Setter Property="Stroke" Value="{DynamicResource AccentBrush}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Path.Style>
+                                                </Path>
+                                                <TextBlock VerticalAlignment="Center">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Text" Value="Track"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsTracked}" Value="True">
+                                                                    <Setter Property="Text" Value="Tracked"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
                                             </StackPanel>
                                         </Button>
                                         <Button Margin="8,0,0,0"

@@ -300,8 +300,10 @@
                          no one obvious hover target the way a ComboBox did. -->
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,2">
                         <TextBlock Text="Speed Boost" FontSize="12"/>
-                        <Path Style="{StaticResource InfoHintIconStyle}"
-                              ToolTip="Level 1: +100 move speed, +19 crouch/+50 sprint speed coefficient. Level 2: +245 move speed, +34 crouch/+100 sprint speed coefficient. (Classic IMM's own documented values.)"/>
+                        <Border Style="{StaticResource InfoHintTouchTargetStyle}"
+                                ToolTip="Level 1: +100 move speed, +19 crouch/+50 sprint speed coefficient. Level 2: +245 move speed, +34 crouch/+100 sprint speed coefficient. (Classic IMM's own documented values.)">
+                            <Path Style="{StaticResource InfoHintIconStyle}"/>
+                        </Border>
                     </StackPanel>
                     <ListBox ItemsSource="{Binding BoostLevels}" SelectedItem="{Binding SpeedBoost}"
                              Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
@@ -314,8 +316,10 @@
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Player Boost" FontSize="12"/>
-                        <Path Style="{StaticResource InfoHintIconStyle}"
-                              ToolTip="Level 1/2: more health/stamina/weight capacity, less food/water/oxygen consumption, faster regen, no fall damage, cold/heat resistance. (Classic IMM's own documented values.)"/>
+                        <Border Style="{StaticResource InfoHintTouchTargetStyle}"
+                                ToolTip="Level 1/2: more health/stamina/weight capacity, less food/water/oxygen consumption, faster regen, no fall damage, cold/heat resistance. (Classic IMM's own documented values.)">
+                            <Path Style="{StaticResource InfoHintIconStyle}"/>
+                        </Border>
                     </StackPanel>
                     <ListBox ItemsSource="{Binding BoostLevels}" SelectedItem="{Binding PlayerBoost}"
                              Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
@@ -328,8 +332,10 @@
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="XP Boost" FontSize="12"/>
-                        <Path Style="{StaticResource InfoHintIconStyle}"
-                              ToolTip="Level 1: +200% XP. Level 2: +500% XP. Level 3: +1000% XP. (Classic IMM's own documented values.)"/>
+                        <Border Style="{StaticResource InfoHintTouchTargetStyle}"
+                                ToolTip="Level 1: +200% XP. Level 2: +500% XP. Level 3: +1000% XP. (Classic IMM's own documented values.)">
+                            <Path Style="{StaticResource InfoHintIconStyle}"/>
+                        </Border>
                     </StackPanel>
                     <ListBox ItemsSource="{Binding XpBoostLevels}" SelectedItem="{Binding XpBoost}"
                              Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
@@ -342,8 +348,10 @@
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Craft Cost" FontSize="12"/>
-                        <Path Style="{StaticResource InfoHintIconStyle}"
-                              ToolTip="Reduces the item/resource inputs every crafting-bench recipe needs. Never touches what a recipe outputs. Free (Creative mode) zeroes every input outright rather than rounding it down. (Classic IMM's own documented values.)"/>
+                        <Border Style="{StaticResource InfoHintTouchTargetStyle}"
+                                ToolTip="Reduces the item/resource inputs every crafting-bench recipe needs. Never touches what a recipe outputs. Free (Creative mode) zeroes every input outright rather than rounding it down. (Classic IMM's own documented values.)">
+                            <Path Style="{StaticResource InfoHintIconStyle}"/>
+                        </Border>
                     </StackPanel>
                     <ListBox ItemsSource="{Binding CraftCostReductions}" SelectedItem="{Binding CraftCost}"
                              Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
@@ -356,24 +364,49 @@
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Stacks multiplier" FontSize="12"/>
-                        <Path Style="{StaticResource InfoHintIconStyle}"
-                              ToolTip="e.g. 3 = triple every item's stack size. Blank = unchanged. No fixed levels — classic IMM never documented an exact multiplier for its own Stacks toggle."/>
+                        <Border Style="{StaticResource InfoHintTouchTargetStyle}"
+                                ToolTip="e.g. 3x = triple every item's stack size. Off = unchanged. No fixed levels — classic IMM never documented an exact multiplier for its own Stacks toggle; these are just common round numbers.">
+                            <Path Style="{StaticResource InfoHintIconStyle}"/>
+                        </Border>
                     </StackPanel>
-                    <TextBox Text="{Binding StacksMultiplierInput, UpdateSourceTrigger=PropertyChanged}"/>
+                    <ListBox ItemsSource="{Binding MultiplierOptions}" SelectedItem="{Binding StacksMultiplier}"
+                             Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource GameplayLevelToShortLabelConverter}}"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Slots multiplier" FontSize="12"/>
-                        <Path Style="{StaticResource InfoHintIconStyle}"
-                              ToolTip="e.g. 2 = double every backpack/container's slot count. Blank = unchanged."/>
+                        <Border Style="{StaticResource InfoHintTouchTargetStyle}"
+                                ToolTip="e.g. 2x = double every backpack/container's slot count. Off = unchanged.">
+                            <Path Style="{StaticResource InfoHintIconStyle}"/>
+                        </Border>
                     </StackPanel>
-                    <TextBox Text="{Binding SlotsMultiplierInput, UpdateSourceTrigger=PropertyChanged}"/>
+                    <ListBox ItemsSource="{Binding MultiplierOptions}" SelectedItem="{Binding SlotsMultiplier}"
+                             Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource GameplayLevelToShortLabelConverter}}"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
-                        <TextBlock Text="Speed Crafting %" FontSize="12"/>
-                        <Path Style="{StaticResource InfoHintIconStyle}"
-                              ToolTip="e.g. 50 = halve crafting time, skipping recipes with a Water/Milk/Biofuel resource input or output (same conditional logic classic IMM's changelog documents). Blank = unchanged."/>
+                        <TextBlock Text="Speed Crafting" FontSize="12"/>
+                        <Border Style="{StaticResource InfoHintTouchTargetStyle}"
+                                ToolTip="e.g. 50% = halve crafting time, skipping recipes with a Water/Milk/Biofuel resource input or output (same conditional logic classic IMM's changelog documents). 0 = unchanged.">
+                            <Path Style="{StaticResource InfoHintIconStyle}"/>
+                        </Border>
+                        <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                            <Run Text="{Binding SpeedCraftingPercent, Mode=OneWay}"/><Run Text="%"/>
+                        </TextBlock>
                     </StackPanel>
-                    <TextBox Text="{Binding SpeedCraftingPercentInput, UpdateSourceTrigger=PropertyChanged}"/>
+                    <Slider Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
+                            Value="{Binding SpeedCraftingPercent}" Margin="0,4,0,0"
+                            ToolTip="Drag or click to set — 0 means unchanged"/>
 
                     <!-- Phase 10: genuine on/off toggles for these three, replacing plain checkboxes. -->
                     <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding RemoveWeight}" Margin="0,16,0,0"
