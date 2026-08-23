@@ -60,6 +60,21 @@ public class TableApplierTests
     }
 
     [Fact]
+    public void Apply_NewItemChange_AddsNoteBuiltFromSharedStaleItemHeuristic()
+    {
+        var baseTable = JsonNode.Parse("""{"Sword": {"Damage": 10}}""")!.AsObject();
+        var change = new FieldChange(
+            "Items-D_ItemsStatic.json", "LaserSword", "Damage",
+            OriginalValue: null, NewValue: JsonValue.Create(99), ValueSemantic.Scalar, IsNewItem: true);
+        var report = new MergeReport();
+
+        TableApplier.Apply(baseTable, [change], report);
+
+        var note = Assert.Single(report.Notes);
+        Assert.Equal(StaleItemHeuristic.BuildNote("Items-D_ItemsStatic.json", "LaserSword", fieldCount: 1), note);
+    }
+
+    [Fact]
     public void Apply_ChangeToRowRemovedFromBase_SkipsWithWarning()
     {
         var currentBase = JsonNode.Parse("""{"Sword": {"Damage": 10}}""")!.AsObject();

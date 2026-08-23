@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Net.Http;
+using System.Text.Json.Nodes;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -16,7 +17,10 @@ using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
+using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Compare;
+using IcarusStarlink.PakIO.Container;
+using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Pak;
 using Microsoft.Win32;
 
@@ -52,6 +56,10 @@ public sealed partial class LibraryViewModel : ObservableObject
     private int _selectedTabIndex;
 
     private readonly string _backupDirectory;
+
+    /// <summary>The extracted game data folder ("Update data folder"'s own output) — needed by CheckModsAgainstCurrentDataAsync to diff each mod's own items against what the game currently defines. Same plain DI-injected string ExmodEditorViewModel/MergeInstallViewModel already take, not a Settings-read.</summary>
+    private readonly string _dataFolder;
+
     private readonly DebounceTimer _searchDebounceTimer;
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
     private readonly Dictionary<string, LibraryGroupViewModel> _groupsByKey = [];
@@ -104,6 +112,12 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private string? _updateCheckStatusMessage;
 
+    [ObservableProperty]
+    private bool _isCheckingStaleness;
+
+    [ObservableProperty]
+    private string? _stalenessCheckStatusMessage;
+
     /// <summary>Ctrl/Shift-click multi-select, for "Add to merge queue" — the only way mods reach Merge & Install's queue now that its own Library pane is gone. A plain list (not a HashSet): insertion order isn't meaningful here, but ObservableCollection gives free CollectionChanged notification for HasBulkSelection/BulkSelectedCount.</summary>
     public ObservableCollection<LibraryItemViewModel> BulkSelectedItems { get; } = [];
 
@@ -119,7 +133,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
         IPendingDownloadStore pendingDownloadStore, IModVersionComparer modVersionComparer,
         DownloadsViewModel downloadsViewModel, Func<NexusCatalogViewModel> nexusCatalogViewModel,
-        IActiveDownloadsTracker activeDownloadsTracker, Func<MergeInstallViewModel> mergeInstallViewModel, string backupDirectory)
+        IActiveDownloadsTracker activeDownloadsTracker, Func<MergeInstallViewModel> mergeInstallViewModel, string backupDirectory,
+        string dataFolder)
     {
         _modVersionComparer = modVersionComparer;
         _mergeInstallViewModel = mergeInstallViewModel;
@@ -139,6 +154,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         _editorFactory = editorFactory;
         _activityLog = activityLog;
         _backupDirectory = backupDirectory;
+        _dataFolder = dataFolder;
 
         // Reload() rebuilds every row's ViewModel and re-queries the search index; without
         // debouncing, every keystroke would pay that cost plus re-trigger the still-selected
@@ -903,11 +919,45 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// ShowDialog) matches; this app's other ViewModels stay DI singletons, but the editor
     /// deliberately isn't one.
     /// </summary>
-    private void OpenEditor(string folderName)
+    /// <param name="preSelect">
+    /// When given and a matching row exists in the freshly-opened editor's own Items list, selects
+    /// it instead of the editor's own default (its first item) — used by OpenStaleItem so the
+    /// editor's existing amber base-diff highlighting is what the user sees first, not an unrelated
+    /// row.
+    /// </param>
+    private void OpenEditor(string folderName, (string CurrentFile, string ItemName)? preSelect = null)
     {
         var editorViewModel = _editorFactory(folderName);
+        if (preSelect is { } target)
+        {
+            var match = editorViewModel.Items.FirstOrDefault(i => i.CurrentFile == target.CurrentFile && i.ItemName == target.ItemName);
+            if (match is not null)
+            {
+                editorViewModel.SelectedItem = match;
+            }
+        }
+
         var window = new ExmodEditorWindow(editorViewModel) { Owner = Application.Current.MainWindow };
         window.Show();
+    }
+
+    /// <summary>The row's own warning badge — clicking it opens the mod in the editor with the first flagged item pre-selected (see OpenEditor's preSelect param), so the editor's already-existing amber base-diff highlighting does the rest.</summary>
+    [RelayCommand]
+    private void OpenStaleItem(LibraryItemViewModel? item)
+    {
+        if (item is null || item.IsOpaquePak)
+        {
+            return;
+        }
+
+        try
+        {
+            OpenEditor(item.FolderName, item.FirstStaleItem);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't open the editor: {ex.Message}";
+        }
     }
 
     [RelayCommand]
@@ -1153,6 +1203,85 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     [RelayCommand]
     private Task CheckForUpdates() => CheckForUpdatesAsync(isAutomatic: false);
+
+    [RelayCommand]
+    private Task CheckModsAgainstCurrentData() => CheckModsAgainstCurrentDataAsync();
+
+    /// <summary>
+    /// A separate question and a separate action from CheckForUpdatesAsync above (that's Nexus/
+    /// catalog version-string checking) — this asks "does this mod's own data still match what the
+    /// currently-extracted game data actually defines", independent of any catalog or version
+    /// string. Explicit action (a toolbar button), not automatic on every Library load, since a
+    /// whole-library base-vs-modded diff is real work a routine navigation shouldn't pay for.
+    /// </summary>
+    private async Task CheckModsAgainstCurrentDataAsync()
+    {
+        // Opaque .pak entries have no .EXMOD to diff — same exclusion EnsureDetailsLoaded's own
+        // ChangesContent formatting already applies.
+        var candidates = _itemsByFolderName.Values.Where(i => !i.IsOpaquePak).ToList();
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        IsCheckingStaleness = true;
+        try
+        {
+            var folderPaths = candidates.ToDictionary(i => i.FolderName, i => _repository.GetFolderPath(i.FolderName));
+
+            // Off the UI thread: this diffs every non-opaque mod's own items against the real
+            // extracted game data, which for a large library is real, avoidable-to-block-on work —
+            // same reasoning RebuildService's own merge computation was moved to Task.Run for.
+            // Results are collected into a plain dictionary and applied to the rows back on this
+            // (UI) thread afterward, since LibraryItemViewModel's ObservableProperty setters aren't
+            // safe to call from a background thread.
+            var resultsByFolder = await Task.Run(() =>
+            {
+                // Shared for the whole pass, not per mod — many mods touch the same real file (e.g.
+                // Traits-D_Itemable.json), and re-parsing it once per mod that touches it is real,
+                // avoidable cost.
+                var baseTableCache = new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
+                var classifier = new DefaultSemanticClassifier();
+                var results = new Dictionary<string, IReadOnlyList<ExmodStalenessChecker.StaleItem>>();
+
+                foreach (var (folderName, folderPath) in folderPaths)
+                {
+                    try
+                    {
+                        var package = ExmodFolder.ReadPackageOnly(folderPath);
+                        results[folderName] = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, classifier, baseTableCache);
+                    }
+                    catch (Exception)
+                    {
+                        // Best-effort per mod, matching CheckForUpdatesAsync's own per-source
+                        // isolation — a locked or malformed .EXMOD just means that one mod isn't
+                        // checked this pass, not a reason to fail the whole library check.
+                    }
+                }
+
+                return results;
+            });
+
+            var flaggedCount = 0;
+            foreach (var item in candidates)
+            {
+                var staleItems = resultsByFolder.GetValueOrDefault(item.FolderName, []);
+                item.SetStaleItems(staleItems);
+                if (staleItems.Count > 0)
+                {
+                    flaggedCount++;
+                }
+            }
+
+            StalenessCheckStatusMessage = flaggedCount > 0
+                ? $"{flaggedCount} mod(s) have possibly stale items — click a flagged row's warning badge to review."
+                : "No possibly stale items found.";
+        }
+        finally
+        {
+            IsCheckingStaleness = false;
+        }
+    }
 
     /// <summary>
     /// Nexus-sourced mods get a real version lookup via the Nexus API (same GetModInfoAsync the

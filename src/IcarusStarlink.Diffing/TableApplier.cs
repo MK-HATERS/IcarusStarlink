@@ -65,13 +65,7 @@ public static class TableApplier
             var itemName = createdKey[(separator + 1)..];
             var fieldCount = createdItemFieldCounts.GetValueOrDefault(createdKey);
 
-            // Deliberately not phrased as an error — adding new content is exactly what many mods
-            // legitimately do. The field count is the useful signal: a real new item defines many
-            // fields, while one or two usually means a mod editing a row this game version no
-            // longer has.
-            report?.AddNote(
-                $"'{itemName}' isn't in the game's current {currentFile} — created as a new item ({fieldCount} field(s)). "
-                + "That's normal for a mod that adds content; if this mod only meant to edit existing items, it's likely out of date for this game version and needs editing.");
+            report?.AddNote(StaleItemHeuristic.BuildNote(currentFile, itemName, fieldCount));
         }
 
         return result;

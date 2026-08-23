@@ -206,7 +206,8 @@ public partial class App : Application
             sp.GetRequiredService<NexusCatalogViewModel>,
             sp.GetRequiredService<IActiveDownloadsTracker>(),
             sp.GetRequiredService<MergeInstallViewModel>,
-            Path.Combine(appDataDirectory, "Backups")));
+            Path.Combine(appDataDirectory, "Backups"),
+            Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IRebuildService>(),

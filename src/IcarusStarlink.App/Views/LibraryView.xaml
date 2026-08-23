@@ -151,6 +151,18 @@
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
                           ToolTip="A rebuilt merged pak, re-imported as its own mod"
                           Visibility="{Binding IsMergedPack, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <!-- Set by "Check mods against game data" (diffs against the currently-extracted
+                         Data folder) — unlike the two plain indicator glyphs above, this one is
+                         clickable: it opens the editor with the first flagged item pre-selected. -->
+                    <Button Style="{StaticResource IconButtonStyle}" Width="14" Height="14" Padding="0" Margin="0,0,5,0"
+                            Command="{Binding DataContext.OpenStaleItemCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding}"
+                            ToolTip="{Binding StaleItemCount, StringFormat='{}{0} item(s) may be editing a row this game version no longer has — click to review in the editor'}"
+                            AutomationProperties.Name="Possibly stale items"
+                            Visibility="{Binding HasPossiblyStaleItems, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Path Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.4"
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"/>
+                    </Button>
                 </StackPanel>
 
                 <!-- A single TextBlock, not the StackPanel this used to be — StackPanel gives its
@@ -336,6 +348,15 @@
                                 <TextBlock Text="Check for updates" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
+                        <Button Command="{Binding CheckModsAgainstCurrentDataCommand}" Margin="0,0,8,0"
+                                ToolTip="Diffs every mod against the currently-extracted game data — flags items that look like they're editing a row this game version no longer has"
+                                AutomationProperties.Name="Check mods against game data">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconWarning}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Check mods against game data" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
 
                         <!-- Discoverable alternative to the row context menu's own "Add to merge
                              queue" — only appears once Ctrl/Shift-click has actually selected 2+
@@ -445,6 +466,8 @@
                         </TextBlock>
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding UpdateCheckStatusMessage}"
                                    Visibility="{Binding UpdateCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding StalenessCheckStatusMessage}"
+                                   Visibility="{Binding StalenessCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                         <TextBlock Margin="0,4,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}"
                                    Text="{Binding UnreadableFoldersMessage}"
                                    Visibility="{Binding UnreadableFoldersMessage, Converter={StaticResource NullToVisibilityConverter}}"/>

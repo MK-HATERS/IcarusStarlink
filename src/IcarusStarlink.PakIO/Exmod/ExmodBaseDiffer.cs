@@ -13,31 +13,65 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// </summary>
 public static class ExmodBaseDiffer
 {
+    /// <param name="baseTableCache">
+    /// Optional, keyed by CurrentFile — lets a whole-library pass (checking many mods that often
+    /// touch the same real file, e.g. Traits-D_Itemable.json) parse each base file once instead of
+    /// once per mod. Null (the default, and every call site before this) parses fresh every time,
+    /// unchanged from the original behavior. A cache hit still re-reports a missing base file on
+    /// every call, since that warning is a per-mod signal, not something the cache itself should
+    /// suppress.
+    /// </param>
     public static IReadOnlyList<FieldChange> DiffAgainstBase(
-        ExmodPackage package, string dataFolder, ISemanticClassifier classifier, MergeReport? report = null)
+        ExmodPackage package, string dataFolder, ISemanticClassifier classifier, MergeReport? report = null,
+        IDictionary<string, JsonObject?>? baseTableCache = null)
     {
         var changes = new List<FieldChange>();
 
         foreach (var row in package.Rows)
         {
-            // Same convention confirmed throughout Phase 6: "Traits-D_Fuel.json" -> "Traits/D_Fuel.json".
-            var realRelativePath = row.CurrentFile.Replace('-', '/');
-            var basePath = Path.Combine(dataFolder, realRelativePath);
-            if (!File.Exists(basePath))
+            var baseKeyed = ResolveBaseTable(row.CurrentFile, dataFolder, report, baseTableCache);
+            if (baseKeyed is null)
             {
-                report?.AddWarning($"No matching base file for '{row.CurrentFile}' at '{realRelativePath}'.");
                 continue;
             }
 
-            var baseFileJson = JsonNode.Parse(File.ReadAllText(basePath))!.AsObject();
-            var baseKeyed = DataTableJson.RowsToKeyedObject(baseFileJson, duplicateName => report?.AddWarning(
-                $"'{row.CurrentFile}' has more than one row named '{duplicateName}' — only the last one was kept."));
             var moddedKeyed = ToKeyedObject(row);
-
             changes.AddRange(TableDiffer.Diff(baseKeyed, moddedKeyed, row.CurrentFile, classifier, report));
         }
 
         return changes;
+    }
+
+    private static JsonObject? ResolveBaseTable(
+        string currentFile, string dataFolder, MergeReport? report, IDictionary<string, JsonObject?>? baseTableCache)
+    {
+        if (baseTableCache is not null && baseTableCache.TryGetValue(currentFile, out var cached))
+        {
+            if (cached is null)
+            {
+                report?.AddWarning($"No matching base file for '{currentFile}' at '{currentFile.Replace('-', '/')}'.");
+            }
+
+            return cached;
+        }
+
+        // Same convention confirmed throughout Phase 6: "Traits-D_Fuel.json" -> "Traits/D_Fuel.json".
+        var realRelativePath = currentFile.Replace('-', '/');
+        var basePath = Path.Combine(dataFolder, realRelativePath);
+        JsonObject? baseKeyed = null;
+        if (File.Exists(basePath))
+        {
+            var baseFileJson = JsonNode.Parse(File.ReadAllText(basePath))!.AsObject();
+            baseKeyed = DataTableJson.RowsToKeyedObject(baseFileJson, duplicateName => report?.AddWarning(
+                $"'{currentFile}' has more than one row named '{duplicateName}' — only the last one was kept."));
+        }
+        else
+        {
+            report?.AddWarning($"No matching base file for '{currentFile}' at '{realRelativePath}'.");
+        }
+
+        baseTableCache?.Add(currentFile, baseKeyed);
+        return baseKeyed;
     }
 
     /// <summary>

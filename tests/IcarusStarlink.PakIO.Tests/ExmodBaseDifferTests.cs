@@ -116,6 +116,50 @@ public class ExmodBaseDifferTests : IDisposable
         Assert.Contains(changes, c => c.FieldName == "Weight" && (int)c.OriginalValue! == 150);
     }
 
+    [Fact]
+    public void DiffAgainstBase_SameFileTwiceWithSharedCache_SecondCallReusesCachedTable()
+    {
+        // Proves the cache is actually consulted, not just accepted and ignored: after the first
+        // call populates it for this CurrentFile, the base file is deleted from disk — a second
+        // call that still produces the same real diff (instead of a "no matching base file"
+        // warning) could only have come from the cache, not a fresh read.
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","RequiredMillijoules":2500}]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Crafting-D_ProcessorRecipes.json",
+            FileItems = [new ExmodFileItem { Name = "Stone_Pickaxe", Fields = { ["RequiredMillijoules"] = System.Text.Json.Nodes.JsonValue.Create(1313) } }],
+        });
+        var cache = new Dictionary<string, System.Text.Json.Nodes.JsonObject?>();
+
+        var first = ExmodBaseDiffer.DiffAgainstBase(package, _dataFolder, _classifier, baseTableCache: cache);
+        File.Delete(Path.Combine(_dataFolder, "Crafting", "D_ProcessorRecipes.json"));
+        var second = ExmodBaseDiffer.DiffAgainstBase(package, _dataFolder, _classifier, baseTableCache: cache);
+
+        Assert.Equal(2500, (int)Assert.Single(first).OriginalValue!);
+        Assert.Equal(2500, (int)Assert.Single(second).OriginalValue!);
+    }
+
+    [Fact]
+    public void DiffAgainstBase_MissingBaseFileWithSharedCache_StillWarnsOnEveryCall()
+    {
+        // A cache hit for a genuinely-missing file must still re-warn each call — that warning is
+        // a per-mod signal (which mod is affected), not something the cache itself should suppress.
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "NoSuchCategory-D_Missing.json",
+            FileItems = [new ExmodFileItem { Name = "X", Fields = { ["Y"] = System.Text.Json.Nodes.JsonValue.Create(1) } }],
+        });
+        var cache = new Dictionary<string, System.Text.Json.Nodes.JsonObject?>();
+        var firstReport = new MergeReport();
+        var secondReport = new MergeReport();
+
+        ExmodBaseDiffer.DiffAgainstBase(package, _dataFolder, _classifier, firstReport, cache);
+        ExmodBaseDiffer.DiffAgainstBase(package, _dataFolder, _classifier, secondReport, cache);
+
+        Assert.Contains(firstReport.Warnings, w => w.Contains("NoSuchCategory-D_Missing.json"));
+        Assert.Contains(secondReport.Warnings, w => w.Contains("NoSuchCategory-D_Missing.json"));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dataFolder))

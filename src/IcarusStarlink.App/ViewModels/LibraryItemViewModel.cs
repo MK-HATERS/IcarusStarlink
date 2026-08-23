@@ -112,6 +112,31 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     partial void OnLatestVersionChanged(string? value) => OnPropertyChanged(nameof(HasUpdateAvailable));
 
+    /// <summary>
+    /// Populated by LibraryViewModel.CheckModsAgainstCurrentDataAsync — count of this mod's own
+    /// items that look like they're editing a row the currently-extracted game data no longer has
+    /// (a small field count is the tell; see StaleItemHeuristic). Not persisted, recomputed each
+    /// check — same "computed at display time" precedent as LatestVersion/HasUpdateAvailable above.
+    /// </summary>
+    [ObservableProperty]
+    private int _staleItemCount;
+
+    public bool HasPossiblyStaleItems => StaleItemCount > 0;
+
+    partial void OnStaleItemCountChanged(int value) => OnPropertyChanged(nameof(HasPossiblyStaleItems));
+
+    private IReadOnlyList<ExmodStalenessChecker.StaleItem> _staleItems = [];
+
+    /// <summary>The first flagged item, if any — LibraryViewModel's OpenStaleItemCommand pre-selects this one in the editor when the row's warning badge is clicked.</summary>
+    public (string CurrentFile, string ItemName)? FirstStaleItem =>
+        _staleItems.Count > 0 ? (_staleItems[0].CurrentFile, _staleItems[0].ItemName) : null;
+
+    public void SetStaleItems(IReadOnlyList<ExmodStalenessChecker.StaleItem> staleItems)
+    {
+        _staleItems = staleItems;
+        StaleItemCount = staleItems.Count;
+    }
+
     /// <summary>Phase 10: an opaque .pak entry has no .EXMOD to edit — the inline row Edit action hides itself rather than opening an editor with nothing to show.</summary>
     public bool CanEdit => !IsOpaquePak;
 

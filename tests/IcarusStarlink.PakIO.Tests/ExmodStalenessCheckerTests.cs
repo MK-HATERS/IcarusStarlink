@@ -1,0 +1,133 @@
+using System.Text.Json.Nodes;
+using IcarusStarlink.Diffing;
+using IcarusStarlink.PakIO.Exmod;
+
+namespace IcarusStarlink.PakIO.Tests;
+
+public class ExmodStalenessCheckerTests : IDisposable
+{
+    private readonly string _dataFolder = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+    private readonly DefaultSemanticClassifier _classifier = new();
+
+    private void WriteBaseTable(string relativePath, string json)
+    {
+        var path = Path.Combine(_dataFolder, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, json);
+    }
+
+    private static ExmodPackage MakePackage(params ExmodFileRow[] rows) => new()
+    {
+        Name = "Test Mod", Author = "A", Version = "1", Description = "D", FileName = "Test_Mod", Rows = [.. rows],
+    };
+
+    private static ExmodFileItem MakeItem(string name, int fieldCount)
+    {
+        var item = new ExmodFileItem { Name = name };
+        for (var i = 0; i < fieldCount; i++)
+        {
+            item.Fields[$"Field{i}"] = JsonValue.Create(i);
+        }
+        return item;
+    }
+
+    [Fact]
+    public void FindLikelyStaleItems_NewItemWithFewFields_IsFlagged()
+    {
+        WriteBaseTable("Traits/D_Fuel.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Fuel.json",
+            FileItems = [MakeItem("Old_Item", fieldCount: 2)],
+        });
+
+        var stale = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier);
+
+        var item = Assert.Single(stale);
+        Assert.Equal("Traits-D_Fuel.json", item.CurrentFile);
+        Assert.Equal("Old_Item", item.ItemName);
+        Assert.Equal(2, item.FieldCount);
+    }
+
+    [Fact]
+    public void FindLikelyStaleItems_NewItemWithManyFields_IsNotFlagged()
+    {
+        // A real new item defines many fields — this is exactly the "adds new content" case that
+        // must NOT be treated as a stale edit of a removed row.
+        WriteBaseTable("Traits/D_Fuel.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Fuel.json",
+            FileItems = [MakeItem("New_Building", fieldCount: 12)],
+        });
+
+        var stale = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier);
+
+        Assert.Empty(stale);
+    }
+
+    [Fact]
+    public void FindLikelyStaleItems_ItemStillInBase_IsNotFlagged()
+    {
+        WriteBaseTable("Traits/D_Fuel.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Wood","Weight":150}]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Fuel.json",
+            FileItems = [new ExmodFileItem { Name = "Item_Wood", Fields = { ["Weight"] = JsonValue.Create(0) } }],
+        });
+
+        var stale = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier);
+
+        Assert.Empty(stale);
+    }
+
+    [Fact]
+    public void FindLikelyStaleItems_DuplicateFieldsAcrossRepeatedItemEntries_CountedAsOneItem()
+    {
+        // Real EXMOD mods can list the same item name more than once in FileItems (see the field
+        // notes: "A single mod's File_Items can list the SAME item name more than once, with
+        // different values" — a legal, observed pattern). Both entries feed TableDiffer against the
+        // same missing base row, so they must group into one StaleItem, not two.
+        WriteBaseTable("Traits/D_Fuel.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Fuel.json",
+            FileItems =
+            [
+                new ExmodFileItem { Name = "Old_Item", Fields = { ["A"] = JsonValue.Create(1) } },
+                new ExmodFileItem { Name = "Old_Item", Fields = { ["A"] = JsonValue.Create(2), ["B"] = JsonValue.Create(3) } },
+            ],
+        });
+
+        var stale = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier);
+
+        var item = Assert.Single(stale);
+        Assert.Equal("Old_Item", item.ItemName);
+    }
+
+    [Fact]
+    public void FindLikelyStaleItems_SharedCacheAcrossCalls_StillProducesCorrectResults()
+    {
+        WriteBaseTable("Traits/D_Fuel.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Fuel.json",
+            FileItems = [MakeItem("Old_Item", fieldCount: 1)],
+        });
+        var cache = new Dictionary<string, JsonObject?>();
+
+        var first = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier, cache);
+        var second = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier, cache);
+
+        Assert.Single(first);
+        Assert.Single(second);
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_dataFolder))
+        {
+            Directory.Delete(_dataFolder, recursive: true);
+        }
+    }
+}
