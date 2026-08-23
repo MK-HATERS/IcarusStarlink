@@ -388,7 +388,11 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             // via UnrealPak -List, an external process this synchronous method can't await.
             if (!IsOpaquePak)
             {
-                var package = ExmodFolder.Read(_repository.GetFolderPath(FolderName)).Package;
+                // ReadPackageOnly, not Read: Read pulls EVERY one of the mod's binary assets into
+                // memory (a real mod's .uasset/.ubulk content can be many MB) purely to reach the
+                // .EXMOD's own JSON, which is the only thing the Changes text is built from. Paid
+                // on every mod selection before this.
+                var package = ExmodFolder.ReadPackageOnly(_repository.GetFolderPath(FolderName));
                 ChangesContent = ExmodChangesFormatter.Format(package);
             }
             else

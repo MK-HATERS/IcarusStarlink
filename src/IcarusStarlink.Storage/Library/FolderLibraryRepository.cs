@@ -167,6 +167,12 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
     {
         ResolveFolder(folderName); // validates the entry actually exists before writing metadata for it
 
+        // Read-modify-write, and the read is load-bearing — do NOT "optimize" it away by building
+        // a LibraryMeta from the cached entry. LibraryMeta carries fields this method never
+        // touches (Source, CatalogEntryId, NexusModId, MergedPackModNames, ImportedAtUtc, the
+        // Nexus-enrichment fields), several of which have no home on LibraryEntry at all, so
+        // writing a memory-built object would silently erase them on something as routine as a
+        // pin toggle — losing a mod's update-checking link.
         var meta = _metaStore.Load(folderName);
         meta.IsPinned = isPinned;
         meta.IsFavorite = isFavorite;
