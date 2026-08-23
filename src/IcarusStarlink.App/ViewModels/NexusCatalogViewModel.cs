@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Catalog.Nexus;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
@@ -40,13 +41,25 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     private readonly INexusWatchlistStore _watchlistStore;
     private readonly ILibraryRepository _libraryRepository;
     private readonly IPendingDownloadStore _pendingDownloadStore;
-    private readonly DownloadsViewModel _downloads;
+
+    /// <summary>
+    /// Exposed so the Nexus page's own XAML can reach DownloadsViewModel's Track-by-URL (for a mod
+    /// that hasn't shown up in search/All yet) and its batch Check-for-updates — reusing those
+    /// commands directly instead of duplicating them here, since tracking a mod not found by the
+    /// live API is the one genuine case per-card Track can't cover.
+    /// </summary>
+    public DownloadsViewModel Downloads { get; }
 
     /// <summary>Guards against two overlapping loads (a quick list-pill double-switch) finishing out of order — only the newest load's results land.</summary>
     private int _loadVersion;
 
     /// <summary>The last successful fetch, kept so local badges can be recomputed (a Library import/delete elsewhere, a Track click) without another API round-trip.</summary>
     private IReadOnlyList<NexusModInfo> _lastFetched = [];
+
+    /// <summary>Tracked mods already notified about having an update — so a page revisit or filter toggle (both call RebuildRows) doesn't re-log the same update every time, only genuinely new ones.</summary>
+    private readonly HashSet<int> _notifiedUpdateModIds = [];
+
+    private readonly IActivityLog _activityLog;
 
     /// <summary>This IS the Nexus page — there is no wrapper ViewModel around it any more (the embedded browser it used to sit beside was removed as redundant with signing in via Settings).</summary>
     public string Title => "Nexus";
@@ -106,14 +119,16 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
 
     public NexusCatalogViewModel(
         INexusApiClient nexusApiClient, ICredentialStore credentialStore, INexusWatchlistStore watchlistStore,
-        ILibraryRepository libraryRepository, IPendingDownloadStore pendingDownloadStore, DownloadsViewModel downloads)
+        ILibraryRepository libraryRepository, IPendingDownloadStore pendingDownloadStore, DownloadsViewModel downloads,
+        IActivityLog activityLog)
     {
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
         _watchlistStore = watchlistStore;
         _libraryRepository = libraryRepository;
         _pendingDownloadStore = pendingDownloadStore;
-        _downloads = downloads;
+        Downloads = downloads;
+        _activityLog = activityLog;
 
         // Activating/deleting a mod elsewhere changes what "In Library" is true for — recompute
         // badges from the cached fetch, deliberately with no network involved (this VM is a
@@ -278,6 +293,15 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                 && !string.Equals(libraryEntry.Version, mod.Version, StringComparison.OrdinalIgnoreCase);
             var isTracked = trackedModIds.Contains(mod.ModId);
 
+            // Surface a genuinely new update on a tracked mod through the Activity panel instead
+            // of a dedicated "check for updates" button — this already runs on every load/refresh/
+            // filter-toggle, so there's nothing to click; _notifiedUpdateModIds keeps a revisit from
+            // re-announcing the same update every time RebuildRows runs.
+            if (isTracked && hasUpdate && _notifiedUpdateModIds.Add(mod.ModId))
+            {
+                _activityLog.Log($"Update available for tracked mod '{mod.Name}' (v{libraryEntry!.Version} installed → v{mod.Version} on Nexus).", ActivityEntryKind.Info);
+            }
+
             // The display filters: HideOwned drops what this install already has (In Library or a
             // file waiting in Pending Downloads — Tracked is just a bookmark, not ownership);
             // UpdatesOnly keeps only cards whose live version differs from the Library copy's;
@@ -339,8 +363,8 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                 return;
             }
 
-            await _downloads.FetchAndDownloadAsync($"nxm://icarus/mods/{mod.ModId}/files/{file.FileId}");
-            StatusMessage = _downloads.PendingDownloadStatusMessage;
+            await Downloads.FetchAndDownloadAsync($"nxm://icarus/mods/{mod.ModId}/files/{file.FileId}");
+            StatusMessage = Downloads.PendingDownloadStatusMessage;
             RebuildRows();
         }
         catch (InvalidOperationException ex)

@@ -222,7 +222,6 @@ public partial class App : Application
             sp.GetRequiredService<IGitHubRepoDateClient>(),
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IUe4ssModRepository>(),
-            sp.GetRequiredService<INexusWatchlistStore>(),
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<INexusApiClient>(),
             sp.GetRequiredService<ICredentialStore>(),

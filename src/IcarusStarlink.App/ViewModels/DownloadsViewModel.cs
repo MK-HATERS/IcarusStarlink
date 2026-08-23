@@ -36,7 +36,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private readonly IGitHubRepoDateClient _gitHubRepoDateClient;
     private readonly ILibraryRepository _libraryRepository;
     private readonly IUe4ssModRepository _ue4ssModRepository;
-    private readonly INexusWatchlistStore _watchlistStore;
     private readonly ISettingsService _settingsService;
     private readonly PerformanceTracker _performanceTracker;
     private readonly INexusApiClient _nexusApiClient;
@@ -146,24 +145,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
     [ObservableProperty]
     private bool _showLastUpdatedColumn;
 
-    // --- Nexus Mods tab ---
-    public ObservableCollection<NexusWatchlistItemViewModel> NexusEntries { get; } = [];
-
-    [ObservableProperty]
-    private string _nexusFilterText = "";
-
-    [ObservableProperty]
-    private string _newNexusUrl = "";
-
-    [ObservableProperty]
-    private NexusWatchlistItemViewModel? _selectedNexusEntry;
-
-    [ObservableProperty]
-    private string? _nexusStatusMessage;
-
-    [ObservableProperty]
-    private bool _isCheckingNexusUpdates;
-
     // --- Pending Downloads tab ---
     public ObservableCollection<PendingDownloadItemViewModel> PendingDownloads { get; } = [];
 
@@ -182,7 +163,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
         IGitHubRepoDateClient gitHubRepoDateClient,
         ILibraryRepository libraryRepository,
         IUe4ssModRepository ue4ssModRepository,
-        INexusWatchlistStore watchlistStore,
         ISettingsService settingsService,
         INexusApiClient nexusApiClient,
         ICredentialStore credentialStore,
@@ -197,7 +177,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
         _gitHubRepoDateClient = gitHubRepoDateClient;
         _libraryRepository = libraryRepository;
         _ue4ssModRepository = ue4ssModRepository;
-        _watchlistStore = watchlistStore;
         _settingsService = settingsService;
         _performanceTracker = performanceTracker;
         _nexusApiClient = nexusApiClient;
@@ -217,7 +196,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         _searchDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), ApplyCatalogFilters);
 
-        ReloadNexusEntries();
         ReloadPendingDownloads();
 
         // Constructors can't be async; this is the same "fire it and let the method itself
@@ -225,10 +203,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
         // RefreshCatalogAsync has its own top-level try/catch, so nothing here can produce an
         // unobserved exception.
         _ = RefreshCatalogAsync();
-        // Silent (isAutomatic: true) — a launch-time check shouldn't show "sign in first" the
-        // moment Downloads opens for a user who's never configured Nexus at all; the manual
-        // Check for updates button surfaces that message on an explicit click instead.
-        _ = RunNexusUpdateCheckAsync(isAutomatic: true);
 
         // This ViewModel Sends LibraryChangedMessage itself (after a download/extract, an
         // Activate, or an import) but, until now, never Registered to receive it — so the IMM
@@ -259,9 +233,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     partial void OnGameWeekChanged(int value) => ApplyCatalogFilters();
     partial void OnHideOlderWeeksChanged(bool value) => ApplyCatalogFilters();
 
-    partial void OnNexusFilterTextChanged(string value) => ApplyNexusFilter();
-
-    // Immediate-save, not debounced: these are discrete checkbox clicks, not rapid-repeat
+// Immediate-save, not debounced: these are discrete checkbox clicks, not rapid-repeat
     // keystrokes like Notes/Name — same "save right away" precedent MainViewModel's own theme
     // selection already established for a silent UI preference with no dedicated Save button.
     partial void OnShowAuthorColumnChanged(bool value) => SaveColumnPreferences();
@@ -470,7 +442,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         // two-way SelectedItem binding just drops back to null on every filter/search change (or
         // after Download & extract re-applies filters) even when the same mod still matches —
         // the detail pane and its buttons would disappear for no reason the user did anything
-        // wrong. Mirrors ReloadNexusEntries' own selection-by-ID restore just below.
+        // wrong.
         SelectedCatalogEntry = previouslySelectedId is null
             ? null
             : CatalogEntries.FirstOrDefault(row => row.Entry.Id == previouslySelectedId);
@@ -595,185 +567,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
 
         OpenUrl(url);
-    }
-
-    // --- Nexus Mods tab ---
-
-    [RelayCommand]
-    private void AddNexusUrl()
-    {
-        if (!NexusModWebUrl.TryParseModIdFromUrl(NewNexusUrl, out var nexusId))
-        {
-            NexusStatusMessage = "That doesn't look like a nexusmods.com/icarus/mods/<id> URL.";
-            return;
-        }
-
-        // Nexus's own mod name isn't fetchable without API access (see NexusWatchlistEntry) —
-        // this placeholder is meant to be renamed via the editable Name column.
-        var entry = new NexusWatchlistEntry { NexusId = nexusId, Url = NewNexusUrl.Trim(), Name = $"Nexus mod #{nexusId}" };
-
-        try
-        {
-            _watchlistStore.Add(entry);
-        }
-        catch (Exception ex)
-        {
-            NexusStatusMessage = $"Couldn't save watchlist: {ex.Message}";
-            return;
-        }
-
-        NewNexusUrl = "";
-        NexusStatusMessage = $"Tracking mod #{nexusId} — rename it in the list.";
-        ReloadNexusEntries();
-    }
-
-    [RelayCommand]
-    private void RemoveNexusEntry()
-    {
-        if (SelectedNexusEntry is null)
-        {
-            return;
-        }
-
-        var id = SelectedNexusEntry.NexusId;
-        // Cancel first: a pending debounced name save firing after Remove() below could write
-        // this entry's old name back into the store under an id a later Add() might reuse.
-        SelectedNexusEntry.CancelPendingSave();
-        try
-        {
-            _watchlistStore.Remove(id);
-        }
-        catch (Exception ex)
-        {
-            NexusStatusMessage = $"Couldn't update watchlist: {ex.Message}";
-            return;
-        }
-
-        SelectedNexusEntry = null;
-        ReloadNexusEntries();
-    }
-
-    /// <summary>
-    /// Closes a real spec gap: icarusworkshop.txt lists "Refresh info" as a per-row Nexus Mods
-    /// action, but this app only ever had a batch-wide Check for updates — and the watchlist item's
-    /// own placeholder-name comment ("Nexus's own mod name isn't fetchable without API access") has
-    /// been stale since Phase 8.1 gave this app a real Nexus API client. One real GetModInfoAsync
-    /// call re-syncs this single entry's display name against Nexus's own current title, replacing
-    /// the "Nexus mod #123" placeholder without touching every other tracked mod.
-    /// </summary>
-    [RelayCommand]
-    private async Task RefreshNexusEntryInfoAsync(NexusWatchlistItemViewModel? item)
-    {
-        if (item is null)
-        {
-            return;
-        }
-
-        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
-        if (apiKey is null)
-        {
-            NexusStatusMessage = "Sign in with your Nexus API key in Settings first.";
-            return;
-        }
-
-        try
-        {
-            var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", item.NexusId);
-            if (info is null)
-            {
-                NexusStatusMessage = $"Nexus has no info for mod #{item.NexusId} (removed, or your key can't see it).";
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(info.Name))
-            {
-                // Setting Name fires the item's own OnNameChanged, which debounces and persists
-                // through the same path a manual rename already uses — no separate save call needed.
-                item.Name = info.Name;
-            }
-
-            NexusStatusMessage = $"Refreshed info for '{item.Name}'.";
-        }
-        catch (Exception ex)
-        {
-            NexusStatusMessage = $"Couldn't refresh info: {ex.Message}";
-        }
-    }
-
-    [RelayCommand]
-    private void BrowseOnNexus()
-    {
-        if (SelectedNexusEntry is not { } selected)
-        {
-            return;
-        }
-
-        OpenUrl(selected.Url);
-    }
-
-    /// <summary>The explicit-click variant of the real API-backed check — unlike the constructor's silent launch-time run, this one does say "sign in first" when no key is configured. (A pre-8.2 doc comment here claimed no in-app Nexus API existed — long stale.)</summary>
-    [RelayCommand]
-    private Task CheckForNexusUpdates() => RunNexusUpdateCheckAsync(isAutomatic: false);
-
-    /// <summary>
-    /// Phase 8.2: checks every tracked mod at once against Nexus's own "updated within the last
-    /// month" list — not a per-mod version diff (Nexus's API doesn't give us an exact version to
-    /// compare against without a second call per mod), so this is a real but coarse "something
-    /// changed recently" signal, the same honest scope-limit already accepted for the IMM
-    /// Database catalog's own cross-reference. isAutomatic distinguishes the constructor's silent
-    /// launch-time check (no key configured yet shouldn't nag) from an explicit button click
-    /// (which should say so).
-    /// </summary>
-    private async Task RunNexusUpdateCheckAsync(bool isAutomatic)
-    {
-        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
-        if (apiKey is null)
-        {
-            if (!isAutomatic)
-            {
-                NexusStatusMessage = "Sign in with your Nexus API key in Settings first.";
-            }
-
-            return;
-        }
-
-        if (NexusEntries.Count == 0)
-        {
-            return;
-        }
-
-        IsCheckingNexusUpdates = true;
-        try
-        {
-            var updated = await _nexusApiClient.GetUpdatedModsAsync(apiKey, "icarus", "1m");
-            var updatedIds = updated.Select(u => u.ModId).ToHashSet();
-
-            var matchCount = 0;
-            foreach (var entry in NexusEntries)
-            {
-                entry.HasUpdateAvailable = updatedIds.Contains(entry.NexusId);
-                if (entry.HasUpdateAvailable)
-                {
-                    matchCount++;
-                }
-            }
-
-            NexusStatusMessage = matchCount == 0
-                ? "No updates found for your tracked mods in the last month."
-                : $"{matchCount} tracked mod(s) have updates available.";
-        }
-        catch (Exception ex)
-        {
-            // Same UI boundary as everywhere else — a rejected/revoked key or a Nexus outage
-            // shows a status message instead of crashing the app; a launch-time automatic check
-            // failing silently-ish (still sets the message, just doesn't interrupt anything) is
-            // fine since the user can always retry via the button.
-            NexusStatusMessage = $"Couldn't check for updates: {ex.Message}";
-        }
-        finally
-        {
-            IsCheckingNexusUpdates = false;
-        }
     }
 
     [RelayCommand]
@@ -1078,71 +871,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
             PendingDownloads.Add(new PendingDownloadItemViewModel(entry, _libraryRepository, _ue4ssModRepository));
         }
     }
-
-    [RelayCommand]
-    private void ImportNexusFile()
-    {
-        var dialog = new Microsoft.Win32.OpenFileDialog
-        {
-            Title = "Select the downloaded mod file",
-            Filter = "Mod package (*.EXMODZ;*.pak)|*.EXMODZ;*.pak",
-        };
-
-        if (dialog.ShowDialog() != true)
-        {
-            return;
-        }
-
-        try
-        {
-            // Tagged with the currently-selected tracked mod's own Nexus ID when there is one — the
-            // file being imported here is presumably that mod's own manually-downloaded file, so it
-            // should be checkable for updates the same way an Activate-imported one is.
-            var nexusModId = SelectedNexusEntry?.NexusId;
-            var isPak = dialog.FileName.EndsWith(".pak", StringComparison.OrdinalIgnoreCase);
-            var imported = isPak
-                ? _libraryRepository.ImportPak(dialog.FileName, source: "Nexus", nexusModId: nexusModId)
-                : _libraryRepository.Import(dialog.FileName, source: "Nexus", nexusModId: nexusModId);
-            NexusStatusMessage = $"Imported '{imported.Name}'.";
-            ApplyCatalogFilters();
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-        }
-        catch (Exception ex)
-        {
-            NexusStatusMessage = $"Import failed: {ex.Message}";
-        }
-    }
-
-    private void ReloadNexusEntries()
-    {
-        var previouslySelectedId = SelectedNexusEntry?.NexusId;
-
-        // Every row is rebuilt fresh below (no instance reuse, unlike Library's own cache), so any
-        // row mid-debounce on a just-typed name needs its pending save flushed now — otherwise
-        // Clear() would either lose the edit (if the timer never got a chance to fire) or let an
-        // orphaned timer write it later against a NexusId a brand-new row instance won't reflect.
-        foreach (var entry in NexusEntries)
-        {
-            entry.FlushPendingSave();
-        }
-
-        NexusEntries.Clear();
-        var query = _watchlistStore.Entries.AsEnumerable();
-        if (!string.IsNullOrWhiteSpace(NexusFilterText))
-        {
-            var filter = NexusFilterText.Trim();
-            query = query.Where(e => e.Name.Contains(filter, StringComparison.OrdinalIgnoreCase));
-        }
-
-        foreach (var entry in query.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
-        {
-            NexusEntries.Add(new NexusWatchlistItemViewModel(entry, (id, name) => _watchlistStore.UpdateName(id, name)));
-        }
-
-        SelectedNexusEntry = NexusEntries.FirstOrDefault(e => e.NexusId == previouslySelectedId);
-    }
-
-    private void ApplyNexusFilter() => ReloadNexusEntries();
 
     private static void OpenUrl(string url)
     {

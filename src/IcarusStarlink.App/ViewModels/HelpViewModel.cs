@@ -72,11 +72,12 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Downloads", """
             # Downloads
 
-            Three tabs for finding and fetching mods:
+            Two tabs:
 
             - **IMM Database** — a live, community-maintained catalog. Search, filter by author/category, sort any column, and see at a glance whether a mod is already extracted, outdated, or not downloaded yet.
-            - **Nexus Mods** — your own personal tracked list. Add a mod by pasting its Nexus URL; **Check for updates** needs a signed-in Nexus API key (Settings) and reports mods Nexus itself says were recently updated — a real but coarse signal, not an exact version diff.
-            - **Pending Downloads** — where a real Nexus "Mod Manager Download" click lands (see the Nexus page for how that's wired up), or where a manually pasted `nxm://` link goes. Activate a file to import it into your Library, or discard it.
+            - **Mods** — files you've downloaded from Nexus, waiting to install. This is where a real Nexus "Mod Manager Download" click lands, where the Nexus page's own Download button lands a file, or where a manually pasted `nxm://` link goes. Activate a file to import it into your Library, or discard it.
+
+            Tracking mods you're following, and browsing/searching Nexus itself, both live on the **Nexus** page now — see its own Help topic.
             """),
 
         new("Coming from classic IMM", """
@@ -120,17 +121,19 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Nexus", """
             # Nexus
 
-            A native list of Icarus mods on Nexus, driven by the API key you save once in **Settings** — there's no embedded web browser and no second sign-in. Search covers every Icarus mod on Nexus; the **Trending / Latest / Updated** pills are Nexus's own curated lists (clear the search box to use them).
+            A native list of Icarus mods on Nexus, driven by the API key you save once in **Settings** — there's no embedded web browser and no second sign-in. **All** shows the whole catalog, most-endorsed first (works even without a key — click **Load more** for further pages); **Trending / Latest / Updated** are Nexus's own curated lists (need a signed-in key); the search box switches to live results, covering every Icarus mod on Nexus.
 
-            Because the list is ours rather than a web page, each mod shows what YOUR machine knows about it: **In Library**, **Downloaded**, **Tracked**, and an **Update** badge when Nexus has a newer version than your copy.
+            Because the list is ours rather than a web page, each mod shows what YOUR machine already knows about it: **In Library**, **Downloaded**, **Tracked**, and an **Update** badge — a precise comparison between the live Nexus version and your own Library copy's version, not a guess. Three toggles filter the list: **Hide ones you have**, **Updates only**, and **Tracked**.
 
             Per mod:
 
-            - **Download** pulls the main file straight into Downloads' **Pending Downloads**. This uses Nexus's API directly, which requires a Nexus Premium account.
-            - **Track** adds it to the Nexus watchlist on the Downloads page, so it gets checked for updates.
+            - **Download** pulls the main file straight into Downloads' **Mods** tab. This uses Nexus's API directly, which requires a Nexus Premium account — non-Premium accounts should use **Open page**'s own Mod Manager Download button on the website instead.
+            - **Track** adds the mod to your tracked list — click it again on an already-tracked mod (shown as **Tracked** with a check) to untrack it. There's no separate list to manage; the **Tracked** filter above shows exactly what you're tracking, right here.
             - **Open page** opens the mod on nexusmods.com in your normal browser — where you're already signed in, and where non-Premium downloads happen.
 
-            Clicking a real **Mod Manager Download** button on Nexus's own site can hand the file straight to this app instead of downloading it manually, but that needs a one-time setup step: in **Settings**, on the **Nexus** tab under **Download handler**, click **Register**. It asks for confirmation first (it's a real Windows registry change, and it replaces another mod manager if one's already registered for this). Files land in **Pending Downloads** either way — you always Activate them from there.
+            When a tracked mod you already own gets a real update on Nexus, you'll see it in the **notifications** panel (the bell icon in the header) — no separate "check for updates" click needed, since this is computed every time the page loads.
+
+            Clicking a real **Mod Manager Download** button on Nexus's own site can hand the file straight to this app instead of downloading it manually, but that needs a one-time setup step: in **Settings**, on the **Nexus** tab under **Download handler**, click **Register**. It asks for confirmation first (it's a real Windows registry change, and it replaces another mod manager if one's already registered for this). Files land in Downloads' **Mods** tab either way — you always Activate them from there.
             """),
 
         new("Saves", """
