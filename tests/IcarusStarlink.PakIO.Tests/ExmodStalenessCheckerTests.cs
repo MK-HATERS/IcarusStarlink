@@ -141,6 +141,46 @@ public class ExmodStalenessCheckerTests : IDisposable
     }
 
     [Fact]
+    public void FindLikelyStaleItems_ItemNameReorderedAcrossAssetPrefixAndSuffix_IsNotFlagged()
+    {
+        // Real case, traced against the user's own library: row "Reinforced_Int_Floor" correlates
+        // with the real bundled asset "APEX_BLD_Floor_Iron_Reinforced_Wood_INT" — same meaningful
+        // words ("reinforced"/"int"/"floor"), different order, wrapped in an unrelated category
+        // prefix/suffix. A literal substring check misses this entirely.
+        WriteBaseTable("Items/D_ItemTemplate.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Items-D_ItemTemplate.json",
+            FileItems = [MakeItem("Reinforced_Int_Floor", fieldCount: 1)],
+        });
+        var ownAssetPaths = new[] { "ASS/BLD/DES/APEX_BLD_Floor_Iron_Reinforced_Wood_INT.uasset" };
+
+        var stale = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier, ownAssetPaths: ownAssetPaths);
+
+        Assert.Empty(stale);
+    }
+
+    [Fact]
+    public void FindLikelyStaleItems_OnlyOneGenericTokenSharedWithUnrelatedAsset_StillFlagged()
+    {
+        // Real case, same library: row "Prop_Specimens" shares only the single generic word "prop"
+        // with an unrelated bundled asset "T_ITEM_Prop_Surgical_Masks_B" from the same mod — one
+        // shared token must NOT be enough to correlate, or a genuinely stale item goes undetected
+        // just because the mod happens to carry an unrelated real asset with a common word in it.
+        WriteBaseTable("Traits/D_Deployable.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Deployable.json",
+            FileItems = [MakeItem("Prop_Specimens", fieldCount: 1)],
+        });
+        var ownAssetPaths = new[] { "ASS/ITEM/T_ITEM_Prop_Surgical_Masks_B.uasset" };
+
+        var stale = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier, ownAssetPaths: ownAssetPaths);
+
+        Assert.Single(stale);
+    }
+
+    [Fact]
     public void FindLikelyStaleItems_NoAssetPathsProvided_BehavesAsBeforeWithoutFiltering()
     {
         WriteBaseTable("Building/D_BuildingPieces.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");

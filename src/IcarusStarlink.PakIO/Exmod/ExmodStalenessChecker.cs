@@ -39,8 +39,20 @@ public static class ExmodStalenessChecker
             .ToList();
     }
 
+    /// <summary>
+    /// Real-mod evidence this cutoff is tuned against: "Reinforced_Int_Floor" (a DataTable row
+    /// name) correlates with the real bundled asset "APEX_BLD_Floor_Iron_Reinforced_Wood_INT" —
+    /// sharing "reinforced"/"int"/"floor" but in a different order with an unrelated prefix/suffix
+    /// — while "Prop_Specimens" sharing only the single generic word "prop" with an unrelated
+    /// asset ("Prop_Surgical_Masks") in the same mod must NOT correlate. Requiring 2+ shared
+    /// tokens, not 1, is what tells those two cases apart.
+    /// </summary>
+    private const int MinTokenOverlapForAssetCorrelation = 2;
+
     private static bool HasPlausibleOwnAsset(string itemName, IReadOnlyList<string> assetPaths)
     {
+        var itemTokens = Tokenize(itemName);
+
         foreach (var path in assetPaths)
         {
             var fileNameNoExt = Path.GetFileNameWithoutExtension(path);
@@ -49,8 +61,20 @@ public static class ExmodStalenessChecker
                 continue;
             }
 
+            // A real Unreal asset name occasionally does repeat a DataTable row name close to
+            // verbatim (e.g. "BP_Custom_Tower" for row "Custom_Tower") — catch that directly first.
             if (fileNameNoExt.Contains(itemName, StringComparison.OrdinalIgnoreCase)
                 || itemName.Contains(fileNameNoExt, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // More often it doesn't: real Icarus asset names carry their own prefix/category
+            // convention ("APEX_BLD_Floor_Iron_Reinforced_Wood_INT" for row
+            // "Reinforced_Int_Floor") and reorder the meaningful words rather than repeating the
+            // row name as a literal substring. Token overlap catches that; the 2+ requirement
+            // above is what keeps a single shared generic word from over-matching.
+            if (itemTokens.Count >= 2 && itemTokens.Count(Tokenize(fileNameNoExt).Contains) >= MinTokenOverlapForAssetCorrelation)
             {
                 return true;
             }
@@ -58,4 +82,10 @@ public static class ExmodStalenessChecker
 
         return false;
     }
+
+    /// <summary>Splits on the real separators both DataTable row names and Icarus asset filenames use, dropping anything shorter than 3 characters — which conveniently discards the common bare Unreal-convention prefixes (BP/SM/T/M) without needing an explicit stoplist for them.</summary>
+    private static HashSet<string> Tokenize(string name) =>
+        [.. name.Split(['_', '-', ' '], StringSplitOptions.RemoveEmptyEntries)
+            .Select(t => t.ToLowerInvariant())
+            .Where(t => t.Length >= 3)];
 }
