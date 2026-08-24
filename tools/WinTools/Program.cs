@@ -8,7 +8,7 @@ using IcarusStarlink.PakIO.Exmod;
 
 if (args.Length == 0)
 {
-    Console.WriteLine("usage: capture|list-controls|click|set-text|seed-library|select-by-text|expand|is-expanded|right-click|context-menu-click|real-left-click ...");
+    Console.WriteLine("usage: capture|list-controls|click|set-text|set-slider-value|seed-library|select-by-text|expand|is-expanded|right-click|context-menu-click|real-left-click ...");
     return 1;
 }
 
@@ -61,6 +61,9 @@ switch (args[0])
         break;
     case "scroll-bottom":
         ScrollBottom(int.Parse(args[1]));
+        break;
+    case "set-slider-value":
+        SetSliderValue(int.Parse(args[1]), int.Parse(args[2]), double.Parse(args[3]));
         break;
     default:
         Console.WriteLine($"unknown command: {args[0]}");
@@ -506,6 +509,24 @@ static void ScrollBottom(int pid)
     }
 
     Console.WriteLine($"found {scrollables.Count} scrollable element(s), but none are vertically scrollable (nothing below the fold)");
+}
+
+// Sliders in this app carry no Name/AutomationId of their own (a bare WPF Slider), so — same as
+// SetText's own editIndex — this targets one by its position among every Slider on screen, in
+// document order. RangeValuePattern.SetValue is the correct UIA mechanism for this (a Slider isn't
+// Invoke/Toggle/SelectionItem), not a synthetic drag.
+static void SetSliderValue(int pid, int sliderIndex, double value)
+{
+    var root = GetRoot(pid);
+    var sliders = root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Slider));
+    if (sliderIndex >= sliders.Count)
+    {
+        throw new InvalidOperationException($"Only {sliders.Count} slider(s) found, index {sliderIndex} out of range");
+    }
+    var el = sliders[sliderIndex];
+    var pattern = (RangeValuePattern)el.GetCurrentPattern(RangeValuePattern.Pattern);
+    pattern.SetValue(value);
+    Console.WriteLine($"set slider[{sliderIndex}] = {value}");
 }
 
 static void SetText(int pid, int editIndex, string text)

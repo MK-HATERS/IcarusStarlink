@@ -261,6 +261,52 @@ public class GameplayOptionsApplierTests
     }
 
     [Fact]
+    public void RequiredCurrentFiles_TamingSpeedEnabled_IncludesTamesFile()
+    {
+        var files = GameplayOptionsApplier.RequiredCurrentFiles(new GameplayOptions { TamingSpeedReductionPercent = 50 });
+        Assert.Contains("AI-D_Tames.json", files);
+    }
+
+    [Fact]
+    public void Apply_FasterTaming_ScalesTameDurationOnEveryCreatureRow()
+    {
+        var tables = new Dictionary<string, JsonObject>
+        {
+            ["AI-D_Tames.json"] = new()
+            {
+                ["Moa"] = Row("""{"TameDurationInSeconds": 900}"""),
+                ["Wolf"] = Row("""{"TameDurationInSeconds": 1800}"""),
+            },
+        };
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { TamingSpeedReductionPercent = 50 }, tables, new MergeReport());
+
+        Assert.Equal(450, (int)tables["AI-D_Tames.json"]["Moa"]!["TameDurationInSeconds"]!);
+        Assert.Equal(900, (int)tables["AI-D_Tames.json"]["Wolf"]!["TameDurationInSeconds"]!);
+    }
+
+    [Fact]
+    public void Apply_FasterTaming_NeverGoesBelowOneSecond()
+    {
+        var tables = Table("AI-D_Tames.json", new JsonObject { ["Moa"] = Row("""{"TameDurationInSeconds": 2}""") });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { TamingSpeedReductionPercent = 99 }, tables, new MergeReport());
+
+        Assert.Equal(1, (int)tables["AI-D_Tames.json"]["Moa"]!["TameDurationInSeconds"]!);
+    }
+
+    [Fact]
+    public void Apply_FasterTaming_FieldRenamedInGameData_WarnsInsteadOfSilentlyDoingNothing()
+    {
+        var tables = Table("AI-D_Tames.json", new JsonObject { ["Moa"] = Row("""{"TamingDuration": 900}""") });
+        var report = new MergeReport();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { TamingSpeedReductionPercent = 50 }, tables, report);
+
+        Assert.Contains(report.Warnings, w => w.Contains("Faster Taming") && w.Contains("TameDurationInSeconds"));
+    }
+
+    [Fact]
     public void Apply_UnlimitedAmmo_SetsFlagOnEveryWeaponRowRegardlessOfExistingOverride()
     {
         var tables = new Dictionary<string, JsonObject>

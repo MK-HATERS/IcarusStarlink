@@ -102,18 +102,34 @@ public static class GameplayOptionsFieldChangeGenerator
             IsNewItem: false, IsFieldRemoved: false)];
     }
 
-    /// <summary>Every value below is copied verbatim from classic IMM's own dev changelog ("11/27/25 Ver 2.3.7"), matched against the real base values on Base_Stats to confirm the field names. "Tamed Creature Movement Speed/Stamina" from the same changelog entry are omitted — no confirmed real field for those was found.</summary>
+    /// <summary>
+    /// Every value below is copied verbatim from classic IMM's own dev changelog ("11/27/25 Ver
+    /// 2.3.7"), matched against the real base values on Base_Stats to confirm the field names.
+    /// "Tamed Creature Movement Speed/Stamina" from the same changelog entry were originally
+    /// omitted as "no confirmed real field found" — the field the changelog's own wording and
+    /// D_TamedCreatureModifiers.json's own StatRequirement both point to
+    /// ("TamedCreatureMovementSpeed_+%", no "Base" prefix) is a REQUIREMENT-check name that table
+    /// uses to decide what to grant a tamed creature, not the actual StatsGranted key a player-side
+    /// grant needs. The real granted-stat key was found by searching for where the game itself
+    /// already grants this exact effect: D_ArmourSetBonus.json's "LM Beastmaster" set bonus,
+    /// D_BestiaryData.json's tame-mastery unlocks, D_Talents.json, and D_Equippable.json's own
+    /// modifiers all independently agree on "BaseTamedCreatureMovementSpeed_+%" /
+    /// "BaseTamedCreatureMaximumStamina_+%" — the same Base-prefix convention every other stat in
+    /// this method already follows.
+    /// </summary>
     private static void ApplySpeedBoost(JsonObject statsGranted, BoostLevel level)
     {
-        var (baseSpeed, crouch, sprint, swim, swimSprint) = level == BoostLevel.Level1
-            ? (455, 75, 250, 55, 175)
-            : (600, 90, 300, 70, 200);
+        var (baseSpeed, crouch, sprint, swim, swimSprint, tamedCreature) = level == BoostLevel.Level1
+            ? (455, 75, 250, 55, 175, 25)
+            : (600, 90, 300, 70, 200, 50);
 
         SetStat(statsGranted, "BaseMovementSpeed_+", baseSpeed);
         SetStat(statsGranted, "CrouchMovementSpeedCoefficient_%", crouch);
         SetStat(statsGranted, "SprintMovementSpeedCoefficient_%", sprint);
         SetStat(statsGranted, "SwimMovementSpeedCoefficient_%", swim);
         SetStat(statsGranted, "SwimSprintMovementSpeedCoefficient_%", swimSprint);
+        SetStat(statsGranted, "BaseTamedCreatureMovementSpeed_+%", tamedCreature);
+        SetStat(statsGranted, "BaseTamedCreatureMaximumStamina_+%", tamedCreature);
     }
 
     /// <summary>

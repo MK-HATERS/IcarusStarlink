@@ -415,6 +415,20 @@
                             Value="{Binding SpeedCraftingPercent}" Margin="0,4,0,0"
                             ToolTip="Drag or click to set — 0 means unchanged"/>
 
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
+                        <TextBlock Text="Faster Taming" FontSize="12"/>
+                        <Border Style="{StaticResource InfoHintTouchTargetStyle}"
+                                ToolTip="e.g. 50% = halve every creature's taming time (AI-D_Tames.json's own TameDurationInSeconds). No documented value from classic IMM — pick whatever feels right. 0 = unchanged.">
+                            <Path Style="{StaticResource InfoHintIconStyle}"/>
+                        </Border>
+                        <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                            <Run Text="{Binding TamingSpeedPercent, Mode=OneWay}"/><Run Text="%"/>
+                        </TextBlock>
+                    </StackPanel>
+                    <Slider Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
+                            Value="{Binding TamingSpeedPercent}" Margin="0,4,0,0"
+                            ToolTip="Drag or click to set — 0 means unchanged"/>
+
                     <Border Style="{StaticResource SectionDividerStyle}" Margin="0,16,0,10"/>
                     <TextBlock Text="OTHER TOGGLES" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource FaintForegroundBrush}"/>
 

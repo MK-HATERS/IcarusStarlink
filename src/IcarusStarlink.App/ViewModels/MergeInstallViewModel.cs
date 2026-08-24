@@ -170,6 +170,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private int _speedCraftingPercent;
 
+    /// <summary>Same "0 = unchanged" Slider convention as SpeedCraftingPercent.</summary>
+    [ObservableProperty]
+    private int _tamingSpeedPercent;
+
     [ObservableProperty]
     private bool _removeWeight;
 
@@ -194,6 +198,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             if (StacksMultiplierLevel != MultiplierLevel.Off) parts.Add($"Stacks {ShortLabel(StacksMultiplierLevel)}");
             if (SlotsMultiplierLevel != MultiplierLevel.Off) parts.Add($"Slots {ShortLabel(SlotsMultiplierLevel)}");
             if (SpeedCraftingPercent > 0) parts.Add($"Speed Crafting {SpeedCraftingPercent}%");
+            if (TamingSpeedPercent > 0) parts.Add($"Faster Taming {TamingSpeedPercent}%");
             if (RemoveWeight) parts.Add("Remove Weight");
             if (UnlimitedAmmo) parts.Add("Unlimited Ammo");
             if (DisableTemperatures) parts.Add("Disable Temperatures");
@@ -220,6 +225,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     partial void OnStacksMultiplierLevelChanged(MultiplierLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnSlotsMultiplierLevelChanged(MultiplierLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnSpeedCraftingPercentChanged(int value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnTamingSpeedPercentChanged(int value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnRemoveWeightChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnUnlimitedAmmoChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
 
@@ -331,6 +337,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         StacksMultiplier = StacksMultiplierLevel.ToMultiplier(),
         SlotsMultiplier = SlotsMultiplierLevel.ToMultiplier(),
         SpeedCraftingReductionPercent = SpeedCraftingPercent > 0 ? SpeedCraftingPercent : null,
+        TamingSpeedReductionPercent = TamingSpeedPercent > 0 ? TamingSpeedPercent : null,
         RemoveWeight = RemoveWeight,
         UnlimitedAmmo = UnlimitedAmmo,
         DisableTemperatures = DisableTemperatures,
@@ -345,6 +352,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         StacksMultiplierLevel = MultiplierLevelExtensions.FromMultiplier(options.StacksMultiplier);
         SlotsMultiplierLevel = MultiplierLevelExtensions.FromMultiplier(options.SlotsMultiplier);
         SpeedCraftingPercent = options.SpeedCraftingReductionPercent is { } percent ? (int)Math.Round(percent) : 0;
+        TamingSpeedPercent = options.TamingSpeedReductionPercent is { } tamingPercent ? (int)Math.Round(tamingPercent) : 0;
         RemoveWeight = options.RemoveWeight;
         UnlimitedAmmo = options.UnlimitedAmmo;
         DisableTemperatures = options.DisableTemperatures;

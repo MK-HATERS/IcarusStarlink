@@ -86,6 +86,25 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
         Assert.Equal(350, (int)statsGranted["(Value=\"BaseMaximumHealth_+\")"]!);
     }
 
+    [Theory]
+    [InlineData(BoostLevel.Level1, 25)]
+    [InlineData(BoostLevel.Level2, 50)]
+    public void GenerateFixedFieldChanges_SpeedBoost_AlsoGrantsTamedCreatureSpeedAndStamina(BoostLevel level, int expectedPercent)
+    {
+        // "Tamed Creature Movement Speed/Stamina" from classic IMM's own changelog — the real
+        // StatsGranted key (confirmed against D_ArmourSetBonus.json/D_BestiaryData.json/
+        // D_Talents.json/D_Equippable.json, all of which already grant this exact effect) needs a
+        // "Base" prefix the changelog's own wording doesn't show.
+        WriteCharacterStats("""{"Name":"Base_Stats","StatsGranted":{}}""");
+
+        var changes = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
+            new GameplayOptions { SpeedBoost = level }, _dataFolder, new MergeReport());
+
+        var statsGranted = StatsGrantedOf(Assert.Single(changes));
+        Assert.Equal(expectedPercent, (int)statsGranted["(Value=\"BaseTamedCreatureMovementSpeed_+%\")"]!);
+        Assert.Equal(expectedPercent, (int)statsGranted["(Value=\"BaseTamedCreatureMaximumStamina_+%\")"]!);
+    }
+
     [Fact]
     public void GenerateFixedFieldChanges_MissingBaseStatsRow_AddsWarningAndReturnsEmptyInsteadOfThrowing()
     {

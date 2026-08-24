@@ -29,6 +29,7 @@ public static class GameplayOptionsApplier
     private const string ProcessorRecipesFile = "Crafting-D_ProcessorRecipes.json";
     private const string ExtractorRecipesFile = "Crafting-D_ExtractorRecipes.json";
     private const string FirearmDataFile = "Tools-D_FirearmData.json";
+    private const string TamesFile = "AI-D_Tames.json";
 
     /// <summary>
     /// Which real data files each Category-2 (broadcast-to-every-row) option needs loaded —
@@ -59,6 +60,10 @@ public static class GameplayOptionsApplier
         {
             files.Add(FirearmDataFile);
         }
+        if (options.TamingSpeedReductionPercent is > 0)
+        {
+            files.Add(TamesFile);
+        }
 
         return files;
     }
@@ -84,6 +89,13 @@ public static class GameplayOptionsApplier
         if (options.UnlimitedAmmo)
         {
             SetExistingOrEveryRowField(keyedTablesByFile, FirearmDataFile, "bUnlimitedAmmo", JsonValue.Create(true), report, "Unlimited Ammo");
+        }
+        if (options.TamingSpeedReductionPercent is > 0 and var tamingPercent)
+        {
+            // TameDurationInSeconds — real field confirmed on every one of AI-D_Tames.json's own 29
+            // creature rows (e.g. Moa: 900). No documented reduction from classic IMM, so the exact
+            // percentage is user-supplied, same as Speed Crafting's own precedent.
+            ScaleExistingNumericField(keyedTablesByFile, TamesFile, "TameDurationInSeconds", 1 - tamingPercent / 100.0, minimum: 1, report, "Faster Taming");
         }
 
         // Speed Boost/Player Boost/XP Boost/Disable Temperatures (all writing into the same

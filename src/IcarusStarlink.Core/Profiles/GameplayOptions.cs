@@ -55,6 +55,9 @@ public sealed class GameplayOptions
     /// <summary>Percent (0-100) to reduce RequiredMillijoules by, for recipes with no Water/Milk/Biofuel resource input or output — matches classic IMM's own documented conditional logic. Null or &lt;= 0 = unchanged.</summary>
     public double? SpeedCraftingReductionPercent { get; set; }
 
+    /// <summary>Percent (0-100) to reduce every creature's TameDurationInSeconds by (AI-D_Tames.json). No documented value from classic IMM (this option doesn't exist there), so it's a free user-supplied percentage, matching SpeedCraftingReductionPercent's own precedent. Null or &lt;= 0 = unchanged.</summary>
+    public double? TamingSpeedReductionPercent { get; set; }
+
     public bool RemoveWeight { get; set; }
 
     public bool UnlimitedAmmo { get; set; }
