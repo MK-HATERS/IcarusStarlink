@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using IcarusStarlink.Diffing;
 
 namespace IcarusStarlink.PakIO.Exmod;
@@ -83,9 +84,19 @@ public static class ExmodStalenessChecker
         return false;
     }
 
-    /// <summary>Splits on the real separators both DataTable row names and Icarus asset filenames use, dropping anything shorter than 3 characters — which conveniently discards the common bare Unreal-convention prefixes (BP/SM/T/M) without needing an explicit stoplist for them.</summary>
+    /// <summary>
+    /// Splits on the real separators both DataTable row names and Icarus asset filenames use, plus
+    /// camelCase word boundaries — real-mod evidence this is needed: row "Petes_BeaconTeleportRemote"
+    /// only shares its "Petes_" prefix with its own real asset "BP_Petes_BeaconTeleport" on a plain
+    /// underscore split, since neither name puts an underscore between "Beacon"/"Teleport"/"Remote" —
+    /// without also splitting at each lowercase-to-uppercase transition, "beaconteleportremote" and
+    /// "beaconteleport" never overlap as tokens even though they're obviously the same content.
+    /// Drops anything shorter than 3 characters, which conveniently discards the common bare
+    /// Unreal-convention prefixes (BP/SM/T/M) without needing an explicit stoplist for them.
+    /// </summary>
     private static HashSet<string> Tokenize(string name) =>
-        [.. name.Split(['_', '-', ' '], StringSplitOptions.RemoveEmptyEntries)
+        [.. Regex.Replace(name, "(?<=[a-z0-9])(?=[A-Z])", "_")
+            .Split(['_', '-', ' '], StringSplitOptions.RemoveEmptyEntries)
             .Select(t => t.ToLowerInvariant())
             .Where(t => t.Length >= 3)];
 }

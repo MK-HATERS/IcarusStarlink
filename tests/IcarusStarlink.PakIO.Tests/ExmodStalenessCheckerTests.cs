@@ -181,6 +181,27 @@ public class ExmodStalenessCheckerTests : IDisposable
     }
 
     [Fact]
+    public void FindLikelyStaleItems_ItemNameAndAssetBothCamelCaseCompound_IsNotFlagged()
+    {
+        // Real case, same library: row "Petes_BeaconTeleportRemote" and its own real asset
+        // "BP_Petes_BeaconTeleport" both cram multiple words into one camelCase blob with no
+        // underscore between them ("BeaconTeleportRemote" / "BeaconTeleport") — a plain
+        // underscore-only split leaves those as single, non-matching tokens even though this is
+        // obviously a genuine custom item with its own real assets, not a stale edit.
+        WriteBaseTable("Items/D_ItemTemplate.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Items-D_ItemTemplate.json",
+            FileItems = [MakeItem("Petes_BeaconTeleportRemote", fieldCount: 1)],
+        });
+        var ownAssetPaths = new[] { "BP/BP_Petes_BeaconTeleport.uasset" };
+
+        var stale = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier, ownAssetPaths: ownAssetPaths);
+
+        Assert.Empty(stale);
+    }
+
+    [Fact]
     public void FindLikelyStaleItems_NoAssetPathsProvided_BehavesAsBeforeWithoutFiltering()
     {
         WriteBaseTable("Building/D_BuildingPieces.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
