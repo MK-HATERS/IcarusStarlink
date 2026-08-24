@@ -157,9 +157,14 @@
                     <Button Style="{StaticResource IconButtonStyle}" Width="14" Height="14" Padding="0" Margin="0,0,5,0"
                             Command="{Binding DataContext.OpenStaleItemCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
-                            ToolTip="{Binding StaleItemCount, StringFormat='{}{0} item(s) may be editing a row this game version no longer has — click to review in the editor'}"
                             AutomationProperties.Name="Possibly stale items"
                             Visibility="{Binding HasPossiblyStaleItems, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Button.ToolTip>
+                            <MultiBinding Converter="{StaticResource StaleItemTooltipConverter}">
+                                <Binding Path="StaleItemCount"/>
+                                <Binding Path="StaleItemSuggestionHint"/>
+                            </MultiBinding>
+                        </Button.ToolTip>
                         <Path Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.4"
                               StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"/>
                     </Button>
@@ -349,7 +354,7 @@
                             </StackPanel>
                         </Button>
                         <Button Command="{Binding CheckModsAgainstCurrentDataCommand}" Margin="0,0,8,0"
-                                ToolTip="Diffs every mod against the currently-extracted game data — flags items that look like they're editing a row this game version no longer has"
+                                ToolTip="Diffs every mod against the currently-extracted game data — flags items that look like they're editing a row this game version no longer has, and auto-fixes any confident, unambiguous rename (each mod is backed up first)"
                                 AutomationProperties.Name="Check mods against game data">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconWarning}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"

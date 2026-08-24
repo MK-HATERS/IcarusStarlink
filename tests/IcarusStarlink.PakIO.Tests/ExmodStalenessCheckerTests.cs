@@ -106,6 +106,56 @@ public class ExmodStalenessCheckerTests : IDisposable
     }
 
     [Fact]
+    public void FindLikelyStaleItems_ItemNameMatchesOwnBundledAsset_IsNotFlagged()
+    {
+        // A whole new building piece/weapon/etc. needs real compiled assets — a DataTable edit
+        // alone can't create one — so a "new item" that correlates with one of the mod's own
+        // bundled files is real content the author added, not a stale edit of a removed row.
+        WriteBaseTable("Building/D_BuildingPieces.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Building-D_BuildingPieces.json",
+            FileItems = [MakeItem("BP_Custom_Tower", fieldCount: 1)],
+        });
+        var ownAssetPaths = new[] { "BP/Building/BP_Custom_Tower.uasset", "BP/Building/BP_Custom_Tower.uexp" };
+
+        var stale = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier, ownAssetPaths: ownAssetPaths);
+
+        Assert.Empty(stale);
+    }
+
+    [Fact]
+    public void FindLikelyStaleItems_ItemNameHasNoMatchingAsset_StillFlagged()
+    {
+        WriteBaseTable("Building/D_BuildingPieces.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Building-D_BuildingPieces.json",
+            FileItems = [MakeItem("Old_Building_Piece", fieldCount: 1)],
+        });
+        var ownAssetPaths = new[] { "BP/Building/BP_Unrelated_Thing.uasset" };
+
+        var stale = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier, ownAssetPaths: ownAssetPaths);
+
+        Assert.Single(stale);
+    }
+
+    [Fact]
+    public void FindLikelyStaleItems_NoAssetPathsProvided_BehavesAsBeforeWithoutFiltering()
+    {
+        WriteBaseTable("Building/D_BuildingPieces.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Building-D_BuildingPieces.json",
+            FileItems = [MakeItem("BP_Custom_Tower", fieldCount: 1)],
+        });
+
+        var stale = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier);
+
+        Assert.Single(stale);
+    }
+
+    [Fact]
     public void FindLikelyStaleItems_SharedCacheAcrossCalls_StillProducesCorrectResults()
     {
         WriteBaseTable("Traits/D_Fuel.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");

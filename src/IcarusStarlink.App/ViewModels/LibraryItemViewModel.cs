@@ -125,16 +125,26 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     partial void OnStaleItemCountChanged(int value) => OnPropertyChanged(nameof(HasPossiblyStaleItems));
 
+    /// <summary>
+    /// A best-guess replacement name for the first remaining flagged item, when one exists but
+    /// wasn't confident enough to auto-apply (see StaleItemFixSuggester's ambiguity/field-overlap
+    /// guards) — shown in the row's warning badge tooltip so a user doesn't have to open the editor
+    /// just to learn there's a guess at all. Null when there's no candidate close enough to name.
+    /// </summary>
+    [ObservableProperty]
+    private string? _staleItemSuggestionHint;
+
     private IReadOnlyList<ExmodStalenessChecker.StaleItem> _staleItems = [];
 
     /// <summary>The first flagged item, if any — LibraryViewModel's OpenStaleItemCommand pre-selects this one in the editor when the row's warning badge is clicked.</summary>
     public (string CurrentFile, string ItemName)? FirstStaleItem =>
         _staleItems.Count > 0 ? (_staleItems[0].CurrentFile, _staleItems[0].ItemName) : null;
 
-    public void SetStaleItems(IReadOnlyList<ExmodStalenessChecker.StaleItem> staleItems)
+    public void SetStaleItems(IReadOnlyList<ExmodStalenessChecker.StaleItem> staleItems, string? suggestionHint)
     {
         _staleItems = staleItems;
         StaleItemCount = staleItems.Count;
+        StaleItemSuggestionHint = suggestionHint;
     }
 
     /// <summary>Phase 10: an opaque .pak entry has no .EXMOD to edit — the inline row Edit action hides itself rather than opening an editor with nothing to show.</summary>

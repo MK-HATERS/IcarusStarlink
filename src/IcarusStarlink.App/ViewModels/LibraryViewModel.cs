@@ -1207,12 +1207,26 @@ public sealed partial class LibraryViewModel : ObservableObject
     [RelayCommand]
     private Task CheckModsAgainstCurrentData() => CheckModsAgainstCurrentDataAsync();
 
+    /// <summary>One mod's own outcome from a CheckModsAgainstCurrentDataAsync pass — plain data, safe to build off the UI thread and apply afterward.</summary>
+    private sealed record ModStalenessResult(
+        IReadOnlyList<ExmodStalenessChecker.StaleItem> RemainingStaleItems,
+        string? SuggestionHint,
+        IReadOnlyList<string> AutoFixActivityMessages,
+        bool BackupTaken);
+
     /// <summary>
     /// A separate question and a separate action from CheckForUpdatesAsync above (that's Nexus/
     /// catalog version-string checking) — this asks "does this mod's own data still match what the
     /// currently-extracted game data actually defines", independent of any catalog or version
     /// string. Explicit action (a toolbar button), not automatic on every Library load, since a
     /// whole-library base-vs-modded diff is real work a routine navigation shouldn't pay for.
+    ///
+    /// Beyond detection, this also attempts a real fix for anything StaleItemFixSuggester is
+    /// confident enough about: it backs the mod up first (the same BackupMod this page's own
+    /// context menu already offers — one click to undo via Restore latest backup), renames the
+    /// item to the suggested real row, writes the mod back out, and marks it locally edited —
+    /// never silently; every auto-fix is logged to the Activity panel by name. Anything less than
+    /// fully confident is left alone and only named as a hint in the row's own tooltip.
     /// </summary>
     private async Task CheckModsAgainstCurrentDataAsync()
     {
@@ -1227,29 +1241,30 @@ public sealed partial class LibraryViewModel : ObservableObject
         IsCheckingStaleness = true;
         try
         {
-            var folderPaths = candidates.ToDictionary(i => i.FolderName, i => _repository.GetFolderPath(i.FolderName));
+            var folderNames = candidates.Select(i => i.FolderName).ToList();
 
             // Off the UI thread: this diffs every non-opaque mod's own items against the real
-            // extracted game data, which for a large library is real, avoidable-to-block-on work —
+            // extracted game data (and, for anything confidently fixable, backs up + rewrites the
+            // mod's own .EXMOD), which for a large library is real, avoidable-to-block-on work —
             // same reasoning RebuildService's own merge computation was moved to Task.Run for.
-            // Results are collected into a plain dictionary and applied to the rows back on this
-            // (UI) thread afterward, since LibraryItemViewModel's ObservableProperty setters aren't
-            // safe to call from a background thread.
+            // Results are collected into a plain dictionary and applied to the rows/ActivityLog back
+            // on this (UI) thread afterward, since neither an ObservableProperty setter nor
+            // IActivityLog.Log's own bound ObservableCollection is safe to touch from a background
+            // thread.
             var resultsByFolder = await Task.Run(() =>
             {
                 // Shared for the whole pass, not per mod — many mods touch the same real file (e.g.
                 // Traits-D_Itemable.json), and re-parsing it once per mod that touches it is real,
-                // avoidable cost.
+                // avoidable cost. Also doubles as the fix suggester's own candidate-row pool per file.
                 var baseTableCache = new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
                 var classifier = new DefaultSemanticClassifier();
-                var results = new Dictionary<string, IReadOnlyList<ExmodStalenessChecker.StaleItem>>();
+                var results = new Dictionary<string, ModStalenessResult>();
 
-                foreach (var (folderName, folderPath) in folderPaths)
+                foreach (var folderName in folderNames)
                 {
                     try
                     {
-                        var package = ExmodFolder.ReadPackageOnly(folderPath);
-                        results[folderName] = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, classifier, baseTableCache);
+                        results[folderName] = CheckOneModAgainstCurrentData(folderName, baseTableCache, classifier);
                     }
                     catch (Exception)
                     {
@@ -1263,24 +1278,109 @@ public sealed partial class LibraryViewModel : ObservableObject
             });
 
             var flaggedCount = 0;
+            var autoFixedCount = 0;
             foreach (var item in candidates)
             {
-                var staleItems = resultsByFolder.GetValueOrDefault(item.FolderName, []);
-                item.SetStaleItems(staleItems);
-                if (staleItems.Count > 0)
+                if (!resultsByFolder.TryGetValue(item.FolderName, out var result))
+                {
+                    continue;
+                }
+
+                item.SetStaleItems(result.RemainingStaleItems, result.SuggestionHint);
+                if (result.RemainingStaleItems.Count > 0)
                 {
                     flaggedCount++;
                 }
+
+                foreach (var message in result.AutoFixActivityMessages)
+                {
+                    _activityLog.Log(message, ActivityEntryKind.Success);
+                    autoFixedCount++;
+                }
+
+                if (result.BackupTaken)
+                {
+                    item.NotifyBackupStateChanged();
+                }
             }
 
-            StalenessCheckStatusMessage = flaggedCount > 0
-                ? $"{flaggedCount} mod(s) have possibly stale items — click a flagged row's warning badge to review."
-                : "No possibly stale items found.";
+            var messageParts = new List<string>();
+            if (autoFixedCount > 0)
+            {
+                messageParts.Add($"Auto-fixed {autoFixedCount} item(s) — each mod was backed up first, see Restore latest backup to undo.");
+            }
+
+            messageParts.Add(flaggedCount > 0
+                ? $"{flaggedCount} mod(s) still have possibly stale items — click a flagged row's warning badge to review."
+                : "No possibly stale items remain.");
+
+            StalenessCheckStatusMessage = string.Join(" ", messageParts);
         }
         finally
         {
             IsCheckingStaleness = false;
         }
+    }
+
+    /// <summary>
+    /// Runs entirely off the UI thread (called from CheckModsAgainstCurrentDataAsync's own
+    /// Task.Run) — every repository call here is plain file I/O, safe on a background thread; only
+    /// its ModStalenessResult return value ever touches a bound property, back on the UI thread.
+    /// </summary>
+    private ModStalenessResult CheckOneModAgainstCurrentData(
+        string folderName, Dictionary<string, JsonObject?> baseTableCache, DefaultSemanticClassifier classifier)
+    {
+        var folderPath = _repository.GetFolderPath(folderName);
+        var package = ExmodFolder.ReadPackageOnly(folderPath);
+        var ownAssetPaths = _repository.ListAssetPaths(folderName);
+
+        var staleItems = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, classifier, baseTableCache, ownAssetPaths);
+        if (staleItems.Count == 0)
+        {
+            return new ModStalenessResult([], null, [], BackupTaken: false);
+        }
+
+        var remaining = new List<ExmodStalenessChecker.StaleItem>();
+        var activityMessages = new List<string>();
+        string? suggestionHint = null;
+        var backupTaken = false;
+        var packageChanged = false;
+
+        foreach (var staleItem in staleItems)
+        {
+            var row = package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, staleItem.CurrentFile, StringComparison.OrdinalIgnoreCase));
+            IEnumerable<string> fieldNames = row?.FileItems.FirstOrDefault(i => i.Name == staleItem.ItemName)?.Fields.Keys ?? Enumerable.Empty<string>();
+            var baseTable = baseTableCache.GetValueOrDefault(staleItem.CurrentFile);
+            var suggestion = baseTable is null ? null : StaleItemFixSuggester.Suggest(staleItem.ItemName, fieldNames, baseTable);
+
+            if (suggestion is { CanAutoApply: true })
+            {
+                if (!backupTaken)
+                {
+                    _repository.BackupMod(folderName);
+                    backupTaken = true;
+                }
+
+                if (ExmodStaleItemRepair.RenameItem(package, staleItem.CurrentFile, staleItem.ItemName, suggestion.SuggestedItemName))
+                {
+                    activityMessages.Add(
+                        $"Auto-fixed '{staleItem.ItemName}' → '{suggestion.SuggestedItemName}' in '{package.Name}' (backed up first).");
+                    packageChanged = true;
+                    continue;
+                }
+            }
+
+            remaining.Add(staleItem);
+            suggestionHint ??= suggestion?.SuggestedItemName;
+        }
+
+        if (packageChanged)
+        {
+            ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
+            _repository.MarkLocallyEdited(folderName);
+        }
+
+        return new ModStalenessResult(remaining, suggestionHint, activityMessages, backupTaken);
     }
 
     /// <summary>
