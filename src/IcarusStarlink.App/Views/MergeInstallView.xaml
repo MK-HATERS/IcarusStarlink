@@ -246,7 +246,7 @@
                             <Button Content="Compare to installed" Command="{Binding CompareToInstalledCommand}"
                                     ToolTip="Preview what Install would actually change, by reading what this app can tell is currently installed."/>
                             <Button Content="Compare paks…" Command="{Binding ComparePaksCommand}" Margin="8,0,0,0"
-                                    ToolTip="Unpack any two .pak files and see exactly how they differ, row by row — e.g. verify this app's rebuilt pak against classic IMM's own installed merged pak."/>
+                                    ToolTip="Unpack any two .pak files and see exactly how they differ, row by row — e.g. verify a rebuilt pak matches a known-good one from another tool."/>
                             <TextBlock Text="{Binding ComparisonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                         </StackPanel>
@@ -372,7 +372,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Stacks multiplier" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="e.g. 3x = triple every item's stack size. Off = unchanged. No fixed levels — classic IMM never documented an exact multiplier for its own Stacks toggle; these are just common round numbers.">
+                                ToolTip="e.g. 3x = triple every item's stack size. Off = unchanged.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                     </StackPanel>
@@ -404,7 +404,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Speed Crafting" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="e.g. 50% = halve crafting time, skipping recipes with a Water/Milk/Biofuel resource input or output (same conditional logic classic IMM's changelog documents). 0 = unchanged.">
+                                ToolTip="e.g. 50% = halve crafting time, skipping recipes with a Water/Milk/Biofuel resource input or output. 0 = unchanged.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                         <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -418,7 +418,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Faster Taming" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="e.g. 50% = halve every creature's taming time (AI-D_Tames.json's own TameDurationInSeconds). No documented value from classic IMM — pick whatever feels right. 0 = unchanged.">
+                                ToolTip="e.g. 50% = halve every creature's taming time (AI-D_Tames.json's own TameDurationInSeconds). 0 = unchanged.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                         <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -444,7 +444,7 @@
                               ToolTip="Removes hot/cold environmental damage and temperature management entirely"/>
                     <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding RemoveLevelCap}" Margin="0,12,0,0"
                               Content="Remove Level Cap"
-                              ToolTip="Raises the player level cap from 60 to 50000 (and the underlying XP cap from 1000 to match) — no documented value from classic IMM, uses the same number a real community mod (laanp-RealLevels) already ships with"/>
+                              ToolTip="Raises the player level cap from 60 to 50000 (and the underlying XP cap from 1000 to match)"/>
                 </StackPanel>
                 </ScrollViewer>
             </Expander>

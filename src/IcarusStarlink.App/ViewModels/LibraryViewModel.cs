@@ -1230,11 +1230,32 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// </summary>
     private async Task CheckModsAgainstCurrentDataAsync()
     {
+        // Real file mutation happens inside this pass (backup + rewrite an auto-fixed mod's own
+        // .EXMOD) — unlike CheckForUpdatesAsync's own read-only network calls, letting two passes
+        // run at once risks two threads writing the same mod's .EXMOD concurrently. Checked here,
+        // not via [RelayCommand]'s CanExecute, since IsCheckingStaleness itself is what's guarded.
+        if (IsCheckingStaleness)
+        {
+            return;
+        }
+
         // Opaque .pak entries have no .EXMOD to diff — same exclusion EnsureDetailsLoaded's own
         // ChangesContent formatting already applies.
         var candidates = _itemsByFolderName.Values.Where(i => !i.IsOpaquePak).ToList();
         if (candidates.Count == 0)
         {
+            return;
+        }
+
+        // Without this, a Data folder that's missing, empty, or was never extracted makes every
+        // mod's own base-file lookup fail silently (ExmodBaseDiffer.DiffAgainstBase is called with
+        // no MergeReport here, so its own "no matching base file" warnings go nowhere) — every mod
+        // comes back with zero stale items, and the status message below would read "No possibly
+        // stale items remain," a false all-clear. Same check, same wording, ExmodEditorViewModel's
+        // own game-data search already uses for the identical underlying condition.
+        if (!Directory.Exists(_dataFolder) || !Directory.EnumerateFiles(_dataFolder, "*.json", SearchOption.AllDirectories).Any())
+        {
+            StatusMessage = "No game data found — run Update data folder in Settings first.";
             return;
         }
 
@@ -1349,7 +1370,12 @@ public sealed partial class LibraryViewModel : ObservableObject
         foreach (var staleItem in staleItems)
         {
             var row = package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, staleItem.CurrentFile, StringComparison.OrdinalIgnoreCase));
-            IEnumerable<string> fieldNames = row?.FileItems.FirstOrDefault(i => i.Name == staleItem.ItemName)?.Fields.Keys ?? Enumerable.Empty<string>();
+            // LastOrDefault, not First: a mod can legitimately list the same item name more than
+            // once (see the field notes on real EXMOD mods) — ExmodBaseDiffer.ToKeyedObject keys by
+            // Name and overwrites on each duplicate, so the LAST entry is the one TableDiffer.Diff
+            // actually scored (StaleItem.FieldCount). Using the first entry here would judge the fix
+            // suggestion's field overlap against fields that were never actually part of the diff.
+            IEnumerable<string> fieldNames = row?.FileItems.LastOrDefault(i => i.Name == staleItem.ItemName)?.Fields.Keys ?? Enumerable.Empty<string>();
             var baseTable = baseTableCache.GetValueOrDefault(staleItem.CurrentFile);
             var suggestion = baseTable is null ? null : StaleItemFixSuggester.Suggest(staleItem.ItemName, fieldNames, baseTable);
 

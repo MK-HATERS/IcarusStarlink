@@ -41,7 +41,7 @@
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="Second pak" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Width="90"/>
             <TextBox x:Name="SecondPakBox" Grid.Column="1" Text="{Binding SecondPakPath, UpdateSourceTrigger=PropertyChanged}"
-                     ToolTip="e.g. classic IMM's installed merged pak, to verify the two tools produce equivalent output."/>
+                     ToolTip="e.g. another mod manager's installed merged pak, to verify the two tools produce equivalent output."/>
             <Button Grid.Column="2" Content="Browse…" Command="{Binding BrowseSecondPakCommand}" Margin="8,0,0,0"/>
         </Grid>
 

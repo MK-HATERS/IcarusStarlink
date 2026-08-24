@@ -193,22 +193,35 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     {
         get
         {
-            var parts = new List<string>();
-            if (SpeedBoost != BoostLevel.Off) parts.Add($"Speed Boost {ShortLabel(SpeedBoost)}");
-            if (PlayerBoost != BoostLevel.Off) parts.Add($"Player Boost {ShortLabel(PlayerBoost)}");
-            if (XpBoost != XpBoostLevel.Off) parts.Add($"XP Boost {ShortLabel(XpBoost)}");
-            if (CraftCost != CraftCostReduction.Off) parts.Add($"Craft Cost {ShortLabel(CraftCost)}");
-            if (StacksMultiplierLevel != MultiplierLevel.Off) parts.Add($"Stacks {ShortLabel(StacksMultiplierLevel)}");
-            if (SlotsMultiplierLevel != MultiplierLevel.Off) parts.Add($"Slots {ShortLabel(SlotsMultiplierLevel)}");
-            if (SpeedCraftingPercent > 0) parts.Add($"Speed Crafting {SpeedCraftingPercent}%");
-            if (TamingSpeedPercent > 0) parts.Add($"Faster Taming {TamingSpeedPercent}%");
-            if (RemoveWeight) parts.Add("Remove Weight");
-            if (UnlimitedAmmo) parts.Add("Unlimited Ammo");
-            if (DisableTemperatures) parts.Add("Disable Temperatures");
-            if (RemoveLevelCap) parts.Add("Remove Level Cap");
-
+            var parts = BuildActiveOptionParts();
             return parts.Count == 0 ? "No options active" : string.Join(" · ", parts);
         }
+    }
+
+    /// <summary>
+    /// The single source of truth for "which gameplay options are on" — both ActiveOptionsSummary
+    /// (display) and HasAnyGameplayOptionsActive (RebuildAsync's own guard) read from this instead
+    /// of each re-deriving the same condition independently. That duplication is exactly the
+    /// failure mode a real bug this session traced back to: a guard checking only a subset of
+    /// options let Rebuild silently no-op while Install still shipped a stale pak, with no error.
+    /// A future option only needs to be added here once, not kept in sync across two places.
+    /// </summary>
+    private List<string> BuildActiveOptionParts()
+    {
+        var parts = new List<string>();
+        if (SpeedBoost != BoostLevel.Off) parts.Add($"Speed Boost {ShortLabel(SpeedBoost)}");
+        if (PlayerBoost != BoostLevel.Off) parts.Add($"Player Boost {ShortLabel(PlayerBoost)}");
+        if (XpBoost != XpBoostLevel.Off) parts.Add($"XP Boost {ShortLabel(XpBoost)}");
+        if (CraftCost != CraftCostReduction.Off) parts.Add($"Craft Cost {ShortLabel(CraftCost)}");
+        if (StacksMultiplierLevel != MultiplierLevel.Off) parts.Add($"Stacks {ShortLabel(StacksMultiplierLevel)}");
+        if (SlotsMultiplierLevel != MultiplierLevel.Off) parts.Add($"Slots {ShortLabel(SlotsMultiplierLevel)}");
+        if (SpeedCraftingPercent > 0) parts.Add($"Speed Crafting {SpeedCraftingPercent}%");
+        if (TamingSpeedPercent > 0) parts.Add($"Faster Taming {TamingSpeedPercent}%");
+        if (RemoveWeight) parts.Add("Remove Weight");
+        if (UnlimitedAmmo) parts.Add("Unlimited Ammo");
+        if (DisableTemperatures) parts.Add("Disable Temperatures");
+        if (RemoveLevelCap) parts.Add("Remove Level Cap");
+        return parts;
     }
 
     private static string ShortLabel(object level) =>
@@ -1048,12 +1061,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
     }
 
-    /// <summary>True if enabling this fires GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges's Category 1 path (Speed/Player/XP Boost, Disable Temperatures, Remove Level Cap) — mirrors that method's own "needsStats"/RemoveLevelCap checks so RebuildAsync's guard doesn't need real file I/O just to answer "is anything on".</summary>
-    private bool HasAnyGameplayOptionsActive =>
-        SpeedBoost != BoostLevel.Off || PlayerBoost != BoostLevel.Off || XpBoost != XpBoostLevel.Off
-        || CraftCost != CraftCostReduction.Off || StacksMultiplierLevel != MultiplierLevel.Off || SlotsMultiplierLevel != MultiplierLevel.Off
-        || SpeedCraftingPercent > 0 || TamingSpeedPercent > 0
-        || RemoveWeight || UnlimitedAmmo || DisableTemperatures || RemoveLevelCap;
+    /// <summary>RebuildAsync's own guard reads this instead of re-deriving "is anything on" independently — see BuildActiveOptionParts' own doc comment for why that mattered.</summary>
+    private bool HasAnyGameplayOptionsActive => BuildActiveOptionParts().Count > 0;
 
     // No [RelayCommand] — RebuildAndInstallAsync above is the only caller since the combined
     // Install button replaced the separate Rebuild/Install pair; the generated commands would be
