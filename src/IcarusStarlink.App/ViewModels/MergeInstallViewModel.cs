@@ -183,6 +183,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private bool _disableTemperatures;
 
+    [ObservableProperty]
+    private bool _removeLevelCap;
+
     private static readonly GameplayLevelToShortLabelConverter LevelLabelConverter = new();
 
     /// <summary>A compact one-line summary of which gameplay options are currently on — shown in the collapsed "Merge options" Expander header so folding that panel away doesn't hide active state.</summary>
@@ -202,6 +205,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             if (RemoveWeight) parts.Add("Remove Weight");
             if (UnlimitedAmmo) parts.Add("Unlimited Ammo");
             if (DisableTemperatures) parts.Add("Disable Temperatures");
+            if (RemoveLevelCap) parts.Add("Remove Level Cap");
 
             return parts.Count == 0 ? "No options active" : string.Join(" · ", parts);
         }
@@ -221,6 +225,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     partial void OnPlayerBoostChanged(BoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
     partial void OnXpBoostChanged(XpBoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
     partial void OnDisableTemperaturesChanged(bool value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
+    partial void OnRemoveLevelCapChanged(bool value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
     partial void OnCraftCostChanged(CraftCostReduction value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnStacksMultiplierLevelChanged(MultiplierLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnSlotsMultiplierLevelChanged(MultiplierLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
@@ -341,6 +346,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         RemoveWeight = RemoveWeight,
         UnlimitedAmmo = UnlimitedAmmo,
         DisableTemperatures = DisableTemperatures,
+        RemoveLevelCap = RemoveLevelCap,
     };
 
     private void LoadGameplayOptionsIntoUi(GameplayOptions options)
@@ -356,6 +362,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         RemoveWeight = options.RemoveWeight;
         UnlimitedAmmo = options.UnlimitedAmmo;
         DisableTemperatures = options.DisableTemperatures;
+        RemoveLevelCap = options.RemoveLevelCap;
     }
 
     /// <summary>Selecting a profile replaces the current queue with that profile's own saved one — a profile *is* "a saved merge list" per the spec, not something merged alongside the current queue.</summary>
@@ -1025,33 +1032,53 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand]
     private async Task RebuildAndInstallAsync()
     {
-        await RebuildAsync();
-        if (File.Exists(_outputPakPath))
+        // Gates on RebuildAsync's own success THIS call, not merely "a pak file happens to exist
+        // on disk" — a stale pak from an earlier successful build stays on disk after a later
+        // Rebuild is skipped (the guard below) or fails (an exception, a missing UnrealPak.exe
+        // path), and File.Exists alone can't tell "just built" apart from "leftover from before".
+        // Found live: enabling a Category-1-only option (e.g. Remove Level Cap) with an empty
+        // queue tripped the guard below (it only checked Category-2's RequiredCurrentFiles), so
+        // Rebuild silently no-opped — and the combined button then went ahead and installed the
+        // OLD pak from a previous test, with no error shown, silently not reflecting what was
+        // actually configured. That guard is fixed too (see HasAnyGameplayOptionsActive), but this
+        // is the deeper fix: Install must never run off a rebuild that didn't actually happen.
+        if (await RebuildAsync())
         {
             await InstallAsync();
         }
     }
 
+    /// <summary>True if enabling this fires GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges's Category 1 path (Speed/Player/XP Boost, Disable Temperatures, Remove Level Cap) — mirrors that method's own "needsStats"/RemoveLevelCap checks so RebuildAsync's guard doesn't need real file I/O just to answer "is anything on".</summary>
+    private bool HasAnyGameplayOptionsActive =>
+        SpeedBoost != BoostLevel.Off || PlayerBoost != BoostLevel.Off || XpBoost != XpBoostLevel.Off
+        || CraftCost != CraftCostReduction.Off || StacksMultiplierLevel != MultiplierLevel.Off || SlotsMultiplierLevel != MultiplierLevel.Off
+        || SpeedCraftingPercent > 0 || TamingSpeedPercent > 0
+        || RemoveWeight || UnlimitedAmmo || DisableTemperatures || RemoveLevelCap;
+
     // No [RelayCommand] — RebuildAndInstallAsync above is the only caller since the combined
     // Install button replaced the separate Rebuild/Install pair; the generated commands would be
     // dead bindings nothing in XAML references anymore.
-    private async Task RebuildAsync()
+    /// <returns>True only if this call actually produced a fresh pak — RebuildAndInstallAsync uses this, not File.Exists(_outputPakPath), to decide whether it's safe to Install (see its own comment for why that distinction is load-bearing).</returns>
+    private async Task<bool> RebuildAsync()
     {
         var gameplayOptions = BuildGameplayOptionsFromUi();
         // Gameplay options can apply on their own, with an empty queue, per the spec ("the ability
         // to add merge options to game with no mods selected") — only block if there's genuinely
         // nothing to do at all. Queue can hold opaque pak entries too now (folded into the same
         // output by Rebuild, not field-merged), so a queue containing only those is still real work.
-        if (Queue.Count == 0 && GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions).Count == 0)
+        // Checks BOTH categories — Category 2's RequiredCurrentFiles alone used to miss a
+        // Category-1-only option (Speed/Player/XP Boost, Disable Temperatures, Remove Level Cap)
+        // enabled with an empty queue, silently skipping the rebuild those options needed.
+        if (Queue.Count == 0 && !HasAnyGameplayOptionsActive)
         {
             StatusMessage = "Add at least one mod to the queue, or enable a gameplay option, first.";
-            return;
+            return false;
         }
 
         if (string.IsNullOrWhiteSpace(_settingsService.Current.UnrealPakExePath))
         {
             StatusMessage = "Set UnrealPak.exe path in Settings first.";
-            return;
+            return false;
         }
 
         IsRebuilding = true;
@@ -1111,6 +1138,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
             var pickNote = _manualPicks is { Count: > 0 } picks ? $", {picks.Count} conflict(s) manually resolved" : "";
             _activityLog.Log($"Rebuilt pack with {Queue.Count} mod(s) — {result.PackedFileCount} files packed{pickNote}.", ActivityEntryKind.Success);
+            return true;
         }
         catch (Exception ex)
         {
@@ -1118,6 +1146,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // UnrealPak failure, or a malformed queued mod should show a status message, not
             // crash the app.
             StatusMessage = $"Rebuild failed: {ex.Message}";
+            return false;
         }
         finally
         {

@@ -63,4 +63,7 @@ public sealed class GameplayOptions
     public bool UnlimitedAmmo { get; set; }
 
     public bool DisableTemperatures { get; set; }
+
+    /// <summary>Sets Character-D_CharacterGrowth.json's "Player" row MaxDisplayLevel/MaxLevel to 50000 (real base values: 60/1000) — a plain on/off, not a free number, matching a real community mod's own chosen value (classic IMM never documented one, this option doesn't exist there).</summary>
+    public bool RemoveLevelCap { get; set; }
 }

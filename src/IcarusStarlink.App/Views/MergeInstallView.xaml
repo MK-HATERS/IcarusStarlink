@@ -442,6 +442,9 @@
                     <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding DisableTemperatures}" Margin="0,12,0,0"
                               Content="Disable Temperatures"
                               ToolTip="Removes hot/cold environmental damage and temperature management entirely"/>
+                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding RemoveLevelCap}" Margin="0,12,0,0"
+                              Content="Remove Level Cap"
+                              ToolTip="Raises the player level cap from 60 to 50000 (and the underlying XP cap from 1000 to match) — no documented value from classic IMM, uses the same number a real community mod (laanp-RealLevels) already ships with"/>
                 </StackPanel>
                 </ScrollViewer>
             </Expander>

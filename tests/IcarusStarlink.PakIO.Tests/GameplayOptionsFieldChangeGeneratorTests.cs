@@ -106,6 +106,56 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
     }
 
     [Fact]
+    public void GenerateFixedFieldChanges_RemoveLevelCap_SetsBothLevelFieldsOnThePlayerRow()
+    {
+        var path = Path.Combine(_dataFolder, "Character", "D_CharacterGrowth.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Player","MaxDisplayLevel":60,"MaxLevel":1000},{"Name":"AI","MaxDisplayLevel":60,"MaxLevel":1000}]}""");
+
+        var changes = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
+            new GameplayOptions { RemoveLevelCap = true }, _dataFolder, new MergeReport());
+
+        Assert.Equal(2, changes.Count);
+        Assert.Contains(changes, c => c.ItemName == "Player" && c.FieldName == "MaxDisplayLevel" && (int)c.NewValue! == 50000);
+        Assert.Contains(changes, c => c.ItemName == "Player" && c.FieldName == "MaxLevel" && (int)c.NewValue! == 50000);
+        // AI's own row is never touched — RemoveLevelCap is Player-only, matching the real
+        // community mod (laanp-RealLevels) this option's value is sourced from.
+        Assert.DoesNotContain(changes, c => c.ItemName == "AI");
+    }
+
+    [Fact]
+    public void GenerateFixedFieldChanges_RemoveLevelCapAlongsideSpeedBoost_BothChangesReturnedIndependently()
+    {
+        WriteCharacterStats("""{"Name":"Base_Stats","StatsGranted":{}}""");
+        var growthPath = Path.Combine(_dataFolder, "Character", "D_CharacterGrowth.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(growthPath)!);
+        File.WriteAllText(growthPath, """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Player","MaxDisplayLevel":60,"MaxLevel":1000}]}""");
+
+        var changes = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
+            new GameplayOptions { SpeedBoost = BoostLevel.Level1, RemoveLevelCap = true }, _dataFolder, new MergeReport());
+
+        Assert.Equal(3, changes.Count);
+        Assert.Contains(changes, c => c.CurrentFile == "Stats-D_CharacterStartingStats.json" && c.FieldName == "StatsGranted");
+        Assert.Contains(changes, c => c.CurrentFile == "Character-D_CharacterGrowth.json" && c.FieldName == "MaxDisplayLevel");
+        Assert.Contains(changes, c => c.CurrentFile == "Character-D_CharacterGrowth.json" && c.FieldName == "MaxLevel");
+    }
+
+    [Fact]
+    public void GenerateFixedFieldChanges_RemoveLevelCapWithMissingPlayerRow_AddsWarningAndReturnsEmpty()
+    {
+        var growthPath = Path.Combine(_dataFolder, "Character", "D_CharacterGrowth.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(growthPath)!);
+        File.WriteAllText(growthPath, """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"AI"}]}""");
+        var report = new MergeReport();
+
+        var changes = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
+            new GameplayOptions { RemoveLevelCap = true }, _dataFolder, report);
+
+        Assert.Empty(changes);
+        Assert.Contains(report.Warnings, w => w.Contains("Player"));
+    }
+
+    [Fact]
     public void GenerateFixedFieldChanges_MissingBaseStatsRow_AddsWarningAndReturnsEmptyInsteadOfThrowing()
     {
         WriteCharacterStats("""{"Name":"Some_Other_Row"}""");
