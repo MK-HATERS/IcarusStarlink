@@ -171,6 +171,25 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Appearance** — the Custom theme's skin editor.
             """),
 
+        new("Making your own mods", """
+            # Making your own mods
+
+            Covers field-value-only mods — editing values the game already defines (stats, costs, sizes, and the like). Adding new custom assets or blueprints is its own, separate skill this app doesn't teach.
+
+            **Start to finish:**
+
+            - **New mod…** (Library's toolbar) creates a blank EXMOD from just a name and author, and opens it straight in the editor.
+            - **Add item from game data…** (in the editor) picks any real in-game item and copies its complete current values in as a starting point — safer than typing a field name by hand, since it guarantees the field actually exists right now.
+            - Edit whatever fields you want changed. Every field shows the real base game value underneath, amber-highlighted the moment your value differs from it — that's your at-a-glance confirmation you're actually changing something.
+            - **Ctrl+S** (or the Save button) writes it to disk. The ✎ glyph appears next to the mod in Library from then on.
+
+            **If a game update breaks your mod:**
+
+            Click **Check mods against game data** (Library's toolbar) any time. It diffs every mod you own against whatever the game currently defines and does two things: anything it's confident about — an unambiguous rename with matching fields — it fixes automatically, backing the mod up first (undo any single fix with **Restore latest backup**). Anything less certain gets a warning badge instead, with its best guess, if it has one, right in the badge's own tooltip — click the badge to open that item in the editor and decide for yourself.
+
+            It won't ever guess silently beyond that. There's no reliable way to tell "this field was renamed" from "this field was removed" from "this just happens to look similar" with full confidence, so anything it isn't sure about stays exactly as honest as it looks: flagged, not fixed.
+            """),
+
         new("Keyboard shortcuts", """
             # Keyboard shortcuts
 
