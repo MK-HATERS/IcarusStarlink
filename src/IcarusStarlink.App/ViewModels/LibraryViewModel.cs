@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog;
@@ -372,18 +373,60 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Auto-detects what's inside instead of requiring the user to already know — an EXMODZ is
+    /// itself just a zip with a different extension, and a mod author's own download could just as
+    /// easily be a plain .zip/.rar/.7z containing an EXMOD-shaped mod, a bare prebuilt .pak, or a
+    /// UE4SS mod folder. Same ExtractedModClassifier the Nexus pending-download Activate flow
+    /// already uses for exactly this "don't yet know what's inside" situation — this is that
+    /// detection's other real caller, a manual local-file import with no Nexus provenance to tag.
+    /// </summary>
     [RelayCommand]
     private void ImportFile()
     {
         var dialog = new OpenFileDialog
         {
-            Title = "Select an .EXMODZ file",
-            Filter = "EXMODZ package (*.EXMODZ)|*.EXMODZ",
+            Title = "Select a mod archive",
+            Filter = "Mod archive (*.EXMODZ, *.zip, *.rar, *.7z)|*.EXMODZ;*.zip;*.rar;*.7z",
         };
 
-        if (dialog.ShowDialog() == true)
+        if (dialog.ShowDialog() != true)
         {
-            TryImport(dialog.FileName, path => _repository.Import(path));
+            return;
+        }
+
+        var tempExtractDirectory = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Import_{Guid.NewGuid():N}");
+        try
+        {
+            AnyArchiveExtractor.ExtractToDirectory(dialog.FileName, tempExtractDirectory);
+            var (entryName, folderName, kind, _) = ExtractedModClassifier.ClassifyAndImport(
+                tempExtractDirectory, dialog.FileName, _repository, _ue4ssModRepository);
+
+            StatusMessage = kind == PendingDownloadActivationKind.Library
+                ? $"Imported '{entryName}'."
+                : $"Staged '{folderName}' as a UE4SS mod — enable it from the UE4SS mods tab, then click Apply.";
+            Reload();
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            _activityLog.Log(
+                kind == PendingDownloadActivationKind.Library ? $"Imported '{entryName}'." : $"Imported '{folderName}' as a UE4SS mod.",
+                ActivityEntryKind.Success);
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary every other import path here already uses.
+            StatusMessage = $"Import failed: {ex.Message}";
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempExtractDirectory, recursive: true);
+            }
+            catch (Exception)
+            {
+                // Best-effort scratch cleanup — a locked file here (e.g. antivirus mid-scan)
+                // shouldn't turn a successful import into a reported failure.
+            }
         }
     }
 
@@ -508,10 +551,11 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// The action behind the "Update available" badge. A Database-sourced mod genuinely updates in
     /// place: re-download from the catalog, then replace (delete-then-reimport under the same
     /// "Replace, not accumulate" rule Install/patch-import already use), carrying pin/favorite/
-    /// notes across the swap. A Nexus-sourced mod opens its mod page instead — a real in-app Nexus
-    /// download needs a file ID this app doesn't have (only the mod ID), so the honest action is
-    /// the page where the user's own click starts a Mod Manager Download through the existing
-    /// nxm:// pipeline.
+    /// notes across the swap. A Nexus-sourced mod jumps to its card on the native Nexus page
+    /// instead — a real in-app Nexus download needs a file ID this app doesn't have (only the mod
+    /// ID), so the honest action is the card whose own Download button starts a Mod Manager
+    /// Download through the existing nxm:// pipeline (or its "Open page" action, for a non-Premium
+    /// account that needs the real website).
     /// </summary>
     [RelayCommand]
     private async Task GetUpdateAsync(LibraryItemViewModel? item)
@@ -534,8 +578,8 @@ public sealed partial class LibraryViewModel : ObservableObject
                 return;
             }
 
-            item.OpenOnNexusCommand.Execute(null);
-            StatusMessage = "Opened the mod's Nexus page — use its Mod Manager Download button to pull the update through this app.";
+            SearchNexusFor(item);
+            StatusMessage = "Found the mod's card on the Nexus page — use its Download button to pull the update through this app.";
             return;
         }
 

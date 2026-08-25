@@ -30,7 +30,14 @@ public static class AnyArchiveExtractor
             using var zip = ZipFile.OpenRead(archiveFilePath);
             foreach (var entry in zip.Entries)
             {
-                if (entry.FullName.EndsWith('/'))
+                // A genuine directory entry's own FullName ends in a path separator — but not every
+                // real-world zip writer uses the ZIP spec's own forward-slash convention: PowerShell's
+                // Compress-Archive cmdlet (a real, ordinary tool a mod author might use) writes
+                // directory entries as e.g. "BP\Objects\", backslash-terminated. Checking only '/'
+                // let a would-be directory entry fall through to ExtractEntry as if it were a real
+                // file, which then failed with a confusing "could not find a part of the path" —
+                // found by actually importing a Compress-Archive-produced zip, not by inspection.
+                if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\'))
                 {
                     continue;
                 }

@@ -190,19 +190,20 @@
                     <Run Text="v"/><Run Text="{Binding Version, Mode=OneWay}"/>
                 </TextBlock>
 
-                <!-- Clickable: "Nexus" opens the mod's own Nexus page directly (a self-contained
-                     command on the item, no relay needed); "Database" jumps to this page's own
-                     IMM Database tab, pre-searched by name (FindInDatabaseCommand, on the page
-                     ViewModel — reached via the same Tag/AncestorType relay every other per-row
-                     command in this template already uses). -->
+                <!-- Clickable: both jump to this app's own native catalogue instead of straight out
+                     to a website — "Nexus" to its card on the Nexus page (SearchNexusForCommand,
+                     pre-searched by name; that card has its own "Open page" action for the real
+                     website), "Database" to its row on the IMM Database tab (FindInDatabaseCommand)
+                     — both on the page ViewModel, reached via the same Tag/AncestorType relay every
+                     other per-row command in this template already uses. -->
                 <Button Grid.Column="4" Background="{DynamicResource InfoBrush}" Margin="8,0,0,0"
                         CommandParameter="{Binding}"
                         Visibility="{Binding HasSource, Converter={StaticResource BoolToVisibilityConverter}}"
                         AutomationProperties.Name="{Binding Source, StringFormat='Source: {0}'}">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource PillButtonStyle}">
-                            <Setter Property="Command" Value="{Binding OpenOnNexusCommand}"/>
-                            <Setter Property="ToolTip" Value="Open this mod's Nexus page"/>
+                            <Setter Property="Command" Value="{Binding DataContext.SearchNexusForCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                            <Setter Property="ToolTip" Value="Find this mod's card on the Nexus page"/>
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding Source}" Value="Database">
                                     <Setter Property="Command" Value="{Binding DataContext.FindInDatabaseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
@@ -352,7 +353,8 @@
                         <Button Click="DropdownButton_Click" Margin="0,0,10,0" ToolTip="Bring a mod in from a file, a folder, or a prebuilt .pak" AutomationProperties.Name="Import">
                             <Button.ContextMenu>
                                 <ContextMenu Placement="Bottom">
-                                    <MenuItem Header="Import EXMODZ…" Command="{Binding ImportFileCommand}"/>
+                                    <MenuItem Header="Import archive…" Command="{Binding ImportFileCommand}"
+                                              ToolTip="A .zip/.rar/.7z/.EXMODZ — automatically recognized as an EXMOD-shaped mod, a bare .pak, or a UE4SS mod, whatever's actually inside"/>
                                     <MenuItem Header="Import folder…" Command="{Binding ImportFolderCommand}"/>
                                     <MenuItem Header="Import .pak…" Command="{Binding ImportPakCommand}"
                                               ToolTip="Import a prebuilt .pak as an opaque library entry — no .EXMOD, can't be browsed or edited"/>

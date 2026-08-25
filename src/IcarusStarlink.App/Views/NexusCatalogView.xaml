@@ -90,25 +90,35 @@
                                     <!-- A string URL binds straight to Source — WPF downloads it async itself; a null
                                          or failed URL just leaves the placeholder behind it showing. -->
                                     <Image Source="{Binding Mod.PictureUrl}" Stretch="UniformToFill"/>
-                                </Grid>
-                                <StackPanel Margin="12,10,12,12">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="{Binding Mod.Name}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"
-                                                   ToolTip="{Binding Mod.Name}"/>
-                                        <!-- This machine's own status, computed locally — Nexus's API exposes no
-                                             site-notification feed to sync the website's own badges from. -->
-                                        <Border Margin="6,0,0,0" CornerRadius="8" Padding="6,1" VerticalAlignment="Center"
-                                                Background="{DynamicResource InfoBrush}"
+
+                                    <!-- This machine's own status, computed locally — Nexus's API exposes no
+                                         site-notification feed to sync the website's own badges from. Overlaid
+                                         on the thumbnail's own top-left corner (a drop shadow keeps them legible
+                                         over a bright image) rather than sitting inline with the title below —
+                                         the same corner-chip convention a media card typically uses for "you
+                                         already have this," so it reads at a glance without competing with the
+                                         title text for room. -->
+                                    <StackPanel Margin="8" VerticalAlignment="Top" HorizontalAlignment="Left">
+                                        <Border CornerRadius="8" Padding="6,2" Background="{DynamicResource InfoBrush}"
                                                 Visibility="{Binding LocalBadge, Converter={StaticResource NullToVisibilityConverter}}">
+                                            <Border.Effect>
+                                                <DropShadowEffect BlurRadius="6" ShadowDepth="1" Opacity="0.5" Color="Black"/>
+                                            </Border.Effect>
                                             <TextBlock Text="{Binding LocalBadge}" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
                                         </Border>
-                                        <Border Margin="4,0,0,0" CornerRadius="8" Padding="6,1" VerticalAlignment="Center"
-                                                Background="{DynamicResource AccentBrush}"
+                                        <Border Margin="0,4,0,0" CornerRadius="8" Padding="6,2" Background="{DynamicResource AccentBrush}"
                                                 ToolTip="A newer version than your Library copy"
                                                 Visibility="{Binding HasUpdate, Converter={StaticResource BoolToVisibilityConverter}}">
+                                            <Border.Effect>
+                                                <DropShadowEffect BlurRadius="6" ShadowDepth="1" Opacity="0.5" Color="Black"/>
+                                            </Border.Effect>
                                             <TextBlock Text="Update" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
                                         </Border>
                                     </StackPanel>
+                                </Grid>
+                                <StackPanel Margin="12,10,12,12">
+                                    <TextBlock Text="{Binding Mod.Name}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding Mod.Name}"/>
                                     <TextBlock Margin="0,1,0,0" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
                                         <Run Text="{Binding Mod.Author, Mode=OneWay}"/><Run Text=" · v"/><Run Text="{Binding Mod.Version, Mode=OneWay}"/>
                                     </TextBlock>

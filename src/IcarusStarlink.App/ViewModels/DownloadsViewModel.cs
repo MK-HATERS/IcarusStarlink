@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
@@ -839,58 +840,40 @@ public sealed partial class DownloadsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Figures out what an already-extracted download actually is and imports it the right way:
-    /// an EXMOD-shaped mod (ExmodFolder.Read already searches the whole tree for a .EXMOD file,
-    /// wherever it's nested), a prebuilt .pak with no EXMOD wrapper, or — the catch-all, since a
-    /// UE4SS mod carries no metadata file of its own to detect it by — a UE4SS mod folder.
+    /// Figures out what an already-extracted download actually is and imports it the right way,
+    /// via the shared ExtractedModClassifier (LibraryViewModel's own manual "Import archive…" uses
+    /// the identical detection) — then layers this page's own Nexus-specific follow-up on top: an
+    /// opaque pak or a UE4SS mod carries no embedded name/author of its own, so both get a
+    /// best-effort real-name/version lookup from the Nexus mod ID this download already came with,
+    /// and every kind fires the same reload/activity-log side effects a manual import doesn't need
+    /// (Library's UE4SS tab has its own reload path, never wired to this pipeline before this).
     /// </summary>
     private async Task<(string StatusMessage, string FolderName, PendingDownloadActivationKind Kind)> ClassifyAndImportExtractedModAsync(
         string extractedDirectory, string originalFileName, int modId)
     {
-        // A manual scan, not a "*.EXMOD" glob — Directory.EnumerateFiles' pattern matching follows
-        // the filesystem's own case sensitivity, same reasoning ExmodFolder.FindExmodFile's own
-        // comment already gives for why it does the same thing.
-        var hasExmod = Directory.EnumerateFiles(extractedDirectory, "*", SearchOption.AllDirectories)
-            .Any(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase));
+        var (entryName, folderName, kind, isOpaquePak) = ExtractedModClassifier.ClassifyAndImport(
+            extractedDirectory, originalFileName, _libraryRepository, _ue4ssModRepository, source: "Nexus", nexusModId: modId);
 
-        if (hasExmod)
+        string statusMessage;
+        if (kind == PendingDownloadActivationKind.Library)
         {
-            // Let any real validation failure (corrupt EXMOD JSON, more than one .EXMOD, an unsafe
-            // asset path, a size-budget violation) propagate up as-is — this genuinely IS
-            // EXMOD-shaped content, so a failure here is a real problem, not a signal to try a
-            // different format.
-            var entry = _libraryRepository.Import(extractedDirectory, source: "Nexus", nexusModId: modId);
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-            _activityLog.Log($"Activated pending download '{entry.Name}'.", ActivityEntryKind.Success);
-            return ($"Imported '{entry.Name}' into your Library.", entry.FolderName, PendingDownloadActivationKind.Library);
+            if (isOpaquePak)
+            {
+                await EnrichOpaquePakFromNexusAsync(folderName, modId);
+            }
+
+            statusMessage = $"Imported '{entryName}' into your Library.";
+            _activityLog.Log($"Activated pending download '{entryName}'.", ActivityEntryKind.Success);
+        }
+        else
+        {
+            await EnrichUe4ssModFromNexusAsync(folderName, modId);
+            statusMessage = $"Staged '{folderName}' as a UE4SS mod — enable it from Library's UE4SS tab, then click Apply.";
+            _activityLog.Log($"Activated pending download '{folderName}' as a UE4SS mod.", ActivityEntryKind.Success);
         }
 
-        var pakFiles = Directory.GetFiles(extractedDirectory, "*.pak", SearchOption.AllDirectories);
-        if (pakFiles.Length == 1)
-        {
-            var entry = _libraryRepository.ImportPak(pakFiles[0], source: "Nexus", nexusModId: modId);
-            await EnrichOpaquePakFromNexusAsync(entry.FolderName, modId);
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-            _activityLog.Log($"Activated pending download '{entry.Name}'.", ActivityEntryKind.Success);
-            return ($"Imported '{entry.Name}' into your Library.", entry.FolderName, PendingDownloadActivationKind.Library);
-        }
-
-        if (pakFiles.Length > 1)
-        {
-            throw new FormatException($"Contains {pakFiles.Length} .pak files — ambiguous which one to import.");
-        }
-
-        // Neither EXMOD-shaped nor a single prebuilt pak — treat as a UE4SS mod, the one kind of
-        // mod this app handles that carries no metadata file of its own to detect it by.
-        var fallbackName = Path.GetFileNameWithoutExtension(originalFileName);
-        var folderName = _ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName);
-        await EnrichUe4ssModFromNexusAsync(folderName, modId);
-        // Library's UE4SS tab has its own reload path (ReloadInstalledUe4ssMods), never wired to
-        // this pipeline before — without this, a UE4SS mod downloaded here silently didn't show up
-        // there until something else happened to trigger a reload (a restart, or an unrelated edit).
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-        _activityLog.Log($"Activated pending download '{folderName}' as a UE4SS mod.", ActivityEntryKind.Success);
-        return ($"Staged '{folderName}' as a UE4SS mod — enable it from Library's UE4SS tab, then click Apply.", folderName, PendingDownloadActivationKind.Ue4ssMod);
+        return (statusMessage, folderName, kind);
     }
 
     /// <summary>

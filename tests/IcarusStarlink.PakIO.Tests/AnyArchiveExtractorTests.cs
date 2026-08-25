@@ -39,6 +39,34 @@ public class AnyArchiveExtractorTests
     }
 
     [Fact]
+    public void ExtractToDirectory_ZipWithBackslashTerminatedDirectoryEntry_SkipsItInsteadOfThrowing()
+    {
+        // Real-world shape, found live: PowerShell's Compress-Archive cmdlet writes a directory
+        // entry as e.g. "BP\Objects\" (backslash-terminated), not the ZIP spec's own forward-slash
+        // convention — a plain EndsWith('/') check let this fall through as if it were a real file.
+        var zipPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink.Tests.{Guid.NewGuid():N}.zip");
+        var destDir = CreateTempDirectory();
+        try
+        {
+            using (var archive = new System.IO.Compression.ZipArchive(File.Create(zipPath), System.IO.Compression.ZipArchiveMode.Create))
+            {
+                archive.CreateEntry("BP\\Objects\\");
+                var e1 = archive.CreateEntry("BP\\Objects\\real.bin");
+                using (var s = e1.Open()) { s.Write([9, 9, 9]); }
+            }
+
+            AnyArchiveExtractor.ExtractToDirectory(zipPath, destDir);
+
+            Assert.Equal<byte>([9, 9, 9], File.ReadAllBytes(Path.Combine(destDir, "BP", "Objects", "real.bin")));
+        }
+        finally
+        {
+            File.Delete(zipPath);
+            Directory.Delete(destDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ExtractToDirectory_ZipWithZipSlipEntry_ThrowsFormatExceptionInsteadOfEscaping()
     {
         var zipPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink.Tests.{Guid.NewGuid():N}.zip");
