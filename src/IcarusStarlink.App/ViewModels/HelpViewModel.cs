@@ -24,10 +24,15 @@ public sealed partial class HelpViewModel : ObservableObject
 
             Your local collection of extracted mods — the source of truth is the **Extracted_Mods** folder itself, not any database inside the app.
 
-            - **Import EXMODZ… / Import folder… / Import .pak…** bring a mod in three different ways. A .pak import has no .EXMOD, so it can't be browsed or edited — it's an opaque entry.
+            - **Import ▾** brings a mod in three ways: **Import archive…** (a `.zip`/`.rar`/`.7z`/`.EXMODZ` — it looks at what's actually inside and recognizes an EXMOD-shaped mod, a bare `.pak`, or a UE4SS mod automatically, so you don't need to know which kind it is ahead of time), **Import folder…**, or **Import .pak…** (a prebuilt pak with no `.EXMOD` has no name/author of its own and can't be browsed or edited — it's an opaque entry, and importing one offers to link it to a Nexus ID right away).
             - **New mod…** creates a blank EXMOD (just a name and author) and opens it straight in the editor.
+            - **Check ▾** holds two whole-library checks: **Check for updates** (every Nexus/Database-sourced mod against its real current version) and **Check mods against game data** (see "Making your own mods" below).
+            - Select one or more mods (Ctrl/Shift-click for more than one) and right-click → **Add to merge queue** — the same action shows as a toolbar button once you've selected 2 or more.
+            - Right-click a mod for more: **Rename…**, **Create/Restore mod backup**, **See what changed vs previous version…**, **Find in Database**/**Search Nexus for this**, **Open on Nexus**, **Link to Nexus ID…**, **Delete**.
+            - The blue **Database**/**Nexus** pill and the orange **Update** pill are clickable: Database jumps to that mod's row on the IMM Database tab, Nexus jumps to its card on the native Nexus page, and Update runs the actual update (or opens the right place to get one).
+            - Right-click the column header bar to show or hide **Author/Version/Source/Status/Latest/Imported** — pick whichever columns you actually want to see.
             - Pin/Favorite/Notes are yours to organize with — none of them affect merging.
-            - The ✎ glyph means a mod was edited in the EXMOD editor; 📦 means it's a rebuilt merged pak re-imported as its own entry.
+            - The ✎ glyph means a mod was edited in the EXMOD editor; 📦 means it's a rebuilt merged pak re-imported as its own entry; a warning badge means "Check mods against game data" flagged something — click it to open the mod with the flagged item pre-selected.
             - Several versions of the same mod (different bag sizes, presets, etc.) show up grouped as one family if the EXMOD declares `variantGroup` — expand the group and add whichever variant you want to the queue.
             - The **UE4SS mods** tab is a separate list, covered on its own page below.
             """),
@@ -38,11 +43,11 @@ public sealed partial class HelpViewModel : ObservableObject
             The core workflow: build one merged pak from everything in your queue, then install it into the game.
 
             - In **Library**, select one or more mods (Ctrl/Shift-click for more than one) and right-click → **Add to merge queue**. Order matters — later entries win when two mods change the same thing, unless you override that (see Merge conflicts below).
-            - **Rebuild** merges the queue against real base game data and packs a `.pak` — this only ever writes to this app's own staging folder, never your game.
-            - **Install** is the one button in the whole app that writes into your real `Content\Paks\mods` — it always asks for confirmation first, and always backs up whatever pak is already there (last 5 kept).
-            - **Compare to installed** previews exactly what Install would change before you click it.
-            - **Profiles** (the bar at the top) save a whole queue + merge options as one named preset. **Export/Import patch** shares a profile with a friend or a server — mods already in the community catalog are referenced by name; anything else (including anything you edited locally) gets bundled into the file.
-            - **Merge options** on the right apply gameplay-wide toggles (Speed Boost, Remove Weight, Unlimited Ammo, and others) as a final pass after your queue merges — they work even with an empty queue.
+            - **Install** rebuilds and installs in one click — it always asks for confirmation first (this is the one action in the whole app that writes into your real `Content\Paks\mods`), and always backs up whatever pak is already there (last 5 kept). The button relabels to **Update install** once something of this app's own is already installed.
+            - **Profiles** (the bar at the top) save a whole queue + merge options as one named preset. **Set baseline** marks the current queue as mods every profile should always include — set it once and those mods auto-add (lowest priority) to any queue you load or build from then on; click it again with an empty queue to clear it. **Import & migrate** (an expandable section) holds **Export/Import patch** (shares a profile with a friend or a server — catalog mods are referenced by name, anything else including anything you edited locally gets bundled into the file) and **Import IMM mod list…** (see "Coming from classic IMM").
+            - **Merge options** (another expandable section, collapsed by default — its own header always shows a summary of what's currently on) apply gameplay-wide toggles as a final pass after your queue merges, and work even with an empty queue: Speed/Player/XP Boost, Craft Cost, Stacks/Slots multipliers, Faster Taming, Remove Weight, Unlimited Ammo, Disable Temperatures, Remove Level Cap. A small (i) icon next to each leveled option shows its real documented values.
+            - If two or more queued mods (or a mod and an enabled Merge option) touch the same field, a red conflict banner appears with a count — click **Review conflicts** to see exactly what disagrees and optionally pick a specific mod's value per field (see Merge conflicts below).
+            - **Advanced actions** (also expandable): **Verify** holds **Compare to installed** (previews exactly what Install would change) and **Compare paks…** (diffs any two `.pak` files — see "Comparing versions & paks"); **Uninstall** holds **Copy to game** (installs the already-staged pak without rebuilding — for when Icarus was running and Install failed) and **Remove from game** (uninstalls this app's own pak from the real game folder; your Library is untouched).
             """),
 
         new("Merge conflicts", """
@@ -55,6 +60,16 @@ public sealed partial class HelpViewModel : ObservableObject
             - It shows every field two or more queued mods actually disagree on (fields they all happen to agree on aren't shown — there's nothing to pick between).
             - For each one, pick a specific mod's value from the dropdown, or leave it on **Default** to keep the usual last-mod-wins behavior.
             - Picks apply to your **next** Rebuild only, and reset automatically the moment you change the queue at all (add, remove, reorder, or clear) — a pick only means what it meant against the exact queue it was made from.
+            """),
+
+        new("Weekly Changes", """
+            # Weekly Changes
+
+            What actually changed in the game's own data the last time it updated — a real, row-by-row diff, not a changelog someone wrote by hand.
+
+            Every time you click **Update data folder** (Settings), this app keeps a record of what it just extracted. Run it once before a game update and again after, and this page compares the two: which files changed, which items/fields were added, removed, or edited, old value beside new. Genuinely useful for figuring out why a mod that used to work suddenly doesn't (see "if a game update breaks your mod" under "Making your own mods").
+
+            Nothing to click here beyond browsing — pick a file on the left to see its own changes on the right. If you see "No changes tracked yet," you only have one extraction on record; run **Update data folder** again after the next game update to get a real comparison.
             """),
 
         new("UE4SS mods", """
@@ -105,7 +120,7 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Comparing versions & paks", """
             # Comparing versions & paks
 
-            Two different "what actually changed?" tools.
+            Two different "what actually changed?" tools — a third, **Weekly Changes**, compares the game's own data over time instead of a mod or a pak (see its own Help topic).
 
             **See what a mod author changed in an update**
 
@@ -166,9 +181,9 @@ public sealed partial class HelpViewModel : ObservableObject
             Settings is split into tabs. Beyond **Game & tools** (covered in Getting started) and **Migrate from IMM**:
 
             - **Nexus** — sign in with your own Personal API Key (a plain account-wide token from Nexus's own Account Settings page — not tied to this or any other app), and optionally register the nxm:// download handler.
-            - **UE4SS** — install/update the loader itself, separate from the per-mod enable/disable on the Library page.
-            - **Maintenance** — app updates, plus **Performance tracking** (off by default; logs how long Rebuild/Install/catalog-refresh actually take to a separate `app.perf` log file) and **Export diagnostics zip…**, which bundles your logs plus a sanitized copy of your settings (nothing sensitive — real keys and passwords live in Windows Credential Manager, never in a settings file) into one zip to attach to a bug report.
-            - **Appearance** — the Custom theme's skin editor.
+            - **UE4SS** — install/update the loader itself, separate from the per-mod enable/disable on the Library page. **Uninstall** removes it completely — your own installed mods are preserved and moved aside first, only the framework's own bundled files are removed.
+            - **Maintenance** — **Check for updates** looks at this app's own GitHub releases; **Update now** downloads and installs the new version automatically (it closes the app, applies the update, and relaunches itself — nothing of yours in `Extracted_Mods`/`Profiles`/`Cache`/your settings is ever touched), or **Open release page** if you'd rather grab it yourself. Also **Performance tracking** (off by default; logs how long Rebuild/Install/catalog-refresh actually take to a separate `app.perf` log file) and **Export diagnostics zip…**, which bundles your logs plus a sanitized copy of your settings (nothing sensitive — real keys and passwords live in Windows Credential Manager, never in a settings file) into one zip to attach to a bug report.
+            - **Appearance** — three built-in themes (Icarus/Dark/Light) plus a fully custom fourth one: edit any of ~19 colors by hex value, **Copy Icarus/Dark/Light** to start from a built-in theme's own colors instead of from scratch, and **Open skin file**/**Reload skin file** if you'd rather hand-edit the JSON file directly and pull your changes back in.
             """),
 
         new("Making your own mods", """
@@ -179,13 +194,24 @@ public sealed partial class HelpViewModel : ObservableObject
             **Start to finish:**
 
             - **New mod…** (Library's toolbar) creates a blank EXMOD from just a name and author, and opens it straight in the editor.
-            - **Add item from game data…** (in the editor) picks any real in-game item and copies its complete current values in as a starting point — safer than typing a field name by hand, since it guarantees the field actually exists right now.
+            - **Add item from game data…** (in the editor) picks any real in-game item and copies its complete current values in as a starting point — safer than typing a field name by hand, since it guarantees the field actually exists right now. Check **Hide items already in this mod** to see only what you haven't touched yet — handy for confirming you've covered everything you meant to.
             - Edit whatever fields you want changed. Every field shows the real base game value underneath, amber-highlighted the moment your value differs from it — that's your at-a-glance confirmation you're actually changing something.
             - **Ctrl+S** (or the Save button) writes it to disk. The ✎ glyph appears next to the mod in Library from then on.
 
+            **Example: doubling a container's storage**
+
+            A simple, real worked example. Say you want a storage container to hold twice as many slots:
+
+            - **New mod…**, then **Add item from game data…** and pick the container (e.g. a wooden storage box).
+            - Find its `StartingSlots` field — that's the item's real inventory slot count.
+            - Change the value to double the number shown underneath in amber.
+            - **Ctrl+S**. Queue it in Merge & Install and Install to try it in-game.
+
+            The same pattern works for any numeric field you can find on an item — a weapon's damage, a recipe's resource cost, a building piece's stability. **Search game data…** (also in the editor) is the tool for the other half of "which field do I need?": type a value or a row name and see every file/item that names it, plus every other place in the game's data that references it — useful for tracing how something connects before you commit to editing it.
+
             **If a game update breaks your mod:**
 
-            Click **Check mods against game data** (Library's toolbar) any time. It diffs every mod you own against whatever the game currently defines and does two things: anything it's confident about — an unambiguous rename with matching fields — it fixes automatically, backing the mod up first (undo any single fix with **Restore latest backup**). Anything less certain gets a warning badge instead, with its best guess, if it has one, right in the badge's own tooltip — click the badge to open that item in the editor and decide for yourself.
+            Click **Check mods against game data** (Library's toolbar) any time. It diffs every mod you own against whatever the game currently defines and does two things: anything it's confident about — an unambiguous rename with matching fields — it fixes automatically, backing the mod up first (undo any single fix with **Restore latest backup**). Anything less certain gets a warning badge instead, with its best guess, if it has one, right in the badge's own tooltip — click the badge to open that item in the editor and decide for yourself. **Weekly Changes** (its own page) is the other half of this: a real diff of what the game itself changed, which is often the fastest way to see why something broke.
 
             It won't ever guess silently beyond that. There's no reliable way to tell "this field was renamed" from "this field was removed" from "this just happens to look similar" with full confidence, so anything it isn't sure about stays exactly as honest as it looks: flagged, not fixed.
             """),
@@ -209,7 +235,7 @@ public sealed partial class HelpViewModel : ObservableObject
             A few things this app is deliberately careful about:
 
             - **Install** (the one action that writes into your real game folder) always asks for confirmation, and always backs up whatever pak is already there first (last 5 kept).
-            - The **UE4SS loader install/update** and the **nxm:// protocol registration** work the same way — both touch something more sensitive than a normal mod folder, so both ask first too.
+            - The **UE4SS loader install/update/uninstall**, the **nxm:// protocol registration**, and **Update now** (this app updating itself) all work the same way — each touches something more sensitive than a normal mod folder, so each asks first too.
             - Your library is just the **Extracted_Mods** folder plus a small per-mod notes/pin sidecar — nothing about it is locked into a database only this app can read. If you ever stop using this app, your mods are still just files.
             - If something goes wrong, **Export diagnostics zip…** (Settings) is the fastest way to get logs into a bug report.
             """),
