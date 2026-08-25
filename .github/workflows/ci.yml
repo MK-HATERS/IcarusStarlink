@@ -1,0 +1,56 @@
+name: CI
+
+# A WPF app only builds/runs on Windows, so this always runs on windows-latest, unlike most .NET
+# CI templates which default to ubuntu-latest.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reads global.json itself, so this always matches the exact SDK version/rollForward policy
+      # the project is actually developed against, rather than a hardcoded version drifting out of
+      # sync with it.
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore IcarusStarlink.slnx
+
+      - name: Build
+        run: dotnet build IcarusStarlink.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test IcarusStarlink.slnx --configuration Release --no-build --logger "trx;LogFileName=test-results.trx"
+
+      # Always runs (even after a test failure) so a failed run's own results are still
+      # inspectable from the workflow's own Summary/Artifacts tab, not just the raw console log.
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/TestResults/*.trx'
+          retention-days: 14
+
+      # The app's own Release build output — not a packaged release (that's still a deliberate,
+      # separate manual step per the project's own release-readiness notes: a real release also
+      # needs the bundled UnrealPak payload folded in by hand), just a downloadable sanity check
+      # that a given commit still produces a working build.
+      - name: Upload build output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: IcarusStarlink-build-${{ github.sha }}
+          path: src/IcarusStarlink.App/bin/Release/net10.0-windows/
+          retention-days: 14

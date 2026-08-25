@@ -91,6 +91,30 @@ dotnet test IcarusStarlink.slnx
 `tools/WinTools` is a small UI-automation CLI used during development to drive and screenshot the
 running app — not part of the shipped product.
 
+## Credits
+
+None of this exists without the people who actually make Icarus modding a real thing to build a
+tool for:
+
+- **[Jimk72](https://github.com/Jimk72)** — creator of the original Icarus Mod Manager ("classic
+  IMM"), whose EXMOD/EXMODZ format this app reads and writes, and whose own published changelog
+  was the real, documented source for several of this app's built-in gameplay-option values.
+  Nothing here is copied from classic IMM's own (closed-source) code — this is a clean-room
+  implementation built against the format and behavior it documents — but the format itself, and
+  years of prior art on how to handle it well, are Jimk72's.
+- **Every Icarus mod author**, named or not, whose real mods this app was built and tested against.
+  A mod manager is only as good as the mods it actually has to handle, and modding a game in the
+  first place — figuring out its data, sharing what you learn, publishing something someone else
+  can use — is the actual hard, generous work that makes a tool like this worth building at all.
+- **[Project Daedalus](https://github.com/AgentKush/daedalus-static-poc)** and Jimk72's own mod
+  catalog — the two real, public community mod databases this app's Library integrates with.
+- **[AgentKush](https://github.com/AgentKush)** — the [Icarus Save file
+  Toolkit](https://github.com/AgentKush/Icarus-Save-file-Toolkit) documented the real on-disk save
+  file layout this app's Save editor is built against (studied as a format reference only — no
+  code from that project is used here).
+- **[Nexus Mods](https://www.nexusmods.com/icarus)** — the platform and the real API this app's
+  Nexus integration talks to.
+
 ## Disclaimer
 
 Icarus Starlink is an independent, fan-made tool and is not affiliated with, endorsed by, or

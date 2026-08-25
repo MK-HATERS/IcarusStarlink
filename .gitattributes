@@ -1,0 +1,14 @@
+# Auto-detect text files and normalize line endings to LF in the repo, checked out as CRLF on
+# Windows (matching every contributor's own local git core.autocrlf=true default) — avoids the
+# "warning: LF will be replaced by CRLF" noise every commit in this repo has shown so far, and
+# keeps diffs clean regardless of which OS someone clones on.
+* text=auto eol=crlf
+
+# Never touch line endings in binary files.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.zip binary
+*.dll binary
+*.pdb binary

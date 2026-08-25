@@ -52,6 +52,7 @@
          deterministic-build behavior) — breaks both the displayed version and Version.TryParse in
          SettingsViewModel's own update-comparison logic, which doesn't understand a "+sha" suffix. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>
