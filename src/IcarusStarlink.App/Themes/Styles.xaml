@@ -106,10 +106,6 @@
         <Setter Property="Margin" Value="0,26,0,16"/>
     </Style>
 
-    <Style x:Key="PlaceholderPageStyle" TargetType="StackPanel">
-        <Setter Property="Margin" Value="32"/>
-    </Style>
-
     <Style TargetType="{x:Type TextBox}">
         <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
