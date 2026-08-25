@@ -95,30 +95,28 @@ public sealed class ModVersionComparer(IPakCompareService pakCompareService) : I
     }
 
     /// <summary>
-    /// A mod's own Rows are already the "row name → changed fields" shape TableDiffer works in —
-    /// this just reshapes them per file, deep-cloning each value (a JsonNode can only ever have one
-    /// parent, and these still belong to their own parsed package).
+    /// Groups a package's own rows by file, reusing ExmodBaseDiffer.ToKeyedObject for the actual
+    /// per-row "sparse EXMOD row → TableDiffer-shaped JsonObject" transform rather than re-deriving
+    /// it — the two are the identical rule. A package can legitimately have more than one row
+    /// sharing the same CurrentFile, so a second row's own keyed items are merged in (deep-cloned
+    /// again, since a JsonNode can only ever belong to one parent) rather than the first row's table
+    /// being dropped.
     /// </summary>
     private static Dictionary<string, JsonObject> ToKeyedTablesByFile(ExmodPackage package)
     {
         var tables = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in package.Rows)
         {
+            var rowKeyed = ExmodBaseDiffer.ToKeyedObject(row);
             if (!tables.TryGetValue(row.CurrentFile, out var table))
             {
-                table = [];
-                tables[row.CurrentFile] = table;
+                tables[row.CurrentFile] = rowKeyed;
+                continue;
             }
 
-            foreach (var item in row.FileItems)
+            foreach (var (itemName, fields) in rowKeyed)
             {
-                var fields = new JsonObject();
-                foreach (var (fieldName, value) in item.Fields)
-                {
-                    fields[fieldName] = value?.DeepClone();
-                }
-
-                table[item.Name] = fields;
+                table[itemName] = fields?.DeepClone();
             }
         }
 

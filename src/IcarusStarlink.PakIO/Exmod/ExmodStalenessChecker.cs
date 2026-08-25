@@ -31,13 +31,36 @@ public static class ExmodStalenessChecker
     {
         var changes = ExmodBaseDiffer.DiffAgainstBase(package, dataFolder, classifier, report, baseTableCache);
 
+        // Tokenized once per mod here, not once per candidate item inside HasPlausibleOwnAsset — an
+        // asset's own filename never changes across items being checked against it, so re-tokenizing
+        // it per item (regex split + lowercasing + a HashSet build) was O(items × assets) work for
+        // what only needs to be O(assets), across every mod a whole-library pass checks.
+        var ownAssetTokens = ownAssetPaths is null
+            ? null
+            : TokenizeAssetPaths(ownAssetPaths);
+
         return changes
             .Where(c => c.IsNewItem)
             .GroupBy(c => (c.CurrentFile, c.ItemName))
             .Select(g => new StaleItem(g.Key.CurrentFile, g.Key.ItemName, g.Count()))
             .Where(item => StaleItemHeuristic.IsLikelyStale(item.FieldCount))
-            .Where(item => ownAssetPaths is null || !HasPlausibleOwnAsset(item.ItemName, ownAssetPaths))
+            .Where(item => ownAssetTokens is null || !HasPlausibleOwnAsset(item.ItemName, ownAssetTokens))
             .ToList();
+    }
+
+    private static List<(string FileNameNoExt, HashSet<string> Tokens)> TokenizeAssetPaths(IReadOnlyList<string> assetPaths)
+    {
+        var result = new List<(string, HashSet<string>)>(assetPaths.Count);
+        foreach (var path in assetPaths)
+        {
+            var fileNameNoExt = Path.GetFileNameWithoutExtension(path);
+            if (fileNameNoExt.Length > 0)
+            {
+                result.Add((fileNameNoExt, Tokenize(fileNameNoExt)));
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -50,18 +73,12 @@ public static class ExmodStalenessChecker
     /// </summary>
     private const int MinTokenOverlapForAssetCorrelation = 2;
 
-    private static bool HasPlausibleOwnAsset(string itemName, IReadOnlyList<string> assetPaths)
+    private static bool HasPlausibleOwnAsset(string itemName, List<(string FileNameNoExt, HashSet<string> Tokens)> ownAssetTokens)
     {
         var itemTokens = Tokenize(itemName);
 
-        foreach (var path in assetPaths)
+        foreach (var (fileNameNoExt, assetTokens) in ownAssetTokens)
         {
-            var fileNameNoExt = Path.GetFileNameWithoutExtension(path);
-            if (fileNameNoExt.Length == 0)
-            {
-                continue;
-            }
-
             // A real Unreal asset name occasionally does repeat a DataTable row name close to
             // verbatim (e.g. "BP_Custom_Tower" for row "Custom_Tower") — catch that directly first.
             if (fileNameNoExt.Contains(itemName, StringComparison.OrdinalIgnoreCase)
@@ -75,7 +92,7 @@ public static class ExmodStalenessChecker
             // "Reinforced_Int_Floor") and reorder the meaningful words rather than repeating the
             // row name as a literal substring. Token overlap catches that; the 2+ requirement
             // above is what keeps a single shared generic word from over-matching.
-            if (itemTokens.Count >= 2 && itemTokens.Count(Tokenize(fileNameNoExt).Contains) >= MinTokenOverlapForAssetCorrelation)
+            if (itemTokens.Count >= 2 && itemTokens.Count(assetTokens.Contains) >= MinTokenOverlapForAssetCorrelation)
             {
                 return true;
             }

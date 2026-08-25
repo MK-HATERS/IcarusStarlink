@@ -126,7 +126,7 @@ public sealed class SaveRepositoryTests : IDisposable
         var backupPath = _repository.SaveProfile(SteamId, profile);
 
         // The backup holds the PRE-edit value — proof it was taken before the write.
-        using var zip = ZipFile.OpenRead(backupPath);
+        using var zip = ZipFile.OpenRead(backupPath!);
         using var reader = new StreamReader(zip.GetEntry("Profile.json")!.Open());
         Assert.Contains("\"Count\": 100", reader.ReadToEnd());
 
@@ -135,6 +135,24 @@ public sealed class SaveRepositoryTests : IDisposable
         // Untouched profile fields survive too.
         Assert.Equal(4, reloaded["DataVersion"]!.GetValue<int>());
         Assert.Equal(3, reloaded["UnlockedFlags"]!.AsArray().Count);
+    }
+
+    [Fact]
+    public void SaveProfile_TakeBackupFalse_WritesButDoesNotBackUpAndReturnsNull()
+    {
+        var beforeCount = Directory.Exists(_backups) ? Directory.GetFiles(_backups, "*.zip").Length : 0;
+
+        var profile = _repository.LoadProfile(SteamId);
+        profile["MetaResources"]![0]!["Count"] = 777;
+        var backupPath = _repository.SaveProfile(SteamId, profile, takeBackup: false);
+
+        Assert.Null(backupPath);
+        var afterCount = Directory.Exists(_backups) ? Directory.GetFiles(_backups, "*.zip").Length : 0;
+        Assert.Equal(beforeCount, afterCount);
+
+        // The write itself still happens — only the backup is skipped.
+        var reloaded = _repository.LoadProfile(SteamId);
+        Assert.Equal(777, reloaded["MetaResources"]![0]!["Count"]!.GetValue<int>());
     }
 
     [Fact]
@@ -230,7 +248,7 @@ public sealed class SaveRepositoryTests : IDisposable
         var backupPath = _repository.SaveAccolades(SteamId, accolades);
 
         // The backup holds the PRE-edit content — one completed accolade, not two.
-        using (var zip = ZipFile.OpenRead(backupPath))
+        using (var zip = ZipFile.OpenRead(backupPath!))
         using (var reader = new StreamReader(zip.GetEntry("Accolades.json")!.Open()))
         {
             Assert.DoesNotContain("WolvesKilled10", reader.ReadToEnd());
@@ -311,7 +329,7 @@ public sealed class SaveRepositoryTests : IDisposable
         var backupPath = _repository.SaveMetaInventory(SteamId, inventory);
 
         // The backup holds the PRE-edit content — both items still present.
-        using (var zip = ZipFile.OpenRead(backupPath))
+        using (var zip = ZipFile.OpenRead(backupPath!))
         using (var reader = new StreamReader(zip.GetEntry("MetaInventory.json")!.Open()))
         {
             Assert.Contains("Sulfur", reader.ReadToEnd());
@@ -354,7 +372,7 @@ public sealed class SaveRepositoryTests : IDisposable
         Assert.Equal([3, 7, 22, 27], _repository.LoadBinaryFlags(SteamId));
 
         // The backup holds the PRE-edit file — proof it was taken before the write.
-        using var zip = ZipFile.OpenRead(backupPath);
+        using var zip = ZipFile.OpenRead(backupPath!);
         var entry = zip.GetEntry($"flags_{SteamId}.dat");
         Assert.NotNull(entry);
         using var stream = new MemoryStream();

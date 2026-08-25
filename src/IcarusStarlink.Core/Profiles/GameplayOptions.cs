@@ -27,14 +27,21 @@ public enum CraftCostReduction
 }
 
 /// <summary>
-/// "Merge options" per the spec — gameplay-wide toggles applied as a final pass after the merge
-/// queue, not as another queued mod (matches classic IMM's own documented behavior: "these new
-/// options are added after the mods are all merged. By doing this it effects the custom item mods
-/// also"). SpeedBoost/PlayerBoost/XpBoost/CraftCost have real documented before-after values from
-/// classic IMM's changelog; Stacks/Slots/SpeedCrafting don't (classic IMM never published an exact
-/// multiplier for those), so those three are a user-supplied multiplier/percentage instead of a
-/// fixed level — see IcarusStarlink.PakIO.GameplayOptions.GameplayOptionsApplier for exactly which
-/// real fields each option writes.
+/// "Merge options" per the spec — gameplay-wide toggles that layer on top of whatever the queue
+/// merges. Two structurally different groups, per IcarusStarlink.PakIO.GameplayToggles' own split:
+/// SpeedBoost/PlayerBoost/XpBoost/DisableTemperatures/RemoveLevelCap each write a single fixed row,
+/// so they're real MergeEngine participants — a queued mod touching the same field shows as a real,
+/// resolvable conflict instead of being silently overwritten (GameplayOptionsFieldChangeGenerator).
+/// Everything else (Stacks/Slots/CraftCost/SpeedCrafting/RemoveWeight/UnlimitedAmmo/TamingSpeed)
+/// broadcasts a scale/set transform across every row of a whole table, deliberately still applied as
+/// a genuine final pass AFTER the merge queue resolves — matching classic IMM's own documented
+/// behavior ("these new options are added after the mods are all merged. By doing this it effects
+/// the custom item mods also"), which a field-level conflict model can't express for a compounding
+/// transform (GameplayOptionsApplier). SpeedBoost/PlayerBoost/XpBoost/CraftCost have real documented
+/// before-after values from classic IMM's changelog; Stacks/Slots/SpeedCrafting/TamingSpeed don't
+/// (classic IMM never published an exact multiplier for those), so those are a user-supplied
+/// multiplier/percentage instead of a fixed level — see GameplayOptionsFieldChangeGenerator/
+/// GameplayOptionsApplier for exactly which real fields each option writes.
 /// </summary>
 public sealed class GameplayOptions
 {
@@ -66,4 +73,32 @@ public sealed class GameplayOptions
 
     /// <summary>Sets Character-D_CharacterGrowth.json's "Player" row MaxDisplayLevel/MaxLevel to 50000 (real base values: 60/1000) — a plain on/off, not a free number, matching a real community mod's own chosen value (classic IMM never documented one, this option doesn't exist there).</summary>
     public bool RemoveLevelCap { get; set; }
+
+    /// <summary>
+    /// True if any Category-1 ("single fixed row," a real MergeEngine participant via
+    /// GameplayOptionsFieldChangeGenerator) option is on. Mirrors that class's own per-row gating —
+    /// RemoveLevelCap targets a different real file than the other four, so the generator still
+    /// gates each row's own read separately — but this is the one place that answers "is ANY
+    /// Category-1 option active at all," for a caller that only cares whether there's real work to
+    /// do, not which specific file is involved.
+    /// </summary>
+    public bool HasCategory1Active =>
+        SpeedBoost != BoostLevel.Off || PlayerBoost != BoostLevel.Off || XpBoost != XpBoostLevel.Off
+        || DisableTemperatures || RemoveLevelCap;
+
+    /// <summary>Same idea for Category-2 ("broadcast to every row," GameplayOptionsApplier's own compounding final pass) — matches GameplayOptionsApplier.RequiredCurrentFiles' own condition list exactly.</summary>
+    public bool HasCategory2Active =>
+        StacksMultiplier is > 0 || SlotsMultiplier is > 0 || RemoveWeight || CraftCost != CraftCostReduction.Off
+        || SpeedCraftingReductionPercent is > 0 || UnlimitedAmmo || TamingSpeedReductionPercent is > 0;
+
+    /// <summary>
+    /// Whether Rebuild has ANY gameplay-option work to do at all. The single source of truth for
+    /// that question — previously it was independently re-derived in at least two places (the
+    /// Merge &amp; Install ViewModel's own active-options summary, and implicitly by whichever
+    /// PakIO classification a caller happened to check), which is exactly the duplication class
+    /// that once let one of them go stale: a rebuild guard that checked only a subset of options let
+    /// Rebuild silently no-op while Install still shipped a stale pak, with no error. A future option
+    /// only needs adding to HasCategory1Active/HasCategory2Active above, not re-derived per caller.
+    /// </summary>
+    public bool IsAnyActive => HasCategory1Active || HasCategory2Active;
 }

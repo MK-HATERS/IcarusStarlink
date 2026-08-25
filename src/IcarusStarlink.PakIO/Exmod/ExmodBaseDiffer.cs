@@ -55,21 +55,7 @@ public static class ExmodBaseDiffer
             return cached;
         }
 
-        // Same convention confirmed throughout Phase 6: "Traits-D_Fuel.json" -> "Traits/D_Fuel.json".
-        var realRelativePath = currentFile.Replace('-', '/');
-        var basePath = Path.Combine(dataFolder, realRelativePath);
-        JsonObject? baseKeyed = null;
-        if (File.Exists(basePath))
-        {
-            var baseFileJson = JsonNode.Parse(File.ReadAllText(basePath))!.AsObject();
-            baseKeyed = DataTableJson.RowsToKeyedObject(baseFileJson, duplicateName => report?.AddWarning(
-                $"'{currentFile}' has more than one row named '{duplicateName}' — only the last one was kept."));
-        }
-        else
-        {
-            report?.AddWarning($"No matching base file for '{currentFile}' at '{realRelativePath}'.");
-        }
-
+        var baseKeyed = BaseDataFileReader.ReadKeyedTable(dataFolder, currentFile, report);
         baseTableCache?.Add(currentFile, baseKeyed);
         return baseKeyed;
     }
@@ -78,9 +64,11 @@ public static class ExmodBaseDiffer
     /// A row's own FileItems are already exactly the sparse "modded side" shape TableDiffer.Diff
     /// expects — deep-cloning each field value first, since JsonNode instances from the already-
     /// parsed package are still attached to that package's own tree and a JsonNode can only ever
-    /// belong to one parent.
+    /// belong to one parent. Internal (not private): ModVersionComparer.ToKeyedTablesByFile reuses
+    /// this same per-row transform rather than re-deriving it, since the two are the identical
+    /// "sparse EXMOD row → TableDiffer-shaped JsonObject" rule.
     /// </summary>
-    private static JsonObject ToKeyedObject(ExmodFileRow row)
+    internal static JsonObject ToKeyedObject(ExmodFileRow row)
     {
         var keyed = new JsonObject();
         foreach (var item in row.FileItems)

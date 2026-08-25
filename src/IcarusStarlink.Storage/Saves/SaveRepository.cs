@@ -3,6 +3,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using IcarusStarlink.Core.Saves;
 using IcarusStarlink.Core.Steam;
+using IcarusStarlink.PakIO.Install;
+using IcarusStarlink.Storage;
 
 namespace IcarusStarlink.Storage.Saves;
 
@@ -81,18 +83,18 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         return characters;
     }
 
-    public string SaveProfile(string steamId, JsonObject profile)
+    public string? SaveProfile(string steamId, JsonObject profile, bool takeBackup = true)
     {
-        var backupPath = BackupSlot(steamId);
-        WriteAtomically(
+        var backupPath = takeBackup ? BackupSlot(steamId) : null;
+        JsonFileStore.WriteAtomically(
             Path.Combine(ResolveSlot(steamId), ProfileFileName),
             profile.ToJsonString(GameStyleJson));
         return backupPath;
     }
 
-    public string SaveCharacters(string steamId, IReadOnlyList<JsonObject> characters)
+    public string? SaveCharacters(string steamId, IReadOnlyList<JsonObject> characters, bool takeBackup = true)
     {
-        var backupPath = BackupSlot(steamId);
+        var backupPath = takeBackup ? BackupSlot(steamId) : null;
 
         // Re-wrap into the JSON-in-JSON shape: each character serialized as its own tab-indented
         // CRLF document, then embedded as a string element — the exact structure the game writes.
@@ -103,34 +105,34 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         }
 
         var root = new JsonObject { [CharactersArrayKey] = array };
-        WriteAtomically(Path.Combine(ResolveSlot(steamId), CharactersFileName), root.ToJsonString(GameStyleJson));
+        JsonFileStore.WriteAtomically(Path.Combine(ResolveSlot(steamId), CharactersFileName), root.ToJsonString(GameStyleJson));
         return backupPath;
     }
 
     public JsonObject LoadAccolades(string steamId) => LoadOptionalObject(steamId, AccoladesFileName, () => new JsonObject { ["CompletedAccolades"] = new JsonArray() });
 
-    public string SaveAccolades(string steamId, JsonObject accolades)
+    public string? SaveAccolades(string steamId, JsonObject accolades, bool takeBackup = true)
     {
-        var backupPath = BackupSlot(steamId);
-        WriteAtomically(Path.Combine(ResolveSlot(steamId), AccoladesFileName), accolades.ToJsonString(GameStyleJson));
+        var backupPath = takeBackup ? BackupSlot(steamId) : null;
+        JsonFileStore.WriteAtomically(Path.Combine(ResolveSlot(steamId), AccoladesFileName), accolades.ToJsonString(GameStyleJson));
         return backupPath;
     }
 
     public JsonObject LoadBestiary(string steamId) => LoadOptionalObject(steamId, BestiaryFileName, () => new JsonObject { ["BestiaryTracking"] = new JsonArray(), ["FishTracking"] = new JsonArray() });
 
-    public string SaveBestiary(string steamId, JsonObject bestiary)
+    public string? SaveBestiary(string steamId, JsonObject bestiary, bool takeBackup = true)
     {
-        var backupPath = BackupSlot(steamId);
-        WriteAtomically(Path.Combine(ResolveSlot(steamId), BestiaryFileName), bestiary.ToJsonString(GameStyleJson));
+        var backupPath = takeBackup ? BackupSlot(steamId) : null;
+        JsonFileStore.WriteAtomically(Path.Combine(ResolveSlot(steamId), BestiaryFileName), bestiary.ToJsonString(GameStyleJson));
         return backupPath;
     }
 
     public JsonObject LoadMetaInventory(string steamId) => LoadOptionalObject(steamId, MetaInventoryFileName, () => new JsonObject { ["InventoryID"] = "MetaInventoryID_Main", ["Items"] = new JsonArray() });
 
-    public string SaveMetaInventory(string steamId, JsonObject metaInventory)
+    public string? SaveMetaInventory(string steamId, JsonObject metaInventory, bool takeBackup = true)
     {
-        var backupPath = BackupSlot(steamId);
-        WriteAtomically(Path.Combine(ResolveSlot(steamId), MetaInventoryFileName), metaInventory.ToJsonString(GameStyleJson));
+        var backupPath = takeBackup ? BackupSlot(steamId) : null;
+        JsonFileStore.WriteAtomically(Path.Combine(ResolveSlot(steamId), MetaInventoryFileName), metaInventory.ToJsonString(GameStyleJson));
         return backupPath;
     }
 
@@ -186,10 +188,10 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         return ids;
     }
 
-    public string SaveBinaryFlags(string steamId, IReadOnlyList<int> flagIds)
+    public string? SaveBinaryFlags(string steamId, IReadOnlyList<int> flagIds, bool takeBackup = true)
     {
         var slotFolder = ResolveSlot(steamId);
-        var backupPath = BackupSlot(steamId);
+        var backupPath = takeBackup ? BackupSlot(steamId) : null;
 
         var idBytes = System.Text.Encoding.ASCII.GetBytes(steamId);
         using var stream = new MemoryStream();
@@ -205,7 +207,7 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
             }
         }
 
-        WriteBytesAtomically(Path.Combine(slotFolder, $"flags_{steamId}.dat"), stream.ToArray());
+        JsonFileStore.WriteBytesAtomically(Path.Combine(slotFolder, $"flags_{steamId}.dat"), stream.ToArray());
         return backupPath;
     }
 
@@ -213,15 +215,7 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
     {
         var slotFolder = ResolveSlot(steamId);
         Directory.CreateDirectory(backupsDirectory);
-        var zipPath = Path.Combine(backupsDirectory, $"{steamId}_{DateTimeOffset.Now:yyyyMMdd-HHmmss}.zip");
-
-        // A same-second second backup (rapid Save clicks) must not collide or overwrite.
-        var suffix = 1;
-        while (File.Exists(zipPath))
-        {
-            zipPath = Path.Combine(backupsDirectory, $"{steamId}_{DateTimeOffset.Now:yyyyMMdd-HHmmss}_{++suffix}.zip");
-        }
-
+        var zipPath = FolderBackup.MakeUniqueTimestampedPath(backupsDirectory, steamId, DateTimeOffset.Now, ".zip");
         ZipFile.CreateFromDirectory(slotFolder, zipPath);
         PruneBackups(steamId);
         return zipPath;
@@ -286,15 +280,8 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         // The spec's own safety rule, verbatim: "Restore writes a pre_restore safety zip first,
         // then replaces the slot" — so even a restore of the wrong backup is itself undoable.
         Directory.CreateDirectory(backupsDirectory);
-        var preRestorePath = Path.Combine(backupsDirectory, $"{steamId}_pre_restore_{DateTimeOffset.Now:yyyyMMdd-HHmmss}.zip");
-        var suffix = 1;
-        while (File.Exists(preRestorePath))
-        {
-            preRestorePath = Path.Combine(backupsDirectory, $"{steamId}_pre_restore_{DateTimeOffset.Now:yyyyMMdd-HHmmss}_{++suffix}.zip");
-        }
-
+        var preRestorePath = FolderBackup.MakeUniqueTimestampedPath(backupsDirectory, $"{steamId}_pre_restore", DateTimeOffset.Now, ".zip");
         ZipFile.CreateFromDirectory(slotFolder, preRestorePath);
-        PruneBackups(steamId);
 
         // Replace, not merge: a restore means "the slot as it was then", and files created since
         // the backup (a new character's sidecar, the game's own rolling .backup copies) lingering
@@ -302,6 +289,12 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         Directory.Delete(slotFolder, recursive: true);
         Directory.CreateDirectory(slotFolder);
         ZipFile.ExtractToDirectory(backupFilePath, slotFolder);
+
+        // Pruning runs LAST, only after backupFilePath has already been fully read — running it
+        // right after the pre-restore zip (as this used to) could delete backupFilePath itself
+        // before extraction, since PruneBackups doesn't know it's about to be needed: the live
+        // slot would already be gone with nothing left to extract from.
+        PruneBackups(steamId);
 
         return preRestorePath;
     }
@@ -314,18 +307,4 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
             : throw new DirectoryNotFoundException($"No save slot for '{steamId}' under '{playerDataDirectory}'.");
     }
 
-    /// <summary>Temp-then-move, same crash-safety reasoning as JsonFileStore.Save — a kill mid-write must never leave a player's save file truncated.</summary>
-    private static void WriteAtomically(string filePath, string content)
-    {
-        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllText(tempPath, content);
-        File.Move(tempPath, filePath, overwrite: true);
-    }
-
-    private static void WriteBytesAtomically(string filePath, byte[] bytes)
-    {
-        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllBytes(tempPath, bytes);
-        File.Move(tempPath, filePath, overwrite: true);
-    }
 }

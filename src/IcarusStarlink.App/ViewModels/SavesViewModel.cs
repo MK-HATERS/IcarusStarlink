@@ -50,6 +50,8 @@ public sealed partial class SavesViewModel : ObservableObject
     private JsonObject? _bestiaryRoot;
     private JsonObject? _metaInventoryRoot;
     private bool _metaInventoryDirty;
+    private SaveSlot? _lastLoadedSlot;
+    private bool _suppressSlotChangeGuard;
 
     public string Title => "Saves (Beta)";
 
@@ -82,15 +84,18 @@ public sealed partial class SavesViewModel : ObservableObject
 
     public bool HasSlots => Slots.Count > 0;
 
-    public bool HasUnsavedChanges =>
-        Characters.Any(c => c.IsDirty)
-        || Currencies.Any(c => c.IsDirty)
-        || AccountFlags.Any(f => f.IsDirty)
-        || BinaryFlags.Any(f => f.IsDirty)
-        || WorkshopTalents.Any(t => t.IsDirty)
-        || Accolades.Any(a => a.IsDirty)
-        || BestiaryEntries.Any(b => b.IsDirty)
-        || _metaInventoryDirty;
+    /// <summary>
+    /// Every dirty-tracked collection on this page — the one place that needs to know about all 7
+    /// (Characters/Currencies/AccountFlags/BinaryFlags/WorkshopTalents/Accolades/BestiaryEntries),
+    /// so HasUnsavedChanges and SaveChanges' own MarkClean pass both read it instead of each
+    /// independently hand-listing the same 7 collections. MetaInventory isn't here — it tracks
+    /// dirtiness as a single _metaInventoryDirty flag on this class, not per-row, since its own
+    /// items have no IDirtyTrackable shape to join.
+    /// </summary>
+    private IEnumerable<IEnumerable<IDirtyTrackable>> DirtyTrackedCollections =>
+        [Characters, Currencies, AccountFlags, BinaryFlags, WorkshopTalents, Accolades, BestiaryEntries];
+
+    public bool HasUnsavedChanges => DirtyTrackedCollections.Any(c => c.Any(x => x.IsDirty)) || _metaInventoryDirty;
 
     public SavesViewModel(ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames)
     {
@@ -126,19 +131,35 @@ public sealed partial class SavesViewModel : ObservableObject
     private void RefreshFlagFilter()
     {
         // 45 + 100 rows — a straight rebuild per keystroke is cheaper than filter plumbing.
-        ApplyFlagFilter(SelectedCharacter?.Flags ?? [], FilteredCharacterFlags);
-        ApplyFlagFilter(AccountFlags, FilteredAccountFlags);
-        ApplyFlagFilter(BinaryFlags, FilteredBinaryFlags);
+        RefreshFilter(SelectedCharacter?.Flags ?? [], FilteredCharacterFlags, FlagSearchText, null, f => f.Name);
+        RefreshFilter(AccountFlags, FilteredAccountFlags, FlagSearchText, null, f => f.Name);
+        RefreshFilter(BinaryFlags, FilteredBinaryFlags, FlagSearchText, null, f => f.Name);
     }
 
-    private void ApplyFlagFilter(IEnumerable<SaveFlagViewModel> source, ObservableCollection<SaveFlagViewModel> target)
+    /// <summary>
+    /// Shared "clear target, re-add whatever from source passes includeGate (if given) and matches
+    /// searchText against any of matchOn" — the same clear+filter+repopulate loop RefreshFlagFilter/
+    /// RefreshTalentFilter/RefreshAccoladeFilter/RefreshBestiaryFilter/RefreshItemFilter each used to
+    /// hand-write independently. includeGate is a pre-search condition (only WorkshopTalents' own
+    /// "hide what this character doesn't have yet" filter needs one); matchOn is one selector per
+    /// field the search text is allowed to match against.
+    /// </summary>
+    private static void RefreshFilter<T>(
+        IEnumerable<T> source, ObservableCollection<T> target, string searchText,
+        Func<T, bool>? includeGate, params Func<T, string>[] matchOn)
     {
         target.Clear();
-        foreach (var flag in source)
+        var search = searchText.Trim();
+        foreach (var item in source)
         {
-            if (string.IsNullOrWhiteSpace(FlagSearchText) || flag.Name.Contains(FlagSearchText.Trim(), StringComparison.OrdinalIgnoreCase))
+            if (includeGate is not null && !includeGate(item))
             {
-                target.Add(flag);
+                continue;
+            }
+
+            if (search.Length == 0 || matchOn.Any(selector => selector(item).Contains(search, StringComparison.OrdinalIgnoreCase)))
+            {
+                target.Add(item);
             }
         }
     }
@@ -162,25 +183,12 @@ public sealed partial class SavesViewModel : ObservableObject
 
     private void RefreshTalentFilter()
     {
-        FilteredTalents.Clear();
-        var search = TalentSearchText.Trim();
-        foreach (var talent in SelectedCharacter?.Talents ?? [])
-        {
-            // "Only what this character has" includes bDefaultUnlocked talents — the game grants
-            // those from the start without writing them into the save, so rank alone under-reports.
-            if (!ShowUnlearnedTalents && !talent.IsUnlockedInGame && !talent.IsDirty)
-            {
-                continue;
-            }
-
-            if (search.Length == 0
-                || talent.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
-                || talent.RowName.Contains(search, StringComparison.OrdinalIgnoreCase)
-                || talent.Tree.Contains(search, StringComparison.OrdinalIgnoreCase))
-            {
-                FilteredTalents.Add(talent);
-            }
-        }
+        // "Only what this character has" includes bDefaultUnlocked talents — the game grants those
+        // from the start without writing them into the save, so rank alone under-reports.
+        RefreshFilter(
+            SelectedCharacter?.Talents ?? [], FilteredTalents, TalentSearchText,
+            t => ShowUnlearnedTalents || t.IsUnlockedInGame || t.IsDirty,
+            t => t.DisplayName, t => t.RowName, t => t.Tree);
     }
 
     partial void OnSelectedCharacterChanged(SaveCharacterViewModel? value)
@@ -213,9 +221,40 @@ public sealed partial class SavesViewModel : ObservableObject
             : null;
     }
 
-    partial void OnSelectedSlotChanged(SaveSlot? value) => LoadSlot();
+    /// <summary>
+    /// Every other destructive action on this page (Restore, Save) confirms first via MessageBox —
+    /// switching slots used to be the one exception, silently discarding whatever's unsaved across
+    /// all 8 tabs. Since ObservableProperty setters can't be cancelled, a "No" answer here reverts
+    /// SelectedSlot back (via _suppressSlotChangeGuard, so that revert itself doesn't re-prompt or
+    /// re-run LoadSlot for data that's already loaded).
+    /// </summary>
+    partial void OnSelectedSlotChanged(SaveSlot? value)
+    {
+        if (_suppressSlotChangeGuard)
+        {
+            return;
+        }
 
-    private void LoadSlot()
+        if (HasUnsavedChanges)
+        {
+            var confirm = MessageBox.Show(
+                "Switching save slots discards any unsaved edits on this one — they were never written to disk. Continue?",
+                "Unsaved changes", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (confirm != MessageBoxResult.Yes)
+            {
+                _suppressSlotChangeGuard = true;
+                SelectedSlot = _lastLoadedSlot;
+                _suppressSlotChangeGuard = false;
+                return;
+            }
+        }
+
+        // Fire-and-forget, matching DownloadsViewModel.RefreshCatalogAsync's own established
+        // precedent for a UI event that kicks off async work with nothing to await it here.
+        _ = LoadSlotAsync();
+    }
+
+    private async Task LoadSlotAsync()
     {
         Characters.Clear();
         Currencies.Clear();
@@ -233,16 +272,41 @@ public sealed partial class SavesViewModel : ObservableObject
         _metaInventoryDirty = false;
         SelectedCharacter = null;
 
+        _lastLoadedSlot = SelectedSlot;
+
         if (SelectedSlot is null)
         {
             LastBackupDisplay = null;
             return;
         }
 
+        // Captured before the await — if the user switches slots again while this load is still
+        // in flight, SelectedSlot will have moved on by the time we resume, and this continuation
+        // must recognize it's stale rather than populate the UI with the wrong slot's data (a real
+        // race the previous fully-synchronous LoadSlot could never hit).
+        var slotBeingLoaded = SelectedSlot;
+        var steamId = slotBeingLoaded.SteamId;
+
         try
         {
-            _profile = _repository.LoadProfile(SelectedSlot.SteamId);
-            _characterNodes = [.. _repository.LoadCharacters(SelectedSlot.SteamId)];
+            // The five real JSON files a slot load reads (worse for a character-heavy save), off
+            // the UI thread — same reasoning LibraryViewModel.CheckModsAgainstCurrentDataAsync
+            // already applies to its own whole-library diff pass. Every ObservableCollection
+            // mutation below still runs back on this (UI) thread, since that's not safe off it.
+            var (profile, characterNodes, accoladesRoot, bestiaryRoot, metaInventoryRoot) = await Task.Run(() => (
+                _repository.LoadProfile(steamId),
+                _repository.LoadCharacters(steamId),
+                _repository.LoadAccolades(steamId),
+                _repository.LoadBestiary(steamId),
+                _repository.LoadMetaInventory(steamId)));
+
+            if (!ReferenceEquals(SelectedSlot, slotBeingLoaded))
+            {
+                return;
+            }
+
+            _profile = profile;
+            _characterNodes = [.. characterNodes];
 
             foreach (var node in _characterNodes)
             {
@@ -262,11 +326,11 @@ public sealed partial class SavesViewModel : ObservableObject
             BuildBinaryFlags();
             BuildWorkshopTalents();
 
-            _accoladesRoot = _repository.LoadAccolades(SelectedSlot.SteamId);
+            _accoladesRoot = accoladesRoot;
             BuildAccolades();
-            _bestiaryRoot = _repository.LoadBestiary(SelectedSlot.SteamId);
+            _bestiaryRoot = bestiaryRoot;
             BuildBestiaryEntries();
-            _metaInventoryRoot = _repository.LoadMetaInventory(SelectedSlot.SteamId);
+            _metaInventoryRoot = metaInventoryRoot;
             BuildMetaInventoryItems();
 
             SelectedCharacter = Characters.FirstOrDefault();
@@ -379,20 +443,8 @@ public sealed partial class SavesViewModel : ObservableObject
 
     partial void OnAccoladeSearchTextChanged(string value) => RefreshAccoladeFilter();
 
-    private void RefreshAccoladeFilter()
-    {
-        FilteredAccolades.Clear();
-        var search = AccoladeSearchText.Trim();
-        foreach (var accolade in Accolades)
-        {
-            if (search.Length == 0
-                || accolade.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
-                || accolade.Category.Contains(search, StringComparison.OrdinalIgnoreCase))
-            {
-                FilteredAccolades.Add(accolade);
-            }
-        }
-    }
+    private void RefreshAccoladeFilter() =>
+        RefreshFilter(Accolades, FilteredAccolades, AccoladeSearchText, null, a => a.DisplayName, a => a.Category);
 
     /// <summary>CompletedAccolades only — PlayerTrackers/PlayerTaskListTrackers (the raw progress counters behind eligibility) are preserved untouched, out of scope for this editor.</summary>
     private void BuildAccolades()
@@ -434,18 +486,8 @@ public sealed partial class SavesViewModel : ObservableObject
 
     partial void OnBestiarySearchTextChanged(string value) => RefreshBestiaryFilter();
 
-    private void RefreshBestiaryFilter()
-    {
-        FilteredBestiaryEntries.Clear();
-        var search = BestiarySearchText.Trim();
-        foreach (var entry in BestiaryEntries)
-        {
-            if (search.Length == 0 || entry.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase))
-            {
-                FilteredBestiaryEntries.Add(entry);
-            }
-        }
-    }
+    private void RefreshBestiaryFilter() =>
+        RefreshFilter(BestiaryEntries, FilteredBestiaryEntries, BestiarySearchText, null, b => b.DisplayName);
 
     /// <summary>BestiaryTracking only — FishTracking (a separate fishing sub-tracker) is preserved untouched, out of scope for this editor.</summary>
     private void BuildBestiaryEntries()
@@ -535,7 +577,11 @@ public sealed partial class SavesViewModel : ObservableObject
         var newArray = new JsonArray();
         foreach (var entry in BestiaryEntries)
         {
-            if (int.TryParse(entry.PointsText, out var points) && points > 0)
+            // EffectivePoints, not a re-parse of PointsText: a box left unparsable (e.g. cleared
+            // mid-edit) must fall back to the entry's own last-known-good value, never silently
+            // drop the whole creature's tracking entry out of the save.
+            var points = entry.EffectivePoints;
+            if (points > 0)
             {
                 newArray.Add(new JsonObject
                 {
@@ -559,20 +605,8 @@ public sealed partial class SavesViewModel : ObservableObject
 
     partial void OnItemSearchTextChanged(string value) => RefreshItemFilter();
 
-    private void RefreshItemFilter()
-    {
-        FilteredMetaInventoryItems.Clear();
-        var search = ItemSearchText.Trim();
-        foreach (var item in MetaInventoryItems)
-        {
-            if (search.Length == 0
-                || item.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
-                || item.RowName.Contains(search, StringComparison.OrdinalIgnoreCase))
-            {
-                FilteredMetaInventoryItems.Add(item);
-            }
-        }
-    }
+    private void RefreshItemFilter() =>
+        RefreshFilter(MetaInventoryItems, FilteredMetaInventoryItems, ItemSearchText, null, i => i.DisplayName, i => i.RowName);
 
     private void BuildMetaInventoryItems()
     {
@@ -727,7 +761,7 @@ public sealed partial class SavesViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void RestoreBackup()
+    private async Task RestoreBackupAsync()
     {
         if (SelectedSlot is null || SelectedBackup is null)
         {
@@ -752,7 +786,7 @@ public sealed partial class SavesViewModel : ObservableObject
         try
         {
             _repository.RestoreSlot(SelectedSlot.SteamId, SelectedBackup.FilePath);
-            LoadSlot();
+            await LoadSlotAsync();
             StatusMessage = "Restored. The replaced state was saved as a pre_restore zip.";
             _activityLog.Log($"Restored save slot {SelectedSlot.Display} from backup.", ActivityEntryKind.Warning);
         }
@@ -804,11 +838,17 @@ public sealed partial class SavesViewModel : ObservableObject
 
             ApplyProfileEdits();
 
-            // Characters first, then profile: SaveProfile's own backup then already contains the
-            // just-written Characters.json, so the LAST backup zip of the pair is a complete
-            // post-characters/pre-profile snapshot rather than two half-states.
-            _repository.SaveCharacters(SelectedSlot.SteamId, _characterNodes);
-            _repository.SaveProfile(SelectedSlot.SteamId, _profile!);
+            // ONE backup for the whole save pass, taken up front — every SaveXxx call below passes
+            // takeBackup: false. A single click used to be able to zip the same slot up to 6 times
+            // back-to-back (Characters/Profile always, plus BinaryFlags/Accolades/Bestiary/
+            // MetaInventory whenever dirty), each one blocking the UI in turn, when one pre-save
+            // snapshot already covers everything this pass is about to change.
+            _repository.BackupSlot(SelectedSlot.SteamId);
+
+            // Characters first, then profile — keeps write ORDER consistent with before, even
+            // though backup ordering no longer matters now that there's just the one upfront zip.
+            _repository.SaveCharacters(SelectedSlot.SteamId, _characterNodes, takeBackup: false);
+            _repository.SaveProfile(SelectedSlot.SteamId, _profile!, takeBackup: false);
 
             // The binary flags file is written only when actually edited — same minimal-diff
             // philosophy as the JSON arrays: the file's own ordering is kept for flags that stay
@@ -818,66 +858,39 @@ public sealed partial class SavesViewModel : ObservableObject
                 var nowSet = BinaryFlags.Where(f => f.IsUnlocked).Select(f => f.Id).ToHashSet();
                 var newIds = original.Where(nowSet.Contains).ToList();
                 newIds.AddRange(nowSet.Except(original).OrderBy(i => i));
-                _repository.SaveBinaryFlags(SelectedSlot.SteamId, newIds);
+                _repository.SaveBinaryFlags(SelectedSlot.SteamId, newIds, takeBackup: false);
                 _binaryFlagIds = newIds;
             }
 
-            // Accolades.json/BestiaryData.json are separate files from Profile.json — each SaveXxx
-            // call takes its own full-slot backup, so these only write (and only add a backup) when
-            // that specific section actually changed, same conditional-write reasoning BinaryFlags
-            // above already uses, rather than always re-writing every file on every Save click.
+            // Accolades.json/BestiaryData.json are separate files from Profile.json — these only
+            // write when that specific section actually changed, same conditional-write reasoning
+            // BinaryFlags above already uses, rather than always re-writing every file on every Save
+            // click (the upfront backup above already covers whichever of these actually run).
             if (Accolades.Any(a => a.IsDirty))
             {
                 ApplyAccoladeEdits();
-                _repository.SaveAccolades(SelectedSlot.SteamId, _accoladesRoot!);
+                _repository.SaveAccolades(SelectedSlot.SteamId, _accoladesRoot!, takeBackup: false);
             }
 
             if (BestiaryEntries.Any(b => b.IsDirty))
             {
                 ApplyBestiaryEdits();
-                _repository.SaveBestiary(SelectedSlot.SteamId, _bestiaryRoot!);
+                _repository.SaveBestiary(SelectedSlot.SteamId, _bestiaryRoot!, takeBackup: false);
             }
 
             if (_metaInventoryDirty)
             {
                 ApplyMetaInventoryEdits();
-                _repository.SaveMetaInventory(SelectedSlot.SteamId, _metaInventoryRoot!);
+                _repository.SaveMetaInventory(SelectedSlot.SteamId, _metaInventoryRoot!, takeBackup: false);
                 _metaInventoryDirty = false;
             }
 
-            foreach (var character in Characters)
+            foreach (var collection in DirtyTrackedCollections)
             {
-                character.MarkClean();
-            }
-
-            foreach (var currency in Currencies)
-            {
-                currency.MarkClean();
-            }
-
-            foreach (var flag in AccountFlags)
-            {
-                flag.MarkClean();
-            }
-
-            foreach (var flag in BinaryFlags)
-            {
-                flag.MarkClean();
-            }
-
-            foreach (var talent in WorkshopTalents)
-            {
-                talent.MarkClean();
-            }
-
-            foreach (var accolade in Accolades)
-            {
-                accolade.MarkClean();
-            }
-
-            foreach (var entry in BestiaryEntries)
-            {
-                entry.MarkClean();
+                foreach (var item in collection)
+                {
+                    item.MarkClean();
+                }
             }
 
             OnPropertyChanged(nameof(HasUnsavedChanges));

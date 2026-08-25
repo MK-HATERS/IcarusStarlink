@@ -38,7 +38,16 @@ public static class UpdateApplier
         return copied;
     }
 
-    /// <summary>The just-exited main process can hold file handles for a moment after Process.WaitForExit returns (antivirus scans stretch this further) — a short retry loop covers that instead of failing the whole update on the first sharing violation.</summary>
+    /// <summary>
+    /// The just-exited main process can hold file handles for a moment after Process.WaitForExit
+    /// returns (antivirus scans stretch this further) — a short retry loop covers that instead of
+    /// failing the whole update on the first sharing violation. Also catches
+    /// UnauthorizedAccessException, not just IOException: a destination file left read-only (common
+    /// after some git checkouts, or AV/backup tooling flipping the attribute) throws that instead,
+    /// which used to propagate uncaught and abort the update on the very first such file rather than
+    /// retrying — clearing the attribute before retrying actually fixes that case, not just retries
+    /// the same failure five times.
+    /// </summary>
     private static void CopyWithRetry(string sourcePath, string destinationPath, Action<string> log)
     {
         for (var attempt = 1; ; attempt++)
@@ -48,11 +57,28 @@ public static class UpdateApplier
                 File.Copy(sourcePath, destinationPath, overwrite: true);
                 return;
             }
-            catch (IOException ex) when (attempt < CopyAttempts)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < CopyAttempts)
             {
                 log($"Attempt {attempt} to copy '{destinationPath}' failed ({ex.Message}) — retrying.");
+                TryClearReadOnly(destinationPath);
                 Thread.Sleep(CopyRetryDelayMs);
             }
+        }
+    }
+
+    private static void TryClearReadOnly(string path)
+    {
+        try
+        {
+            if (File.Exists(path) && File.GetAttributes(path).HasFlag(FileAttributes.ReadOnly))
+            {
+                File.SetAttributes(path, File.GetAttributes(path) & ~FileAttributes.ReadOnly);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort — if this fails too, the retry loop's own next File.Copy attempt will
+            // surface the real error (or a subsequent retry might still succeed on its own).
         }
     }
 }

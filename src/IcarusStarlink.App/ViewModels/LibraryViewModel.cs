@@ -530,7 +530,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             // automatic activation of a possibly-older file.)
             if (item.NexusModId is { } nexusModId && _pendingDownloadStore.Entries.Any(e => e.ModId == nexusModId))
             {
-                StatusMessage = "A downloaded file for this mod is already in Downloads → Pending Downloads — Activate/Reinstall it there (or re-download from Nexus if it's older than the update).";
+                StatusMessage = "A downloaded file for this mod is already in this page's own Mods tab — Activate/Reinstall it there (or re-download from Nexus if it's older than the update).";
                 return;
             }
 
@@ -1212,7 +1212,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         IReadOnlyList<ExmodStalenessChecker.StaleItem> RemainingStaleItems,
         string? SuggestionHint,
         IReadOnlyList<string> AutoFixActivityMessages,
-        bool BackupTaken);
+        bool BackupTaken,
+        bool PackageChanged = false);
 
     /// <summary>
     /// A separate question and a separate action from CheckForUpdatesAsync above (that's Nexus/
@@ -1323,6 +1324,19 @@ public sealed partial class LibraryViewModel : ObservableObject
                 {
                     item.NotifyBackupStateChanged();
                 }
+
+                if (result.PackageChanged)
+                {
+                    // The auto-fix loop above wrote straight to disk and to the repository's own
+                    // cache — nothing else re-syncs this bound row, so without this the ✎ badge
+                    // wouldn't appear and a currently-open Changes tab would keep showing the
+                    // pre-repair item name until an unrelated full resync happened to run.
+                    item.NotifyRepairedFromDisk();
+                    if (ReferenceEquals(item, SelectedItem))
+                    {
+                        item.EnsureDetailsLoaded();
+                    }
+                }
             }
 
             var messageParts = new List<string>();
@@ -1406,7 +1420,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             _repository.MarkLocallyEdited(folderName);
         }
 
-        return new ModStalenessResult(remaining, suggestionHint, activityMessages, backupTaken);
+        return new ModStalenessResult(remaining, suggestionHint, activityMessages, backupTaken, packageChanged);
     }
 
     /// <summary>

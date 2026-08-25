@@ -11,7 +11,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// rank 0 entries are simply not written, which is exactly how the game itself represents
 /// "doesn't have it".
 /// </summary>
-public sealed partial class SaveTalentViewModel : ObservableObject
+public sealed partial class SaveTalentViewModel : ObservableObject, IDirtyTrackable
 {
     private readonly Action _onDirtyChanged;
     private int _originalRank;

@@ -134,19 +134,11 @@ public static class GameplayOptionsFieldChangeGenerator
     /// <summary>Reads one real base-game file fresh and returns one named row, keyed the same way every other file in this pipeline is — null (with a warning already added to report) if the file or row doesn't exist, never throws.</summary>
     private static JsonObject? ReadKeyedRow(string dataFolder, string currentFile, string rowName, MergeReport report)
     {
-        var realRelativePath = currentFile.Replace('-', '/');
-        var basePath = Path.Combine(dataFolder, realRelativePath);
-        if (!File.Exists(basePath))
+        var keyed = BaseDataFileReader.ReadKeyedTable(dataFolder, currentFile, report);
+        if (keyed is null)
         {
-            report.AddWarning(
-                $"Skipped built-in gameplay options — no matching file at '{realRelativePath}' in the extracted game data. "
-                + "Run Update data folder again if the game has updated since your last one.");
             return null;
         }
-
-        var fileJson = JsonNode.Parse(File.ReadAllText(basePath))!.AsObject();
-        var keyed = DataTableJson.RowsToKeyedObject(fileJson, duplicateName => report.AddWarning(
-            $"'{currentFile}' has more than one row named '{duplicateName}' — only the last one was kept."));
 
         if (keyed[rowName] is not JsonObject row)
         {

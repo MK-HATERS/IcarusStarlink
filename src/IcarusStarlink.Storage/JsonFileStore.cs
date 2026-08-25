@@ -40,17 +40,31 @@ internal static class JsonFileStore
         }
     }
 
+    /// <summary>Serializes value with the shared Options, then writes it via WriteAtomically.</summary>
+    public static void Save<T>(string filePath, T value) => WriteAtomically(filePath, JsonSerializer.Serialize(value, Options));
+
     /// <summary>
     /// Writes to a temp file in the same directory, then File.Move(overwrite: true)'s it into
     /// place — not a direct File.WriteAllText, which truncates filePath in place and would leave it
-    /// as malformed JSON if the process is killed mid-write (a crash, forced shutdown, or power
-    /// loss). The temp file's own name is unique per call so two concurrent Save calls to the same
-    /// path can't collide with each other's in-progress write.
+    /// malformed if the process is killed mid-write (a crash, forced shutdown, or power loss). The
+    /// temp file's own name is unique per call so two concurrent writes to the same path can't
+    /// collide with each other's in-progress write. Public (not just used by Save&lt;T&gt;) so a
+    /// caller writing pre-serialized or non-JSON content — IcarusStarlink.Storage.Saves.SaveRepository
+    /// writes the game's own tab/CRLF JSON style plus one raw binary file — gets the same
+    /// crash-safety guarantee without reimplementing this from scratch.
     /// </summary>
-    public static void Save<T>(string filePath, T value)
+    public static void WriteAtomically(string filePath, string content)
     {
         var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllText(tempPath, JsonSerializer.Serialize(value, Options));
+        File.WriteAllText(tempPath, content);
+        File.Move(tempPath, filePath, overwrite: true);
+    }
+
+    /// <summary>Byte-content counterpart to WriteAtomically, for a caller writing something that isn't text (e.g. a raw binary file).</summary>
+    public static void WriteBytesAtomically(string filePath, byte[] bytes)
+    {
+        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
+        File.WriteAllBytes(tempPath, bytes);
         File.Move(tempPath, filePath, overwrite: true);
     }
 }

@@ -192,7 +192,11 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                 continue;
             }
 
-            var fileJson = JsonNode.Parse(File.ReadAllText(basePath))!.AsObject();
+            // DuplicateTolerantJson, not a plain JsonNode.Parse: a real base-game DataTable file
+            // has been confirmed to contain a duplicate JSON key (a Jimk72-authored file's own
+            // "ResourceCostMultipliers" appears twice), which JsonNode.Parse throws on — this is
+            // the main Rebuild pipeline, so that would abort a whole Rebuild instead of degrading.
+            var fileJson = IcarusStarlink.PakIO.Exmod.DuplicateTolerantJson.Parse(File.ReadAllText(basePath))!.AsObject();
             original[currentFile] = fileJson;
             keyed[currentFile] = DataTableJson.RowsToKeyedObject(fileJson, duplicateName => report.AddWarning(
                 $"'{currentFile}' has more than one row named '{duplicateName}' — only the last one was kept, so a merge against the others' baseline is invisible."));

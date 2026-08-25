@@ -199,12 +199,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     }
 
     /// <summary>
-    /// The single source of truth for "which gameplay options are on" — both ActiveOptionsSummary
-    /// (display) and HasAnyGameplayOptionsActive (RebuildAsync's own guard) read from this instead
-    /// of each re-deriving the same condition independently. That duplication is exactly the
-    /// failure mode a real bug this session traced back to: a guard checking only a subset of
-    /// options let Rebuild silently no-op while Install still shipped a stale pak, with no error.
-    /// A future option only needs to be added here once, not kept in sync across two places.
+    /// Builds ActiveOptionsSummary's own display text. RebuildAsync's own "is anything active"
+    /// guard deliberately does NOT read from this list anymore — it reads GameplayOptions.IsAnyActive
+    /// instead (the same classification GenerateFixedFieldChanges/RequiredCurrentFiles conceptually
+    /// mirror), since re-deriving "is anything on" here independently is exactly the failure mode a
+    /// real bug this session traced back to: a guard checking only a subset of options let Rebuild
+    /// silently no-op while Install still shipped a stale pak, with no error. This method still
+    /// needs its own per-option list (for the human-readable summary text), but a future option only
+    /// needs adding to GameplayOptions.HasCategory1Active/HasCategory2Active for the guard to see it.
     /// </summary>
     private List<string> BuildActiveOptionParts()
     {
@@ -767,7 +769,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             SelectedProfileName = contents.Manifest.ProfileName;
 
             PatchStatusMessage = missing.Count > 0
-                ? $"Imported '{contents.Manifest.ProfileName}' — {missing.Count} mod(s) missing, get them from Downloads first: {string.Join(", ", missing)}."
+                ? $"Imported '{contents.Manifest.ProfileName}' — {missing.Count} mod(s) missing, get them from Library's IMM Database tab first: {string.Join(", ", missing)}."
                 : $"Imported '{contents.Manifest.ProfileName}'.";
         }
         catch (Exception ex)
@@ -1053,16 +1055,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // queue tripped the guard below (it only checked Category-2's RequiredCurrentFiles), so
         // Rebuild silently no-opped — and the combined button then went ahead and installed the
         // OLD pak from a previous test, with no error shown, silently not reflecting what was
-        // actually configured. That guard is fixed too (see HasAnyGameplayOptionsActive), but this
+        // actually configured. That guard is fixed too (see GameplayOptions.IsAnyActive), but this
         // is the deeper fix: Install must never run off a rebuild that didn't actually happen.
         if (await RebuildAsync())
         {
             await InstallAsync();
         }
     }
-
-    /// <summary>RebuildAsync's own guard reads this instead of re-deriving "is anything on" independently — see BuildActiveOptionParts' own doc comment for why that mattered.</summary>
-    private bool HasAnyGameplayOptionsActive => BuildActiveOptionParts().Count > 0;
 
     // No [RelayCommand] — RebuildAndInstallAsync above is the only caller since the combined
     // Install button replaced the separate Rebuild/Install pair; the generated commands would be
@@ -1075,10 +1074,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // to add merge options to game with no mods selected") — only block if there's genuinely
         // nothing to do at all. Queue can hold opaque pak entries too now (folded into the same
         // output by Rebuild, not field-merged), so a queue containing only those is still real work.
-        // Checks BOTH categories — Category 2's RequiredCurrentFiles alone used to miss a
-        // Category-1-only option (Speed/Player/XP Boost, Disable Temperatures, Remove Level Cap)
-        // enabled with an empty queue, silently skipping the rebuild those options needed.
-        if (Queue.Count == 0 && !HasAnyGameplayOptionsActive)
+        // GameplayOptions.IsAnyActive, not a separately-rederived check — reads the SAME
+        // classification GenerateFixedFieldChanges/RequiredCurrentFiles conceptually mirror, so
+        // this guard can't miss an option the way it once did (Category 2's RequiredCurrentFiles
+        // alone used to miss a Category-1-only option enabled with an empty queue, silently
+        // skipping the rebuild those options needed).
+        if (Queue.Count == 0 && !gameplayOptions.IsAnyActive)
         {
             StatusMessage = "Add at least one mod to the queue, or enable a gameplay option, first.";
             return false;

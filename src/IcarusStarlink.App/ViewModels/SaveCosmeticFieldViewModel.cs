@@ -11,7 +11,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// Customization_* values. Editing the raw number is still genuinely useful — e.g. copying an exact
 /// cosmetic from one of your own characters to another — just without a friendly picker.
 /// </summary>
-public sealed partial class SaveCosmeticFieldViewModel : ObservableObject
+public sealed partial class SaveCosmeticFieldViewModel : ObservableObject, IDirtyTrackable
 {
     private readonly Action _onDirtyChanged;
     private string _originalValueText;

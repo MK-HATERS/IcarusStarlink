@@ -27,12 +27,13 @@ namespace IcarusStarlink.App.ViewModels;
 public sealed record NexusCatalogRow(NexusModInfo Mod, string? LocalBadge, bool HasUpdate, bool IsTracked);
 
 /// <summary>
-/// The native "Browse" half of the Nexus page (W1) — a real mod list with images driven by the
-/// saved API key, so browsing needs no second website sign-in the way the embedded browser does.
-/// Deliberately scoped to what Nexus's v1 API actually offers: the three curated lists
-/// (trending / latest added / latest updated) plus per-mod Download/Track/Open actions — v1 has no
-/// search endpoint at all (that's the newer GraphQL API, its own future research item), so search
-/// and full mod pages stay the embedded browser's job via the page's own "Full site" mode.
+/// The whole Nexus page — a real mod list with images driven by the saved API key, so browsing
+/// needs no separate website sign-in. The three curated lists (trending / latest added / latest
+/// updated) and per-mod Download/Track/Open actions use Nexus's v1 REST API; the search box uses
+/// its newer v2 GraphQL API instead (v1 has no search endpoint at all). There's no embedded browser
+/// here anymore — it was removed once the native list + search covered everything it was for; a
+/// full mod page or a website Mod Manager Download still opens in the user's normal browser via
+/// Open page.
 /// </summary>
 public sealed partial class NexusCatalogViewModel : ObservableObject
 {
@@ -381,7 +382,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                     Url = NexusModWebUrl.For(mod.ModId),
                     Name = mod.Name ?? $"Nexus mod #{mod.ModId}",
                 });
-                StatusMessage = $"Tracking '{mod.Name}' — see Downloads → Nexus Mods.";
+                StatusMessage = $"Tracking '{mod.Name}' — use the Tracked filter above to see everything you're tracking.";
             }
 
             RebuildRows();

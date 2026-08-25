@@ -32,7 +32,7 @@ public sealed record ImmMigratedMod(string ListName, ImmMigrationOutcome Outcome
     private string SourceSuffix => Source is null ? "" : $" (linked to {Source})";
 }
 
-public sealed record ImmMigrationResult(IReadOnlyList<ImmMigratedMod> Mods)
+public sealed record ImmMigrationResult(IReadOnlyList<ImmMigratedMod> Mods, IReadOnlyList<string> FailedCatalogSources)
 {
     public int ImportedCount => Mods.Count(m => m.Outcome == ImmMigrationOutcome.Imported);
     public int AlreadyPresentCount => Mods.Count(m => m.Outcome == ImmMigrationOutcome.AlreadyInLibrary);
@@ -67,7 +67,7 @@ public sealed class ImmMigrationService(
         var immExtractedModsFolder = ImmInstallPaths.ExtractedModsFolder(installRoot);
 
         progress?.Report("Fetching the mod database…");
-        var catalog = await FetchCatalogAsync();
+        var (catalog, failedCatalogSources) = await FetchCatalogAsync();
 
         var results = new List<ImmMigratedMod>();
         var index = 0;
@@ -79,7 +79,7 @@ public sealed class ImmMigrationService(
             results.Add(await MigrateOneAsync(listName, immMods, immExtractedModsFolder, catalog, cancellationToken));
         }
 
-        return new ImmMigrationResult(results);
+        return new ImmMigrationResult(results, failedCatalogSources);
     }
 
     private async Task<ImmMigratedMod> MigrateOneAsync(
@@ -153,12 +153,22 @@ public sealed class ImmMigrationService(
 
     private LibraryEntry? FindInLibrary(string listName, ImmExtractedMod? immMod)
     {
+        // Name-based matching only — LibraryEntry.FolderName (this app's own generated folder
+        // name, derived from the EXMOD's own FileName field) and ImmExtractedMod.FolderName
+        // (classic IMM's own separate on-disk extraction folder name) are two independent
+        // identifier spaces with no guaranteed relationship, so comparing them (a prior version of
+        // this method did) doesn't reliably match anything real — it's not a fallback worth having.
+        // If a mod's display name has drifted since it was last migrated (e.g. renamed here via
+        // Library's own Rename, or classic IMM's own cache updated), this legitimately won't find
+        // it and a re-migration will re-import it as a second entry; the durable fix would be
+        // recording classic-IMM provenance at import time the same way CatalogEntryId/NexusModId
+        // already track catalog/Nexus provenance — not done here, since that's a real schema
+        // addition, not a one-line correctness fix.
         var entries = repository.GetAll();
         return entries.FirstOrDefault(e => string.Equals(e.Name, listName, StringComparison.OrdinalIgnoreCase))
             ?? (immMod is null
                 ? null
-                : entries.FirstOrDefault(e => string.Equals(e.Name, immMod.Name, StringComparison.OrdinalIgnoreCase))
-                  ?? entries.FirstOrDefault(e => string.Equals(e.FolderName, immMod.FolderName, StringComparison.OrdinalIgnoreCase)));
+                : entries.FirstOrDefault(e => string.Equals(e.Name, immMod.Name, StringComparison.OrdinalIgnoreCase)));
     }
 
     /// <summary>Links an already-present mod that has no source yet. Returns the source it was linked to, or null if it stayed unlinked (already linked mods are left exactly as they are).</summary>
@@ -215,12 +225,18 @@ public sealed class ImmMigrationService(
         }
     }
 
-    private async Task<IReadOnlyList<CatalogEntry>> FetchCatalogAsync()
+    /// <summary>
+    /// Returns which sources failed alongside the (partial) catalog, matching the same
+    /// per-source-isolated fetch DownloadsViewModel.RefreshCatalogAsync already uses — a caller that
+    /// silently discarded failedSources here would leave every mod that would have matched the
+    /// down source unlinked with no indication a retry might fix it (a real bug this once was).
+    /// </summary>
+    private async Task<(IReadOnlyList<CatalogEntry> Catalog, IReadOnlyList<string> FailedSources)> FetchCatalogAsync()
     {
         var failedSources = new List<string>();
         var daedalusTask = CatalogSourceFetch.FetchAsync(daedalusClient.FetchAsync, "Daedalus", failedSources);
         var jimk72Task = CatalogSourceFetch.FetchAsync(jimk72Client.FetchAsync, "Jimk72", failedSources);
         await Task.WhenAll(daedalusTask, jimk72Task);
-        return [.. daedalusTask.Result, .. jimk72Task.Result];
+        return ([.. daedalusTask.Result, .. jimk72Task.Result], failedSources);
     }
 }

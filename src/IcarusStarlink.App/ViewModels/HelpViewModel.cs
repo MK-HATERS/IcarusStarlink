@@ -16,7 +16,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - Open **Settings** and set your Icarus **Content folder** (…\Icarus\Icarus\Content). Click **Auto-detect** first — it reads your real Steam library and usually finds it without you browsing manually.
             - Set **UnrealPak.exe** — on first launch the app offers to install the bundled copy next to itself (one click), or Browse… to one you already have (classic IMM ships one under its own UnrealPak folder). The bundle is UnrealPak **4.27**, the same UE4 version Icarus is built on — deliberately not "the latest": newer UE5 builds write pak formats Icarus's engine can't load. **Check** in Settings verifies your copy actually runs; **Reinstall bundled copy** repairs a broken one.
             - Click **Update data folder**. This extracts the game's current mod-relevant data so merge/edit has something real to work against — re-run it whenever the game updates.
-            - Go to **Library** and import a mod (EXMODZ, a folder, or a .pak), or browse **Downloads** for one.
+            - Go to **Library** and import a mod (EXMODZ, a folder, or a .pak), or browse its **IMM Database** tab for one.
             """),
 
         new("Library", """
@@ -37,7 +37,7 @@ public sealed partial class HelpViewModel : ObservableObject
 
             The core workflow: build one merged pak from everything in your queue, then install it into the game.
 
-            - Drag mods from your **Library** pane into the **queue** with **Add to queue**. Order matters — later entries win when two mods change the same thing, unless you override that (see Merge conflicts below).
+            - In **Library**, select one or more mods (Ctrl/Shift-click for more than one) and right-click → **Add to merge queue**. Order matters — later entries win when two mods change the same thing, unless you override that (see Merge conflicts below).
             - **Rebuild** merges the queue against real base game data and packs a `.pak` — this only ever writes to this app's own staging folder, never your game.
             - **Install** is the one button in the whole app that writes into your real `Content\Paks\mods` — it always asks for confirmation first, and always backs up whatever pak is already there (last 5 kept).
             - **Compare to installed** previews exactly what Install would change before you click it.
@@ -69,13 +69,13 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Uninstall UE4SS** (Settings, next to Install) removes the loader completely. Your own mods are moved back to this app's staging first — the confirmation names them before anything happens — everything removed is backed up (last 5 kept), and Icarus's own files are never touched.
             """),
 
-        new("Downloads", """
-            # Downloads
+        new("Finding & downloading mods", """
+            # Finding & downloading mods
 
-            Two tabs:
+            Two more tabs on the **Library** page, alongside the **Mods** tab covered above:
 
             - **IMM Database** — a live, community-maintained catalog. Search, filter by author/category, sort any column, and see at a glance whether a mod is already extracted, outdated, or not downloaded yet.
-            - **Mods** — files you've downloaded from Nexus, waiting to install. This is where a real Nexus "Mod Manager Download" click lands, where the Nexus page's own Download button lands a file, or where a manually pasted `nxm://` link goes. Activate a file to import it into your Library, or discard it.
+            - **Mods**' own pending-download list also holds files you've downloaded from Nexus, waiting to install — this is where a real Nexus "Mod Manager Download" click lands, where the Nexus page's own Download button lands a file, or where a manually pasted `nxm://` link goes. Activate a file to import it into your Library, or discard it.
 
             Tracking mods you're following, and browsing/searching Nexus itself, both live on the **Nexus** page now — see its own Help topic.
             """),
@@ -91,7 +91,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - Every mod on that list is copied straight out of IMM's own folder into your Library — offline, instantly, and at exactly the versions you were already running.
             - Each mod is matched against the community database and, failing that, searched for on Nexus, so update checks work from day one. Mods that can't be identified still work fine; they just won't check for updates until you right-click → **Link to Nexus ID…**.
             - Your merge list is rebuilt in **Merge & Install** in the same order, so you can click **Install** immediately.
-            - Anything that couldn't be found is listed by name rather than silently dropped — get those from **Downloads**, then run the migration again.
+            - Anything that couldn't be found is listed by name rather than silently dropped — get those from **Library**'s own **IMM Database** tab, then run the migration again.
 
             Classic IMM's own files are only ever read. Your existing classic-IMM pak is backed up before this app replaces it.
 
@@ -127,13 +127,13 @@ public sealed partial class HelpViewModel : ObservableObject
 
             Per mod:
 
-            - **Download** pulls the main file straight into Downloads' **Mods** tab. This uses Nexus's API directly, which requires a Nexus Premium account — non-Premium accounts should use **Open page**'s own Mod Manager Download button on the website instead.
+            - **Download** pulls the main file straight into Library's **Mods** tab. This uses Nexus's API directly, which requires a Nexus Premium account — non-Premium accounts should use **Open page**'s own Mod Manager Download button on the website instead.
             - **Track** adds the mod to your tracked list — click it again on an already-tracked mod (shown as **Tracked** with a check) to untrack it. There's no separate list to manage; the **Tracked** filter above shows exactly what you're tracking, right here.
             - **Open page** opens the mod on nexusmods.com in your normal browser — where you're already signed in, and where non-Premium downloads happen.
 
             When a tracked mod you already own gets a real update on Nexus, you'll see it in the **notifications** panel (the bell icon in the header) — no separate "check for updates" click needed, since this is computed every time the page loads.
 
-            Clicking a real **Mod Manager Download** button on Nexus's own site can hand the file straight to this app instead of downloading it manually, but that needs a one-time setup step: in **Settings**, on the **Nexus** tab under **Download handler**, click **Register**. It asks for confirmation first (it's a real Windows registry change, and it replaces another mod manager if one's already registered for this). Files land in Downloads' **Mods** tab either way — you always Activate them from there.
+            Clicking a real **Mod Manager Download** button on Nexus's own site can hand the file straight to this app instead of downloading it manually, but that needs a one-time setup step: in **Settings**, on the **Nexus** tab under **Download handler**, click **Register**. It asks for confirmation first (it's a real Windows registry change, and it replaces another mod manager if one's already registered for this). Files land in Library's **Mods** tab either way — you always Activate them from there.
             """),
 
         new("Saves", """

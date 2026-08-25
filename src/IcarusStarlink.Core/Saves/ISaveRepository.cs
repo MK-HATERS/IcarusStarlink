@@ -29,29 +29,29 @@ public interface ISaveRepository
     /// </summary>
     IReadOnlyList<JsonObject> LoadCharacters(string steamId);
 
-    /// <summary>Backs up the whole slot first, then writes atomically (temp + move). Returns the backup path so the UI can say where the safety copy went.</summary>
-    string SaveProfile(string steamId, JsonObject profile);
+    /// <summary>Backs up the whole slot first, then writes atomically (temp + move). Returns the backup path so the UI can say where the safety copy went — or null if takeBackup is false (a caller that already took its own backup this same save pass, to avoid zipping the same slot several times over for one user action).</summary>
+    string? SaveProfile(string steamId, JsonObject profile, bool takeBackup = true);
 
     /// <summary>Same contract as SaveProfile. The list replaces the file's character array wholesale, so duplicate/remove-slot operations are just list operations for the caller.</summary>
-    string SaveCharacters(string steamId, IReadOnlyList<JsonObject> characters);
+    string? SaveCharacters(string steamId, IReadOnlyList<JsonObject> characters, bool takeBackup = true);
 
     /// <summary>Accolades.json as a mutable tree — CompletedAccolades (the editable list) plus PlayerTrackers/PlayerTaskListTrackers (the raw progress counters that make an accolade eligible), which this editor doesn't expose for direct editing but preserves untouched. Returns an empty-shaped object (not an error) if the file doesn't exist yet — a very new character may not have triggered the accolade system.</summary>
     JsonObject LoadAccolades(string steamId);
 
     /// <summary>Same contract as SaveProfile.</summary>
-    string SaveAccolades(string steamId, JsonObject accolades);
+    string? SaveAccolades(string steamId, JsonObject accolades, bool takeBackup = true);
 
     /// <summary>BestiaryData.json as a mutable tree — BestiaryTracking (creature encounter points, the editable list) plus FishTracking (preserved untouched, out of scope for this editor). Returns an empty-shaped object if the file doesn't exist yet.</summary>
     JsonObject LoadBestiary(string steamId);
 
     /// <summary>Same contract as SaveProfile.</summary>
-    string SaveBestiary(string steamId, JsonObject bestiary);
+    string? SaveBestiary(string steamId, JsonObject bestiary, bool takeBackup = true);
 
     /// <summary>MetaInventory.json as a mutable tree — the account-wide meta item bank (InventoryID + a flat Items array). Returns an empty-shaped object if the file doesn't exist yet.</summary>
     JsonObject LoadMetaInventory(string steamId);
 
     /// <summary>Same contract as SaveProfile.</summary>
-    string SaveMetaInventory(string steamId, JsonObject metaInventory);
+    string? SaveMetaInventory(string steamId, JsonObject metaInventory, bool takeBackup = true);
 
     /// <summary>
     /// The slot's binary flags_&lt;SteamID&gt;.dat — a THIRD unlock store the game keeps beside the
@@ -64,7 +64,7 @@ public interface ISaveRepository
     IReadOnlyList<int>? LoadBinaryFlags(string steamId);
 
     /// <summary>Same contract as SaveProfile: full slot backup first, then an atomic write of the binary flags file. Returns the backup path.</summary>
-    string SaveBinaryFlags(string steamId, IReadOnlyList<int> flagIds);
+    string? SaveBinaryFlags(string steamId, IReadOnlyList<int> flagIds, bool takeBackup = true);
 
     /// <summary>Zips the entire slot folder into this app's own save_backups cache (never inside the game's folders). Returns the zip path.</summary>
     string BackupSlot(string steamId);

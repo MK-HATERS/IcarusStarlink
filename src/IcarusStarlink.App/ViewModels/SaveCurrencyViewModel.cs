@@ -4,7 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>One profile currency (a MetaResources entry) — same deferred-apply pattern as SaveCharacterViewModel: the box edits a copy, ApplyToNode() writes it into the raw save node only at save time.</summary>
-public sealed partial class SaveCurrencyViewModel : ObservableObject
+public sealed partial class SaveCurrencyViewModel : ObservableObject, IDirtyTrackable
 {
     private readonly JsonObject _node;
     private readonly Action _onDirtyChanged;

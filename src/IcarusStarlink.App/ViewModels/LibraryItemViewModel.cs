@@ -82,6 +82,22 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     public void NotifyBackupStateChanged() => OnPropertyChanged(nameof(HasModBackup));
 
     /// <summary>
+    /// Call after CheckModsAgainstCurrentDataAsync's own confidence-tiered auto-repair rewrites this
+    /// mod's .EXMOD directly on disk — every other mutation site in this codebase (e.g.
+    /// ExmodEditorViewModel.Save) follows a save with either Update(entry) or a full resync, but the
+    /// batch staleness pass only ever wrote to disk and to the repository's own cache, never to this
+    /// bound row. Sets the ✎ badge immediately and clears the cached Changes tab content (same two
+    /// lines Update() already resets) so a currently-open Changes tab doesn't keep showing the
+    /// pre-repair item name until something unrelated triggers a full resync.
+    /// </summary>
+    public void NotifyRepairedFromDisk()
+    {
+        IsLocallyEdited = true;
+        ChangesContent = null;
+        _detailsLoaded = false;
+    }
+
+    /// <summary>
     /// Closes a stale gap: the context menu item was hardcoded disabled since Phase 3.5 ("Available
     /// once Downloads links mods to their Nexus page"), but NexusModId has existed on LibraryEntry
     /// since this session's own update-checking work — the data this needs was already there, it

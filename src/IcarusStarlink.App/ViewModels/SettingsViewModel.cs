@@ -354,7 +354,10 @@ public sealed partial class SettingsViewModel : ObservableObject
                 + (result.AlreadyPresentCount > 0 ? $", {result.AlreadyPresentCount} already here" : "")
                 + (linked.Count > 0 ? $" ({string.Join(", ", linked)})" : "")
                 + (problems.Count > 0 ? $" — {string.Join(", ", problems)}; see the list below." : ".")
-                + " Your merge list is now queued in Merge & Install.";
+                + " Your merge list is now queued in Merge & Install."
+                + (result.FailedCatalogSources.Count > 0
+                    ? $" ({string.Join(" and ", result.FailedCatalogSources)} unavailable — some mods may have missed a database link; try migrating again.)"
+                    : "");
         }
         catch (Exception ex)
         {

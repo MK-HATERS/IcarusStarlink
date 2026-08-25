@@ -3,7 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>One unlockable flag chip — the save stores just the int ID; the name comes from the game's own flag table (row index = ID). Toggling stays in the ViewModel until save-time apply, like every other save-editor edit.</summary>
-public sealed partial class SaveFlagViewModel : ObservableObject
+public sealed partial class SaveFlagViewModel : ObservableObject, IDirtyTrackable
 {
     private readonly Action _onDirtyChanged;
     private bool _originalUnlocked;

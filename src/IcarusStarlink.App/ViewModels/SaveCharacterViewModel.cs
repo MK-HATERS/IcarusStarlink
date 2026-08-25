@@ -16,7 +16,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// UNION of what the save has and everything D_Talents defines — an unlearned talent is just one
 /// at rank 0, so granting is ranking up, exactly how the save format itself represents it.
 /// </summary>
-public sealed partial class SaveCharacterViewModel : ObservableObject
+public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTrackable
 {
     private readonly JsonObject _node;
     private readonly Action _onDirtyChanged;

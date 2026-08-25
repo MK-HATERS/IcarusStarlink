@@ -10,7 +10,6 @@
     <converters:BoolToFolderFileConverter x:Key="BoolToFolderFileConverter"/>
     <converters:GameplayLevelToShortLabelConverter x:Key="GameplayLevelToShortLabelConverter"/>
     <converters:ProgressToWidthConverter x:Key="ProgressToWidthConverter"/>
-    <converters:LibraryEntryQueuedConverter x:Key="LibraryEntryQueuedConverter"/>
     <converters:HexToBrushConverter x:Key="HexToBrushConverter"/>
     <converters:VariantSuffixConverter x:Key="VariantSuffixConverter"/>
     <converters:StaleItemTooltipConverter x:Key="StaleItemTooltipConverter"/>

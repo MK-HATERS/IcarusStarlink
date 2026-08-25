@@ -24,10 +24,19 @@ public sealed class ConflictPickerViewModel
 
     public IReadOnlyList<ConflictRowViewModel> Rows { get; }
 
-    /// <summary>Only rows with an actual manual pick are included — "Default" means absent from the dictionary, matching MergeEngine.Merge's own manualPicks semantics.</summary>
+    /// <summary>
+    /// Only rows with an actual manual pick are included — "Default" means absent from the
+    /// dictionary, matching MergeEngine.Merge's own manualPicks semantics. Built with
+    /// FieldChangeKeyComparer, the same comparer MergeEngine.Merge/FindConflicts group through
+    /// (case-insensitive on CurrentFile) — a plain ToDictionary here would default to case-sensitive
+    /// tuple equality, and MergeEngine.Merge looks up a key using THIS dictionary's own comparer,
+    /// not its own, so a CurrentFile casing mismatch between when a pick is recorded and when Merge
+    /// runs would silently make the pick a no-op instead of an error.
+    /// </summary>
     public IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int> BuildPicks() =>
         Rows.Where(row => row.PickedCandidateIndex.HasValue)
             .ToDictionary(
                 row => (row.Conflict.CurrentFile, row.Conflict.ItemName, row.Conflict.FieldName),
-                row => row.PickedCandidateIndex!.Value);
+                row => row.PickedCandidateIndex!.Value,
+                FieldChangeKeyComparer.Instance);
 }
