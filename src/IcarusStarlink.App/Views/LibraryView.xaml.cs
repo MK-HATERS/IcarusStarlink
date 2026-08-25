@@ -191,4 +191,18 @@ public partial class LibraryView : UserControl
             viewModel.Downloads.SetSelectedCatalogEntries([.. CatalogGrid.SelectedItems.Cast<CatalogEntryViewModel>()]);
         }
     }
+
+    /// <summary>
+    /// Opens a toolbar button's own attached ContextMenu as a dropdown on a plain LEFT click —
+    /// WPF only opens ContextMenu on right-click by default, so grouping several related actions
+    /// behind one "Import ▾"-style button needs this one line of code-behind wherever it's used.
+    /// </summary>
+    private void DropdownButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { ContextMenu: { } menu } button)
+        {
+            menu.PlacementTarget = button;
+            menu.IsOpen = true;
+        }
+    }
 }

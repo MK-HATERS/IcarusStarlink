@@ -190,17 +190,41 @@
                     <Run Text="v"/><Run Text="{Binding Version, Mode=OneWay}"/>
                 </TextBlock>
 
-                <Border Grid.Column="4" CornerRadius="7" Padding="5,0" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="8,0,0,0"
-                        Background="{DynamicResource InfoBrush}"
-                        Visibility="{Binding HasSource, Converter={StaticResource BoolToVisibilityConverter}}">
+                <!-- Clickable: "Nexus" opens the mod's own Nexus page directly (a self-contained
+                     command on the item, no relay needed); "Database" jumps to this page's own
+                     IMM Database tab, pre-searched by name (FindInDatabaseCommand, on the page
+                     ViewModel — reached via the same Tag/AncestorType relay every other per-row
+                     command in this template already uses). -->
+                <Button Grid.Column="4" Background="{DynamicResource InfoBrush}" Margin="8,0,0,0"
+                        CommandParameter="{Binding}"
+                        Visibility="{Binding HasSource, Converter={StaticResource BoolToVisibilityConverter}}"
+                        AutomationProperties.Name="{Binding Source, StringFormat='Source: {0}'}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource PillButtonStyle}">
+                            <Setter Property="Command" Value="{Binding OpenOnNexusCommand}"/>
+                            <Setter Property="ToolTip" Value="Open this mod's Nexus page"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Source}" Value="Database">
+                                    <Setter Property="Command" Value="{Binding DataContext.FindInDatabaseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                                    <Setter Property="ToolTip" Value="Find this mod in the IMM Database tab"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
                     <TextBlock Text="{Binding Source}" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
-                </Border>
+                </Button>
 
-                <Border Grid.Column="5" CornerRadius="7" Padding="5,0" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="8,0,0,0"
-                        Background="{DynamicResource AccentBrush}" ToolTip="{Binding LatestVersion, StringFormat='Update available: v{0}'}"
-                        Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
+                <!-- Clickable: runs the same action as the "Update available" badge's own text
+                     already promised — for a Database mod this updates in place; for a Nexus mod
+                     it opens the mod's page (GetUpdateCommand's own doc comment explains why). -->
+                <Button Grid.Column="5" Style="{StaticResource PillButtonStyle}" Background="{DynamicResource AccentBrush}" Margin="8,0,0,0"
+                        Command="{Binding DataContext.GetUpdateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                        CommandParameter="{Binding}"
+                        ToolTip="{Binding LatestVersion, StringFormat='Update available: v{0} — click to update'}"
+                        Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
+                        AutomationProperties.Name="Get update">
                     <TextBlock Text="Update" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
-                </Border>
+                </Button>
 
                 <StackPanel x:Name="RowActions" Grid.Column="6" Orientation="Horizontal" Opacity="0" HorizontalAlignment="Right">
                     <ToggleButton IsChecked="{Binding IsPinned}" Style="{StaticResource IconToggleButtonStyle}"
@@ -297,11 +321,16 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Phase 10 follow-up: grouped by purpose (refresh · create/import · check) with
-                         thin dividers between groups, rather than one undifferentiated row. Import
-                         folder… deliberately no longer carries PrimaryButtonStyle — with Fetch (row
-                         below) now also primary-styled as the headline "get a mod" action, having a
-                         second, unrelated primary button in the toolbar read as arbitrary. -->
+                    <!-- Reorganized into 4 groups instead of 9 same-weight buttons in a row (the
+                         previous layout overflowed the page at normal window widths): everyday
+                         actions stay inline (Refresh, New mod…); the 3 import variants — all the
+                         same underlying "bring a mod in" action — collapse into one Import ▾ menu;
+                         the 2 whole-library maintenance checks collapse into one Check ▾ menu, since
+                         neither is something a user reaches for every visit; Add to merge queue
+                         still only appears once a bulk selection exists. Import folder… deliberately
+                         doesn't carry PrimaryButtonStyle — with Fetch (row below) already primary-
+                         styled as the headline "get a mod" action, a second, unrelated primary
+                         button read as arbitrary. -->
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
                         <Button Command="{Binding RefreshCommand}" Margin="0,0,10,0" ToolTip="Re-scan Extracted_Mods from disk" AutomationProperties.Name="Refresh">
                             <StackPanel Orientation="Horizontal">
@@ -319,47 +348,44 @@
                                 <TextBlock Text="New mod…" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <Button Command="{Binding ImportFileCommand}" Margin="0,0,8,0" AutomationProperties.Name="Import EXMODZ">
+
+                        <Button Click="DropdownButton_Click" Margin="0,0,10,0" ToolTip="Bring a mod in from a file, a folder, or a prebuilt .pak" AutomationProperties.Name="Import">
+                            <Button.ContextMenu>
+                                <ContextMenu Placement="Bottom">
+                                    <MenuItem Header="Import EXMODZ…" Command="{Binding ImportFileCommand}"/>
+                                    <MenuItem Header="Import folder…" Command="{Binding ImportFolderCommand}"/>
+                                    <MenuItem Header="Import .pak…" Command="{Binding ImportPakCommand}"
+                                              ToolTip="Import a prebuilt .pak as an opaque library entry — no .EXMOD, can't be browsed or edited"/>
+                                </ContextMenu>
+                            </Button.ContextMenu>
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                       StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                                <TextBlock Text="Import EXMODZ…" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Command="{Binding ImportFolderCommand}" Margin="0,0,8,0" AutomationProperties.Name="Import folder">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                                <TextBlock Text="Import folder…" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Command="{Binding ImportPakCommand}" Margin="0,0,10,0"
-                                ToolTip="Import a prebuilt .pak as an opaque library entry — no .EXMOD, can't be browsed or edited"
-                                AutomationProperties.Name="Import .pak">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Data="{StaticResource IconPackage}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
-                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                                <TextBlock Text="Import .pak…" VerticalAlignment="Center"/>
+                                <TextBlock Text="Import" VerticalAlignment="Center"/>
+                                <Path Data="{StaticResource IconChevronDown}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="10" Height="10" Stretch="Uniform" Margin="6,0,0,0"/>
                             </StackPanel>
                         </Button>
 
                         <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Margin="0,4,10,4"/>
 
-                        <Button Command="{Binding CheckForUpdatesCommand}" Margin="0,0,8,0"
-                                ToolTip="Checks every Nexus- or Database-sourced mod against its real current version"
-                                AutomationProperties.Name="Check for updates">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
-                                <TextBlock Text="Check for updates" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Command="{Binding CheckModsAgainstCurrentDataCommand}" Margin="0,0,8,0"
-                                ToolTip="Diffs every mod against the currently-extracted game data — flags items that look like they're editing a row this game version no longer has, and auto-fixes any confident, unambiguous rename (each mod is backed up first)"
-                                AutomationProperties.Name="Check mods against game data">
+                        <Button Click="DropdownButton_Click" Margin="0,0,8,0"
+                                ToolTip="Whole-library checks — these look at every mod, not just one, so they take longer than the actions above"
+                                AutomationProperties.Name="Check">
+                            <Button.ContextMenu>
+                                <ContextMenu Placement="Bottom">
+                                    <MenuItem Header="Check for updates" Command="{Binding CheckForUpdatesCommand}"
+                                              ToolTip="Checks every Nexus- or Database-sourced mod against its real current version"/>
+                                    <MenuItem Header="Check mods against game data" Command="{Binding CheckModsAgainstCurrentDataCommand}"
+                                              ToolTip="Diffs every mod against the currently-extracted game data — flags items that look like they're editing a row this game version no longer has, and auto-fixes any confident, unambiguous rename (each mod is backed up first)"/>
+                                </ContextMenu>
+                            </Button.ContextMenu>
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconWarning}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
                                       StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
-                                <TextBlock Text="Check mods against game data" VerticalAlignment="Center"/>
+                                <TextBlock Text="Check" VerticalAlignment="Center"/>
+                                <Path Data="{StaticResource IconChevronDown}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="10" Height="10" Stretch="Uniform" Margin="6,0,0,0"/>
                             </StackPanel>
                         </Button>
 

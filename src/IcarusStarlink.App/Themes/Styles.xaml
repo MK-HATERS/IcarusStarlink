@@ -379,6 +379,36 @@
         <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
 
+    <!-- Library's Source/Update badges: same pill shape every other badge in the app already uses
+         (see ChangeKindBadgeTemplate below), but a real Button — a thin border appears on hover and
+         the cursor becomes a hand, the two cues that distinguish "this pill does something" from the
+         plain informational pills elsewhere (e.g. the change-kind badge, which stays exactly as it
+         was). Background/Foreground/Content are still set per usage, same as the plain Border this
+         replaced — this only supplies the interactive shell. -->
+    <Style x:Key="PillButtonStyle" TargetType="{x:Type Button}">
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="HorizontalAlignment" Value="Left"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Button}">
+                    <Border x:Name="Bd" CornerRadius="8" Padding="7,2" Background="{TemplateBinding Background}"
+                            BorderThickness="1" BorderBrush="Transparent">
+                        <ContentPresenter/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource ForegroundBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.8"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="ThemeButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="Padding" Value="10,4"/>
         <Setter Property="FontSize" Value="12"/>
