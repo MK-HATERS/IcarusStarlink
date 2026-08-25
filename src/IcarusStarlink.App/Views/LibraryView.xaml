@@ -68,6 +68,8 @@
                     <ColumnDefinition Width="Auto" MinWidth="60" SharedSizeGroup="ColVersion"/>
                     <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColSource"/>
                     <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColStatus"/>
+                    <ColumnDefinition Width="Auto" MinWidth="70" SharedSizeGroup="ColLatest"/>
+                    <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColImported"/>
                     <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColActions"/>
                 </Grid.ColumnDefinitions>
                 <Grid.ContextMenu>
@@ -183,10 +185,12 @@
                 </TextBlock>
 
                 <TextBlock Grid.Column="2" Text="{Binding Author}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                           Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="8,0,0,0"/>
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="8,0,0,0"
+                           Visibility="{Binding DataContext.ShowAuthorColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
                 <TextBlock Grid.Column="3" VerticalAlignment="Center" FontSize="12"
-                           Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0">
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
+                           Visibility="{Binding DataContext.ShowVersionColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Run Text="v"/><Run Text="{Binding Version, Mode=OneWay}"/>
                 </TextBlock>
 
@@ -195,30 +199,39 @@
                      pre-searched by name; that card has its own "Open page" action for the real
                      website), "Database" to its row on the IMM Database tab (FindInDatabaseCommand)
                      — both on the page ViewModel, reached via the same Tag/AncestorType relay every
-                     other per-row command in this template already uses. -->
-                <Button Grid.Column="4" Background="{DynamicResource InfoBrush}" Margin="8,0,0,0"
-                        CommandParameter="{Binding}"
-                        Visibility="{Binding HasSource, Converter={StaticResource BoolToVisibilityConverter}}"
-                        AutomationProperties.Name="{Binding Source, StringFormat='Source: {0}'}">
-                    <Button.Style>
-                        <Style TargetType="Button" BasedOn="{StaticResource PillButtonStyle}">
-                            <Setter Property="Command" Value="{Binding DataContext.SearchNexusForCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
-                            <Setter Property="ToolTip" Value="Find this mod's card on the Nexus page"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding Source}" Value="Database">
-                                    <Setter Property="Command" Value="{Binding DataContext.FindInDatabaseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
-                                    <Setter Property="ToolTip" Value="Find this mod in the IMM Database tab"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                    <TextBlock Text="{Binding Source}" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
-                </Button>
+                     other per-row command in this template already uses. Wrapped in a Border for the
+                     page-level ShowSourceColumn toggle, so the Button's own HasSource visibility
+                     (a per-row fact) and the column's own on/off (a page-level setting) don't fight
+                     over the same Visibility property. -->
+                <Border Grid.Column="4"
+                        Visibility="{Binding DataContext.ShowSourceColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Button Background="{DynamicResource InfoBrush}" Margin="8,0,0,0"
+                            CommandParameter="{Binding}"
+                            Visibility="{Binding HasSource, Converter={StaticResource BoolToVisibilityConverter}}"
+                            AutomationProperties.Name="{Binding Source, StringFormat='Source: {0}'}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource PillButtonStyle}">
+                                <Setter Property="Command" Value="{Binding DataContext.SearchNexusForCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                                <Setter Property="ToolTip" Value="Find this mod's card on the Nexus page"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Source}" Value="Database">
+                                        <Setter Property="Command" Value="{Binding DataContext.FindInDatabaseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                                        <Setter Property="ToolTip" Value="Find this mod in the IMM Database tab"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <TextBlock Text="{Binding Source}" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
+                    </Button>
+                </Border>
 
                 <!-- Clickable: runs the same action as the "Update available" badge's own text
                      already promised — for a Database mod this updates in place; for a Nexus mod
-                     it opens the mod's page (GetUpdateCommand's own doc comment explains why). -->
-                <Button Grid.Column="5" Style="{StaticResource PillButtonStyle}" Background="{DynamicResource AccentBrush}" Margin="8,0,0,0"
+                     it opens the mod's page (GetUpdateCommand's own doc comment explains why). Same
+                     Border-wrapper reasoning as the Source badge above, for ShowStatusColumn. -->
+                <Border Grid.Column="5"
+                        Visibility="{Binding DataContext.ShowStatusColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Button Style="{StaticResource PillButtonStyle}" Background="{DynamicResource AccentBrush}" Margin="8,0,0,0"
                         Command="{Binding DataContext.GetUpdateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                         CommandParameter="{Binding}"
                         ToolTip="{Binding LatestVersion, StringFormat='Update available: v{0} — click to update'}"
@@ -226,8 +239,17 @@
                         AutomationProperties.Name="Get update">
                     <TextBlock Text="Update" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
                 </Button>
+                </Border>
 
-                <StackPanel x:Name="RowActions" Grid.Column="6" Orientation="Horizontal" Opacity="0" HorizontalAlignment="Right">
+                <TextBlock Grid.Column="6" Text="{Binding LatestVersion}" VerticalAlignment="Center" FontSize="12"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
+                           Visibility="{Binding DataContext.ShowLatestColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+                <TextBlock Grid.Column="7" Text="{Binding ImportedAtUtc.LocalDateTime, StringFormat='{}{0:d}'}" VerticalAlignment="Center" FontSize="12"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
+                           Visibility="{Binding DataContext.ShowImportedColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+                <StackPanel x:Name="RowActions" Grid.Column="8" Orientation="Horizontal" Opacity="0" HorizontalAlignment="Right">
                     <ToggleButton IsChecked="{Binding IsPinned}" Style="{StaticResource IconToggleButtonStyle}"
                                   ToolTip="Pin" AutomationProperties.Name="Toggle pinned">
                         <Path Data="{StaticResource IconPin}" Width="12" Height="12" Stretch="Uniform">
@@ -512,8 +534,26 @@
                          mechanism, so an indented variant row drifts right of these headers by its
                          own indent amount — accepted as a reasonable tradeoff (see the row template's
                          own comment) now that the inline detail pane (which this replaced) is gone
-                         and double-clicking a mod opens ModDetailWindow instead. -->
+                         and double-clicking a mod opens ModDetailWindow instead.
+
+                         Right-click anywhere on this bar for the same column picker the IMM Database
+                         tab's own "Columns" button opens — a ContextMenu here rather than a second
+                         toolbar button, since the header bar is exactly where a user already expects
+                         "configure these columns" to live (the standard spreadsheet/file-manager
+                         convention), and the toolbar was just decluttered down to 4 groups. -->
                     <Grid Grid.Row="4" Margin="4,0,4,4">
+                        <Grid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Author" IsCheckable="True" IsChecked="{Binding ShowAuthorColumn}"/>
+                                <MenuItem Header="Version" IsCheckable="True" IsChecked="{Binding ShowVersionColumn}"/>
+                                <MenuItem Header="Source" IsCheckable="True" IsChecked="{Binding ShowSourceColumn}"/>
+                                <MenuItem Header="Status" IsCheckable="True" IsChecked="{Binding ShowStatusColumn}"/>
+                                <MenuItem Header="Latest" IsCheckable="True" IsChecked="{Binding ShowLatestColumn}"
+                                          ToolTip="The version last seen on Nexus/the Database, even when you're already up to date"/>
+                                <MenuItem Header="Imported" IsCheckable="True" IsChecked="{Binding ShowImportedColumn}"
+                                          ToolTip="When this mod was added to your Library"/>
+                            </ContextMenu>
+                        </Grid.ContextMenu>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
                             <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
@@ -521,13 +561,23 @@
                             <ColumnDefinition Width="Auto" MinWidth="60" SharedSizeGroup="ColVersion"/>
                             <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColSource"/>
                             <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColStatus"/>
+                            <ColumnDefinition Width="Auto" MinWidth="70" SharedSizeGroup="ColLatest"/>
+                            <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColImported"/>
                             <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColActions"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="1" Text="NAME" Style="{StaticResource FieldLabelStyle}"/>
-                        <TextBlock Grid.Column="2" Text="AUTHOR" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"/>
-                        <TextBlock Grid.Column="3" Text="VERSION" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"/>
-                        <TextBlock Grid.Column="4" Text="SOURCE" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"/>
-                        <TextBlock Grid.Column="5" Text="STATUS" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Column="2" Text="AUTHOR" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
+                                   Visibility="{Binding ShowAuthorColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock Grid.Column="3" Text="VERSION" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
+                                   Visibility="{Binding ShowVersionColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock Grid.Column="4" Text="SOURCE" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
+                                   Visibility="{Binding ShowSourceColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock Grid.Column="5" Text="STATUS" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
+                                   Visibility="{Binding ShowStatusColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock Grid.Column="6" Text="LATEST" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
+                                   Visibility="{Binding ShowLatestColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock Grid.Column="7" Text="IMPORTED" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
+                                   Visibility="{Binding ShowImportedColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     </Grid>
 
                     <Border Grid.Row="5" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">

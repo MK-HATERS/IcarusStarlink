@@ -28,6 +28,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     public string FolderName { get; }
 
+    /// <summary>When this mod was first imported — real, persisted metadata, not recomputed, so unlike LatestVersion it's already available for every row with no update-check needed.</summary>
+    public DateTimeOffset ImportedAtUtc { get; }
+
     [ObservableProperty]
     private string _name;
 
@@ -233,6 +236,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         _reportStatus = reportStatus;
         _onPinnedChanged = onPinnedChanged;
         FolderName = entry.FolderName;
+        ImportedAtUtc = entry.ImportedAtUtc;
         _name = entry.Name;
         _author = entry.Author;
         _version = entry.Version;

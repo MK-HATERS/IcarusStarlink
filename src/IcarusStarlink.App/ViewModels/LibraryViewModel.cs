@@ -93,6 +93,33 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private string? _unreadableFoldersMessage;
 
+    // --- Mods tab column visibility — right-click the column header bar to toggle. Author/Version/
+    // Source/Status default on (matches what every row already showed before these were toggleable,
+    // so upgrading doesn't change anyone's view); Latest/Imported default off, since they're new and
+    // showing them for everyone by default would be exactly the clutter the toolbar redesign was
+    // trying to reduce elsewhere on this same page. Not persisted across restarts — same "recomputed/
+    // reset each session" precedent the IMM Database tab's own column toggles already established.
+
+    [ObservableProperty]
+    private bool _showAuthorColumn = true;
+
+    [ObservableProperty]
+    private bool _showVersionColumn = true;
+
+    [ObservableProperty]
+    private bool _showSourceColumn = true;
+
+    [ObservableProperty]
+    private bool _showStatusColumn = true;
+
+    /// <summary>The mod's currently-known version per the last "Check for updates" run — same data the Update badge's own tooltip already shows, just as a real column so it's visible even for a mod that's already up to date.</summary>
+    [ObservableProperty]
+    private bool _showLatestColumn;
+
+    /// <summary>When the mod was added to this Library.</summary>
+    [ObservableProperty]
+    private bool _showImportedColumn;
+
     /// <summary>
     /// Library's UE4SS tab (Phase 8.5 rework) — the single place to manage UE4SS mods, replacing
     /// the old split between this read-only tab and Merge & Install's own separate Staged/Attached
