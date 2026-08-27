@@ -80,10 +80,26 @@ public interface ILibraryRepository
 
     IReadOnlyList<string> ListAssetPaths(string folderName);
 
+    /// <summary>Same as ListAssetPaths, but against a file list the caller already walked itself
+    /// (see ListFolderFiles) — for a caller (the Library detail pane's own Files/Readme/Changes
+    /// load) that would otherwise pay for a separate recursive folder walk per call.</summary>
+    IReadOnlyList<string> ListAssetPaths(string folderName, IReadOnlyList<string> precomputedFiles);
+
     byte[] ReadAssetContent(string folderName, string relativePath);
 
     /// <summary>Null if the mod has no file named "readme" (any extension).</summary>
     string? ReadReadme(string folderName);
+
+    /// <summary>Same as ReadReadme, but against a precomputed file list — see ListAssetPaths' own overload.</summary>
+    string? ReadReadme(string folderName, IReadOnlyList<string> precomputedFiles);
+
+    /// <summary>
+    /// Every file under a mod's folder, walked once — pass the result into the precomputed-list
+    /// overloads of ListAssetPaths/ReadReadme (and PakIO's own ExmodFolder.ReadPackageOnly) instead
+    /// of calling their single-arg forms separately, which would otherwise each re-walk the same
+    /// folder from scratch.
+    /// </summary>
+    IReadOnlyList<string> ListFolderFiles(string folderName);
 
     /// <summary>
     /// The mod's own folder under Extracted_Mods, for callers (Merge & Install's Rebuild

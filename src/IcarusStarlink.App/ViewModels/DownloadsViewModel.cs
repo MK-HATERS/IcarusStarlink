@@ -50,6 +50,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
     private IReadOnlyList<CatalogEntry> _allCatalogEntries = [];
 
+    // Reused across ApplyCatalogFilters calls so a search keystroke or a checkbox toggle doesn't
+    // force the DataGrid to fully reset/regenerate every row container just because a brand-new
+    // CatalogEntryViewModel object was constructed for a row that didn't actually change — cleared
+    // whenever _allCatalogEntries itself is replaced by a real catalog refresh.
+    private readonly Dictionary<CatalogEntry, (string? InstalledVersion, DateTimeOffset? LastUpdated, CatalogEntryViewModel ViewModel)> _catalogRowCache = [];
+
     // Keyed by (owner, repo), not by mod — see GitHubRepoDateClient's own doc comment for why
     // that's a deliberate repo-level, not per-file, granularity. Only ever replaced on a
     // *successful* RefreshCatalogAsync fetch (see there) so a transient GitHub failure on a later
@@ -297,6 +303,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
             await Task.WhenAll(daedalusTask, jimk72Task);
 
             _allCatalogEntries = [.. daedalusTask.Result, .. jimk72Task.Result];
+            // A fresh catalog snapshot invalidates every cached row VM below — bound to grow
+            // unboundedly otherwise, since CatalogEntry has value equality and a genuinely changed
+            // entry (a new version, say) would just add another cache key rather than replace one.
+            _catalogRowCache.Clear();
 
             // Clearing/rebuilding these disrupts the ComboBoxes' own SelectedItem tracking (WPF
             // can reset a bound SelectedItem to null mid-rebuild) — capture the prior selection
@@ -437,22 +447,33 @@ public sealed partial class DownloadsViewModel : ObservableObject
             query = query.Where(e => e.CompatibleWeek is null || e.CompatibleWeek >= GameWeek);
         }
 
+        CatalogEntryViewModel GetOrCreateRow(CatalogEntry e)
+        {
+            var installedVersion = libraryByCatalogId.GetValueOrDefault(e.Id) ?? libraryByKey.GetValueOrDefault(CatalogKey.Normalize(e.Name, e.Author));
+            DateTimeOffset? lastUpdated = GitHubRepoKey.Extract(e.PakUrl ?? e.ExmodzUrl) is { } repoKey ? _repoPushedDates.GetValueOrDefault(repoKey) : null;
+
+            if (_catalogRowCache.TryGetValue(e, out var cached) && cached.InstalledVersion == installedVersion && cached.LastUpdated == lastUpdated)
+            {
+                return cached.ViewModel;
+            }
+
+            var viewModel = new CatalogEntryViewModel(e, installedVersion, lastUpdated);
+            _catalogRowCache[e] = (installedVersion, lastUpdated, viewModel);
+            return viewModel;
+        }
+
         var rows = query
-            .Select(e => new CatalogEntryViewModel(
-                e,
-                libraryByCatalogId.GetValueOrDefault(e.Id) ?? libraryByKey.GetValueOrDefault(CatalogKey.Normalize(e.Name, e.Author)),
-                GitHubRepoKey.Extract(e.PakUrl ?? e.ExmodzUrl) is { } repoKey ? _repoPushedDates.GetValueOrDefault(repoKey) : null))
+            .Select(GetOrCreateRow)
             .Where(row => !ShowUpdatesOnly || row.IsOutdated)
             .Where(row => !ExtractedOnly || row.IsDownloaded)
             .Where(row => !NotDownloadedOnly || !row.IsDownloaded)
             .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        CatalogEntries.Clear();
-        foreach (var row in rows)
-        {
-            CatalogEntries.Add(row);
-        }
+        // Targeted Remove/Insert/Move instead of Clear()+re-Add(): a row whose CatalogEntryViewModel
+        // instance is unchanged (see GetOrCreateRow's cache above) keeps its identity, so the
+        // DataGrid doesn't regenerate every container just because one filter checkbox flipped.
+        ObservableCollectionSync.SyncTo(CatalogEntries, rows);
 
         CatalogShownCount = rows.Count;
         CatalogTotalCount = _allCatalogEntries.Count;

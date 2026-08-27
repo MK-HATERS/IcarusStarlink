@@ -55,7 +55,7 @@
                             <TextBlock Text="New site" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Margin="8,0,0,0" Command="{Binding DeleteSiteCommand}" AutomationProperties.Name="Delete">
+                    <Button Margin="8,0,0,0" Command="{Binding DeleteSiteCommand}" AutomationProperties.Name="Delete site">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -213,7 +213,7 @@
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding DeleteRemoteCommand}" Margin="8,0,0,0"
-                            ToolTip="Deletes the selected remote file from the server — asks for confirmation first" AutomationProperties.Name="Delete">
+                            ToolTip="Deletes the selected remote file from the server — asks for confirmation first" AutomationProperties.Name="Delete remote file">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>

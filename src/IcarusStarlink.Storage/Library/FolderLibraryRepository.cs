@@ -343,28 +343,37 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
     }
 
     /// <summary>An opaque .pak entry (LibraryEntry.IsOpaquePak) has no .EXMOD to enumerate assets from — nothing to browse in the Files tab.</summary>
-    public IReadOnlyList<string> ListAssetPaths(string folderName)
+    public IReadOnlyList<string> ListAssetPaths(string folderName) =>
+        ListAssetPaths(folderName, ListFolderFiles(folderName));
+
+    public IReadOnlyList<string> ListAssetPaths(string folderName, IReadOnlyList<string> precomputedFiles)
     {
         var folder = ResolveFolder(folderName);
-        return ClassifyModFolder(folder).HasExmod ? ExmodFolder.ListAssetPaths(folder) : [];
+        return ClassifyModFolder(precomputedFiles).HasExmod ? ExmodFolder.ListAssetPaths(folder, precomputedFiles) : [];
     }
 
     public byte[] ReadAssetContent(string folderName, string relativePath) =>
         ExmodFolder.ReadAssetContent(ResolveFolder(folderName), relativePath);
 
-    public string? ReadReadme(string folderName)
+    public string? ReadReadme(string folderName) =>
+        ReadReadme(folderName, ListFolderFiles(folderName));
+
+    public string? ReadReadme(string folderName, IReadOnlyList<string> precomputedFiles)
     {
         var folder = ResolveFolder(folderName);
-        if (!ClassifyModFolder(folder).HasExmod)
+        if (!ClassifyModFolder(precomputedFiles).HasExmod)
         {
             return null;
         }
 
-        var readmePath = ExmodFolder.ListAssetPaths(folder)
+        var readmePath = ExmodFolder.ListAssetPaths(folder, precomputedFiles)
             .FirstOrDefault(p => Path.GetFileNameWithoutExtension(p).Equals("readme", StringComparison.OrdinalIgnoreCase));
 
         return readmePath is null ? null : Encoding.UTF8.GetString(ExmodFolder.ReadAssetContent(folder, readmePath));
     }
+
+    public IReadOnlyList<string> ListFolderFiles(string folderName) =>
+        Directory.EnumerateFiles(ResolveFolder(folderName), "*", SearchOption.AllDirectories).ToList();
 
     public string GetFolderPath(string folderName) => ResolveFolder(folderName);
 

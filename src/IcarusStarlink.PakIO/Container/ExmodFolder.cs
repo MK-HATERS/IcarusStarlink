@@ -66,11 +66,14 @@ public static class ExmodFolder
     }
 
     /// <summary>Lists asset relative paths without reading any file's content — for a Files-tab-style listing before the user picks one to preview.</summary>
-    public static IReadOnlyList<string> ListAssetPaths(string folderPath)
+    public static IReadOnlyList<string> ListAssetPaths(string folderPath) =>
+        ListAssetPaths(folderPath, SnapshotFiles(folderPath));
+
+    /// <summary>Same as ListAssetPaths, but skips its own Directory.EnumerateFiles walk in favor of a file list the caller already has — same reasoning as ReadPackageOnly's own precomputed-list overload.</summary>
+    public static IReadOnlyList<string> ListAssetPaths(string folderPath, IReadOnlyList<string> precomputedFiles)
     {
-        var allFiles = SnapshotFiles(folderPath);
-        var exmodFilePath = FindExmodFile(allFiles, folderPath);
-        return [.. EnumerateAssetPaths(allFiles, folderPath, exmodFilePath, new HashSet<string>(StringComparer.OrdinalIgnoreCase))];
+        var exmodFilePath = FindExmodFile(precomputedFiles, folderPath);
+        return [.. EnumerateAssetPaths(precomputedFiles, folderPath, exmodFilePath, new HashSet<string>(StringComparer.OrdinalIgnoreCase))];
     }
 
     /// <summary>Reads one specific asset's bytes on demand — e.g. to preview a single file the user picked from a ListAssetPaths listing.</summary>

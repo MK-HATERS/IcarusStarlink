@@ -440,12 +440,17 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
         try
         {
-            foreach (var path in _repository.ListAssetPaths(FolderName))
+            // One walk of the folder, reused for the asset list, the readme lookup, and (below)
+            // the .EXMOD read — the three single-arg forms would otherwise each re-walk the exact
+            // same folder from scratch, paid on every single mod selection.
+            var files = _repository.ListFolderFiles(FolderName);
+
+            foreach (var path in _repository.ListAssetPaths(FolderName, files))
             {
                 AssetPaths.Add(path);
             }
 
-            ReadmeContent = _repository.ReadReadme(FolderName);
+            ReadmeContent = _repository.ReadReadme(FolderName, files);
             LoadThumbnailIfPresent();
 
             // An opaque .pak entry has no .EXMOD at all — nothing to format, and ExmodFolder.Read
@@ -456,9 +461,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             {
                 // ReadPackageOnly, not Read: Read pulls EVERY one of the mod's binary assets into
                 // memory (a real mod's .uasset/.ubulk content can be many MB) purely to reach the
-                // .EXMOD's own JSON, which is the only thing the Changes text is built from. Paid
-                // on every mod selection before this.
-                var package = ExmodFolder.ReadPackageOnly(_repository.GetFolderPath(FolderName));
+                // .EXMOD's own JSON, which is the only thing the Changes text is built from.
+                var package = ExmodFolder.ReadPackageOnly(_repository.GetFolderPath(FolderName), files);
                 ChangesContent = ExmodChangesFormatter.Format(package);
             }
             else
