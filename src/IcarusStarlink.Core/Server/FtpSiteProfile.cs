@@ -21,4 +21,9 @@ public sealed class FtpSiteProfile
     public string RemotePath { get; set; } = "";
 
     public FtpEncryptionMode EncryptionMode { get; set; } = FtpEncryptionMode.None;
+
+    /// <summary>SHA-256 thumbprint of a TLS certificate this site's user has explicitly chosen to
+    /// trust despite a validation failure — not a secret, safe to store in the plain site JSON
+    /// alongside everything else here. Null means "use normal certificate validation only."</summary>
+    public string? TrustedCertificateThumbprint { get; set; }
 }

@@ -3,8 +3,12 @@ using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Server;
+using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Ue4ss;
+using IcarusStarlink.PakIO;
 using Microsoft.Win32;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -20,6 +24,23 @@ public sealed partial class ServerViewModel : ObservableObject
     private readonly IFtpSiteStore _siteStore;
     private readonly ICredentialStore _credentialStore;
     private readonly Func<IFtpClient> _ftpClientFactory;
+    private readonly IActivityLog _activityLog;
+    private readonly ISettingsService _settingsService;
+    private readonly IUe4ssModRepository _ue4ssModRepository;
+    private readonly string _outputPakPath;
+    private readonly string _pakManifestPath;
+
+    // Confirmed against the user's own real dedicated server (SurvivalServers): the FTP login
+    // root is NOT the game project root — it's one level up, with the actual Content\/Binaries\
+    // tree sitting under a fixed "Icarus" subfolder (alongside IcarusServer.exe, a "Saved" folder,
+    // etc.) — SurvivalServers' own per-game-type convention, not something this user configured.
+    // Below that, it's an exact mirror of the local layout, just with forward slashes. Fixed
+    // rather than a per-site field, per the user's own call ("assume a fixed relative path should
+    // be fine").
+    private const string RemoteModsPath = "Icarus/Content/Paks/mods";
+    private const string RemoteWin64Path = "Icarus/Binaries/Win64";
+    private const string RemoteLoaderPath = "Icarus/Binaries/Win64/ue4ss";
+    private const string RemoteModsRootPath = "Icarus/Binaries/Win64/ue4ss/Mods";
 
     private IFtpClient? _connectedClient;
 
@@ -90,11 +111,23 @@ public sealed partial class ServerViewModel : ObservableObject
     [ObservableProperty]
     private FtpEntry? _selectedRemoteEntry;
 
-    public ServerViewModel(IFtpSiteStore siteStore, ICredentialStore credentialStore, Func<IFtpClient> ftpClientFactory)
+    public ServerViewModel(
+        IFtpSiteStore siteStore,
+        ICredentialStore credentialStore,
+        Func<IFtpClient> ftpClientFactory,
+        IActivityLog activityLog,
+        ISettingsService settingsService,
+        IUe4ssModRepository ue4ssModRepository,
+        string outputPakPath)
     {
         _siteStore = siteStore;
         _credentialStore = credentialStore;
         _ftpClientFactory = ftpClientFactory;
+        _activityLog = activityLog;
+        _settingsService = settingsService;
+        _ue4ssModRepository = ue4ssModRepository;
+        _outputPakPath = outputPakPath;
+        _pakManifestPath = Path.Combine(Path.GetDirectoryName(outputPakPath)!, InstallManifestNames.PakManifest);
 
         ReloadSites();
     }
@@ -259,10 +292,36 @@ public sealed partial class ServerViewModel : ObservableObject
         var client = _ftpClientFactory();
         try
         {
-            await client.ConnectAsync(site, password);
+            try
+            {
+                await client.ConnectAsync(site, password);
+            }
+            catch (FtpUntrustedCertificateException certEx)
+            {
+                // A real "trust this certificate?" prompt — the same convention FileZilla/WinSCP
+                // use for exactly this case (common on budget game-server hosts presenting a
+                // self-signed cert), rather than just failing with a generic TLS error.
+                var trust = MessageBox.Show(
+                    $"{certEx.Message}\n\nSubject: {certEx.Subject}\nIssuer: {certEx.Issuer}\nThumbprint: {certEx.Thumbprint}\n\n"
+                    + $"Trust this certificate for '{site.Name}' and connect anyway? Only do this if you recognize this server.",
+                    "Untrusted certificate", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (trust != MessageBoxResult.Yes)
+                {
+                    await client.DisposeAsync();
+                    ConnectionStatusMessage = "Connection cancelled — certificate not trusted.";
+                    _activityLog.Log($"Declined an untrusted TLS certificate for '{site.Name}'.", ActivityEntryKind.Warning);
+                    return;
+                }
+
+                site.TrustedCertificateThumbprint = certEx.Thumbprint;
+                _siteStore.Save(site);
+                await client.ConnectAsync(site, password);
+            }
+
             _connectedClient = client;
             IsConnected = true;
             ConnectionStatusMessage = $"Connected to '{site.Name}'.";
+            _activityLog.Log($"Connected to FTP site '{site.Name}'.", ActivityEntryKind.Success);
             await LoadDirectoryAsync(string.IsNullOrWhiteSpace(site.RemotePath) ? "/" : site.RemotePath);
         }
         catch (Exception ex)
@@ -274,6 +333,7 @@ public sealed partial class ServerViewModel : ObservableObject
             // its underlying socket/TLS session.
             await client.DisposeAsync();
             ConnectionStatusMessage = $"Couldn't connect: {ex.Message}";
+            _activityLog.Log($"Couldn't connect to FTP site '{site.Name}': {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
@@ -305,6 +365,7 @@ public sealed partial class ServerViewModel : ObservableObject
             IsConnected = false;
             RemoteEntries.Clear();
             ConnectionStatusMessage = "Disconnected.";
+            _activityLog.Log($"Disconnected from FTP site '{SelectedSite?.Name}'.");
         }
     }
 
@@ -387,10 +448,12 @@ public sealed partial class ServerViewModel : ObservableObject
             await _connectedClient.UploadFileAsync(dialog.FileName, remotePath);
             await LoadDirectoryAsync(CurrentRemotePath);
             ConnectionStatusMessage = $"Uploaded '{Path.GetFileName(dialog.FileName)}'.";
+            _activityLog.Log($"Uploaded '{Path.GetFileName(dialog.FileName)}' to '{SelectedSite?.Name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             ConnectionStatusMessage = $"Upload failed: {ex.Message}";
+            _activityLog.Log($"Upload to '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
@@ -419,10 +482,12 @@ public sealed partial class ServerViewModel : ObservableObject
             var remotePath = CombineRemotePath(CurrentRemotePath, entry.Name);
             await _connectedClient.DownloadFileAsync(remotePath, dialog.FileName);
             ConnectionStatusMessage = $"Downloaded '{entry.Name}'.";
+            _activityLog.Log($"Downloaded '{entry.Name}' from '{SelectedSite?.Name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             ConnectionStatusMessage = $"Download failed: {ex.Message}";
+            _activityLog.Log($"Download of '{entry.Name}' from '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
@@ -454,14 +519,285 @@ public sealed partial class ServerViewModel : ObservableObject
             await _connectedClient.DeleteFileAsync(CombineRemotePath(CurrentRemotePath, entry.Name));
             await LoadDirectoryAsync(CurrentRemotePath);
             ConnectionStatusMessage = $"Deleted '{entry.Name}'.";
+            _activityLog.Log($"Deleted '{entry.Name}' from '{SelectedSite?.Name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             ConnectionStatusMessage = $"Delete failed: {ex.Message}";
+            _activityLog.Log($"Delete of '{entry.Name}' on '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>
+    /// Uploads the app's own last-built merged pak (Merge &amp; Install's own Staged_Build output —
+    /// the same file "Install" copies into the LOCAL game folder) to the server's own mods folder,
+    /// replacing whatever's there. The server's mods folder is meant to hold exactly one active
+    /// merged pak, so this clears it out first — but always names every file it's about to delete
+    /// (and upload) in the confirmation prompt, per the user's own explicit ask, rather than a bare
+    /// "are you sure?".
+    /// </summary>
+    [RelayCommand]
+    private async Task InstallPakToServerAsync()
+    {
+        if (_connectedClient is null)
+        {
+            ConnectionStatusMessage = "Connect to a site first.";
+            return;
+        }
+
+        if (!File.Exists(_outputPakPath))
+        {
+            ConnectionStatusMessage = "No built pak yet — run Rebuild on Merge & Install first.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var existing = (await _connectedClient.ListDirectoryAsync(RemoteModsPath))
+                .Where(e => !e.IsDirectory)
+                .ToList();
+
+            var toUpload = new List<string> { Path.GetFileName(_outputPakPath) };
+            if (File.Exists(_pakManifestPath))
+            {
+                toUpload.Add(Path.GetFileName(_pakManifestPath));
+            }
+
+            var deleteList = existing.Count > 0
+                ? "delete:\n" + string.Join('\n', existing.Select(e => $"  - {e.Name}")) + "\n\nthen "
+                : "";
+            var prompt =
+                $"This will {deleteList}upload:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
+                + $"to '{RemoteModsPath}' on '{SelectedSite?.Name}'. Continue?";
+
+            if (MessageBox.Show(prompt, "Install merged pak to server", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            foreach (var entry in existing)
+            {
+                await _connectedClient.DeleteFileAsync($"{RemoteModsPath}/{entry.Name}");
+            }
+
+            await _connectedClient.UploadFileAsync(_outputPakPath, $"{RemoteModsPath}/{Path.GetFileName(_outputPakPath)}");
+            if (File.Exists(_pakManifestPath))
+            {
+                await _connectedClient.UploadFileAsync(_pakManifestPath, $"{RemoteModsPath}/{Path.GetFileName(_pakManifestPath)}");
+            }
+
+            ConnectionStatusMessage = $"Installed the merged pak to '{SelectedSite?.Name}'.";
+            _activityLog.Log($"Installed the merged pak to FTP site '{SelectedSite?.Name}' (replaced {existing.Count} file(s)).", ActivityEntryKind.Success);
+        }
+        catch (Exception ex)
+        {
+            ConnectionStatusMessage = $"Install to server failed: {ex.Message}";
+            _activityLog.Log($"Install to server '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Checks the server's own UE4SS.log version marker against the locally-installed one (the
+    /// same real signal Ue4ssLoaderInstallService already uses for the local check — UE4SS.dll
+    /// itself carries no Win32 version resource) and, if they differ, uploads the loader — never
+    /// the server's own Mods\ folder or its UE4SS-settings.ini if one already exists there, so a
+    /// loader update can't clobber whatever's already configured/running on the server.
+    /// </summary>
+    [RelayCommand]
+    private async Task SyncUe4ssLoaderToServerAsync()
+    {
+        if (_connectedClient is null)
+        {
+            ConnectionStatusMessage = "Connect to a site first.";
+            return;
+        }
+
+        if (_settingsService.Current.IcarusContentPath is not { } contentPath)
+        {
+            ConnectionStatusMessage = "Set the Icarus Content folder in Settings first.";
+            return;
+        }
+
+        var localLoaderFolder = Ue4ssGamePaths.ResolveLoaderFolder(contentPath);
+        var localLogPath = Ue4ssGamePaths.ResolveLoaderLogPath(contentPath);
+        if (!File.Exists(localLogPath))
+        {
+            ConnectionStatusMessage = "UE4SS isn't installed locally — nothing to sync.";
+            return;
+        }
+
+        var localVersion = Ue4ssLogVersionParser.Parse(File.ReadLines(localLogPath));
+
+        IsBusy = true;
+        var tempLogPath = Path.GetTempFileName();
+        try
+        {
+            string? remoteVersion = null;
+            try
+            {
+                await _connectedClient.DownloadFileAsync($"{RemoteLoaderPath}/UE4SS.log", tempLogPath);
+                remoteVersion = Ue4ssLogVersionParser.Parse(File.ReadLines(tempLogPath));
+            }
+            catch (Exception)
+            {
+                // No UE4SS.log on the server yet (or unreadable) — treated as "not installed",
+                // same as the local Ue4ssLoaderInstallService.GetStatus contract.
+            }
+
+            if (remoteVersion is not null && string.Equals(remoteVersion, localVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                ConnectionStatusMessage = $"Server already has UE4SS v{remoteVersion} — nothing to do.";
+                return;
+            }
+
+            var remoteHasSettings = (await TryListRemoteAsync(RemoteLoaderPath))
+                .Any(e => !e.IsDirectory && string.Equals(e.Name, "UE4SS-settings.ini", StringComparison.OrdinalIgnoreCase));
+
+            var localFiles = Directory.GetFiles(localLoaderFolder, "*", SearchOption.AllDirectories)
+                .Where(f => !IsUnderModsFolder(localLoaderFolder, f))
+                .Where(f => !(remoteHasSettings && Path.GetFileName(f).Equals("UE4SS-settings.ini", StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            var prompt =
+                $"This will upload {localFiles.Count} loader file(s) (UE4SS.dll, dwmapi.dll, etc.) to '{RemoteWin64Path}' on "
+                + $"'{SelectedSite?.Name}', replacing its current loader ({(remoteVersion is null ? "not installed" : $"v{remoteVersion}")}). "
+                + $"The server's own Mods folder{(remoteHasSettings ? " and its existing UE4SS-settings.ini" : "")} won't be touched. Continue?";
+            if (MessageBox.Show(prompt, "Sync UE4SS loader to server", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            foreach (var localFile in localFiles)
+            {
+                var relative = Path.GetRelativePath(localLoaderFolder, localFile).Replace('\\', '/');
+                await _connectedClient.UploadFileAsync(localFile, $"{RemoteLoaderPath}/{relative}");
+            }
+
+            await _connectedClient.UploadFileAsync(Ue4ssGamePaths.ResolveDwmapiPath(contentPath), $"{RemoteWin64Path}/dwmapi.dll");
+
+            ConnectionStatusMessage = $"Synced UE4SS v{localVersion} to '{SelectedSite?.Name}'.";
+            _activityLog.Log($"Synced UE4SS loader (v{localVersion}) to FTP site '{SelectedSite?.Name}'.", ActivityEntryKind.Success);
+        }
+        catch (Exception ex)
+        {
+            ConnectionStatusMessage = $"UE4SS sync failed: {ex.Message}";
+            _activityLog.Log($"UE4SS loader sync to '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
+        }
+        finally
+        {
+            File.Delete(tempLogPath);
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Uploads whichever locally-enabled UE4SS mods (the game's own real Mods\ folder — not this
+    /// app's staging) aren't already present on the server, by folder name. Additive only, mirroring
+    /// the same "never overwrite/remove something already there" philosophy the local loader
+    /// install and enable/disable state service both already use — this never touches or removes a
+    /// mod already on the server, including the framework's own built-ins.
+    /// </summary>
+    [RelayCommand]
+    private async Task SyncUe4ssModsToServerAsync()
+    {
+        if (_connectedClient is null)
+        {
+            ConnectionStatusMessage = "Connect to a site first.";
+            return;
+        }
+
+        if (_settingsService.Current.IcarusContentPath is not { } contentPath)
+        {
+            ConnectionStatusMessage = "Set the Icarus Content folder in Settings first.";
+            return;
+        }
+
+        var localModsFolder = Ue4ssGamePaths.ResolveModsFolder(contentPath);
+        if (!Directory.Exists(localModsFolder))
+        {
+            ConnectionStatusMessage = "No local UE4SS mods folder found.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var remoteEntries = await TryListRemoteAsync(RemoteModsRootPath);
+            if (remoteEntries.Count == 0)
+            {
+                ConnectionStatusMessage = "Server has no UE4SS Mods folder yet — sync the UE4SS loader to the server first.";
+                return;
+            }
+
+            var remoteNames = new HashSet<string>(
+                remoteEntries.Where(e => e.IsDirectory).Select(e => e.Name),
+                StringComparer.OrdinalIgnoreCase);
+
+            var localNames = _ue4ssModRepository.ListInstalledInGame(localModsFolder);
+            var missing = localNames.Where(n => !remoteNames.Contains(n)).ToList();
+            if (missing.Count == 0)
+            {
+                ConnectionStatusMessage = "Server already has every locally-enabled UE4SS mod.";
+                return;
+            }
+
+            var prompt =
+                $"This will upload the following UE4SS mod(s) to '{RemoteModsRootPath}' on '{SelectedSite?.Name}' "
+                + $"(nothing already there is touched):\n{string.Join('\n', missing.Select(n => $"  - {n}"))}\n\nContinue?";
+            if (MessageBox.Show(prompt, "Sync UE4SS mods to server", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            foreach (var modName in missing)
+            {
+                var localModFolder = Path.Combine(localModsFolder, modName);
+                foreach (var localFile in Directory.GetFiles(localModFolder, "*", SearchOption.AllDirectories))
+                {
+                    var relative = Path.GetRelativePath(localModFolder, localFile).Replace('\\', '/');
+                    await _connectedClient.UploadFileAsync(localFile, $"{RemoteModsRootPath}/{modName}/{relative}");
+                }
+            }
+
+            ConnectionStatusMessage = $"Uploaded {missing.Count} UE4SS mod(s) to '{SelectedSite?.Name}'.";
+            _activityLog.Log($"Uploaded {missing.Count} UE4SS mod(s) to FTP site '{SelectedSite?.Name}': {string.Join(", ", missing)}.", ActivityEntryKind.Success);
+        }
+        catch (Exception ex)
+        {
+            ConnectionStatusMessage = $"UE4SS mod sync failed: {ex.Message}";
+            _activityLog.Log($"UE4SS mod sync to '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task<IReadOnlyList<FtpEntry>> TryListRemoteAsync(string remotePath)
+    {
+        try
+        {
+            return await _connectedClient!.ListDirectoryAsync(remotePath);
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
+    private static bool IsUnderModsFolder(string loaderFolder, string filePath)
+    {
+        var relative = Path.GetRelativePath(loaderFolder, filePath);
+        var firstSegment = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+        return firstSegment.Equals("Mods", StringComparison.OrdinalIgnoreCase);
     }
 }

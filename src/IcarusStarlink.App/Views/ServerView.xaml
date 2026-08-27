@@ -130,6 +130,22 @@
                         <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     </StackPanel>
                     <TextBlock Text="{Binding ConnectionStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+
+                    <!-- Icarus-server-specific sync actions — a fixed relative path from the FTP
+                         login root (Content/Paks/mods, Binaries/Win64/...), confirmed against a
+                         real dedicated server rather than a per-site configurable field. Each one
+                         names exactly what it's about to delete/upload/skip in its own confirmation
+                         prompt before doing anything. -->
+                    <TextBlock Text="Icarus server sync" Style="{StaticResource FieldLabelStyle}"
+                               Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,20,0,6"/>
+                    <WrapPanel Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Button Content="Install merged pak" Command="{Binding InstallPakToServerCommand}"
+                                ToolTip="Uploads the last built merged pak (Merge &amp; Install's own Rebuild output) to the server's Content/Paks/mods, replacing whatever's already there."/>
+                        <Button Content="Sync UE4SS loader" Command="{Binding SyncUe4ssLoaderToServerCommand}" Margin="8,0,0,0"
+                                ToolTip="Checks the server's own UE4SS version and uploads the loader if it's missing or out of date. Never touches the server's own Mods folder or an existing UE4SS-settings.ini."/>
+                        <Button Content="Sync UE4SS mods" Command="{Binding SyncUe4ssModsToServerCommand}" Margin="8,0,0,0"
+                                ToolTip="Uploads any locally-enabled UE4SS mod the server doesn't already have. Never removes or overwrites a mod already on the server."/>
+                    </WrapPanel>
                 </StackPanel>
                 </ScrollViewer>
                 </Grid>

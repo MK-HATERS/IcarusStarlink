@@ -275,7 +275,11 @@ public partial class App : Application
         builder.Services.AddSingleton(sp => new ServerViewModel(
             sp.GetRequiredService<IFtpSiteStore>(),
             sp.GetRequiredService<ICredentialStore>(),
-            sp.GetRequiredService<Func<IFtpClient>>()));
+            sp.GetRequiredService<Func<IFtpClient>>(),
+            sp.GetRequiredService<IActivityLog>(),
+            sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<IUe4ssModRepository>(),
+            Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak")));
         builder.Services.AddSingleton<HelpViewModel>();
 
         builder.Services.AddSingleton<MainWindow>();
