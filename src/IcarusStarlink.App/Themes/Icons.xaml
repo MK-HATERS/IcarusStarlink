@@ -56,4 +56,7 @@
          site (filled+colored = endorsed, Fill="Transparent" = hollow/not yet). -->
     <Geometry x:Key="IconThumbsUp">M2 13L7 13L7 21L2 21Z M7 9L19 9L19 21L7 21Z M7 2L11 2L11 9L7 9Z</Geometry>
 
+    <!-- A right-pointing play triangle — the nav rail's own "Launch game" quick-link. -->
+    <Geometry x:Key="IconPlay">M6 4L6 20L20 12Z</Geometry>
+
 </ResourceDictionary>

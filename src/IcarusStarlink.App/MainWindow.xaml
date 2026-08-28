@@ -109,7 +109,12 @@
 
             <Border Grid.Column="0" Background="{DynamicResource PanelBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
-                <ListBox ItemsSource="{Binding NavItems}"
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                <ListBox Grid.Row="0" ItemsSource="{Binding NavItems}"
                          SelectedItem="{Binding SelectedNavItem}"
                          Style="{StaticResource NavListBoxStyle}"
                          ItemContainerStyle="{StaticResource NavListBoxItemStyle}"
@@ -126,34 +131,96 @@
                                 <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
                             </StackPanel>
                             <DataTemplate.Triggers>
+                                <!-- Each nav item gets its own fixed, distinct brand color, not a
+                                     theme-reactive DynamicResource — same precedent as the
+                                     Favorite star's own fixed #FFD24C elsewhere in this app: a
+                                     deliberately colorful icon set reads better as a set of fixed
+                                     "brand" colors than as neutral-foreground-derived tones, and
+                                     selection is already shown via the row's own background/accent
+                                     bar, not the icon's color. -->
                                 <DataTrigger Binding="{Binding Id}" Value="nexus">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconGlobeMeridian}"/>
+                                    <Setter TargetName="NavIcon" Property="Stroke" Value="#E08A3C"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="library">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconBook}"/>
+                                    <Setter TargetName="NavIcon" Property="Stroke" Value="#4A90D9"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="merge">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconMerge}"/>
+                                    <Setter TargetName="NavIcon" Property="Stroke" Value="#9B6FDE"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="weekly-changes">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconClockHands}"/>
+                                    <Setter TargetName="NavIcon" Property="Stroke" Value="#3EBFB0"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="server">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconServerBars}"/>
+                                    <Setter TargetName="NavIcon" Property="Stroke" Value="#4CAF6D"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="saves">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconPerson}"/>
+                                    <Setter TargetName="NavIcon" Property="Stroke" Value="#D9668B"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="settings">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconGearTeeth}"/>
+                                    <Setter TargetName="NavIcon" Property="Stroke" Value="#6B92A8"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="help">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconHelpMark}"/>
+                                    <Setter TargetName="NavIcon" Property="Stroke" Value="#D9B44A"/>
                                 </DataTrigger>
                             </DataTemplate.Triggers>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
+
+                <!-- Shell-level quick-links, always available regardless of which page is showing —
+                     matching NavIcon's own icon+label shape but plain buttons, not nav items (they
+                     don't change CurrentPage). Open UE4SS folder/Open game folder disable themselves
+                     (via MainViewModel.CanOpenGameFolders) until a Content path is actually
+                     configured; Launch game and Open mod folder work with zero setup. -->
+                <StackPanel Grid.Row="1" Margin="12,8,12,12">
+                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,8"/>
+                    <Button Command="{Binding LaunchGameCommand}" HorizontalContentAlignment="Left" Margin="0,0,0,4"
+                            ToolTip="Launches Icarus via Steam, with whatever's currently installed"
+                            AutomationProperties.Name="Launch game">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconPlay}" Fill="{DynamicResource SuccessBrush}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,8,0"/>
+                            <TextBlock Text="Launch game" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding OpenModFolderCommand}" HorizontalContentAlignment="Left" Margin="0,0,0,4"
+                            ToolTip="Opens this app's own Extracted_Mods folder in Explorer"
+                            AutomationProperties.Name="Open mod folder">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
+                                  StrokeLineJoin="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,8,0"/>
+                            <TextBlock Text="Mod folder" VerticalAlignment="Center" FontSize="12"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding OpenUe4ssFolderCommand}" HorizontalContentAlignment="Left" Margin="0,0,0,4"
+                            ToolTip="Opens Binaries\Win64\ue4ss\Mods in Explorer — set the Icarus Content path in Settings first"
+                            ToolTipService.ShowOnDisabled="True"
+                            AutomationProperties.Name="Open UE4SS folder">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
+                                  StrokeLineJoin="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,8,0"/>
+                            <TextBlock Text="UE4SS folder" VerticalAlignment="Center" FontSize="12"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding OpenGameFolderCommand}" HorizontalContentAlignment="Left"
+                            ToolTip="Opens the real Icarus install folder in Explorer — set the Icarus Content path in Settings first"
+                            ToolTipService.ShowOnDisabled="True"
+                            AutomationProperties.Name="Open game folder">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
+                                  StrokeLineJoin="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,8,0"/>
+                            <TextBlock Text="Game folder" VerticalAlignment="Center" FontSize="12"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+                </Grid>
             </Border>
 
             <Border Grid.Column="1" Background="{DynamicResource ContentBackgroundBrush}">

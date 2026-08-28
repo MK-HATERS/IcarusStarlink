@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -6,7 +7,9 @@ using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Navigation;
 using IcarusStarlink.App.Services;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Ue4ss;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -94,7 +97,46 @@ public sealed partial class MainViewModel : ObservableObject
         // repository whose constructor scans Extracted_Mods, and this constructor runs before
         // the main window is shown — App.xaml.cs calls SelectDefaultPage() after Show() instead,
         // deferred to the next dispatcher cycle, so the window actually paints first.
+
+        // OpenUe4ssFolder/OpenGameFolder's own CanExecute reads IcarusContentPath, which isn't
+        // itself observable from here — without this, setting the Content path for the first time
+        // in Settings would leave both quick-links looking permanently disabled until next launch.
+        WeakReferenceMessenger.Default.Register<SettingsSavedMessage>(this, (recipient, _) =>
+        {
+            var viewModel = (MainViewModel)recipient;
+            viewModel.OpenUe4ssFolderCommand.NotifyCanExecuteChanged();
+            viewModel.OpenGameFolderCommand.NotifyCanExecuteChanged();
+        });
     }
+
+    /// <summary>Library's own Extracted_Mods folder — always exists once the app has run once (FolderLibraryRepository creates it on startup), created here defensively too so this can never open a "folder not found" error.</summary>
+    [RelayCommand]
+    private void OpenModFolder()
+    {
+        var modFolder = Path.Combine(AppContext.BaseDirectory, "Extracted_Mods");
+        Directory.CreateDirectory(modFolder);
+        UrlOpener.TryOpen(modFolder);
+    }
+
+    private bool CanOpenGameFolders() => !string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath);
+
+    [RelayCommand(CanExecute = nameof(CanOpenGameFolders))]
+    private void OpenUe4ssFolder() => UrlOpener.TryOpen(Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath!));
+
+    /// <summary>The real game install root (Icarus\Icarus, a sibling of Content) — same TrimEnd/GetDirectoryName Ue4ssGamePaths itself already uses to derive it, since IcarusContentPath is the only path this app actually keeps.</summary>
+    [RelayCommand(CanExecute = nameof(CanOpenGameFolders))]
+    private void OpenGameFolder()
+    {
+        var trimmed = _settingsService.Current.IcarusContentPath!.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (Path.GetDirectoryName(trimmed) is { } gameRoot)
+        {
+            UrlOpener.TryOpen(gameRoot);
+        }
+    }
+
+    /// <summary>Steam's own URI launch, not the exe directly — respects whatever launch options/overlay the user already has configured in Steam, the same way clicking Play in the Steam library itself does. 1149460 is Icarus's real App ID, already used by SteamInstallLocator elsewhere in this app.</summary>
+    [RelayCommand]
+    private void LaunchGame() => UrlOpener.TryOpen("steam://run/1149460");
 
     /// <summary>
     /// Defaults to Library specifically, not NavItems[0] — Downloads (now first, matching the
