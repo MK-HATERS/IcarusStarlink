@@ -88,6 +88,16 @@ public class ExmodJsonTests
         Assert.Contains(missingField, ex.Message);
     }
 
+    [Fact]
+    public void Parse_MalformedJsonSyntax_ThrowsFormatExceptionNotRawJsonException()
+    {
+        // Every caller (FolderLibraryRepository.RescanAll's skip-and-log path in particular) is
+        // written against FormatException as the one documented "this EXMOD is unreadable"
+        // exception type — malformed JSON syntax must surface as that, not the raw
+        // System.Text.Json.JsonException DuplicateTolerantJson.Parse happens to throw internally.
+        Assert.Throws<FormatException>(() => ExmodJson.Parse("{ this is not valid json"));
+    }
+
     [Theory]
     [InlineData("../../evil")]
     [InlineData("a/b")]

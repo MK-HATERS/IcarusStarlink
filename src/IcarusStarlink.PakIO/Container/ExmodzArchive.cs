@@ -23,18 +23,29 @@ public static class ExmodzArchive
 
     public static ExmodPackageContents Read(Stream zipStream)
     {
-        using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: true);
+        try
+        {
+            using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: true);
 
-        // Normalize '\' to '/' up front, same as the RAR/7z path's NormalizeEntryKey — a zip entry
-        // name may technically contain a backslash (readers vary on how they interpret it), and
-        // without this, "a/b.txt" and "a\b.txt" would land as distinct keys and slip past the
-        // duplicate-entry check in ReadEntries below.
-        var entries = archive.Entries
-            .Where(e => !e.FullName.EndsWith('/'))
-            .Select(e => new ArchiveEntryHandle(e.FullName.Replace('\\', '/'), e.Length, e.Open))
-            .ToList();
+            // Normalize '\' to '/' up front, same as the RAR/7z path's NormalizeEntryKey — a zip
+            // entry name may technically contain a backslash (readers vary on how they interpret
+            // it), and without this, "a/b.txt" and "a\b.txt" would land as distinct keys and slip
+            // past the duplicate-entry check in ReadEntries below.
+            var entries = archive.Entries
+                .Where(e => !e.FullName.EndsWith('/'))
+                .Select(e => new ArchiveEntryHandle(e.FullName.Replace('\\', '/'), e.Length, e.Open))
+                .ToList();
 
-        return ReadEntries(entries);
+            return ReadEntries(entries);
+        }
+        catch (InvalidDataException ex)
+        {
+            // A corrupt/truncated zip (ArchiveFactory.IsArchive's own magic-byte sniff only
+            // confirms the file LOOKS like a zip, not that its central directory actually parses)
+            // — normalized to FormatException so callers can keep catching one type for "this
+            // isn't a usable mod archive", matching ReadFromSharpCompress's own translation below.
+            throw new FormatException("Couldn't read this zip archive — it may be corrupt or truncated.", ex);
+        }
     }
 
     public static ExmodPackageContents Read(string zipFilePath)

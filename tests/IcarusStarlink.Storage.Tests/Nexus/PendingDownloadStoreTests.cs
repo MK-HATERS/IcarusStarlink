@@ -26,6 +26,23 @@ public class PendingDownloadStoreTests : IDisposable
     }
 
     [Fact]
+    public void Constructor_OneMalformedEntryAmongValidOnes_SkipsOnlyThatEntryInsteadOfDiscardingEveryOne()
+    {
+        Directory.CreateDirectory(_dir);
+        var filePath = Path.Combine(_dir, "pending_downloads.json");
+        File.WriteAllText(filePath, """
+            [
+              {"ModId": 290, "FileId": 1234, "FileName": "Good.zip", "LocalFilePath": "C:\\fake\\Good.zip"},
+              {"ModId": "not-a-number", "FileId": 1, "FileName": "Bad.zip", "LocalFilePath": "C:\\fake\\Bad.zip"}
+            ]
+            """);
+
+        var store = CreateStore();
+
+        Assert.Equal("Good.zip", Assert.Single(store.Entries).FileName);
+    }
+
+    [Fact]
     public void Add_SameModAndFileIdTwice_ReplacesRatherThanDuplicating()
     {
         var store = CreateStore();

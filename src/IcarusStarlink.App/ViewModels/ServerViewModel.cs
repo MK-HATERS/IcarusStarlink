@@ -44,7 +44,7 @@ public sealed partial class ServerViewModel : ObservableObject
 
     private IFtpClient? _connectedClient;
 
-    public string Title => "Server";
+    public string Title => "Server (Beta)";
 
     public static IReadOnlyList<FtpEncryptionMode> EncryptionModes { get; } = Enum.GetValues<FtpEncryptionMode>();
 
@@ -99,6 +99,17 @@ public sealed partial class ServerViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isBusy;
+
+    // IsBusy is set around every FTP-touching command below, but was never consulted as a guard
+    // and never bound in XAML — nothing stopped two of them from running concurrently against the
+    // single shared _connectedClient (one FluentFtpClient), which could corrupt its session state
+    // or throw ObjectDisposedException if e.g. Disconnect raced an in-flight Upload. Every command
+    // below now early-returns while already busy, and every action button in ServerView.xaml binds
+    // IsEnabled to this so a click can't even fire in the first place — the same belt-and-suspenders
+    // shape IsNotConnected/ConnectAsync's own IsConnecting guard already established.
+    public bool IsNotBusy => !IsBusy;
+
+    partial void OnIsBusyChanged(bool value) => OnPropertyChanged(nameof(IsNotBusy));
 
     [ObservableProperty]
     private string? _connectionStatusMessage;
@@ -230,6 +241,19 @@ public sealed partial class ServerViewModel : ObservableObject
             return;
         }
 
+        // Every other destructive Server action already confirms first (DeleteRemoteAsync below) —
+        // this one didn't, and a click meant for the file browser's own Delete landed here instead
+        // during this app's own real testing, permanently wiping a real saved site + its stored
+        // password with no undo. Recovered that time only because the details were still known;
+        // this confirmation is the actual fix, not just a lesson noted for later.
+        var confirm = MessageBox.Show(
+            $"Delete the saved site '{site.Name}'? Its saved password will be removed too. This can't be undone from here.",
+            "Delete site", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
         try
         {
             _siteStore.Delete(site.Id);
@@ -344,7 +368,9 @@ public sealed partial class ServerViewModel : ObservableObject
     [RelayCommand]
     private async Task DisconnectAsync()
     {
-        if (_connectedClient is null)
+        // Never dispose out from under a still-running Upload/Download/Delete/etc. — see the
+        // IsBusy doc comment above.
+        if (_connectedClient is null || IsBusy)
         {
             return;
         }
@@ -399,12 +425,12 @@ public sealed partial class ServerViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private Task Refresh() => LoadDirectoryAsync(CurrentRemotePath);
+    private Task Refresh() => IsBusy ? Task.CompletedTask : LoadDirectoryAsync(CurrentRemotePath);
 
     [RelayCommand]
     private Task NavigateInto(FtpEntry? entry)
     {
-        if (entry is null || !entry.IsDirectory)
+        if (IsBusy || entry is null || !entry.IsDirectory)
         {
             return Task.CompletedTask;
         }
@@ -415,6 +441,11 @@ public sealed partial class ServerViewModel : ObservableObject
     [RelayCommand]
     private Task NavigateUp()
     {
+        if (IsBusy)
+        {
+            return Task.CompletedTask;
+        }
+
         var trimmed = CurrentRemotePath.TrimEnd('/');
         var lastSlash = trimmed.LastIndexOf('/');
         var parent = lastSlash <= 0 ? "/" : trimmed[..lastSlash];
@@ -430,7 +461,7 @@ public sealed partial class ServerViewModel : ObservableObject
     [RelayCommand]
     private async Task UploadAsync()
     {
-        if (_connectedClient is null)
+        if (_connectedClient is null || IsBusy)
         {
             return;
         }
@@ -464,6 +495,11 @@ public sealed partial class ServerViewModel : ObservableObject
     [RelayCommand]
     private async Task DownloadAsync()
     {
+        if (IsBusy)
+        {
+            return;
+        }
+
         if (_connectedClient is null || SelectedRemoteEntry is not { IsDirectory: false } entry)
         {
             ConnectionStatusMessage = "Select a file first.";
@@ -499,6 +535,11 @@ public sealed partial class ServerViewModel : ObservableObject
     [RelayCommand]
     private async Task DeleteRemoteAsync()
     {
+        if (IsBusy)
+        {
+            return;
+        }
+
         if (_connectedClient is null || SelectedRemoteEntry is not { IsDirectory: false } entry)
         {
             ConnectionStatusMessage = "Select a file first.";
@@ -543,6 +584,11 @@ public sealed partial class ServerViewModel : ObservableObject
     [RelayCommand]
     private async Task InstallPakToServerAsync()
     {
+        if (IsBusy)
+        {
+            return;
+        }
+
         if (_connectedClient is null)
         {
             ConnectionStatusMessage = "Connect to a site first.";
@@ -615,6 +661,11 @@ public sealed partial class ServerViewModel : ObservableObject
     [RelayCommand]
     private async Task SyncUe4ssLoaderToServerAsync()
     {
+        if (IsBusy)
+        {
+            return;
+        }
+
         if (_connectedClient is null)
         {
             ConnectionStatusMessage = "Connect to a site first.";
@@ -709,6 +760,11 @@ public sealed partial class ServerViewModel : ObservableObject
     [RelayCommand]
     private async Task SyncUe4ssModsToServerAsync()
     {
+        if (IsBusy)
+        {
+            return;
+        }
+
         if (_connectedClient is null)
         {
             ConnectionStatusMessage = "Connect to a site first.";

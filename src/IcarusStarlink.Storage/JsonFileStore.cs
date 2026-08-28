@@ -40,6 +40,65 @@ internal static class JsonFileStore
         }
     }
 
+    /// <summary>
+    /// List-shaped counterpart to Load&lt;T&gt; — used by FtpSiteStore/PendingDownloadStore/
+    /// NexusWatchlistStore, each backed by a JSON array of independent records. Load&lt;T&gt;
+    /// deserializes the whole file as one JsonSerializer.Deserialize&lt;List&lt;TItem&gt;&gt; call,
+    /// so a single malformed element (a future schema change, a hand-edit, a record written by a
+    /// build mid-migration) throws and silently discards every OTHER, perfectly-valid saved site/
+    /// download/watchlist entry along with it. This instead parses the array structurally first,
+    /// then deserializes element-by-element, skipping (and logging) only the one that fails.
+    /// </summary>
+    public static List<TItem> LoadList<TItem>(string filePath, ILogger logger)
+    {
+        if (!File.Exists(filePath))
+        {
+            return [];
+        }
+
+        JsonElement root;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(filePath));
+            root = document.RootElement.Clone();
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex, "Failed to load {Path}; falling back to an empty list", filePath);
+            return [];
+        }
+
+        if (root.ValueKind != JsonValueKind.Array)
+        {
+            logger.LogWarning("Expected a JSON array in {Path} but found {Kind}; falling back to an empty list", filePath, root.ValueKind);
+            return [];
+        }
+
+        var items = new List<TItem>();
+        var index = 0;
+        foreach (var element in root.EnumerateArray())
+        {
+            try
+            {
+                var item = element.Deserialize<TItem>(Options);
+                if (item is not null)
+                {
+                    items.Add(item);
+                }
+            }
+            catch (JsonException ex)
+            {
+                // The whole point of this method over Load<List<TItem>> — one bad record is
+                // skipped and logged, not a reason to throw away every other valid one.
+                logger.LogWarning(ex, "Skipped a malformed entry at index {Index} in {Path}", index, filePath);
+            }
+
+            index++;
+        }
+
+        return items;
+    }
+
     /// <summary>Serializes value with the shared Options, then writes it via WriteAtomically.</summary>
     public static void Save<T>(string filePath, T value) => WriteAtomically(filePath, JsonSerializer.Serialize(value, Options));
 

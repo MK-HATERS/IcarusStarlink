@@ -373,4 +373,16 @@ public class ExmodzArchiveTests
 
         Assert.Throws<FormatException>(() => ExmodzArchive.Read(stream));
     }
+
+    [Fact]
+    public void Read_Stream_CorruptZipWithNoValidCentralDirectory_ThrowsFormatExceptionNotRawInvalidDataException()
+    {
+        // A real local file header signature (so this looks enough like a zip to get this far)
+        // with no End Of Central Directory record after it — ZipArchive's constructor throws
+        // InvalidDataException for this, which callers throughout this codebase catch as
+        // FormatException, matching ReadFromSharpCompress's own translation for the RAR/7z path.
+        using var stream = new MemoryStream([0x50, 0x4B, 0x03, 0x04, 0x00, 0x00]);
+
+        Assert.Throws<FormatException>(() => ExmodzArchive.Read(stream));
+    }
 }

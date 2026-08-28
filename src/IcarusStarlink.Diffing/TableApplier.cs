@@ -21,11 +21,21 @@ public static class TableApplier
         // silently gets a half-formed row invented for it — no error, just content that quietly
         // doesn't work in game. Surfacing it is the only way a user can tell "this mod adds new
         // content" from "this mod is out of date for this game version".
-        var createdItems = new HashSet<string>(StringComparer.Ordinal);
-        var createdItemFieldCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        //
+        // The lookup key normalizes CurrentFile to uppercase-invariant — it denotes a real Windows
+        // file path, and different EXMOD authors' extraction tools aren't guaranteed to emit it
+        // with consistent casing (the same convention FieldChangeKeyComparer already applies for
+        // MergeEngine/MultiFileMerger) — while ItemName stays exactly as-is (a real JSON row name,
+        // not a file path). Without this, two changes to the "same" newly-created item that only
+        // differ in CurrentFile casing would be tracked as two separate items, splitting one item's
+        // real field count across two notes instead of reporting it once, correctly.
+        var createdItemKeys = new HashSet<string>(StringComparer.Ordinal);
+        var createdItemInfo = new Dictionary<string, (string CurrentFile, string ItemName, int FieldCount)>(StringComparer.Ordinal);
 
         foreach (var change in changes)
         {
+            var createdKey = $"{change.CurrentFile.ToUpperInvariant()}|{change.ItemName}";
+
             if (result[change.ItemName] is not JsonObject row)
             {
                 if (!change.IsNewItem)
@@ -37,13 +47,15 @@ public static class TableApplier
 
                 row = new JsonObject();
                 result[change.ItemName] = row;
-                createdItems.Add($"{change.CurrentFile}|{change.ItemName}");
+                createdItemKeys.Add(createdKey);
             }
 
-            var createdKey = $"{change.CurrentFile}|{change.ItemName}";
-            if (createdItems.Contains(createdKey))
+            if (createdItemKeys.Contains(createdKey))
             {
-                createdItemFieldCounts[createdKey] = createdItemFieldCounts.GetValueOrDefault(createdKey) + 1;
+                var (currentFile, itemName, fieldCount) = createdItemInfo.TryGetValue(createdKey, out var existing)
+                    ? existing
+                    : (change.CurrentFile, change.ItemName, 0);
+                createdItemInfo[createdKey] = (currentFile, itemName, fieldCount + 1);
             }
 
             // IsFieldRemoved (not NewValue == null — see FieldChange) distinguishes "remove the
@@ -58,13 +70,9 @@ public static class TableApplier
             }
         }
 
-        foreach (var createdKey in createdItems)
+        foreach (var createdKey in createdItemKeys)
         {
-            var separator = createdKey.IndexOf('|');
-            var currentFile = createdKey[..separator];
-            var itemName = createdKey[(separator + 1)..];
-            var fieldCount = createdItemFieldCounts.GetValueOrDefault(createdKey);
-
+            var (currentFile, itemName, fieldCount) = createdItemInfo[createdKey];
             report?.AddNote(StaleItemHeuristic.BuildNote(currentFile, itemName, fieldCount));
         }
 

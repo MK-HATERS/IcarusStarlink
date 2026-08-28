@@ -19,10 +19,25 @@ public static class ExmodJson
 {
     public static ExmodPackage Parse(string json)
     {
-        // Duplicate-tolerant rather than JsonNode.Parse: real mods in the wild repeat a key inside
-        // one object, and rejecting those made a working mod completely unusable here (see
-        // DuplicateTolerantJson). Last occurrence wins, matching normal JSON semantics.
-        var root = DuplicateTolerantJson.Parse(json) as JsonObject
+        JsonNode? parsed;
+        try
+        {
+            // Duplicate-tolerant rather than JsonNode.Parse: real mods in the wild repeat a key
+            // inside one object, and rejecting those made a working mod completely unusable here
+            // (see DuplicateTolerantJson). Last occurrence wins, matching normal JSON semantics.
+            parsed = DuplicateTolerantJson.Parse(json);
+        }
+        catch (JsonException ex)
+        {
+            // Malformed JSON syntax (truncated content, a stray comma) is exactly the same
+            // "unreadable EXMOD" case every other failure mode in this class already surfaces as
+            // FormatException — every caller (FolderLibraryRepository.RescanAll's skip-and-log
+            // path in particular) is written against that one documented exception type, not a
+            // raw framework exception this specific failure mode happened to throw.
+            throw new FormatException("EXMOD JSON is not valid JSON.", ex);
+        }
+
+        var root = parsed as JsonObject
             ?? throw new FormatException("EXMOD JSON root is not an object.");
         return Parse(root);
     }

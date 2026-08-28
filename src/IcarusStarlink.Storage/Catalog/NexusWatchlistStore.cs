@@ -16,7 +16,7 @@ public sealed class NexusWatchlistStore : INexusWatchlistStore
         _logger = logger;
         Directory.CreateDirectory(appDataDirectory);
         _filePath = Path.Combine(appDataDirectory, "nexus_watchlist.json");
-        _entries = JsonFileStore.Load(_filePath, () => new List<NexusWatchlistEntry>(), _logger);
+        _entries = JsonFileStore.LoadList<NexusWatchlistEntry>(_filePath, _logger);
     }
 
     public void Add(NexusWatchlistEntry entry)

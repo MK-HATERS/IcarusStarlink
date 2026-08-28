@@ -180,6 +180,30 @@ public sealed class SaveRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void RestoreSlot_CorruptBackupZip_LeavesLiveSlotUntouchedAndThrows()
+    {
+        // The whole point of extracting to a scratch folder BEFORE touching the live slot: a
+        // corrupt/truncated backup (a slow-drive copy, a file mid-write when copied) must fail
+        // before the real save folder is ever deleted, not after — otherwise "restore the wrong
+        // backup" would leave the user with neither the old state nor a working new one.
+        Directory.CreateDirectory(_backups);
+        var corruptBackupPath = Path.Combine(_backups, "corrupt.zip");
+        File.WriteAllBytes(corruptBackupPath, [0x50, 0x4B, 0x03, 0x04, 0x00, 0x00]);
+
+        Assert.ThrowsAny<Exception>(() => _repository.RestoreSlot(SteamId, corruptBackupPath));
+
+        // The live slot's real content survived completely, byte-for-byte the same as at
+        // construction — never deleted, never even touched.
+        Assert.Equal(100, _repository.LoadProfile(SteamId)["MetaResources"]![0]!["Count"]!.GetValue<int>());
+        Assert.True(File.Exists(Path.Combine(_playerData, SteamId, "Characters.json")));
+
+        // No leftover scratch folder either — cleaned up on failure, not left behind as clutter.
+        Assert.DoesNotContain(
+            Directory.GetDirectories(_playerData),
+            dir => Path.GetFileName(dir).Contains("_restore_scratch_"));
+    }
+
+    [Fact]
     public void ListBackups_NewestFirst_OnlyThisSlots()
     {
         _repository.BackupSlot(SteamId);

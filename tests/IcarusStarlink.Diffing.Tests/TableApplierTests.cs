@@ -75,6 +75,33 @@ public class TableApplierTests
     }
 
     [Fact]
+    public void Apply_NewItemChangesWithDifferentlyCasedCurrentFile_TrackedAsOneItemNotTwo()
+    {
+        // CurrentFile denotes a real Windows file path — different EXMOD authors' extraction
+        // tools aren't guaranteed to emit it with consistent casing (the same reason
+        // FieldChangeKeyComparer already treats it case-insensitively for MergeEngine/
+        // MultiFileMerger). Without the same normalization here, these two changes to the same
+        // new item would be tracked as two separate items, splitting the real field count across
+        // two notes instead of reporting one item with fieldCount: 2.
+        var baseTable = JsonNode.Parse("""{"Sword": {"Damage": 10}}""")!.AsObject();
+        var changes = new[]
+        {
+            new FieldChange(
+                "Items-D_ItemsStatic.json", "LaserSword", "Damage",
+                OriginalValue: null, NewValue: JsonValue.Create(99), ValueSemantic.Scalar, IsNewItem: true),
+            new FieldChange(
+                "items-d_itemsstatic.json", "LaserSword", "GlowColor",
+                OriginalValue: null, NewValue: JsonValue.Create("Blue"), ValueSemantic.Scalar, IsNewItem: true),
+        };
+        var report = new MergeReport();
+
+        TableApplier.Apply(baseTable, changes, report);
+
+        var note = Assert.Single(report.Notes);
+        Assert.Equal(StaleItemHeuristic.BuildNote("Items-D_ItemsStatic.json", "LaserSword", fieldCount: 2), note);
+    }
+
+    [Fact]
     public void Apply_ChangeToRowRemovedFromBase_SkipsWithWarning()
     {
         var currentBase = JsonNode.Parse("""{"Sword": {"Damage": 10}}""")!.AsObject();

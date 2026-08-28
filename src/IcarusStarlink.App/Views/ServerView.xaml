@@ -127,7 +127,8 @@
                                 Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
                             <TextBlock Text="CONNECTED" FontFamily="Consolas" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource SuccessBrush}"/>
                         </Border>
-                        <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <Button Content="Disconnect" Command="{Binding DisconnectCommand}" IsEnabled="{Binding IsNotBusy}"
+                                Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     </StackPanel>
                     <TextBlock Text="{Binding ConnectionStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
 
@@ -138,7 +139,7 @@
                          prompt before doing anything. -->
                     <TextBlock Text="Icarus server sync" Style="{StaticResource FieldLabelStyle}"
                                Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,20,0,6"/>
-                    <WrapPanel Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <WrapPanel IsEnabled="{Binding IsNotBusy}" Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Button Content="Install merged pak" Command="{Binding InstallPakToServerCommand}"
                                 ToolTip="Uploads the last built merged pak (Merge &amp; Install's own Rebuild output) to the server's Content/Paks/mods, replacing whatever's already there."/>
                         <Button Content="Sync UE4SS loader" Command="{Binding SyncUe4ssLoaderToServerCommand}" Margin="8,0,0,0"
@@ -159,7 +160,7 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8" IsEnabled="{Binding IsNotBusy}">
                     <TextBlock Text="{Binding CurrentRemotePath}" VerticalAlignment="Center" FontFamily="Consolas"/>
                     <Button Command="{Binding NavigateUpCommand}" Style="{StaticResource IconButtonStyle}" Width="28" Margin="12,0,0,0"
                             ToolTip="Up" AutomationProperties.Name="Up">
@@ -191,7 +192,7 @@
                     </DataGrid.Columns>
                 </DataGrid>
 
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0" IsEnabled="{Binding IsNotBusy}">
                     <Button Command="{Binding UploadCommand}"
                             ToolTip="Uploads a local file into the current remote folder" AutomationProperties.Name="Upload">
                         <StackPanel Orientation="Horizontal">

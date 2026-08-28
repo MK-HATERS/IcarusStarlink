@@ -216,7 +216,16 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         var slotFolder = ResolveSlot(steamId);
         Directory.CreateDirectory(backupsDirectory);
         var zipPath = FolderBackup.MakeUniqueTimestampedPath(backupsDirectory, steamId, DateTimeOffset.Now, ".zip");
-        ZipFile.CreateFromDirectory(slotFolder, zipPath);
+
+        // Written under a temp name first, then renamed into place only once ZipFile has finished
+        // writing every entry — an interruption partway through (disk full, a save file the still-
+        // running game has locked) then leaves nothing under backupsDirectory matching the
+        // "{steamId}_*.zip" glob ListBackups/RestoreSlot use, instead of a truncated zip that would
+        // otherwise be offered — and later trusted — as a real, complete backup.
+        var tempPath = zipPath + ".tmp";
+        ZipFile.CreateFromDirectory(slotFolder, tempPath);
+        File.Move(tempPath, zipPath);
+
         PruneBackups(steamId);
         return zipPath;
     }
@@ -283,12 +292,35 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         var preRestorePath = FolderBackup.MakeUniqueTimestampedPath(backupsDirectory, $"{steamId}_pre_restore", DateTimeOffset.Now, ".zip");
         ZipFile.CreateFromDirectory(slotFolder, preRestorePath);
 
-        // Replace, not merge: a restore means "the slot as it was then", and files created since
-        // the backup (a new character's sidecar, the game's own rolling .backup copies) lingering
-        // beside restored ones would be a half-and-half state neither the user nor the game chose.
-        Directory.Delete(slotFolder, recursive: true);
-        Directory.CreateDirectory(slotFolder);
-        ZipFile.ExtractToDirectory(backupFilePath, slotFolder);
+        // Extracted to a scratch folder FIRST, while the live slot is still fully intact — a
+        // corrupt or truncated backup zip (a slow-drive copy, a file that was mid-write when
+        // copied) then throws here with the real save folder never having been touched at all,
+        // instead of deleting it before discovering the backup can't actually be read. The scratch
+        // folder is a sibling of slotFolder (not under backupsDirectory) specifically so the final
+        // swap below is a same-volume Directory.Move, not a cross-volume one that could itself fail
+        // partway through.
+        var scratchFolder = Path.Combine(playerDataDirectory, $"{steamId}_restore_scratch_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(scratchFolder);
+        try
+        {
+            ZipFile.ExtractToDirectory(backupFilePath, scratchFolder);
+
+            // Replace, not merge: a restore means "the slot as it was then", and files created
+            // since the backup (a new character's sidecar, the game's own rolling .backup copies)
+            // lingering beside restored ones would be a half-and-half state neither the user nor
+            // the game chose. Only reached once the extraction above has already fully succeeded.
+            Directory.Delete(slotFolder, recursive: true);
+            Directory.Move(scratchFolder, slotFolder);
+        }
+        catch
+        {
+            if (Directory.Exists(scratchFolder))
+            {
+                Directory.Delete(scratchFolder, recursive: true);
+            }
+
+            throw;
+        }
 
         // Pruning runs LAST, only after backupFilePath has already been fully read — running it
         // right after the pre-restore zip (as this used to) could delete backupFilePath itself

@@ -14,7 +14,7 @@ public sealed class FtpSiteStore : IFtpSiteStore
         _logger = logger;
         Directory.CreateDirectory(appDataDirectory);
         _filePath = Path.Combine(appDataDirectory, "ftp_sites.json");
-        _sites = JsonFileStore.Load(_filePath, () => new List<FtpSiteProfile>(), _logger);
+        _sites = JsonFileStore.LoadList<FtpSiteProfile>(_filePath, _logger);
     }
 
     public IReadOnlyList<FtpSiteProfile> GetAll() => _sites;

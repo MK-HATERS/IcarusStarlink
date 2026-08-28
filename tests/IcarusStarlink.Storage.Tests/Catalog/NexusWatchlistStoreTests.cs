@@ -26,6 +26,23 @@ public class NexusWatchlistStoreTests : IDisposable
     }
 
     [Fact]
+    public void Constructor_OneMalformedEntryAmongValidOnes_SkipsOnlyThatEntryInsteadOfDiscardingEveryOne()
+    {
+        Directory.CreateDirectory(_dir);
+        var filePath = Path.Combine(_dir, "nexus_watchlist.json");
+        File.WriteAllText(filePath, """
+            [
+              {"NexusId": 304, "Url": "https://www.nexusmods.com/icarus/mods/304", "Name": "Good Mod"},
+              {"NexusId": "not-a-number", "Url": "https://www.nexusmods.com/icarus/mods/1", "Name": "Bad Mod"}
+            ]
+            """);
+
+        var store = CreateStore();
+
+        Assert.Equal("Good Mod", Assert.Single(store.Entries).Name);
+    }
+
+    [Fact]
     public void Add_SameNexusIdTwice_ReplacesRatherThanDuplicating()
     {
         var store = CreateStore();

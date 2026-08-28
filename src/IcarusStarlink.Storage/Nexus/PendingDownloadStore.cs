@@ -16,7 +16,7 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
         _logger = logger;
         Directory.CreateDirectory(appDataDirectory);
         _filePath = Path.Combine(appDataDirectory, "pending_downloads.json");
-        _entries = JsonFileStore.Load(_filePath, () => new List<PendingDownloadEntry>(), _logger);
+        _entries = JsonFileStore.LoadList<PendingDownloadEntry>(_filePath, _logger);
     }
 
     public void Add(PendingDownloadEntry entry)

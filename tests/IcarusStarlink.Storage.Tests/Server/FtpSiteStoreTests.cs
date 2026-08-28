@@ -86,6 +86,28 @@ public class FtpSiteStoreTests : IDisposable
         Assert.Equal(site.EncryptionMode, reloaded.EncryptionMode);
     }
 
+    [Fact]
+    public void Constructor_OneMalformedEntryAmongValidOnes_SkipsOnlyThatEntryInsteadOfDiscardingEveryOne()
+    {
+        // JsonFileStore.LoadList's whole reason to exist over plain Load<List<T>>: a single
+        // malformed record (bad hand-edit, a future schema change) must not silently wipe out
+        // every OTHER perfectly-valid saved site too.
+        Directory.CreateDirectory(_dir);
+        var filePath = Path.Combine(_dir, "ftp_sites.json");
+        var goodId = Guid.NewGuid();
+        File.WriteAllText(filePath, $$"""
+            [
+              {"Id": "{{goodId}}", "Name": "Good Site", "Host": "ftp.example.com", "Port": 21, "Username": "icarus", "RemotePath": "/mods"},
+              {"Id": "not-a-guid", "Name": "Bad Site", "Host": "x", "Username": "u"}
+            ]
+            """);
+
+        var store = CreateStore();
+
+        var site = Assert.Single(store.GetAll());
+        Assert.Equal("Good Site", site.Name);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))
