@@ -127,8 +127,8 @@
                                                Visibility="{Binding Mod.DatesDisplay, Converter={StaticResource NullToVisibilityConverter}}"/>
                                     <TextBlock Text="{Binding Mod.Summary}" Style="{StaticResource PageBodyTextStyle}" FontSize="12"
                                                TextWrapping="Wrap" MaxHeight="52" ClipToBounds="True" ToolTip="{Binding Mod.Summary}"/>
-                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                        <Button Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <Button Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,4"
                                                 Command="{Binding DataContext.DownloadModCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                 CommandParameter="{Binding Mod}"
                                                 ToolTip="Downloads the mod's main file straight into Pending Downloads (needs Nexus Premium — otherwise use Open page's Mod Manager Download)"
@@ -143,7 +143,7 @@
                                              watchlist membership itself, so the click always does
                                              the opposite of whatever IsTracked shows right now. -->
                                         <Button Command="{Binding DataContext.TrackModCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                CommandParameter="{Binding Mod}">
+                                                CommandParameter="{Binding Mod}" Margin="0,0,0,4">
                                             <Button.Style>
                                                 <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                                     <Setter Property="ToolTip" Value="Add to Downloads' Nexus watchlist, so it's checked for updates"/>
@@ -187,7 +187,7 @@
                                                 </TextBlock>
                                             </StackPanel>
                                         </Button>
-                                        <Button Margin="8,0,0,0"
+                                        <Button Margin="8,0,8,4"
                                                 Command="{Binding DataContext.OpenModPageCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                 CommandParameter="{Binding Mod}"
                                                 ToolTip="Open the mod's page in your browser — downloads start there via Mod Manager Download"
@@ -198,7 +198,15 @@
                                                 <TextBlock Text="Open page" VerticalAlignment="Center"/>
                                             </StackPanel>
                                         </Button>
-                                    </StackPanel>
+                                        <Button Margin="0,0,0,4" Style="{StaticResource IconButtonStyle}"
+                                                Command="{Binding DataContext.ShowChangelogCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding Mod}"
+                                                ToolTip="Show this mod's changelog for its current version"
+                                                AutomationProperties.Name="Show changelog">
+                                            <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
+                                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform"/>
+                                        </Button>
+                                    </WrapPanel>
                                 </StackPanel>
                             </StackPanel>
                         </Border>

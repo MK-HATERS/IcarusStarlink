@@ -1,4 +1,4 @@
 namespace IcarusStarlink.Catalog.Nexus;
 
-/// <summary>One downloadable file on a mod's Files tab — the file ID is what the download_link endpoint needs alongside the mod ID. IsPrimary marks the file Nexus itself considers the mod's main download; CategoryName is "MAIN"/"OPTIONAL"/"OLD_VERSION"/etc. per Nexus's own IFileInfo shape.</summary>
-public sealed record NexusModFile(int FileId, string FileName, string Name, string Version, string? CategoryName, bool IsPrimary);
+/// <summary>One downloadable file on a mod's Files tab — the file ID is what the download_link endpoint needs alongside the mod ID. IsPrimary marks the file Nexus itself considers the mod's main download; CategoryName is "MAIN"/"OPTIONAL"/"OLD_VERSION"/etc. per Nexus's own IFileInfo shape. Notes is that file's own changelog (preferred — Nexus's own IFileInfo docs it as "matched via file version", which is what the website itself shows next to a specific file's download buttons) falling back to its description if there's no changelog; both already HTML-decoded/tag-stripped, null if neither field had anything.</summary>
+public sealed record NexusModFile(int FileId, string FileName, string Name, string Version, string? CategoryName, bool IsPrimary, string? Notes = null);

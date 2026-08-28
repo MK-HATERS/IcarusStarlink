@@ -61,6 +61,14 @@ public interface INexusApiClient
     /// answers unauthenticated — pass the key when there is one.
     /// </summary>
     Task<NexusModPage> ListAllModsAsync(string? apiKey, string gameDomain, int offset, int count, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A mod's own changelog history — version number to its list of change lines (e.g.
+    /// {"1.1": ["PAK-file updated 26th of August 2026"]}), matching Nexus's own real
+    /// per-version changelog display on a mod's page. Endpoint confirmed against the official
+    /// client's own getChangelogs. Same 401/403-throws convention as the other authenticated calls.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetChangelogsAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>One page of ListAllModsAsync — the slice plus the catalog's own total, so the UI can say "N of M shown" and know whether more remain.</summary>

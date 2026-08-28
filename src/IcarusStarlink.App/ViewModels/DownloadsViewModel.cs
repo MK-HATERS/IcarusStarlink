@@ -1,12 +1,14 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Net.Http;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.GitHub;
@@ -630,10 +632,13 @@ public sealed partial class DownloadsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Resolves a bare Nexus mod ID to its primary downloadable file, then runs it through
+    /// Resolves a bare Nexus mod ID to a downloadable file, then runs it through
     /// FetchAndDownloadAsync — the same two-step DownloadModAsync uses. Shared here so the manual
     /// paste box (given a plain mod-page URL) and NexusCatalogViewModel's own per-card Download
-    /// button don't each carry their own copy of "find the primary file" logic.
+    /// button don't each carry their own copy of this logic. A mod with exactly one file downloads
+    /// it directly, same as before; a mod with more than one (different versions, optional
+    /// add-ons, or FOMOD-style variant packs) shows a real picker instead of silently grabbing
+    /// whatever Nexus marks primary — that was silently discarding every other file a mod offered.
     /// </summary>
     public async Task ResolvePrimaryFileAndFetchAsync(int nexusModId, string? displayName = null)
     {
@@ -644,17 +649,31 @@ public sealed partial class DownloadsViewModel : ObservableObject
             return;
         }
 
-        PendingDownloadStatusMessage = $"Finding mod #{nexusModId}'s main file…";
+        PendingDownloadStatusMessage = $"Finding mod #{nexusModId}'s file(s)…";
         try
         {
             var files = await _nexusApiClient.GetModFilesAsync(apiKey, "icarus", nexusModId);
-            var file = files.FirstOrDefault(f => f.IsPrimary)
-                ?? files.FirstOrDefault(f => string.Equals(f.CategoryName, "MAIN", StringComparison.OrdinalIgnoreCase))
-                ?? files.FirstOrDefault();
-            if (file is null)
+            if (files.Count == 0)
             {
                 PendingDownloadStatusMessage = $"Mod #{nexusModId} has no downloadable files listed.";
                 return;
+            }
+
+            NexusModFile file;
+            if (files.Count == 1)
+            {
+                file = files[0];
+            }
+            else
+            {
+                var dialog = new PickNexusFileDialog(displayName ?? $"Mod #{nexusModId}", files) { Owner = Application.Current.MainWindow };
+                if (dialog.ShowDialog() != true || dialog.SelectedFile is not { } chosen)
+                {
+                    PendingDownloadStatusMessage = "Download cancelled.";
+                    return;
+                }
+
+                file = chosen;
             }
 
             await FetchAndDownloadAsync($"nxm://icarus/mods/{nexusModId}/files/{file.FileId}", displayName);

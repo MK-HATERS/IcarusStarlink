@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Catalog;
@@ -351,6 +353,53 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         await Downloads.ResolvePrimaryFileAndFetchAsync(mod.ModId, mod.Name);
         StatusMessage = Downloads.PendingDownloadStatusMessage;
         RebuildRows();
+    }
+
+    /// <summary>
+    /// Nexus's own real per-version changelog (a separate endpoint from a file's own
+    /// changelog_html — this one is the mod-wide history shown on its own page). Looks up the
+    /// currently-shown version first (what someone browsing the card actually wants to know) and
+    /// falls back to the whole history if that exact version string isn't a key in the response
+    /// (a mismatch between the mod's own displayed version and its changelog's own version
+    /// labels is possible — an author can word these differently).
+    /// </summary>
+    [RelayCommand]
+    private async Task ShowChangelogAsync(NexusModInfo? mod)
+    {
+        if (mod is null)
+        {
+            return;
+        }
+
+        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+        if (apiKey is null)
+        {
+            StatusMessage = "Sign in with your Nexus API key in Settings first.";
+            return;
+        }
+
+        StatusMessage = $"Loading '{mod.Name}''s changelog…";
+        try
+        {
+            var changelogs = await _nexusApiClient.GetChangelogsAsync(apiKey, "icarus", mod.ModId);
+            StatusMessage = null;
+
+            if (changelogs.Count == 0)
+            {
+                StatusMessage = $"'{mod.Name}' has no changelog recorded.";
+                return;
+            }
+
+            IReadOnlyList<ChangelogVersionEntry> versions = changelogs.TryGetValue(mod.Version, out var currentLines)
+                ? [new ChangelogVersionEntry(mod.Version, currentLines)]
+                : [.. changelogs.Select(kv => new ChangelogVersionEntry(kv.Key, kv.Value))];
+
+            new NexusChangelogWindow(mod.Name ?? $"Mod #{mod.ModId}", versions) { Owner = Application.Current.MainWindow }.Show();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't load changelog: {ex.Message}";
+        }
     }
 
     /// <summary>

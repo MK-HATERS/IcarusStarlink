@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace IcarusStarlink.Catalog.Nexus;
 
@@ -144,7 +145,49 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         // official client's own IModFiles shape, not a bare array like the browse lists.
         var dto = await response.Content.ReadFromJsonAsync<ModFilesResponseDto>(cancellationToken)
             ?? throw new HttpRequestException("Nexus's mod-files endpoint returned an empty response.");
-        return [.. dto.Files.Select(f => new NexusModFile(f.FileId, f.FileName, f.Name, f.Version, f.CategoryName, f.IsPrimary))];
+        return [.. dto.Files.Select(f => new NexusModFile(
+            f.FileId, f.FileName, f.Name, f.Version, f.CategoryName, f.IsPrimary,
+            CleanHtmlNotes(f.ChangelogHtml) ?? CleanHtmlNotes(f.Description)))];
+    }
+
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetChangelogsAsync(
+        string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{modId}/changelogs");
+        request.Headers.Add("apikey", apiKey);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            throw new InvalidOperationException("Nexus rejected the stored API key.");
+        }
+
+        response.EnsureSuccessStatusCode();
+        // The response is a flat { "1.1": ["line one", "line two"], "1.0": [...] } object — no
+        // wrapper, unlike GetModFilesAsync's own {"files": [...]} shape — so a plain dictionary
+        // deserializes it directly, no DTO type needed.
+        var dto = await response.Content.ReadFromJsonAsync<Dictionary<string, List<string>>>(cancellationToken)
+            ?? [];
+        return dto.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value);
+    }
+
+    /// <summary>Nexus's changelog_html/description fields are real (if simple) HTML — a
+    /// &lt;ul&gt;/&lt;li&gt; list or &lt;br&gt;-separated lines, most commonly. This app has no HTML
+    /// renderer and only needs plain text here, so tags are stripped rather than rendered — the
+    /// same "small hand-rolled subset, not a full parser" approach already used for Markdown
+    /// elsewhere in this app.</summary>
+    private static string? CleanHtmlNotes(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return null;
+        }
+
+        var withBreaks = Regex.Replace(html, "<br\\s*/?>|</p>|</li>", "\n", RegexOptions.IgnoreCase);
+        var textOnly = Regex.Replace(withBreaks, "<[^>]+>", "");
+        var decoded = WebUtility.HtmlDecode(textOnly);
+        var cleaned = string.Join('\n', decoded.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0));
+        return cleaned.Length == 0 ? null : cleaned;
     }
 
     private sealed class ValidateResponseDto
@@ -320,6 +363,12 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
         [JsonPropertyName("is_primary")]
         public bool IsPrimary { get; init; }
+
+        [JsonPropertyName("changelog_html")]
+        public string? ChangelogHtml { get; init; }
+
+        [JsonPropertyName("description")]
+        public string? Description { get; init; }
     }
 
     // The v2 GraphQL response wrapper — camelCase field names, unlike v1's snake_case.
