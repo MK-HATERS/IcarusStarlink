@@ -81,10 +81,12 @@ public partial class App : Application
         // registration, Library scan, window show) rest of startup below: a second instance only
         // waits a few seconds on SendToRunningInstance before giving up silently, so if the pipe
         // server didn't exist yet until after all of that finished, a real nxm:// click during a
-        // cold app start could easily lose the race and vanish with no error anywhere. Safe to
-        // call this early — HandleNxmUrl below runs via Dispatcher.BeginInvoke, which the WPF
-        // message loop won't actually pump until OnStartup returns, by which point _host (assigned
-        // further down) is always already set.
+        // cold app start could easily lose the race and vanish with no error anywhere. The DI host
+        // now builds on a background thread (see the splash-screen Task.Run below), so unlike
+        // before, OnStartup returns and the WPF message loop starts pumping well before _host is
+        // actually assigned — HandleNxmUrl's own null check below is what covers a real nxm:// pipe
+        // message that happens to land in that narrow window (silently dropped, same as if the
+        // pipe server itself hadn't started yet).
         singleInstanceService.StartListening(nxmUrl => Dispatcher.BeginInvoke(() => HandleNxmUrl(nxmUrl)));
 
         var appDataDirectory = AppContext.BaseDirectory;
@@ -98,6 +100,15 @@ public partial class App : Application
                 rollingInterval: RollingInterval.Day,
                 retainedFileCountLimit: 14)
             .CreateLogger();
+
+        // Shown immediately, before the DI host builds — the actual expensive startup work
+        // (building the host, then resolving MainViewModel/Library, which triggers
+        // FolderLibraryRepository's own synchronous folder scan + search-index rebuild) runs on a
+        // background thread below instead, with this splash's own message pump the only thing kept
+        // responsive on the UI thread in the meantime. Closes itself once MainWindow is ready to
+        // show — see the Dispatcher.Invoke block near the end of this method.
+        var splash = new Views.SplashWindow();
+        splash.Show();
 
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.ClearProviders();
@@ -203,8 +214,11 @@ public partial class App : Application
         // really does support two independent mods open at once). Registered as a factory
         // delegate, not AddTransient<T>, since the folder name it edits is only known at the
         // moment Library's Edit…/New mod… actions fire, not at DI composition time.
+        builder.Services.AddSingleton<GameDataIndexCache>();
         builder.Services.AddSingleton<Func<string, ExmodEditorViewModel>>(sp => folderName =>
-            new ExmodEditorViewModel(folderName, sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data")));
+            new ExmodEditorViewModel(
+                folderName, sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data"),
+                sp.GetRequiredService<GameDataIndexCache>()));
 
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton(sp => new LibraryViewModel(
@@ -310,44 +324,66 @@ public partial class App : Application
 
         builder.Services.AddSingleton<MainWindow>();
 
-        _host = builder.Build();
-        _host.Start();
-
-        var logger = _host.Services.GetRequiredService<ILogger<App>>();
-        logger.LogInformation("IcarusStarlink starting up");
-
-        var themeService = _host.Services.GetRequiredService<IThemeService>();
-        var settingsService = _host.Services.GetRequiredService<ISettingsService>();
-        themeService.ApplyTheme(settingsService.Current.ThemeName);
-
-        var mainWindow = _host.Services.GetRequiredService<MainWindow>();
-        mainWindow.Show();
-
-        // Deferred to the next dispatcher cycle so the window paints once before the default
-        // page (Library) resolves a repository that scans Extracted_Mods — otherwise that scan
-        // would run before the window ever appears at all. This only moves the freeze to just
-        // after the window shows, not off the UI thread entirely: for the "dozens of mods"
-        // library size this is designed around, that scan is fast enough not to matter; a truly
-        // large library would still visibly hang the window here. Making the scan itself
-        // non-blocking (background thread + a loading state in the Library UI) is future work if
-        // that assumption stops holding.
-        var mainViewModel = _host.Services.GetRequiredService<MainViewModel>();
-        Dispatcher.BeginInvoke(mainViewModel.SelectDefaultPage);
-
-        // Constructed eagerly (page ViewModels are otherwise built lazily on first navigation) so
-        // its launch checks — the app-update prompt, Nexus key re-validation, and the UnrealPak
-        // first-run verify/locate/install offer — genuinely run at launch, not whenever the user
-        // first happens to open Settings. Queued behind SelectDefaultPage so the window paints
-        // and lands on its default page before any of those checks can show a dialog.
-        Dispatcher.BeginInvoke(() => _host.Services.GetRequiredService<SettingsViewModel>());
-
-        // Handle the case where THIS launch (the first instance) was itself invoked with an
-        // nxm:// argument — e.g. the very first time the OS protocol registration is used.
-        var ownNxmArg = e.Args.FirstOrDefault(arg => arg.StartsWith("nxm://", StringComparison.OrdinalIgnoreCase));
-        if (ownNxmArg is not null)
+        // Building the host and resolving MainViewModel both run off the UI thread now — resolving
+        // MainViewModel.SelectDefaultPage() is what actually triggers LibraryViewModel, which
+        // constructs FolderLibraryRepository, which synchronously scans Extracted_Mods and rebuilds
+        // the FTS5 search index (the one real freeze risk a prior version of this comment flagged:
+        // fine for the "dozens of mods" library size this is designed around, real for a much
+        // larger one). None of this touches a Window/UIElement, so it's safe to build entirely off
+        // the UI thread — only the final MainWindow construction below needs to run on it. The
+        // splash's own message pump is what stays responsive while this runs.
+        Task.Run(() =>
         {
-            Dispatcher.BeginInvoke(() => HandleNxmUrl(ownNxmArg));
-        }
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            _host = builder.Build();
+            _host.Start();
+
+            var logger = _host.Services.GetRequiredService<ILogger<App>>();
+            logger.LogInformation("IcarusStarlink starting up");
+
+            splash.UpdateStatus("Loading library…");
+            var mainViewModel = _host.Services.GetRequiredService<MainViewModel>();
+            mainViewModel.SelectDefaultPage();
+
+            // A short floor, not a fixed delay: for the "dozens of mods" library size this is
+            // designed around, the work above finishes in well under this (confirmed live —
+            // otherwise it'd flash by unseen), so this just holds the last bit of the transition.
+            // A genuinely large library that takes longer than this on its own is never held up
+            // an extra moment by it.
+            var remaining = TimeSpan.FromMilliseconds(600) - stopwatch.Elapsed;
+            if (remaining > TimeSpan.Zero)
+            {
+                Thread.Sleep(remaining);
+            }
+
+            Dispatcher.Invoke(() =>
+            {
+                var themeService = _host.Services.GetRequiredService<IThemeService>();
+                var settingsService = _host.Services.GetRequiredService<ISettingsService>();
+                themeService.ApplyTheme(settingsService.Current.ThemeName);
+
+                var mainWindow = _host.Services.GetRequiredService<MainWindow>();
+                mainWindow.Show();
+                splash.Close();
+
+                // Constructed eagerly (page ViewModels are otherwise built lazily on first
+                // navigation) so its launch checks — the app-update prompt, Nexus key
+                // re-validation, and the UnrealPak first-run verify/locate/install offer —
+                // genuinely run at launch, not whenever the user first happens to open Settings.
+                // Deferred one more dispatcher cycle so the window paints first.
+                Dispatcher.BeginInvoke(() => _host.Services.GetRequiredService<SettingsViewModel>());
+
+                // Handle the case where THIS launch (the first instance) was itself invoked with
+                // an nxm:// argument — e.g. the very first time the OS protocol registration is
+                // used.
+                var ownNxmArg = e.Args.FirstOrDefault(arg => arg.StartsWith("nxm://", StringComparison.OrdinalIgnoreCase));
+                if (ownNxmArg is not null)
+                {
+                    Dispatcher.BeginInvoke(() => HandleNxmUrl(ownNxmArg));
+                }
+            });
+        });
     }
 
     private void HandleNxmUrl(string nxmUrl)

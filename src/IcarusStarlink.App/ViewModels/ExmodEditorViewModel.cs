@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Library;
@@ -55,6 +56,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     private readonly ILibraryRepository _repository;
     private readonly string _folderName;
     private readonly string _dataFolder;
+    private readonly GameDataIndexCache _gameDataIndexCache;
     private readonly ExmodPackage _package;
 
     /// <summary>
@@ -170,11 +172,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [ObservableProperty]
     private string? _massEditStatusMessage;
 
-    public ExmodEditorViewModel(string folderName, ILibraryRepository repository, string dataFolder)
+    public ExmodEditorViewModel(string folderName, ILibraryRepository repository, string dataFolder, GameDataIndexCache gameDataIndexCache)
     {
         _repository = repository;
         _folderName = folderName;
         _dataFolder = dataFolder;
+        _gameDataIndexCache = gameDataIndexCache;
         _package = ExmodFolder.Read(repository.GetFolderPath(folderName)).Package;
         _filterDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), ReloadItems);
 
@@ -338,9 +341,6 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         }
     }
 
-    /// <summary>Built once, on the first "Add item from game data" click — ~300 file parses over the whole extracted data folder, kept for the editor window's lifetime so reopening the picker is instant.</summary>
-    private IReadOnlyList<GameDataItemRef>? _gameItemIndex;
-
     /// <summary>
     /// Classic IMM's own "Add Item to Mod" — its changelog's single most-iterated editor feature,
     /// credited with drastically cutting the time to build custom items. Picks any real in-game
@@ -352,24 +352,21 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [RelayCommand]
     private async Task AddItemFromGameAsync()
     {
-        if (_gameItemIndex is null)
+        IReadOnlyList<GameDataItemRef> gameItemIndex;
+        StatusMessage = "Reading the game data folder…";
+        try
         {
-            StatusMessage = "Reading the game data folder…";
-            try
-            {
-                var dataFolder = _dataFolder;
-                _gameItemIndex = await Task.Run(() => BuildGameItemIndex(dataFolder));
-            }
-            catch (Exception ex)
-            {
-                StatusMessage = $"Couldn't read the game data folder: {ex.Message}";
-                return;
-            }
-
-            StatusMessage = null;
+            gameItemIndex = await _gameDataIndexCache.GetItemIndexAsync(_dataFolder);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't read the game data folder: {ex.Message}";
+            return;
         }
 
-        if (_gameItemIndex.Count == 0)
+        StatusMessage = null;
+
+        if (gameItemIndex.Count == 0)
         {
             StatusMessage = "No game data found — run Update data folder in Settings first.";
             return;
@@ -381,7 +378,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             .SelectMany(r => r.FileItems.Select(i => PickGameItemDialog.CoverageKey(r.CurrentFile, i.Name)))
             .ToHashSet();
 
-        var dialog = new PickGameItemDialog(_gameItemIndex, coveredKeys) { Owner = Application.Current.MainWindow };
+        var dialog = new PickGameItemDialog(gameItemIndex, coveredKeys) { Owner = Application.Current.MainWindow };
         if (dialog.ShowDialog() != true || dialog.SelectedItem is not { } picked)
         {
             return;
@@ -436,9 +433,6 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         StatusMessage = $"Added '{picked.ItemName}' with all {item.Fields.Count} of its real game values — edit what you want changed.";
     }
 
-    /// <summary>Built once, on the first "Search game data" click — heavier than _gameItemIndex (it keeps each row's serialized JSON for the reference search), so the two stay separate lazily-built caches.</summary>
-    private IReadOnlyList<GameDataSearchEntry>? _gameSearchIndex;
-
     /// <summary>
     /// Classic IMM's "Search Original JSON" — find an item by name AND everywhere its name/value is
     /// referenced inside other items' JSON across the whole extracted game data (which recipes
@@ -448,109 +442,28 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [RelayCommand]
     private async Task SearchGameDataAsync()
     {
-        if (_gameSearchIndex is null)
+        IReadOnlyList<GameDataSearchEntry> gameSearchIndex;
+        StatusMessage = "Indexing the game data for search…";
+        try
         {
-            StatusMessage = "Indexing the game data for search…";
-            try
-            {
-                var dataFolder = _dataFolder;
-                _gameSearchIndex = await Task.Run(() => BuildGameSearchIndex(dataFolder));
-            }
-            catch (Exception ex)
-            {
-                StatusMessage = $"Couldn't read the game data folder: {ex.Message}";
-                return;
-            }
-
-            StatusMessage = null;
+            gameSearchIndex = await _gameDataIndexCache.GetSearchIndexAsync(_dataFolder);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't read the game data folder: {ex.Message}";
+            return;
         }
 
-        if (_gameSearchIndex.Count == 0)
+        StatusMessage = null;
+
+        if (gameSearchIndex.Count == 0)
         {
             StatusMessage = "No game data found — run Update data folder in Settings first.";
             return;
         }
 
-        var window = new SearchGameDataWindow(_gameSearchIndex, _dataFolder) { Owner = Application.Current.MainWindow };
+        var window = new SearchGameDataWindow(gameSearchIndex, _dataFolder) { Owner = Application.Current.MainWindow };
         window.Show();
-    }
-
-    private static List<GameDataSearchEntry> BuildGameSearchIndex(string dataFolder)
-    {
-        var index = new List<GameDataSearchEntry>();
-        if (!Directory.Exists(dataFolder))
-        {
-            return index;
-        }
-
-        foreach (var filePath in Directory.EnumerateFiles(dataFolder, "*.json", SearchOption.AllDirectories))
-        {
-            JsonNode? parsed;
-            try
-            {
-                parsed = JsonNode.Parse(File.ReadAllText(filePath));
-            }
-            catch (JsonException)
-            {
-                continue;
-            }
-
-            if (parsed is not JsonObject fileObject || fileObject["Rows"] is not JsonArray rows)
-            {
-                continue;
-            }
-
-            var realPath = Path.GetRelativePath(dataFolder, filePath).Replace('\\', '/');
-            foreach (var rowNode in rows)
-            {
-                if (rowNode is JsonObject row && row["Name"] is JsonValue nameValue && nameValue.TryGetValue<string>(out var name))
-                {
-                    index.Add(new GameDataSearchEntry(realPath, name, row.ToJsonString()));
-                }
-            }
-        }
-
-        return index;
-    }
-
-    /// <summary>One pass over the extracted data folder, reading only each file's row names — a file that isn't DataTable-shaped (no Rows array, or not JSON at all) is skipped, not an error.</summary>
-    private static List<GameDataItemRef> BuildGameItemIndex(string dataFolder)
-    {
-        var index = new List<GameDataItemRef>();
-        if (!Directory.Exists(dataFolder))
-        {
-            return index;
-        }
-
-        foreach (var filePath in Directory.EnumerateFiles(dataFolder, "*.json", SearchOption.AllDirectories))
-        {
-            JsonNode? parsed;
-            try
-            {
-                parsed = JsonNode.Parse(File.ReadAllText(filePath));
-            }
-            catch (JsonException)
-            {
-                continue;
-            }
-
-            if (parsed is not JsonObject fileObject || fileObject["Rows"] is not JsonArray rows)
-            {
-                continue;
-            }
-
-            var realPath = Path.GetRelativePath(dataFolder, filePath).Replace('\\', '/');
-            var currentFile = realPath.Replace('/', '-');
-            foreach (var rowNode in rows)
-            {
-                if (rowNode is JsonObject row && row["Name"] is JsonValue nameValue && nameValue.TryGetValue<string>(out var name))
-                {
-                    index.Add(new GameDataItemRef(currentFile, realPath, name));
-                }
-            }
-        }
-
-        return index;
     }
 
     /// <summary>
@@ -692,11 +605,32 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// Application.Windows (a ViewModel has no stored back-reference to it) so the pop-out is owned
     /// by the editor window it came from, not the main app window.
     /// </summary>
+    /// <summary>Every pane currently popped out of this editor, one per ExmodEditorViewMode — this is what makes PopOutCurrentView idempotent instead of piling up duplicate windows for the same view on repeated clicks.</summary>
+    private readonly List<ExmodPaneWindow> _openPaneWindows = [];
+
     [RelayCommand]
     private void PopOutCurrentView()
     {
+        var existing = _openPaneWindows.FirstOrDefault(w => w.FixedViewMode == ViewMode);
+        if (existing is not null)
+        {
+            // Already open for this exact view — surface it instead of stacking another copy on
+            // top. A minimized pane would otherwise Activate() invisibly, with nothing appearing
+            // to happen.
+            if (existing.WindowState == WindowState.Minimized)
+            {
+                existing.WindowState = WindowState.Normal;
+            }
+
+            existing.Activate();
+            return;
+        }
+
         var owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(w => ReferenceEquals(w.DataContext, this));
-        new ExmodPaneWindow(this, ViewMode) { Owner = owner }.Show();
+        var pane = new ExmodPaneWindow(this, ViewMode) { Owner = owner };
+        _openPaneWindows.Add(pane);
+        pane.Closed += (_, _) => _openPaneWindows.Remove(pane);
+        pane.Show();
     }
 
     [RelayCommand]
