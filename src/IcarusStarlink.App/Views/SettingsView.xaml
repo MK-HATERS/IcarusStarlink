@@ -271,22 +271,6 @@
                             <Run Text="You have v"/><Run Text="{Binding InstalledAppVersion, Mode=OneWay}"/><Run Text=" installed."/>
                         </TextBlock>
 
-                        <StackPanel Visibility="{Binding HasNoSavedGitHubToken, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <TextBlock Text="IcarusStarlink's own GitHub repo is currently private — a personal access token (repo scope) is needed to check for and download updates."
-                                       Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10"/>
-                            <DockPanel Margin="0,0,0,8">
-                                <Button Content="Save token" Command="{Binding SaveGitHubTokenCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"/>
-                                <PasswordBox x:Name="GitHubTokenBox" DockPanel.Dock="Left" PasswordChanged="GitHubTokenBox_PasswordChanged"
-                                             ToolTip="Paste a GitHub personal access token here — never stored in settings.json, only Windows Credential Manager"/>
-                            </DockPanel>
-                        </StackPanel>
-
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
-                                    Visibility="{Binding HasSavedGitHubToken, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <TextBlock Text="GitHub token saved." VerticalAlignment="Center"/>
-                            <Button Content="Clear" Command="{Binding ClearGitHubTokenCommand}" Margin="12,0,0,0"/>
-                        </StackPanel>
-
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <Button Command="{Binding CheckForAppUpdatesCommand}" IsEnabled="{Binding CanCheckForAppUpdates}" AutomationProperties.Name="Check for updates">
                                 <StackPanel Orientation="Horizontal">
@@ -307,6 +291,8 @@
                             <Button Content="Open release page" Command="{Binding OpenLatestReleasePageCommand}" Margin="8,0,0,0"
                                     Visibility="{Binding IsAppUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
                                     ToolTip="The manual fallback — opens the release's GitHub page in your browser instead"/>
+                            <Button Content="View all releases" Command="{Binding OpenReleasesPageCommand}" Margin="8,0,0,0"
+                                    ToolTip="Opens the repo's own Releases page on GitHub — every version, with its notes, always available regardless of whether a check has run"/>
                         </StackPanel>
                         <TextBlock Text="{Binding AppUpdateStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                    TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"

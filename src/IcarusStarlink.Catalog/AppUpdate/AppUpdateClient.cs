@@ -1,32 +1,21 @@
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using IcarusStarlink.Catalog.GitHub;
 
 namespace IcarusStarlink.Catalog.AppUpdate;
 
-/// <summary>
-/// GitHub's own "latest release" endpoint for this app's own repo. Unlike Ue4ssReleaseClient's
-/// target (a genuinely public repo), IcarusStarlink's own repo is private for now — GitHub's API
-/// 404s a private repo's /releases/latest to an unauthenticated request the same way it would for a
-/// repo that doesn't exist at all, and a private release's asset can't be fetched via its plain
-/// browser_download_url at all (that URL only resolves inside a browser's own logged-in GitHub
-/// session) — it needs the authenticated /releases/assets/{id} endpoint with an
-/// Accept: application/octet-stream header instead. Both code paths here work for a public repo
-/// too (a null/omitted token there just means "unauthenticated", same as any public API caller),
-/// so nothing needs to change here the day the repo goes public.
-/// </summary>
+/// <summary>GitHub's own "latest release" endpoint for this app's own public repo — every call here works fully unauthenticated, same as Ue4ssReleaseClient's own public-repo target.</summary>
 public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
 {
     private const string Owner = "MK-HATERS";
     private const string Repo = "IcarusStarlink";
     private const string LatestReleaseUrl = $"https://api.github.com/repos/{Owner}/{Repo}/releases/latest";
 
-    public async Task<AppUpdateRelease?> GetLatestReleaseAsync(string? gitHubToken, CancellationToken cancellationToken = default)
+    public async Task<AppUpdateRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken = default)
     {
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, LatestReleaseUrl);
-            ApplyHeaders(request, gitHubToken);
+            GitHubUserAgent.EnsureOn(request);
 
             using var response = await httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
@@ -42,7 +31,7 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
             }
 
             var version = dto.TagName.StartsWith('v') ? dto.TagName[1..] : dto.TagName;
-            return new AppUpdateRelease(version, dto.Body ?? "", asset.Id, asset.BrowserDownloadUrl);
+            return new AppUpdateRelease(version, dto.Body ?? "", asset.BrowserDownloadUrl);
         }
         catch (Exception)
         {
@@ -52,16 +41,10 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
         }
     }
 
-    public async Task DownloadAssetAsync(AppUpdateRelease release, string? gitHubToken, string destinationPath, CancellationToken cancellationToken = default)
+    public async Task DownloadAssetAsync(AppUpdateRelease release, string destinationPath, CancellationToken cancellationToken = default)
     {
-        // The authenticated asset-id endpoint whenever a token is available — it's the only path
-        // that works for a private repo, and works equally well for a public one. Only fall back to
-        // the plain browser_download_url when there's no token to authenticate with at all.
-        using var request = string.IsNullOrWhiteSpace(gitHubToken)
-            ? new HttpRequestMessage(HttpMethod.Get, release.AssetBrowserDownloadUrl)
-            : new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Owner}/{Repo}/releases/assets/{release.AssetId}");
-        ApplyHeaders(request, gitHubToken);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+        using var request = new HttpRequestMessage(HttpMethod.Get, release.AssetBrowserDownloadUrl);
+        GitHubUserAgent.EnsureOn(request);
 
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -69,15 +52,5 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
         await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var fileStream = File.Create(destinationPath);
         await contentStream.CopyToAsync(fileStream, cancellationToken);
-    }
-
-    private static void ApplyHeaders(HttpRequestMessage request, string? gitHubToken)
-    {
-        GitHubUserAgent.EnsureOn(request);
-
-        if (!string.IsNullOrWhiteSpace(gitHubToken))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("token", gitHubToken);
-        }
     }
 }

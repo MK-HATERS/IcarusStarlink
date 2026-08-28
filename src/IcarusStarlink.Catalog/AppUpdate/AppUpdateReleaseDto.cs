@@ -17,9 +17,6 @@ internal sealed class AppUpdateReleaseDto
 
 internal sealed class AppUpdateAssetDto
 {
-    [JsonPropertyName("id")]
-    public long Id { get; init; }
-
     [JsonPropertyName("name")]
     public string Name { get; init; } = "";
 

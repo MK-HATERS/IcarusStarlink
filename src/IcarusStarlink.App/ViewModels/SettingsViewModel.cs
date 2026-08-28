@@ -200,7 +200,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         _unrealPakExePath = settingsService.Current.UnrealPakExePath;
         _performanceTrackingEnabled = settingsService.Current.PerformanceTrackingEnabled;
         _isNxmProtocolRegisteredToThisApp = nxmProtocolRegistrar.IsRegisteredToThisApp();
-        _hasSavedGitHubToken = credentialStore.Read(CredentialTargets.GitHubToken) is not null;
 
         if (!string.IsNullOrWhiteSpace(IcarusContentPath))
         {
@@ -1133,24 +1132,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
 
     [ObservableProperty]
-    private string _gitHubTokenInput = "";
-
-    /// <summary>Whether a token is currently saved — the token itself is never held in this ViewModel or read back for display, only its presence/absence.</summary>
-    [ObservableProperty]
-    private bool _hasSavedGitHubToken;
-
-    public bool HasNoSavedGitHubToken => !HasSavedGitHubToken;
-
-    partial void OnHasSavedGitHubTokenChanged(bool value) => OnPropertyChanged(nameof(HasNoSavedGitHubToken));
-
-    [ObservableProperty]
     private bool _isCheckingForAppUpdate;
 
     public bool CanCheckForAppUpdates => !IsCheckingForAppUpdate;
 
     partial void OnIsCheckingForAppUpdateChanged(bool value) => OnPropertyChanged(nameof(CanCheckForAppUpdates));
 
-    /// <summary>Null until CheckForAppUpdatesAsync/CheckForAppUpdatesOnLaunchAsync succeeds — offline/rate-limited/no-token-on-a-private-repo all leave this null.</summary>
+    /// <summary>Null until CheckForAppUpdatesAsync/CheckForAppUpdatesOnLaunchAsync succeeds — offline or rate-limited both leave this null.</summary>
     [ObservableProperty]
     private AppUpdateRelease? _latestAppUpdateRelease;
 
@@ -1166,40 +1154,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnLatestAppUpdateReleaseChanged(AppUpdateRelease? value) => OnPropertyChanged(nameof(IsAppUpdateAvailable));
 
     [RelayCommand]
-    private void SaveGitHubToken()
-    {
-        if (string.IsNullOrWhiteSpace(GitHubTokenInput))
-        {
-            AppUpdateStatusMessage = "Paste a GitHub personal access token first.";
-            return;
-        }
-
-        _credentialStore.Save(CredentialTargets.GitHubToken, GitHubTokenInput.Trim());
-        HasSavedGitHubToken = true;
-        GitHubTokenInput = "";
-        AppUpdateStatusMessage = "GitHub token saved.";
-    }
-
-    [RelayCommand]
-    private void ClearGitHubToken()
-    {
-        _credentialStore.Delete(CredentialTargets.GitHubToken);
-        HasSavedGitHubToken = false;
-        AppUpdateStatusMessage = "GitHub token cleared.";
-    }
-
-    [RelayCommand]
     private async Task CheckForAppUpdatesAsync()
     {
         IsCheckingForAppUpdate = true;
         AppUpdateStatusMessage = null;
         try
         {
-            var token = _credentialStore.Read(CredentialTargets.GitHubToken);
-            LatestAppUpdateRelease = await _appUpdateClient.GetLatestReleaseAsync(token);
+            LatestAppUpdateRelease = await _appUpdateClient.GetLatestReleaseAsync();
             AppUpdateStatusMessage = LatestAppUpdateRelease switch
             {
-                null => "Couldn't check for updates — while the repo is private, a GitHub token above is required.",
+                null => "Couldn't check for updates — GitHub may be unreachable, or the check hit a rate limit.",
                 { } r when IsAppUpdateAvailable => $"v{r.Version} is available (you have v{InstalledAppVersion}).",
                 _ => "You're up to date.",
             };
@@ -1249,13 +1213,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         IsInstallingAppUpdate = true;
         try
         {
-            var token = _credentialStore.Read(CredentialTargets.GitHubToken);
             var workDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"AppUpdate_{Guid.NewGuid():N}");
             Directory.CreateDirectory(workDirectory);
 
             AppUpdateStatusMessage = $"Downloading v{release.Version}…";
             var zipPath = Path.Combine(workDirectory, "update.zip");
-            await _appUpdateClient.DownloadAssetAsync(release, token, zipPath);
+            await _appUpdateClient.DownloadAssetAsync(release, zipPath);
 
             AppUpdateStatusMessage = "Preparing update…";
             var extractDirectory = Path.Combine(workDirectory, "new");
@@ -1328,16 +1291,19 @@ public sealed partial class SettingsViewModel : ObservableObject
         UrlOpener.TryOpen($"https://github.com/MK-HATERS/IcarusStarlink/releases/tag/v{release.Version}");
     }
 
+    /// <summary>Always available, unlike OpenLatestReleasePage above — doesn't need a check to have run first, since the repo is public and its whole release history is just a normal GitHub page.</summary>
+    [RelayCommand]
+    private void OpenReleasesPage() => UrlOpener.TryOpen("https://github.com/MK-HATERS/IcarusStarlink/releases");
+
     /// <summary>
     /// Silent once-per-launch check, same shape as InitializeNexusStatusAsync/CheckUe4ssLatestReleaseAsync
-    /// — no nag if unconfigured (no token yet, while the repo is private). Only a genuine newer
-    /// release prompts, via a real Yes/No, matching every other "ask before doing something visible"
-    /// gate already established in this app.
+    /// — no nag on a transient failure (offline, rate-limited). Only a genuine newer release
+    /// prompts, via a real Yes/No, matching every other "ask before doing something visible" gate
+    /// already established in this app.
     /// </summary>
     private async Task CheckForAppUpdatesOnLaunchAsync()
     {
-        var token = _credentialStore.Read(CredentialTargets.GitHubToken);
-        var release = await _appUpdateClient.GetLatestReleaseAsync(token);
+        var release = await _appUpdateClient.GetLatestReleaseAsync();
         if (release is null)
         {
             return;
