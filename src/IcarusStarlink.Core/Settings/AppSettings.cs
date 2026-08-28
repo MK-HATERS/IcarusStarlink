@@ -30,7 +30,9 @@ public sealed class AppSettings
     public double? WindowTop { get; set; }
     public double? WindowWidth { get; set; }
     public double? WindowHeight { get; set; }
-    public bool WindowMaximized { get; set; }
+
+    /// <summary>Null until the first real close, same as the four bounds above — MainWindow treats null as "never chosen yet" and defaults to Maximized, rather than always defaulting an unmaximized bool to false on a fresh install.</summary>
+    public bool? WindowMaximized { get; set; }
 
     /// <summary>
     /// Folder names always merged into every rebuild — the "standard/minimum" baseline list

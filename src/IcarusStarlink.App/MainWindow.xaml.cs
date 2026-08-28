@@ -41,7 +41,11 @@ public partial class MainWindow : Window
             Top = top;
         }
 
-        if (settings.WindowMaximized)
+        // Null (never explicitly saved — a fresh install, or one from before this was tracked)
+        // defaults to Maximized: a new user's first real look at the app shouldn't be a small,
+        // arbitrarily-sized window. Once a real session actually closes, this always reflects
+        // that session's own true state, maximized or not, from then on.
+        if (settings.WindowMaximized ?? true)
         {
             WindowState = WindowState.Maximized;
         }
