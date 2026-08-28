@@ -13,6 +13,7 @@
     <converters:HexToBrushConverter x:Key="HexToBrushConverter"/>
     <converters:VariantSuffixConverter x:Key="VariantSuffixConverter"/>
     <converters:StaleItemTooltipConverter x:Key="StaleItemTooltipConverter"/>
+    <converters:SortIndicatorConverter x:Key="SortIndicatorConverter"/>
 
     <!-- The semantic change badge shared by every "what changed" grid (Weekly Changes, pak
          comparison, mod version comparison) — all three render the same ChangedRowViewModel, so
@@ -912,6 +913,18 @@
         <Setter Property="Padding" Value="0"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+
+    <!-- Library's own sortable column headers (NAME/AUTHOR/VERSION/SOURCE/IMPORTED) — reads as
+         plain clickable text, not a normal button, matching Explorer's own Details-view header
+         convention. Same transparent-Background/zero-BorderThickness trick as IconButtonStyle
+         above, just sized for text instead of a fixed icon box. -->
+    <Style x:Key="ColumnHeaderButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="Cursor" Value="Hand"/>
     </Style>
 
     <!-- Phase 10 redesign: same shape as IconButtonStyle, but for a ToggleButton — Library's

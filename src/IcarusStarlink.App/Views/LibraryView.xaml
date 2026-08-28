@@ -62,14 +62,16 @@
                     </Style>
                 </Grid.Style>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" MinWidth="26" SharedSizeGroup="ColCheckbox"/>
                     <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
                     <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
                     <ColumnDefinition Width="Auto" MinWidth="110" SharedSizeGroup="ColAuthor"/>
                     <ColumnDefinition Width="Auto" MinWidth="60" SharedSizeGroup="ColVersion"/>
                     <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColSource"/>
                     <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColStatus"/>
-                    <ColumnDefinition Width="Auto" MinWidth="70" SharedSizeGroup="ColLatest"/>
-                    <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColImported"/>
+                    <ColumnDefinition Width="Auto" MinWidth="30" SharedSizeGroup="ColEndorsed"/>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="ColLatest"/>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="ColImported"/>
                     <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColActions"/>
                 </Grid.ColumnDefinitions>
                 <Grid.ContextMenu>
@@ -84,6 +86,10 @@
                          to whatever opened the menu, so it stays inside the real visual tree) exposes that
                          Tag back to the MenuItem below. -->
                     <ContextMenu>
+                        <MenuItem Header="Select all"
+                                  Command="{Binding PlacementTarget.Tag.SelectAllForBulkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  ToolTip="Selects every mod currently shown (respects the search box), ready for a bulk action below"/>
+                        <Separator/>
                         <!-- The primary reason to right-click a mod at all now that Merge & Install
                              has no browsing pane of its own — Ctrl/Shift-click first to select more
                              than one, this adds the whole bulk selection (see EnsureBulkSelected in
@@ -136,15 +142,29 @@
                                   Command="{Binding PlacementTarget.Tag.LinkToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
                                   ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates"/>
+                        <MenuItem Header="Endorse" Command="{Binding EndorseCommand}"
+                                  ToolTip="Endorses this mod on Nexus, on your account's behalf"
+                                  ToolTipService.ShowOnDisabled="True"/>
+                        <MenuItem Header="Abstain" Command="{Binding AbstainCommand}"
+                                  ToolTip="Marks this mod as abstained on Nexus — use if you don't want to endorse it but also don't want it counted against you either way"
+                                  ToolTipService.ShowOnDisabled="True"/>
                         <Separator/>
                         <MenuItem Header="Delete"
                                   Command="{Binding PlacementTarget.Tag.DeleteItemCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
-                                  ToolTip="Removes this mod's folder from your Library — asks first, and can't be undone without a backup"/>
+                                  ToolTip="Removes the selected mod(s)' folders from your Library — asks first (naming how many), can't be undone without a backup"/>
+                        <MenuItem Header="Delete all…"
+                                  Command="{Binding PlacementTarget.Tag.DeleteAllCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  ToolTip="Removes every mod in your Library, regardless of what's selected — asks first (naming the real count), can't be undone without a backup"/>
                     </ContextMenu>
                 </Grid.ContextMenu>
 
-                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                <CheckBox Grid.Column="0" VerticalAlignment="Center" Margin="0,0,4,0"
+                          IsChecked="{Binding IsSelectedForBulk, Mode=OneWay}"
+                          Checked="RowCheckbox_Checked" Unchecked="RowCheckbox_Unchecked"
+                          AutomationProperties.Name="{Binding Name, StringFormat='Select {0}'}"/>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
                           ToolTip="Locally edited in the EXMOD editor"
@@ -180,15 +200,15 @@
                      substituted BEFORE StringFormat, not instead of it) — confirmed live, every row
                      rendered a bare " — " suffix even with no VariantLabel at all until this was
                      fixed. -->
-                <TextBlock Grid.Column="1" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                <TextBlock Grid.Column="2" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
                     <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                 </TextBlock>
 
-                <TextBlock Grid.Column="2" Text="{Binding Author}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                <TextBlock Grid.Column="3" Text="{Binding Author}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="8,0,0,0"
                            Visibility="{Binding DataContext.ShowAuthorColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
-                <TextBlock Grid.Column="3" VerticalAlignment="Center" FontSize="12"
+                <TextBlock Grid.Column="4" VerticalAlignment="Center" FontSize="12"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
                            Visibility="{Binding DataContext.ShowVersionColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Run Text="v"/><Run Text="{Binding Version, Mode=OneWay}"/>
@@ -203,7 +223,7 @@
                      page-level ShowSourceColumn toggle, so the Button's own HasSource visibility
                      (a per-row fact) and the column's own on/off (a page-level setting) don't fight
                      over the same Visibility property. -->
-                <Border Grid.Column="4"
+                <Border Grid.Column="5"
                         Visibility="{Binding DataContext.ShowSourceColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Button Background="{DynamicResource InfoBrush}" Margin="8,0,0,0"
                             CommandParameter="{Binding}"
@@ -229,7 +249,7 @@
                      already promised — for a Database mod this updates in place; for a Nexus mod
                      it opens the mod's page (GetUpdateCommand's own doc comment explains why). Same
                      Border-wrapper reasoning as the Source badge above, for ShowStatusColumn. -->
-                <Border Grid.Column="5"
+                <Border Grid.Column="6"
                         Visibility="{Binding DataContext.ShowStatusColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
                 <Button Style="{StaticResource PillButtonStyle}" Background="{DynamicResource AccentBrush}" Margin="8,0,0,0"
                         Command="{Binding DataContext.GetUpdateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -241,15 +261,15 @@
                 </Button>
                 </Border>
 
-                <TextBlock Grid.Column="6" Text="{Binding LatestVersion}" VerticalAlignment="Center" FontSize="12"
+                <TextBlock Grid.Column="8" Text="{Binding LatestVersion}" VerticalAlignment="Center" FontSize="12"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
                            Visibility="{Binding DataContext.ShowLatestColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
-                <TextBlock Grid.Column="7" Text="{Binding ImportedAtUtc.LocalDateTime, StringFormat='{}{0:d}'}" VerticalAlignment="Center" FontSize="12"
+                <TextBlock Grid.Column="9" Text="{Binding ImportedAtUtc.LocalDateTime, StringFormat='{}{0:d}'}" VerticalAlignment="Center" FontSize="12"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
                            Visibility="{Binding DataContext.ShowImportedColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
-                <StackPanel x:Name="RowActions" Grid.Column="8" Orientation="Horizontal" Opacity="0" HorizontalAlignment="Right">
+                <StackPanel x:Name="RowActions" Grid.Column="10" Orientation="Horizontal" Opacity="0" HorizontalAlignment="Right">
                     <ToggleButton IsChecked="{Binding IsPinned}" Style="{StaticResource IconToggleButtonStyle}"
                                   ToolTip="Pin" AutomationProperties.Name="Toggle pinned">
                         <Path Data="{StaticResource IconPin}" Width="12" Height="12" Stretch="Uniform">
@@ -288,6 +308,39 @@
                               StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform"/>
                     </Button>
                 </StackPanel>
+
+                <!-- Always visible (unlike RowActions above, which is hover-only) — this is a
+                     status indicator, not a hover-invitation, and only ever appears for a
+                     Nexus-linked mod at all. Filled/green once Nexus reports Endorsed; hollow
+                     (transparent fill, outline only) for Abstained/Undecided/not-yet-checked —
+                     collapsing those three into one visual state matches exactly what was asked
+                     for (endorsed vs. not), rather than inventing a third look nothing requested.
+                     Doubles as a one-click Endorse shortcut — EndorseCommand's own CanExecute
+                     already covers "no Nexus link"/"already endorsed" by disabling it. -->
+                <Button Grid.Column="7" Style="{StaticResource IconButtonStyle}" Width="22" Height="22"
+                        Command="{Binding EndorseCommand}"
+                        Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}"
+                        AutomationProperties.Name="Endorse on Nexus">
+                    <Button.ToolTip>
+                        <TextBlock>
+                            <Run Text="{Binding EndorsementStatusDisplay, Mode=OneWay}"/>
+                            <Run Text=" on Nexus — click to endorse"/>
+                        </TextBlock>
+                    </Button.ToolTip>
+                    <Path Data="{StaticResource IconThumbsUp}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.2"
+                          StrokeLineJoin="Round" Fill="Transparent" Width="13" Height="13" Stretch="Uniform">
+                        <Path.Style>
+                            <Style TargetType="Path">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding EndorsementStatus}" Value="Endorsed">
+                                        <Setter Property="Fill" Value="{DynamicResource SuccessBrush}"/>
+                                        <Setter Property="Stroke" Value="{DynamicResource SuccessBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Path.Style>
+                    </Path>
+                </Button>
             </Grid>
             <DataTemplate.Triggers>
                 <!-- Pinned/Favorite no longer duplicate onto a separate always-on left-side glyph
@@ -402,6 +455,8 @@
                                               ToolTip="Checks every Nexus- or Database-sourced mod against its real current version"/>
                                     <MenuItem Header="Check mods against game data" Command="{Binding CheckModsAgainstCurrentDataCommand}"
                                               ToolTip="Diffs every mod against the currently-extracted game data — flags items that look like they're editing a row this game version no longer has, and auto-fixes any confident, unambiguous rename (each mod is backed up first)"/>
+                                    <MenuItem Header="Check endorsements" Command="{Binding CheckEndorsementsCommand}"
+                                              ToolTip="Fetches your Nexus account's own endorsement history and shows which of your Nexus-linked mods you haven't endorsed yet"/>
                                 </ContextMenu>
                             </Button.ContextMenu>
                             <StackPanel Orientation="Horizontal">
@@ -519,10 +574,14 @@
                             <Run Text="{Binding ModCount, Mode=OneWay}"/><Run Text=" mod(s) · "/><Run Text="{Binding GroupCount, Mode=OneWay}"/><Run Text=" group(s)"/>
                             <Run Text=" — double-click a mod for details, hover a row for quick actions" Foreground="{DynamicResource FaintForegroundBrush}"/>
                         </TextBlock>
+                        <TextBlock Margin="0,2,0,0" FontSize="12" Foreground="{DynamicResource FaintForegroundBrush}"
+                                   Text="Ctrl-click to add a mod to the selection, Shift-click to select a range, right-click for bulk actions (Select all, Add to merge queue, Delete)"/>
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding UpdateCheckStatusMessage}"
                                    Visibility="{Binding UpdateCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding StalenessCheckStatusMessage}"
                                    Visibility="{Binding StalenessCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding EndorsementCheckStatusMessage}"
+                                   Visibility="{Binding EndorsementCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                         <TextBlock Margin="0,4,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}"
                                    Text="{Binding UnreadableFoldersMessage}"
                                    Visibility="{Binding UnreadableFoldersMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
@@ -555,29 +614,113 @@
                             </ContextMenu>
                         </Grid.ContextMenu>
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" MinWidth="26" SharedSizeGroup="ColCheckbox"/>
                             <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
                             <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
                             <ColumnDefinition Width="Auto" MinWidth="110" SharedSizeGroup="ColAuthor"/>
                             <ColumnDefinition Width="Auto" MinWidth="60" SharedSizeGroup="ColVersion"/>
                             <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColSource"/>
                             <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColStatus"/>
-                            <ColumnDefinition Width="Auto" MinWidth="70" SharedSizeGroup="ColLatest"/>
-                            <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColImported"/>
+                            <ColumnDefinition Width="Auto" MinWidth="30" SharedSizeGroup="ColEndorsed"/>
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="ColLatest"/>
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="ColImported"/>
                             <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColActions"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="1" Text="NAME" Style="{StaticResource FieldLabelStyle}"/>
-                        <TextBlock Grid.Column="2" Text="AUTHOR" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
-                                   Visibility="{Binding ShowAuthorColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                        <TextBlock Grid.Column="3" Text="VERSION" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
-                                   Visibility="{Binding ShowVersionColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                        <TextBlock Grid.Column="4" Text="SOURCE" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
-                                   Visibility="{Binding ShowSourceColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                        <TextBlock Grid.Column="5" Text="STATUS" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
+                        <CheckBox Grid.Column="0" VerticalAlignment="Center"
+                                  IsChecked="{Binding IsAllSelectedForBulk}"
+                                  ToolTip="Select/deselect every mod currently shown"
+                                  AutomationProperties.Name="Select all mods"/>
+                        <!-- Sortable headers (NAME/AUTHOR/VERSION/SOURCE/IMPORTED) — a borderless
+                             button reading as plain text, matching Explorer's own Details-view
+                             header convention: click to sort by that column, click again to flip
+                             ascending/descending. SortIndicatorConverter shows an arrow only next
+                             to whichever column is actually the active sort. STATUS/ENDORSED/LATEST
+                             aren't sortable — STATUS and ENDORSED are computed badges, not a single
+                             stable value; LATEST is a fetched-on-demand comparison value. -->
+                        <Button Grid.Column="2" Style="{StaticResource ColumnHeaderButtonStyle}"
+                                Command="{Binding SortByColumnCommand}" CommandParameter="Name"
+                                ToolTip="Sort by name" AutomationProperties.Name="Sort by name">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="NAME" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBlock Margin="4,0,0,0" FontSize="9" Foreground="{DynamicResource AccentBrush}">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource SortIndicatorConverter}" ConverterParameter="Name">
+                                            <Binding Path="SortColumn"/>
+                                            <Binding Path="SortDescending"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="3" Style="{StaticResource ColumnHeaderButtonStyle}" Margin="8,0,0,0"
+                                Command="{Binding SortByColumnCommand}" CommandParameter="Author"
+                                ToolTip="Sort by author" AutomationProperties.Name="Sort by author"
+                                Visibility="{Binding ShowAuthorColumn, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="AUTHOR" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBlock Margin="4,0,0,0" FontSize="9" Foreground="{DynamicResource AccentBrush}">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource SortIndicatorConverter}" ConverterParameter="Author">
+                                            <Binding Path="SortColumn"/>
+                                            <Binding Path="SortDescending"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="4" Style="{StaticResource ColumnHeaderButtonStyle}" Margin="8,0,0,0"
+                                Command="{Binding SortByColumnCommand}" CommandParameter="Version"
+                                ToolTip="Sort by version" AutomationProperties.Name="Sort by version"
+                                Visibility="{Binding ShowVersionColumn, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="VERSION" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBlock Margin="4,0,0,0" FontSize="9" Foreground="{DynamicResource AccentBrush}">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource SortIndicatorConverter}" ConverterParameter="Version">
+                                            <Binding Path="SortColumn"/>
+                                            <Binding Path="SortDescending"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="5" Style="{StaticResource ColumnHeaderButtonStyle}" Margin="8,0,0,0"
+                                Command="{Binding SortByColumnCommand}" CommandParameter="Source"
+                                ToolTip="Sort by source" AutomationProperties.Name="Sort by source"
+                                Visibility="{Binding ShowSourceColumn, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="SOURCE" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBlock Margin="4,0,0,0" FontSize="9" Foreground="{DynamicResource AccentBrush}">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource SortIndicatorConverter}" ConverterParameter="Source">
+                                            <Binding Path="SortColumn"/>
+                                            <Binding Path="SortDescending"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </StackPanel>
+                        </Button>
+                        <TextBlock Grid.Column="6" Text="STATUS" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
                                    Visibility="{Binding ShowStatusColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                        <TextBlock Grid.Column="6" Text="LATEST" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
+                        <TextBlock Grid.Column="7" Text="ENDORSED" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Column="8" Text="LATEST" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
                                    Visibility="{Binding ShowLatestColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                        <TextBlock Grid.Column="7" Text="IMPORTED" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
-                                   Visibility="{Binding ShowImportedColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <Button Grid.Column="9" Style="{StaticResource ColumnHeaderButtonStyle}" Margin="8,0,0,0"
+                                Command="{Binding SortByColumnCommand}" CommandParameter="Imported"
+                                ToolTip="Sort by when each mod was imported" AutomationProperties.Name="Sort by imported date"
+                                Visibility="{Binding ShowImportedColumn, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="IMPORTED" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBlock Margin="4,0,0,0" FontSize="9" Foreground="{DynamicResource AccentBrush}">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource SortIndicatorConverter}" ConverterParameter="Imported">
+                                            <Binding Path="SortColumn"/>
+                                            <Binding Path="SortDescending"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </StackPanel>
+                        </Button>
                     </Grid>
 
                     <Border Grid.Row="5" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">

@@ -69,6 +69,25 @@ public interface INexusApiClient
     /// client's own getChangelogs. Same 401/403-throws convention as the other authenticated calls.
     /// </summary>
     Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetChangelogsAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The account's own WHOLE endorsement history — every mod endorsed or abstained, across every
+    /// game Nexus hosts, in one call (confirmed against the official client's own getEndorsements;
+    /// there's no per-game filter on the endpoint itself, so callers filter by DomainName). A mod
+    /// this account has never touched simply isn't in the list at all — Undecided is the implicit
+    /// default, not a value Nexus itself ever seems to return here.
+    /// </summary>
+    Task<IReadOnlyList<NexusEndorsement>> GetEndorsementsAsync(string apiKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Endorses or abstains a mod on this account's behalf — a real write, confirmed against the
+    /// official client's own endorseMod. modVersion has to name a version that genuinely exists for
+    /// this mod on Nexus (its own documented constraint) — callers should fetch the mod's current
+    /// real version (e.g. via GetModInfoAsync) rather than reuse a possibly-stale locally-recorded
+    /// one. Returns the resulting status Nexus reports back.
+    /// </summary>
+    Task<NexusEndorsementStatus> SetEndorsementAsync(
+        string apiKey, string gameDomain, int modId, string modVersion, bool endorse, CancellationToken cancellationToken = default);
 }
 
 /// <summary>One page of ListAllModsAsync — the slice plus the catalog's own total, so the UI can say "N of M shown" and know whether more remain.</summary>

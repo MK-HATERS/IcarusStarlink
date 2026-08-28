@@ -116,6 +116,23 @@ public partial class LibraryView : UserControl
             ? System.Windows.Media.VisualTreeHelper.GetParent(child)
             : LogicalTreeHelper.GetParent(child);
 
+    /// <summary>True if start is (or sits inside) a CheckBox before reaching the row's own TreeViewItem boundary — lets LibraryTree_PreviewMouseLeftButtonDown step aside for the row's own bulk-select checkbox instead of also running its plain/Ctrl/Shift-click logic on the same physical click.</summary>
+    private static bool IsWithinCheckBox(DependencyObject? start)
+    {
+        var element = start;
+        while (element is not null and not TreeViewItem)
+        {
+            if (element is CheckBox)
+            {
+                return true;
+            }
+
+            element = GetParentAny(element);
+        }
+
+        return false;
+    }
+
     // TreeView doesn't select an item on right-click the way ListBox does, so a context menu's
     // Pin/Favorite bindings (which target the right-clicked row's own DataContext regardless)
     // would apply to the correct mod but leave the tree's own highlight and the detail pane
@@ -145,12 +162,13 @@ public partial class LibraryView : UserControl
 
     /// <summary>
     /// Ctrl-click toggles a row's own bulk-selection membership (for "Add to merge queue");
-    /// a plain click clears whatever was previously bulk-selected, so a fresh click always starts a
+    /// Shift-click selects the whole range from the last plain/Ctrl-clicked row to this one; a
+    /// plain click clears whatever was previously bulk-selected, so a fresh click always starts a
     /// new selection rather than silently adding to a stale one. Deliberately doesn't set
     /// e.Handled — TreeView's own normal single-select (SelectedItemChanged → SelectedItem →
-    /// EnsureDetailsLoaded) still runs for whatever was actually clicked, Ctrl held or not; the only
-    /// side effect is the detail pane tracking the last-clicked row even during a multi-select,
-    /// which is harmless.
+    /// EnsureDetailsLoaded) still runs for whatever was actually clicked, any modifier held or not;
+    /// the only side effect is the detail pane tracking the last-clicked row even during a
+    /// multi-select, which is harmless.
     /// </summary>
     private void LibraryTree_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
@@ -159,13 +177,23 @@ public partial class LibraryView : UserControl
             return;
         }
 
+        // The row's own bulk-select checkbox handles its click entirely through its own
+        // Checked/Unchecked events below — without this, this same physical click would ALSO run
+        // the plain-click-clears-selection branch further down (since no modifier is typically
+        // held while clicking a checkbox), fighting the checkbox's own state right after it sets it.
+        if (IsWithinCheckBox(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
         var element = FindTreeViewItemAncestor(e.OriginalSource as DependencyObject);
 
         var isCtrlHeld = System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Control);
+        var isShiftHeld = System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Shift);
 
         if (element is not TreeViewItem { DataContext: LibraryItemViewModel item })
         {
-            if (!isCtrlHeld)
+            if (!isCtrlHeld && !isShiftHeld)
             {
                 viewModel.ClearBulkSelection();
             }
@@ -173,13 +201,41 @@ public partial class LibraryView : UserControl
             return;
         }
 
-        if (isCtrlHeld)
+        if (isShiftHeld)
+        {
+            viewModel.SelectBulkRange(item);
+        }
+        else if (isCtrlHeld)
         {
             viewModel.ToggleBulkSelection(item);
         }
-        else if (viewModel.BulkSelectedItems.Count > 0)
+        else
         {
-            viewModel.ClearBulkSelection();
+            viewModel.SetBulkSelectionAnchor(item);
+        }
+    }
+
+    /// <summary>
+    /// The row's own bulk-select checkbox — IsChecked binds OneWay (LibraryItemViewModel.IsSelectedForBulk
+    /// has no setter logic of its own; ToggleBulkSelection is the single source of truth that keeps
+    /// it and LibraryViewModel.BulkSelectedItems consistent, the same way Ctrl-click already
+    /// works), so these events drive that shared method directly rather than writing the property
+    /// themselves. The IsSelectedForBulk guard avoids a redundant toggle if this ever fires from
+    /// the OneWay binding pushing an already-current value back in, rather than a genuine click.
+    /// </summary>
+    private void RowCheckbox_Checked(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox { DataContext: LibraryItemViewModel { IsSelectedForBulk: false } item } && DataContext is LibraryViewModel viewModel)
+        {
+            viewModel.ToggleBulkSelection(item);
+        }
+    }
+
+    private void RowCheckbox_Unchecked(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox { DataContext: LibraryItemViewModel { IsSelectedForBulk: true } item } && DataContext is LibraryViewModel viewModel)
+        {
+            viewModel.ToggleBulkSelection(item);
         }
     }
 

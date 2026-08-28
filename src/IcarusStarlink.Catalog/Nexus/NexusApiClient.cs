@@ -190,6 +190,76 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         return cleaned.Length == 0 ? null : cleaned;
     }
 
+    public async Task<IReadOnlyList<NexusEndorsement>> GetEndorsementsAsync(string apiKey, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/user/endorsements");
+        request.Headers.Add("apikey", apiKey);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            throw new InvalidOperationException("Nexus rejected the stored API key.");
+        }
+
+        response.EnsureSuccessStatusCode();
+        var dtos = await response.Content.ReadFromJsonAsync<List<EndorsementDto>>(cancellationToken) ?? [];
+        return [.. dtos.Select(d => new NexusEndorsement(d.ModId, d.DomainName, ParseEndorsementStatus(d.Status)))];
+    }
+
+    public async Task<NexusEndorsementStatus> SetEndorsementAsync(
+        string apiKey, string gameDomain, int modId, string modVersion, bool endorse, CancellationToken cancellationToken = default)
+    {
+        // Path segment is literally "endorse" or "abstain" — confirmed against the official
+        // client's own endorseMod, which builds the URL the exact same way.
+        var verb = endorse ? "endorse" : "abstain";
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/games/{gameDomain}/mods/{modId}/{verb}")
+        {
+            Content = JsonContent.Create(new { Version = modVersion }),
+        };
+        request.Headers.Add("apikey", apiKey);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            // Unlike a plain read, a 401/403 here doesn't necessarily mean the key itself is bad —
+            // Nexus is also known to reject an endorsement for a mod you authored yourself. Same
+            // "list every plausible cause" honesty GetDownloadLinksAsync's own message already uses
+            // for its own ambiguous 401/403, rather than confidently blaming the key alone.
+            throw new InvalidOperationException(
+                "Nexus rejected this request — the key may be wrong, or this action may not be allowed (e.g. you can't endorse your own upload).");
+        }
+
+        response.EnsureSuccessStatusCode();
+        var dto = await response.Content.ReadFromJsonAsync<EndorseResponseDto>(cancellationToken)
+            ?? throw new HttpRequestException("Nexus's endorse endpoint returned an empty response.");
+        return ParseEndorsementStatus(dto.Status);
+    }
+
+    private static NexusEndorsementStatus ParseEndorsementStatus(string? status) => status switch
+    {
+        "Endorsed" => NexusEndorsementStatus.Endorsed,
+        "Abstained" => NexusEndorsementStatus.Abstained,
+        _ => NexusEndorsementStatus.Undecided,
+    };
+
+    private sealed class EndorsementDto
+    {
+        [JsonPropertyName("mod_id")]
+        public int ModId { get; init; }
+
+        [JsonPropertyName("domain_name")]
+        public string DomainName { get; init; } = "";
+
+        [JsonPropertyName("status")]
+        public string Status { get; init; } = "Undecided";
+    }
+
+    private sealed class EndorseResponseDto
+    {
+        [JsonPropertyName("status")]
+        public string Status { get; init; } = "Undecided";
+    }
+
     private sealed class ValidateResponseDto
     {
         [JsonPropertyName("user_id")]

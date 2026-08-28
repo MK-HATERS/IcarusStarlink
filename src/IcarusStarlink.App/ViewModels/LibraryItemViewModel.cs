@@ -4,8 +4,10 @@ using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
+using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
@@ -21,6 +23,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     private readonly ILibraryRepository _repository;
     private readonly IUnrealPakService _unrealPakService;
     private readonly ISettingsService _settingsService;
+    private readonly INexusApiClient _nexusApiClient;
+    private readonly ICredentialStore _credentialStore;
     private readonly Action<string> _reportStatus;
     private readonly Action _onPinnedChanged;
     private readonly DebounceTimer _notesSaveDebounceTimer;
@@ -117,6 +121,95 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         }
 
         UrlOpener.TryOpen(NexusModWebUrl.For(nexusModId));
+    }
+
+    /// <summary>
+    /// Nexus's own recorded status for THIS account on this mod — null until "Check endorsements"
+    /// has actually run (never persisted, same "computed at display time" precedent as
+    /// LatestVersion/StaleItemCount below — a stale cached endorsement status surviving a restart
+    /// would be actively misleading if it changed on Nexus's own website in the meantime).
+    /// </summary>
+    [ObservableProperty]
+    private NexusEndorsementStatus? _endorsementStatus;
+
+    public bool HasEndorsementStatus => EndorsementStatus is not null;
+
+    public string EndorsementStatusDisplay => EndorsementStatus switch
+    {
+        NexusEndorsementStatus.Endorsed => "Endorsed",
+        NexusEndorsementStatus.Abstained => "Abstained",
+        NexusEndorsementStatus.Undecided => "Not endorsed yet",
+        _ => "",
+    };
+
+    [ObservableProperty]
+    private bool _isEndorsing;
+
+    partial void OnEndorsementStatusChanged(NexusEndorsementStatus? value)
+    {
+        OnPropertyChanged(nameof(HasEndorsementStatus));
+        OnPropertyChanged(nameof(EndorsementStatusDisplay));
+        EndorseCommand.NotifyCanExecuteChanged();
+        AbstainCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnIsEndorsingChanged(bool value)
+    {
+        EndorseCommand.NotifyCanExecuteChanged();
+        AbstainCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanEndorse))]
+    private Task Endorse() => SetEndorsementAsync(endorse: true);
+
+    private bool CanEndorse() => HasNexusLink && !IsEndorsing && EndorsementStatus != NexusEndorsementStatus.Endorsed;
+
+    [RelayCommand(CanExecute = nameof(CanAbstain))]
+    private Task Abstain() => SetEndorsementAsync(endorse: false);
+
+    private bool CanAbstain() => HasNexusLink && !IsEndorsing && EndorsementStatus != NexusEndorsementStatus.Abstained;
+
+    /// <summary>
+    /// A real write to this account's Nexus endorsement for this mod. Fetches the mod's own
+    /// CURRENT real Nexus version first rather than reusing this row's own locally-recorded
+    /// Version, which can be stale (this mod may have updated since it was downloaded) — Nexus's
+    /// own endorse endpoint requires a version that genuinely exists for the mod right now.
+    /// </summary>
+    private async Task SetEndorsementAsync(bool endorse)
+    {
+        if (NexusModId is not { } modId)
+        {
+            return;
+        }
+
+        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+        if (apiKey is null)
+        {
+            _reportStatus("Sign in with your Nexus API key in Settings to endorse mods.");
+            return;
+        }
+
+        IsEndorsing = true;
+        try
+        {
+            var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
+            if (info is null)
+            {
+                _reportStatus($"Couldn't reach '{Name}' on Nexus.");
+                return;
+            }
+
+            EndorsementStatus = await _nexusApiClient.SetEndorsementAsync(apiKey, "icarus", modId, info.Version, endorse);
+            _reportStatus(endorse ? $"Endorsed '{Name}' on Nexus." : $"Marked '{Name}' as abstained on Nexus.");
+        }
+        catch (Exception ex)
+        {
+            _reportStatus($"Couldn't update your endorsement for '{Name}': {ex.Message}");
+        }
+        finally
+        {
+            IsEndorsing = false;
+        }
     }
 
     /// <summary>
@@ -228,11 +321,13 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     public LibraryItemViewModel(
         LibraryEntry entry, ILibraryRepository repository, IUnrealPakService unrealPakService, ISettingsService settingsService,
-        Action<string> reportStatus, Action onPinnedChanged)
+        INexusApiClient nexusApiClient, ICredentialStore credentialStore, Action<string> reportStatus, Action onPinnedChanged)
     {
         _repository = repository;
         _unrealPakService = unrealPakService;
         _settingsService = settingsService;
+        _nexusApiClient = nexusApiClient;
+        _credentialStore = credentialStore;
         _reportStatus = reportStatus;
         _onPinnedChanged = onPinnedChanged;
         FolderName = entry.FolderName;

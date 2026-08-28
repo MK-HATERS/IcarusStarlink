@@ -67,6 +67,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
     private readonly Dictionary<string, LibraryGroupViewModel> _groupsByKey = [];
 
+    /// <summary>The last row clicked without Shift held — a Shift-click ranges from here, the same anchor concept Explorer/ListBox multi-select use. Cleared (never explicitly re-set to null; a stale anchor pointing at a since-deleted row is simply skipped by FlattenModItems' own lookup) whenever a fresh plain/Ctrl click moves it.</summary>
+    private LibraryItemViewModel? _bulkSelectionAnchor;
+
     /// <summary>Whether a mod folder is still present in this page's own current listing — used by ModDetailWindow to close itself if the mod it's showing gets deleted while its pop-out window is open.</summary>
     public bool ContainsMod(string folderName) => _itemsByFolderName.ContainsKey(folderName);
 
@@ -146,6 +149,12 @@ public sealed partial class LibraryViewModel : ObservableObject
     private bool _isCheckingStaleness;
 
     [ObservableProperty]
+    private bool _isCheckingEndorsements;
+
+    [ObservableProperty]
+    private string? _endorsementCheckStatusMessage;
+
+    [ObservableProperty]
     private string? _stalenessCheckStatusMessage;
 
     /// <summary>Ctrl/Shift-click multi-select, for "Add to merge queue" — the only way mods reach Merge & Install's queue now that its own Library pane is gone. A plain list (not a HashSet): insertion order isn't meaningful here, but ObservableCollection gives free CollectionChanged notification for HasBulkSelection/BulkSelectedCount.</summary>
@@ -154,6 +163,50 @@ public sealed partial class LibraryViewModel : ObservableObject
     public bool HasBulkSelection => BulkSelectedItems.Count > 0;
 
     public int BulkSelectedCount => BulkSelectedItems.Count;
+
+    /// <summary>Whether every mod currently shown is bulk-selected — drives the header row's own "select all" checkbox. False (not true) when the list is empty, matching Explorer's own convention of an unchecked header checkbox on an empty list.</summary>
+    public bool IsAllSelectedForBulk
+    {
+        get
+        {
+            var flattened = FlattenModItems();
+            return flattened.Count > 0 && BulkSelectedItems.Count == flattened.Count;
+        }
+        set
+        {
+            if (value)
+            {
+                SelectAllForBulk();
+            }
+            else
+            {
+                ClearBulkSelection();
+            }
+        }
+    }
+
+    /// <summary>Null = the default order (pinned mods first, then alphabetical) — set by clicking a sortable column header; a second click on the same header flips SortDescending instead of picking a new column, matching Explorer's own Details-view convention.</summary>
+    [ObservableProperty]
+    private string? _sortColumn;
+
+    [ObservableProperty]
+    private bool _sortDescending;
+
+    [RelayCommand]
+    private void SortByColumn(string columnName)
+    {
+        if (SortColumn == columnName)
+        {
+            SortDescending = !SortDescending;
+        }
+        else
+        {
+            SortColumn = columnName;
+            SortDescending = false;
+        }
+
+        Reload();
+    }
 
     public LibraryViewModel(
         ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
@@ -230,6 +283,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         {
             OnPropertyChanged(nameof(HasBulkSelection));
             OnPropertyChanged(nameof(BulkSelectedCount));
+            OnPropertyChanged(nameof(IsAllSelectedForBulk));
         };
 
         Reload();
@@ -258,6 +312,8 @@ public sealed partial class LibraryViewModel : ObservableObject
             item.IsSelectedForBulk = true;
             BulkSelectedItems.Add(item);
         }
+
+        _bulkSelectionAnchor = item;
     }
 
     public void ClearBulkSelection()
@@ -270,6 +326,13 @@ public sealed partial class LibraryViewModel : ObservableObject
         BulkSelectedItems.Clear();
     }
 
+    /// <summary>Plain click (no modifier): clears any active bulk selection but still moves the anchor to this row, so a later Shift-click ranges from here — matching Explorer's own "any plain click resets the range start" behavior.</summary>
+    public void SetBulkSelectionAnchor(LibraryItemViewModel item)
+    {
+        ClearBulkSelection();
+        _bulkSelectionAnchor = item;
+    }
+
     /// <summary>Right-click: a row that's already part of a multi-selection stays part of it (so right-clicking any one of several Ctrl-selected rows adds all of them); right-clicking a row outside the current selection replaces it with just that row — the same convention Explorer uses.</summary>
     public void EnsureBulkSelected(LibraryItemViewModel item)
     {
@@ -279,6 +342,73 @@ public sealed partial class LibraryViewModel : ObservableObject
             item.IsSelectedForBulk = true;
             BulkSelectedItems.Add(item);
         }
+
+        _bulkSelectionAnchor = item;
+    }
+
+    /// <summary>
+    /// RootItems in visible order, with any variant family's own children expanded inline — the
+    /// same flattened order Shift-click range-select and Select all both need. Deliberately doesn't
+    /// consult the TreeView's own live expand/collapse state (fragile to reach for from a
+    /// ViewModel, and TreeView-specific) — a range or "select all" acts on every real mod
+    /// regardless of whether its family group happens to be collapsed right now, matching how this
+    /// app's own bulk actions (Add to merge queue, Delete) already treat a family as a transparent
+    /// container rather than something that can hide its members from a bulk operation.
+    /// </summary>
+    private List<LibraryItemViewModel> FlattenModItems() =>
+        [.. RootItems.SelectMany(entry => entry switch
+        {
+            LibraryItemViewModel item => (IEnumerable<LibraryItemViewModel>)[item],
+            LibraryGroupViewModel group => group.Items,
+            _ => [],
+        })];
+
+    /// <summary>Shared by Reload's own column-sort switch — SortDescending flips OrderBy/OrderByDescending, generic over TKey so both string columns (StringComparer.OrdinalIgnoreCase) and ImportedAtUtc's own DateTimeOffset share one implementation.</summary>
+    private List<LibraryGroup> SortGroups<TKey>(
+        IReadOnlyList<LibraryGroup> groups, Func<LibraryGroup, TKey> keySelector, IComparer<TKey>? comparer = null) =>
+        [.. (SortDescending ? groups.OrderByDescending(keySelector, comparer) : groups.OrderBy(keySelector, comparer))];
+
+    /// <summary>Shift-click: selects every mod between the last plain/Ctrl-clicked anchor and this one (inclusive), replacing whatever was selected before — matching Explorer's own Shift-click convention. Falls back to selecting just this row alone if there's no anchor yet (e.g. the very first click in a fresh session was a Shift-click).</summary>
+    public void SelectBulkRange(LibraryItemViewModel target)
+    {
+        var flattened = FlattenModItems();
+        var anchorIndex = _bulkSelectionAnchor is not null ? flattened.IndexOf(_bulkSelectionAnchor) : -1;
+        var targetIndex = flattened.IndexOf(target);
+        if (targetIndex < 0)
+        {
+            return;
+        }
+
+        if (anchorIndex < 0)
+        {
+            anchorIndex = targetIndex;
+        }
+
+        ClearBulkSelection();
+        var (start, end) = anchorIndex <= targetIndex ? (anchorIndex, targetIndex) : (targetIndex, anchorIndex);
+        for (var i = start; i <= end; i++)
+        {
+            flattened[i].IsSelectedForBulk = true;
+            BulkSelectedItems.Add(flattened[i]);
+        }
+
+        // Deliberately NOT updated to target — Explorer's own Shift-click keeps ranging from the
+        // original anchor on a repeated Shift-click, so shrinking/growing a range with successive
+        // Shift-clicks stays possible instead of the anchor chasing the most recent click.
+    }
+
+    /// <summary>Context menu's "Select all" — every mod currently shown (respects the active search filter, since RootItems already reflects it), not the whole unfiltered Library.</summary>
+    [RelayCommand]
+    private void SelectAllForBulk()
+    {
+        ClearBulkSelection();
+        foreach (var item in FlattenModItems())
+        {
+            item.IsSelectedForBulk = true;
+            BulkSelectedItems.Add(item);
+        }
+
+        _bulkSelectionAnchor = null;
     }
 
     /// <summary>Sends the current bulk selection (or, with none active, just the passed-in row — a right-click with no prior Ctrl-click) to Merge & Install's queue.</summary>
@@ -1164,58 +1294,84 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The context-menu's own Delete — operates on the WHOLE bulk selection, not just the row that
+    /// happened to be right-clicked: code-behind's EnsureBulkSelected already folded the
+    /// right-clicked row into BulkSelectedItems (either as the sole entry, or added to whatever
+    /// Ctrl/Shift-selection already existed) before this menu ever opened, so BulkSelectedItems is
+    /// always the right source of truth here — falling back to the passed-in item alone only
+    /// covers a call site that isn't the context menu at all.
+    /// </summary>
     [RelayCommand]
-    private void DeleteSelected() => DeleteMod(SelectedItem);
-
-    /// <summary>The context-menu counterpart of DeleteSelected — takes the clicked row directly, so deleting doesn't require selecting first.</summary>
-    [RelayCommand]
-    private void DeleteItem(LibraryItemViewModel? item) => DeleteMod(item);
-
-    private void DeleteMod(LibraryItemViewModel? item)
+    private void DeleteItem(LibraryItemViewModel? item)
     {
-        if (item is null)
+        var items = BulkSelectedItems.Count > 0 ? BulkSelectedItems.ToList() : item is not null ? [item] : [];
+        DeleteMods(items);
+    }
+
+    /// <summary>Deletes every mod in the Library, regardless of any current selection — its own menu item since this is a much larger blast radius than the ordinary per-selection Delete above; DeleteMods' own count-naming confirmation still gates it.</summary>
+    [RelayCommand]
+    private void DeleteAll() => DeleteMods([.. _itemsByFolderName.Values]);
+
+    private void DeleteMods(IReadOnlyList<LibraryItemViewModel> items)
+    {
+        if (items.Count == 0)
         {
             return;
         }
 
-        // Deleting removes the mod's real folder from disk and can't be undone from here — and a
-        // right-click menu is far easier to hit by accident than the detail pane's own button, so
-        // both paths ask, matching how every other irreversible action in this app behaves.
+        // Deleting removes each mod's real folder from disk and can't be undone from here — and a
+        // right-click menu is far easier to hit by accident than a dedicated button, so this always
+        // asks first, matching how every other irreversible action in this app behaves. Names the
+        // real count rather than a generic "these mods" so a fat-fingered bulk selection is obvious
+        // before it's too late to back out.
         var confirm = MessageBox.Show(
-            $"Delete '{item.Name}' from your Library?\n\nIts folder is removed from disk. This can't be undone (unless you made a backup first).",
-            "Delete mod", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            items.Count == 1
+                ? $"Delete '{items[0].Name}' from your Library?\n\nIts folder is removed from disk. This can't be undone (unless you made a backup first)."
+                : $"Delete {items.Count} mods from your Library?\n\nTheir folders are removed from disk. This can't be undone (unless you made a backup first).",
+            "Delete mod(s)", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (confirm != MessageBoxResult.Yes)
         {
             return;
         }
 
-        var name = item.Name;
-        // Cancel first: a pending debounced notes save firing after Delete() below could write
-        // this entry's metadata into a different mod that reuses the same freed folder name.
-        item.CancelPendingSave();
-        try
+        var deletedCount = 0;
+        var failures = new List<string>();
+        foreach (var item in items)
         {
-            _repository.Delete(item.FolderName);
-        }
-        catch (Exception ex)
-        {
-            // Same UI boundary as TryImport: deleting a folder that's locked by another
-            // process (Explorer preview, an antivirus scan, ...) throws IOException /
-            // UnauthorizedAccessException, and that should surface as a status message rather
-            // than crash the app.
-            StatusMessage = $"Delete failed: {ex.Message}";
-            return;
+            var name = item.Name;
+            // Cancel first: a pending debounced notes save firing after Delete() below could write
+            // this entry's metadata into a different mod that reuses the same freed folder name.
+            item.CancelPendingSave();
+            try
+            {
+                _repository.Delete(item.FolderName);
+                deletedCount++;
+                if (SelectedItem == item)
+                {
+                    SelectedItem = null;
+                }
+
+                _activityLog.Log($"Deleted '{name}'.", ActivityEntryKind.Info);
+            }
+            catch (Exception ex)
+            {
+                // Same UI boundary as TryImport: deleting a folder that's locked by another
+                // process (Explorer preview, an antivirus scan, ...) throws IOException/
+                // UnauthorizedAccessException — one locked mod shouldn't abort the rest of a batch.
+                failures.Add($"{name}: {ex.Message}");
+            }
         }
 
-        if (SelectedItem == item)
+        ClearBulkSelection();
+        StatusMessage = failures.Count switch
         {
-            SelectedItem = null;
-        }
-
-        StatusMessage = $"Deleted '{name}'.";
+            0 when deletedCount == 1 => $"Deleted '{items[0].Name}'.",
+            0 => $"Deleted {deletedCount} mod(s).",
+            _ => $"Deleted {deletedCount} of {items.Count} — {string.Join("; ", failures)}",
+        };
         Reload();
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-        _activityLog.Log($"Deleted '{name}'.", ActivityEntryKind.Info);
     }
 
     /// <summary>
@@ -1260,12 +1416,28 @@ public sealed partial class LibraryViewModel : ObservableObject
     {
         var previouslySelectedFolder = SelectedItem?.FolderName;
 
-        // Pinned mods (or a family with any pinned member) sort first, matching the real app's
-        // "pinned mods sort to the top" — then alphabetical within each of those two bands.
-        var groups = VariantGrouping.Group(_repository.Search(SearchText))
-            .OrderByDescending(g => g.Entries.Any(e => e.IsPinned))
-            .ThenBy(g => g.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var unsortedGroups = VariantGrouping.Group(_repository.Search(SearchText));
+
+        // Default (no column header clicked yet): pinned mods (or a family with any pinned
+        // member) sort first, matching the real app's "pinned mods sort to the top" — then
+        // alphabetical within each of those two bands. Clicking a sortable header switches
+        // entirely to that column (dropping the pinned-first grouping) — matching Explorer's own
+        // "clicking a header takes over sorting" convention, on the assumption that a user who
+        // deliberately picked a sort column wants exactly that order, not a pinned-first override.
+        // A family's own representative value (Entries[0], already ordered by SortVariants) stands
+        // in for Author/Version/Source/Imported, which are real per-entry fields VariantGroup
+        // itself has no single value for.
+        var groups = SortColumn switch
+        {
+            "Author" => SortGroups(unsortedGroups, g => g.Entries[0].Author, StringComparer.OrdinalIgnoreCase),
+            "Version" => SortGroups(unsortedGroups, g => g.Entries[0].Version, StringComparer.OrdinalIgnoreCase),
+            "Source" => SortGroups(unsortedGroups, g => g.Entries[0].Source ?? "", StringComparer.OrdinalIgnoreCase),
+            "Imported" => SortGroups(unsortedGroups, g => g.Entries[0].ImportedAtUtc),
+            "Name" => SortGroups(unsortedGroups, g => g.DisplayName, StringComparer.OrdinalIgnoreCase),
+            _ => [.. unsortedGroups
+                .OrderByDescending(g => g.Entries.Any(e => e.IsPinned))
+                .ThenBy(g => g.DisplayName, StringComparer.OrdinalIgnoreCase)],
+        };
 
         ModCount = groups.Sum(g => g.Entries.Count);
         GroupCount = groups.Count(g => g.IsFamily);
@@ -1311,6 +1483,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         SyncRootItems(targetRootItems);
+        OnPropertyChanged(nameof(IsAllSelectedForBulk));
 
         // Drop cached instances for mods/families no longer present/matching, so these don't grow
         // forever. FlushPendingSave() first, not CancelPendingSave() — the mod's folder isn't going
@@ -1379,7 +1552,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         // this, a pin saves correctly but the row silently stays wherever it already was in the
         // tree until some unrelated change (a search edit, a delete) happens to trigger the next
         // Reload().
-        var created = new LibraryItemViewModel(entry, _repository, _unrealPakService, _settingsService, status => StatusMessage = status, () => Reload());
+        var created = new LibraryItemViewModel(
+            entry, _repository, _unrealPakService, _settingsService, _nexusApiClient, _credentialStore, status => StatusMessage = status, () => Reload());
         _itemsByFolderName[entry.FolderName] = created;
         return created;
     }
@@ -1410,6 +1584,63 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     [RelayCommand]
     private Task CheckModsAgainstCurrentData() => CheckModsAgainstCurrentDataAsync();
+
+    /// <summary>
+    /// Fetches this account's whole endorsement history ONCE (GetEndorsementsAsync — there's no
+    /// per-mod endpoint that would let this batch any other way) and stamps every Nexus-linked
+    /// Library row with its real status — a mod absent from the returned list has never been
+    /// touched (Undecided), matching Nexus's own implicit default. A separate, explicit action from
+    /// CheckForUpdatesAsync (a different question — version-checking vs. "have I endorsed this"),
+    /// same as CheckModsAgainstCurrentDataAsync already is.
+    /// </summary>
+    [RelayCommand]
+    private async Task CheckEndorsements()
+    {
+        var nexusLinkedItems = _itemsByFolderName.Values.Where(i => i.HasNexusLink).ToList();
+        if (nexusLinkedItems.Count == 0)
+        {
+            EndorsementCheckStatusMessage = "No Library mods are linked to a Nexus mod ID yet.";
+            return;
+        }
+
+        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+        if (apiKey is null)
+        {
+            EndorsementCheckStatusMessage = "Sign in with your Nexus API key in Settings first.";
+            return;
+        }
+
+        IsCheckingEndorsements = true;
+        try
+        {
+            var endorsements = await _nexusApiClient.GetEndorsementsAsync(apiKey);
+            var statusByModId = endorsements
+                .Where(e => string.Equals(e.DomainName, "icarus", StringComparison.OrdinalIgnoreCase))
+                .ToDictionary(e => e.ModId, e => e.Status);
+
+            var notEndorsedCount = 0;
+            foreach (var item in nexusLinkedItems)
+            {
+                item.EndorsementStatus = statusByModId.GetValueOrDefault(item.NexusModId!.Value, NexusEndorsementStatus.Undecided);
+                if (item.EndorsementStatus != NexusEndorsementStatus.Endorsed)
+                {
+                    notEndorsedCount++;
+                }
+            }
+
+            EndorsementCheckStatusMessage = notEndorsedCount == 0
+                ? $"All {nexusLinkedItems.Count} Nexus-linked mod(s) are endorsed."
+                : $"{notEndorsedCount} of {nexusLinkedItems.Count} Nexus-linked mod(s) aren't endorsed yet.";
+        }
+        catch (Exception ex)
+        {
+            EndorsementCheckStatusMessage = $"Couldn't check endorsements: {ex.Message}";
+        }
+        finally
+        {
+            IsCheckingEndorsements = false;
+        }
+    }
 
     /// <summary>One mod's own outcome from a CheckModsAgainstCurrentDataAsync pass — plain data, safe to build off the UI thread and apply afterward.</summary>
     private sealed record ModStalenessResult(

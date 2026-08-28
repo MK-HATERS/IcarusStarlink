@@ -47,4 +47,13 @@
          the rest of this set (round joins/caps soften it into reading as head-and-torso at 16px). -->
     <Geometry x:Key="IconPerson">M12 3.5L14.6 6L12 8.5L9.4 6Z M5.5 20L5.5 17.5L9 13.5L15 13.5L18.5 17.5L18.5 20</Geometry>
 
+    <!-- Thumbs up (Library's Endorsed column): three adjacent, non-overlapping rectangles — a
+         wrist cuff, the fist, and a narrower thumb nub on its left. Adjacent (sharing only a
+         zero-area edge), never overlapping, so this renders correctly as one solid shape whether
+         used with WPF's default EvenOdd fill rule or Nonzero — two truly overlapping subpaths
+         under EvenOdd would punch an unwanted hole where they cross, which this deliberately
+         avoids needing to reason about. Meant to be used with both Fill and Stroke set at the use
+         site (filled+colored = endorsed, Fill="Transparent" = hollow/not yet). -->
+    <Geometry x:Key="IconThumbsUp">M2 13L7 13L7 21L2 21Z M7 9L19 9L19 21L7 21Z M7 2L11 2L11 9L7 9Z</Geometry>
+
 </ResourceDictionary>
