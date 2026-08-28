@@ -205,4 +205,26 @@ public partial class LibraryView : UserControl
             menu.IsOpen = true;
         }
     }
+
+    /// <summary>Sets the drop cursor — without this, WPF shows the "no drop" cursor over the whole page even for a real file drag, since AllowDrop alone doesn't imply any particular drop is actually acceptable.</summary>
+    private void LibraryPage_DragOver(object sender, System.Windows.DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// Drag-and-drop counterpart to the "Import…" dialogs — a dropped folder, archive, or bare
+    /// .pak routes through the exact same LibraryViewModel.ImportPaths auto-detection, so anything
+    /// pickable in a file dialog can also just be dragged onto the page. Explorer's own drag
+    /// already hands over every dropped item in one DragEventArgs, so dropping several at once (a
+    /// mix of folders and archives included) works with no extra handling here.
+    /// </summary>
+    private void LibraryPage_Drop(object sender, System.Windows.DragEventArgs e)
+    {
+        if (DataContext is LibraryViewModel viewModel && e.Data.GetData(DataFormats.FileDrop) is string[] paths)
+        {
+            viewModel.ImportPaths(paths);
+        }
+    }
 }

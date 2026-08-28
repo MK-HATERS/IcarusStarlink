@@ -309,7 +309,7 @@
         </DataTemplate>
     </UserControl.Resources>
 
-    <Grid Margin="32">
+    <Grid Margin="32" AllowDrop="True" DragOver="LibraryPage_DragOver" Drop="LibraryPage_Drop">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>

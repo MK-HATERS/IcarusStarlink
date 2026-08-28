@@ -483,14 +483,17 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// UE4SS mod folder. Same ExtractedModClassifier the Nexus pending-download Activate flow
     /// already uses for exactly this "don't yet know what's inside" situation — this is that
     /// detection's other real caller, a manual local-file import with no Nexus provenance to tag.
+    /// Multiselect, routed through ImportPaths below, so picking several archives at once works the
+    /// same as dragging several onto the page.
     /// </summary>
     [RelayCommand]
     private void ImportFile()
     {
         var dialog = new OpenFileDialog
         {
-            Title = "Select a mod archive",
+            Title = "Select one or more mod archives",
             Filter = "Mod archive (*.EXMODZ, *.zip, *.rar, *.7z)|*.EXMODZ;*.zip;*.rar;*.7z",
+            Multiselect = true,
         };
 
         if (dialog.ShowDialog() != true)
@@ -498,26 +501,41 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
+        ImportPaths(dialog.FileNames);
+    }
+
+    /// <summary>
+    /// Imports one already-known path — a real folder, a bare .pak, or (falling through to the
+    /// same auto-detection ImportFile's own dialog already uses) any other file, sniffed as an
+    /// archive by its actual content rather than trusted by extension. Shared by drag-and-drop and
+    /// every multi-select import path below, so "what kind of thing is this path" is decided in
+    /// exactly one place.
+    /// </summary>
+    private void ImportOnePath(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            var entry = _repository.Import(path);
+            _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
+            return;
+        }
+
+        if (path.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
+        {
+            var entry = _repository.ImportPak(path);
+            _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
+            return;
+        }
+
         var tempExtractDirectory = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Import_{Guid.NewGuid():N}");
         try
         {
-            AnyArchiveExtractor.ExtractToDirectory(dialog.FileName, tempExtractDirectory);
+            AnyArchiveExtractor.ExtractToDirectory(path, tempExtractDirectory);
             var (entryName, folderName, kind, _) = ExtractedModClassifier.ClassifyAndImport(
-                tempExtractDirectory, dialog.FileName, _repository, _ue4ssModRepository);
-
-            StatusMessage = kind == PendingDownloadActivationKind.Library
-                ? $"Imported '{entryName}'."
-                : $"Staged '{folderName}' as a UE4SS mod — enable it from the UE4SS mods tab, then click Apply.";
-            Reload();
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+                tempExtractDirectory, path, _repository, _ue4ssModRepository);
             _activityLog.Log(
                 kind == PendingDownloadActivationKind.Library ? $"Imported '{entryName}'." : $"Imported '{folderName}' as a UE4SS mod.",
                 ActivityEntryKind.Success);
-        }
-        catch (Exception ex)
-        {
-            // Same UI boundary every other import path here already uses.
-            StatusMessage = $"Import failed: {ex.Message}";
         }
         finally
         {
@@ -531,6 +549,45 @@ public sealed partial class LibraryViewModel : ObservableObject
                 // shouldn't turn a successful import into a reported failure.
             }
         }
+    }
+
+    /// <summary>
+    /// Shared entry point for drag-and-drop (LibraryView's own code-behind Drop handler) and every
+    /// multi-select "Import…" dialog — each path is imported independently via ImportOnePath, so
+    /// one bad file in a batch (a corrupt archive, a folder with no .EXMOD/.pak inside) can't abort
+    /// the rest. Deliberately no per-file "link to Nexus?" follow-up here, unlike ImportPak's own
+    /// single-file prompt — asking that once per imported file would make importing several at once
+    /// unusable; "Link to Nexus ID…" stays reachable afterward from each row's own context menu.
+    /// </summary>
+    public void ImportPaths(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        var importedCount = 0;
+        var failures = new List<string>();
+        foreach (var path in paths)
+        {
+            try
+            {
+                ImportOnePath(path);
+                importedCount++;
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}: {ex.Message}");
+            }
+        }
+
+        Reload();
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        ReloadInstalledUe4ssMods();
+
+        StatusMessage = failures.Count == 0
+            ? (paths.Count == 1 ? "Imported 1 mod." : $"Imported {importedCount} mod(s).")
+            : $"Imported {importedCount} of {paths.Count} — {string.Join("; ", failures)}";
     }
 
     /// <summary>

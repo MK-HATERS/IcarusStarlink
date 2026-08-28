@@ -680,9 +680,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
         catch (InvalidOperationException ex)
         {
-            // Nexus's own rejection — for a non-premium account, direct API downloads aren't
-            // allowed at all; the website's Mod Manager Download button is the path that works.
-            PendingDownloadStatusMessage = $"{ex.Message} Non-premium accounts can't download via the API directly — use Open page and its Mod Manager Download button instead.";
+            // GetModFilesAsync's own rejection — an actually invalid/expired stored key (401/403
+            // on a plain file listing, not a premium-tier restriction: listing works the same for
+            // every account tier). The premium-specific rejection this used to (wrongly) describe
+            // instead happens one step later, inside FetchAndDownloadAsync's own GetDownloadLinksAsync
+            // call — handled there now, with its own accurate, actionable message.
+            PendingDownloadStatusMessage = $"{ex.Message} Sign in again with a valid key in Settings.";
         }
         catch (Exception ex)
         {
@@ -777,6 +780,25 @@ public sealed partial class DownloadsViewModel : ObservableObject
             {
                 await ActivatePendingDownloadAsync(justDownloaded);
             }
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Nexus's own real rejection for exactly this case: a non-premium account's API key
+            // alone isn't accepted for a direct download-link request (GetDownloadLinksAsync
+            // above) — the account needs a real, temporary key+expires pair, which only comes from
+            // clicking Nexus's own "Mod Manager Download" button on the actual website. Caught
+            // specifically, ahead of the generic catch below, and opens the real mod page directly
+            // rather than just naming it, so there's one less manual step for a confused non-
+            // premium user. Found live: this exact case used to fall through to the generic
+            // "Download failed: ..." message below with no actionable next step at all, since
+            // ResolvePrimaryFileAndFetchAsync's own separate (more helpful) catch for this same
+            // exception type was unreachable dead code — this method's own broad catch already
+            // swallowed it first, every time, before it could ever propagate that far.
+            UrlOpener.TryOpen(NexusModWebUrl.For(nxmUrl.ModId));
+            PendingDownloadStatusMessage =
+                $"{ex.Message} Opened the mod's Nexus page — if your account isn't Premium, click its "
+                + "\"Mod Manager Download\" button there instead (register IcarusStarlink as your nxm:// "
+                + "handler in Settings first, if you haven't already).";
         }
         catch (Exception ex)
         {
