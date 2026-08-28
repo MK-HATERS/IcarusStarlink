@@ -731,8 +731,21 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             // Same UI boundary as everywhere else in this app: a wrong path, a UnrealPak.exe that
             // can't run, or the game having moved/renamed data.pak should show a status message,
-            // not crash the app.
-            DataFolderStatusMessage = $"Update failed: {ex.Message}";
+            // not crash the app. A raw exception message alone gives a new user nothing to act on
+            // when the real cause is UnrealPak.exe itself — a missing sibling DLL or antivirus
+            // quarantine makes Process.Start throw a cryptic Win32 error, and a corrupted extract
+            // of the bundled payload can fail with an equally unhelpful non-zero exit. Re-running
+            // the same health check "Check" already offers distinguishes that case and reuses its
+            // exact, actionable wording (pointing at Reinstall) instead of duplicating it here.
+            var verify = await _unrealPakInstaller.VerifyAsync(UnrealPakExePath);
+            DataFolderStatusMessage = verify.Health switch
+            {
+                UnrealPakHealth.Ok => $"Update failed: {ex.Message}",
+                UnrealPakHealth.Missing => $"Update failed — UnrealPak.exe isn't at that path ({verify.Detail}) "
+                    + (CanInstallBundledUnrealPak ? "Reinstall bundled copy in the UnrealPak section above." : "Point Browse… at a working copy."),
+                _ => $"Update failed — your UnrealPak.exe copy looks broken ({verify.Detail}) "
+                    + (CanInstallBundledUnrealPak ? "Reinstall bundled copy in the UnrealPak section above fixes this." : "Point Browse… at a fresh copy."),
+            };
         }
         finally
         {
