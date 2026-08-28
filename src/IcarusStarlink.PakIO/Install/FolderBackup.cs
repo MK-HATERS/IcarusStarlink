@@ -26,8 +26,8 @@ public static class FolderBackup
         PruneOldFolderBackups(backupBaseDirectory, name);
     }
 
-    /// <summary>Copies sourceFile into backupDirectory under a timestamped name, then prunes older backups of the same base name beyond MaxBackups. No-op if sourceFile doesn't exist. Returns the backup path, or null if there was nothing to back up.</summary>
-    public static string? BackupFile(string sourceFile, string backupDirectory)
+    /// <summary>Copies sourceFile into backupDirectory under a timestamped name, then prunes older backups of the same base name beyond maxBackups (MaxBackups if not specified). No-op if sourceFile doesn't exist. Returns the backup path, or null if there was nothing to back up.</summary>
+    public static string? BackupFile(string sourceFile, string backupDirectory, int maxBackups = MaxBackups)
     {
         if (!File.Exists(sourceFile))
         {
@@ -40,7 +40,7 @@ public static class FolderBackup
         var backupPath = MakeUniqueTimestampedPath(backupDirectory, baseName, DateTimeOffset.UtcNow, extension);
         File.Copy(sourceFile, backupPath, overwrite: false);
 
-        PruneOldFileBackups(backupDirectory, baseName, extension);
+        PruneOldFileBackups(backupDirectory, baseName, extension, maxBackups);
         return backupPath;
     }
 
@@ -92,13 +92,13 @@ public static class FolderBackup
         }
     }
 
-    private static void PruneOldFileBackups(string backupDirectory, string baseName, string extension)
+    private static void PruneOldFileBackups(string backupDirectory, string baseName, string extension, int maxBackups)
     {
         var backups = Directory.GetFiles(backupDirectory, $"{baseName}_*{extension}")
             .OrderByDescending(File.GetCreationTimeUtc)
             .ToList();
 
-        foreach (var stale in backups.Skip(MaxBackups))
+        foreach (var stale in backups.Skip(maxBackups))
         {
             File.Delete(stale);
         }

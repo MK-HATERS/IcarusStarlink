@@ -1091,6 +1091,26 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             return false;
         }
 
+        // A queue never saved under a real profile lives only as this ViewModel's own in-memory
+        // Queue — nothing on disk records it at all, so an app crash or a forgotten "Save" loses
+        // it outright, with only the last INSTALLED pak's own flat manifest (names, no options) as
+        // any record of what produced it. Snapshotting into a real, reloadable "Default" profile
+        // right before every Rebuild — not on every queue edit, which would mean saving on every
+        // keystroke-equivalent — ties this to an actual checkpoint ("this queue really did get
+        // built") without ever overriding a profile the user picked themselves. Best-effort: a
+        // failure here must never block the real Rebuild the user actually asked for.
+        if (SelectedProfileName is null)
+        {
+            try
+            {
+                _profileStore.Save(new Profile { Name = "Default", MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = gameplayOptions });
+                ReloadProfileNames();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         IsRebuilding = true;
         StatusMessage = "Rebuilding…";
         RebuildProgressPercent = 0;

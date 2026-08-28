@@ -155,6 +155,7 @@ public partial class App : Application
         builder.Services.AddSingleton<IProfileStore>(sp =>
             new ProfileStore(
                 Path.Combine(appDataDirectory, "Profiles"),
+                Path.Combine(appDataDirectory, "Profiles_Backups"),
                 sp.GetRequiredService<ILogger<ProfileStore>>()));
         builder.Services.AddSingleton<IPatchService, PatchService>();
         builder.Services.AddSingleton<IUe4ssModRepository>(sp =>

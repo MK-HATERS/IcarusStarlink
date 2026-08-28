@@ -1,5 +1,6 @@
 using System.Text.Json;
 using IcarusStarlink.Core.Profiles;
+using IcarusStarlink.PakIO.Install;
 using Microsoft.Extensions.Logging;
 
 namespace IcarusStarlink.Storage.Profiles;
@@ -7,12 +8,17 @@ namespace IcarusStarlink.Storage.Profiles;
 /// <summary>One JSON file per profile under profilesDirectory, named after the profile itself — simple enough that a user could inspect/back these up by hand, matching the app's broader "your files are yours" storage philosophy.</summary>
 public sealed class ProfileStore : IProfileStore
 {
+    /// <summary>Deliberately smaller than FolderBackup's own 5-backup default — a profile is small, frequently-saved editor state (not a rare, high-stakes real-game-folder write like a pak/UE4SS-loader install), so a couple of recent copies is enough of a safety net without piling up clutter on every Save.</summary>
+    private const int MaxProfileBackups = 3;
+
     private readonly string _profilesDirectory;
+    private readonly string _backupsDirectory;
     private readonly ILogger<ProfileStore> _logger;
 
-    public ProfileStore(string profilesDirectory, ILogger<ProfileStore> logger)
+    public ProfileStore(string profilesDirectory, string backupsDirectory, ILogger<ProfileStore> logger)
     {
         _profilesDirectory = profilesDirectory;
+        _backupsDirectory = backupsDirectory;
         _logger = logger;
         Directory.CreateDirectory(profilesDirectory);
     }
@@ -48,7 +54,21 @@ public sealed class ProfileStore : IProfileStore
         }
     }
 
-    public void Save(Profile profile) => JsonFileStore.Save(ResolvePath(profile.Name), profile);
+    public void Save(Profile profile)
+    {
+        var path = ResolvePath(profile.Name);
+
+        // Backs up whatever was already saved under this name BEFORE overwriting it — a bad edit
+        // (an accidental Clear + Save, a wrong manual conflict pick, MergeInstallViewModel's own
+        // new auto-save of an unnamed queue into "Default" right before every Rebuild) is
+        // recoverable, not permanent. FolderBackup.BackupFile itself no-ops when path doesn't
+        // exist yet (a brand-new profile has nothing to back up), and prunes per-name via the
+        // file's own base name, so every profile's backups coexist in one shared directory without
+        // needing their own subfolder.
+        FolderBackup.BackupFile(path, _backupsDirectory, MaxProfileBackups);
+
+        JsonFileStore.Save(path, profile);
+    }
 
     public void Delete(string name)
     {
