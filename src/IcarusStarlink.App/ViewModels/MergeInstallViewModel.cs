@@ -1276,26 +1276,46 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// so a Speed/Player/XP Boost or Disable Temperatures conflict against a queued mod shows up
     /// here too, not just in the real Rebuild — this is a preview, so any warnings the generator
     /// would log (e.g. a missing base file) are discarded rather than surfaced.
+    ///
+    /// includePrebuiltPaks additionally folds in each attached opaque pak's own field-level changes
+    /// (diffed against real base data — the same technique the real Rebuild itself now uses,
+    /// closing the gap where an opaque pak's conflicts were invisible to this preview) — real
+    /// UnrealPak.exe process work per pak, so it's opt-in: ReviewConflictsAsync (an explicit,
+    /// user-initiated action) turns it on; the background badge recompute leaves it off so adding a
+    /// mod to a queue that already has prebuilt paks attached doesn't silently re-launch UnrealPak
+    /// on every single queue mutation.
     /// </summary>
-    private async Task<(IReadOnlyList<FieldConflict> Conflicts, List<string> ModNames)> FindQueueConflictsAsync()
+    private async Task<(IReadOnlyList<FieldConflict> Conflicts, List<string> ModNames)> FindQueueConflictsAsync(bool includePrebuiltPaks = false)
     {
-        var (entries, packages, _) = await LoadQueuedPackagesAsync();
+        var (entries, packages, prebuiltPakFilePaths) = await LoadQueuedPackagesAsync();
         var gameplayOptions = BuildGameplayOptionsFromUi();
-        return await Task.Run(() =>
+
+        var classifier = new DefaultSemanticClassifier();
+        var orderedModChanges = await Task.Run(
+            () => packages.Select(p => ExmodFieldChangeMapper.ToFieldChanges(p.Package, classifier)).ToList());
+        var names = entries.Select(e => e.Name).ToList();
+
+        if (includePrebuiltPaks && prebuiltPakFilePaths.Count > 0
+            && !string.IsNullOrWhiteSpace(_settingsService.Current.UnrealPakExePath))
         {
-            var classifier = new DefaultSemanticClassifier();
-            var orderedModChanges = packages.Select(p => ExmodFieldChangeMapper.ToFieldChanges(p.Package, classifier)).ToList();
-            var names = entries.Select(e => e.Name).ToList();
-
-            var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(gameplayOptions, _dataFolder, new MergeReport());
-            if (fixedOptionChanges.Count > 0)
+            var prebuiltPakChanges = await _rebuildService.ComputePrebuiltPakFieldChangesAsync(
+                prebuiltPakFilePaths, _dataFolder, _settingsService.Current.UnrealPakExePath!, new MergeReport());
+            foreach (var (pakName, changes) in prebuiltPakChanges)
             {
-                orderedModChanges.Add(fixedOptionChanges);
-                names.Add("Built-in gameplay options");
+                orderedModChanges.Add(changes);
+                names.Add(pakName);
             }
+        }
 
-            return ((IReadOnlyList<FieldConflict>)MergeEngine.FindConflicts(names, orderedModChanges), names);
-        });
+        var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(gameplayOptions, _dataFolder, new MergeReport());
+        if (fixedOptionChanges.Count > 0)
+        {
+            orderedModChanges.Add(fixedOptionChanges);
+            names.Add("Built-in gameplay options");
+        }
+
+        var conflicts = await Task.Run(() => MergeEngine.FindConflicts(names, orderedModChanges));
+        return (conflicts, names);
     }
 
     /// <summary>Best-effort background refresh of ConflictCount — a malformed queued mod here just leaves the badge at its last value; ReviewConflictsAsync/Rebuild surface the real error when the user actually acts.</summary>
@@ -1336,7 +1356,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            var (conflicts, modNames) = await FindQueueConflictsAsync();
+            var (conflicts, modNames) = await FindQueueConflictsAsync(includePrebuiltPaks: true);
             ConflictCount = conflicts.Count;
 
             if (conflicts.Count == 0)

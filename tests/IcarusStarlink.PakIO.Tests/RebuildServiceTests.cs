@@ -72,6 +72,11 @@ public class RebuildServiceTests : IDisposable
         public Task<int> ExtractPakAsync(string unrealPakExePath, string pakFilePath, string outputDirectory, CancellationToken cancellationToken = default)
         {
             ExtractedPakPaths.Add(pakFilePath);
+            // Matches the real UnrealPakService.ExtractPakAsync, which always creates
+            // outputDirectory before running the process regardless of how many files the pak
+            // actually contains — RebuildService's own prebuilt-pak scratch-extraction step relies
+            // on the directory existing afterward even for a pak with nothing registered here.
+            Directory.CreateDirectory(outputDirectory);
             if (!FakeExtractedFilesByPakPath.TryGetValue(pakFilePath, out var files))
             {
                 return Task.FromResult(0);
@@ -333,6 +338,75 @@ public class RebuildServiceTests : IDisposable
         var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath]);
 
         Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_PrebuiltPakAndModTouchDifferentFieldsOfSameFile_BothSurviveTheMerge()
+    {
+        // The bug this proves fixed: a prebuilt pak used to be extracted as raw bytes straight into
+        // staging AFTER the merge output was written, so it unconditionally replaced the WHOLE FILE
+        // on any path collision — silently discarding a field-merged mod's own changes to that same
+        // file even when the two never actually touched the same field. Now the prebuilt pak's own
+        // DataTable JSON is diffed against base data into real FieldChanges first, so it becomes a
+        // genuine MergeEngine participant and only the field it actually changed is affected.
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json",
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5,"RequiredMillijoules":100}]}""");
+        var mod = MakeMod("Mod A", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["RequiredMillijoules"] = System.Text.Json.Nodes.JsonValue.Create(77) });
+        var prebuiltPakPath = Path.Combine(_tempDir, "SomeMod_P.pak");
+        var pakService = new FakeUnrealPakService();
+        // Only CraftTime actually differs from base here — RequiredMillijoules matches base, so it
+        // isn't a real change on the prebuilt pak's side and never competes with the mod's own 77.
+        pakService.FakeExtractedFilesByPakPath[prebuiltPakPath] = new()
+        {
+            ["data/Crafting/D_ProcessorRecipes.json"] =
+                """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":999,"RequiredMillijoules":100}]}""",
+        };
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath]);
+
+        Assert.Empty(result.Warnings);
+        var stagedJson = pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"];
+        var row = System.Text.Json.Nodes.JsonNode.Parse(stagedJson)!["Rows"]![0]!;
+        Assert.Equal(999, (int)row["CraftTime"]!);
+        Assert.Equal(77, (int)row["RequiredMillijoules"]!);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_PrebuiltPakAndModTouchSameField_ResolvesViaLastModWinsNotWholeFileClobber()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json",
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5,"RequiredMillijoules":100}]}""");
+        var mod = MakeMod("Mod A", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new()
+            {
+                ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1),
+                ["RequiredMillijoules"] = System.Text.Json.Nodes.JsonValue.Create(77),
+            });
+        var prebuiltPakPath = Path.Combine(_tempDir, "SomeMod_P.pak");
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFilesByPakPath[prebuiltPakPath] = new()
+        {
+            ["data/Crafting/D_ProcessorRecipes.json"] =
+                """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":999,"RequiredMillijoules":100}]}""",
+        };
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath]);
+
+        // A genuine field-level conflict (CraftTime: mod wants 1, prebuilt pak wants 999) resolves
+        // via MergeEngine's normal last-mod-wins default (the prebuilt pak, appended after the
+        // queued mod) — not disclosed as an unresolvable "no way to reconcile raw bytes" warning.
+        Assert.Empty(result.Warnings);
+        var stagedJson = pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"];
+        var row = System.Text.Json.Nodes.JsonNode.Parse(stagedJson)!["Rows"]![0]!;
+        Assert.Equal(999, (int)row["CraftTime"]!);
+        // Proves this was a real field-level resolution, not the old whole-file overwrite: the
+        // mod's own RequiredMillijoules change survives even though the prebuilt pak "won" CraftTime
+        // — the old bug would have silently reverted this back to the prebuilt pak's base-matching
+        // 100 by replacing the entire file's raw bytes.
+        Assert.Equal(77, (int)row["RequiredMillijoules"]!);
     }
 
     [Fact]

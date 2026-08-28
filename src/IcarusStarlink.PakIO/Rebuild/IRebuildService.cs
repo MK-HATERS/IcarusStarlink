@@ -1,4 +1,5 @@
 using IcarusStarlink.Core.Profiles;
+using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Container;
 
 namespace IcarusStarlink.PakIO.Rebuild;
@@ -39,5 +40,21 @@ public interface IRebuildService
         IReadOnlyList<string> prebuiltPakFilePaths,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
         IProgress<RebuildStageProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Extracts and diffs each prebuilt pak against real base game data (the same
+    /// PrebuiltPakFieldChangeExtractor RebuildAsync itself uses), returning the real FieldChanges
+    /// each one would contribute — for a pre-Rebuild preview (the "Review conflicts" picker) to see
+    /// a prebuilt pak's own field-level conflicts before a real Rebuild runs, not just after. Skips
+    /// a pak that contributes no changes. Does its own extraction to a throwaway scratch folder per
+    /// call — a preview and a real Rebuild are two separate user actions, so this doesn't share
+    /// RebuildAsync's own staging-scoped extraction.
+    /// </summary>
+    Task<IReadOnlyList<(string PakName, IReadOnlyList<FieldChange> Changes)>> ComputePrebuiltPakFieldChangesAsync(
+        IReadOnlyList<string> prebuiltPakFilePaths,
+        string dataFolder,
+        string unrealPakExePath,
+        MergeReport report,
         CancellationToken cancellationToken = default);
 }
