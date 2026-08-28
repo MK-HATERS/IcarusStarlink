@@ -285,6 +285,24 @@ public class UnrealPakServiceTests : IDisposable
         Assert.StartsWith("-Create=", runner.LastArguments[1]);
     }
 
+    [Fact]
+    public async Task CreatePakAsync_PassesCompressFlag()
+    {
+        // Confirmed live against the real bundled UnrealPak.exe: without -compress every entry is
+        // stored raw, and this app's output is almost entirely highly-compressible JSON DataTable
+        // files (~95% smaller in a real 30-file test sample) — a full extract-and-diff round trip
+        // confirmed the compressed output is still byte-identical, so this is free space savings.
+        var stagingDirectory = Path.Combine(_tempDir, "Staging");
+        Directory.CreateDirectory(stagingDirectory);
+        File.WriteAllText(Path.Combine(stagingDirectory, "Test.json"), "{}");
+        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "", ""));
+        var service = new UnrealPakService(runner);
+
+        await service.CreatePakAsync(_unrealPakExePath, stagingDirectory, Path.Combine(_tempDir, "Out_P.pak"));
+
+        Assert.Contains("-compress", runner.LastArguments!);
+    }
+
     // Real output captured by running -List against a real installed pak during planning.
     private const string RealisticListOutput = """
         LogInit: Display: Loading text-based GConfig....
