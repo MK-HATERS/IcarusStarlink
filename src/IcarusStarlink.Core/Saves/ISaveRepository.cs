@@ -54,6 +54,18 @@ public interface ISaveRepository
     string? SaveMetaInventory(string steamId, JsonObject metaInventory, bool takeBackup = true);
 
     /// <summary>
+    /// Mounts.json as a mutable tree — SavedMounts, a flat array of tamed mounts. Each mount's
+    /// MountName/MountLevel/MountType are plain, safely editable fields; its real stats/stomach/
+    /// saddle state lives in RecorderBlob, a raw Unreal binary-serialized blob (confirmed against a
+    /// real save — not JSON), which this editor never touches. Returns an empty-shaped object if
+    /// the file doesn't exist yet.
+    /// </summary>
+    JsonObject LoadMounts(string steamId);
+
+    /// <summary>Same contract as SaveProfile.</summary>
+    string? SaveMounts(string steamId, JsonObject mounts, bool takeBackup = true);
+
+    /// <summary>
     /// The slot's binary flags_&lt;SteamID&gt;.dat — a THIRD unlock store the game keeps beside the
     /// JSON ones (confirmed against a real save: account-wide character-flag IDs like
     /// Talent_RepairBench and Mission_Olympus_Unlock live here, NOT in any UnlockedFlags array).

@@ -23,6 +23,7 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
     private const string AccoladesFileName = "Accolades.json";
     private const string BestiaryFileName = "BestiaryData.json";
     private const string MetaInventoryFileName = "MetaInventory.json";
+    private const string MountsFileName = "Mounts.json";
 
     /// <summary>Matches the game's own formatting (observed: tabs + CRLF), so edited files diff cleanly against game-written ones.</summary>
     private static readonly JsonSerializerOptions GameStyleJson = new()
@@ -133,6 +134,15 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
     {
         var backupPath = takeBackup ? BackupSlot(steamId) : null;
         JsonFileStore.WriteAtomically(Path.Combine(ResolveSlot(steamId), MetaInventoryFileName), metaInventory.ToJsonString(GameStyleJson));
+        return backupPath;
+    }
+
+    public JsonObject LoadMounts(string steamId) => LoadOptionalObject(steamId, MountsFileName, () => new JsonObject { ["SavedMounts"] = new JsonArray() });
+
+    public string? SaveMounts(string steamId, JsonObject mounts, bool takeBackup = true)
+    {
+        var backupPath = takeBackup ? BackupSlot(steamId) : null;
+        JsonFileStore.WriteAtomically(Path.Combine(ResolveSlot(steamId), MountsFileName), mounts.ToJsonString(GameStyleJson));
         return backupPath;
     }
 

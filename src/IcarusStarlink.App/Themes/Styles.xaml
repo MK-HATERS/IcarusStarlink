@@ -13,6 +13,7 @@
     <converters:HexToBrushConverter x:Key="HexToBrushConverter"/>
     <converters:VariantSuffixConverter x:Key="VariantSuffixConverter"/>
     <converters:StaleItemTooltipConverter x:Key="StaleItemTooltipConverter"/>
+    <converters:MountTypeDisplayConverter x:Key="MountTypeDisplayConverter"/>
     <converters:SortIndicatorConverter x:Key="SortIndicatorConverter"/>
 
     <!-- The semantic change badge shared by every "what changed" grid (Weekly Changes, pak

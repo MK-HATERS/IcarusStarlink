@@ -20,6 +20,7 @@ public sealed class SaveGameNames(string dataFolder)
     private IReadOnlyDictionary<string, AccoladeInfo>? _accolades;
     private IReadOnlyDictionary<string, BestiaryCreatureInfo>? _bestiaryCreatures;
     private IReadOnlyDictionary<string, ItemInfo>? _items;
+    private IReadOnlyList<string>? _mountTypeRowNames;
 
     public IReadOnlyList<string> CharacterFlagNames => _characterFlagNames ??= LoadRowNames(Path.Combine("Flags", "D_CharacterFlags.json"));
 
@@ -37,9 +38,16 @@ public sealed class SaveGameNames(string dataFolder)
     /// <summary>Every item, keyed by the RowName MetaInventory.json's Items[].ItemStaticData.RowName stores (a D_ItemsStatic row). D_ItemsStatic itself carries no display name — see LoadItems' own comment for the real two-hop chain this resolves.</summary>
     public IReadOnlyDictionary<string, ItemInfo> Items => _items ??= LoadItems();
 
+    /// <summary>Every real, valid Mounts.json MountType value — D_Mounts's own row names (37 on a current extraction), confirmed to be exactly what MountType stores. Used to offer only real choices in a picker rather than free text, the same way a save's own binary flags/talent ranks are already bounded by real game data.</summary>
+    public IReadOnlyList<string> MountTypeRowNames => _mountTypeRowNames ??= LoadRowNames(Path.Combine("AI", "D_Mounts.json"));
+
     public string CharacterFlagName(int id) => id >= 0 && id < CharacterFlagNames.Count ? CharacterFlagNames[id] : $"Flag {id}";
 
     public string AccountFlagName(int id) => id >= 0 && id < AccountFlagNames.Count ? AccountFlagNames[id] : $"Flag {id}";
+
+    /// <summary>D_Mounts rows carry no display-name field at all (confirmed directly against the real table) — a light PascalCase/underscore split is the best available "Woolly Mammoth" instead of "WoollyMammoth".</summary>
+    public static string HumanizeMountType(string rowName) =>
+        System.Text.RegularExpressions.Regex.Replace(rowName.Replace('_', ' '), "(?<=[a-z0-9])(?=[A-Z])", " ");
 
     private IReadOnlyList<string> LoadRowNames(string relativePath)
     {

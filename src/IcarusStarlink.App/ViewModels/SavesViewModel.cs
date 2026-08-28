@@ -50,6 +50,7 @@ public sealed partial class SavesViewModel : ObservableObject
     private JsonObject? _bestiaryRoot;
     private JsonObject? _metaInventoryRoot;
     private bool _metaInventoryDirty;
+    private JsonObject? _mountsRoot;
     private SaveSlot? _lastLoadedSlot;
     private bool _suppressSlotChangeGuard;
 
@@ -85,15 +86,15 @@ public sealed partial class SavesViewModel : ObservableObject
     public bool HasSlots => Slots.Count > 0;
 
     /// <summary>
-    /// Every dirty-tracked collection on this page — the one place that needs to know about all 7
-    /// (Characters/Currencies/AccountFlags/BinaryFlags/WorkshopTalents/Accolades/BestiaryEntries),
-    /// so HasUnsavedChanges and SaveChanges' own MarkClean pass both read it instead of each
-    /// independently hand-listing the same 7 collections. MetaInventory isn't here — it tracks
-    /// dirtiness as a single _metaInventoryDirty flag on this class, not per-row, since its own
-    /// items have no IDirtyTrackable shape to join.
+    /// Every dirty-tracked collection on this page — the one place that needs to know about all 8
+    /// (Characters/Currencies/AccountFlags/BinaryFlags/WorkshopTalents/Accolades/BestiaryEntries/
+    /// Mounts), so HasUnsavedChanges and SaveChanges' own MarkClean pass both read it instead of
+    /// each independently hand-listing the same 8 collections. MetaInventory isn't here — it
+    /// tracks dirtiness as a single _metaInventoryDirty flag on this class, not per-row, since its
+    /// own items have no IDirtyTrackable shape to join (view + delete only, no per-field edits).
     /// </summary>
     private IEnumerable<IEnumerable<IDirtyTrackable>> DirtyTrackedCollections =>
-        [Characters, Currencies, AccountFlags, BinaryFlags, WorkshopTalents, Accolades, BestiaryEntries];
+        [Characters, Currencies, AccountFlags, BinaryFlags, WorkshopTalents, Accolades, BestiaryEntries, Mounts];
 
     public bool HasUnsavedChanges => DirtyTrackedCollections.Any(c => c.Any(x => x.IsDirty)) || _metaInventoryDirty;
 
@@ -263,6 +264,7 @@ public sealed partial class SavesViewModel : ObservableObject
         Accolades.Clear();
         BestiaryEntries.Clear();
         MetaInventoryItems.Clear();
+        Mounts.Clear();
         _profile = null;
         _characterNodes = [];
         _binaryFlagIds = null;
@@ -270,6 +272,7 @@ public sealed partial class SavesViewModel : ObservableObject
         _bestiaryRoot = null;
         _metaInventoryRoot = null;
         _metaInventoryDirty = false;
+        _mountsRoot = null;
         SelectedCharacter = null;
 
         _lastLoadedSlot = SelectedSlot;
@@ -293,12 +296,13 @@ public sealed partial class SavesViewModel : ObservableObject
             // the UI thread — same reasoning LibraryViewModel.CheckModsAgainstCurrentDataAsync
             // already applies to its own whole-library diff pass. Every ObservableCollection
             // mutation below still runs back on this (UI) thread, since that's not safe off it.
-            var (profile, characterNodes, accoladesRoot, bestiaryRoot, metaInventoryRoot) = await Task.Run(() => (
+            var (profile, characterNodes, accoladesRoot, bestiaryRoot, metaInventoryRoot, mountsRoot) = await Task.Run(() => (
                 _repository.LoadProfile(steamId),
                 _repository.LoadCharacters(steamId),
                 _repository.LoadAccolades(steamId),
                 _repository.LoadBestiary(steamId),
-                _repository.LoadMetaInventory(steamId)));
+                _repository.LoadMetaInventory(steamId),
+                _repository.LoadMounts(steamId)));
 
             if (!ReferenceEquals(SelectedSlot, slotBeingLoaded))
             {
@@ -332,6 +336,8 @@ public sealed partial class SavesViewModel : ObservableObject
             BuildBestiaryEntries();
             _metaInventoryRoot = metaInventoryRoot;
             BuildMetaInventoryItems();
+            _mountsRoot = mountsRoot;
+            BuildMounts();
 
             SelectedCharacter = Characters.FirstOrDefault();
             RefreshBackupsList();
@@ -656,6 +662,55 @@ public sealed partial class SavesViewModel : ObservableObject
         _metaInventoryRoot["Items"] = newArray;
     }
 
+    // --- Mounts (account-wide, Mounts.json — a separate file from Profile.json) ---
+
+    public ObservableCollection<SaveMountViewModel> Mounts { get; } = [];
+
+    public ObservableCollection<SaveMountViewModel> FilteredMounts { get; } = [];
+
+    [ObservableProperty]
+    private string _mountSearchText = "";
+
+    partial void OnMountSearchTextChanged(string value) => RefreshMountFilter();
+
+    private void RefreshMountFilter() =>
+        RefreshFilter(Mounts, FilteredMounts, MountSearchText, null, m => m.Name, m => m.TypeDisplayName);
+
+    /// <summary>Name/Level/Type only — RecorderBlob (the mount's real stats/stomach/saddle state, a raw Unreal binary blob, not JSON) is preserved untouched on each mount's own live Node. See SaveMountViewModel's own doc comment for why a mount has no natural key to rebuild an array by, unlike Bestiary/Accolades.</summary>
+    private void BuildMounts()
+    {
+        Mounts.Clear();
+        var availableTypes = _gameNames.MountTypeRowNames;
+        if (_mountsRoot?["SavedMounts"] is JsonArray array)
+        {
+            foreach (var entry in array.OfType<JsonObject>())
+            {
+                var name = entry["MountName"]?.GetValue<string>() ?? "";
+                var level = entry["MountLevel"]?.GetValue<int>() ?? 0;
+                var typeRowName = entry["MountType"]?.GetValue<string>() ?? "";
+                // Guarantee the mount's own current type is always in its own picker list — the
+                // game data folder may not be extracted yet (empty availableTypes) or may no
+                // longer carry this exact row, and the value should stay visible either way,
+                // matching how a talent rank above its documented cap is kept as-is rather than
+                // silently dropped.
+                var typesForThisMount = availableTypes.Contains(typeRowName) || typeRowName.Length == 0
+                    ? availableTypes
+                    : [.. availableTypes, typeRowName];
+                Mounts.Add(new SaveMountViewModel(entry, name, level, typeRowName, typesForThisMount, NotifyDirtyChanged));
+            }
+        }
+
+        RefreshMountFilter();
+    }
+
+    private void ApplyMountEdits()
+    {
+        foreach (var mount in Mounts)
+        {
+            mount.ApplyToNode();
+        }
+    }
+
     /// <summary>Writes AccountFlags/WorkshopTalents back into the profile node — the profile-level counterpart of SaveCharacterViewModel.ApplyToNode, same minimal-diff rules.</summary>
     private void ApplyProfileEdits()
     {
@@ -883,6 +938,12 @@ public sealed partial class SavesViewModel : ObservableObject
                 ApplyMetaInventoryEdits();
                 _repository.SaveMetaInventory(SelectedSlot.SteamId, _metaInventoryRoot!, takeBackup: false);
                 _metaInventoryDirty = false;
+            }
+
+            if (Mounts.Any(m => m.IsDirty))
+            {
+                ApplyMountEdits();
+                _repository.SaveMounts(SelectedSlot.SteamId, _mountsRoot!, takeBackup: false);
             }
 
             foreach (var collection in DirtyTrackedCollections)
