@@ -153,6 +153,8 @@ public partial class App : Application
                 sp.GetRequiredService<ILogger<WeeklyChangeReportStore>>()));
         builder.Services.AddSingleton<IRebuildService, RebuildService>();
         builder.Services.AddSingleton<IPrebuiltPakToExmodConverter, PrebuiltPakToExmodConverter>();
+        builder.Services.AddSingleton<IPrebuiltPakSourceStore>(sp =>
+            new PrebuiltPakSourceStore(Path.Combine(appDataDirectory, "PrebuiltPakSources")));
         builder.Services.AddSingleton<IPrebuiltPakImporter, PrebuiltPakImporter>();
         builder.Services.AddSingleton<IInstallService, InstallService>();
         builder.Services.AddSingleton<IPakCompareService, PakCompareService>();
@@ -227,7 +229,9 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Backups"),
             Path.Combine(appDataDirectory, "Data"),
             sp.GetRequiredService<IPrebuiltPakImporter>(),
-            sp.GetRequiredService<IPrebuiltPakToExmodConverter>()));
+            sp.GetRequiredService<IPrebuiltPakToExmodConverter>(),
+            sp.GetRequiredService<IPrebuiltPakSourceStore>(),
+            Path.Combine(appDataDirectory, "Cache", "Thumbnails")));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IRebuildService>(),

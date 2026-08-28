@@ -127,6 +127,20 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [ObservableProperty]
     private string? _rawJsonStatusMessage;
 
+    // Shared scroll position per view — not per window. When the same view (e.g. Item fields) is
+    // open in both the main editor window and a popped-out pane at once, ScrollSyncHelper keeps
+    // whichever one the user scrolls pushing its offset in here, and the other window pulls it
+    // back out — so scrolling either one moves both, instead of a popped-out pane being a frozen
+    // snapshot of wherever it happened to open scrolled to.
+    [ObservableProperty]
+    private double _itemFieldsScrollOffset;
+
+    [ObservableProperty]
+    private double _fileJsonScrollOffset;
+
+    [ObservableProperty]
+    private double _fullExmodJsonScrollOffset;
+
     /// <summary>Filters Items by a substring of its Display text (file or item name) — Ctrl+F focuses the box this is bound to.</summary>
     [ObservableProperty]
     private string _filterText = "";

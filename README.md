@@ -20,18 +20,25 @@ EXMOD-shaped mod, a bare `.pak`, or a UE4SS mod from what's actually inside), fo
 `.pak` files; organize with pin/favorite/notes/rename and automatic variant grouping; user-
 configurable columns (right-click the header bar); a full EXMOD editor (item-field, raw file JSON,
 and full-package JSON views, amber-highlighted diffs against the real base game data, mass edit
-across selected items, undo, add-item-from-game-data, and a cross-file "what else references this"
-search over the whole extracted data folder); proactive staleness detection that flags mods whose
-targets a game update may have renamed or removed, with confidence-tiered auto-repair (always
-backed up first).
+across selected items, undo, add-item-from-game-data, a pop-out for any pane with its scroll
+position kept in sync with wherever else that same view is open, and a cross-file "what else
+references this" search over the whole extracted data folder); proactive staleness detection that
+flags mods whose targets a game update may have renamed or removed, with confidence-tiered
+auto-repair (always backed up first). A prebuilt `.pak` mod converts into a real, editable EXMOD
+automatically wherever it's possible to (at import, on demand via **Convert opaque mods…**, or
+silently after the next "Update data folder") — its own original `.pak` is kept behind the scenes
+so a later game update can re-derive a fresher diff instead of the conversion being frozen at
+whatever the game looked like the day it first converted; once a converted mod is hand-edited, it's
+never silently touched again.
 
 **Merge & Install** — a merge queue with proactive conflict detection and a manual per-field
 conflict picker, a baseline mod list that auto-joins every profile's queue, gameplay-option toggles
 (stack/slot size, craft cost, XP/speed/player/taming boosts, remove weight, unlimited ammo, disable
 temperatures, remove level cap — values sourced from classic IMM's own documented behavior, or a
 real community mod's where classic IMM never covered one) that participate in the same conflict
-detection as regular mods, profiles with exportable/importable patches, and a rebuild → install
-pipeline that backs up whatever it's about to replace.
+detection as regular mods, profiles (with their own backup/restore) with exportable/importable
+patches, and a rebuild → install pipeline that backs up whatever it's about to replace and
+independently re-reads the pak it just built to confirm nothing staged for packing went missing.
 
 **Weekly Changes** — a real, row-by-row diff of what the game's own data changed between two
 "Update data folder" runs, so you can see exactly why a mod broke after a patch instead of guessing.
@@ -52,9 +59,9 @@ with saved site credentials in Windows Credential Manager and FileZilla-style re
 
 **Saves** — a full player save editor: characters (name, XP), currencies, talents (character and
 account-wide Workshop research), account/character/binary unlock flags, Bestiary encounter
-progress, Accolade completion, the account-wide item bank, and per-character cosmetic values — with
-mandatory automatic backups before every write and hard safety gates (refuses to touch a save while
-the game is running).
+progress, Accolade completion, the account-wide item bank, per-character cosmetic values, and
+tamed mounts (name, level, species) — with mandatory automatic backups before every write and hard
+safety gates (refuses to touch a save while the game is running).
 
 **Migration & verification** — import a mod list straight from a classic IMM install and match it
 against your Library, plus two comparison tools: one that diffs any two `.pak` files field by field
@@ -70,14 +77,14 @@ page covering every feature above.
 
 - **Nexus single-click SSO login** — Nexus's SSO flow needs an application slug only their staff
   can issue; the app uses a manual paste-your-API-key flow instead.
-- The EXMOD editor's panes don't detach into separate floating windows (the editor window itself
-  does pop out, and multiple mods can be edited in separate windows at once — just not individual
-  panes within one).
 - **UnrealPak.exe is bundled, not downloaded**, and pinned to the UE4 build Icarus itself uses
   (4.27) rather than "whatever's newest" — a newer UE5 UnrealPak writes pak formats Icarus's own
   engine can't load. Whether Epic's own EULA permits redistributing UnrealPak.exe at all has not
   been independently verified — if you're taking this app to a wider public release, that's worth
   a human legal read before shipping the bundled copy.
+- The Save editor can't duplicate or remove a character slot yet, and doesn't extract the game's
+  own icons (Settings' item/creature icons stay text-only) — that needs a real UE4.27 texture
+  decoder, a separate, larger piece of work than anything else in the editor so far.
 
 ## Building
 

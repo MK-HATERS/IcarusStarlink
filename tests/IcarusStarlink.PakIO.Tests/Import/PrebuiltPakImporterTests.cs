@@ -12,12 +12,15 @@ public class PrebuiltPakImporterTests : IDisposable
     private readonly string _extractedModsDir = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
     private readonly string _metaDir = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N") + "_meta");
     private readonly string _backupsDir = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N") + "_backups");
+    private readonly string _sourceStoreDir = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N") + "_sources");
     private readonly string _pakFilePath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N") + ".pak");
 
     public PrebuiltPakImporterTests() => File.WriteAllText(_pakFilePath, "fake pak bytes");
 
     private FolderLibraryRepository CreateRepository() =>
         new(_extractedModsDir, _metaDir, _backupsDir, NullLogger<FolderLibraryRepository>.Instance);
+
+    private PrebuiltPakSourceStore CreateSourceStore() => new(_sourceStoreDir);
 
     /// <summary>Returns a canned result regardless of input, or null to simulate "conversion isn't possible right now" — the real converter's own logic is exercised separately by PrebuiltPakToExmodConverterTests.</summary>
     private sealed class FakeConverter(ExmodPackageContents? result) : IPrebuiltPakToExmodConverter
@@ -43,7 +46,7 @@ public class PrebuiltPakImporterTests : IDisposable
     public async Task ImportAsync_ConversionSucceeds_RegistersARealEditableEntry()
     {
         using var repo = CreateRepository();
-        var importer = new PrebuiltPakImporter(new FakeConverter(BuildConvertedPackage()), repo, repo);
+        var importer = new PrebuiltPakImporter(new FakeConverter(BuildConvertedPackage()), repo, repo, CreateSourceStore());
 
         var entry = await importer.ImportAsync(_pakFilePath, "SomeDataFolder", "SomeUnrealPak.exe");
 
@@ -56,7 +59,7 @@ public class PrebuiltPakImporterTests : IDisposable
     public async Task ImportAsync_ConversionFails_FallsBackToOpaqueImport()
     {
         using var repo = CreateRepository();
-        var importer = new PrebuiltPakImporter(new FakeConverter(null), repo, repo);
+        var importer = new PrebuiltPakImporter(new FakeConverter(null), repo, repo, CreateSourceStore());
 
         var entry = await importer.ImportAsync(_pakFilePath, "SomeDataFolder", "SomeUnrealPak.exe");
 
@@ -68,7 +71,7 @@ public class PrebuiltPakImporterTests : IDisposable
     public async Task ImportAsync_ProvenanceTags_FlowThroughOnConversionSuccess()
     {
         using var repo = CreateRepository();
-        var importer = new PrebuiltPakImporter(new FakeConverter(BuildConvertedPackage()), repo, repo);
+        var importer = new PrebuiltPakImporter(new FakeConverter(BuildConvertedPackage()), repo, repo, CreateSourceStore());
 
         var entry = await importer.ImportAsync(_pakFilePath, "SomeDataFolder", "SomeUnrealPak.exe", source: "Nexus", nexusModId: 42);
 
@@ -81,7 +84,7 @@ public class PrebuiltPakImporterTests : IDisposable
     {
         using var repo = CreateRepository();
         var fakeConverter = new FakeConverter(BuildConvertedPackage());
-        var importer = new PrebuiltPakImporter(fakeConverter, repo, repo);
+        var importer = new PrebuiltPakImporter(fakeConverter, repo, repo, CreateSourceStore());
 
         await importer.ImportAsync(_pakFilePath, "SomeDataFolder", "SomeUnrealPak.exe");
 
@@ -94,7 +97,7 @@ public class PrebuiltPakImporterTests : IDisposable
     {
         using var repo = CreateRepository();
         var fakeConverter = new FakeConverter(BuildConvertedPackage());
-        var importer = new PrebuiltPakImporter(fakeConverter, repo, repo);
+        var importer = new PrebuiltPakImporter(fakeConverter, repo, repo, CreateSourceStore());
 
         await importer.ImportAsync(_pakFilePath, "SomeDataFolder", "SomeUnrealPak.exe", name: "Real Title", author: "Real Author");
 
@@ -104,7 +107,7 @@ public class PrebuiltPakImporterTests : IDisposable
 
     public void Dispose()
     {
-        foreach (var dir in new[] { _extractedModsDir, _metaDir, _backupsDir })
+        foreach (var dir in new[] { _extractedModsDir, _metaDir, _backupsDir, _sourceStoreDir })
         {
             if (Directory.Exists(dir))
             {

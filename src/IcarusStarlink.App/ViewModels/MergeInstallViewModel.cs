@@ -397,14 +397,25 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// <summary>Selecting a profile replaces the current queue with that profile's own saved one — a profile *is* "a saved merge list" per the spec, not something merged alongside the current queue.</summary>
     partial void OnSelectedProfileNameChanged(string? value)
     {
+        OnPropertyChanged(nameof(CanRestoreProfileBackup));
         if (value is null)
         {
             return;
         }
 
+        LoadProfileIntoUi(value, verb: "Loaded");
+    }
+
+    /// <summary>
+    /// Reads a profile's own file fresh from disk and populates Queue/options from it — shared by
+    /// the ComboBox selection handler above and RestoreProfileBackup below, which needs the exact
+    /// same "re-read what's now on disk" step after replacing the file with a backup.
+    /// </summary>
+    private void LoadProfileIntoUi(string name, string verb)
+    {
         try
         {
-            var profile = _profileStore.Load(value);
+            var profile = _profileStore.Load(name);
             LoadGameplayOptionsIntoUi(profile.Options);
 
             Queue.Clear();
@@ -425,8 +436,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             PrependBaselineMods();
 
             ProfileStatusMessage = missingCount > 0
-                ? $"Loaded '{value}' — {missingCount} mod(s) from this profile are no longer in your Library."
-                : $"Loaded '{value}'.";
+                ? $"{verb} '{name}' — {missingCount} mod(s) from this profile are no longer in your Library."
+                : $"{verb} '{name}'.";
         }
         catch (Exception ex)
         {
@@ -492,6 +503,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             });
             ProfileStatusMessage = $"Saved '{name}'.";
             _activityLog.Log($"Saved profile '{name}'.", ActivityEntryKind.Success);
+            OnPropertyChanged(nameof(CanRestoreProfileBackup));
         }
         catch (Exception ex)
         {
@@ -554,6 +566,43 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         catch (Exception ex)
         {
             ProfileStatusMessage = $"Couldn't delete profile: {ex.Message}";
+        }
+    }
+
+    /// <summary>Whether the currently-selected profile has a backup to restore — drives the Restore backup button's own IsEnabled, mirroring how Library's "Restore latest backup" only enables once HasModBackup is true.</summary>
+    public bool CanRestoreProfileBackup => SelectedProfileName is { } name && _profileStore.HasBackup(name);
+
+    /// <summary>
+    /// Replaces the selected profile's file with its own most recent backup — the mirror of
+    /// Library's "Restore latest backup" for a Profile, since ProfileStore.Save already backs up
+    /// whatever was there before overwriting it (a bad edit, an accidental Clear + Save, or
+    /// MergeInstallViewModel's own auto-save of an unnamed queue into "Default" right before every
+    /// Rebuild — see RebuildAsync's own comment on that). Re-loads the queue/options from the
+    /// restored content immediately, the same way selecting the profile fresh would.
+    /// </summary>
+    [RelayCommand]
+    private void RestoreProfileBackup()
+    {
+        if (SelectedProfileName is not { } name)
+        {
+            ProfileStatusMessage = "Select a profile first.";
+            return;
+        }
+
+        try
+        {
+            if (!_profileStore.RestoreLatestBackup(name))
+            {
+                ProfileStatusMessage = $"'{name}' has no backup to restore.";
+                return;
+            }
+
+            LoadProfileIntoUi(name, verb: "Restored");
+            _activityLog.Log($"Restored profile '{name}' from its own latest backup.", ActivityEntryKind.Success);
+        }
+        catch (Exception ex)
+        {
+            ProfileStatusMessage = $"Couldn't restore profile: {ex.Message}";
         }
     }
 

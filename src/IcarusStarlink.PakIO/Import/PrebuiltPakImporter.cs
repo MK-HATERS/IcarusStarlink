@@ -4,7 +4,8 @@ using IcarusStarlink.Diffing;
 namespace IcarusStarlink.PakIO.Import;
 
 public sealed class PrebuiltPakImporter(
-    IPrebuiltPakToExmodConverter converter, IExmodPackageImporter packageImporter, ILibraryRepository libraryRepository)
+    IPrebuiltPakToExmodConverter converter, IExmodPackageImporter packageImporter, ILibraryRepository libraryRepository,
+    IPrebuiltPakSourceStore sourceStore)
     : IPrebuiltPakImporter
 {
     public async Task<LibraryEntry> ImportAsync(
@@ -28,6 +29,9 @@ public sealed class PrebuiltPakImporter(
         // this entry's still-placeholder Name/Author, unlike an ordinary EXMOD import.
         libraryRepository.MarkConvertedFromPrebuiltPak(entry.FolderName);
         entry.ConvertedFromPrebuiltPak = true;
+        // Keeps the original pak around (see IPrebuiltPakSourceStore's own doc comment) so a later
+        // game update can re-derive a fresher diff instead of this conversion being frozen forever.
+        sourceStore.Save(entry.FolderName, pakFilePath);
         return entry;
     }
 }

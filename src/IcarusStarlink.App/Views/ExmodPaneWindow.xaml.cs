@@ -14,6 +14,15 @@ public partial class ExmodPaneWindow : Window
         InitializeComponent();
         DataContext = viewModel;
         PaneTitle = $"{viewModel.WindowTitle} — {PaneLabel(fixedMode)}";
+
+        // See ScrollSyncHelper's own doc comment — keeps this pane's scroll position in step with
+        // the main editor window (or another pane) if it's showing the same fixed view mode.
+        ScrollSyncHelper.Attach(ItemFieldsScrollViewer, ItemFieldsScrollViewer.ScrollToVerticalOffset,
+            viewModel, nameof(ExmodEditorViewModel.ItemFieldsScrollOffset), () => viewModel.ItemFieldsScrollOffset, v => viewModel.ItemFieldsScrollOffset = v, this);
+        ScrollSyncHelper.Attach(FileJsonTextBox, FileJsonTextBox.ScrollToVerticalOffset,
+            viewModel, nameof(ExmodEditorViewModel.FileJsonScrollOffset), () => viewModel.FileJsonScrollOffset, v => viewModel.FileJsonScrollOffset = v, this);
+        ScrollSyncHelper.Attach(FullExmodJsonTextBox, FullExmodJsonTextBox.ScrollToVerticalOffset,
+            viewModel, nameof(ExmodEditorViewModel.FullExmodJsonScrollOffset), () => viewModel.FullExmodJsonScrollOffset, v => viewModel.FullExmodJsonScrollOffset = v, this);
     }
 
     public string PaneTitle { get; }

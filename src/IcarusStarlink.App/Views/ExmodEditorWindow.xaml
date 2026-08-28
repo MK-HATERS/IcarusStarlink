@@ -152,7 +152,7 @@
 
             <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
                     Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ScrollViewer x:Name="ItemFieldsScrollViewer" VerticalScrollBarVisibility="Auto">
                     <ItemsControl ItemsSource="{Binding Fields}" Margin="8">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
@@ -205,7 +205,7 @@
 
             <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
                     Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
-                <TextBox Text="{Binding FileJsonText, UpdateSourceTrigger=PropertyChanged}"
+                <TextBox x:Name="FileJsonTextBox" Text="{Binding FileJsonText, UpdateSourceTrigger=PropertyChanged}"
                          AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
                          BorderThickness="0" Background="Transparent"
                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
@@ -214,7 +214,7 @@
 
             <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
                     Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
-                <TextBox Text="{Binding FullExmodJsonText, UpdateSourceTrigger=PropertyChanged}"
+                <TextBox x:Name="FullExmodJsonTextBox" Text="{Binding FullExmodJsonText, UpdateSourceTrigger=PropertyChanged}"
                          AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
                          BorderThickness="0" Background="Transparent"
                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"

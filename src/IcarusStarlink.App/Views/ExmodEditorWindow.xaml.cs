@@ -12,6 +12,15 @@ public partial class ExmodEditorWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
+
+        // See ScrollSyncHelper's own doc comment — keeps each view's scroll position in step with
+        // whatever else has the same view open (a popped-out pane fixed to the same mode).
+        ScrollSyncHelper.Attach(ItemFieldsScrollViewer, ItemFieldsScrollViewer.ScrollToVerticalOffset,
+            viewModel, nameof(ExmodEditorViewModel.ItemFieldsScrollOffset), () => viewModel.ItemFieldsScrollOffset, v => viewModel.ItemFieldsScrollOffset = v, this);
+        ScrollSyncHelper.Attach(FileJsonTextBox, FileJsonTextBox.ScrollToVerticalOffset,
+            viewModel, nameof(ExmodEditorViewModel.FileJsonScrollOffset), () => viewModel.FileJsonScrollOffset, v => viewModel.FileJsonScrollOffset = v, this);
+        ScrollSyncHelper.Attach(FullExmodJsonTextBox, FullExmodJsonTextBox.ScrollToVerticalOffset,
+            viewModel, nameof(ExmodEditorViewModel.FullExmodJsonScrollOffset), () => viewModel.FullExmodJsonScrollOffset, v => viewModel.FullExmodJsonScrollOffset = v, this);
     }
 
     /// <summary>ListBox.SelectedItems isn't a bindable DependencyProperty in stock WPF — this is the one piece of multi-select mass edit that has to be pushed in from code-behind rather than bound directly.</summary>

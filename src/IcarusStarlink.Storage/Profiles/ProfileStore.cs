@@ -99,6 +99,38 @@ public sealed class ProfileStore : IProfileStore
         }
     }
 
+    public bool HasBackup(string name) => FindLatestBackupPath(name) is not null;
+
+    /// <summary>
+    /// Replaces this profile's file with its own most recent backup — mirrors
+    /// ILibraryRepository.RestoreLatestModBackup exactly, including "missing backup returns false,
+    /// not an error" and "the file is deleted first, not merged, so an edit made since the backup
+    /// is genuinely undone."
+    /// </summary>
+    public bool RestoreLatestBackup(string name)
+    {
+        var backupPath = FindLatestBackupPath(name);
+        if (backupPath is null)
+        {
+            return false;
+        }
+
+        File.Copy(backupPath, ResolvePath(name), overwrite: true);
+        return true;
+    }
+
+    private string? FindLatestBackupPath(string name)
+    {
+        if (!Directory.Exists(_backupsDirectory))
+        {
+            return null;
+        }
+
+        return Directory.GetFiles(_backupsDirectory, $"{name}_*.json")
+            .OrderByDescending(File.GetCreationTimeUtc)
+            .FirstOrDefault();
+    }
+
     private string ResolvePath(string name)
     {
         var invalidChar = name.IndexOfAny(Path.GetInvalidFileNameChars());

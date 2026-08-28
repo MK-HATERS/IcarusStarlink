@@ -201,7 +201,11 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                 }
 
                 progress?.Report(new RebuildStageProgress("Packing…", 75));
+                var stagedRelativePaths = Directory.GetFiles(stagingDirectory, "*", SearchOption.AllDirectories)
+                    .Select(f => Path.GetRelativePath(stagingDirectory, f).Replace('\\', '/'))
+                    .ToList();
                 var packedFileCount = await unrealPakService.CreatePakAsync(unrealPakExePath, stagingDirectory, outputPakPath, cancellationToken);
+                await VerifyEveryStagedFileWasActuallyPackedAsync(unrealPakExePath, outputPakPath, stagedRelativePaths, report, cancellationToken);
                 var manifestPath = WriteManifest(queuedMods, prebuiltPakFilePaths, outputPakPath);
 
                 progress?.Report(new RebuildStageProgress("Done.", 100));
@@ -346,6 +350,41 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             var fullFile = DataTableJson.KeyedObjectToRows(originalFileJsonByFile[currentFile], mergedKeyedTable);
             Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
             File.WriteAllText(destPath, fullFile.ToJsonString(JsonWriteOptions));
+        }
+    }
+
+    /// <summary>
+    /// Independently confirms every file this app just staged actually ended up retrievable from
+    /// the pak it just built — reading the real pak's own contents back via -List, not trusting
+    /// CreatePakAsync's own returned count (that number only ever reflects how many files were
+    /// staged and handed to UnrealPak.exe, never how many it can be shown to actually contain
+    /// afterward — CreatePakAsync has no way to know if UnrealPak silently dropped one). This is
+    /// the "did the merge lose anything" question asked directly of the one artifact that actually
+    /// matters — the finished pak — rather than only of the merge computation that led up to it.
+    /// A missing UnrealPak.exe/pak read failure here surfaces as its own warning rather than
+    /// throwing — a failed verification pass must never make an otherwise-successful Rebuild look
+    /// like it failed outright.
+    /// </summary>
+    private async Task VerifyEveryStagedFileWasActuallyPackedAsync(
+        string unrealPakExePath, string outputPakPath, IReadOnlyList<string> stagedRelativePaths, MergeReport report, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var packedPaths = await unrealPakService.ListPakContentsAsync(unrealPakExePath, outputPakPath, cancellationToken);
+            var packedPathSet = new HashSet<string>(packedPaths, StringComparer.OrdinalIgnoreCase);
+            var missing = stagedRelativePaths.Where(p => !packedPathSet.Contains(p)).ToList();
+            if (missing.Count > 0)
+            {
+                var shown = string.Join(", ", missing.Take(5));
+                var suffix = missing.Count > 5 ? ", ..." : "";
+                report.AddWarning(
+                    $"{missing.Count} file(s) were staged for packing but didn't make it into the final pak "
+                    + $"(UnrealPak.exe itself dropped them, not this app's own merge): {shown}{suffix}.");
+            }
+        }
+        catch (Exception ex)
+        {
+            report.AddWarning($"Couldn't independently verify the pak's own contents after building it: {ex.Message}");
         }
     }
 

@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Net.Http;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
@@ -25,6 +27,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     private readonly ISettingsService _settingsService;
     private readonly INexusApiClient _nexusApiClient;
     private readonly ICredentialStore _credentialStore;
+    private readonly HttpClient _httpClient;
+    private readonly string _thumbnailCacheDirectory;
+    private readonly Func<Task<IReadOnlyList<CatalogEntry>>> _getOrFetchCatalog;
     private readonly Action<string> _reportStatus;
     private readonly Action _onPinnedChanged;
     private readonly DebounceTimer _notesSaveDebounceTimer;
@@ -268,6 +273,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isLocallyEdited;
 
+    /// <summary>True once this mod's own EXMOD was derived from a prebuilt pak (automatically at import, or via Convert to EXMOD…) rather than authored directly — the candidate set LibraryViewModel's own silent post-data-update refresh re-derives from its saved source pak, as long as IsLocallyEdited hasn't since gone true.</summary>
+    public bool ConvertedFromPrebuiltPak { get; private set; }
+
     /// <summary>A previously-Rebuild-and-Installed IcarusStarlink pak, re-imported as its own Library entry — the 📦 glyph. Drives Merge &amp; Install's queue rules.</summary>
     public bool IsMergedPack => MergedPackModNames is { Count: > 0 };
 
@@ -321,13 +329,17 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     public LibraryItemViewModel(
         LibraryEntry entry, ILibraryRepository repository, IUnrealPakService unrealPakService, ISettingsService settingsService,
-        INexusApiClient nexusApiClient, ICredentialStore credentialStore, Action<string> reportStatus, Action onPinnedChanged)
+        INexusApiClient nexusApiClient, ICredentialStore credentialStore, HttpClient httpClient, string thumbnailCacheDirectory,
+        Func<Task<IReadOnlyList<CatalogEntry>>> getOrFetchCatalog, Action<string> reportStatus, Action onPinnedChanged)
     {
         _repository = repository;
         _unrealPakService = unrealPakService;
         _settingsService = settingsService;
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
+        _httpClient = httpClient;
+        _thumbnailCacheDirectory = thumbnailCacheDirectory;
+        _getOrFetchCatalog = getOrFetchCatalog;
         _reportStatus = reportStatus;
         _onPinnedChanged = onPinnedChanged;
         FolderName = entry.FolderName;
@@ -339,6 +351,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         _variantLabel = entry.Variant;
         _isOpaquePak = entry.IsOpaquePak;
         _isLocallyEdited = entry.IsLocallyEdited;
+        ConvertedFromPrebuiltPak = entry.ConvertedFromPrebuiltPak;
         _source = entry.Source;
         NexusModId = entry.NexusModId;
         CatalogEntryId = entry.CatalogEntryId;
@@ -378,6 +391,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         VariantLabel = entry.Variant;
         IsOpaquePak = entry.IsOpaquePak;
         IsLocallyEdited = entry.IsLocallyEdited;
+        ConvertedFromPrebuiltPak = entry.ConvertedFromPrebuiltPak;
         Source = entry.Source;
         NexusModId = entry.NexusModId;
         OnPropertyChanged(nameof(HasNexusLink));
@@ -547,6 +561,14 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
             ReadmeContent = _repository.ReadReadme(FolderName, files);
             LoadThumbnailIfPresent();
+            if (ThumbnailImage is null && (NexusModId is not null || CatalogEntryId is not null))
+            {
+                // Fire-and-forget, same pattern LoadPakContentsCommand already uses below for the
+                // opaque-pak case — this synchronous method can't await a network call, and a
+                // missing/slow picture is cosmetic, never a reason to block the rest of the details
+                // load.
+                _ = LoadRemoteThumbnailAsync();
+            }
 
             // An opaque .pak entry has no .EXMOD at all — nothing to format, and ExmodFolder.Read
             // would throw trying. Its own internal files aren't on disk under this mod's folder
@@ -659,6 +681,64 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         {
             // The read itself can fail (locked/vanished file) separately from the decode — both
             // are cosmetic here, per this method's own contract.
+        }
+    }
+
+    /// <summary>
+    /// Only runs when no local bundled preview exists (LoadThumbnailIfPresent already found
+    /// nothing) and this mod is linked to a real Nexus mod or Database catalog entry — fetches
+    /// that source's own real picture instead of leaving the generic placeholder showing for a mod
+    /// that genuinely has a real image out there. Cached to disk by FolderName so a later reselect
+    /// (or app restart) never re-fetches the same picture twice; best-effort throughout, same
+    /// cosmetic-only contract as LoadThumbnailIfPresent — a missing key, an unreachable network, or
+    /// a mod removed from the catalog since just means the placeholder stays showing.
+    /// </summary>
+    private async Task LoadRemoteThumbnailAsync()
+    {
+        try
+        {
+            var cachePath = Path.Combine(_thumbnailCacheDirectory, $"{FolderName}.img");
+            if (File.Exists(cachePath))
+            {
+                ThumbnailImage = TryDecodeImage(await File.ReadAllBytesAsync(cachePath));
+                return;
+            }
+
+            string? imageUrl = null;
+            if (NexusModId is { } modId)
+            {
+                var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+                if (apiKey is not null)
+                {
+                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
+                    imageUrl = info?.PictureUrl;
+                }
+            }
+            else if (CatalogEntryId is { } catalogId)
+            {
+                var catalog = await _getOrFetchCatalog();
+                imageUrl = catalog.FirstOrDefault(e => e.Id == catalogId)?.ImageUrl;
+            }
+
+            if (string.IsNullOrWhiteSpace(imageUrl))
+            {
+                return;
+            }
+
+            var bytes = await _httpClient.GetByteArrayAsync(imageUrl);
+            var decoded = TryDecodeImage(bytes);
+            if (decoded is null)
+            {
+                return;
+            }
+
+            ThumbnailImage = decoded;
+            Directory.CreateDirectory(_thumbnailCacheDirectory);
+            await File.WriteAllBytesAsync(cachePath, bytes);
+        }
+        catch (Exception)
+        {
+            // Cosmetic-only, per this method's own doc comment.
         }
     }
 

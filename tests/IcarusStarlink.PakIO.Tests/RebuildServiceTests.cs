@@ -97,6 +97,9 @@ public class RebuildServiceTests : IDisposable
         // is still executing — nothing after RebuildAsync returns can see the staging dir at all.
         public Dictionary<string, string> StagedFileContentsAtCallTime { get; private set; } = [];
 
+        /// <summary>Set true by a test that wants to simulate UnrealPak.exe itself silently dropping a file — RebuildAsync's own post-pack verification reads ListPakContentsAsync, not this staged count, so this is the one way to exercise that check's warning path.</summary>
+        public string? RelativePathToPretendUnrealPakDropped { get; set; }
+
         public Task<int> CreatePakAsync(string unrealPakExePath, string stagingDirectory, string outputPakPath, CancellationToken cancellationToken = default)
         {
             LastStagingDirectory = stagingDirectory;
@@ -106,6 +109,15 @@ public class RebuildServiceTests : IDisposable
             StagedFileContentsAtCallTime = files.ToDictionary(
                 f => Path.GetRelativePath(stagingDirectory, f).Replace('\\', '/'),
                 File.ReadAllText);
+
+            // A real UnrealPak.exe reports back everything it actually packed via -List — mirrored
+            // here so RebuildAsync's own post-pack verification (ListPakContentsAsync against
+            // outputPakPath) sees the same files a genuinely working UnrealPak would, rather than
+            // every test's own staged output looking like it vanished.
+            FakeExtractedFilesByPakPath[outputPakPath] = StagedRelativePathsAtCallTime
+                .Where(p => p != RelativePathToPretendUnrealPakDropped)
+                .ToDictionary(p => p, _ => "");
+
             return Task.FromResult(StagedRelativePathsAtCallTime.Count);
         }
     }
@@ -124,6 +136,34 @@ public class RebuildServiceTests : IDisposable
         Assert.Equal(1, result.MergedFileCount);
         var stagedJson = pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"];
         Assert.Contains("\"CraftTime\": 1", stagedJson);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_UnrealPakDropsAStagedFile_WarnsInsteadOfSilentlyLosingIt()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var pakService = new FakeUnrealPakService { RelativePathToPretendUnrealPakDropped = "data/Crafting/D_ProcessorRecipes.json" };
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        Assert.Contains(result.Warnings, w => w.Contains("didn't make it into the final pak") && w.Contains("data/Crafting/D_ProcessorRecipes.json"));
+    }
+
+    [Fact]
+    public async Task RebuildAsync_UnrealPakDropsNothing_NoCompletenessWarning()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var pakService = new FakeUnrealPakService();
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        Assert.DoesNotContain(result.Warnings, w => w.Contains("didn't make it into the final pak"));
     }
 
     [Fact]

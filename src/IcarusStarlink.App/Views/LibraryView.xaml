@@ -462,6 +462,8 @@
                                               ToolTip="Diffs every mod against the currently-extracted game data — flags items that look like they're editing a row this game version no longer has, and auto-fixes any confident, unambiguous rename (each mod is backed up first)"/>
                                     <MenuItem Header="Check endorsements" Command="{Binding CheckEndorsementsCommand}"
                                               ToolTip="Fetches your Nexus account's own endorsement history and shows which of your Nexus-linked mods you haven't endorsed yet"/>
+                                    <MenuItem Header="Convert opaque mods…" Command="{Binding ConvertAllOpaqueModsCommand}"
+                                              ToolTip="Retries Convert to EXMOD for every opaque .pak entry right now — useful right after setting up UnrealPak.exe or extracting game data, instead of waiting for the next automatic refresh (which runs quietly after every Update data folder)"/>
                                 </ContextMenu>
                             </Button.ContextMenu>
                             <StackPanel Orientation="Horizontal">

@@ -48,6 +48,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IModVersionComparer _modVersionComparer;
     private readonly IPrebuiltPakImporter _prebuiltPakImporter;
     private readonly IPrebuiltPakToExmodConverter _prebuiltPakToExmodConverter;
+    private readonly IPrebuiltPakSourceStore _prebuiltPakSourceStore;
+    private readonly string _thumbnailCacheDirectory;
 
     /// <summary>Resolved lazily (Merge & Install is constructed on first navigation, not at DI composition time) — same pattern SettingsViewModel already uses to reach it. Only invoked once the user actually adds something to the queue from here, so opening Library alone never forces Merge & Install into existence.</summary>
     private readonly Func<MergeInstallViewModel> _mergeInstallViewModel;
@@ -151,6 +153,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCheckingStaleness;
 
+    [ObservableProperty]
+    private bool _isConvertingAllOpaqueMods;
+
     /// <summary>Per-folder, not page-wide — see ConvertToExmodAsync's own guard comment.</summary>
     private readonly HashSet<string> _foldersCurrentlyConvertingToExmod = [];
 
@@ -223,11 +228,14 @@ public sealed partial class LibraryViewModel : ObservableObject
         IPendingDownloadStore pendingDownloadStore, IModVersionComparer modVersionComparer,
         DownloadsViewModel downloadsViewModel, Func<NexusCatalogViewModel> nexusCatalogViewModel,
         IActiveDownloadsTracker activeDownloadsTracker, Func<MergeInstallViewModel> mergeInstallViewModel, string backupDirectory,
-        string dataFolder, IPrebuiltPakImporter prebuiltPakImporter, IPrebuiltPakToExmodConverter prebuiltPakToExmodConverter)
+        string dataFolder, IPrebuiltPakImporter prebuiltPakImporter, IPrebuiltPakToExmodConverter prebuiltPakToExmodConverter,
+        IPrebuiltPakSourceStore prebuiltPakSourceStore, string thumbnailCacheDirectory)
     {
         _modVersionComparer = modVersionComparer;
         _prebuiltPakImporter = prebuiltPakImporter;
         _prebuiltPakToExmodConverter = prebuiltPakToExmodConverter;
+        _prebuiltPakSourceStore = prebuiltPakSourceStore;
+        _thumbnailCacheDirectory = thumbnailCacheDirectory;
         _mergeInstallViewModel = mergeInstallViewModel;
         _activeDownloadsTracker = activeDownloadsTracker;
         Downloads = downloadsViewModel;
@@ -285,6 +293,16 @@ public sealed partial class LibraryViewModel : ObservableObject
         WeakReferenceMessenger.Default.Register<SettingsSavedMessage>(this, (recipient, _) =>
         {
             ((LibraryViewModel)recipient).ReloadInstalledUe4ssMods();
+        });
+
+        // Every successful "Update data folder" run means fresher base game data exists — worth
+        // re-attempting conversion for mods that are still opaque, and re-deriving a fresher diff
+        // for mods already converted from one, so neither stays frozen against stale data forever.
+        // See RefreshConvertedOpaqueModsAsync's own doc comment for why this stays silent-but-
+        // logged rather than either fully invisible or a manual action the user has to remember.
+        WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, message) =>
+        {
+            _ = ((LibraryViewModel)recipient).RefreshConvertedOpaqueModsAsync();
         });
 
         BulkSelectedItems.CollectionChanged += (_, _) =>
@@ -1065,55 +1083,263 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         try
         {
-            var folder = _repository.GetFolderPath(item.FolderName);
-            var pakFilePath = Directory.GetFiles(folder, "*.pak", SearchOption.AllDirectories).FirstOrDefault();
-            if (pakFilePath is null)
+            var (converted, message) = await TryConvertOneToExmodAsync(item);
+            StatusMessage = message;
+            if (converted)
             {
-                StatusMessage = $"'{item.Name}' has no .pak file to convert.";
-                return;
+                _activityLog.Log($"Converted '{item.Name}' from a prebuilt pak into an editable mod.", ActivityEntryKind.Success);
             }
-
-            var report = new MergeReport();
-            var converted = await _prebuiltPakToExmodConverter.TryConvertAsync(
-                pakFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath ?? "", item.Name, item.Author, report);
-
-            if (converted is null)
-            {
-                StatusMessage = report.Warnings.Count > 0
-                    ? $"Couldn't convert '{item.Name}': {report.Warnings[0]}"
-                    : $"Couldn't convert '{item.Name}' to an editable mod right now.";
-                return;
-            }
-
-            _repository.BackupMod(item.FolderName);
-            try
-            {
-                File.Delete(pakFilePath);
-                ExmodFolder.Write(folder, converted);
-            }
-            catch
-            {
-                // The delete+write above should be near-instant on a local disk, but a failure
-                // partway through (disk full, permission revoked mid-operation) must not leave the
-                // mod folder in a state with neither a valid .pak nor a valid .EXMOD — the backup
-                // just taken makes that recoverable instead of a real, permanent loss.
-                _repository.RestoreLatestModBackup(item.FolderName);
-                throw;
-            }
-
-            _repository.Refresh();
-            _repository.MarkConvertedFromPrebuiltPak(item.FolderName);
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-            StatusMessage = $"Converted '{item.Name}' to a real, editable mod — a backup of the original was kept.";
-            _activityLog.Log($"Converted '{item.Name}' from a prebuilt pak into an editable mod.", ActivityEntryKind.Success);
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Couldn't convert '{item.Name}': {ex.Message}";
         }
         finally
         {
             _foldersCurrentlyConvertingToExmod.Remove(item.FolderName);
+        }
+    }
+
+    /// <summary>
+    /// The actual convert-one-mod logic, shared by the single-item command above and the
+    /// whole-library sweep below — everything except the per-folder reentrancy guard and the
+    /// Activity log entry, which each caller handles its own way (the sweep logs one summary line
+    /// instead of one per mod).
+    /// </summary>
+    private async Task<(bool Converted, string Message)> TryConvertOneToExmodAsync(LibraryItemViewModel item)
+    {
+        var folder = _repository.GetFolderPath(item.FolderName);
+        var pakFilePath = Directory.GetFiles(folder, "*.pak", SearchOption.AllDirectories).FirstOrDefault();
+        if (pakFilePath is null)
+        {
+            return (false, $"'{item.Name}' has no .pak file to convert.");
+        }
+
+        var report = new MergeReport();
+        var converted = await _prebuiltPakToExmodConverter.TryConvertAsync(
+            pakFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath ?? "", item.Name, item.Author, report);
+
+        if (converted is null)
+        {
+            return report.Warnings.Count > 0
+                ? (false, $"Couldn't convert '{item.Name}': {report.Warnings[0]}")
+                : (false, $"Couldn't convert '{item.Name}' to an editable mod right now.");
+        }
+
+        _repository.BackupMod(item.FolderName);
+        try
+        {
+            // Kept, not discarded — see IPrebuiltPakSourceStore's own doc comment: a later game
+            // update can re-derive a fresher diff from this exact same original content instead of
+            // this conversion being frozen forever at today's game data.
+            _prebuiltPakSourceStore.Save(item.FolderName, pakFilePath);
+            File.Delete(pakFilePath);
+            ExmodFolder.Write(folder, converted);
+        }
+        catch
+        {
+            // The delete+write above should be near-instant on a local disk, but a failure
+            // partway through (disk full, permission revoked mid-operation) must not leave the
+            // mod folder in a state with neither a valid .pak nor a valid .EXMOD — the backup
+            // just taken makes that recoverable instead of a real, permanent loss.
+            _repository.RestoreLatestModBackup(item.FolderName);
+            throw;
+        }
+
+        _repository.Refresh();
+        _repository.MarkConvertedFromPrebuiltPak(item.FolderName);
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        return (true, $"Converted '{item.Name}' to a real, editable mod — a backup of the original was kept.");
+    }
+
+    /// <summary>
+    /// Sweeps every currently-opaque, non-merged-pack entry and retries conversion now — for mods
+    /// that stayed opaque because UnrealPak.exe/the extracted Data folder weren't ready yet at
+    /// import time (every real import path already tries conversion automatically; this is just a
+    /// deliberate, explicit retry once those prerequisites exist, not a silent background pass —
+    /// this still deletes each mod's own source .pak, the same real, destructive rewrite the
+    /// per-mod action already is). A merged pack (IsMergedPack) is never a candidate — it's a
+    /// computed aggregate of other mods, not an authored one, and converting it would produce a
+    /// meaningless giant diff (see MergeInstallViewModel's own reimport, which deliberately never
+    /// routes through this either).
+    /// </summary>
+    [RelayCommand]
+    private async Task ConvertAllOpaqueModsAsync()
+    {
+        if (IsConvertingAllOpaqueMods)
+        {
+            return;
+        }
+
+        var candidates = _itemsByFolderName.Values.Where(i => i.IsOpaquePak && !i.IsMergedPack).ToList();
+        if (candidates.Count == 0)
+        {
+            StatusMessage = "No opaque mods to convert.";
+            return;
+        }
+
+        IsConvertingAllOpaqueMods = true;
+        try
+        {
+            var convertedCount = 0;
+            var stillOpaqueCount = 0;
+            foreach (var item in candidates)
+            {
+                if (!_foldersCurrentlyConvertingToExmod.Add(item.FolderName))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var (converted, message) = await TryConvertOneToExmodAsync(item);
+                    if (converted)
+                    {
+                        convertedCount++;
+                        _activityLog.Log($"Converted '{item.Name}' from a prebuilt pak into an editable mod.", ActivityEntryKind.Success);
+                    }
+                    else
+                    {
+                        stillOpaqueCount++;
+                        _activityLog.Log(message, ActivityEntryKind.Info);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // One mod's own I/O failure (disk full, a locked file) shouldn't abandon the
+                    // rest of the sweep — matching CheckModsAgainstCurrentDataAsync's own per-mod
+                    // isolation.
+                    stillOpaqueCount++;
+                    _activityLog.Log($"Couldn't convert '{item.Name}': {ex.Message}", ActivityEntryKind.Warning);
+                }
+                finally
+                {
+                    _foldersCurrentlyConvertingToExmod.Remove(item.FolderName);
+                }
+            }
+
+            StatusMessage = stillOpaqueCount > 0
+                ? $"Converted {convertedCount} of {candidates.Count} opaque mod(s) — {stillOpaqueCount} couldn't convert right now (see Activity log)."
+                : $"Converted all {convertedCount} opaque mod(s) to real, editable EXMODs.";
+        }
+        finally
+        {
+            IsConvertingAllOpaqueMods = false;
+        }
+    }
+
+    /// <summary>
+    /// Runs silently after every successful "Update data folder" (see the WeeklyChangeReportUpdatedMessage
+    /// registration above) — not a manual action, since it's meant to keep every convertible/converted
+    /// mod current with whatever the game now looks like, without anyone having to remember to ask.
+    /// Two things happen, neither ever touching a hand-edited mod:
+    ///
+    /// 1. Any mod still opaque (never successfully converted — UnrealPak.exe or the Data folder
+    ///    likely wasn't ready yet at import time) gets the exact same conversion attempt "Convert
+    ///    opaque mods now" makes, using whatever .pak already sits in its own folder.
+    /// 2. Any mod already converted from a prebuilt pak (ConvertedFromPrebuiltPak) that hasn't been
+    ///    opened and saved in the editor since (IsLocallyEdited) gets re-derived fresh from its own
+    ///    saved source pak (IPrebuiltPakSourceStore) against the just-updated game data — a
+    ///    conversion's field diff is only ever as fresh as the base data available the moment it
+    ///    ran, so without this a mod converted before a patch stays frozen against pre-patch data
+    ///    forever. The moment a mod is hand-edited it "graduates" and is never silently touched
+    ///    here again — an edit that took real thought must never be silently replaced by a fresh
+    ///    mechanical re-diff.
+    ///
+    /// Never surfaces a blocking dialog or a status message on its own (this can fire while the
+    /// user is looking at an entirely different page) — results land in the Activity log instead,
+    /// the same "silent unless something happened" convention the rest of this app already uses
+    /// for background passes.
+    /// </summary>
+    private async Task RefreshConvertedOpaqueModsAsync()
+    {
+        var stillOpaque = _itemsByFolderName.Values.Where(i => i.IsOpaquePak && !i.IsMergedPack).ToList();
+        var alreadyConverted = _itemsByFolderName.Values
+            .Where(i => i.ConvertedFromPrebuiltPak && !i.IsLocallyEdited && !i.IsOpaquePak)
+            .ToList();
+
+        var convertedCount = 0;
+        var refreshedCount = 0;
+
+        foreach (var item in stillOpaque)
+        {
+            if (!_foldersCurrentlyConvertingToExmod.Add(item.FolderName))
+            {
+                continue;
+            }
+
+            try
+            {
+                var (converted, _) = await TryConvertOneToExmodAsync(item);
+                if (converted)
+                {
+                    convertedCount++;
+                }
+            }
+            catch (Exception ex)
+            {
+                _activityLog.Log($"Couldn't convert '{item.Name}' after updating game data: {ex.Message}", ActivityEntryKind.Warning);
+            }
+            finally
+            {
+                _foldersCurrentlyConvertingToExmod.Remove(item.FolderName);
+            }
+        }
+
+        foreach (var item in alreadyConverted)
+        {
+            var sourcePakPath = _prebuiltPakSourceStore.TryGetPath(item.FolderName);
+            if (sourcePakPath is null || !_foldersCurrentlyConvertingToExmod.Add(item.FolderName))
+            {
+                continue;
+            }
+
+            try
+            {
+                var report = new MergeReport();
+                var converted = await _prebuiltPakToExmodConverter.TryConvertAsync(
+                    sourcePakPath, _dataFolder, _settingsService.Current.UnrealPakExePath ?? "", item.Name, item.Author, report);
+                if (converted is null)
+                {
+                    continue;
+                }
+
+                var folder = _repository.GetFolderPath(item.FolderName);
+                _repository.BackupMod(item.FolderName);
+                try
+                {
+                    ExmodFolder.Write(folder, converted);
+                }
+                catch
+                {
+                    _repository.RestoreLatestModBackup(item.FolderName);
+                    throw;
+                }
+
+                _repository.Refresh();
+                refreshedCount++;
+            }
+            catch (Exception ex)
+            {
+                _activityLog.Log($"Couldn't refresh '{item.Name}' against updated game data: {ex.Message}", ActivityEntryKind.Warning);
+            }
+            finally
+            {
+                _foldersCurrentlyConvertingToExmod.Remove(item.FolderName);
+            }
+        }
+
+        if (convertedCount > 0 || refreshedCount > 0)
+        {
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            var parts = new List<string>();
+            if (convertedCount > 0)
+            {
+                parts.Add($"converted {convertedCount} newly-convertible mod(s)");
+            }
+
+            if (refreshedCount > 0)
+            {
+                parts.Add($"refreshed {refreshedCount} mod(s) against the updated game data");
+            }
+
+            _activityLog.Log($"After updating game data: {string.Join(", ", parts)}.", ActivityEntryKind.Success);
         }
     }
 
@@ -1681,7 +1907,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         // tree until some unrelated change (a search edit, a delete) happens to trigger the next
         // Reload().
         var created = new LibraryItemViewModel(
-            entry, _repository, _unrealPakService, _settingsService, _nexusApiClient, _credentialStore, status => StatusMessage = status, () => Reload());
+            entry, _repository, _unrealPakService, _settingsService, _nexusApiClient, _credentialStore,
+            _downloadHttpClient, _thumbnailCacheDirectory, Downloads.GetOrFetchCatalogAsync,
+            status => StatusMessage = status, () => Reload());
         _itemsByFolderName[entry.FolderName] = created;
         return created;
     }
