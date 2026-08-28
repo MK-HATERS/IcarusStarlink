@@ -1,3 +1,4 @@
+using System.Text.Json;
 using IcarusStarlink.PakIO.DataChanges;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -9,10 +10,12 @@ public class WeeklyChangeReportStoreTests : IDisposable
 
     private WeeklyChangeReportStore CreateStore() => new(_dir, NullLogger<WeeklyChangeReportStore>.Instance);
 
-    private static WeeklyChangeReport MakeReport() => new(
-        new DateTimeOffset(2026, 8, 13, 0, 0, 0, TimeSpan.Zero),
-        new DateTimeOffset(2026, 8, 20, 0, 0, 0, TimeSpan.Zero),
+    private static WeeklyChangeReport MakeReport(DateTimeOffset currentUpdateAt) => new(
+        currentUpdateAt.AddDays(-7),
+        currentUpdateAt,
         [new ChangedDataFile("Crafting/D_Fuel.json", IsNewFile: false, IsRemovedFile: false, RemovedRowNames: ["Gone"], FieldChanges: [])]);
+
+    private static readonly DateTimeOffset Now = new(2026, 8, 27, 0, 0, 0, TimeSpan.Zero);
 
     [Fact]
     public void Current_NoFileYet_IsNull()
@@ -21,9 +24,15 @@ public class WeeklyChangeReportStoreTests : IDisposable
     }
 
     [Fact]
+    public void History_NoFileYet_IsEmpty()
+    {
+        Assert.Empty(CreateStore().History);
+    }
+
+    [Fact]
     public void Save_PersistsAcrossStoreInstances()
     {
-        CreateStore().Save(MakeReport());
+        CreateStore().Save(MakeReport(Now));
 
         var reopened = CreateStore();
 
@@ -33,15 +42,56 @@ public class WeeklyChangeReportStoreTests : IDisposable
     }
 
     [Fact]
-    public void Save_CalledAgain_OverwritesRatherThanAccumulating()
+    public void Save_CalledAgain_AccumulatesInHistoryInsteadOfOverwriting()
     {
         var store = CreateStore();
-        store.Save(MakeReport());
-        var secondReport = MakeReport() with { ChangedFiles = [] };
+        store.Save(MakeReport(Now.AddDays(-1)));
+        var secondReport = MakeReport(Now) with { ChangedFiles = [] };
 
         store.Save(secondReport);
 
-        Assert.Empty(CreateStore().Current!.ChangedFiles);
+        var reopened = CreateStore();
+        Assert.Equal(2, reopened.History.Count);
+        Assert.Empty(reopened.Current!.ChangedFiles);
+    }
+
+    [Fact]
+    public void History_ReturnsNewestFirst()
+    {
+        var store = CreateStore();
+        store.Save(MakeReport(Now.AddDays(-10)));
+        store.Save(MakeReport(Now));
+        store.Save(MakeReport(Now.AddDays(-5)));
+
+        var history = CreateStore().History;
+
+        Assert.Equal(3, history.Count);
+        Assert.Equal(Now, history[0].CurrentUpdateAt);
+        Assert.Equal(Now.AddDays(-5), history[1].CurrentUpdateAt);
+        Assert.Equal(Now.AddDays(-10), history[2].CurrentUpdateAt);
+    }
+
+    [Fact]
+    public void Save_PrunesEntriesOlderThanRetentionWindow()
+    {
+        var store = CreateStore();
+        store.Save(MakeReport(DateTimeOffset.UtcNow.AddDays(-45)));
+
+        store.Save(MakeReport(DateTimeOffset.UtcNow));
+
+        var reopened = CreateStore();
+        Assert.Single(reopened.History);
+    }
+
+    [Fact]
+    public void Save_NeverPrunesCurrentEvenIfOlderThanRetentionWindow()
+    {
+        var store = CreateStore();
+
+        store.Save(MakeReport(DateTimeOffset.UtcNow.AddDays(-45)));
+
+        Assert.NotNull(store.Current);
+        Assert.Single(store.History);
     }
 
     [Fact]
@@ -49,9 +99,24 @@ public class WeeklyChangeReportStoreTests : IDisposable
     {
         var store = CreateStore();
 
-        store.Save(MakeReport());
+        store.Save(MakeReport(Now));
 
         Assert.NotNull(store.Current);
+    }
+
+    [Fact]
+    public void Construct_MigratesARealLegacySingleFile_ThenRemovesIt()
+    {
+        Directory.CreateDirectory(_dir);
+        var legacyPath = Path.Combine(_dir, "weekly_changes.json");
+        var legacyReport = MakeReport(Now);
+        File.WriteAllText(legacyPath, JsonSerializer.Serialize(legacyReport, new JsonSerializerOptions { WriteIndented = true }));
+
+        var store = CreateStore();
+
+        Assert.NotNull(store.Current);
+        Assert.Equal("Crafting/D_Fuel.json", Assert.Single(store.Current.ChangedFiles).RelativePath);
+        Assert.False(File.Exists(legacyPath));
     }
 
     public void Dispose()

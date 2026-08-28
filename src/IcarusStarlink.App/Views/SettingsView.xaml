@@ -94,7 +94,7 @@
                                 <TextBlock Text="Extracts the game's current DataTable JSON (Content\Data\data.pak) so merge/edit works against up-to-date data. Re-run this after a game update."
                                            Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10"/>
                                 <StackPanel Orientation="Horizontal">
-                                    <Button Command="{Binding UpdateDataFolderCommand}" AutomationProperties.Name="Update data folder">
+                                    <Button Command="{Binding UpdateDataFolderCommand}" AutomationProperties.Name="Run update data folder">
                                         <StackPanel Orientation="Horizontal">
                                             <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
                                             <TextBlock Text="Update data folder" VerticalAlignment="Center"/>
@@ -102,6 +102,12 @@
                                     </Button>
                                     <TextBlock Text="{Binding DataFolderStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+                                    <Button Command="{Binding ViewWeeklyChangesCommand}" Margin="10,0,0,0"
+                                            Visibility="{Binding HasWeeklyChanges, Converter={StaticResource BoolToVisibilityConverter}}"
+                                            ToolTip="Jump to the Weekly Changes page to see exactly what changed"
+                                            AutomationProperties.Name="View Weekly Changes">
+                                        <TextBlock Text="View Weekly Changes →" VerticalAlignment="Center"/>
+                                    </Button>
                                 </StackPanel>
                             </StackPanel>
                         </Expander>

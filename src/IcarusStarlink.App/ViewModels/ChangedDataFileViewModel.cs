@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using IcarusStarlink.PakIO.DataChanges;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -31,6 +33,14 @@ public sealed class ChangedDataFileViewModel
         }
     }
 
+    // Same bug class already fixed once in ExmodChangesFormatter: the default JSON encoder
+    // escapes safe ASCII as \uXXXX (`"` -> ", `+` -> +) — unreadable for real field
+    // values that use both constantly (e.g. Icarus's own "(Value=\"Xxx_+\")" stat convention).
+    private static readonly JsonSerializerOptions DisplayJson = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     private static string FormatValue(System.Text.Json.Nodes.JsonNode? node)
     {
         if (node is null)
@@ -38,7 +48,7 @@ public sealed class ChangedDataFileViewModel
             return "";
         }
 
-        var json = node.ToJsonString();
+        var json = node.ToJsonString(DisplayJson);
         // A field's own value can be a deeply nested compound (real example seen live: a
         // creature's "Variations" array, hundreds of characters of mesh/material paths) —
         // truncated so one cell can't blow out the whole row; the point here is "something

@@ -70,6 +70,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string? _dataFolderStatusMessage;
 
+    /// <summary>True only right after an UpdateDataFolderAsync run that actually found real
+    /// changed files — drives a "View Weekly Changes" shortcut next to the status message instead
+    /// of making the user find the nav item themselves.</summary>
+    [ObservableProperty]
+    private bool _hasWeeklyChanges;
+
     /// <summary>Non-null only while a local data.pak hash mismatch has actually been detected — see CheckForGameUpdateAsync.</summary>
     [ObservableProperty]
     private string? _gameDataOutdatedMessage;
@@ -696,6 +702,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         IsUpdatingDataFolder = true;
         DataFolderStatusMessage = "Extracting…";
+        HasWeeklyChanges = false;
 
         try
         {
@@ -718,6 +725,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             WeakReferenceMessenger.Default.Send(new WeeklyChangeReportUpdatedMessage());
 
             DataFolderStatusMessage = $"Extracted {result.ExtractedFileCount} files. {DescribeChangeReport(result.ChangeReport)}";
+            HasWeeklyChanges = result.ChangeReport is { ChangedFiles.Count: > 0 };
         }
         catch (Exception ex)
         {
@@ -731,6 +739,9 @@ public sealed partial class SettingsViewModel : ObservableObject
             IsUpdatingDataFolder = false;
         }
     }
+
+    [RelayCommand]
+    private void ViewWeeklyChanges() => WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("weekly-changes"));
 
     private static string DescribeChangeReport(WeeklyChangeReport? report) => report switch
     {

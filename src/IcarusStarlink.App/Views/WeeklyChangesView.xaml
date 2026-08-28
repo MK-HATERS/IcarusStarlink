@@ -9,13 +9,38 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
-        <TextBlock Grid.Row="1" Text="{Binding SummaryMessage}" Style="{StaticResource PageBodyTextStyle}" MaxWidth="900" Margin="0,4,0,16"/>
 
-        <Grid Grid.Row="2">
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0">
+            <TextBlock Text="History:" VerticalAlignment="Center" Margin="0,0,8,0" Style="{StaticResource FieldLabelStyle}"/>
+            <ComboBox ItemsSource="{Binding ReportHistory}" SelectedItem="{Binding SelectedReport}"
+                      MinWidth="260"
+                      ToolTip="This app keeps roughly a month of past Update data folder runs — pick one to see what changed in it">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Display}"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <Button Command="{Binding Settings.UpdateDataFolderCommand}" Margin="16,0,0,0"
+                    ToolTip="Re-extract the game's current data and compare it against last time — same action as Settings' own Update data folder"
+                    AutomationProperties.Name="Run update data folder">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Update data folder" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <TextBlock Text="{Binding Settings.DataFolderStatusMessage}" VerticalAlignment="Center" Margin="10,0,0,0"
+                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="2" Text="{Binding SummaryMessage}" Style="{StaticResource PageBodyTextStyle}" MaxWidth="900" Margin="0,10,0,16"/>
+
+        <Grid Grid.Row="3">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="260"/>
                 <ColumnDefinition Width="16"/>
