@@ -31,4 +31,7 @@ internal sealed class LibraryMeta
 
     /// <summary>Set at ImportPak time when a sibling ISL-Merged.txt manifest sits next to the pak being imported — see LibraryEntry.MergedPackModNames.</summary>
     public List<string>? MergedPackModNames { get; set; }
+
+    /// <summary>The Merge &amp; Install profile that produced this pak (e.g. "Default" for an ad hoc queue with no profile selected) — set alongside MergedPackModNames, at the same ImportPak call. Preferred over NexusAuthor/"Unknown" for a merged pack's own Author, so multiple profiles' own builds are distinguishable in Library.</summary>
+    public string? MergedPackProfileName { get; set; }
 }

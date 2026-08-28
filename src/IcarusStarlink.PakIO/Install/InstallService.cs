@@ -26,7 +26,30 @@ public sealed class InstallService : IInstallService
         var modsDirectory = Path.Combine(icarusContentPath, "Paks", "mods");
         Directory.CreateDirectory(modsDirectory);
 
-        var targetPakPath = Path.Combine(modsDirectory, Path.GetFileName(stagedPakPath));
+        var targetPakFileName = Path.GetFileName(stagedPakPath);
+
+        // Content\Paks\mods is meant to hold exactly one active merged pak — RebuildService itself
+        // already folds every queued mod's own prebuilt/opaque paks into this SAME staged pak
+        // before Install ever runs, so anything else already sitting here (a classic IMM merged
+        // pak from before this app was adopted, a stray leftover from manual testing) is stale
+        // content from an entirely different build, not part of the current merge. Left alone
+        // before this fix, both the old and new merged paks loaded side by side in-game — backed
+        // up (not just deleted outright) before removal, matching every other real-game-folder
+        // write this app makes.
+        foreach (var existingFile in Directory.GetFiles(modsDirectory))
+        {
+            var existingFileName = Path.GetFileName(existingFile);
+            if (existingFileName.Equals(targetPakFileName, StringComparison.OrdinalIgnoreCase)
+                || existingFileName.Equals(InstallManifestNames.PakManifest, StringComparison.OrdinalIgnoreCase))
+            {
+                continue; // handled by the backup-and-overwrite below, not stale content to clear
+            }
+
+            FolderBackup.BackupFile(existingFile, backupDirectory);
+            File.Delete(existingFile);
+        }
+
+        var targetPakPath = Path.Combine(modsDirectory, targetPakFileName);
         var backupPakPath = FolderBackup.BackupFile(targetPakPath, backupDirectory);
 
         File.Copy(stagedPakPath, targetPakPath, overwrite: true);

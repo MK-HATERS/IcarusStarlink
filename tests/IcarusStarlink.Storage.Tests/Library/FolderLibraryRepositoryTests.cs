@@ -359,6 +359,42 @@ public class FolderLibraryRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void ImportPak_WithMergedPackProfileName_UsesItAsAuthorInsteadOfUnknown()
+    {
+        var pakPath = WriteFixturePakFile("ISL-Merged_P");
+        using var repo = CreateRepository();
+
+        try
+        {
+            var entry = repo.ImportPak(pakPath, mergedPackProfileName: "Weekend Build");
+
+            Assert.Equal("Weekend Build", entry.Author);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ImportPak_NoMergedPackProfileName_AuthorFallsBackToUnknown()
+    {
+        var pakPath = WriteFixturePakFile();
+        using var repo = CreateRepository();
+
+        try
+        {
+            var entry = repo.ImportPak(pakPath);
+
+            Assert.Equal("Unknown", entry.Author);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ImportPak_NoSiblingMergeManifest_MergedPackModNamesIsNull()
     {
         var pakPath = WriteFixturePakFile();

@@ -53,7 +53,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
 
     public void Refresh() => RescanAll();
 
-    public LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null)
+    public LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null, string? mergedPackProfileName = null)
     {
         // Unlike Import()'s own EXMOD path (whose folder name comes from Package.FileName — already
         // guaranteed safe by AssetPathGuard running inside ExmodJson.Parse, per Import()'s own
@@ -84,6 +84,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         {
             ImportedAtUtc = DateTimeOffset.UtcNow, Source = source, NexusModId = nexusModId,
             CatalogEntryId = catalogEntryId, MergedPackModNames = mergedPackModNames,
+            MergedPackProfileName = mergedPackProfileName,
         };
         _metaStore.Save(folderName, meta);
 
@@ -488,7 +489,10 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         // A bare .pak carries no embedded metadata of its own — meta.Nexus* (set via
         // SetNexusMetadata, right after a Nexus-sourced Activate looks the mod up by ID) is the
         // only real source of a name/author/description/version better than "Unknown"/blank/a
-        // generic line.
+        // generic line. MergedPackProfileName (this app's own Merge & Install profile that
+        // produced the pak) takes priority over NexusAuthor for Author specifically — a merged
+        // pack was never authored by anyone on Nexus, and naming the profile instead makes
+        // multiple profiles' own builds distinguishable in Library.
         var description = meta.MergedPackModNames is { Count: > 0 } mergedNames
             ? $"IcarusStarlink's own merged pack — folds in {mergedNames.Count} mod(s): {string.Join(", ", mergedNames)}."
             : meta.NexusDescription
@@ -497,7 +501,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         {
             FolderName = folderName,
             Name = meta.DisplayNameOverride ?? meta.NexusName ?? displayName,
-            Author = meta.NexusAuthor ?? "Unknown",
+            Author = meta.MergedPackProfileName ?? meta.NexusAuthor ?? "Unknown",
             Version = meta.NexusVersion ?? "",
             Description = description,
             FileName = displayName,

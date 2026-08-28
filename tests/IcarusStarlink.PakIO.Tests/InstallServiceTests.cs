@@ -108,6 +108,38 @@ public class InstallServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task InstallAsync_UnrelatedFileAlreadyInModsFolder_IsBackedUpThenRemoved()
+    {
+        // Real bug this fixes: Content\Paks\mods is meant to hold exactly one active merged pak,
+        // but InstallAsync only ever touched its own two specifically-named files — a classic IMM
+        // merged pak (or any other stray leftover) sitting there under a different name was left
+        // in place, loading side by side with the newly-installed one in-game.
+        var modsDirectory = Path.Combine(_fakeContentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsDirectory);
+        var stalePakPath = Path.Combine(modsDirectory, "IMM_Merged_Mod_P.pak");
+        await File.WriteAllTextAsync(stalePakPath, "classic IMM's own merged pak bytes");
+
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+
+        Assert.False(File.Exists(stalePakPath));
+        var backedUp = Assert.Single(Directory.GetFiles(_backupDirectory, "IMM_Merged_Mod_P_*.pak"));
+        Assert.Equal("classic IMM's own merged pak bytes", await File.ReadAllTextAsync(backedUp));
+    }
+
+    [Fact]
+    public async Task InstallAsync_UnrelatedFileAlreadyInModsFolder_DoesNotTouchThisAppsOwnFiles()
+    {
+        var modsDirectory = Path.Combine(_fakeContentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsDirectory);
+        await File.WriteAllTextAsync(Path.Combine(modsDirectory, "SomeOtherMod_P.pak"), "unrelated");
+
+        var result = await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+
+        Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(result.InstalledPakPath));
+        Assert.True(File.Exists(TargetManifestPath));
+    }
+
+    [Fact]
     public async Task InstallAsync_TargetModsDirectoryDoesNotExist_IsCreated()
     {
         Assert.False(Directory.Exists(Path.Combine(_fakeContentPath, "Paks", "mods")));

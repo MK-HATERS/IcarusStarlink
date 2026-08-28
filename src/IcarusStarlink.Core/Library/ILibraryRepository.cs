@@ -13,8 +13,8 @@ public interface ILibraryRepository
     /// <summary>sourcePath is either a loose mod folder or an .EXMODZ file. source (e.g. "Nexus"/"Database") is purely informational, stored as LibraryEntry.Source — null for a manual/local import. nexusModId is stored as LibraryEntry.NexusModId, for later update-checking — only meaningful when source is "Nexus".</summary>
     LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null);
 
-    /// <summary>Imports a prebuilt .pak as an opaque library entry — see LibraryEntry.IsOpaquePak. source/nexusModId are the same provenance tags Import(string, string?, int?) takes.</summary>
-    LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null);
+    /// <summary>Imports a prebuilt .pak as an opaque library entry — see LibraryEntry.IsOpaquePak. source/nexusModId are the same provenance tags Import(string, string?, int?) takes. mergedPackProfileName is the Merge &amp; Install profile that produced this pak (only meaningful alongside a sibling ISL-Merged.txt manifest) — shown as this entry's Author in place of "Unknown".</summary>
+    LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null, string? mergedPackProfileName = null);
 
     /// <summary>
     /// Records real name/author/description/version fetched from the Nexus API for an opaque .pak

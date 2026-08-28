@@ -19,6 +19,7 @@ using IcarusStarlink.Core.Patches;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Diffing;
+using IcarusStarlink.PakIO;
 using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
@@ -285,6 +286,18 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         _backupDirectory = backupDirectory;
 
         ReloadProfileNames();
+
+        // A fresh launch starts with no profile selected in this session — auto-restoring
+        // "Default" (when it exists) rather than always starting on an empty queue is what makes
+        // RebuildAsync's own auto-save into "Default" actually round-trip across a restart, for a
+        // brand-new user who's never touched Profiles at all just as much as for anyone else who
+        // works ad hoc. A fresh install with nothing built yet correctly stays on an empty queue
+        // until the first Rebuild creates "Default" for the first time.
+        if (SelectedProfileName is null && ProfileNames.Contains("Default", StringComparer.OrdinalIgnoreCase))
+        {
+            SelectedProfileName = "Default";
+        }
+
         PrependBaselineMods();
 
         // Any queue change at all invalidates existing conflict picks — see _manualPicks' own
@@ -1206,7 +1219,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             _libraryRepository.Delete(existing.FolderName);
         }
-        _libraryRepository.ImportPak(_outputPakPath);
+        // Falls back to "Default" rather than the possibly-still-null SelectedProfileName directly:
+        // RebuildAsync's own auto-save (right above, in the caller) already used "Default" as the
+        // effective profile name whenever none was selected, without changing SelectedProfileName
+        // itself (so the ComboBox doesn't silently jump to a profile the user never picked) — this
+        // mirrors that same effective name rather than the UI-facing selection, which could still
+        // read null at this exact point.
+        _libraryRepository.ImportPak(_outputPakPath, mergedPackProfileName: SelectedProfileName ?? "Default");
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
     }
 
@@ -1368,13 +1387,33 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             return;
         }
 
+        // Content\Paks\mods is meant to hold exactly one active merged pak — named here rather than
+        // a bare "overwriting whatever's currently installed" claim, since that claim used to be
+        // false: InstallService only ever touched its own two specifically-named files, silently
+        // leaving anything else (a classic IMM merged pak, a stray leftover) loaded alongside the
+        // new one. Matches the same "name every file before deleting it" transparency the FTP
+        // "Install merged pak to server" action already established.
+        var modsDirectory = Path.Combine(_settingsService.Current.IcarusContentPath!, "Paks", "mods");
+        var targetPakFileName = Path.GetFileName(_outputPakPath);
+        var otherFilesToClear = Directory.Exists(modsDirectory)
+            ? Directory.GetFiles(modsDirectory)
+                .Select(Path.GetFileName)
+                .Where(name => !string.Equals(name, targetPakFileName, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(name, InstallManifestNames.PakManifest, StringComparison.OrdinalIgnoreCase))
+                .ToList()
+            : [];
+        var clearNote = otherFilesToClear.Count > 0
+            ? $"\n\nIt will also remove {otherFilesToClear.Count} other file(s) already there (backed up first, not part of this merge):\n"
+                + string.Join('\n', otherFilesToClear.Select(n => $"  - {n}"))
+            : "";
+
         // Same explicit Yes/No gate as every other real-machine write this app makes (the nxm://
         // registry registration, the UE4SS loader install) — this one specifically overwrites the
         // user's actual installed mod pack, so it shouldn't ever be reachable via a single
         // accidental click.
         var confirmResult = MessageBox.Show(
             $"This copies the staged pak into '{_settingsService.Current.IcarusContentPath}\\Paks\\mods', overwriting whatever's currently installed there.\n\n" +
-            "The existing pak is backed up first (last 5 kept).\n\nContinue?",
+            $"The existing pak is backed up first (last 5 kept).{clearNote}\n\nContinue?",
             "Install to Icarus", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (confirmResult != MessageBoxResult.Yes)
         {
