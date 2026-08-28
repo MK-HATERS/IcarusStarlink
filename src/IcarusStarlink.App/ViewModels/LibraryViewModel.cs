@@ -212,6 +212,17 @@ public sealed partial class LibraryViewModel : ObservableObject
         // whenever something else happens to trigger a reload.
         _activeDownloadsTracker.Current.CollectionChanged += (_, _) => Reload();
 
+        // Without this, the UE4SS mods tab stays stuck on "Set the Icarus Content folder in
+        // Settings first." (or an empty list) even right after the user actually sets and saves
+        // it — this constructor's own ReloadInstalledUe4ssMods() call below only ever runs once,
+        // at whatever moment Library happens to be constructed, which is often before Settings is
+        // ever touched. Same fix MergeInstallViewModel's own RefreshHasExistingInstallAsync
+        // already applies for the exact same "Content path changed after construction" staleness.
+        WeakReferenceMessenger.Default.Register<SettingsSavedMessage>(this, (recipient, _) =>
+        {
+            ((LibraryViewModel)recipient).ReloadInstalledUe4ssMods();
+        });
+
         BulkSelectedItems.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(HasBulkSelection));
