@@ -46,6 +46,17 @@ public sealed class LibraryEntry
     public bool IsLocallyEdited { get; set; }
 
     /// <summary>
+    /// True for an entry that started as an opaque prebuilt .pak and was successfully converted
+    /// into a real EXMOD (IsOpaquePak false) — either automatically at import time or via the
+    /// manual "Convert to EXMOD…" action. Distinguishes it from an ordinary, author-declared EXMOD
+    /// import (also IsOpaquePak false): a converted entry's own Name/Author are still just the
+    /// pak's filename and "Unknown" until enriched, so Nexus-linking is allowed to overwrite them
+    /// the same way it already does for an opaque entry — an ordinary EXMOD's own declared name
+    /// should never be silently replaced by a Nexus lookup.
+    /// </summary>
+    public bool ConvertedFromPrebuiltPak { get; set; }
+
+    /// <summary>
     /// Set when this opaque pak was imported alongside a sibling ISL-Merged.txt manifest — meaning
     /// it's a previously-Rebuild-and-Installed IcarusStarlink pak, re-imported as its own Library
     /// entry (RebuildService/InstallService's own established behavior since Phase 6.2). Holds the

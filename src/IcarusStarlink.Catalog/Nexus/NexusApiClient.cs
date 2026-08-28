@@ -36,23 +36,6 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         return new NexusUserInfo(dto.UserId, dto.Name, dto.IsPremium, dto.IsSupporter, dto.Email, dto.ProfileUrl);
     }
 
-    public async Task<IReadOnlyList<NexusUpdateEntry>> GetUpdatedModsAsync(
-        string apiKey, string gameDomain, string period, CancellationToken cancellationToken = default)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/updated?period={period}");
-        request.Headers.Add("apikey", apiKey);
-
-        using var response = await httpClient.SendAsync(request, cancellationToken);
-        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-        {
-            throw new InvalidOperationException("Nexus rejected the stored API key.");
-        }
-
-        response.EnsureSuccessStatusCode();
-        var entries = await response.Content.ReadFromJsonAsync<List<UpdateEntryDto>>(cancellationToken) ?? [];
-        return [.. entries.Select(e => new NexusUpdateEntry(e.ModId, e.LatestFileUpdate, e.LatestModActivity))];
-    }
-
     public async Task<IReadOnlyList<NexusDownloadLink>> GetDownloadLinksAsync(
         string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default)
     {
@@ -279,18 +262,6 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
         [JsonPropertyName("profile_url")]
         public string ProfileUrl { get; init; } = "";
-    }
-
-    private sealed class UpdateEntryDto
-    {
-        [JsonPropertyName("mod_id")]
-        public int ModId { get; init; }
-
-        [JsonPropertyName("latest_file_update")]
-        public long LatestFileUpdate { get; init; }
-
-        [JsonPropertyName("latest_mod_activity")]
-        public long LatestModActivity { get; init; }
     }
 
     private sealed class DownloadLinkDto

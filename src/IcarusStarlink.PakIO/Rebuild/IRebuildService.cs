@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Container;
@@ -57,4 +58,13 @@ public interface IRebuildService
         string unrealPakExePath,
         MergeReport report,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads and keys just the base game DataTable files named in currentFiles (skipping one that
+    /// doesn't exist, with a MergeReport warning) — the same read RebuildAsync itself uses
+    /// internally, exposed so a caller previewing conflicts before a real Rebuild (MergeEngine's
+    /// own base-aware filtering, see its doc comment) can pass real base values into
+    /// MergeEngine.FindConflicts without needing a full Rebuild to happen first.
+    /// </summary>
+    IReadOnlyDictionary<string, JsonObject> ReadKeyedBaseTables(IEnumerable<string> currentFiles, string dataFolder, MergeReport report);
 }

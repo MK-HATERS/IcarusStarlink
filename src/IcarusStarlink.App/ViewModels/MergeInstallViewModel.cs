@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.Text.Json.Nodes;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -1314,7 +1315,28 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             names.Add("Built-in gameplay options");
         }
 
-        var conflicts = await Task.Run(() => MergeEngine.FindConflicts(names, orderedModChanges));
+        var conflicts = await Task.Run(() =>
+        {
+            // Base-aware filtering (see MergeEngine.Merge's own doc comment) needs real current
+            // base values for whatever files this preview's own candidates touch — genuinely
+            // best-effort: a report here is thrown away, not surfaced, and any read failure (a
+            // locked/permission-denied base file — ReadBaseTables' own File.ReadAllText has no
+            // catch for that, unlike a merely-missing file) falls back to no filtering rather than
+            // blocking the conflict badge/picker entirely, matching what this comment already
+            // promised before this try/catch actually backed it.
+            IReadOnlyDictionary<string, JsonObject>? baseTablesByFile = null;
+            try
+            {
+                var requiredFiles = orderedModChanges.SelectMany(c => c).Select(c => c.CurrentFile).Distinct();
+                baseTablesByFile = _rebuildService.ReadKeyedBaseTables(requiredFiles, _dataFolder, new MergeReport());
+            }
+            catch (Exception)
+            {
+                // Best-effort — see the comment above.
+            }
+
+            return MergeEngine.FindConflicts(names, orderedModChanges, baseTablesByFile);
+        });
         return (conflicts, names);
     }
 

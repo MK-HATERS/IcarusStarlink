@@ -69,14 +69,30 @@ public class ExmodJsonTests
         Assert.Null(package.ImageUrl);
     }
 
+    [Fact]
+    public void Parse_MissingNameAndNoModNameFallback_ThrowsFormatException()
+    {
+        // name is the one field real files in the wild never omit outright — everything else
+        // (author/version/description/fileName) has a real observed fallback below, but there's
+        // nothing left to derive an identity from if even ModName is absent too.
+        var json = """{"author":"A","version":"1","description":"D","fileName":"F"}""";
+
+        var ex = Assert.Throws<FormatException>(() => ExmodJson.Parse(json));
+        Assert.Contains("name", ex.Message);
+    }
+
     [Theory]
-    [InlineData("name")]
     [InlineData("author")]
     [InlineData("version")]
     [InlineData("description")]
     [InlineData("fileName")]
-    public void Parse_MissingRequiredField_ThrowsFormatException(string missingField)
+    public void Parse_OptionalFieldMissing_DefaultsInsteadOfThrowing(string missingField)
     {
+        // Real files in the wild don't all agree on this shape — a classic-IMM-produced merged
+        // pack's own EXMOD omits "description" entirely, and confirmed real community mods have
+        // been found missing author/version/fileName too. Silently refusing to read an otherwise-
+        // legitimate mod over a missing header field (never the actual Rows content) was a real,
+        // previously-undiscovered bug, not a safety feature worth keeping.
         var fields = new Dictionary<string, string>
         {
             ["name"] = "N", ["author"] = "A", ["version"] = "1", ["description"] = "D", ["fileName"] = "F",
@@ -84,8 +100,31 @@ public class ExmodJsonTests
         fields.Remove(missingField);
         var json = "{" + string.Join(",", fields.Select(kv => $"\"{kv.Key}\":\"{kv.Value}\"")) + "}";
 
-        var ex = Assert.Throws<FormatException>(() => ExmodJson.Parse(json));
-        Assert.Contains(missingField, ex.Message);
+        var package = ExmodJson.Parse(json);
+
+        switch (missingField)
+        {
+            case "author": Assert.Equal("Unknown", package.Author); break;
+            case "version": Assert.Equal("", package.Version); break;
+            case "description": Assert.Equal("", package.Description); break;
+            case "fileName": Assert.Equal("N", package.FileName); break;
+        }
+    }
+
+    [Fact]
+    public void Parse_LegacyModNameFieldWithNoOtherHeaderFields_ParsesWithFallbacks()
+    {
+        // A real community mod (Pr0fInventoryExtensions) found in the wild: only "ModName" and
+        // "Level2" at the top level, no name/author/version/description/fileName at all.
+        var json = """{"ModName":"Pr0fInventoryExtensions","Level2":"True","Rows":[]}""";
+
+        var package = ExmodJson.Parse(json);
+
+        Assert.Equal("Pr0fInventoryExtensions", package.Name);
+        Assert.Equal("Pr0fInventoryExtensions", package.FileName);
+        Assert.Equal("Unknown", package.Author);
+        Assert.Equal("", package.Version);
+        Assert.Equal("", package.Description);
     }
 
     [Fact]

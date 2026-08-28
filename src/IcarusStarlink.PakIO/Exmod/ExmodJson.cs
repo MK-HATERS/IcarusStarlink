@@ -64,15 +64,26 @@ public static class ExmodJson
 
     private static ExmodPackage ParseCore(JsonObject root)
     {
-        var fileName = GetRequiredString(root, "fileName");
+        // Real files in the wild don't all agree on this shape — a classic-IMM-produced merged
+        // pack's own EXMOD omits "description" entirely, and at least one real community mod uses
+        // an older "ModName" field instead of "name"/"fileName" altogether (no author/version/
+        // description at all). Treating name/fileName/author/version/description as required had
+        // this app silently refuse to read real, legitimate mods rather than degrading gracefully
+        // — Rows/File_Items (the actual mod content) is always present and always required; the
+        // header metadata around it is now best-effort, matching how an opaque pak's own
+        // synthesized header (ToOpaquePakEntry) already treats a missing name/author as "Unknown"
+        // rather than a hard failure.
+        var legacyModName = GetString(root, "ModName");
+        var name = GetString(root, "name") ?? legacyModName ?? throw new FormatException("EXMOD JSON is missing required field 'name' (and has no 'ModName' fallback either).");
+        var fileName = GetString(root, "fileName") ?? AssetPathGuard.SanitizeToSimpleFileName(legacyModName ?? name);
         AssetPathGuard.EnsureSimpleFileName(fileName);
 
         var package = new ExmodPackage
         {
-            Name = GetRequiredString(root, "name"),
-            Author = GetRequiredString(root, "author"),
-            Version = GetRequiredString(root, "version"),
-            Description = GetRequiredString(root, "description"),
+            Name = name,
+            Author = GetString(root, "author") ?? "Unknown",
+            Version = GetString(root, "version") ?? "",
+            Description = GetString(root, "description") ?? "",
             FileName = fileName,
             ImageUrl = GetString(root, "imageURL"),
             ReadmeUrl = GetString(root, "readmeURL"),

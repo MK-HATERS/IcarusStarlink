@@ -22,6 +22,7 @@ using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Container;
+using IcarusStarlink.PakIO.Import;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -48,6 +49,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private readonly IActivityLog _activityLog;
     private readonly IActiveDownloadsTracker _activeDownloadsTracker;
     private readonly string _pendingDownloadsDirectory;
+    private readonly IPrebuiltPakImporter _prebuiltPakImporter;
+    private readonly string _dataFolder;
     private readonly DebounceTimer _searchDebounceTimer;
 
     private IReadOnlyList<CatalogEntry> _allCatalogEntries = [];
@@ -176,8 +179,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
         PerformanceTracker performanceTracker,
         IActivityLog activityLog,
         IActiveDownloadsTracker activeDownloadsTracker,
-        string pendingDownloadsDirectory)
+        string pendingDownloadsDirectory, IPrebuiltPakImporter prebuiltPakImporter, string dataFolder)
     {
+        _prebuiltPakImporter = prebuiltPakImporter;
+        _dataFolder = dataFolder;
         _daedalusClient = daedalusClient;
         _jimk72Client = jimk72Client;
         _gitHubRepoDateClient = gitHubRepoDateClient;
@@ -538,7 +543,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
             // Rename, which name-matching alone can't survive.
             var imported = isExmodz
                 ? _libraryRepository.Import(tempPath, source: "Database", catalogEntryId: catalogEntry.Id)
-                : _libraryRepository.ImportPak(tempPath, source: "Database", catalogEntryId: catalogEntry.Id);
+                : await _prebuiltPakImporter.ImportAsync(
+                    tempPath, _dataFolder, _settingsService.Current.UnrealPakExePath,
+                    source: "Database", catalogEntryId: catalogEntry.Id, name: catalogEntry.Name, author: catalogEntry.Author);
             _activityLog.Log($"Downloaded and imported '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
             return (true, $"Downloaded and imported '{imported.Name}'.");
         }
@@ -856,8 +863,18 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
             if (string.Equals(Path.GetExtension(item.LocalFilePath), ".pak", StringComparison.OrdinalIgnoreCase))
             {
-                var entry = _libraryRepository.ImportPak(item.LocalFilePath, source: "Nexus", nexusModId: item.ModId);
-                await EnrichOpaquePakFromNexusAsync(entry.FolderName, item.ModId);
+                var entry = await _prebuiltPakImporter.ImportAsync(
+                    item.LocalFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath, source: "Nexus", nexusModId: item.ModId);
+                if (entry.IsOpaquePak || entry.ConvertedFromPrebuiltPak)
+                {
+                    // A converted entry's own Name/Author are still just placeholders (the pak's
+                    // filename, "Unknown") — ConvertedFromPrebuiltPak is what lets
+                    // FolderLibraryRepository.SetNexusMetadata's cached-entry update (and ToEntry's
+                    // own NexusName/NexusAuthor fallback, on the next rescan) actually apply to it,
+                    // unlike an ordinary EXMOD import.
+                    await EnrichOpaquePakFromNexusAsync(entry.FolderName, item.ModId);
+                }
+
                 WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
                 statusMessage = $"Imported '{entry.Name}' into your Library.";
                 activatedFolderName = entry.FolderName;
@@ -919,13 +936,21 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private async Task<(string StatusMessage, string FolderName, PendingDownloadActivationKind Kind)> ClassifyAndImportExtractedModAsync(
         string extractedDirectory, string originalFileName, int modId)
     {
-        var (entryName, folderName, kind, isOpaquePak) = ExtractedModClassifier.ClassifyAndImport(
-            extractedDirectory, originalFileName, _libraryRepository, _ue4ssModRepository, source: "Nexus", nexusModId: modId);
+        var (entryName, folderName, kind, _) = await ExtractedModClassifier.ClassifyAndImport(
+            extractedDirectory, originalFileName, _libraryRepository, _ue4ssModRepository,
+            _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, source: "Nexus", nexusModId: modId);
 
         string statusMessage;
         if (kind == PendingDownloadActivationKind.Library)
         {
-            if (isOpaquePak)
+            // Not just the classifier's own isOpaquePak — a successfully converted entry
+            // (IsOpaquePak now false) still needs the same enrichment, its own Name/Author being
+            // placeholders until this runs. Re-fetched rather than threaded through
+            // ClassifyAndImport's own return tuple, which only reports IsOpaquePak (also used for
+            // the unrelated package-icon glyph binding).
+            var needsEnrichment = _libraryRepository.GetAll()
+                .Any(e => e.FolderName == folderName && (e.IsOpaquePak || e.ConvertedFromPrebuiltPak));
+            if (needsEnrichment)
             {
                 await EnrichOpaquePakFromNexusAsync(folderName, modId);
             }

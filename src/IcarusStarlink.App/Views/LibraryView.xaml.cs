@@ -302,11 +302,11 @@ public partial class LibraryView : UserControl
     /// already hands over every dropped item in one DragEventArgs, so dropping several at once (a
     /// mix of folders and archives included) works with no extra handling here.
     /// </summary>
-    private void LibraryPage_Drop(object sender, System.Windows.DragEventArgs e)
+    private async void LibraryPage_Drop(object sender, System.Windows.DragEventArgs e)
     {
         if (DataContext is LibraryViewModel viewModel && e.Data.GetData(DataFormats.FileDrop) is string[] paths)
         {
-            viewModel.ImportPaths(paths);
+            await viewModel.ImportPaths(paths);
         }
     }
 }

@@ -9,9 +9,6 @@ public interface INexusApiClient
     /// </summary>
     Task<NexusUserInfo?> ValidateKeyAsync(string apiKey, CancellationToken cancellationToken = default);
 
-    /// <summary>Mods updated within the given period ("1d", "1w", or "1m" — Nexus caches this server-side and only supports those three) for the given game domain (e.g. "icarus").</summary>
-    Task<IReadOnlyList<NexusUpdateEntry>> GetUpdatedModsAsync(string apiKey, string gameDomain, string period, CancellationToken cancellationToken = default);
-
     /// <summary>
     /// Resolves an nxm:// link's modId/fileId into real, one-time CDN download URLs. key/expires
     /// (from the nxm:// link itself) are required for a non-premium account and must be omitted

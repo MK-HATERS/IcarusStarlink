@@ -410,6 +410,30 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RebuildAsync_LaterModsFieldMatchesBaseValue_EarlierModsGenuineEditSurvivesInstead()
+    {
+        // The real "whole-row-copy" scenario a library survey confirmed is common: Mod B's own
+        // EXMOD carries CraftTime purely because its authoring tool copied the whole row, not
+        // because Mod B actually means to change it (its value is identical to current base data).
+        // Without base-aware filtering, plain last-write-wins would let Mod B's stale copy silently
+        // clobber Mod A's real, deliberate edit just because it's later in the queue.
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var modA = MakeMod("Mod A", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var modB = MakeMod("Mod B", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(5) }); // == base, a stale copy
+        var pakService = new FakeUnrealPakService();
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([modA, modB], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        Assert.Empty(result.Warnings);
+        var stagedJson = pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"];
+        var row = System.Text.Json.Nodes.JsonNode.Parse(stagedJson)!["Rows"]![0]!;
+        Assert.Equal(1, (int)row["CraftTime"]!);
+    }
+
+    [Fact]
     public async Task RebuildAsync_AttachedPrebuiltPak_NameIsListedInTheManifest()
     {
         var prebuiltPakPath = Path.Combine(_tempDir, "SomeMod_P.pak");

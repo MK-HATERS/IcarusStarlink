@@ -94,12 +94,18 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                     orderedModChanges.Add(fixedOptionChanges);
                 }
 
-                var resolvedChanges = MergeEngine.Merge(orderedModChanges, new MergeRuleRegistry(), manualPicks);
-
-                var requiredFiles = resolvedChanges.Select(c => c.CurrentFile)
+                // Read before merging (against the raw, pre-merge file set — a strict superset of
+                // whatever survives resolution, since resolving only ever picks among a field's
+                // existing candidates, never introduces a new file) so Merge can compare each
+                // candidate against its real current base value — see MergeEngine.Merge's own doc
+                // comment for why that matters (dropping whole-row-copy artifacts that would
+                // otherwise out-rank a genuine edit purely by queue position).
+                var requiredFiles = orderedModChanges.SelectMany(c => c).Select(c => c.CurrentFile)
                     .Concat(GameplayOptionsApplier.RequiredCurrentFiles(gameplayOptions))
                     .Distinct();
                 var (baseTablesByFile, originalJson) = ReadBaseTables(requiredFiles, dataFolder, report);
+
+                var resolvedChanges = MergeEngine.Merge(orderedModChanges, new MergeRuleRegistry(), manualPicks, baseTablesByFile);
                 // The Dictionary(IDictionary) copy constructor does NOT inherit the source's comparer, so
                 // this has to be specified again explicitly — otherwise merged would silently revert
                 // to case-sensitive keys even though baseTablesByFile/MultiFileMerger.Apply's own result
@@ -250,6 +256,9 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
 
         return results;
     }
+
+    public IReadOnlyDictionary<string, JsonObject> ReadKeyedBaseTables(IEnumerable<string> currentFiles, string dataFolder, MergeReport report) =>
+        ReadBaseTables(currentFiles, dataFolder, report).Keyed;
 
     /// <summary>
     /// EXMOD's own CurrentFile convention flattens the real folder path with dashes

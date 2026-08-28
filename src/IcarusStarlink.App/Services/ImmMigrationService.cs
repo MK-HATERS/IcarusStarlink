@@ -7,6 +7,8 @@ using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Migration;
 using IcarusStarlink.Core.Secrets;
+using IcarusStarlink.Core.Settings;
+using IcarusStarlink.PakIO.Import;
 
 namespace IcarusStarlink.App.Services;
 
@@ -57,7 +59,10 @@ public sealed class ImmMigrationService(
     IDaedalusCatalogClient daedalusClient,
     IJimk72CatalogClient jimk72Client,
     INexusApiClient nexusApiClient,
-    ICredentialStore credentialStore)
+    ICredentialStore credentialStore,
+    IPrebuiltPakImporter prebuiltPakImporter,
+    ISettingsService settingsService,
+    string dataFolder)
 {
     public async Task<ImmMigrationResult> MigrateAsync(
         string modListPath, string installRoot, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
@@ -114,7 +119,7 @@ public sealed class ImmMigrationService(
             // importing and then mutating metadata straight afterwards.
             var catalogEntry = MatchCatalog(catalog, immMod.Name, immMod.Author);
 
-            var imported = ImportFrom(sourceFolder, catalogEntry);
+            var imported = await ImportFrom(sourceFolder, catalogEntry);
             if (imported is null)
             {
                 return new ImmMigratedMod(listName, ImmMigrationOutcome.Failed, null, "no .EXMOD or .pak inside its folder");
@@ -136,7 +141,7 @@ public sealed class ImmMigrationService(
     }
 
     /// <summary>Classic IMM's Extracted_Mods holds both real EXMOD mod folders and folders wrapping a prebuilt .pak — this app imports those through two different methods, so pick by what's actually inside.</summary>
-    private LibraryEntry? ImportFrom(string sourceFolder, CatalogEntry? catalogEntry)
+    private async Task<LibraryEntry?> ImportFrom(string sourceFolder, CatalogEntry? catalogEntry)
     {
         var files = Directory.EnumerateFiles(sourceFolder, "*", SearchOption.AllDirectories).ToList();
 
@@ -148,7 +153,10 @@ public sealed class ImmMigrationService(
         var pakPath = files.FirstOrDefault(f => f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase));
         return pakPath is null
             ? null
-            : repository.ImportPak(pakPath, source: catalogEntry is null ? null : "Database", catalogEntryId: catalogEntry?.Id);
+            : await prebuiltPakImporter.ImportAsync(
+                pakPath, dataFolder, settingsService.Current.UnrealPakExePath,
+                source: catalogEntry is null ? null : "Database", catalogEntryId: catalogEntry?.Id,
+                name: catalogEntry?.Name, author: catalogEntry?.Author);
     }
 
     private LibraryEntry? FindInLibrary(string listName, ImmExtractedMod? immMod)

@@ -65,36 +65,6 @@ public class NexusApiClientTests
         await Assert.ThrowsAsync<HttpRequestException>(() => client.ValidateKeyAsync("some-key"));
     }
 
-    [Fact]
-    public async Task GetUpdatedModsAsync_RealisticShape_ParsesEveryEntry()
-    {
-        var client = CreateClient(new Dictionary<string, string>
-        {
-            ["https://api.nexusmods.com/v1/games/icarus/mods/updated?period=1w"] = """
-                [
-                    {"mod_id": 42, "latest_file_update": 1700000000, "latest_mod_activity": 1700000500},
-                    {"mod_id": 99, "latest_file_update": 1700100000, "latest_mod_activity": 1700100500}
-                ]
-                """,
-        });
-
-        var entries = await client.GetUpdatedModsAsync("some-key", "icarus", "1w");
-
-        Assert.Equal(2, entries.Count);
-        Assert.Contains(entries, e => e.ModId == 42 && e.LatestFileUpdateUnix == 1700000000);
-        Assert.Contains(entries, e => e.ModId == 99 && e.LatestFileUpdateUnix == 1700100000);
-    }
-
-    [Fact]
-    public async Task GetUpdatedModsAsync_RejectedKey_Throws()
-    {
-        var client = CreateClient(
-            new Dictionary<string, string> { ["https://api.nexusmods.com/v1/games/icarus/mods/updated?period=1w"] = """{"message":"Invalid API Key"}""" },
-            new Dictionary<string, HttpStatusCode> { ["https://api.nexusmods.com/v1/games/icarus/mods/updated?period=1w"] = HttpStatusCode.Unauthorized });
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetUpdatedModsAsync("wrong-key", "icarus", "1w"));
-    }
-
     // Real shape, confirmed against Nexus's own official node-nexus-api client source (IDownloadURL).
     private const string RealisticDownloadLinksJson = """
         [

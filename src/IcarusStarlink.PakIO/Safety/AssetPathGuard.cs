@@ -4,9 +4,13 @@ namespace IcarusStarlink.PakIO.Safety;
 /// Guards against path traversal ("zip slip") from untrusted EXMODZ content — an EXMODZ can come
 /// from an internet download (the Phase 4 Downloads tab) or a file a stranger shared, so neither
 /// its asset entry names nor its "fileName" field can be trusted to stay inside the target
-/// directory or to be a plain filename at all.
+/// directory or to be a plain filename at all. Public (not internal): Storage and App both depend
+/// on PakIO and have no InternalsVisibleTo grant (see InstallManifestNames' own doc comment for
+/// the same reasoning) — SanitizeToSimpleFileName specifically is reused by
+/// FolderLibraryRepository and DownloadFileNameSanitizer instead of each carrying its own
+/// hand-copied implementation.
 /// </summary>
-internal static class AssetPathGuard
+public static class AssetPathGuard
 {
     private static readonly char[] InvalidFileNameChars = Path.GetInvalidFileNameChars();
 
@@ -69,6 +73,40 @@ internal static class AssetPathGuard
         {
             throw new FormatException($"EXMOD field 'fileName' must be a simple name, not a path: '{name}'.");
         }
+    }
+
+    /// <summary>
+    /// Turns an arbitrary externally-sourced or display name (a mod title, a CDN's own
+    /// Content-Disposition filename — not something already guaranteed safe like an on-disk folder
+    /// name) into a value IsSimpleFileName would accept — replacing invalid filename characters,
+    /// trimming trailing dots/spaces (Windows silently strips these, which can otherwise produce a
+    /// confusingly different name than what was asked for), and dodging reserved device names.
+    /// emptyFallback is used only when candidate sanitizes down to nothing (a caller-appropriate
+    /// default — e.g. "mod" vs. a generated download filename).
+    ///
+    /// The reserved-name fix PREPENDS rather than appends: a reserved name is reserved by its own
+    /// prefix up to the first dot (see IsSafePathSegment's own comment) — prepending changes that
+    /// prefix (e.g. "CON.Thing" -> "_CON.Thing", whose own prefix "_CON" is no longer reserved),
+    /// while appending to the end (e.g. "CON.Thing" -> "CON.Thing_mod") would leave the exact same
+    /// reserved prefix "CON" in place, still rejected by IsSafePathSegment right afterward.
+    /// </summary>
+    public static string SanitizeToSimpleFileName(string candidate, string emptyFallback = "mod")
+    {
+        var sanitized = new string([.. candidate.Select(c => InvalidFileNameChars.Contains(c) ? '_' : c)]).TrimEnd('.', ' ');
+
+        if (string.IsNullOrWhiteSpace(sanitized))
+        {
+            sanitized = emptyFallback;
+        }
+
+        var dotIndex = sanitized.IndexOf('.');
+        var baseName = dotIndex >= 0 ? sanitized[..dotIndex] : sanitized;
+        if (ReservedWindowsNames.Contains(baseName))
+        {
+            sanitized = "_" + sanitized;
+        }
+
+        return sanitized;
     }
 
     /// <summary>

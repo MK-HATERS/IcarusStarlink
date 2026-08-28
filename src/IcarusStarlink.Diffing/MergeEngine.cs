@@ -11,12 +11,20 @@ namespace IcarusStarlink.Diffing;
 /// </summary>
 public static class MergeEngine
 {
+    /// <summary>
+    /// baseTablesByFile, when given, is a keyed base-game DataTable lookup (same shape
+    /// RebuildService's own ReadBaseTables produces) used to drop a candidate whose value doesn't
+    /// actually differ from the CURRENT base game value before resolving/reporting conflicts — see
+    /// FindConflicts' own doc comment for why. Passing null skips this (matches every existing
+    /// caller's behavior before this parameter existed).
+    /// </summary>
     public static IReadOnlyList<FieldChange> Merge(
         IReadOnlyList<IReadOnlyList<FieldChange>> orderedModChanges,
         MergeRuleRegistry registry,
-        IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null)
+        IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
+        IReadOnlyDictionary<string, JsonObject>? baseTablesByFile = null)
     {
-        var groups = GroupByField(orderedModChanges);
+        var groups = GroupByField(orderedModChanges, baseTablesByFile);
         var resolved = new List<FieldChange>(groups.Count);
 
         foreach (var (key, perMod) in groups)
@@ -53,17 +61,19 @@ public static class MergeEngine
     /// isn't included: there's nothing to pick between. modNames must be the same length as
     /// orderedModChanges, in the same queue order (index 0 = lowest priority) — a picked
     /// Candidates[i] lines up with the pickedIndex Merge expects because both methods group through
-    /// the same GroupByField, so they always produce the same one-entry-per-mod ordering.
+    /// the same GroupByField (with the same baseTablesByFile), so they always produce the same
+    /// one-entry-per-mod ordering. See Merge's own doc comment for baseTablesByFile.
     /// </summary>
     public static IReadOnlyList<FieldConflict> FindConflicts(
-        IReadOnlyList<string> modNames, IReadOnlyList<IReadOnlyList<FieldChange>> orderedModChanges)
+        IReadOnlyList<string> modNames, IReadOnlyList<IReadOnlyList<FieldChange>> orderedModChanges,
+        IReadOnlyDictionary<string, JsonObject>? baseTablesByFile = null)
     {
         if (modNames.Count != orderedModChanges.Count)
         {
             throw new ArgumentException("modNames must have exactly one entry per orderedModChanges entry.", nameof(modNames));
         }
 
-        return [.. GroupByField(orderedModChanges)
+        return [.. GroupByField(orderedModChanges, baseTablesByFile)
             .Select(kv => (kv.Key, Candidates: kv.Value.Select(c => new ConflictCandidate(modNames[c.ModIndex], c.Change)).ToList()))
             .Where(g => g.Candidates.Count > 1
                         && !g.Candidates.All(c => JsonNode.DeepEquals(c.Change.NewValue, g.Candidates[0].Change.NewValue)))
@@ -83,9 +93,21 @@ public static class MergeEngine
     /// conflict picker showing only genuine mod-vs-mod disagreements, and — because Merge and
     /// FindConflicts both group through this one method — guarantees a picked candidate index still
     /// means the same thing to both.
+    ///
+    /// When baseTablesByFile is given, a candidate whose value doesn't actually differ from the
+    /// CURRENT base game value is dropped from its group entirely (and the group removed if nothing
+    /// is left) — learned from a real ~5,000-item library survey: 22% of real field-level changes
+    /// carry 4+ fields, strongly suggesting many are whole-row-copy artifacts (classic IMM's own
+    /// changelog documents its original extractor doing exactly this before a per-field rewrite),
+    /// not a deliberate edit. Left in place, a mod's own stale copy of a field it never meant to
+    /// touch could silently out-rank (or falsely appear to "conflict" with) another mod's genuine
+    /// edit, purely because of queue position. The one accepted trade-off: a mod that deliberately
+    /// sets a field BACK to its base value to override an earlier mod's edit gets filtered the same
+    /// way, since nothing in the data can tell "stale copy" apart from "deliberate revert" — judged
+    /// the right call given how much more common the former is in real data.
     /// </summary>
     private static Dictionary<(string CurrentFile, string ItemName, string FieldName), List<(int ModIndex, FieldChange Change)>> GroupByField(
-        IReadOnlyList<IReadOnlyList<FieldChange>> orderedModChanges)
+        IReadOnlyList<IReadOnlyList<FieldChange>> orderedModChanges, IReadOnlyDictionary<string, JsonObject>? baseTablesByFile)
     {
         var groups = new Dictionary<(string CurrentFile, string ItemName, string FieldName), List<(int ModIndex, FieldChange Change)>>(FieldChangeKeyComparer.Instance);
 
@@ -114,6 +136,39 @@ public static class MergeEngine
             }
         }
 
+        if (baseTablesByFile is not null)
+        {
+            foreach (var key in groups.Keys.ToList())
+            {
+                var (found, baseValue) = TryGetBaseValue(baseTablesByFile, key.CurrentFile, key.ItemName, key.FieldName);
+                if (!found)
+                {
+                    // No base value to compare against (a genuinely new item, this file/item isn't
+                    // in the base tables provided, or the field is genuinely absent from base) —
+                    // nothing to filter. Distinct from "found, and it's a real JSON null" below —
+                    // collapsing the two would wrongly skip filtering a stale candidate whose own
+                    // copied value is also null.
+                    continue;
+                }
+
+                groups[key].RemoveAll(c => JsonNode.DeepEquals(c.Change.NewValue, baseValue));
+                if (groups[key].Count == 0)
+                {
+                    groups.Remove(key);
+                }
+            }
+        }
+
         return groups;
+    }
+
+    private static (bool Found, JsonNode? Value) TryGetBaseValue(IReadOnlyDictionary<string, JsonObject> baseTablesByFile, string currentFile, string itemName, string fieldName)
+    {
+        if (!baseTablesByFile.TryGetValue(currentFile, out var table) || table[itemName] is not JsonObject item || !item.ContainsKey(fieldName))
+        {
+            return (false, null);
+        }
+
+        return (true, item.TryGetPropertyValue(fieldName, out var value) ? value : null);
     }
 }

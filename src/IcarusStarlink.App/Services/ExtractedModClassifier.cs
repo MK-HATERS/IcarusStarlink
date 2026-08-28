@@ -2,6 +2,7 @@ using System.IO;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Ue4ss;
+using IcarusStarlink.PakIO.Import;
 
 namespace IcarusStarlink.App.Services;
 
@@ -22,13 +23,16 @@ public static class ExtractedModClassifier
     /// source/nexusModId tag the resulting Library entry when known (a Nexus-sourced download); a
     /// plain manual import passes null for both. IsOpaquePak distinguishes the two ways Kind can be
     /// Library — a real EXMOD-shaped mod (false, already carries its own real name/author) vs. a
-    /// bare .pak with no EXMOD wrapper (true) — since only the latter is worth a caller enriching
-    /// with a Nexus mod-info lookup; overwriting an EXMOD's own declared name with Nexus's title
-    /// would be a real, unwanted behavior change for the common case.
+    /// bare .pak that stayed opaque because IPrebuiltPakImporter couldn't convert it (true) — since
+    /// only the latter is worth a caller enriching with a Nexus mod-info lookup; overwriting an
+    /// EXMOD's own declared name with Nexus's title would be a real, unwanted behavior change for
+    /// the common case. Async because a single .pak now goes through IPrebuiltPakImporter, which
+    /// genuinely extracts and diffs it before deciding.
     /// </summary>
-    public static (string EntryName, string FolderName, PendingDownloadActivationKind Kind, bool IsOpaquePak) ClassifyAndImport(
+    public static async Task<(string EntryName, string FolderName, PendingDownloadActivationKind Kind, bool IsOpaquePak)> ClassifyAndImport(
         string extractedDirectory, string originalFileName,
         ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
+        IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
         string? source = null, int? nexusModId = null)
     {
         // A manual scan, not a "*.EXMOD" glob — Directory.EnumerateFiles' pattern matching follows
@@ -50,8 +54,8 @@ public static class ExtractedModClassifier
         var pakFiles = Directory.GetFiles(extractedDirectory, "*.pak", SearchOption.AllDirectories);
         if (pakFiles.Length == 1)
         {
-            var entry = libraryRepository.ImportPak(pakFiles[0], source: source, nexusModId: nexusModId);
-            return (entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, IsOpaquePak: true);
+            var entry = await prebuiltPakImporter.ImportAsync(pakFiles[0], dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId);
+            return (entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, entry.IsOpaquePak);
         }
 
         if (pakFiles.Length > 1)

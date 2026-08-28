@@ -5,6 +5,31 @@ namespace IcarusStarlink.PakIO.Tests;
 public class AssetPathGuardTests
 {
     [Theory]
+    [InlineData("CON.SomeMod")]
+    [InlineData("con.SomeMod")]
+    [InlineData("PRN")]
+    [InlineData("COM1.zip")]
+    public void SanitizeToSimpleFileName_ReservedDeviceNamePrefix_ProducesASafeName(string candidate)
+    {
+        var sanitized = AssetPathGuard.SanitizeToSimpleFileName(candidate);
+
+        Assert.True(AssetPathGuard.IsSimpleFileName(sanitized), $"'{sanitized}' should itself be a safe simple file name.");
+    }
+
+    [Fact]
+    public void SanitizeToSimpleFileName_NotReserved_LeftUnchanged()
+    {
+        Assert.Equal("Some Mod Name", AssetPathGuard.SanitizeToSimpleFileName("Some Mod Name"));
+    }
+
+    [Fact]
+    public void SanitizeToSimpleFileName_EmptyAfterSanitizing_UsesGivenFallback()
+    {
+        Assert.Equal("download_x", AssetPathGuard.SanitizeToSimpleFileName("   ", "download_x"));
+    }
+
+
+    [Theory]
     [InlineData("Icarus/Content/Data/Crafting.uasset")]
     [InlineData("readme.md")]
     [InlineData("a/b/c/d.png")]

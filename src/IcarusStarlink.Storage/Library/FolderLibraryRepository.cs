@@ -4,7 +4,9 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
+using IcarusStarlink.PakIO.Import;
 using IcarusStarlink.PakIO.Install;
+using IcarusStarlink.PakIO.Safety;
 using Microsoft.Extensions.Logging;
 
 namespace IcarusStarlink.Storage.Library;
@@ -17,7 +19,7 @@ namespace IcarusStarlink.Storage.Library;
 /// scan only happens once, at construction — Import/Delete/UpdateMetadata each update just the
 /// one entry they touched afterward.
 /// </summary>
-public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
+public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageImporter, IDisposable
 {
     private readonly string _extractedModsDirectory;
     private readonly string _modBackupsDirectory;
@@ -107,6 +109,15 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
             ? ExmodFolder.Read(sourcePath)
             : ExmodzArchive.Read(sourcePath);
 
+        return RegisterNewPackage(contents, source, nexusModId, catalogEntryId);
+    }
+
+    /// <summary>See IExmodPackageImporter — same registration as Import(string, ...), for a caller that already has an in-memory package instead of a folder/zip to read one from.</summary>
+    public LibraryEntry ImportPackage(ExmodPackageContents contents, string? source = null, int? nexusModId = null, string? catalogEntryId = null) =>
+        RegisterNewPackage(contents, source, nexusModId, catalogEntryId);
+
+    private LibraryEntry RegisterNewPackage(ExmodPackageContents contents, string? source, int? nexusModId, string? catalogEntryId)
+    {
         // Package.FileName is already guaranteed a safe, simple identifier (AssetPathGuard runs
         // inside ExmodJson.Parse) — reuse it as the folder name directly rather than re-deriving
         // one, only disambiguating on collision.
@@ -205,6 +216,22 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         if (existing is not null)
         {
             existing.IsLocallyEdited = true;
+        }
+    }
+
+    /// <summary>See LibraryEntry.ConvertedFromPrebuiltPak — same shape as MarkLocallyEdited.</summary>
+    public void MarkConvertedFromPrebuiltPak(string folderName)
+    {
+        ResolveFolder(folderName);
+
+        var meta = _metaStore.Load(folderName);
+        meta.ConvertedFromPrebuiltPak = true;
+        _metaStore.Save(folderName, meta);
+
+        var existing = _cachedEntries.Find(e => e.FolderName == folderName);
+        if (existing is not null)
+        {
+            existing.ConvertedFromPrebuiltPak = true;
         }
     }
 
@@ -330,11 +357,12 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         meta.NexusVersion = version;
         _metaStore.Save(folderName, meta);
 
-        // Only an opaque pak entry actually reads these back (ToOpaquePakEntry) — for a normal
-        // EXMOD entry this metadata is saved but never surfaced, matching how Nexus enrichment is
-        // only ever attempted for the pak case (see DownloadsViewModel.ActivatePendingDownload).
+        // Only an opaque pak or a converted-from-one entry actually reads these back (ToOpaquePakEntry/
+        // ToEntry's own ConvertedFromPrebuiltPak branch) — for an ordinary, author-declared EXMOD
+        // entry this metadata is saved but never surfaced, so a Nexus lookup can never silently
+        // overwrite a real author's own declared name.
         var existing = _cachedEntries.Find(e => e.FolderName == folderName);
-        if (existing is { IsOpaquePak: true })
+        if (existing is { IsOpaquePak: true } or { ConvertedFromPrebuiltPak: true })
         {
             existing.Name = name ?? existing.Name;
             existing.Author = author ?? existing.Author;
@@ -463,10 +491,14 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
     private static LibraryEntry ToEntry(string folderName, ExmodPackage package, LibraryMeta meta) => new()
     {
         FolderName = folderName,
-        Name = meta.DisplayNameOverride ?? package.Name,
-        Author = package.Author,
-        Version = package.Version,
-        Description = package.Description,
+        // A converted-from-prebuilt-pak entry's own package.Name/Author are just placeholders (the
+        // pak's filename, "Unknown") baked in at conversion time — same NexusName/NexusAuthor
+        // fallback chain ToOpaquePakEntry already uses, so a Nexus link's enrichment actually
+        // survives a rescan/restart instead of reverting to the placeholder every time.
+        Name = meta.DisplayNameOverride ?? (meta.ConvertedFromPrebuiltPak ? meta.NexusName : null) ?? package.Name,
+        Author = (meta.ConvertedFromPrebuiltPak ? meta.NexusAuthor : null) ?? package.Author,
+        Version = (meta.ConvertedFromPrebuiltPak ? meta.NexusVersion : null) ?? package.Version,
+        Description = (meta.ConvertedFromPrebuiltPak ? meta.NexusDescription : null) ?? package.Description,
         FileName = package.FileName,
         VariantGroup = package.VariantGroup,
         Variant = package.Variant,
@@ -476,6 +508,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         Notes = meta.Notes,
         ImportedAtUtc = meta.ImportedAtUtc,
         IsLocallyEdited = meta.IsLocallyEdited,
+        ConvertedFromPrebuiltPak = meta.ConvertedFromPrebuiltPak,
         Source = meta.Source,
         NexusModId = meta.NexusModId,
         CatalogEntryId = meta.CatalogEntryId,
@@ -493,8 +526,13 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         // produced the pak) takes priority over NexusAuthor for Author specifically — a merged
         // pack was never authored by anyone on Nexus, and naming the profile instead makes
         // multiple profiles' own builds distinguishable in Library.
+        // MergedPackModNames is already in real merge-queue order (position 0 = lowest priority,
+        // matching MergeEngine's own convention) — it just wasn't ever LABELED as an order before.
+        // Numbering it here makes that order visible without needing new storage: on an unresolved
+        // conflict, the LAST-numbered mod touching a field is the one whose value won by default.
         var description = meta.MergedPackModNames is { Count: > 0 } mergedNames
-            ? $"IcarusStarlink's own merged pack — folds in {mergedNames.Count} mod(s): {string.Join(", ", mergedNames)}."
+            ? $"IcarusStarlink's own merged pack — folds in {mergedNames.Count} mod(s), in merge order " +
+              $"(the last one listed wins a field conflict by default): {string.Join(", ", mergedNames.Select((n, i) => $"{i + 1}. {n}"))}."
             : meta.NexusDescription
                 ?? $"Imported prebuilt .pak package ({sizeMb:N1} MB) — no EXMOD data, so no readme or editing. Its internal files can still be listed below.";
         return new LibraryEntry
@@ -538,31 +576,8 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IDisposable
         return text.ToString();
     }
 
-    private static readonly HashSet<string> ReservedWindowsDeviceNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "CON", "PRN", "AUX", "NUL",
-        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-    };
-
-    /// <summary>Makes an externally-sourced name safe to use as a single Windows folder-name component — replaces invalid filename characters, trims trailing dots/spaces (Windows silently strips these, which can otherwise produce a confusingly different name than what was asked for), and dodges reserved device names.</summary>
-    private static string SanitizeFolderNameCandidate(string candidate)
-    {
-        var sanitized = new string([.. candidate.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)])
-            .TrimEnd('.', ' ');
-
-        if (string.IsNullOrWhiteSpace(sanitized))
-        {
-            sanitized = "mod";
-        }
-
-        if (ReservedWindowsDeviceNames.Contains(sanitized))
-        {
-            sanitized += "_mod";
-        }
-
-        return sanitized;
-    }
+    /// <summary>Makes an externally-sourced name safe to use as a single Windows folder-name component — delegates to AssetPathGuard.SanitizeToSimpleFileName (PakIO), the one shared implementation of this logic, rather than a second hand-copied one that had already drifted (its own reserved-device-name check compared the WHOLE sanitized string instead of the segment before its first dot, so e.g. "CON.v2" slipped through unfixed and reached Directory.CreateDirectory unguarded).</summary>
+    private static string SanitizeFolderNameCandidate(string candidate) => AssetPathGuard.SanitizeToSimpleFileName(candidate);
 
     private string MakeUniqueFolderName(string fileName) => ModFolders.MakeUnique(_extractedModsDirectory, fileName);
 

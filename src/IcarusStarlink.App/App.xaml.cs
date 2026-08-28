@@ -25,6 +25,7 @@ using IcarusStarlink.Core.Steam;
 using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.DataChanges;
+using IcarusStarlink.PakIO.Import;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
 using IcarusStarlink.PakIO.Patches;
@@ -119,6 +120,11 @@ public partial class App : Application
                 Path.Combine(appDataDirectory, "Library_Meta"),
                 Path.Combine(appDataDirectory, "Backups", "Mods"),
                 sp.GetRequiredService<ILogger<FolderLibraryRepository>>()));
+        // Same singleton FolderLibraryRepository instance as ILibraryRepository above, just under
+        // its other interface — ImportPackage takes a PakIO type (ExmodPackageContents), which
+        // ILibraryRepository itself can't expose since Core (where it lives) can't reference
+        // PakIO (see IExmodPackageImporter's own doc comment).
+        builder.Services.AddSingleton<IExmodPackageImporter>(sp => (IExmodPackageImporter)sp.GetRequiredService<ILibraryRepository>());
 
         // Typed HttpClient registrations: each catalog client's own constructor takes exactly
         // one HttpClient parameter, which is the convention AddHttpClient<TInterface, TClient>
@@ -146,12 +152,22 @@ public partial class App : Application
                 Path.Combine(appDataDirectory, "Cache"),
                 sp.GetRequiredService<ILogger<WeeklyChangeReportStore>>()));
         builder.Services.AddSingleton<IRebuildService, RebuildService>();
+        builder.Services.AddSingleton<IPrebuiltPakToExmodConverter, PrebuiltPakToExmodConverter>();
+        builder.Services.AddSingleton<IPrebuiltPakImporter, PrebuiltPakImporter>();
         builder.Services.AddSingleton<IInstallService, InstallService>();
         builder.Services.AddSingleton<IPakCompareService, PakCompareService>();
         builder.Services.AddSingleton<IUnrealPakInstaller>(sp =>
             new UnrealPakInstaller(sp.GetRequiredService<IProcessRunner>(), appDataDirectory));
         builder.Services.AddSingleton<IModVersionComparer, ModVersionComparer>();
-        builder.Services.AddSingleton<ImmMigrationService>();
+        builder.Services.AddSingleton(sp => new ImmMigrationService(
+            sp.GetRequiredService<ILibraryRepository>(),
+            sp.GetRequiredService<IDaedalusCatalogClient>(),
+            sp.GetRequiredService<IJimk72CatalogClient>(),
+            sp.GetRequiredService<INexusApiClient>(),
+            sp.GetRequiredService<ICredentialStore>(),
+            sp.GetRequiredService<IPrebuiltPakImporter>(),
+            sp.GetRequiredService<ISettingsService>(),
+            Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton<IProfileStore>(sp =>
             new ProfileStore(
                 Path.Combine(appDataDirectory, "Profiles"),
@@ -209,7 +225,9 @@ public partial class App : Application
             sp.GetRequiredService<IActiveDownloadsTracker>(),
             sp.GetRequiredService<MergeInstallViewModel>,
             Path.Combine(appDataDirectory, "Backups"),
-            Path.Combine(appDataDirectory, "Data")));
+            Path.Combine(appDataDirectory, "Data"),
+            sp.GetRequiredService<IPrebuiltPakImporter>(),
+            sp.GetRequiredService<IPrebuiltPakToExmodConverter>()));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IRebuildService>(),
@@ -240,7 +258,9 @@ public partial class App : Application
             sp.GetRequiredService<PerformanceTracker>(),
             sp.GetRequiredService<IActivityLog>(),
             sp.GetRequiredService<IActiveDownloadsTracker>(),
-            Path.Combine(appDataDirectory, "Pending_Downloads")));
+            Path.Combine(appDataDirectory, "Pending_Downloads"),
+            sp.GetRequiredService<IPrebuiltPakImporter>(),
+            Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton<NexusCatalogViewModel>();
         builder.Services.AddSingleton<ISaveRepository>(sp =>
             new SaveRepository(

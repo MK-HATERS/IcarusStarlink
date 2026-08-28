@@ -112,6 +112,11 @@
                                   Command="{Binding PlacementTarget.Tag.RenameItemCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
                                   ToolTip="Change how this mod displays in Library — its real folder/files aren't touched"/>
+                        <MenuItem Header="Convert to EXMOD…"
+                                  Command="{Binding PlacementTarget.Tag.ConvertToExmodCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}" IsEnabled="{Binding IsOpaquePak}"
+                                  ToolTip="Turns this prebuilt .pak import into a real, editable mod by diffing its own data against the current game data — backs up the original first. Only available for a prebuilt-pak import; a real EXMOD mod is already editable."
+                                  ToolTipService.ShowOnDisabled="True"/>
                         <Separator/>
                         <MenuItem Header="Create mod backup"
                                   Command="{Binding PlacementTarget.Tag.BackupModCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"

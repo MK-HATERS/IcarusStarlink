@@ -279,6 +279,110 @@ public class MergeEngineTests
         Assert.Throws<ArgumentException>(() => MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA]));
     }
 
+    private static IReadOnlyDictionary<string, JsonObject> BaseTables(string currentFile, string item, string field, int baseValue) =>
+        new Dictionary<string, JsonObject> { [currentFile] = new JsonObject { [item] = new JsonObject { [field] = JsonValue.Create(baseValue) } } };
+
+    [Fact]
+    public void Merge_LaterCandidateEqualsBaseValue_DoesNotClobberAnEarlierGenuineEdit()
+    {
+        // The whole-row-copy scenario found in real data: modB's own copy of this field never
+        // actually changed anything (it matches base exactly) — it must not "win" over modA's real
+        // edit just because it's later in the queue.
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 10) };
+        var baseTables = BaseTables("Items-D_ItemsStatic.json", "Sword", "Damage", baseValue: 10);
+
+        var resolved = MergeEngine.Merge([modA, modB], new MergeRuleRegistry(), baseTablesByFile: baseTables);
+
+        var change = Assert.Single(resolved);
+        Assert.Equal(20, change.NewValue!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Merge_OnlyCandidateEqualsBaseValue_ProducesNoResolvedChangeAtAll()
+    {
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 10) };
+        var baseTables = BaseTables("Items-D_ItemsStatic.json", "Sword", "Damage", baseValue: 10);
+
+        var resolved = MergeEngine.Merge([modA], new MergeRuleRegistry(), baseTablesByFile: baseTables);
+
+        Assert.Empty(resolved);
+    }
+
+    [Fact]
+    public void Merge_NoBaseTablesGiven_BaseEqualCandidateStillWinsAsBefore()
+    {
+        // baseTablesByFile is opt-in — omitting it must reproduce the exact pre-existing behavior
+        // (plain last-write-wins, no filtering), for every caller that doesn't pass it.
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 10) };
+
+        var resolved = MergeEngine.Merge([modA, modB], new MergeRuleRegistry());
+
+        var change = Assert.Single(resolved);
+        Assert.Equal(10, change.NewValue!.GetValue<int>());
+    }
+
+    [Fact]
+    public void FindConflicts_OneCandidateEqualsBaseValue_IsExcludedSoNoConflictIsReported()
+    {
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 10) };
+        var baseTables = BaseTables("Items-D_ItemsStatic.json", "Sword", "Damage", baseValue: 10);
+
+        var conflicts = MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA, modB], baseTables);
+
+        Assert.Empty(conflicts);
+    }
+
+    [Fact]
+    public void FindConflicts_BothCandidatesDifferFromBase_StillReportsARealConflict()
+    {
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 30) };
+        var baseTables = BaseTables("Items-D_ItemsStatic.json", "Sword", "Damage", baseValue: 10);
+
+        var conflicts = MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA, modB], baseTables);
+
+        var conflict = Assert.Single(conflicts);
+        Assert.Equal(2, conflict.Candidates.Count);
+    }
+
+    [Fact]
+    public void FindConflicts_BaseValueIsExplicitJsonNull_StillFiltersACandidateThatAlsoMatchesNull()
+    {
+        // A base field can legitimately be JSON null (e.g. an optional reference), not merely
+        // absent — TryGetPropertyValue returns true with a null value in both cases, so the
+        // filtering logic must check field PRESENCE, not just "is the returned value non-null".
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Enchantment", 20) };
+        modA[0] = modA[0] with { NewValue = null };
+        var baseTables = new Dictionary<string, JsonObject>
+        {
+            ["Items-D_ItemsStatic.json"] = new JsonObject { ["Sword"] = new JsonObject { ["Enchantment"] = null } },
+        };
+
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Enchantment", 99) };
+        var conflicts = MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA, modB], baseTables);
+
+        // Mod A's null matches base's explicit null (filtered out); Mod B's real value doesn't
+        // (kept) — so there's exactly one real remaining candidate, not a conflict.
+        Assert.Empty(conflicts);
+    }
+
+    [Fact]
+    public void FindConflicts_NoBaseValueKnownForThisField_NotFiltered()
+    {
+        // baseTablesByFile given, but this particular file/item/field isn't in it (e.g. a
+        // genuinely new item) — nothing to compare against, so no filtering happens for this key.
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 10) };
+        var baseTables = new Dictionary<string, JsonObject> { ["SomeOtherFile.json"] = new JsonObject() };
+
+        var conflicts = MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA, modB], baseTables);
+
+        Assert.Single(conflicts);
+    }
+
     [Fact]
     public void FindConflicts_CandidateIndexAlignsWithMergeManualPicksIndex()
     {

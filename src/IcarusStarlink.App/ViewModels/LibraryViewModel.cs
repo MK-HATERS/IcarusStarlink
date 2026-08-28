@@ -22,6 +22,7 @@ using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
+using IcarusStarlink.PakIO.Import;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
 using Microsoft.Win32;
@@ -45,6 +46,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly HttpClient _downloadHttpClient;
     private readonly IPendingDownloadStore _pendingDownloadStore;
     private readonly IModVersionComparer _modVersionComparer;
+    private readonly IPrebuiltPakImporter _prebuiltPakImporter;
+    private readonly IPrebuiltPakToExmodConverter _prebuiltPakToExmodConverter;
 
     /// <summary>Resolved lazily (Merge & Install is constructed on first navigation, not at DI composition time) — same pattern SettingsViewModel already uses to reach it. Only invoked once the user actually adds something to the queue from here, so opening Library alone never forces Merge & Install into existence.</summary>
     private readonly Func<MergeInstallViewModel> _mergeInstallViewModel;
@@ -148,6 +151,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCheckingStaleness;
 
+    /// <summary>Per-folder, not page-wide — see ConvertToExmodAsync's own guard comment.</summary>
+    private readonly HashSet<string> _foldersCurrentlyConvertingToExmod = [];
+
     [ObservableProperty]
     private bool _isCheckingEndorsements;
 
@@ -217,9 +223,11 @@ public sealed partial class LibraryViewModel : ObservableObject
         IPendingDownloadStore pendingDownloadStore, IModVersionComparer modVersionComparer,
         DownloadsViewModel downloadsViewModel, Func<NexusCatalogViewModel> nexusCatalogViewModel,
         IActiveDownloadsTracker activeDownloadsTracker, Func<MergeInstallViewModel> mergeInstallViewModel, string backupDirectory,
-        string dataFolder)
+        string dataFolder, IPrebuiltPakImporter prebuiltPakImporter, IPrebuiltPakToExmodConverter prebuiltPakToExmodConverter)
     {
         _modVersionComparer = modVersionComparer;
+        _prebuiltPakImporter = prebuiltPakImporter;
+        _prebuiltPakToExmodConverter = prebuiltPakToExmodConverter;
         _mergeInstallViewModel = mergeInstallViewModel;
         _activeDownloadsTracker = activeDownloadsTracker;
         Downloads = downloadsViewModel;
@@ -617,7 +625,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// same as dragging several onto the page.
     /// </summary>
     [RelayCommand]
-    private void ImportFile()
+    private async Task ImportFile()
     {
         var dialog = new OpenFileDialog
         {
@@ -631,7 +639,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        ImportPaths(dialog.FileNames);
+        await ImportPaths(dialog.FileNames);
     }
 
     /// <summary>
@@ -641,7 +649,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// every multi-select import path below, so "what kind of thing is this path" is decided in
     /// exactly one place.
     /// </summary>
-    private void ImportOnePath(string path)
+    private async Task ImportOnePath(string path)
     {
         if (Directory.Exists(path))
         {
@@ -652,7 +660,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         if (path.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
         {
-            var entry = _repository.ImportPak(path);
+            var entry = await _prebuiltPakImporter.ImportAsync(path, _dataFolder, _settingsService.Current.UnrealPakExePath);
             _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
             return;
         }
@@ -661,8 +669,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             AnyArchiveExtractor.ExtractToDirectory(path, tempExtractDirectory);
-            var (entryName, folderName, kind, _) = ExtractedModClassifier.ClassifyAndImport(
-                tempExtractDirectory, path, _repository, _ue4ssModRepository);
+            var (entryName, folderName, kind, _) = await ExtractedModClassifier.ClassifyAndImport(
+                tempExtractDirectory, path, _repository, _ue4ssModRepository,
+                _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath);
             _activityLog.Log(
                 kind == PendingDownloadActivationKind.Library ? $"Imported '{entryName}'." : $"Imported '{folderName}' as a UE4SS mod.",
                 ActivityEntryKind.Success);
@@ -689,7 +698,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// single-file prompt — asking that once per imported file would make importing several at once
     /// unusable; "Link to Nexus ID…" stays reachable afterward from each row's own context menu.
     /// </summary>
-    public void ImportPaths(IReadOnlyList<string> paths)
+    public async Task ImportPaths(IReadOnlyList<string> paths)
     {
         if (paths.Count == 0)
         {
@@ -702,7 +711,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         {
             try
             {
-                ImportOnePath(path);
+                await ImportOnePath(path);
                 importedCount++;
             }
             catch (Exception ex)
@@ -740,14 +749,14 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var entry = TryImport(dialog.FileName, path => _repository.ImportPak(path));
+        var entry = await TryImportPakAsync(dialog.FileName);
         if (entry is null)
         {
             return;
         }
 
         var linkPrompt = MessageBox.Show(
-            $"'{entry.Name}' was imported as an opaque .pak — it has no name/author of its own until you tell it where it came from.\n\nIs this a Nexus mod? Link it now so IcarusStarlink can show its real name and check for updates.",
+            $"'{entry.Name}' doesn't have a name/author of its own yet — imported .pak files don't carry that until you tell it where they came from.\n\nIs this a Nexus mod? Link it now so IcarusStarlink can show its real name and check for updates.",
             "Link to Nexus?", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (linkPrompt != MessageBoxResult.Yes)
         {
@@ -924,7 +933,9 @@ public sealed partial class LibraryViewModel : ObservableObject
                 {
                     var imported = isExmodz
                         ? _repository.Import(tempPath, source: "Database", catalogEntryId: catalogEntry.Id)
-                        : _repository.ImportPak(tempPath, source: "Database", catalogEntryId: catalogEntry.Id);
+                        : await _prebuiltPakImporter.ImportAsync(
+                            tempPath, _dataFolder, _settingsService.Current.UnrealPakExePath,
+                            source: "Database", catalogEntryId: catalogEntry.Id, name: catalogEntry.Name, author: catalogEntry.Author);
                     if (isPinned || isFavorite || !string.IsNullOrEmpty(notes))
                     {
                         _repository.UpdateMetadata(imported.FolderName, isPinned, isFavorite, notes);
@@ -1018,6 +1029,91 @@ public sealed partial class LibraryViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Backup failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Manually converts an already-imported opaque .pak entry into a real, editable EXMOD, in
+    /// place — the same conversion new imports now attempt automatically (IPrebuiltPakToExmodConverter),
+    /// just run on demand for one of the entries that predates that feature, or that stayed opaque
+    /// because conversion wasn't possible at import time (e.g. UnrealPak.exe wasn't set up yet).
+    /// Backs up the mod's folder first (FolderBackup, same as "Create mod backup") since this is a
+    /// real, destructive rewrite — the source .pak is deleted once its content is fully represented
+    /// as EXMOD rows/assets — and restores that backup if anything after the delete throws, so a
+    /// failure never leaves the mod in a half-converted, unreadable state.
+    /// </summary>
+    [RelayCommand]
+    private async Task ConvertToExmodAsync(LibraryItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        if (!item.IsOpaquePak)
+        {
+            StatusMessage = $"'{item.Name}' is already a real, editable mod — nothing to convert.";
+            return;
+        }
+
+        if (!_foldersCurrentlyConvertingToExmod.Add(item.FolderName))
+        {
+            // A per-folder guard, not a page-wide one — converting Mod A must never silently
+            // swallow a concurrent request to convert unrelated Mod B.
+            return;
+        }
+
+        try
+        {
+            var folder = _repository.GetFolderPath(item.FolderName);
+            var pakFilePath = Directory.GetFiles(folder, "*.pak", SearchOption.AllDirectories).FirstOrDefault();
+            if (pakFilePath is null)
+            {
+                StatusMessage = $"'{item.Name}' has no .pak file to convert.";
+                return;
+            }
+
+            var report = new MergeReport();
+            var converted = await _prebuiltPakToExmodConverter.TryConvertAsync(
+                pakFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath ?? "", item.Name, item.Author, report);
+
+            if (converted is null)
+            {
+                StatusMessage = report.Warnings.Count > 0
+                    ? $"Couldn't convert '{item.Name}': {report.Warnings[0]}"
+                    : $"Couldn't convert '{item.Name}' to an editable mod right now.";
+                return;
+            }
+
+            _repository.BackupMod(item.FolderName);
+            try
+            {
+                File.Delete(pakFilePath);
+                ExmodFolder.Write(folder, converted);
+            }
+            catch
+            {
+                // The delete+write above should be near-instant on a local disk, but a failure
+                // partway through (disk full, permission revoked mid-operation) must not leave the
+                // mod folder in a state with neither a valid .pak nor a valid .EXMOD — the backup
+                // just taken makes that recoverable instead of a real, permanent loss.
+                _repository.RestoreLatestModBackup(item.FolderName);
+                throw;
+            }
+
+            _repository.Refresh();
+            _repository.MarkConvertedFromPrebuiltPak(item.FolderName);
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            StatusMessage = $"Converted '{item.Name}' to a real, editable mod — a backup of the original was kept.";
+            _activityLog.Log($"Converted '{item.Name}' from a prebuilt pak into an editable mod.", ActivityEntryKind.Success);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't convert '{item.Name}': {ex.Message}";
+        }
+        finally
+        {
+            _foldersCurrentlyConvertingToExmod.Remove(item.FolderName);
         }
     }
 
@@ -1375,10 +1471,42 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Shared by ImportFolder/ImportFile/ImportPak — same try/catch/status/reload shape, differing
-    /// only in which repository method actually reads sourcePath. Returns the imported entry (null
-    /// on failure, already reported via StatusMessage) so a caller like ImportPak can act on it
-    /// further — e.g. offering to link it to Nexus — without duplicating this same try/catch body.
+    /// Tries converting the pak into a real, editable EXMOD first (IPrebuiltPakImporter, which
+    /// itself falls back to importing it as an opaque pak whenever conversion isn't possible right
+    /// now — UnrealPak.exe not set up, the extracted game data missing, or the pak itself can't be
+    /// read). Async because conversion genuinely extracts and diffs the pak, unlike TryImport's
+    /// synchronous importer delegate below.
+    /// </summary>
+    private async Task<LibraryEntry?> TryImportPakAsync(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null)
+    {
+        try
+        {
+            var entry = await _prebuiltPakImporter.ImportAsync(
+                pakFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath, source, nexusModId, catalogEntryId);
+
+            StatusMessage = entry.IsOpaquePak
+                ? $"Imported '{entry.Name}'."
+                : $"Imported '{entry.Name}' as a real, editable mod — its data changes are now visible in the editor.";
+            Reload();
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
+            return entry;
+        }
+        catch (Exception ex)
+        {
+            // Same UI-boundary catch TryImport itself uses — a user-initiated import can fail for
+            // many reasons (malformed pak, permission denied, disk full, ...).
+            StatusMessage = $"Import failed: {ex.Message}";
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Shared by ImportFolder/ImportFile — same try/catch/status/reload shape, differing only in
+    /// which repository method actually reads sourcePath. Returns the imported entry (null on
+    /// failure, already reported via StatusMessage). A .pak import goes through TryImportPakAsync
+    /// above instead, not this — it needs to attempt conversion first, which this synchronous
+    /// importer delegate shape can't express.
     /// </summary>
     private LibraryEntry? TryImport(string sourcePath, Func<string, LibraryEntry> importer)
     {

@@ -36,6 +36,9 @@ public interface ILibraryRepository
     /// <summary>Sets the ✎ "locally edited" flag — called once by the EXMOD editor's own Save action, never toggled directly by the user the way Pin/Favorite/Notes are.</summary>
     void MarkLocallyEdited(string folderName);
 
+    /// <summary>See LibraryEntry.ConvertedFromPrebuiltPak — called once, either automatically right after a prebuilt-pak import successfully converts to a real EXMOD, or by the manual "Convert to EXMOD…" action.</summary>
+    void MarkConvertedFromPrebuiltPak(string folderName);
+
     /// <summary>Overrides how this mod's name displays in Library — its real folder name, FileName, and the mod's own file content are never touched. Pass null or an empty/whitespace-only string to clear the override and go back to the default name (the EXMOD's own declared name, or for an opaque pak, its Nexus-enriched name or the pak's filename).</summary>
     void SetDisplayNameOverride(string folderName, string? displayName);
 

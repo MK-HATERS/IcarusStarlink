@@ -91,6 +91,45 @@ public class FolderLibraryRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void ImportPackage_AlreadyBuiltContents_AddsEntryToLibraryWithoutReadingFromDisk()
+    {
+        using var repo = CreateRepository();
+
+        var entry = repo.ImportPackage(BuildFixture());
+
+        Assert.Equal("Faster Processors", entry.Name);
+        Assert.False(entry.IsOpaquePak);
+        Assert.Single(repo.GetAll());
+        // Real content actually landed on disk, not just in the in-memory cache — the same
+        // real-write guarantee Import(string, ...) already has.
+        Assert.True(Directory.Exists(Path.Combine(_extractedModsDir, entry.FolderName)));
+    }
+
+    [Fact]
+    public void ImportPackage_ProvenanceTags_AreRecordedOnTheEntry()
+    {
+        using var repo = CreateRepository();
+
+        var entry = repo.ImportPackage(BuildFixture(), source: "Nexus", nexusModId: 123, catalogEntryId: "abc");
+
+        Assert.Equal("Nexus", entry.Source);
+        Assert.Equal(123, entry.NexusModId);
+        Assert.Equal("abc", entry.CatalogEntryId);
+    }
+
+    [Fact]
+    public void ImportPackage_FolderNameCollision_DisambiguatesWithSuffix()
+    {
+        using var repo = CreateRepository();
+
+        var first = repo.ImportPackage(BuildFixture());
+        var second = repo.ImportPackage(BuildFixture());
+
+        Assert.NotEqual(first.FolderName, second.FolderName);
+        Assert.Equal(2, repo.GetAll().Count);
+    }
+
+    [Fact]
     public void Import_FolderNameCollision_DisambiguatesWithSuffix()
     {
         ExmodFolder.Write(_sourceDir, BuildFixture());

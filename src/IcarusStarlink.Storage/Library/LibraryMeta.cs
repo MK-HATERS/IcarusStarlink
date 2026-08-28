@@ -11,6 +11,9 @@ internal sealed class LibraryMeta
     /// <summary>Set once, by the EXMOD editor's own Save action — unlike Pin/Favorite/Notes, never toggled directly in the Library UI.</summary>
     public bool IsLocallyEdited { get; set; }
 
+    /// <summary>Set once, either automatically (IPrebuiltPakImporter, when a prebuilt pak import successfully converts to a real EXMOD) or manually ("Convert to EXMOD…") — distinguishes this from an author-declared real EXMOD, since both have IsOpaquePak false. Lets SetNexusMetadata's own Nexus-enrichment overwrite this entry's placeholder Name/Author (the pak's own filename / "Unknown") without risking overwriting a real author's own declared name on an ordinary EXMOD import.</summary>
+    public bool ConvertedFromPrebuiltPak { get; set; }
+
     /// <summary>Where this mod came from ("Nexus"/"Database") — set once at import time, never changed afterward.</summary>
     public string? Source { get; set; }
 
