@@ -23,6 +23,17 @@ public interface IUe4ssLoaderInstallService
     IReadOnlyList<string> ListUserAddedMods(string icarusContentPath);
 
     /// <summary>
+    /// Whether modName is one of the framework's own built-in mods (or its shared\ infrastructure
+    /// folder) — the same classification ListUserAddedMods/UninstallAsync use, exposed per-name so
+    /// a caller with the full known-mods union (enabled in-game AND disabled/staged in this app's
+    /// own folder — see IUe4ssModStateService.GetAll) can classify every one of them correctly.
+    /// ListUserAddedMods alone can't do that: it only enumerates what's currently IN the game's
+    /// Mods folder, so a disabled/staged mod — built-in or not — would silently read as "not
+    /// user-added" (i.e. wrongly built-in) if classified by absence from that list instead.
+    /// </summary>
+    bool IsFrameworkOwned(string icarusContentPath, string modName);
+
+    /// <summary>
     /// Full UE4SS uninstall: moves every user-added mod folder back to stagedModsDirectory first
     /// (nothing of the user's is ever deleted), backs up the whole ue4ss\ folder + dwmapi.dll
     /// (keep-last-5, same rotation the installer uses), then removes dwmapi.dll and the ue4ss\

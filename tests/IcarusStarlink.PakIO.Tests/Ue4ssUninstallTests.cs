@@ -75,6 +75,49 @@ public sealed class Ue4ssUninstallTests : IDisposable
     }
 
     [Fact]
+    public void IsFrameworkOwned_TellsFrameworkModsApartFromUserOnes()
+    {
+        CreateInstall(frameworkMods: ["ConsoleEnablerMod"], userMods: ["NearbyCrafting"]);
+
+        Assert.True(_service.IsFrameworkOwned(_contentPath, "ConsoleEnablerMod"));
+        Assert.False(_service.IsFrameworkOwned(_contentPath, "NearbyCrafting"));
+    }
+
+    [Fact]
+    public void IsFrameworkOwned_SharedInfrastructureFolderCountsAsFramework()
+    {
+        CreateInstall(frameworkMods: [], userMods: []);
+
+        Assert.True(_service.IsFrameworkOwned(_contentPath, "shared"));
+    }
+
+    [Fact]
+    public void IsFrameworkOwned_ModNotCurrentlyInTheGameFolderAtAll_StillClassifiesByModsJsonAlone()
+    {
+        // The real reason this exists as its own method rather than reusing ListUserAddedMods:
+        // that method only enumerates directories actually present in the game's Mods folder right
+        // now, so a DISABLED (staged, not currently installed) mod would silently read as "not
+        // user-added" — i.e. wrongly framework — by simple absence from that list. A caller with
+        // the full known-mods union (enabled + staged — see IUe4ssModStateService.GetAll) needs a
+        // per-name check that works whether or not the mod's own folder is present right now.
+        CreateInstall(frameworkMods: ["ConsoleEnablerMod"], userMods: []);
+        Directory.Delete(Path.Combine(ModsFolder, "ConsoleEnablerMod"), recursive: true);
+
+        Assert.True(_service.IsFrameworkOwned(_contentPath, "ConsoleEnablerMod"));
+        Assert.False(_service.IsFrameworkOwned(_contentPath, "SomeStagedUserMod"));
+    }
+
+    [Fact]
+    public void IsFrameworkOwned_MalformedModsJson_TreatsEveryModAsUserAdded()
+    {
+        CreateInstall(frameworkMods: [], userMods: []);
+        File.WriteAllText(Path.Combine(ModsFolder, "mods.json"), "{corrupt");
+
+        Assert.False(_service.IsFrameworkOwned(_contentPath, "AnyMod"));
+        Assert.True(_service.IsFrameworkOwned(_contentPath, "shared"));
+    }
+
+    [Fact]
     public async Task Uninstall_RemovesLoaderAndDwmapiCompletely()
     {
         CreateInstall(frameworkMods: ["Keybinds"], userMods: []);

@@ -621,17 +621,40 @@
                     <ListBox Grid.Row="2" ItemsSource="{Binding Ue4ssMods}">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                <StackPanel Orientation="Horizontal" Margin="0,2"
+                                            Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                                    <StackPanel.ContextMenu>
+                                        <ContextMenu>
+                                            <!-- Hidden (not just disabled) for a built-in — it ships with the
+                                                 loader itself, so there's no standalone Nexus page to explain
+                                                 via a disabled-tooltip the way a transient unavailability would. -->
+                                            <MenuItem Header="Link to Nexus ID…"
+                                                      Command="{Binding PlacementTarget.Tag.LinkUe4ssModToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}"
+                                                      Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                      ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates"/>
+                                        </ContextMenu>
+                                    </StackPanel.ContextMenu>
                                     <CheckBox IsChecked="{Binding IsEnabled}" VerticalAlignment="Center" Margin="0,0,8,0"
                                               ToolTip="Checked = enabled (in the real game Mods folder). Nothing moves until you click Apply below."
                                               AutomationProperties.Name="{Binding Name, StringFormat='Enable {0}'}"/>
                                     <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Width="260"/>
+                                    <!-- One of UE4SS's own bundled mods (or its shared\ infrastructure
+                                         folder) — see IUe4ssLoaderInstallService.IsFrameworkOwned. Right-click
+                                         "Link to Nexus ID…" is hidden for these; they have no page of their own. -->
+                                    <Border Margin="0,0,6,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
+                                            Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                            ToolTip="Ships with the UE4SS loader itself — not something you installed separately"
+                                            Visibility="{Binding IsBuiltIn, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="Default" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                    </Border>
                                     <!-- Set when this mod was downloaded through the Nexus pipeline (see
-                                         DownloadsViewModel.EnrichUe4ssModFromNexusAsync) — a manually
-                                         imported UE4SS mod has no link, so no badge. -->
+                                         DownloadsViewModel.EnrichUe4ssModFromNexusAsync) or manually linked
+                                         via the row's own "Link to Nexus ID…" — a never-linked UE4SS mod has
+                                         no badge. -->
                                     <Border Margin="0,0,6,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
                                             Background="{DynamicResource InfoBrush}"
-                                            ToolTip="Downloaded via Nexus — linked to its catalog page for update-checking"
+                                            ToolTip="Linked to a Nexus mod page for update-checking"
                                             Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}">
                                         <TextBlock Text="Nexus" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
                                     </Border>

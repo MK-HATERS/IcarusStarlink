@@ -22,6 +22,7 @@ using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
+using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
 using Microsoft.Win32;
 
@@ -33,6 +34,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IUe4ssModRepository _ue4ssModRepository;
     private readonly IUe4ssModStateService _ue4ssModStateService;
     private readonly IUe4ssModMetaStore _ue4ssModMetaStore;
+    private readonly IUe4ssLoaderInstallService _ue4ssLoaderInstallService;
     private readonly ISettingsService _settingsService;
     private readonly IUnrealPakService _unrealPakService;
     private readonly INexusApiClient _nexusApiClient;
@@ -155,7 +157,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     public LibraryViewModel(
         ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
-        IUe4ssModMetaStore ue4ssModMetaStore,
+        IUe4ssModMetaStore ue4ssModMetaStore, IUe4ssLoaderInstallService ue4ssLoaderInstallService,
         ISettingsService settingsService, IUnrealPakService unrealPakService, INexusApiClient nexusApiClient,
         ICredentialStore credentialStore,
         Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
@@ -175,6 +177,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         _ue4ssModRepository = ue4ssModRepository;
         _ue4ssModStateService = ue4ssModStateService;
         _ue4ssModMetaStore = ue4ssModMetaStore;
+        _ue4ssLoaderInstallService = ue4ssLoaderInstallService;
         _settingsService = settingsService;
         _unrealPakService = unrealPakService;
         _nexusApiClient = nexusApiClient;
@@ -325,7 +328,11 @@ public sealed partial class LibraryViewModel : ObservableObject
             foreach (var state in states)
             {
                 var meta = _ue4ssModMetaStore.Load(state.Name);
-                var row = new Ue4ssModRowViewModel(state.Name, state.IsEnabled, meta.NexusModId, meta.NexusVersion, RecomputeHasPendingUe4ssChanges);
+                // IsFrameworkOwned, not membership in ListUserAddedMods — that list only enumerates
+                // what's currently IN the game's real Mods folder, so a disabled/staged mod (built-in
+                // or not) would silently misclassify as "user-added" by simple absence from it.
+                var isBuiltIn = _ue4ssLoaderInstallService.IsFrameworkOwned(_settingsService.Current.IcarusContentPath!, state.Name);
+                var row = new Ue4ssModRowViewModel(state.Name, state.IsEnabled, isBuiltIn, meta.NexusModId, meta.NexusVersion, RecomputeHasPendingUe4ssChanges);
                 if (previousByName.TryGetValue(state.Name, out var previous))
                 {
                     if (previous.IsDirty)
@@ -377,6 +384,64 @@ public sealed partial class LibraryViewModel : ObservableObject
         catch (Exception ex)
         {
             Ue4ssStatusMessage = $"Apply failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Manual counterpart to DownloadsViewModel.EnrichUe4ssModFromNexusAsync (which only ever runs
+    /// automatically when a UE4SS mod is activated from a pending Nexus download) — mirrors
+    /// LinkToNexus/LinkFolderToNexusAsync's own shape exactly, just writing through
+    /// IUe4ssModMetaStore's per-folder sidecar instead of ILibraryRepository. Deliberately not
+    /// offered for a framework-built-in row (see the XAML's own IsBuiltIn-gated menu item) — those
+    /// ship with the loader itself and have no standalone Nexus page of their own to link to.
+    /// </summary>
+    [RelayCommand]
+    private async Task LinkUe4ssModToNexus(Ue4ssModRowViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        var dialog = new LinkNexusDialog { Owner = Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var meta = _ue4ssModMetaStore.Load(item.Name);
+            meta.NexusModId = dialog.NexusModId;
+            _ue4ssModMetaStore.Save(item.Name, meta);
+
+            var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+            if (apiKey is not null)
+            {
+                try
+                {
+                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", dialog.NexusModId);
+                    if (info is not null)
+                    {
+                        meta.NexusVersion = info.Version;
+                        _ue4ssModMetaStore.Save(item.Name, meta);
+                    }
+                }
+                catch (Exception)
+                {
+                    // Best-effort — the ID link above already succeeded regardless.
+                }
+            }
+
+            // Rebuilds every row (Ue4ssModRowViewModel's NexusModId/KnownVersion are constructor-set,
+            // not observable) so this row picks up what was just saved — same reason ApplyUe4ssChanges
+            // already reloads after its own write.
+            ReloadInstalledUe4ssMods();
+            Ue4ssStatusMessage = $"Linked '{item.Name}' to Nexus mod {dialog.NexusModId}.";
+        }
+        catch (Exception ex)
+        {
+            Ue4ssStatusMessage = $"Couldn't link: {ex.Message}";
         }
     }
 

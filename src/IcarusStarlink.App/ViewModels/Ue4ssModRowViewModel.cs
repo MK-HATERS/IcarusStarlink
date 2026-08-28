@@ -19,11 +19,12 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 {
     private readonly Action _onDirtyChanged;
 
-    public Ue4ssModRowViewModel(string name, bool realIsEnabled, int? nexusModId, string? knownVersion, Action onDirtyChanged)
+    public Ue4ssModRowViewModel(string name, bool realIsEnabled, bool isBuiltIn, int? nexusModId, string? knownVersion, Action onDirtyChanged)
     {
         Name = name;
         RealIsEnabled = realIsEnabled;
         _isEnabled = realIsEnabled;
+        IsBuiltIn = isBuiltIn;
         NexusModId = nexusModId;
         KnownVersion = knownVersion;
         _onDirtyChanged = onDirtyChanged;
@@ -32,6 +33,12 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     public string Name { get; }
 
     public bool RealIsEnabled { get; }
+
+    /// <summary>Whether this is one of UE4SS's own bundled mods (or its shared\ infrastructure folder) rather than something the user installed themselves — see IUe4ssLoaderInstallService.IsFrameworkOwned. Drives the "Default" badge, and whether Link to Nexus even makes sense to offer at all (a framework mod has no standalone Nexus page of its own).</summary>
+    public bool IsBuiltIn { get; }
+
+    /// <summary>Computed inverse, not a converter parameter on IsBuiltIn's own binding — this project's own established convention after repeated ConverterParameter-on-BoolToVisibilityConverter mistakes.</summary>
+    public bool IsUserAdded => !IsBuiltIn;
 
     public int? NexusModId { get; }
 

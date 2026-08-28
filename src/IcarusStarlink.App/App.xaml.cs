@@ -194,6 +194,7 @@ public partial class App : Application
             sp.GetRequiredService<IUe4ssModRepository>(),
             sp.GetRequiredService<IUe4ssModStateService>(),
             sp.GetRequiredService<IUe4ssModMetaStore>(),
+            sp.GetRequiredService<IUe4ssLoaderInstallService>(),
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUnrealPakService>(),
             sp.GetRequiredService<INexusApiClient>(),

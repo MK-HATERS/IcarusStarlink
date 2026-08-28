@@ -102,6 +102,9 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
     }
 
+    public bool IsFrameworkOwned(string icarusContentPath, string modName) =>
+        ReadFrameworkModNames(Ue4ssGamePaths.ResolveModsFolder(icarusContentPath)).Contains(modName);
+
     public Task<Ue4ssUninstallResult> UninstallAsync(
         string icarusContentPath, string stagedModsDirectory, string backupDirectory, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
