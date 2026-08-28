@@ -25,8 +25,15 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         // Extracted to a fresh temp directory first, not straight into outputDirectory: the
         // previous extraction has to stay intact long enough to diff against, and a half-finished
         // UnrealPak run failing partway through must never leave outputDirectory itself in a
-        // broken in-between state.
-        var tempExtractDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"DataExtract_{Guid.NewGuid():N}");
+        // broken in-between state. A SIBLING of outputDirectory, not System.IO.Path.GetTempPath()
+        // — that's always the OS drive (typically C:), while this app is a portable "unzip
+        // anywhere" install and outputDirectory lives wherever the user put it. Directory.Move
+        // below refuses to cross volumes (a real, confirmed .NET limitation, not guessed), so a
+        // user who installed this app on the same drive as their game — very often NOT the OS
+        // drive — hit a real "Update data folder" failure every time. A sibling folder is always
+        // on the same volume as outputDirectory by construction, so the move always succeeds.
+        var tempExtractDirectory = Path.Combine(
+            Path.GetDirectoryName(Path.GetFullPath(outputDirectory))!, $".DataExtract_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempExtractDirectory);
 
         try

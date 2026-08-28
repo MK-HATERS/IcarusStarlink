@@ -101,6 +101,25 @@ public class UnrealPakServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractDataPakAsync_ScratchDirectoryIsASiblingOfOutputDirectory_NotUnderSystemTemp()
+    {
+        // Real bug, found live: the scratch directory used to live under Path.GetTempPath()
+        // (always the OS drive, typically C:), then Directory.Move(scratch, outputDirectory) —
+        // which .NET refuses to do across volumes — into outputDirectory (wherever this portable
+        // app's own install actually is). A user who installed on a non-C: drive (very often the
+        // same drive as their game) hit a real "Update data folder" failure every time. The fix:
+        // the scratch directory is a sibling of outputDirectory, guaranteeing the same volume
+        // regardless of where either this app or Path.GetTempPath() happen to live.
+        var runner = Runner(new ProcessRunResult(0, "", ""));
+        var service = new UnrealPakService(runner);
+
+        await service.ExtractDataPakAsync(_unrealPakExePath, _contentPath, _outputDirectory, previousUpdateAt: null);
+
+        var scratchDirectory = runner.LastArguments![2];
+        Assert.Equal(Path.GetDirectoryName(Path.GetFullPath(_outputDirectory)), Path.GetDirectoryName(scratchDirectory));
+    }
+
+    [Fact]
     public async Task ExtractDataPakAsync_NonZeroExitCode_ThrowsWithStandardErrorInMessage()
     {
         var runner = Runner(new ProcessRunResult(1, "", "corrupt pak header"));
