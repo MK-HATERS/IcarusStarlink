@@ -778,8 +778,12 @@
                             <ColumnDefinition Width="280"/>
                         </Grid.ColumnDefinitions>
 
+                        <!-- IsReadOnly is load-bearing, not cosmetic: without it, double-clicking any
+                             cell makes WPF's DataGrid try to enter edit mode on a TwoWay binding to a
+                             get-only CatalogEntryViewModel property, which throws an unhandled
+                             InvalidOperationException and crashes the whole app — confirmed live. -->
                         <DataGrid Grid.Column="0" x:Name="CatalogGrid" ItemsSource="{Binding Downloads.CatalogEntries}" SelectedItem="{Binding Downloads.SelectedCatalogEntry}"
-                                  SelectionChanged="CatalogGrid_SelectionChanged">
+                                  IsReadOnly="True" SelectionChanged="CatalogGrid_SelectionChanged" MouseDoubleClick="CatalogGrid_MouseDoubleClick">
                             <DataGrid.RowStyle>
                                 <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                                     <Style.Triggers>
@@ -868,11 +872,20 @@
                                        Visibility="{Binding Downloads.SelectedCatalogEntry, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
 
                             <StackPanel Grid.Row="0" Visibility="{Binding Downloads.SelectedCatalogEntry, Converter={StaticResource NullToVisibilityConverter}}">
-                                <Border Height="120" Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                                        BorderThickness="1" CornerRadius="6" Margin="0,0,0,8">
-                                    <Path Data="{StaticResource IconMountains}" Stroke="{DynamicResource FaintForegroundBrush}" StrokeThickness="1.6"
-                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="30" Height="30" Stretch="Uniform"/>
-                                </Border>
+                                <Grid Height="120" Margin="0,0,0,8">
+                                    <Border Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1" CornerRadius="6">
+                                        <Path Data="{StaticResource IconMountains}" Stroke="{DynamicResource FaintForegroundBrush}" StrokeThickness="1.6"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="30" Height="30" Stretch="Uniform"/>
+                                    </Border>
+                                    <!-- Sits on top of the placeholder above and only becomes visible
+                                         once a real ImageUrl exists — this panel never actually had a
+                                         real Image element before, just the placeholder unconditionally,
+                                         even though the same real per-mod image already renders
+                                         correctly in the "More details…" pop-out below. -->
+                                    <Image Source="{Binding Downloads.SelectedCatalogEntry.Entry.ImageUrl}" Stretch="UniformToFill"
+                                           Visibility="{Binding Downloads.SelectedCatalogEntry.Entry.ImageUrl, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                </Grid>
                                 <TextBlock Text="{Binding Downloads.SelectedCatalogEntry.Name}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                 <TextBlock Margin="0,2,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}">
                                     <Run Text="{Binding Downloads.SelectedCatalogEntry.Author, Mode=OneWay}"/>
@@ -890,11 +903,19 @@
                                         <TextBlock Text="Download &amp; extract" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-                                <Button Command="{Binding Downloads.OpenCatalogReadmeCommand}" AutomationProperties.Name="Open readme">
+                                <Button Command="{Binding Downloads.OpenCatalogReadmeCommand}" AutomationProperties.Name="Open readme" Margin="0,0,0,8">
                                     <StackPanel Orientation="Horizontal">
                                         <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
                                               StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
                                         <TextBlock Text="Open readme" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Click="ShowCatalogEntryDetails_Click" AutomationProperties.Name="More details"
+                                        ToolTip="Opens a bigger pop-out with the full description, image, and catalog info for the selected mod">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Path Data="{StaticResource IconInfo}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                        <TextBlock Text="More details…" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>

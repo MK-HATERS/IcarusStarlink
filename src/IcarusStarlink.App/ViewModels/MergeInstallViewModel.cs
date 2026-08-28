@@ -679,7 +679,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         var dialog = new OpenFileDialog
         {
             Title = "Import an IMM mod list",
-            Filter = "Mod list (*.txt)|*.txt|All files (*.*)|*.*",
+            Filter = "Mod list (*.txt, *.lst)|*.txt;*.lst|All files (*.*)|*.*",
         };
         if (dialog.ShowDialog() != true)
         {

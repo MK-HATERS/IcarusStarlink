@@ -268,7 +268,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         var dialog = new OpenFileDialog
         {
             Title = "Pick your classic IMM mod list (LastMergedMods.txt or IMM_Merged_Mod.txt)",
-            Filter = "Mod list (*.txt)|*.txt|All files (*.*)|*.*",
+            Filter = "Mod list (*.txt, *.lst)|*.txt;*.lst|All files (*.*)|*.*",
         };
         if (dialog.ShowDialog() != true)
         {

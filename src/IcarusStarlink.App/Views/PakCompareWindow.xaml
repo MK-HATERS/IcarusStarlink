@@ -70,7 +70,11 @@
                 </ListBox.ItemTemplate>
             </ListBox>
 
-            <DataGrid Grid.Column="2" ItemsSource="{Binding SelectedFile.Rows}">
+            <!-- IsReadOnly is load-bearing, not cosmetic — without it, double-clicking a cell makes
+                 WPF try to enter edit mode on a TwoWay binding to a get-only ChangedRowViewModel
+                 property, throwing an unhandled InvalidOperationException that crashes the app
+                 (confirmed live for the same row type on Library's own IMM Database grid). -->
+            <DataGrid Grid.Column="2" ItemsSource="{Binding SelectedFile.Rows}" IsReadOnly="True">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Item" Binding="{Binding ItemName}" Width="140"/>
                     <DataGridTextColumn Header="Field" Binding="{Binding FieldName}" Width="130"/>
