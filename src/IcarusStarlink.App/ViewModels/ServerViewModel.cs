@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Server;
@@ -246,10 +247,10 @@ public sealed partial class ServerViewModel : ObservableObject
         // during this app's own real testing, permanently wiping a real saved site + its stored
         // password with no undo. Recovered that time only because the details were still known;
         // this confirmation is the actual fix, not just a lesson noted for later.
-        var confirm = MessageBox.Show(
+        var confirm = ThemedMessageBox.Show(
             $"Delete the saved site '{site.Name}'? Its saved password will be removed too. This can't be undone from here.",
-            "Delete site", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.Yes)
+            "Delete site", ThemedConfirmSeverity.Warning);
+        if (!(confirm))
         {
             return;
         }
@@ -325,11 +326,11 @@ public sealed partial class ServerViewModel : ObservableObject
                 // A real "trust this certificate?" prompt — the same convention FileZilla/WinSCP
                 // use for exactly this case (common on budget game-server hosts presenting a
                 // self-signed cert), rather than just failing with a generic TLS error.
-                var trust = MessageBox.Show(
+                var trust = ThemedMessageBox.Show(
                     $"{certEx.Message}\n\nSubject: {certEx.Subject}\nIssuer: {certEx.Issuer}\nThumbprint: {certEx.Thumbprint}\n\n"
                     + $"Trust this certificate for '{site.Name}' and connect anyway? Only do this if you recognize this server.",
-                    "Untrusted certificate", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-                if (trust != MessageBoxResult.Yes)
+                    "Untrusted certificate", ThemedConfirmSeverity.Warning);
+                if (!(trust))
                 {
                     await client.DisposeAsync();
                     ConnectionStatusMessage = "Connection cancelled — certificate not trusted.";
@@ -546,10 +547,10 @@ public sealed partial class ServerViewModel : ObservableObject
             return;
         }
 
-        var result = MessageBox.Show(
+        var result = ThemedMessageBox.Show(
             $"Delete '{entry.Name}' from the server? This can't be undone from here.",
-            "Delete remote file", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (result != MessageBoxResult.Yes)
+            "Delete remote file", ThemedConfirmSeverity.Warning);
+        if (!(result))
         {
             return;
         }
@@ -621,7 +622,7 @@ public sealed partial class ServerViewModel : ObservableObject
                 $"This will {deleteList}upload:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
                 + $"to '{RemoteModsPath}' on '{SelectedSite?.Name}'. Continue?";
 
-            if (MessageBox.Show(prompt, "Install merged pak to server", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            if (!(ThemedMessageBox.Show(prompt, "Install merged pak to server", ThemedConfirmSeverity.Warning)))
             {
                 return;
             }
@@ -722,7 +723,7 @@ public sealed partial class ServerViewModel : ObservableObject
                 $"This will upload {localFiles.Count} loader file(s) (UE4SS.dll, dwmapi.dll, etc.) to '{RemoteWin64Path}' on "
                 + $"'{SelectedSite?.Name}', replacing its current loader ({(remoteVersion is null ? "not installed" : $"v{remoteVersion}")}). "
                 + $"The server's own Mods folder{(remoteHasSettings ? " and its existing UE4SS-settings.ini" : "")} won't be touched. Continue?";
-            if (MessageBox.Show(prompt, "Sync UE4SS loader to server", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            if (!(ThemedMessageBox.Show(prompt, "Sync UE4SS loader to server", ThemedConfirmSeverity.Warning)))
             {
                 return;
             }
@@ -809,7 +810,7 @@ public sealed partial class ServerViewModel : ObservableObject
             var prompt =
                 $"This will upload the following UE4SS mod(s) to '{RemoteModsRootPath}' on '{SelectedSite?.Name}' "
                 + $"(nothing already there is touched):\n{string.Join('\n', missing.Select(n => $"  - {n}"))}\n\nContinue?";
-            if (MessageBox.Show(prompt, "Sync UE4SS mods to server", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            if (!(ThemedMessageBox.Show(prompt, "Sync UE4SS mods to server", ThemedConfirmSeverity.Warning)))
             {
                 return;
             }

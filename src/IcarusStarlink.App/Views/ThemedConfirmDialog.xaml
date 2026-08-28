@@ -1,0 +1,41 @@
+<Window x:Class="IcarusStarlink.App.Views.ThemedConfirmDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        mc:Ignorable="d"
+        SizeToContent="Height" Width="460" MinHeight="160" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <!--
+    Every one of this app's own confirmation dialogs (21 call sites, all Yes/No, all one of
+    Question/Warning/Information) used to be the stock system MessageBox — a stark white Windows
+    dialog clashing hard against this app's own dark theme. This is the themed replacement:
+    ThemedMessageBox.Show(...) sets Title/MessageText/Severity as plain properties before showing,
+    rather than binding to a ViewModel, since this is a static-helper-driven dialog with no
+    lifecycle beyond one ShowDialog() call.
+    -->
+    <Grid Margin="24,20,24,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+            <Path x:Name="SeverityIcon" Width="22" Height="22" StrokeThickness="1.8" Stretch="Uniform"
+                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                  VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <TextBlock x:Name="TitleText" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <TextBlock x:Name="MessageTextBlock" Grid.Row="1" TextWrapping="Wrap"
+                   Foreground="{DynamicResource ForegroundBrush}" FontSize="13" Margin="0,0,0,20"/>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="NoButton" Content="No" Click="No_Click" Margin="0,0,8,0" MinWidth="72"/>
+            <Button x:Name="YesButton" Content="Yes" Click="Yes_Click" Style="{StaticResource PrimaryButtonStyle}" MinWidth="72"/>
+        </StackPanel>
+    </Grid>
+</Window>

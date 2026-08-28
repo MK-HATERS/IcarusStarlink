@@ -773,10 +773,10 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var linkPrompt = MessageBox.Show(
+        var linkPrompt = ThemedMessageBox.Show(
             $"'{entry.Name}' doesn't have a name/author of its own yet — imported .pak files don't carry that until you tell it where they came from.\n\nIs this a Nexus mod? Link it now so IcarusStarlink can show its real name and check for updates.",
-            "Link to Nexus?", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (linkPrompt != MessageBoxResult.Yes)
+            "Link to Nexus?", ThemedConfirmSeverity.Question);
+        if (!(linkPrompt))
         {
             return;
         }
@@ -1388,10 +1388,10 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// <summary>Asks first, then shows — the post-update half of the same comparison the context menu offers on demand.</summary>
     private async Task OfferVersionComparisonAsync(string modName, string folderName)
     {
-        var answer = MessageBox.Show(
+        var answer = ThemedMessageBox.Show(
             $"'{modName}' was updated.\n\nSee what the author changed between your old version and this one?",
-            "Update installed", MessageBoxButton.YesNo, MessageBoxImage.Information);
-        if (answer == MessageBoxResult.Yes)
+            "Update installed", ThemedConfirmSeverity.Information);
+        if (answer)
         {
             await ShowVersionComparisonAsync(modName, folderName);
         }
@@ -1440,10 +1440,10 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var confirmResult = MessageBox.Show(
+        var confirmResult = ThemedMessageBox.Show(
             $"This replaces '{item.Name}''s current content with its most recent backup — any edit made since then is lost.\n\nContinue?",
-            "Restore backup", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirmResult != MessageBoxResult.Yes)
+            "Restore backup", ThemedConfirmSeverity.Question);
+        if (!(confirmResult))
         {
             return;
         }
@@ -1647,12 +1647,12 @@ public sealed partial class LibraryViewModel : ObservableObject
         // asks first, matching how every other irreversible action in this app behaves. Names the
         // real count rather than a generic "these mods" so a fat-fingered bulk selection is obvious
         // before it's too late to back out.
-        var confirm = MessageBox.Show(
+        var confirm = ThemedMessageBox.Show(
             items.Count == 1
                 ? $"Delete '{items[0].Name}' from your Library?\n\nIts folder is removed from disk. This can't be undone (unless you made a backup first)."
                 : $"Delete {items.Count} mods from your Library?\n\nTheir folders are removed from disk. This can't be undone (unless you made a backup first).",
-            "Delete mod(s)", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.Yes)
+            "Delete mod(s)", ThemedConfirmSeverity.Warning);
+        if (!(confirm))
         {
             return;
         }

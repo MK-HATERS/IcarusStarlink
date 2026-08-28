@@ -656,11 +656,11 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         if (_unrealPakInstaller.PayloadAvailable)
         {
-            var answer = MessageBox.Show(
+            var answer = ThemedMessageBox.Show(
                 "IcarusStarlink needs UnrealPak.exe to build and unpack mod paks, and none is set up yet.\n\n"
                 + "Install the bundled copy next to the app now? (Choose No to point at one you already have, in Settings.)",
-                "Set up UnrealPak", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (answer == MessageBoxResult.Yes)
+                "Set up UnrealPak", ThemedConfirmSeverity.Question);
+            if (answer)
             {
                 await InstallBundledUnrealPakAsync();
             }
@@ -884,13 +884,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void RegisterNxmProtocol()
     {
-        var result = MessageBox.Show(
+        var result = ThemedMessageBox.Show(
             "This registers IcarusStarlink as the handler for nxm:// links (Nexus's \"Mod Manager Download\" buttons) for your Windows account.\n\n" +
             "If another mod manager (e.g. Vortex) currently handles these, it will be replaced — you can switch back with Unregister below, or by re-registering that other app.\n\n" +
             "Continue?",
-            "Register as Nexus download handler", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            "Register as Nexus download handler", ThemedConfirmSeverity.Question);
 
-        if (result != MessageBoxResult.Yes)
+        if (!(result))
         {
             return;
         }
@@ -981,15 +981,15 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         var wasInstalled = IsUe4ssInstalled;
         var verb = wasInstalled ? "Update" : "Install";
-        var result = MessageBox.Show(
+        var result = ThemedMessageBox.Show(
             $"This downloads UE4SS v{release.Version} from GitHub and installs it into your game's Binaries\\Win64 folder " +
             "— the loader that lets Lua/scripting mods run.\n\n" +
             "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Any mods already in your Mods folder, " +
             "and your own UE4SS-settings.ini if you've customized it, are left untouched.\n\n" +
             "Continue?",
-            $"{verb} UE4SS", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            $"{verb} UE4SS", ThemedConfirmSeverity.Question);
 
-        if (result != MessageBoxResult.Yes)
+        if (!(result))
         {
             return;
         }
@@ -1056,13 +1056,13 @@ public sealed partial class SettingsViewModel : ObservableObject
             ? $"Your own {userMods.Count} mod(s) — {string.Join(", ", userMods)} — are moved back to this app's staging first (re-enable them if you ever reinstall UE4SS).\n\n"
             : "No mods of your own were found in its Mods folder.\n\n";
 
-        var result = MessageBox.Show(
+        var result = ThemedMessageBox.Show(
             "This removes the UE4SS loader completely from your game's Binaries\\Win64 folder (dwmapi.dll and the ue4ss folder) — "
             + "Lua/scripting mods stop working until it's reinstalled.\n\n"
             + userModsLine
             + "Everything removed is backed up first (last 5 kept), and Icarus's own files are not touched.\n\nContinue?",
-            "Uninstall UE4SS", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (result != MessageBoxResult.Yes)
+            "Uninstall UE4SS", ThemedConfirmSeverity.Warning);
+        if (!(result))
         {
             return;
         }
@@ -1194,10 +1194,10 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var confirmed = MessageBox.Show(
+        var confirmed = ThemedMessageBox.Show(
             $"Download and install v{LatestAppUpdateRelease.Version} now?\n\nThe app will close, update itself, and reopen. Your mods, profiles, and settings are not touched.",
-            "Install update", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirmed == MessageBoxResult.Yes)
+            "Install update", ThemedConfirmSeverity.Question);
+        if (confirmed)
         {
             await InstallAppUpdateAsync();
         }
@@ -1340,10 +1340,10 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var result = MessageBox.Show(
+        var result = ThemedMessageBox.Show(
             $"IcarusStarlink v{release.Version} is available — you're on v{InstalledAppVersion}.\n\nDownload and install it now? The app will close, update itself, and reopen — your mods, profiles, and settings are not touched.",
-            "Update available", MessageBoxButton.YesNo, MessageBoxImage.Information);
-        if (result == MessageBoxResult.Yes)
+            "Update available", ThemedConfirmSeverity.Information);
+        if (result)
         {
             await InstallAppUpdateAsync();
         }

@@ -1502,11 +1502,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // registry registration, the UE4SS loader install) — this one specifically overwrites the
         // user's actual installed mod pack, so it shouldn't ever be reachable via a single
         // accidental click.
-        var confirmResult = MessageBox.Show(
+        var confirmResult = ThemedMessageBox.Show(
             $"This copies the staged pak into '{_settingsService.Current.IcarusContentPath}\\Paks\\mods', overwriting whatever's currently installed there.\n\n" +
             $"The existing pak is backed up first (last 5 kept).{clearNote}\n\nContinue?",
-            "Install to Icarus", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirmResult != MessageBoxResult.Yes)
+            "Install to Icarus", ThemedConfirmSeverity.Question);
+        if (!(confirmResult))
         {
             return;
         }
@@ -1592,11 +1592,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // Same explicit Yes/No gate InstallAsync itself already uses — this deletes a real file
         // from the user's actual game folder, so it shouldn't be reachable via a single accidental
         // click any more than overwriting it already isn't.
-        var confirmResult = MessageBox.Show(
+        var confirmResult = ThemedMessageBox.Show(
             $"This removes IcarusStarlink's installed pak from '{_settingsService.Current.IcarusContentPath}\\Paks\\mods'.\n\n" +
             "It's backed up first (last 5 kept), and your Library copy of this mod isn't touched — only the real game install.\n\nContinue?",
-            "Remove from Icarus", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirmResult != MessageBoxResult.Yes)
+            "Remove from Icarus", ThemedConfirmSeverity.Question);
+        if (!(confirmResult))
         {
             return;
         }

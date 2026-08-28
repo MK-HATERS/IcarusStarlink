@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Saves;
 
@@ -238,10 +239,10 @@ public sealed partial class SavesViewModel : ObservableObject
 
         if (HasUnsavedChanges)
         {
-            var confirm = MessageBox.Show(
+            var confirm = ThemedMessageBox.Show(
                 "Switching save slots discards any unsaved edits on this one — they were never written to disk. Continue?",
-                "Unsaved changes", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-            if (confirm != MessageBoxResult.Yes)
+                "Unsaved changes", ThemedConfirmSeverity.Warning);
+            if (!(confirm))
             {
                 _suppressSlotChangeGuard = true;
                 SelectedSlot = _lastLoadedSlot;
@@ -829,11 +830,11 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        var confirm = MessageBox.Show(
+        var confirm = ThemedMessageBox.Show(
             $"Replace this save slot's current files with the backup from {SelectedBackup.TakenAtUtc.LocalDateTime:g}?\n\n"
             + "A pre_restore safety zip of the slot as it is right now is written first, so this is itself undoable.",
-            "Restore save backup", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.Yes)
+            "Restore save backup", ThemedConfirmSeverity.Warning);
+        if (!(confirm))
         {
             return;
         }
@@ -871,10 +872,10 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        var confirm = MessageBox.Show(
+        var confirm = ThemedMessageBox.Show(
             "Write your edits into the player save?\n\nA full backup of the slot is taken automatically first (Restore can undo this).",
-            "Save player data", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.Yes)
+            "Save player data", ThemedConfirmSeverity.Question);
+        if (!(confirm))
         {
             return;
         }
