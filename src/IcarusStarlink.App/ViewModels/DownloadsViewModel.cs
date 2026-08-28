@@ -748,6 +748,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 fileName = $"nexus_{nxmUrl.ModId}_{nxmUrl.FileId}.zip";
             }
 
+            // fileName came straight from the CDN response's own Content-Disposition header (or,
+            // failing that, the download URL's own path) — neither is trustworthy: a rooted or
+            // "../"-laden value would otherwise let Path.Combine below write anywhere the app
+            // process can write.
+            fileName = DownloadFileNameSanitizer.Sanitize(fileName);
+
             Directory.CreateDirectory(_pendingDownloadsDirectory);
             var localPath = Path.Combine(_pendingDownloadsDirectory, fileName);
             await using (var fileStream = File.Create(localPath))

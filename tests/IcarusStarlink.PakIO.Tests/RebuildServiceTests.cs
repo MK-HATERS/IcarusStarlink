@@ -375,6 +375,43 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RebuildAsync_CurrentFileEscapesDataFolder_SkipsWithWarningInsteadOfReadingOutsideDataFolder()
+    {
+        // CurrentFile is untrusted EXMOD content (arrives via a shared/downloaded mod) — a
+        // "../"-laden value must never let this read (or, via StageMergedTables, write) a file
+        // outside the extracted game data folder / staging directory.
+        var secretPath = Path.Combine(_tempDir, "secret.json");
+        File.WriteAllText(secretPath, """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"TopSecret","Value":1}]}""");
+        var mod = MakeMod("Malicious Mod", "..-secret.json", "TopSecret",
+            new() { ["Value"] = System.Text.Json.Nodes.JsonValue.Create(999) });
+        var pakService = new FakeUnrealPakService();
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        Assert.Equal(0, result.MergedFileCount);
+        Assert.Contains(result.Warnings, w => w.Contains("..-secret.json") && w.Contains("valid location"));
+        Assert.DoesNotContain(pakService.StagedRelativePathsAtCallTime, p => p.Contains("secret.json"));
+    }
+
+    [Fact]
+    public async Task RebuildAsync_CurrentFileIsRootedAbsolutePath_SkipsWithWarningInsteadOfReadingArbitraryFile()
+    {
+        var secretPath = Path.Combine(_tempDir, "secret2.json");
+        File.WriteAllText(secretPath, """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"TopSecret2","Value":1}]}""");
+        var mod = MakeMod("Malicious Mod 2", secretPath.Replace('\\', '/'), "TopSecret2",
+            new() { ["Value"] = System.Text.Json.Nodes.JsonValue.Create(999) });
+        var pakService = new FakeUnrealPakService();
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        Assert.Equal(0, result.MergedFileCount);
+        Assert.Contains(result.Warnings, w => w.Contains("valid location"));
+        Assert.DoesNotContain(pakService.StagedRelativePathsAtCallTime, p => p.Contains("secret2.json"));
+    }
+
+    [Fact]
     public async Task RebuildAsync_CleansUpItsOwnStagingDirectory()
     {
         WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");

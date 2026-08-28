@@ -8,6 +8,7 @@ using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.GameplayToggles;
 using IcarusStarlink.PakIO.Pak;
+using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.PakIO.Rebuild;
 
@@ -104,7 +105,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             progress?.Report(new RebuildStageProgress("Staging merged tables and assets…", 25));
             await Task.Run(() =>
             {
-                StageMergedTables(mergedTables, originalFileJsonByFile, stagingDirectory);
+                StageMergedTables(mergedTables, originalFileJsonByFile, stagingDirectory, report);
                 StageAssets(queuedMods, stagingDirectory);
             }, cancellationToken);
 
@@ -183,7 +184,23 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         foreach (var currentFile in currentFiles.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var realRelativePath = currentFile.Replace('-', '/');
-            var basePath = Path.Combine(dataFolder, realRelativePath);
+
+            // CurrentFile is untrusted EXMOD content (an attacker-shared or downloaded mod), not
+            // just an internal identifier — without this guard, a rooted or ".."-laden CurrentFile
+            // would let Path.Combine below read an arbitrary file anywhere the app process can
+            // access, via nothing more than the completely ordinary "queue a mod" workflow.
+            string basePath;
+            try
+            {
+                basePath = AssetPathGuard.ResolveWithinDirectory(dataFolder, realRelativePath);
+            }
+            catch (FormatException)
+            {
+                report.AddWarning(
+                    $"Skipped '{currentFile}' — its path isn't a valid location inside the extracted game data.");
+                continue;
+            }
+
             if (!File.Exists(basePath))
             {
                 report.AddWarning(
@@ -206,14 +223,32 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     }
 
     private static void StageMergedTables(
-        IReadOnlyDictionary<string, JsonObject> mergedTables, IReadOnlyDictionary<string, JsonObject> originalFileJsonByFile, string stagingDirectory)
+        IReadOnlyDictionary<string, JsonObject> mergedTables, IReadOnlyDictionary<string, JsonObject> originalFileJsonByFile, string stagingDirectory,
+        MergeReport report)
     {
+        var dataDirectory = Path.Combine(stagingDirectory, "data");
+
         foreach (var (currentFile, mergedKeyedTable) in mergedTables)
         {
             var realRelativePath = currentFile.Replace('-', '/');
-            var fullFile = DataTableJson.KeyedObjectToRows(originalFileJsonByFile[currentFile], mergedKeyedTable);
 
-            var destPath = Path.Combine(stagingDirectory, "data", realRelativePath);
+            // Same untrusted-CurrentFile concern as ReadBaseTables above, mirrored on the write
+            // side — without this, a rooted or ".."-laden CurrentFile would let this silently
+            // overwrite an attacker-chosen file anywhere the app process can write, reachable via
+            // the same ordinary "queue a mod, click Rebuild" workflow.
+            string destPath;
+            try
+            {
+                destPath = AssetPathGuard.ResolveWithinDirectory(dataDirectory, realRelativePath);
+            }
+            catch (FormatException)
+            {
+                report.AddWarning(
+                    $"Skipped writing '{currentFile}' — its path isn't a valid location inside the staged output.");
+                continue;
+            }
+
+            var fullFile = DataTableJson.KeyedObjectToRows(originalFileJsonByFile[currentFile], mergedKeyedTable);
             Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
             File.WriteAllText(destPath, fullFile.ToJsonString(JsonWriteOptions));
         }

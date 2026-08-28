@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Exmod;
+using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.PakIO.DataChanges;
 
@@ -37,7 +38,22 @@ internal static class BaseDataFileReader
     public static JsonObject? ParseFile(string dataFolder, string currentFile, MergeReport? report)
     {
         var realRelativePath = currentFile.Replace('-', '/');
-        var basePath = Path.Combine(dataFolder, realRelativePath);
+
+        // CurrentFile is untrusted EXMOD content — reachable here via the Library's own "Check
+        // mods against game data" staleness feature, a separate path from RebuildService's own
+        // identical guard. Without this, a rooted or ".."-laden CurrentFile would let this read
+        // an arbitrary file anywhere the app process can access.
+        string basePath;
+        try
+        {
+            basePath = AssetPathGuard.ResolveWithinDirectory(dataFolder, realRelativePath);
+        }
+        catch (FormatException)
+        {
+            report?.AddWarning($"Skipped '{currentFile}' — its path isn't a valid location inside the extracted game data.");
+            return null;
+        }
+
         if (!File.Exists(basePath))
         {
             report?.AddWarning($"No matching base file for '{currentFile}' at '{realRelativePath}'.");
