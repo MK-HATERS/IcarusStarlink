@@ -824,7 +824,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         {
             foreach (var item in row.FileItems)
             {
-                foreach (var (fieldName, value) in item.Fields)
+                foreach (var (fieldName, value) in item.Fields.ToList())
                 {
                     snapshot[(row.CurrentFile, item.Name, fieldName)] = value;
                 }
