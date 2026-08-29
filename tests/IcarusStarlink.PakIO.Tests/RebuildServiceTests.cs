@@ -100,6 +100,13 @@ public class RebuildServiceTests : IDisposable
         /// <summary>Set true by a test that wants to simulate UnrealPak.exe itself silently dropping a file — RebuildAsync's own post-pack verification reads ListPakContentsAsync, not this staged count, so this is the one way to exercise that check's warning path.</summary>
         public string? RelativePathToPretendUnrealPakDropped { get; set; }
 
+        /// <summary>Set by a test simulating UnrealPak's own real mount-point auto-detection folding
+        /// a shared prefix (e.g. "data/") into the inferred mount point when every single staged
+        /// entry happens to share it — confirmed for real against a genuine pure-data-table merge
+        /// (no mod bundling its own binary assets to break the shared prefix): -List/-Extract then
+        /// report every entry WITHOUT that prefix, even though the pak is genuinely complete.</summary>
+        public string? SharedPrefixUnrealPakFoldsIntoMountPoint { get; set; }
+
         public Task<int> CreatePakAsync(string unrealPakExePath, string stagingDirectory, string outputPakPath, CancellationToken cancellationToken = default)
         {
             LastStagingDirectory = stagingDirectory;
@@ -116,7 +123,11 @@ public class RebuildServiceTests : IDisposable
             // every test's own staged output looking like it vanished.
             FakeExtractedFilesByPakPath[outputPakPath] = StagedRelativePathsAtCallTime
                 .Where(p => p != RelativePathToPretendUnrealPakDropped)
-                .ToDictionary(p => p, _ => "");
+                .ToDictionary(
+                    p => SharedPrefixUnrealPakFoldsIntoMountPoint is { } prefix && p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                        ? p[prefix.Length..]
+                        : p,
+                    _ => "");
 
             return Task.FromResult(StagedRelativePathsAtCallTime.Count);
         }
@@ -159,6 +170,26 @@ public class RebuildServiceTests : IDisposable
         var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
             new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
         var pakService = new FakeUnrealPakService();
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        Assert.DoesNotContain(result.Warnings, w => w.Contains("didn't make it into the final pak"));
+    }
+
+    [Fact]
+    public async Task RebuildAsync_EveryStagedFileSharesAFoldedPrefix_NoFalseCompletenessWarning()
+    {
+        // Reproduces a real user report: a merge of two mods that ONLY touch data tables (no
+        // bundled binary assets at all) had every single staged file share the "data/" prefix,
+        // which a real UnrealPak.exe folds into its own auto-detected mount point for -List/
+        // -Extract reporting — confirmed live by staging the exact real files named in that
+        // report and both listing and extracting the resulting pak. The pak itself was genuinely
+        // complete; only a naive exact-path comparison here would have called it broken.
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var pakService = new FakeUnrealPakService { SharedPrefixUnrealPakFoldsIntoMountPoint = "data/" };
         var service = new RebuildService(pakService);
 
         var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);

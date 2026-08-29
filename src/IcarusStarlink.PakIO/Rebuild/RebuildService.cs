@@ -371,8 +371,24 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         try
         {
             var packedPaths = await unrealPakService.ListPakContentsAsync(unrealPakExePath, outputPakPath, cancellationToken);
-            var packedPathSet = new HashSet<string>(packedPaths, StringComparer.OrdinalIgnoreCase);
-            var missing = stagedRelativePaths.Where(p => !packedPathSet.Contains(p)).ToList();
+
+            // -List reports each entry relative to whatever mount point UnrealPak itself infers as
+            // the longest common prefix shared by EVERY packed entry — already known to fold in a
+            // shared subfolder for a single-file pak (see CreatePakAsync's own doc comment); the
+            // same thing happens here whenever a whole merge is pure data-table JSON (all staged
+            // under "data/", no mod bundling its own binary assets to break that shared prefix).
+            // Confirmed for real: staging 5 real DataTable files and both listing and extracting
+            // the built pak shows all 5 genuinely present, just reported without their "data/"
+            // prefix — mount-point + relative-path still reconstructs the identical correct virtual
+            // path regardless of where UnrealPak chooses to split them (the same conclusion already
+            // reached for the single-file case). An exact-string comparison here previously treated
+            // every entry as "missing" whenever a merge happened to be 100% data-table-only, a false
+            // alarm on a perfectly good pak — matching a suffix instead tolerates whatever prefix
+            // UnrealPak folded away while still catching a genuinely dropped file (nothing in the
+            // real packed set would end that staged path at all).
+            var missing = stagedRelativePaths
+                .Where(staged => !packedPaths.Any(packed => staged.EndsWith(packed, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
             if (missing.Count > 0)
             {
                 var shown = string.Join(", ", missing.Take(5));
