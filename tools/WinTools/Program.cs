@@ -53,6 +53,9 @@ switch (args[0])
     case "context-menu-click":
         ContextMenuClick(int.Parse(args[1]), args[2], args[3]);
         break;
+    case "flyout-click":
+        FlyoutClick(int.Parse(args[1]), args[2], args[3]);
+        break;
     case "real-left-click":
         RealLeftClick(int.Parse(args[1]), args[2]);
         break;
@@ -374,6 +377,55 @@ static void ContextMenuClick(int pid, string rowText, string menuItemText)
 
     ((InvokePattern)menuItem.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
     Console.WriteLine($"context-menu invoked '{menuItem.Current.Name}' on '{rowText}'");
+}
+
+/// <summary>
+/// Same "closes between separate processes" problem context-menu-click already solves for a
+/// right-click popup, but for a Button whose own Click handler opens a WPF ContextMenu/flyout
+/// programmatically (a left-click dropdown, e.g. a toolbar "Import" button with several real
+/// actions behind it) — a plain left-click Invoke() in one process, then a separate click on the
+/// resulting MenuItem in the next process, finds the menu already gone. Does both in one run,
+/// mirroring ContextMenuClick's own left-click-instead-of-right-click twin.
+/// </summary>
+static void FlyoutClick(int pid, string buttonText, string menuItemText)
+{
+    var root = GetRoot(pid);
+    var button = root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, buttonText))
+        .Cast<AutomationElement>()
+        .FirstOrDefault()
+        ?? throw new InvalidOperationException($"No element with exact text '{buttonText}' found");
+
+    if (button.TryGetCurrentPattern(InvokePattern.Pattern, out var invokeObj))
+    {
+        ((InvokePattern)invokeObj).Invoke();
+    }
+    else
+    {
+        var rect = button.Current.BoundingRectangle;
+        var x = (int)(rect.Left + rect.Width / 2);
+        var y = (int)(rect.Top + rect.Height / 2);
+        NativeMethods.SetCursorPos(x, y);
+        NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+        NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+    }
+
+    System.Threading.Thread.Sleep(400);
+
+    var menuItem = GetAllRoots(pid)
+        .SelectMany(r => r.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)).Cast<AutomationElement>())
+        .FirstOrDefault(m => m.Current.Name.Equals(menuItemText, StringComparison.OrdinalIgnoreCase))
+        ?? GetAllRoots(pid)
+            .SelectMany(r => r.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)).Cast<AutomationElement>())
+            .FirstOrDefault(m => m.Current.Name.Contains(menuItemText, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"No MenuItem containing '{menuItemText}' found in the open flyout");
+
+    if (!menuItem.Current.IsEnabled)
+    {
+        throw new InvalidOperationException($"MenuItem '{menuItem.Current.Name}' is disabled");
+    }
+
+    ((InvokePattern)menuItem.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+    Console.WriteLine($"flyout invoked '{menuItem.Current.Name}' from '{buttonText}'");
 }
 
 static AutomationElement FindTreeViewItemAncestor(int pid, string exactText)

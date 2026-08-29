@@ -223,6 +223,146 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         Assert.Contains(report.Warnings, w => w.Contains("isn't valid JSON"));
     }
 
+    /// <summary>Real content, byte-for-byte a real embedded EXMOD confirmed by extracting a real
+    /// community-authored pak (BF_Shengong_Invincible_P.pak) — same header shape (legacy "ModName",
+    /// "Level2"), same EndOfMod-with-no-File_Items convention, just with a placeholder field so
+    /// tests don't depend on the specific stat values.</summary>
+    private const string RealShapeEmbeddedExmod = """
+        {
+            "name": "Bundled_Mod_Name",
+            "author": "Bundled Author",
+            "version": "2.5",
+            "fileName": "Bundled_Mod_Name",
+            "description": "Bundled description straight from the author.",
+            "ModName": "Some_Legacy_ModName",
+            "Level2": "True",
+            "Rows": [
+                {
+                    "CurrentFile": "Traits-D_Armour.json",
+                    "File_Items": [
+                        { "Name": "Undersuit_Shengong", "SomeField": 12345 }
+                    ]
+                },
+                { "CurrentFile": "EndOfMod" }
+            ]
+        }
+        """;
+
+    [Fact]
+    public async Task TryConvertAsync_PakHasBundledExmod_ReadsItDirectlyWithoutDiffing()
+    {
+        // No base table for "Traits-D_Armour.json" exists at all — a diff-based reconstruction
+        // would find nothing to diff against and produce zero rows. Reading the bundled EXMOD
+        // directly must still produce the real row regardless.
+        var report = new MergeReport();
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFiles["SomeMod_P.EXMOD"] = RealShapeEmbeddedExmod;
+        var converter = new PrebuiltPakToExmodConverter(pakService);
+
+        var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
+
+        Assert.NotNull(result);
+        // The real sample this fixture is modeled on ends with the same "EndOfMod" sentinel row
+        // every real EXMOD carries — reading the bundled file verbatim must preserve it, not just
+        // the row(s) that actually change something.
+        Assert.Equal(2, result.Package.Rows.Count);
+        var row = Assert.Single(result.Package.Rows, r => r.CurrentFile == "Traits-D_Armour.json");
+        var item = Assert.Single(row.FileItems);
+        Assert.Equal("Undersuit_Shengong", item.Name);
+        Assert.Equal(12345, item.Fields["SomeField"]!.GetValue<int>());
+        Assert.Contains(result.Package.Rows, r => r.CurrentFile == "EndOfMod");
+        Assert.Contains(report.Notes, n => n.Contains("bundled EXMOD data"));
+    }
+
+    [Fact]
+    public async Task TryConvertAsync_PakHasBundledExmod_PrefersItsOwnMetadataOverCallerSupplied()
+    {
+        var report = new MergeReport();
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFiles["SomeMod_P.EXMOD"] = RealShapeEmbeddedExmod;
+        var converter = new PrebuiltPakToExmodConverter(pakService);
+
+        var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "A Fancy Nexus Title!", "SomeAuthor", report);
+
+        Assert.NotNull(result);
+        Assert.Equal("Bundled_Mod_Name", result.Package.Name);
+        Assert.Equal("Bundled Author", result.Package.Author);
+        Assert.Equal("2.5", result.Package.Version);
+        Assert.Equal("Bundled description straight from the author.", result.Package.Description);
+        // FileName is still always derived from the pak's own real filename, never from the
+        // embedded package's own FileName — same rule as the caller-supplied `name` already has.
+        Assert.Equal("SomeMod_P", result.Package.FileName);
+    }
+
+    [Fact]
+    public async Task TryConvertAsync_PakHasBundledExmod_DataFolderIsNotDuplicatedAsAnAsset()
+    {
+        var report = new MergeReport();
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFiles["SomeMod_P.EXMOD"] = RealShapeEmbeddedExmod;
+        pakService.FakeExtractedFiles["data/Traits/D_Armour.json"] = """{"RowStruct":"S","Defaults":{},"Rows":[]}""";
+        pakService.FakeExtractedFiles["BP/Thing.uasset"] = "real asset bytes";
+        var converter = new PrebuiltPakToExmodConverter(pakService);
+
+        var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
+
+        Assert.NotNull(result);
+        // The compiled "data/" table is fully superseded by the bundled EXMOD's own Rows — carrying
+        // it through too would be redundant (and misleadingly look like a real bundled asset).
+        Assert.DoesNotContain(result.Assets, a => a.RelativePath.StartsWith("data/"));
+        // A genuine binary asset elsewhere in the pak must still come through normally.
+        Assert.Contains(result.Assets, a => a.RelativePath == "BP/Thing.uasset");
+        // The .EXMOD file itself was consumed as the package's own data, not a bundled asset.
+        Assert.DoesNotContain(result.Assets, a => a.RelativePath == "SomeMod_P.EXMOD");
+    }
+
+    [Fact]
+    public async Task TryConvertAsync_BundledExmodFileIsCorrupt_FallsBackToDiffingWithWarning()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var report = new MergeReport();
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFiles["SomeMod_P.EXMOD"] = "not valid json {{{";
+        pakService.FakeExtractedFiles["data/Crafting/D_ProcessorRecipes.json"] =
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":1}]}""";
+        var converter = new PrebuiltPakToExmodConverter(pakService);
+
+        var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
+
+        Assert.NotNull(result);
+        // Diffing still ran and found the real field change — the corrupt bundled file didn't
+        // silently produce an empty mod, it fell all the way back to the existing working path.
+        var row = Assert.Single(result.Package.Rows);
+        Assert.Equal("Crafting-D_ProcessorRecipes.json", row.CurrentFile);
+        Assert.Contains(report.Warnings, w => w.Contains("bundled EXMOD file"));
+        Assert.DoesNotContain(report.Notes, n => n.Contains("bundled EXMOD data"));
+    }
+
+    [Fact]
+    public async Task TryConvertAsync_ExmodFileNestedInASubfolder_IsNotTreatedAsBundled()
+    {
+        // Only a bare pak-root .EXMOD is the real convention (confirmed against
+        // BF_Shengong_Invincible_P.pak) — one sitting inside some other subfolder is either
+        // unrelated content or a coincidence, not classic IMM's own bundling convention.
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var report = new MergeReport();
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFiles["Nested/SomeMod_P.EXMOD"] = RealShapeEmbeddedExmod;
+        pakService.FakeExtractedFiles["data/Crafting/D_ProcessorRecipes.json"] =
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":1}]}""";
+        var converter = new PrebuiltPakToExmodConverter(pakService);
+
+        var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
+
+        Assert.NotNull(result);
+        var row = Assert.Single(result.Package.Rows);
+        Assert.Equal("Crafting-D_ProcessorRecipes.json", row.CurrentFile);
+        Assert.DoesNotContain(report.Notes, n => n.Contains("bundled EXMOD data"));
+        // The nested file is neither bundled data nor a diffed table — it's carried through as an
+        // ordinary asset, like any other file this conversion doesn't specifically understand.
+        Assert.Contains(result.Assets, a => a.RelativePath == "Nested/SomeMod_P.EXMOD");
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))
