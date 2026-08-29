@@ -40,6 +40,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly ISettingsService _settingsService;
     private readonly IUnrealPakService _unrealPakService;
     private readonly IUassetTextureDecoder _uassetTextureDecoder;
+    private readonly IUassetStaticMeshDecoder _uassetStaticMeshDecoder;
     private readonly INexusApiClient _nexusApiClient;
     private readonly ICredentialStore _credentialStore;
     private readonly Func<string, ExmodEditorViewModel> _editorFactory;
@@ -225,6 +226,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
         IUe4ssModMetaStore ue4ssModMetaStore, IUe4ssLoaderInstallService ue4ssLoaderInstallService,
         ISettingsService settingsService, IUnrealPakService unrealPakService, IUassetTextureDecoder uassetTextureDecoder,
+        IUassetStaticMeshDecoder uassetStaticMeshDecoder,
         INexusApiClient nexusApiClient,
         ICredentialStore credentialStore,
         Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
@@ -253,6 +255,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         _settingsService = settingsService;
         _unrealPakService = unrealPakService;
         _uassetTextureDecoder = uassetTextureDecoder;
+        _uassetStaticMeshDecoder = uassetStaticMeshDecoder;
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
         _editorFactory = editorFactory;
@@ -1928,7 +1931,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         // tree until some unrelated change (a search edit, a delete) happens to trigger the next
         // Reload().
         var created = new LibraryItemViewModel(
-            entry, _repository, _unrealPakService, _uassetTextureDecoder, _settingsService, _nexusApiClient, _credentialStore,
+            entry, _repository, _unrealPakService, _uassetTextureDecoder, _uassetStaticMeshDecoder, _settingsService,
+            _nexusApiClient, _credentialStore,
             _downloadHttpClient, _thumbnailCacheDirectory, Downloads.GetOrFetchCatalogAsync,
             status => StatusMessage = status, () => Reload());
         _itemsByFolderName[entry.FolderName] = created;

@@ -205,15 +205,32 @@
                         <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                       Background="{DynamicResource BorderBrush}" ResizeBehavior="PreviousAndNext"
                                       AutomationProperties.Name="Resize file list"/>
+                        <!-- Exactly one of SelectedAssetPreview/SelectedAssetImage/SelectedAssetMesh is
+                             ever non-null at a time (see LibraryItemViewModel's own doc comments on
+                             each), so each pane's own Visibility can bind directly to its own
+                             property instead of needing to know about the other two. -->
                         <TextBox Grid.Column="2" Text="{Binding SelectedAssetPreview, Mode=OneWay}"
                                  Margin="8,0,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                                  AcceptsReturn="True"
-                                 Visibility="{Binding SelectedAssetImage, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                 Visibility="{Binding SelectedAssetPreview, Converter={StaticResource NullToVisibilityConverter}}"/>
                         <Border Grid.Column="2" Margin="8,0,0,0" Background="{DynamicResource CardBackgroundBrush}"
                                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="8"
                                 Visibility="{Binding SelectedAssetImage, Converter={StaticResource NullToVisibilityConverter}}">
                             <Image Source="{Binding SelectedAssetImage}" Stretch="Uniform"
                                    StretchDirection="DownOnly" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Column="2" Margin="8,0,0,0" Background="{DynamicResource CardBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                Visibility="{Binding SelectedAssetMesh, Converter={StaticResource NullToVisibilityConverter}}"
+                                ToolTip="Drag to rotate, scroll to zoom">
+                            <Viewport3D x:Name="MeshViewport"
+                                        MouseDown="MeshViewport_MouseDown" MouseMove="MeshViewport_MouseMove"
+                                        MouseUp="MeshViewport_MouseUp" MouseWheel="MeshViewport_MouseWheel">
+                                <Viewport3D.Camera>
+                                    <PerspectiveCamera x:Name="MeshCamera" FieldOfView="45"/>
+                                </Viewport3D.Camera>
+                                <ModelVisual3D x:Name="MeshModelVisual" Content="{Binding SelectedAssetMesh}"/>
+                            </Viewport3D>
                         </Border>
                     </Grid>
                 </Grid>

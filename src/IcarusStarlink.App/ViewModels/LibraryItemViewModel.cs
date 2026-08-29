@@ -1,7 +1,10 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Net.Http;
+using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Media.Media3D;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Utilities;
@@ -26,6 +29,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     private readonly ILibraryRepository _repository;
     private readonly IUnrealPakService _unrealPakService;
     private readonly IUassetTextureDecoder _uassetTextureDecoder;
+    private readonly IUassetStaticMeshDecoder _uassetStaticMeshDecoder;
     private readonly ISettingsService _settingsService;
     private readonly INexusApiClient _nexusApiClient;
     private readonly ICredentialStore _credentialStore;
@@ -321,9 +325,13 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private string? _selectedAssetPreview;
 
-    /// <summary>Set instead of SelectedAssetPreview when the picked asset is a decodable image — exactly one of the two is ever non-null, which is what the Files tab switches its preview pane on.</summary>
+    /// <summary>Set instead of SelectedAssetPreview when the picked asset is a decodable image — exactly one of SelectedAssetImage/SelectedAssetMesh/SelectedAssetPreview is ever non-null, which is what the Files tab switches its preview pane on.</summary>
     [ObservableProperty]
     private BitmapImage? _selectedAssetImage;
+
+    /// <summary>Set instead of SelectedAssetPreview/SelectedAssetImage when the picked asset is a decodable static mesh — a Model3D ready to bind straight into the Files tab's Viewport3D.</summary>
+    [ObservableProperty]
+    private Model3D? _selectedAssetMesh;
 
     /// <summary>
     /// Set from an asset conventionally named "ImageOnly" (any common image extension) if the
@@ -336,13 +344,14 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     public LibraryItemViewModel(
         LibraryEntry entry, ILibraryRepository repository, IUnrealPakService unrealPakService,
-        IUassetTextureDecoder uassetTextureDecoder, ISettingsService settingsService,
+        IUassetTextureDecoder uassetTextureDecoder, IUassetStaticMeshDecoder uassetStaticMeshDecoder, ISettingsService settingsService,
         INexusApiClient nexusApiClient, ICredentialStore credentialStore, HttpClient httpClient, string thumbnailCacheDirectory,
         Func<Task<IReadOnlyList<CatalogEntry>>> getOrFetchCatalog, Action<string> reportStatus, Action onPinnedChanged)
     {
         _repository = repository;
         _unrealPakService = unrealPakService;
         _uassetTextureDecoder = uassetTextureDecoder;
+        _uassetStaticMeshDecoder = uassetStaticMeshDecoder;
         _settingsService = settingsService;
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
@@ -487,6 +496,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     partial void OnSelectedAssetPathChanged(string? value)
     {
         SelectedAssetImage = null;
+        SelectedAssetMesh = null;
         _assetPreviewGeneration++;
         var generation = _assetPreviewGeneration;
 
@@ -544,10 +554,10 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     /// <summary>
     /// A .uasset is compiled Unreal binary, not something the flat-image/text branches above can
-    /// show — this decodes it as a real Unreal texture via CUE4Parse when possible. Runs off the
-    /// UI thread since indexing the mod's own asset folder and decoding BC-compressed pixel data
-    /// both take real time; the generation check discards a stale result if the user has already
-    /// selected something else by the time it finishes.
+    /// show — this decodes it as a real Unreal texture, then (if that fails) a real static mesh,
+    /// via CUE4Parse. Runs off the UI thread since indexing the mod's own asset folder and
+    /// decoding either one both take real time; the generation check discards a stale result if
+    /// the user has already selected something else by the time it finishes.
     /// </summary>
     private async Task DecodeCompiledAssetPreviewAsync(string relativeAssetPath, int generation)
     {
@@ -565,7 +575,12 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             return;
         }
 
-        var pngBytes = await Task.Run(() => _uassetTextureDecoder.TryDecodeToPng(modFolderPath, relativeAssetPath));
+        var (pngBytes, meshGeometry) = await Task.Run(() =>
+        {
+            var png = _uassetTextureDecoder.TryDecodeToPng(modFolderPath, relativeAssetPath);
+            var mesh = png is null ? _uassetStaticMeshDecoder.TryDecodeStaticMesh(modFolderPath, relativeAssetPath) : null;
+            return (png, mesh);
+        });
 
         if (generation != _assetPreviewGeneration)
         {
@@ -577,10 +592,62 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             SelectedAssetImage = image;
             SelectedAssetPreview = null;
         }
+        else if (meshGeometry is not null)
+        {
+            SelectedAssetMesh = BuildMeshModel(meshGeometry);
+            SelectedAssetPreview = null;
+        }
         else
         {
-            SelectedAssetPreview = "(compiled Unreal asset — not a texture, or couldn't be decoded — no preview available)";
+            SelectedAssetPreview = "(compiled Unreal asset — not a texture or static mesh, or couldn't be decoded — no preview available)";
         }
+    }
+
+    /// <summary>
+    /// Converts plain decoded geometry into a real WPF Model3D — a flat-shaded mesh plus its own
+    /// small ambient+directional light rig, so the Files tab's Viewport3D can show it without
+    /// depending on any scene lighting of its own. Unreal is Z-up — UpDirection is set to match
+    /// when framing the camera, rather than transforming any vertex data to WPF's usual Y-up.
+    /// </summary>
+    private static Model3D BuildMeshModel(StaticMeshGeometry geometry)
+    {
+        var mesh = new MeshGeometry3D();
+        foreach (var position in geometry.Positions)
+        {
+            mesh.Positions.Add(new Point3D(position.X, position.Y, position.Z));
+        }
+
+        foreach (var index in geometry.TriangleIndices)
+        {
+            mesh.TriangleIndices.Add(index);
+        }
+
+        foreach (var normal in geometry.Normals)
+        {
+            mesh.Normals.Add(new Vector3D(normal.X, normal.Y, normal.Z));
+        }
+
+        foreach (var uv in geometry.TextureCoordinates)
+        {
+            mesh.TextureCoordinates.Add(new Point(uv.U, uv.V));
+        }
+
+        mesh.Freeze();
+
+        var material = new MaterialGroup();
+        material.Children.Add(new DiffuseMaterial(new SolidColorBrush(Color.FromRgb(0xA0, 0xA6, 0xB0))));
+        material.Children.Add(new SpecularMaterial(new SolidColorBrush(Color.FromRgb(0x40, 0x40, 0x40)), 32));
+        material.Freeze();
+
+        var geometryModel = new GeometryModel3D(mesh, material) { BackMaterial = material };
+        geometryModel.Freeze();
+
+        var group = new Model3DGroup();
+        group.Children.Add(new AmbientLight(Color.FromRgb(0x60, 0x60, 0x60)));
+        group.Children.Add(new DirectionalLight(Colors.White, new Vector3D(-1, -1, -2)));
+        group.Children.Add(geometryModel);
+        group.Freeze();
+        return group;
     }
 
     private void SaveMetadata()

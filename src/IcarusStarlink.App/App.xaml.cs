@@ -160,6 +160,7 @@ public partial class App : Application
         builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
         builder.Services.AddSingleton<IUnrealPakService, UnrealPakService>();
         builder.Services.AddSingleton<IUassetTextureDecoder, CueUassetTextureDecoder>();
+        builder.Services.AddSingleton<IUassetStaticMeshDecoder, CueUassetStaticMeshDecoder>();
         builder.Services.AddSingleton<IWeeklyChangeReportStore>(sp =>
             new WeeklyChangeReportStore(
                 Path.Combine(appDataDirectory, "Cache"),
@@ -232,6 +233,7 @@ public partial class App : Application
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUnrealPakService>(),
             sp.GetRequiredService<IUassetTextureDecoder>(),
+            sp.GetRequiredService<IUassetStaticMeshDecoder>(),
             sp.GetRequiredService<INexusApiClient>(),
             sp.GetRequiredService<ICredentialStore>(),
             sp.GetRequiredService<Func<string, ExmodEditorViewModel>>(),
