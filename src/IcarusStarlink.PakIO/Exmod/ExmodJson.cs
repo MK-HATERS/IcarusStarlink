@@ -223,7 +223,14 @@ public static class ExmodJson
             }
 
             var itemObj = new JsonObject { ["Name"] = item.Name };
-            foreach (var (key, value) in item.Fields)
+            // A snapshot, not a live enumeration — the EXMOD editor writes each keystroke straight
+            // into this same Dictionary on the UI thread (EditorFieldViewModel's own established
+            // design), and a Save triggered while a field edit's own binding update is still
+            // in-flight could otherwise mutate the dictionary mid-enumeration here, corrupting its
+            // internal state (a real, reproduced crash: "Save failed: Operations that change
+            // non-concurrent collections must have exclusive access..."). Matches the same
+            // defensive .ToList() PopulateFieldsForSelection already uses for exactly this reason.
+            foreach (var (key, value) in item.Fields.ToList())
             {
                 itemObj[key] = value?.DeepClone();
             }

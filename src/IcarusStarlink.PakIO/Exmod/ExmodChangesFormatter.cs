@@ -48,7 +48,10 @@ public static class ExmodChangesFormatter
             foreach (var item in row.FileItems)
             {
                 text.AppendLine($"  {item.Name}");
-                foreach (var (fieldName, value) in item.Fields)
+                // Snapshot, not a live enumeration — same defensive .ToList() used throughout this
+                // project's other item.Fields iterations, since it's a plain mutable Dictionary the
+                // EXMOD editor writes into on every keystroke.
+                foreach (var (fieldName, value) in item.Fields.ToList())
                 {
                     text.AppendLine($"    {fieldName}: {FormatValue(value)}");
                 }

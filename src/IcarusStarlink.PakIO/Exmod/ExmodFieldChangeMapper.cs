@@ -13,7 +13,12 @@ public static class ExmodFieldChangeMapper
         {
             foreach (var item in row.FileItems)
             {
-                foreach (var (fieldName, value) in item.Fields)
+                // Snapshot, not a live enumeration — matches the same defensive .ToList()
+                // ExmodJson.RowToJsonObject/ExmodBaseDiffer.ToKeyedObject already use, for the same
+                // reason: item.Fields is a plain mutable Dictionary the EXMOD editor writes into on
+                // every keystroke, and this method isn't guaranteed to only ever run against an
+                // already-settled, no-longer-edited package.
+                foreach (var (fieldName, value) in item.Fields.ToList())
                 {
                     changes.Add(new FieldChange(
                         row.CurrentFile,

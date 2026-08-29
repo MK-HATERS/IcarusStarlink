@@ -29,6 +29,17 @@ public static class ExmodBaseDiffer
 
         foreach (var row in package.Rows)
         {
+            // A real, universal terminator marker — confirmed present at the end of every one of
+            // dozens of real EXMOD files inspected, always with an empty File_Items — not a game
+            // file reference at all, just a "this is the end of the mod" sentinel every known
+            // extraction tool appends. Diffing it against base game data can only ever fail (there
+            // is no "EndOfMod" table), producing a "no matching base file" warning that reads as a
+            // real problem with the mod when it's actually universal and harmless.
+            if (string.Equals(row.CurrentFile, "EndOfMod", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             var baseKeyed = ResolveBaseTable(row.CurrentFile, dataFolder, report, baseTableCache);
             if (baseKeyed is null)
             {
@@ -74,7 +85,15 @@ public static class ExmodBaseDiffer
         foreach (var item in row.FileItems)
         {
             var fields = new JsonObject();
-            foreach (var (fieldName, value) in item.Fields)
+            // Snapshot, not a live enumeration — this runs on essentially every edit (RefreshBaseDiff
+            // is called after AddField/RemoveField/AddItem/etc.), so it's an even more likely site
+            // than ExmodJson.RowToJsonObject for the same real class of bug: the editor writes each
+            // keystroke straight into this same Dictionary on the UI thread, and iterating it live
+            // here risks corrupting its internal state if a field edit's own binding update is still
+            // in-flight. See RowToJsonObject's own comment for the real crash this class of bug
+            // produced ("Operations that change non-concurrent collections must have exclusive
+            // access...").
+            foreach (var (fieldName, value) in item.Fields.ToList())
             {
                 fields[fieldName] = value?.DeepClone();
             }
