@@ -35,7 +35,6 @@ public sealed class FluentFtpClient : CoreIFtpClient
             IcarusStarlink.Core.Server.FtpEncryptionMode.Implicit => FluentFTP.FtpEncryptionMode.Implicit,
             _ => FluentFTP.FtpEncryptionMode.None,
         };
-
         // Real API confirmed via reflection against the actual referenced package (FluentFTP
         // 54.2.0), not guessed: AsyncFtpClient.ValidateCertificate gives full control over whether
         // to accept a certificate FluentFTP's own default chain validation rejected. A budget
@@ -99,14 +98,34 @@ public sealed class FluentFtpClient : CoreIFtpClient
     {
         try
         {
-            await RequireClient().DeleteFile(remotePath, cancellationToken);
+            var client = RequireClient();
+
+            // Matches FileZilla's own real delete logic (confirmed by reading its actual source,
+            // engine/ftpcontrolsocket.cpp): change into the file's parent folder first, then delete
+            // by its bare filename, rather than one DELE against a fully-qualified absolute path —
+            // some restrictive/chrooted FTP daemons accept the former and reject the latter. Doesn't
+            // help every possible rejection (a real SurvivalServers account was confirmed, by
+            // testing this exact change live, to reject both forms identically — its own custom
+            // gateway restricts delete for a reason this app couldn't identify from the FTP
+            // protocol alone), but it's still the more broadly-compatible form to send.
+            var lastSlash = remotePath.LastIndexOf('/');
+            if (lastSlash >= 0)
+            {
+                var directory = remotePath[..lastSlash];
+                var fileName = remotePath[(lastSlash + 1)..];
+                await client.SetWorkingDirectory(string.IsNullOrEmpty(directory) ? "/" : directory, cancellationToken);
+                await client.DeleteFile(fileName, cancellationToken);
+            }
+            else
+            {
+                await client.DeleteFile(remotePath, cancellationToken);
+            }
         }
         catch (FtpCommandException ex)
         {
-            // A real server-side rejection (e.g. "550 Permission denied") — confirmed live against
-            // a real host that allows creating new files but blocks deleting/overwriting existing
-            // ones account-wide — translated to a Core-level type so callers can tell "the server
-            // said no" apart from a network/connection failure without depending on FluentFTP.
+            // A real server-side rejection (e.g. "550 Permission denied") — translated to a
+            // Core-level type so callers can tell "the server said no" apart from a network/
+            // connection failure without depending on FluentFTP.
             throw new FtpOperationRejectedException(ex.Message);
         }
     }
