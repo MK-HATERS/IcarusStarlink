@@ -183,7 +183,7 @@
                 <StackPanel Grid.Row="1" Margin="12,8,12,12">
                     <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,8"/>
                     <Button Command="{Binding LaunchGameCommand}" HorizontalContentAlignment="Left" Margin="0,0,0,4"
-                            ToolTip="Launches Icarus via Steam, with whatever's currently installed"
+                            ToolTip="Launch Icarus"
                             AutomationProperties.Name="Launch game">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconPlay}" Fill="{DynamicResource SuccessBrush}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,8,0"/>
@@ -191,7 +191,7 @@
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding OpenModFolderCommand}" HorizontalContentAlignment="Left" Margin="0,0,0,4"
-                            ToolTip="Opens this app's own Extracted_Mods folder in Explorer"
+                            ToolTip="Open your mods folder"
                             AutomationProperties.Name="Open mod folder">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
@@ -200,7 +200,7 @@
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding OpenUe4ssFolderCommand}" HorizontalContentAlignment="Left" Margin="0,0,0,4"
-                            ToolTip="Opens Binaries\Win64\ue4ss\Mods in Explorer — set the Icarus Content path in Settings first"
+                            ToolTip="Open the UE4SS mods folder"
                             ToolTipService.ShowOnDisabled="True"
                             AutomationProperties.Name="Open UE4SS folder">
                         <StackPanel Orientation="Horizontal">
@@ -210,7 +210,7 @@
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding OpenGameFolderCommand}" HorizontalContentAlignment="Left"
-                            ToolTip="Opens the real Icarus install folder in Explorer — set the Icarus Content path in Settings first"
+                            ToolTip="Open the Icarus install folder"
                             ToolTipService.ShowOnDisabled="True"
                             AutomationProperties.Name="Open game folder">
                         <StackPanel Orientation="Horizontal">
