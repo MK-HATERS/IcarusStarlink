@@ -98,6 +98,12 @@ public sealed partial class ServerViewModel : ObservableObject
     [ObservableProperty]
     private bool _isConnecting;
 
+    /// <summary>True once this site's own FTP account has been confirmed (by a real rejected
+    /// delete) unable to remove or replace an existing file — some budget hosts allow only
+    /// creating new files. Raised again by OnSelectedSiteChanged and RememberDeleteCapability,
+    /// since FtpSiteProfile itself isn't a bindable/observable type.</summary>
+    public bool HasKnownDeleteRestriction => SelectedSite?.SupportsDelete == false;
+
     [ObservableProperty]
     private bool _isBusy;
 
@@ -155,6 +161,8 @@ public sealed partial class ServerViewModel : ObservableObject
 
     partial void OnSelectedSiteChanged(FtpSiteProfile? value)
     {
+        OnPropertyChanged(nameof(HasKnownDeleteRestriction));
+
         if (value is null)
         {
             return;
@@ -559,12 +567,22 @@ public sealed partial class ServerViewModel : ObservableObject
         try
         {
             await _connectedClient.DeleteFileAsync(CombineRemotePath(CurrentRemotePath, entry.Name));
+            RememberDeleteCapability(true);
             await LoadDirectoryAsync(CurrentRemotePath);
             ConnectionStatusMessage = $"Deleted '{entry.Name}'.";
             _activityLog.Log($"Deleted '{entry.Name}' from '{SelectedSite?.Name}'.", ActivityEntryKind.Success);
         }
+        catch (FtpOperationRejectedException ex)
+        {
+            RememberDeleteCapability(false);
+            ConnectionStatusMessage = $"Delete failed — this host doesn't allow it: {ex.ServerMessage}";
+            _activityLog.Log($"Delete of '{entry.Name}' on '{SelectedSite?.Name}' was rejected by the server: {ex.ServerMessage}", ActivityEntryKind.Warning);
+        }
         catch (Exception ex)
         {
+            // A network/connection failure tells us nothing about this site's own delete
+            // capability — only a real server rejection (caught above) does, so SupportsDelete is
+            // deliberately left unchanged here.
             ConnectionStatusMessage = $"Delete failed: {ex.Message}";
             _activityLog.Log($"Delete of '{entry.Name}' on '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
@@ -574,6 +592,21 @@ public sealed partial class ServerViewModel : ObservableObject
         }
     }
 
+    /// <summary>Persists whether this site's own FTP account can delete/overwrite an existing file,
+    /// once actually confirmed either way — shared by the single-file Delete button and Install
+    /// merged pak to server, so either one learning the answer benefits the other.</summary>
+    private void RememberDeleteCapability(bool supportsDelete)
+    {
+        if (SelectedSite is null || SelectedSite.SupportsDelete == supportsDelete)
+        {
+            return;
+        }
+
+        SelectedSite.SupportsDelete = supportsDelete;
+        _siteStore.Save(SelectedSite);
+        OnPropertyChanged(nameof(HasKnownDeleteRestriction));
+    }
+
     /// <summary>
     /// Uploads the app's own last-built merged pak (Merge &amp; Install's own Staged_Build output —
     /// the same file "Install" copies into the LOCAL game folder) to the server's own mods folder,
@@ -581,6 +614,14 @@ public sealed partial class ServerViewModel : ObservableObject
     /// merged pak, so this clears it out first — but always names every file it's about to delete
     /// (and upload) in the confirmation prompt, per the user's own explicit ask, rather than a bare
     /// "are you sure?".
+    ///
+    /// A site already known (from a past attempt) not to support delete skips trying it at all and
+    /// instead warns UP FRONT, before ever touching the server, that old files will remain — the
+    /// user's own explicit preference over silently uploading first and reporting the leftover
+    /// files only afterward, since a dedicated server actively serving players is higher-stakes
+    /// than the local game folder if it ends up loading two conflicting merged paks at once. A site
+    /// not yet known either way still tries each delete for real (learning the answer for next
+    /// time), but never lets one rejected delete abort the whole upload.
     /// </summary>
     [RelayCommand]
     private async Task InstallPakToServerAsync()
@@ -615,21 +656,54 @@ public sealed partial class ServerViewModel : ObservableObject
                 toUpload.Add(Path.GetFileName(_pakManifestPath));
             }
 
-            var deleteList = existing.Count > 0
-                ? "delete:\n" + string.Join('\n', existing.Select(e => $"  - {e.Name}")) + "\n\nthen "
-                : "";
-            var prompt =
-                $"This will {deleteList}upload:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
-                + $"to '{RemoteModsPath}' on '{SelectedSite?.Name}'. Continue?";
+            var knownBlocked = existing.Count > 0 && SelectedSite?.SupportsDelete == false;
+            string prompt;
+            if (knownBlocked)
+            {
+                prompt =
+                    $"'{SelectedSite?.Name}' doesn't allow deleting or replacing files via FTP, so the existing file(s) below will remain after this upload:\n"
+                    + string.Join('\n', existing.Select(e => $"  - {e.Name}"))
+                    + $"\n\nUpload will add:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
+                    + $"You'll need to remove the old file(s) yourself via {SelectedSite?.Name}'s own file manager afterward — otherwise the server may end up loading multiple conflicting merged paks. Upload anyway?";
+            }
+            else
+            {
+                var deleteList = existing.Count > 0
+                    ? "delete:\n" + string.Join('\n', existing.Select(e => $"  - {e.Name}")) + "\n\nthen "
+                    : "";
+                prompt =
+                    $"This will {deleteList}upload:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
+                    + $"to '{RemoteModsPath}' on '{SelectedSite?.Name}'. Continue?";
+            }
 
             if (!(ThemedMessageBox.Show(prompt, "Install merged pak to server", ThemedConfirmSeverity.Warning)))
             {
                 return;
             }
 
-            foreach (var entry in existing)
+            var deleteFailures = new List<string>();
+            if (!knownBlocked)
             {
-                await _connectedClient.DeleteFileAsync($"{RemoteModsPath}/{entry.Name}");
+                foreach (var entry in existing)
+                {
+                    try
+                    {
+                        await _connectedClient.DeleteFileAsync($"{RemoteModsPath}/{entry.Name}");
+                    }
+                    catch (FtpOperationRejectedException)
+                    {
+                        deleteFailures.Add(entry.Name);
+                    }
+                }
+
+                if (existing.Count > 0)
+                {
+                    RememberDeleteCapability(deleteFailures.Count == 0);
+                }
+            }
+            else
+            {
+                deleteFailures.AddRange(existing.Select(e => e.Name));
             }
 
             await _connectedClient.UploadFileAsync(_outputPakPath, $"{RemoteModsPath}/{Path.GetFileName(_outputPakPath)}");
@@ -638,8 +712,20 @@ public sealed partial class ServerViewModel : ObservableObject
                 await _connectedClient.UploadFileAsync(_pakManifestPath, $"{RemoteModsPath}/{Path.GetFileName(_pakManifestPath)}");
             }
 
-            ConnectionStatusMessage = $"Installed the merged pak to '{SelectedSite?.Name}'.";
-            _activityLog.Log($"Installed the merged pak to FTP site '{SelectedSite?.Name}' (replaced {existing.Count} file(s)).", ActivityEntryKind.Success);
+            if (deleteFailures.Count > 0)
+            {
+                ConnectionStatusMessage =
+                    $"Installed the new pak, but couldn't remove {deleteFailures.Count} old file(s) on '{SelectedSite?.Name}' — "
+                    + $"remove them yourself via its file manager, or the server may load multiple conflicting merged paks.";
+                _activityLog.Log(
+                    $"Installed the merged pak to FTP site '{SelectedSite?.Name}', but {deleteFailures.Count} old file(s) ({string.Join(", ", deleteFailures)}) couldn't be removed.",
+                    ActivityEntryKind.Warning);
+            }
+            else
+            {
+                ConnectionStatusMessage = $"Installed the merged pak to '{SelectedSite?.Name}'.";
+                _activityLog.Log($"Installed the merged pak to FTP site '{SelectedSite?.Name}' (replaced {existing.Count} file(s)).", ActivityEntryKind.Success);
+            }
         }
         catch (Exception ex)
         {

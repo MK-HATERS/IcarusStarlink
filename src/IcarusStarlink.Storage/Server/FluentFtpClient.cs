@@ -2,6 +2,7 @@ using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using FluentFTP;
+using FluentFTP.Exceptions;
 using IcarusStarlink.Core.Server;
 using CoreIFtpClient = IcarusStarlink.Core.Server.IFtpClient;
 
@@ -94,8 +95,21 @@ public sealed class FluentFtpClient : CoreIFtpClient
     public async Task DownloadFileAsync(string remotePath, string localPath, CancellationToken cancellationToken = default) =>
         await RequireClient().DownloadFile(localPath, remotePath, FtpLocalExists.Overwrite, token: cancellationToken);
 
-    public async Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default) =>
-        await RequireClient().DeleteFile(remotePath, cancellationToken);
+    public async Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await RequireClient().DeleteFile(remotePath, cancellationToken);
+        }
+        catch (FtpCommandException ex)
+        {
+            // A real server-side rejection (e.g. "550 Permission denied") — confirmed live against
+            // a real host that allows creating new files but blocks deleting/overwriting existing
+            // ones account-wide — translated to a Core-level type so callers can tell "the server
+            // said no" apart from a network/connection failure without depending on FluentFTP.
+            throw new FtpOperationRejectedException(ex.Message);
+        }
+    }
 
     public async Task DisconnectAsync()
     {
