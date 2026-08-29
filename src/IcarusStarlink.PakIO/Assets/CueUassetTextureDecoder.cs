@@ -1,6 +1,4 @@
-using CUE4Parse.FileProvider;
 using CUE4Parse.UE4.Assets.Exports.Texture;
-using CUE4Parse.UE4.Versions;
 using CUE4Parse_Conversion.Textures;
 using SkiaSharp;
 
@@ -24,19 +22,7 @@ public sealed class CueUassetTextureDecoder : IUassetTextureDecoder
 
         try
         {
-            var versions = new VersionContainer(EGame.GAME_UE4_27);
-            var provider = new DefaultFileProvider(modFolderPath, SearchOption.AllDirectories, versions, StringComparer.OrdinalIgnoreCase);
-            provider.Initialize();
-
-            var normalizedRelativePath = relativeAssetPath.Replace('\\', '/').TrimStart('/');
-            var matchedKey = provider.Files.Keys.FirstOrDefault(key => key.EndsWith(normalizedRelativePath, StringComparison.OrdinalIgnoreCase));
-            if (matchedKey is null)
-            {
-                return null;
-            }
-
-            var package = provider.LoadPackage(matchedKey);
-            var texture = package.ExportsLazy.Select(export => export.Value).OfType<UTexture2D>().FirstOrDefault();
+            var texture = CueAssetProviderLocator.TryLoadExport<UTexture2D>(modFolderPath, relativeAssetPath);
             if (texture is null)
             {
                 return null;

@@ -198,6 +198,40 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RebuildAsync_TwoStagedPathsShareATrailingSegmentAndOneIsDropped_StillCorrectlyFlagsTheDroppedOne()
+    {
+        // Regression test for a real flaw the previous fix for the test above had: it tolerated
+        // UnrealPak's mount-point fold with a fuzzy `staged.EndsWith(packed)` suffix check, which
+        // can mask a genuinely dropped file whenever some OTHER, still-present staged file's own
+        // reported (post-fold) name happens to be an exact trailing substring of the dropped one's
+        // full path. Here "data/Icons/Icon.png" (present) folds down to "Icons/Icon.png" once the
+        // shared "data/" prefix strips away — which is also the exact tail of
+        // "data/Prebuilt/Icons/Icon.png" (genuinely dropped). The old EndsWith check would have
+        // wrongly treated the dropped file as present. The exact, mutually-derived fold this was
+        // replaced with does not: the two staged asset paths only share ONE leading segment
+        // ("data"), so folding just that one leaves "Prebuilt/Icons/Icon.png" for the dropped file
+        // — a form that never appears in the real packed set at all.
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Icon Mod", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) },
+            assets:
+            [
+                new ExmodAssetEntry("data/Icons/Icon.png", [1]),
+                new ExmodAssetEntry("data/Prebuilt/Icons/Icon.png", [2]),
+            ]);
+        var pakService = new FakeUnrealPakService
+        {
+            SharedPrefixUnrealPakFoldsIntoMountPoint = "data/",
+            RelativePathToPretendUnrealPakDropped = "data/Prebuilt/Icons/Icon.png",
+        };
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        Assert.Contains(result.Warnings, w => w.Contains("1 file(s) were staged for packing") && w.Contains("data/Prebuilt/Icons/Icon.png"));
+    }
+
+    [Fact]
     public async Task RebuildAsync_ReportsProgressThroughToCompletion()
     {
         WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");

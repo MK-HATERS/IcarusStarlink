@@ -513,6 +513,13 @@ public static class ModTemplateContent
     // point at instead). The wrapping name/fileName/description below aren't from that source —
     // NewItemOptions.json's own entries are bare item snippets meant for an already-open mod, not
     // whole standalone packages — Create() always overwrites them from the user's own input anyway.
+    //
+    // One deliberate correction to the source's own real content: its Crafting recipe Outputs
+    // point at a D_ItemTemplate/"TempName" row that the real NewItemOptions.json entry never
+    // creates — the other three templates (Craftable/Consumable/WaterPump) all create this row via
+    // their own Items-D_ItemTemplate.json entry, so its absence here reads as a real gap in the
+    // source rather than a deliberate omission. Added below, matching those three templates' own
+    // proven-working shape exactly, so the crafted output actually resolves in-game.
     private const string BuildingPieceTemplate = """
         {
             "name": "TempName",
@@ -560,6 +567,17 @@ public static class ModTemplateContent
                             ],
                             "Audio": {
                                 "RowName": "Default"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "CurrentFile": "Items-D_ItemTemplate.json",
+                    "File_Items": [
+                        {
+                            "Name": "TempName",
+                            "ItemStaticData": {
+                                "RowName": "TempName"
                             }
                         }
                     ]
@@ -730,6 +748,10 @@ public static class ModTemplateContent
     // own "Electric Generator" entry — a wind-generator-style deployable producing energy, reusing
     // that real vanilla deployable actor's own DeployableActor/ItemMesh Blueprint paths pattern
     // (with "TempName" standing in for the author's own real custom asset name).
+    //
+    // Same deliberate correction as BuildingPieceTemplate's own doc comment above: the real
+    // source's Crafting recipe Outputs point at a D_ItemTemplate/"TempName" row it never creates.
+    // Added below to match Craftable/Consumable/WaterPump's own proven-working shape.
     private const string ElectricGeneratorTemplate = """
         {
             "name": "TempName",
@@ -773,6 +795,17 @@ public static class ModTemplateContent
                             ],
                             "Audio": {
                                 "RowName": "MachiningBench"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "CurrentFile": "Items-D_ItemTemplate.json",
+                    "File_Items": [
+                        {
+                            "Name": "TempName",
+                            "ItemStaticData": {
+                                "RowName": "TempName"
                             }
                         }
                     ]

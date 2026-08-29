@@ -20,7 +20,18 @@ public interface IPrebuiltPakToExmodConverter
     /// itself can't be read — so a caller can always fall back to importing the pak as-is. The
     /// failure is still recorded on report as a warning either way, so it's visible somewhere.
     /// </summary>
-    Task<ExmodPackageContents?> TryConvertAsync(
+    Task<PrebuiltPakConversionResult?> TryConvertAsync(
         string pakFilePath, string dataFolder, string unrealPakExePath, string name, string author,
         MergeReport report, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// HasAuthorDeclaredMetadata distinguishes the two real conversion strategies for the caller's own
+/// sake — it's true only when the pak's own bundled EXMOD was read directly, so Contents.Package's
+/// Name/Author/Version/Description are the real author's own declared values, not the generic
+/// caller-supplied placeholders a diffed conversion produces. A caller must NOT mark an entry
+/// ConvertedFromPrebuiltPak (which tells FolderLibraryRepository.ToEntry it's safe to let a later
+/// Nexus/Database link overwrite Name/Author) when this is true — doing so would let Nexus's own
+/// title/uploader silently replace a name the author themselves already declared correctly.
+/// </summary>
+public sealed record PrebuiltPakConversionResult(ExmodPackageContents Contents, bool HasAuthorDeclaredMetadata);

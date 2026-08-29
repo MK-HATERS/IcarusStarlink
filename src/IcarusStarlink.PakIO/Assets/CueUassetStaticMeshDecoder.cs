@@ -1,6 +1,4 @@
-using CUE4Parse.FileProvider;
 using CUE4Parse.UE4.Assets.Exports.StaticMesh;
-using CUE4Parse.UE4.Versions;
 
 namespace IcarusStarlink.PakIO.Assets;
 
@@ -10,6 +8,8 @@ namespace IcarusStarlink.PakIO.Assets;
 /// FStaticMeshUVItem.Normal is a 3-entry FPackedNormal array where only the LAST entry is a
 /// genuine unit vector — the other two are tangent-basis placeholders CUE4Parse doesn't need to
 /// reconstruct for a shape preview — so index [^1] is Unreal's own "TangentZ", the real normal.
+/// That was confirmed against exactly one real mesh, not proven for every possible vertex format,
+/// so an empty Normal array here degrades to "can't decode this mesh" rather than throwing.
 /// </summary>
 public sealed class CueUassetStaticMeshDecoder : IUassetStaticMeshDecoder
 {
@@ -22,19 +22,7 @@ public sealed class CueUassetStaticMeshDecoder : IUassetStaticMeshDecoder
 
         try
         {
-            var versions = new VersionContainer(EGame.GAME_UE4_27);
-            var provider = new DefaultFileProvider(modFolderPath, SearchOption.AllDirectories, versions, StringComparer.OrdinalIgnoreCase);
-            provider.Initialize();
-
-            var normalizedRelativePath = relativeAssetPath.Replace('\\', '/').TrimStart('/');
-            var matchedKey = provider.Files.Keys.FirstOrDefault(key => key.EndsWith(normalizedRelativePath, StringComparison.OrdinalIgnoreCase));
-            if (matchedKey is null)
-            {
-                return null;
-            }
-
-            var package = provider.LoadPackage(matchedKey);
-            var mesh = package.ExportsLazy.Select(export => export.Value).OfType<UStaticMesh>().FirstOrDefault();
+            var mesh = CueAssetProviderLocator.TryLoadExport<UStaticMesh>(modFolderPath, relativeAssetPath);
             var lod0 = mesh?.RenderData?.LODs?.FirstOrDefault();
             if (lod0?.PositionVertexBuffer?.Verts is not { } vertexPositions
                 || lod0.VertexBuffer?.UV is not { } vertexUvItems
@@ -58,6 +46,15 @@ public sealed class CueUassetStaticMeshDecoder : IUassetStaticMeshDecoder
                 positions.Add(new MeshVector3(vertex.X, vertex.Y, vertex.Z));
 
                 var uvItem = vertexUvItems[i];
+                if (uvItem.Normal.Length == 0)
+                {
+                    // Confirmed live against exactly one real mesh's own vertex format — an empty
+                    // array here means this mesh's shape doesn't match that assumption, not that
+                    // it's safe to guess a normal, so the whole mesh is reported as undecodable
+                    // rather than rendered with fabricated lighting data.
+                    return null;
+                }
+
                 var normal = uvItem.Normal[^1];
                 normals.Add(new MeshVector3(normal.X, normal.Y, normal.Z));
 
@@ -68,7 +65,17 @@ public sealed class CueUassetStaticMeshDecoder : IUassetStaticMeshDecoder
             var triangleIndices = new List<int>(indexBuffer.Length);
             for (var i = 0; i < indexBuffer.Length; i++)
             {
-                triangleIndices.Add(indexBuffer[i]);
+                var index = indexBuffer[i];
+                if (index < 0 || index >= vertexCount)
+                {
+                    // A corrupt or genuinely unsupported mesh could reference a vertex that doesn't
+                    // exist — feeding that straight into WPF's MeshGeometry3D has no bounds check
+                    // of its own, so this degrades to "can't decode this mesh" the same way an
+                    // empty Normal array does, rather than risking undefined rendering behavior.
+                    return null;
+                }
+
+                triangleIndices.Add(index);
             }
 
             if (triangleIndices.Count == 0)

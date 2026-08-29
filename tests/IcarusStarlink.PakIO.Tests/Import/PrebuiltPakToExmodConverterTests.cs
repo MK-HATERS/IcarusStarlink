@@ -125,7 +125,11 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
 
         Assert.NotNull(result);
-        var row = Assert.Single(result.Package.Rows);
+        // A diffed conversion's Name/Author are generic caller-supplied placeholders, not
+        // author-declared — callers must be able to tell so they know it's safe to let a later
+        // Nexus/Database link overwrite them (see IPrebuiltPakImporter's own use of this flag).
+        Assert.False(result.HasAuthorDeclaredMetadata);
+        var row = Assert.Single(result.Contents.Package.Rows);
         Assert.Equal("Crafting-D_ProcessorRecipes.json", row.CurrentFile);
         var item = Assert.Single(row.FileItems);
         Assert.Equal("Stone_Pickaxe", item.Name);
@@ -134,7 +138,7 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         Assert.Equal(1, field.Value!.GetValue<int>());
         // The diffed data file is represented as a real field change above — it must not ALSO be
         // duplicated as a raw asset, or the two representations of the same content could drift.
-        Assert.DoesNotContain(result.Assets, a => a.RelativePath == "data/Crafting/D_ProcessorRecipes.json");
+        Assert.DoesNotContain(result.Contents.Assets, a => a.RelativePath == "data/Crafting/D_ProcessorRecipes.json");
     }
 
     [Fact]
@@ -149,8 +153,8 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
 
         Assert.NotNull(result);
-        Assert.Empty(result.Package.Rows);
-        var asset = Assert.Single(result.Assets);
+        Assert.Empty(result.Contents.Package.Rows);
+        var asset = Assert.Single(result.Contents.Assets);
         Assert.Equal("BP/Building/BP_Thing.uasset", asset.RelativePath);
         Assert.Equal("prebuilt bytes", System.Text.Encoding.UTF8.GetString(asset.Content));
     }
@@ -167,9 +171,9 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "A Fancy Nexus Title!", "SomeAuthor", report);
 
         Assert.NotNull(result);
-        Assert.Equal("SomeMod_P", result.Package.FileName);
-        Assert.Equal("A Fancy Nexus Title!", result.Package.Name);
-        Assert.Equal("SomeAuthor", result.Package.Author);
+        Assert.Equal("SomeMod_P", result.Contents.Package.FileName);
+        Assert.Equal("A Fancy Nexus Title!", result.Contents.Package.Name);
+        Assert.Equal("SomeAuthor", result.Contents.Package.Author);
     }
 
     [Fact]
@@ -202,8 +206,8 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
 
         Assert.NotNull(result);
-        Assert.Empty(result.Package.Rows);
-        Assert.Contains(result.Assets, a => a.RelativePath == "data/Crafting/D_NewThing.json");
+        Assert.Empty(result.Contents.Package.Rows);
+        Assert.Contains(result.Contents.Assets, a => a.RelativePath == "data/Crafting/D_NewThing.json");
     }
 
     [Fact]
@@ -218,8 +222,8 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
 
         Assert.NotNull(result);
-        Assert.Empty(result.Package.Rows);
-        Assert.Contains(result.Assets, a => a.RelativePath == "data/Crafting/D_ProcessorRecipes.json");
+        Assert.Empty(result.Contents.Package.Rows);
+        Assert.Contains(result.Contents.Assets, a => a.RelativePath == "data/Crafting/D_ProcessorRecipes.json");
         Assert.Contains(report.Warnings, w => w.Contains("isn't valid JSON"));
     }
 
@@ -262,15 +266,19 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
 
         Assert.NotNull(result);
+        // The embedded EXMOD carries the real author's own declared metadata — callers must NOT
+        // treat this like a diffed conversion's placeholder Name/Author (see
+        // IPrebuiltPakImporter's own use of this flag to gate MarkConvertedFromPrebuiltPak).
+        Assert.True(result.HasAuthorDeclaredMetadata);
         // The real sample this fixture is modeled on ends with the same "EndOfMod" sentinel row
         // every real EXMOD carries — reading the bundled file verbatim must preserve it, not just
         // the row(s) that actually change something.
-        Assert.Equal(2, result.Package.Rows.Count);
-        var row = Assert.Single(result.Package.Rows, r => r.CurrentFile == "Traits-D_Armour.json");
+        Assert.Equal(2, result.Contents.Package.Rows.Count);
+        var row = Assert.Single(result.Contents.Package.Rows, r => r.CurrentFile == "Traits-D_Armour.json");
         var item = Assert.Single(row.FileItems);
         Assert.Equal("Undersuit_Shengong", item.Name);
         Assert.Equal(12345, item.Fields["SomeField"]!.GetValue<int>());
-        Assert.Contains(result.Package.Rows, r => r.CurrentFile == "EndOfMod");
+        Assert.Contains(result.Contents.Package.Rows, r => r.CurrentFile == "EndOfMod");
         Assert.Contains(report.Notes, n => n.Contains("bundled EXMOD data"));
     }
 
@@ -285,13 +293,13 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "A Fancy Nexus Title!", "SomeAuthor", report);
 
         Assert.NotNull(result);
-        Assert.Equal("Bundled_Mod_Name", result.Package.Name);
-        Assert.Equal("Bundled Author", result.Package.Author);
-        Assert.Equal("2.5", result.Package.Version);
-        Assert.Equal("Bundled description straight from the author.", result.Package.Description);
+        Assert.Equal("Bundled_Mod_Name", result.Contents.Package.Name);
+        Assert.Equal("Bundled Author", result.Contents.Package.Author);
+        Assert.Equal("2.5", result.Contents.Package.Version);
+        Assert.Equal("Bundled description straight from the author.", result.Contents.Package.Description);
         // FileName is still always derived from the pak's own real filename, never from the
         // embedded package's own FileName — same rule as the caller-supplied `name` already has.
-        Assert.Equal("SomeMod_P", result.Package.FileName);
+        Assert.Equal("SomeMod_P", result.Contents.Package.FileName);
     }
 
     [Fact]
@@ -309,11 +317,11 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         Assert.NotNull(result);
         // The compiled "data/" table is fully superseded by the bundled EXMOD's own Rows — carrying
         // it through too would be redundant (and misleadingly look like a real bundled asset).
-        Assert.DoesNotContain(result.Assets, a => a.RelativePath.StartsWith("data/"));
+        Assert.DoesNotContain(result.Contents.Assets, a => a.RelativePath.StartsWith("data/"));
         // A genuine binary asset elsewhere in the pak must still come through normally.
-        Assert.Contains(result.Assets, a => a.RelativePath == "BP/Thing.uasset");
+        Assert.Contains(result.Contents.Assets, a => a.RelativePath == "BP/Thing.uasset");
         // The .EXMOD file itself was consumed as the package's own data, not a bundled asset.
-        Assert.DoesNotContain(result.Assets, a => a.RelativePath == "SomeMod_P.EXMOD");
+        Assert.DoesNotContain(result.Contents.Assets, a => a.RelativePath == "SomeMod_P.EXMOD");
     }
 
     [Fact]
@@ -332,7 +340,7 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         Assert.NotNull(result);
         // Diffing still ran and found the real field change — the corrupt bundled file didn't
         // silently produce an empty mod, it fell all the way back to the existing working path.
-        var row = Assert.Single(result.Package.Rows);
+        var row = Assert.Single(result.Contents.Package.Rows);
         Assert.Equal("Crafting-D_ProcessorRecipes.json", row.CurrentFile);
         Assert.Contains(report.Warnings, w => w.Contains("bundled EXMOD file"));
         Assert.DoesNotContain(report.Notes, n => n.Contains("bundled EXMOD data"));
@@ -355,12 +363,12 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
 
         Assert.NotNull(result);
-        var row = Assert.Single(result.Package.Rows);
+        var row = Assert.Single(result.Contents.Package.Rows);
         Assert.Equal("Crafting-D_ProcessorRecipes.json", row.CurrentFile);
         Assert.DoesNotContain(report.Notes, n => n.Contains("bundled EXMOD data"));
         // The nested file is neither bundled data nor a diffed table — it's carried through as an
         // ordinary asset, like any other file this conversion doesn't specifically understand.
-        Assert.Contains(result.Assets, a => a.RelativePath == "Nested/SomeMod_P.EXMOD");
+        Assert.Contains(result.Contents.Assets, a => a.RelativePath == "Nested/SomeMod_P.EXMOD");
     }
 
     public void Dispose()

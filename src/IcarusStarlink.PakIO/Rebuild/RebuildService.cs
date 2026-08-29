@@ -371,24 +371,39 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         try
         {
             var packedPaths = await unrealPakService.ListPakContentsAsync(unrealPakExePath, outputPakPath, cancellationToken);
+            var packedPathSet = new HashSet<string>(packedPaths, StringComparer.OrdinalIgnoreCase);
 
             // -List reports each entry relative to whatever mount point UnrealPak itself infers as
             // the longest common prefix shared by EVERY packed entry — already known to fold in a
-            // shared subfolder for a single-file pak (see CreatePakAsync's own doc comment); the
-            // same thing happens here whenever a whole merge is pure data-table JSON (all staged
-            // under "data/", no mod bundling its own binary assets to break that shared prefix).
-            // Confirmed for real: staging 5 real DataTable files and both listing and extracting
-            // the built pak shows all 5 genuinely present, just reported without their "data/"
-            // prefix — mount-point + relative-path still reconstructs the identical correct virtual
-            // path regardless of where UnrealPak chooses to split them (the same conclusion already
-            // reached for the single-file case). An exact-string comparison here previously treated
-            // every entry as "missing" whenever a merge happened to be 100% data-table-only, a false
-            // alarm on a perfectly good pak — matching a suffix instead tolerates whatever prefix
-            // UnrealPak folded away while still catching a genuinely dropped file (nothing in the
-            // real packed set would end that staged path at all).
-            var missing = stagedRelativePaths
-                .Where(staged => !packedPaths.Any(packed => staged.EndsWith(packed, StringComparison.OrdinalIgnoreCase)))
-                .ToList();
+            // shared subfolder for a single-file pak; the same thing happens here whenever a whole
+            // merge is pure data-table JSON (all staged under "data/", no mod bundling its own
+            // binary assets to break that shared prefix). Confirmed for real: staging 5 real
+            // DataTable files and both listing and extracting the built pak shows all 5 genuinely
+            // present, just reported without their "data/" prefix — mount-point + relative-path
+            // still reconstructs the identical correct virtual path regardless of where UnrealPak
+            // chooses to split them.
+            //
+            // An earlier version of this check tolerated that fold with a fuzzy `staged.EndsWith
+            // (packed)` suffix match — but that can mask a genuinely dropped file whenever two
+            // staged paths merely share a trailing segment (e.g. "Icons/Icon.png" and
+            // "UI/Icon.png"), which is exactly the silent-corruption case this whole method exists
+            // to catch. With 2+ staged files, ComputeFoldedPrefixSegmentCount instead computes the
+            // SAME fold UnrealPak itself would from their own mutual common prefix, so every staged
+            // path has exactly one correctly-predicted post-fold form to look up — an exact HashSet
+            // match, not a guess, and immune to that suffix collision since it's derived from the
+            // whole set at once rather than any one path's own trailing characters.
+            //
+            // A lone staged file has no sibling to derive a MUTUAL prefix from or to collide with —
+            // its own real fold amount is genuinely unknowable from this data alone (it may end up
+            // reported bare, with one folded segment, or anything in between), so it keeps the old
+            // boundary-respecting suffix tolerance instead: safe here specifically because there is
+            // no second staged path this one could ever be confused with.
+            var foldedPrefixSegmentCount = ComputeFoldedPrefixSegmentCount(stagedRelativePaths);
+            bool WasActuallyPacked(string staged) => stagedRelativePaths.Count == 1
+                ? packedPaths.Any(packed => PathBoundaryMatch.EndsWithSegmentBoundary(staged, packed))
+                : packedPathSet.Contains(StripLeadingSegments(staged, foldedPrefixSegmentCount));
+
+            var missing = stagedRelativePaths.Where(staged => !WasActuallyPacked(staged)).ToList();
             if (missing.Count > 0)
             {
                 var shown = string.Join(", ", missing.Take(5));
@@ -403,6 +418,42 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             report.AddWarning($"Couldn't independently verify the pak's own contents after building it: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// The longest run of leading "/"-delimited segments shared by every path in the set — the
+    /// same fold UnrealPak's own mount-point inference would compute from its own real algorithm
+    /// (the longest common prefix across every packed entry). Capped at one less than the shortest
+    /// path's own segment count so a path's final segment is never stripped (two distinct staged
+    /// files can't share a fully identical path, so at least one segment must always survive to
+    /// tell them apart). Only meaningful with 2+ paths to derive a mutual prefix from — this
+    /// method's own caller never uses its result for a single-path set (see that call site's own
+    /// comment for why a lone file needs different handling), so a 1-path input isn't specially
+    /// handled here either; it would otherwise trivially satisfy every comparison and fold all the
+    /// way to the cap, which happens to be a plausible but unverified real answer for that case.
+    /// </summary>
+    private static int ComputeFoldedPrefixSegmentCount(IReadOnlyList<string> relativePaths)
+    {
+        if (relativePaths.Count == 0)
+        {
+            return 0;
+        }
+
+        var segmentLists = relativePaths.Select(path => path.Split('/')).ToList();
+        var cap = segmentLists.Min(segments => segments.Length) - 1;
+
+        var commonCount = 0;
+        while (commonCount < cap && segmentLists.All(segments =>
+            string.Equals(segments[commonCount], segmentLists[0][commonCount], StringComparison.OrdinalIgnoreCase)))
+        {
+            commonCount++;
+        }
+
+        return commonCount;
+    }
+
+    /// <summary>Strips exactly <paramref name="segmentCount"/> leading "/"-delimited segments from a staged path — the mirror image of whatever fold <see cref="ComputeFoldedPrefixSegmentCount"/> computed for the same set.</summary>
+    private static string StripLeadingSegments(string relativePath, int segmentCount) =>
+        segmentCount == 0 ? relativePath : string.Join('/', relativePath.Split('/').Skip(segmentCount));
 
     /// <summary>
     /// A mod's own asset paths are already pak-root-relative (confirmed against real mods' own

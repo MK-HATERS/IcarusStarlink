@@ -22,7 +22,7 @@ namespace IcarusStarlink.PakIO.Import;
 /// </summary>
 public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakService) : IPrebuiltPakToExmodConverter
 {
-    public async Task<ExmodPackageContents?> TryConvertAsync(
+    public async Task<PrebuiltPakConversionResult?> TryConvertAsync(
         string pakFilePath, string dataFolder, string unrealPakExePath, string name, string author,
         MergeReport report, CancellationToken cancellationToken = default)
     {
@@ -140,7 +140,7 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
                 Rows = rows,
             };
 
-            return new ExmodPackageContents(package, assets);
+            return new PrebuiltPakConversionResult(new ExmodPackageContents(package, assets), HasAuthorDeclaredMetadata: embedded is not null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -172,18 +172,28 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
     /// against BF_Shengong_Invincible_P.pak, not guessed. A raw string search on the extracted
     /// tree's top level only (never recursing into "data/", which can itself contain ordinary
     /// *.json but never a *.EXMOD) so a coincidentally-named file deeper in the pak can't be
-    /// mistaken for one. Returns null (never throws) for a pak with none, or one that has a
-    /// same-named file that isn't actually valid EXMOD JSON — either way the caller falls back to
-    /// diffing exactly as if this method had never been called.
+    /// mistaken for one. Returns null (never throws) for a pak with none, one with more than one
+    /// (ambiguous — same rejection ExmodFolder.FindExmodFile already applies to the identical
+    /// situation in a normal EXMOD folder, rather than silently picking an arbitrary one), or one
+    /// that has a same-named file that isn't actually valid EXMOD JSON — either way the caller
+    /// falls back to diffing exactly as if this method had never been called.
     /// </summary>
     private static (ExmodPackage Package, string RelativePath)? TryReadEmbeddedExmod(string scratchDirectory, string pakName, MergeReport report)
     {
-        var candidate = Directory.EnumerateFiles(scratchDirectory, "*.EXMOD", SearchOption.TopDirectoryOnly).FirstOrDefault();
-        if (candidate is null)
+        var candidates = Directory.EnumerateFiles(scratchDirectory, "*.EXMOD", SearchOption.TopDirectoryOnly).ToList();
+        if (candidates.Count == 0)
         {
             return null;
         }
 
+        if (candidates.Count > 1)
+        {
+            report.AddWarning(
+                $"'{pakName}' has more than one bundled EXMOD file at its own pak root — ambiguous, so reconstructed by comparing against current game data instead.");
+            return null;
+        }
+
+        var candidate = candidates[0];
         try
         {
             var package = ExmodJson.Parse(File.ReadAllText(candidate));

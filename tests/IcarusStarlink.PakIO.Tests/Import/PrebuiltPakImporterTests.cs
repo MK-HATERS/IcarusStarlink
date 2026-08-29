@@ -23,12 +23,12 @@ public class PrebuiltPakImporterTests : IDisposable
     private PrebuiltPakSourceStore CreateSourceStore() => new(_sourceStoreDir);
 
     /// <summary>Returns a canned result regardless of input, or null to simulate "conversion isn't possible right now" — the real converter's own logic is exercised separately by PrebuiltPakToExmodConverterTests.</summary>
-    private sealed class FakeConverter(ExmodPackageContents? result) : IPrebuiltPakToExmodConverter
+    private sealed class FakeConverter(PrebuiltPakConversionResult? result) : IPrebuiltPakToExmodConverter
     {
         public string? LastName { get; private set; }
         public string? LastAuthor { get; private set; }
 
-        public Task<ExmodPackageContents?> TryConvertAsync(
+        public Task<PrebuiltPakConversionResult?> TryConvertAsync(
             string pakFilePath, string dataFolder, string unrealPakExePath, string name, string author,
             MergeReport report, CancellationToken cancellationToken = default)
         {
@@ -38,9 +38,11 @@ public class PrebuiltPakImporterTests : IDisposable
         }
     }
 
-    private static ExmodPackageContents BuildConvertedPackage() => new(
-        new ExmodPackage { Name = "Converted", Author = "SomeAuthor", Version = "1.0", Description = "d", FileName = "Converted" },
-        []);
+    private static PrebuiltPakConversionResult BuildConvertedPackage(bool hasAuthorDeclaredMetadata = false) => new(
+        new ExmodPackageContents(
+            new ExmodPackage { Name = "Converted", Author = "SomeAuthor", Version = "1.0", Description = "d", FileName = "Converted" },
+            []),
+        hasAuthorDeclaredMetadata);
 
     [Fact]
     public async Task ImportAsync_ConversionSucceeds_RegistersARealEditableEntry()
@@ -53,6 +55,35 @@ public class PrebuiltPakImporterTests : IDisposable
         Assert.False(entry.IsOpaquePak);
         Assert.Equal("Converted", entry.Name);
         Assert.Single(repo.GetAll());
+    }
+
+    [Fact]
+    public async Task ImportAsync_DiffedConversion_IsMarkedConvertedFromPrebuiltPak()
+    {
+        // A diffed conversion's Name/Author are generic caller-supplied placeholders, not
+        // author-declared — safe (and intended) for a later Nexus/Database link to overwrite.
+        using var repo = CreateRepository();
+        var importer = new PrebuiltPakImporter(new FakeConverter(BuildConvertedPackage(hasAuthorDeclaredMetadata: false)), repo, repo, CreateSourceStore());
+
+        var entry = await importer.ImportAsync(_pakFilePath, "SomeDataFolder", "SomeUnrealPak.exe");
+
+        Assert.True(entry.ConvertedFromPrebuiltPak);
+        Assert.True(repo.GetAll().Single().ConvertedFromPrebuiltPak);
+    }
+
+    [Fact]
+    public async Task ImportAsync_ConversionFromBundledExmod_IsNotMarkedConvertedFromPrebuiltPak()
+    {
+        // The pak's own bundled EXMOD carries the real author's own declared Name/Author — marking
+        // this ConvertedFromPrebuiltPak would tell FolderLibraryRepository.ToEntry it's safe for a
+        // later Nexus/Database link to silently overwrite a name the author already got right.
+        using var repo = CreateRepository();
+        var importer = new PrebuiltPakImporter(new FakeConverter(BuildConvertedPackage(hasAuthorDeclaredMetadata: true)), repo, repo, CreateSourceStore());
+
+        var entry = await importer.ImportAsync(_pakFilePath, "SomeDataFolder", "SomeUnrealPak.exe");
+
+        Assert.False(entry.ConvertedFromPrebuiltPak);
+        Assert.False(repo.GetAll().Single().ConvertedFromPrebuiltPak);
     }
 
     [Fact]

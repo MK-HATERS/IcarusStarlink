@@ -1154,7 +1154,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             // this conversion being frozen forever at today's game data.
             _prebuiltPakSourceStore.Save(item.FolderName, pakFilePath);
             File.Delete(pakFilePath);
-            ExmodFolder.Write(folder, converted);
+            ExmodFolder.Write(folder, converted.Contents);
         }
         catch
         {
@@ -1167,7 +1167,14 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         _repository.Refresh();
-        _repository.MarkConvertedFromPrebuiltPak(item.FolderName);
+        // Only marked when the conversion actually produced placeholder metadata — see
+        // IPrebuiltPakToExmodConverter's own doc comment on HasAuthorDeclaredMetadata for why
+        // marking a real-author-declared conversion here would risk a later Nexus link silently
+        // overwriting the name the author already got right.
+        if (!converted.HasAuthorDeclaredMetadata)
+        {
+            _repository.MarkConvertedFromPrebuiltPak(item.FolderName);
+        }
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         return (true, $"Converted '{item.Name}' to a real, editable mod — a backup of the original was kept.");
     }
@@ -1328,7 +1335,13 @@ public sealed partial class LibraryViewModel : ObservableObject
                 _repository.BackupMod(item.FolderName);
                 try
                 {
-                    ExmodFolder.Write(folder, converted);
+                    // This entry is already ConvertedFromPrebuiltPak=true (it's re-converting one
+                    // of `alreadyConverted`) — deliberately NOT reconsidering that flag even if
+                    // this fresh conversion now finds a bundled EXMOD with real author metadata:
+                    // a prior Nexus/Database link may have already overwritten Name/Author once,
+                    // and un-marking here wouldn't undo that. Left as a known, narrow residual gap
+                    // rather than guessed at.
+                    ExmodFolder.Write(folder, converted.Contents);
                 }
                 catch
                 {
