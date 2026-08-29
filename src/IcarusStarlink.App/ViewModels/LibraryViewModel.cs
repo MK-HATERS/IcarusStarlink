@@ -866,7 +866,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         try
         {
-            var entry = _repository.CreateBlankMod(dialog.ModName, dialog.ModAuthor);
+            var entry = _repository.CreateBlankMod(dialog.ModName, dialog.ModAuthor, dialog.SelectedTemplate);
             StatusMessage = $"Created '{entry.Name}'.";
             Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());

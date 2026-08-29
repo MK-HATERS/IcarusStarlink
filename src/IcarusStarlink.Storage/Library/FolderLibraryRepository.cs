@@ -145,13 +145,13 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     /// ExmodPackageWriteGuard) rejects anything that isn't actually a safe simple filename, same
     /// as every other write path.
     /// </summary>
-    public LibraryEntry CreateBlankMod(string name, string author)
+    public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank)
     {
         var fileName = name.Replace(' ', '_');
         var folderName = MakeUniqueFolderName(fileName);
         var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
 
-        var package = new ExmodPackage { Name = name, Author = author, Version = "1.0", Description = "", FileName = fileName, Rows = [] };
+        var package = ModTemplateContent.Create(template, name, author);
         ExmodFolder.Write(targetFolder, new ExmodPackageContents(package, []));
 
         var meta = new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow };

@@ -1,4 +1,5 @@
 using System.Windows;
+using IcarusStarlink.Core.Library;
 
 namespace IcarusStarlink.App.Views;
 
@@ -6,6 +7,7 @@ public partial class NewModDialog : Window
 {
     public string ModName { get; private set; } = "";
     public string ModAuthor { get; private set; } = "";
+    public ModTemplate SelectedTemplate { get; private set; } = ModTemplate.Blank;
 
     public NewModDialog()
     {
@@ -23,6 +25,11 @@ public partial class NewModDialog : Window
 
         ModName = NameBox.Text.Trim();
         ModAuthor = AuthorBox.Text.Trim();
+        SelectedTemplate = CraftableRadio.IsChecked == true
+            ? ModTemplate.CraftableOrDeployableItem
+            : ConsumableRadio.IsChecked == true
+                ? ModTemplate.ConsumableItem
+                : ModTemplate.Blank;
         DialogResult = true;
     }
 

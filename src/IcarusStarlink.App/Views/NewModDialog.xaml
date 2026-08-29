@@ -4,19 +4,31 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         mc:Ignorable="d"
-        Title="New mod" SizeToContent="Height" Width="380" ResizeMode="NoResize"
+        Title="New mod" SizeToContent="Height" Width="420" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource ContentBackgroundBrush}">
 
     <StackPanel Margin="20">
-        <TextBlock Text="Creates a blank EXMOD with no fields yet, then opens it in the editor."
-                   Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,16"/>
-
         <TextBlock Text="Name" Style="{StaticResource FieldLabelStyle}"/>
         <TextBox x:Name="NameBox" Margin="0,4,0,12"/>
 
         <TextBlock Text="Author" Style="{StaticResource FieldLabelStyle}"/>
         <TextBox x:Name="AuthorBox" Margin="0,4,0,16"/>
+
+        <TextBlock Text="Starting point" Style="{StaticResource FieldLabelStyle}"/>
+        <!--
+        The two real templates are classic IMM's own official Blank_Craftable_Item/
+        Blank_Consumable_Item.EXMODZ (Jimk72's own GitHub) — a genuinely complete, working item
+        skeleton reusing real vanilla assets, not an invented starting point.
+        -->
+        <RadioButton x:Name="BlankRadio" GroupName="Template" IsChecked="True" Margin="0,6,0,0"
+                     Content="Blank — no fields yet, build it up by hand"/>
+        <RadioButton x:Name="CraftableRadio" GroupName="Template" Margin="0,6,0,0"
+                     Content="Craftable / deployable item"
+                     ToolTip="A complete placeable/craftable item skeleton (recipe, mesh, icon, all reusing a real vanilla campfire's own assets as placeholders) — the same official template classic IMM itself ships."/>
+        <RadioButton x:Name="ConsumableRadio" GroupName="Template" Margin="0,6,0,16"
+                     Content="Consumable / meta item"
+                     ToolTip="A complete craftable consumable item skeleton (recipe, icon, byproducts) reusing a real vanilla crate icon as a placeholder — the same official template classic IMM itself ships."/>
 
         <TextBlock x:Name="ErrorText" Foreground="#E05555" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap" Visibility="Collapsed"/>
 

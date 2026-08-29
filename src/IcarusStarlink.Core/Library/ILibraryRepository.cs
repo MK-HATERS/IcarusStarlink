@@ -74,12 +74,14 @@ public interface ILibraryRepository
     string? TryGetLatestModBackupPath(string folderName);
 
     /// <summary>
-    /// Creates a genuinely new mod — an empty EXMOD (no Rows yet) under a fresh Extracted_Mods
-    /// folder — for the "New mod…" action, which doesn't read from an existing folder/zip the way
-    /// every other Import does. name becomes both the display Name and (sanitized) the EXMOD's own
-    /// FileName/folder name; author is required (an empty EXMOD still needs valid header fields).
+    /// Creates a genuinely new mod under a fresh Extracted_Mods folder — for the "New mod…" action,
+    /// which doesn't read from an existing folder/zip the way every other Import does. name becomes
+    /// both the display Name and (sanitized) the EXMOD's own FileName/folder name; author is
+    /// required (an empty EXMOD still needs valid header fields). template picks the starting
+    /// content: Blank is an EXMOD with no Rows yet (this method's original behavior); the other two
+    /// pre-fill a real, complete starting item — see ModTemplate's own doc comment.
     /// </summary>
-    LibraryEntry CreateBlankMod(string name, string author);
+    LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank);
 
     IReadOnlyList<string> ListAssetPaths(string folderName);
 
