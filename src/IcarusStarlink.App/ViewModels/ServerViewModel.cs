@@ -214,6 +214,15 @@ public sealed partial class ServerViewModel : ObservableObject
         {
             Id = id, Name = SiteNameInput, Host = HostInput, Port = port, Username = UsernameInput,
             RemotePath = RemotePathInput, EncryptionMode = EncryptionModeInput,
+            // Neither field has a UI of its own to edit — both are learned elsewhere (a real
+            // certificate-trust prompt during Connect; a real delete attempt against the server)
+            // and would otherwise be silently wiped back to "never tested" every time this form
+            // saves any OTHER field (e.g. a corrected RemotePath), forcing the trust prompt again
+            // or losing the known delete-support state for no reason tied to what was actually
+            // edited. Only applies when editing the SAME already-saved site — a brand-new site has
+            // no prior state to carry forward.
+            TrustedCertificateThumbprint = SelectedSite?.Id == id ? SelectedSite.TrustedCertificateThumbprint : null,
+            SupportsDelete = SelectedSite?.Id == id ? SelectedSite.SupportsDelete : null,
         };
 
         try
@@ -242,7 +251,7 @@ public sealed partial class ServerViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void DeleteSite()
+    private async Task DeleteSiteAsync()
     {
         if (SelectedSite is not { } site)
         {
@@ -261,6 +270,15 @@ public sealed partial class ServerViewModel : ObservableObject
         if (!(confirm))
         {
             return;
+        }
+
+        // A live connection to the very site being deleted would otherwise dangle: _connectedClient
+        // stays connected and every Upload/Download/Delete action keeps working against it, but
+        // SelectedSite is about to be cleared by NewSite() below, so the UI would show "Connected"
+        // next to a blank site form with no way to tell which server it's still talking to.
+        if (IsConnected && SelectedSite?.Id == site.Id)
+        {
+            await DisconnectAsync();
         }
 
         try
