@@ -19,6 +19,7 @@ using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.Diffing;
+using IcarusStarlink.PakIO.Assets;
 using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
@@ -38,6 +39,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IUe4ssLoaderInstallService _ue4ssLoaderInstallService;
     private readonly ISettingsService _settingsService;
     private readonly IUnrealPakService _unrealPakService;
+    private readonly IUassetTextureDecoder _uassetTextureDecoder;
     private readonly INexusApiClient _nexusApiClient;
     private readonly ICredentialStore _credentialStore;
     private readonly Func<string, ExmodEditorViewModel> _editorFactory;
@@ -222,7 +224,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     public LibraryViewModel(
         ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
         IUe4ssModMetaStore ue4ssModMetaStore, IUe4ssLoaderInstallService ue4ssLoaderInstallService,
-        ISettingsService settingsService, IUnrealPakService unrealPakService, INexusApiClient nexusApiClient,
+        ISettingsService settingsService, IUnrealPakService unrealPakService, IUassetTextureDecoder uassetTextureDecoder,
+        INexusApiClient nexusApiClient,
         ICredentialStore credentialStore,
         Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
         IPendingDownloadStore pendingDownloadStore, IModVersionComparer modVersionComparer,
@@ -249,6 +252,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         _ue4ssLoaderInstallService = ue4ssLoaderInstallService;
         _settingsService = settingsService;
         _unrealPakService = unrealPakService;
+        _uassetTextureDecoder = uassetTextureDecoder;
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
         _editorFactory = editorFactory;
@@ -1924,7 +1928,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         // tree until some unrelated change (a search edit, a delete) happens to trigger the next
         // Reload().
         var created = new LibraryItemViewModel(
-            entry, _repository, _unrealPakService, _settingsService, _nexusApiClient, _credentialStore,
+            entry, _repository, _unrealPakService, _uassetTextureDecoder, _settingsService, _nexusApiClient, _credentialStore,
             _downloadHttpClient, _thumbnailCacheDirectory, Downloads.GetOrFetchCatalogAsync,
             status => StatusMessage = status, () => Reload());
         _itemsByFolderName[entry.FolderName] = created;

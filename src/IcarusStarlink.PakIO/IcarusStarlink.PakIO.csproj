@@ -8,6 +8,15 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
     <PackageReference Include="SharpCompress" Version="1.0.0" />
+    <!-- Real UE4.27 asset parsing for CueUassetTextureDecoder — confirmed via a real prototype
+         against the user's own mod files that a mod's loose bundled .uasset/.uexp/.ubulk textures
+         decode correctly with no mappings (.usmap) file and no Oodle native DLL needed. -->
+    <PackageReference Include="CUE4Parse" Version="1.2.2.202608" />
+    <PackageReference Include="CUE4Parse-Conversion" Version="1.2.2.202608" />
+    <!-- CUE4Parse-Conversion transitively pulls Microsoft.Bcl.Memory 9.0.0, which NuGet flags
+         with a known high-severity advisory (GHSA-73j8-2gch-69rq) — pinned up to a patched
+         version directly rather than accepting the transitive one. -->
+    <PackageReference Include="Microsoft.Bcl.Memory" Version="10.0.11" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -23,6 +23,7 @@ using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Skins;
 using IcarusStarlink.Core.Steam;
 using IcarusStarlink.Core.Ue4ss;
+using IcarusStarlink.PakIO.Assets;
 using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Import;
@@ -158,6 +159,7 @@ public partial class App : Application
                 sp.GetRequiredService<ILogger<PendingDownloadStore>>()));
         builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
         builder.Services.AddSingleton<IUnrealPakService, UnrealPakService>();
+        builder.Services.AddSingleton<IUassetTextureDecoder, CueUassetTextureDecoder>();
         builder.Services.AddSingleton<IWeeklyChangeReportStore>(sp =>
             new WeeklyChangeReportStore(
                 Path.Combine(appDataDirectory, "Cache"),
@@ -229,6 +231,7 @@ public partial class App : Application
             sp.GetRequiredService<IUe4ssLoaderInstallService>(),
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUnrealPakService>(),
+            sp.GetRequiredService<IUassetTextureDecoder>(),
             sp.GetRequiredService<INexusApiClient>(),
             sp.GetRequiredService<ICredentialStore>(),
             sp.GetRequiredService<Func<string, ExmodEditorViewModel>>(),

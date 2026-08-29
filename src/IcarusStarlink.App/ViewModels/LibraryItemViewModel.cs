@@ -11,6 +11,7 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.PakIO.Assets;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Pak;
@@ -24,6 +25,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     private readonly ILibraryRepository _repository;
     private readonly IUnrealPakService _unrealPakService;
+    private readonly IUassetTextureDecoder _uassetTextureDecoder;
     private readonly ISettingsService _settingsService;
     private readonly INexusApiClient _nexusApiClient;
     private readonly ICredentialStore _credentialStore;
@@ -34,6 +36,11 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     private readonly Action _onPinnedChanged;
     private readonly DebounceTimer _notesSaveDebounceTimer;
     private bool _detailsLoaded;
+
+    /// <summary>Bumped every time SelectedAssetPath changes — a .uasset decode runs on a background
+    /// thread, and this lets a stale decode's result be discarded if the user selects something
+    /// else before it finishes, instead of overwriting whatever the user is now looking at.</summary>
+    private int _assetPreviewGeneration;
 
     public string FolderName { get; }
 
@@ -328,12 +335,14 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     private BitmapImage? _thumbnailImage;
 
     public LibraryItemViewModel(
-        LibraryEntry entry, ILibraryRepository repository, IUnrealPakService unrealPakService, ISettingsService settingsService,
+        LibraryEntry entry, ILibraryRepository repository, IUnrealPakService unrealPakService,
+        IUassetTextureDecoder uassetTextureDecoder, ISettingsService settingsService,
         INexusApiClient nexusApiClient, ICredentialStore credentialStore, HttpClient httpClient, string thumbnailCacheDirectory,
         Func<Task<IReadOnlyList<CatalogEntry>>> getOrFetchCatalog, Action<string> reportStatus, Action onPinnedChanged)
     {
         _repository = repository;
         _unrealPakService = unrealPakService;
+        _uassetTextureDecoder = uassetTextureDecoder;
         _settingsService = settingsService;
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
@@ -478,6 +487,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     partial void OnSelectedAssetPathChanged(string? value)
     {
         SelectedAssetImage = null;
+        _assetPreviewGeneration++;
+        var generation = _assetPreviewGeneration;
 
         if (value is null)
         {
@@ -508,6 +519,13 @@ public sealed partial class LibraryItemViewModel : ObservableObject
                 return;
             }
 
+            if (string.Equals(Path.GetExtension(value), ".uasset", StringComparison.OrdinalIgnoreCase))
+            {
+                SelectedAssetPreview = "Decoding this asset...";
+                _ = DecodeCompiledAssetPreviewAsync(value, generation);
+                return;
+            }
+
             SelectedAssetPreview = LooksLikeText(bytes)
                 ? System.Text.Encoding.UTF8.GetString(bytes)
                 : $"(binary file — {bytes.Length:N0} bytes, no preview)";
@@ -521,6 +539,47 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             // crash the app out of a binding-driven property setter.
             SelectedAssetPreview = $"(failed to read this file: {ex.Message})";
             _reportStatus($"Preview failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// A .uasset is compiled Unreal binary, not something the flat-image/text branches above can
+    /// show — this decodes it as a real Unreal texture via CUE4Parse when possible. Runs off the
+    /// UI thread since indexing the mod's own asset folder and decoding BC-compressed pixel data
+    /// both take real time; the generation check discards a stale result if the user has already
+    /// selected something else by the time it finishes.
+    /// </summary>
+    private async Task DecodeCompiledAssetPreviewAsync(string relativeAssetPath, int generation)
+    {
+        string modFolderPath;
+        try
+        {
+            modFolderPath = _repository.GetFolderPath(FolderName);
+        }
+        catch (Exception ex)
+        {
+            if (generation == _assetPreviewGeneration)
+            {
+                SelectedAssetPreview = $"(failed to read this file: {ex.Message})";
+            }
+            return;
+        }
+
+        var pngBytes = await Task.Run(() => _uassetTextureDecoder.TryDecodeToPng(modFolderPath, relativeAssetPath));
+
+        if (generation != _assetPreviewGeneration)
+        {
+            return;
+        }
+
+        if (pngBytes is not null && TryDecodeImage(pngBytes) is { } image)
+        {
+            SelectedAssetImage = image;
+            SelectedAssetPreview = null;
+        }
+        else
+        {
+            SelectedAssetPreview = "(compiled Unreal asset — not a texture, or couldn't be decoded — no preview available)";
         }
     }
 
