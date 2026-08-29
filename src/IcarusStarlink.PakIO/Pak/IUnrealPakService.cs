@@ -60,6 +60,19 @@ public interface IUnrealPakService
     /// convention as the other methods here.
     /// </summary>
     Task<int> ExtractPakAsync(string unrealPakExePath, string pakFilePath, string outputDirectory, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// UnrealPak's own real internal integrity check (`-Verify`), confirmed live against both a
+    /// healthy real pak and a deliberately byte-corrupted copy: it re-checks every packed file's
+    /// own hash, not just whether the file is present — a stronger signal than this app's own
+    /// "did every staged file make it into the pak" presence-only check
+    /// (RebuildService.VerifyEveryStagedFileWasActuallyPackedAsync). Unlike the other methods here,
+    /// a pak failing this check is a normal, expected OUTCOME to report, not a tool failure to
+    /// throw for — only a missing exe/pak file, or UnrealPak itself failing to run at all, throws.
+    /// </summary>
+    Task<PakVerifyResult> VerifyPakAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default);
 }
 
 public sealed record UnrealPakExtractResult(int ExtractedFileCount, WeeklyChangeReport? ChangeReport);
+
+public sealed record PakVerifyResult(bool IsHealthy, string Message);

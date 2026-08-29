@@ -121,17 +121,17 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     partial void OnConflictCountChanged(int value) => OnPropertyChanged(nameof(HasConflicts));
 
-    // --- Field validity ("will this actually do anything in-game") ---
+    // --- Mod validation ("will this actually do anything in-game") ---
     [ObservableProperty]
-    private string? _fieldIssueStatusMessage;
+    private string? _validationStatusMessage;
 
-    /// <summary>Proactive badge on the queue, recomputed in the background whenever Queue changes — same shape as ConflictCount, but flags a mod setting a field name/type that isn't real in the currently-extracted game data (the merge and pak build both succeed either way, but the game's own importer silently ignores an unrecognized field, so the edit does nothing in-game).</summary>
+    /// <summary>Proactive badge on the queue, recomputed in the background whenever Queue changes — same shape as ConflictCount, but flags a mod setting a field name/type or a reference that isn't real in the currently-extracted game data (the merge and pak build both succeed either way, but the game's own importer silently ignores what it doesn't recognize, so the edit does nothing in-game).</summary>
     [ObservableProperty]
-    private int _fieldIssueCount;
+    private int _validationIssueCount;
 
-    public bool HasFieldIssues => FieldIssueCount > 0;
+    public bool HasValidationIssues => ValidationIssueCount > 0;
 
-    partial void OnFieldIssueCountChanged(int value) => OnPropertyChanged(nameof(HasFieldIssues));
+    partial void OnValidationIssueCountChanged(int value) => OnPropertyChanged(nameof(HasValidationIssues));
 
     // --- Profile bar (6.3) ---
     public ObservableCollection<string> ProfileNames { get; } = [];
@@ -321,11 +321,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             OnPropertyChanged(nameof(HasQueuedMods));
             OnPropertyChanged(nameof(IsQueueEmpty));
 
-            // Field-validity findings only ever depend on which mods are queued (unlike conflicts,
+            // Validation findings only ever depend on which mods are queued (unlike conflicts,
             // which also depend on gameplay options), so this recomputes on Queue changes only —
             // not from every gameplay-option toggle the way InvalidateManualPicks does.
-            FieldIssueStatusMessage = null;
-            _ = RecomputeFieldIssueCountAsync();
+            ValidationStatusMessage = null;
+            _ = RecomputeValidationIssueCountAsync();
         };
 
         // Without this, the Install/"Update install" label goes stale after the user changes the
@@ -350,7 +350,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // only after some LATER Add/Remove. One explicit recompute here, once the queue has fully
         // settled, covers exactly that gap without reordering the subscription itself.
         _ = RecomputeConflictCountAsync();
-        _ = RecomputeFieldIssueCountAsync();
+        _ = RecomputeValidationIssueCountAsync();
     }
 
     /// <summary>
@@ -1513,109 +1513,137 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Shared by ReviewFieldIssuesAsync and the background badge computation. Deliberately scoped
-    /// to only the real EXMOD mods in the queue (LoadQueuedPackagesAsync's own Packages) — an
-    /// attached prebuilt pak's own compiled DataTable JSON was already written by whatever tool
-    /// built that pak, not authored here, and the built-in gameplay options write hardcoded,
-    /// app-defined field names that already have their own dedicated "zero rows matched" warning
-    /// in GameplayOptionsApplier, so re-checking either through this general-purpose path would be
-    /// redundant, not a gap.
+    /// Shared by ReviewValidationIssuesAsync and the background badge computation. Runs three
+    /// checks over the queue, all answering the same real underlying question ("will this actually
+    /// do something in-game") from a different angle, combined into one report rather than three
+    /// near-identical warning strips in this page: ExmodFieldValidityChecker ("is this field
+    /// name/type real", per mod), ExmodReferenceChecker ("does this reference point at something
+    /// real", per mod), and ExmodAssetCollisionChecker ("do two queued mods silently overwrite each
+    /// other's binary asset", across the whole queue — unlike the other two, this one only makes
+    /// sense computed once over every mod together, not mod-by-mod).
+    ///
+    /// Deliberately scoped to only the real EXMOD mods in the queue (LoadQueuedPackagesAsync's own
+    /// Packages) — an attached prebuilt pak's own compiled DataTable JSON was already written by
+    /// whatever tool built that pak, not authored here, and the built-in gameplay options write
+    /// hardcoded, app-defined field names that already have their own dedicated "zero rows
+    /// matched" warning in GameplayOptionsApplier, so re-checking either through this
+    /// general-purpose path would be redundant, not a gap.
     /// </summary>
-    private async Task<IReadOnlyList<(string ModName, ExmodFieldValidityChecker.InvalidField Finding)>> FindQueueFieldIssuesAsync()
+    private async Task<IReadOnlyList<ValidationIssueRowViewModel>> FindQueueValidationIssuesAsync()
     {
         var (entries, packages, _) = await LoadQueuedPackagesAsync();
 
         return await Task.Run(() =>
         {
             var schemaCache = new Dictionary<string, Dictionary<string, System.Text.Json.JsonValueKind>?>();
-            var findings = new List<(string, ExmodFieldValidityChecker.InvalidField)>();
+            var referenceIndex = DataTableRowIndex.Build(_dataFolder);
+            var rows = new List<ValidationIssueRowViewModel>();
 
             for (var i = 0; i < packages.Count; i++)
             {
                 var modName = entries[i].Name;
-                foreach (var finding in ExmodFieldValidityChecker.Check(packages[i].Package, _dataFolder, schemaCache))
+                var package = packages[i].Package;
+
+                foreach (var finding in ExmodFieldValidityChecker.Check(package, _dataFolder, schemaCache))
                 {
-                    findings.Add((modName, finding));
+                    rows.Add(new ValidationIssueRowViewModel(
+                        "Field", modName, finding.CurrentFile.Replace('-', '/'), finding.ItemName, finding.FieldName, finding.Reason));
+                }
+
+                foreach (var finding in ExmodReferenceChecker.Check(package, _dataFolder, referenceIndex))
+                {
+                    rows.Add(new ValidationIssueRowViewModel(
+                        "Reference", modName, finding.CurrentFile.Replace('-', '/'), finding.ItemName, finding.FieldPath, finding.Reason));
                 }
             }
 
-            return (IReadOnlyList<(string, ExmodFieldValidityChecker.InvalidField)>)findings;
+            var queuedForCollisionCheck = entries.Zip(packages, (entry, package) => (entry.Name, package)).ToList();
+            foreach (var collision in ExmodAssetCollisionChecker.Check(queuedForCollisionCheck))
+            {
+                // Last-in-queue-order wins on a literal asset path collision — same convention
+                // RebuildService's own raw-copy-through pass already uses for field conflicts.
+                var reason = collision.AreIdentical
+                    ? $"{collision.ModNames.Count} queued mods bundle this exact same file (byte-identical) — harmless, but worth knowing."
+                    : $"{collision.ModNames.Count} queued mods bundle DIFFERENT versions of this file — '{collision.ModNames[^1]}' silently wins, the others are discarded.";
+                rows.Add(new ValidationIssueRowViewModel(
+                    "Asset collision", string.Join(", ", collision.ModNames), collision.RelativePath, "—", "—", reason));
+            }
+
+            return (IReadOnlyList<ValidationIssueRowViewModel>)rows;
         });
     }
 
-    /// <summary>Guards RecomputeFieldIssueCountAsync the same way _conflictCountVersion guards its own sibling — see that field's own comment for why.</summary>
-    private int _fieldIssueCountVersion;
+    /// <summary>Guards RecomputeValidationIssueCountAsync the same way _conflictCountVersion guards its own sibling — see that field's own comment for why.</summary>
+    private int _validationIssueCountVersion;
 
-    /// <summary>Best-effort background refresh of FieldIssueCount — a malformed queued mod here just leaves the badge at its last value; ReviewFieldIssuesAsync surfaces the real error when the user actually acts.</summary>
-    private async Task RecomputeFieldIssueCountAsync()
+    /// <summary>Best-effort background refresh of ValidationIssueCount — a malformed queued mod here just leaves the badge at its last value; ReviewValidationIssuesAsync surfaces the real error when the user actually acts.</summary>
+    private async Task RecomputeValidationIssueCountAsync()
     {
-        var version = ++_fieldIssueCountVersion;
+        var version = ++_validationIssueCountVersion;
 
         if (Queue.Count == 0)
         {
-            FieldIssueCount = 0;
+            ValidationIssueCount = 0;
             return;
         }
 
         try
         {
-            var findings = await FindQueueFieldIssuesAsync();
-            if (version == _fieldIssueCountVersion)
+            var rows = await FindQueueValidationIssuesAsync();
+            if (version == _validationIssueCountVersion)
             {
-                FieldIssueCount = findings.Count;
+                ValidationIssueCount = rows.Count;
             }
         }
         catch (Exception)
         {
-            if (version == _fieldIssueCountVersion)
+            if (version == _validationIssueCountVersion)
             {
-                FieldIssueCount = 0;
+                ValidationIssueCount = 0;
             }
         }
     }
 
     /// <summary>
-    /// Checks every queued mod's own declared fields against the currently-extracted real game
-    /// data and opens a read-only report of anything that looks wrong — a field name that isn't
-    /// real (typo, or renamed/removed by a game update) or a value whose JSON type doesn't match
-    /// what that field normally holds. Neither failure mode makes the merge or the pak build fail;
-    /// Icarus's own DataTable importer just silently ignores what it doesn't recognize, so this is
-    /// the one place this app can tell you before you install that a change is quietly going to do
-    /// nothing in-game.
+    /// Checks every queued mod's own declared fields and references against the currently-
+    /// extracted real game data and opens a read-only report of anything that looks wrong — a
+    /// field name that isn't real (typo, or renamed/removed by a game update), a value whose JSON
+    /// type doesn't match what that field normally holds, or a reference (e.g. a recipe input)
+    /// pointing at a row that doesn't exist. None of these make the merge or the pak build fail;
+    /// Icarus's own importer just silently ignores what it doesn't recognize, so this is the one
+    /// place this app can tell you before you install that a change is quietly going to do nothing
+    /// in-game.
     /// </summary>
     [RelayCommand]
-    private async Task ReviewFieldIssuesAsync()
+    private async Task ReviewValidationIssuesAsync()
     {
         if (Queue.Count == 0)
         {
-            FieldIssueStatusMessage = "Add mods to the queue first.";
+            ValidationStatusMessage = "Add mods to the queue first.";
             return;
         }
 
         try
         {
-            var findings = await FindQueueFieldIssuesAsync();
-            FieldIssueCount = findings.Count;
+            var rows = await FindQueueValidationIssuesAsync();
+            ValidationIssueCount = rows.Count;
 
-            if (findings.Count == 0)
+            if (rows.Count == 0)
             {
-                FieldIssueStatusMessage = $"No field issues found among {Queue.Count} queued mod(s).";
+                ValidationStatusMessage = $"No issues found among {Queue.Count} queued mod(s).";
                 return;
             }
 
-            _activityLog.Log($"{findings.Count} field issue(s) found among {Queue.Count} queued mod(s).", ActivityEntryKind.Warning);
-            FieldIssueStatusMessage = $"{findings.Count} field issue(s) found — see the report window.";
+            _activityLog.Log($"{rows.Count} validation issue(s) found among {Queue.Count} queued mod(s).", ActivityEntryKind.Warning);
+            ValidationStatusMessage = $"{rows.Count} issue(s) found — see the report window.";
 
-            var rows = findings
-                .Select(f => new FieldIssueRowViewModel(f.ModName, f.Finding.CurrentFile.Replace('-', '/'), f.Finding.ItemName, f.Finding.FieldName, f.Finding.Reason))
-                .ToList();
-            var window = new FieldIssueReportWindow(rows) { Owner = Application.Current.MainWindow };
+            var window = new ValidationIssueReportWindow(rows) { Owner = Application.Current.MainWindow };
             window.Show();
         }
         catch (Exception ex)
         {
             // Same UI boundary as ReviewConflictsAsync — a malformed queued mod shouldn't crash the app.
-            FieldIssueStatusMessage = $"Couldn't check field validity: {ex.Message}";
+            ValidationStatusMessage = $"Couldn't validate mods: {ex.Message}";
         }
     }
 

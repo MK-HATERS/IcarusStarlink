@@ -131,6 +131,12 @@ public class RebuildServiceTests : IDisposable
 
             return Task.FromResult(StagedRelativePathsAtCallTime.Count);
         }
+
+        /// <summary>Null (the default) simulates a healthy pak — set by a test that wants to exercise RebuildAsync's own corrupted-pak warning path instead.</summary>
+        public PakVerifyResult? SimulatedVerifyResult { get; set; }
+
+        public Task<PakVerifyResult> VerifyPakAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult(SimulatedVerifyResult ?? new PakVerifyResult(IsHealthy: true, "healthy, 0 files checked"));
     }
 
     [Fact]
@@ -161,6 +167,41 @@ public class RebuildServiceTests : IDisposable
         var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
 
         Assert.Contains(result.Warnings, w => w.Contains("didn't make it into the final pak") && w.Contains("data/Crafting/D_ProcessorRecipes.json"));
+    }
+
+    [Fact]
+    public async Task RebuildAsync_UnrealPakReportsTheBuiltPakAsCorrupted_WarnsInsteadOfSilentlyInstalling()
+    {
+        // UnrealPak's own real -Verify integrity check (confirmed live against a real binary, both
+        // a healthy pak and a deliberately byte-corrupted copy) is a stronger signal than this
+        // app's own "did every staged file make it in" presence-only check — a build that packs
+        // every file but still comes out corrupted (a truncated write, a disk error mid-Create)
+        // must still surface as a real warning, not silently look like a clean success.
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var pakService = new FakeUnrealPakService
+        {
+            SimulatedVerifyResult = new PakVerifyResult(IsHealthy: false, "corrupted (1 errors out of 1 files checked)"),
+        };
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        Assert.Contains(result.Warnings, w => w.Contains("corrupted") && w.Contains("1 errors out of 1 files checked"));
+    }
+
+    [Fact]
+    public async Task RebuildAsync_UnrealPakReportsTheBuiltPakAsHealthy_NoWarning()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var service = new RebuildService(new FakeUnrealPakService());
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        Assert.DoesNotContain(result.Warnings, w => w.Contains("corrupted"));
     }
 
     [Fact]
@@ -204,31 +245,34 @@ public class RebuildServiceTests : IDisposable
         // UnrealPak's mount-point fold with a fuzzy `staged.EndsWith(packed)` suffix check, which
         // can mask a genuinely dropped file whenever some OTHER, still-present staged file's own
         // reported (post-fold) name happens to be an exact trailing substring of the dropped one's
-        // full path. Here "data/Icons/Icon.png" (present) folds down to "Icons/Icon.png" once the
-        // shared "data/" prefix strips away — which is also the exact tail of
-        // "data/Prebuilt/Icons/Icon.png" (genuinely dropped). The old EndsWith check would have
+        // full path. Here "data/Icons/Icon.uasset" (present) folds down to "Icons/Icon.uasset" once
+        // the shared "data/" prefix strips away — which is also the exact tail of
+        // "data/Prebuilt/Icons/Icon.uasset" (genuinely dropped). The old EndsWith check would have
         // wrongly treated the dropped file as present. The exact, mutually-derived fold this was
         // replaced with does not: the two staged asset paths only share ONE leading segment
-        // ("data"), so folding just that one leaves "Prebuilt/Icons/Icon.png" for the dropped file
-        // — a form that never appears in the real packed set at all.
+        // ("data"), so folding just that one leaves "Prebuilt/Icons/Icon.uasset" for the dropped
+        // file — a form that never appears in the real packed set at all. A real .uasset extension
+        // is used here (not .png, as an earlier version of this test did) so GameAssetExtensions'
+        // own real-game-asset filtering doesn't strip these out of staging before this check ever
+        // gets a chance to run.
         WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
         var mod = MakeMod("Icon Mod", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
             new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) },
             assets:
             [
-                new ExmodAssetEntry("data/Icons/Icon.png", [1]),
-                new ExmodAssetEntry("data/Prebuilt/Icons/Icon.png", [2]),
+                new ExmodAssetEntry("data/Icons/Icon.uasset", [1]),
+                new ExmodAssetEntry("data/Prebuilt/Icons/Icon.uasset", [2]),
             ]);
         var pakService = new FakeUnrealPakService
         {
             SharedPrefixUnrealPakFoldsIntoMountPoint = "data/",
-            RelativePathToPretendUnrealPakDropped = "data/Prebuilt/Icons/Icon.png",
+            RelativePathToPretendUnrealPakDropped = "data/Prebuilt/Icons/Icon.uasset",
         };
         var service = new RebuildService(pakService);
 
         var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
 
-        Assert.Contains(result.Warnings, w => w.Contains("1 file(s) were staged for packing") && w.Contains("data/Prebuilt/Icons/Icon.png"));
+        Assert.Contains(result.Warnings, w => w.Contains("1 file(s) were staged for packing") && w.Contains("data/Prebuilt/Icons/Icon.uasset"));
     }
 
     [Fact]
@@ -384,6 +428,33 @@ public class RebuildServiceTests : IDisposable
 
         // 1 merged data file + 1 asset file = 2 staged files.
         Assert.Equal(2, result.PackedFileCount);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_ModAssetsIncludeAReadmeAndThumbnail_OnlyRealGameAssetsAreStaged()
+    {
+        // Real gap found live: StageAssets used to pack EVERY entry in a mod's own Assets list
+        // unconditionally, including a Readme.txt and the "ImageOnly.png" thumbnail this app's own
+        // Library reads for display — pure wasted space in the real merged pak, and (confirmed
+        // against the user's own real 49-mod library) prone to silently colliding between
+        // unrelated mods that happen to share a generic filename like "Readme.txt".
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Mod", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) },
+            assets:
+            [
+                new ExmodAssetEntry("BP/Thing.uasset", [1]),
+                new ExmodAssetEntry("Readme.txt", [2]),
+                new ExmodAssetEntry("ImageOnly.png", [3]),
+            ]);
+        var pakService = new FakeUnrealPakService();
+        var service = new RebuildService(pakService);
+
+        await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        Assert.Contains("BP/Thing.uasset", pakService.StagedRelativePathsAtCallTime);
+        Assert.DoesNotContain("Readme.txt", pakService.StagedRelativePathsAtCallTime);
+        Assert.DoesNotContain("ImageOnly.png", pakService.StagedRelativePathsAtCallTime);
     }
 
     [Fact]

@@ -206,6 +206,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                     .ToList();
                 var packedFileCount = await unrealPakService.CreatePakAsync(unrealPakExePath, stagingDirectory, outputPakPath, cancellationToken);
                 await VerifyEveryStagedFileWasActuallyPackedAsync(unrealPakExePath, outputPakPath, stagedRelativePaths, report, cancellationToken);
+                await VerifyPakIntegrityAsync(unrealPakExePath, outputPakPath, report, cancellationToken);
                 var manifestPath = WriteManifest(queuedMods, prebuiltPakFilePaths, outputPakPath);
 
                 progress?.Report(new RebuildStageProgress("Done.", 100));
@@ -420,6 +421,32 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     }
 
     /// <summary>
+    /// UnrealPak's own real internal integrity check (`-Verify`), confirmed live against a real
+    /// pak and a deliberately byte-corrupted copy — a stronger, complementary signal to
+    /// VerifyEveryStagedFileWasActuallyPackedAsync above: that one confirms every staged file is
+    /// PRESENT; this one confirms the bytes UnrealPak actually wrote for each one still hash-check
+    /// correctly, catching a corruption class presence-checking alone never could (a truncated
+    /// write, a disk error mid-Create). Same "warn, never throw" contract as its sibling — a failed
+    /// verification pass must never make an otherwise-successful Rebuild look like it failed
+    /// outright.
+    /// </summary>
+    private async Task VerifyPakIntegrityAsync(string unrealPakExePath, string outputPakPath, MergeReport report, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await unrealPakService.VerifyPakAsync(unrealPakExePath, outputPakPath, cancellationToken);
+            if (!result.IsHealthy)
+            {
+                report.AddWarning($"UnrealPak.exe itself reports this pak as corrupted: {result.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            report.AddWarning($"Couldn't independently verify the pak's own integrity after building it: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// The longest run of leading "/"-delimited segments shared by every path in the set — the
     /// same fold UnrealPak's own mount-point inference would compute from its own real algorithm
     /// (the longest common prefix across every packed entry). Capped at one less than the shortest
@@ -460,6 +487,14 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     /// extracted folders — e.g. "BP/Building/BP_Building_Beam.uasset", no per-mod prefix), so
     /// they're staged as-is. Later mods in the queue win on a literal path collision — same
     /// last-write-wins default the field-conflict resolution already uses.
+    ///
+    /// Only real compiled Unreal assets (GameAssetExtensions.IsRealGameAsset) are actually staged —
+    /// a mod's own Assets list can legitimately also contain a Readme.txt or an "ImageOnly.png"
+    /// thumbnail this app's own Library reads for display, and packing those into the real merged
+    /// pak was pure wasted space Icarus's engine never reads. Found live: several completely
+    /// unrelated real mods share generic filenames like "Banner.PNG"/"Readme.txt" that were
+    /// silently overwriting each other in every merged pak this app has ever built, for content
+    /// that did nothing either way.
     /// </summary>
     private static void StageAssets(IReadOnlyList<ExmodPackageContents> queuedMods, string stagingDirectory)
     {
@@ -467,6 +502,11 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         {
             foreach (var asset in mod.Assets)
             {
+                if (!GameAssetExtensions.IsRealGameAsset(asset.RelativePath))
+                {
+                    continue;
+                }
+
                 var destPath = Path.Combine(stagingDirectory, asset.RelativePath);
                 Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
                 File.WriteAllBytes(destPath, asset.Content);

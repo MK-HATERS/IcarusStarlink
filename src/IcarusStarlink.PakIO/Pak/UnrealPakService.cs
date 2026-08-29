@@ -221,6 +221,37 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         return result.StandardOutput.Split('\n').Count(line => line.Contains("LogPakFile: Display: Extracted \"", StringComparison.Ordinal));
     }
 
+    // Confirmed live against the real binary — a healthy pak's summary line reads exactly
+    // `Pak file "<path>" healthy, 1515 files checked.`; a corrupted one reads
+    // `Pak file "<path>" corrupted (1 errors out of 1515 files checked.).` — the group captured
+    // here is everything after the quoted pak path, which is the part actually worth surfacing.
+    private static readonly Regex VerifySummaryPattern = new(
+        """^LogPakFile: Display: Pak file "[^"]+" (?<summary>.+)$""", RegexOptions.Compiled | RegexOptions.Multiline);
+
+    public async Task<PakVerifyResult> VerifyPakAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default)
+    {
+        ValidateUnrealPakExePath(unrealPakExePath);
+        if (!File.Exists(pakFilePath))
+        {
+            throw new FileNotFoundException($"'{pakFilePath}' doesn't exist.");
+        }
+
+        var result = await processRunner.RunAsync(unrealPakExePath, [pakFilePath, "-Verify"], cancellationToken);
+
+        // Unlike every other method here, a non-zero exit code from -Verify specifically (confirmed
+        // live: exit code 1 against a deliberately byte-corrupted real pak) means "the pak is
+        // corrupt", a real, expected OUTCOME to report back — not a tool failure to throw for.
+        var isHealthy = result.ExitCode == 0;
+        var summaryMatch = VerifySummaryPattern.Match(result.StandardOutput);
+        var message = summaryMatch.Success
+            ? summaryMatch.Groups["summary"].Value.TrimEnd('.')
+            : (isHealthy
+                ? "Pak file healthy."
+                : $"UnrealPak.exe exited with code {result.ExitCode}: {(string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError)}");
+
+        return new PakVerifyResult(isHealthy, message);
+    }
+
     private static string ResolveDataPakPath(string unrealPakExePath, string icarusContentPath)
     {
         ValidateUnrealPakExePath(unrealPakExePath);

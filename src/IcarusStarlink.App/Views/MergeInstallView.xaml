@@ -124,11 +124,11 @@
                         </TextBlock>
                     </Border>
                     <!-- Same proactive-badge pattern as conflicts, for a different question: not
-                         "do two mods disagree" but "does this mod set a field that isn't real". -->
+                         "do two mods disagree" but "will this mod's own content actually work". -->
                     <Border DockPanel.Dock="Right" Background="{DynamicResource DangerSoftBrush}" CornerRadius="9" Padding="7,1" Margin="0,0,6,0"
-                            Visibility="{Binding HasFieldIssues, Converter={StaticResource BoolToVisibilityConverter}}">
+                            Visibility="{Binding HasValidationIssues, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock FontFamily="Consolas" FontSize="10" Foreground="{DynamicResource DangerBrush}" FontWeight="SemiBold">
-                            <Run Text="{Binding FieldIssueCount, Mode=OneWay}"/><Run Text=" field issue(s)"/>
+                            <Run Text="{Binding ValidationIssueCount, Mode=OneWay}"/><Run Text=" issue(s)"/>
                         </TextBlock>
                     </Border>
                 </DockPanel>
@@ -151,20 +151,20 @@
                             </TextBlock>
                         </DockPanel>
                     </Border>
-                    <!-- Same banner treatment as the conflict one above, for field-validity findings —
+                    <!-- Same banner treatment as the conflict one above, for validation findings —
                          both can show at once (stacked, DockPanel.Dock="Top" on each), since a conflict
-                         and a bad field name are independent problems a queue can have simultaneously. -->
+                         and a validation issue are independent problems a queue can have simultaneously. -->
                     <Border DockPanel.Dock="Top" Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBrush}"
                             BorderThickness="1" CornerRadius="5" Padding="10,7" Margin="0,0,0,8"
-                            Visibility="{Binding HasFieldIssues, Converter={StaticResource BoolToVisibilityConverter}}">
+                            Visibility="{Binding HasValidationIssues, Converter={StaticResource BoolToVisibilityConverter}}">
                         <DockPanel LastChildFill="True">
-                            <Button DockPanel.Dock="Right" Content="Review" Command="{Binding ReviewFieldIssuesCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                    AutomationProperties.Name="Review field issues from banner"/>
+                            <Button DockPanel.Dock="Right" Content="Review" Command="{Binding ReviewValidationIssuesCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                    AutomationProperties.Name="Review validation issues from banner"/>
                             <Path DockPanel.Dock="Left" Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}"
                                   StrokeThickness="1.6" StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Top"/>
                             <TextBlock Margin="0,0,10,0" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Center">
-                                <Run Text="{Binding FieldIssueCount, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"/>
-                                <Run Text=" field issue(s) found — these mods set a field that isn't real, so the change won't do anything in-game."/>
+                                <Run Text="{Binding ValidationIssueCount, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"/>
+                                <Run Text=" issue(s) found — a field that isn't real, a broken reference, or two mods silently overwriting the same asset. See Validate mods below."/>
                             </TextBlock>
                         </DockPanel>
                     </Border>
@@ -234,9 +234,9 @@
                                    Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <Button Content="Check field validity" Command="{Binding ReviewFieldIssuesCommand}"
-                                ToolTip="Checks every queued mod's own fields against the currently-extracted game data — catches a typo'd or renamed field name that would otherwise merge and pack fine but silently do nothing in-game"/>
-                        <TextBlock Text="{Binding FieldIssueStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                        <Button Content="Validate mods" Command="{Binding ReviewValidationIssuesCommand}"
+                                ToolTip="Checks every queued mod's own fields, references, and bundled assets against the currently-extracted game data and each other — catches a typo'd/renamed field, a recipe pointing at an item that doesn't exist, or two mods silently overwriting the same file, any of which would otherwise merge and pack fine but silently not work in-game"/>
+                        <TextBlock Text="{Binding ValidationStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                    Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                     </StackPanel>
                 </StackPanel>
