@@ -1,0 +1,37 @@
+<Window x:Class="IcarusStarlink.App.Views.FieldIssueReportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        mc:Ignorable="d"
+        Title="Field issues" Height="480" Width="920"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock x:Name="HeaderText" Style="{StaticResource PageHeaderStyle}" FontSize="18" TextWrapping="Wrap" Margin="0,0,0,4"/>
+            <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                None of these stop the merge or the pak build from succeeding — Icarus's own importer just silently ignores what it doesn't recognize, so the mod's change quietly does nothing in-game instead. Fix these in the EXMOD editor, then check again.
+            </TextBlock>
+        </StackPanel>
+
+        <DataGrid Grid.Row="1" x:Name="FindingsGrid" IsReadOnly="True" AutoGenerateColumns="False" GridLinesVisibility="Horizontal">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Mod" Binding="{Binding ModName}" Width="170"/>
+                <DataGridTextColumn Header="File" Binding="{Binding File}" Width="210"/>
+                <DataGridTextColumn Header="Item" Binding="{Binding ItemName}" Width="130"/>
+                <DataGridTextColumn Header="Field" Binding="{Binding FieldName}" Width="100"/>
+                <DataGridTextColumn Header="Why" Binding="{Binding Reason}" Width="*" MinWidth="160"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <Button Grid.Row="2" Content="Close" Click="Close_Click" HorizontalAlignment="Right" Margin="0,12,0,0"/>
+    </Grid>
+</Window>

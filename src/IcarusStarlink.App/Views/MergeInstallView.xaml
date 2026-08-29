@@ -123,6 +123,14 @@
                             <Run Text="{Binding ConflictCount, Mode=OneWay}"/><Run Text=" conflict(s)"/>
                         </TextBlock>
                     </Border>
+                    <!-- Same proactive-badge pattern as conflicts, for a different question: not
+                         "do two mods disagree" but "does this mod set a field that isn't real". -->
+                    <Border DockPanel.Dock="Right" Background="{DynamicResource DangerSoftBrush}" CornerRadius="9" Padding="7,1" Margin="0,0,6,0"
+                            Visibility="{Binding HasFieldIssues, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock FontFamily="Consolas" FontSize="10" Foreground="{DynamicResource DangerBrush}" FontWeight="SemiBold">
+                            <Run Text="{Binding FieldIssueCount, Mode=OneWay}"/><Run Text=" field issue(s)"/>
+                        </TextBlock>
+                    </Border>
                 </DockPanel>
 
                 <!-- Phase 10: a banner surfacing conflicts right above the queue, not just a count
@@ -133,12 +141,30 @@
                             BorderThickness="1" CornerRadius="5" Padding="10,7" Margin="0,0,0,8"
                             Visibility="{Binding HasConflicts, Converter={StaticResource BoolToVisibilityConverter}}">
                         <DockPanel LastChildFill="True">
-                            <Button DockPanel.Dock="Right" Content="Review" Command="{Binding ReviewConflictsCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+                            <Button DockPanel.Dock="Right" Content="Review" Command="{Binding ReviewConflictsCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                    AutomationProperties.Name="Review conflicts from banner"/>
                             <Path DockPanel.Dock="Left" Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}"
                                   StrokeThickness="1.6" StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Top"/>
                             <TextBlock Margin="0,0,10,0" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Center">
                                 <Run Text="{Binding ConflictCount, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"/>
                                 <Run Text=" queued mod(s) change the same field differently — Rebuild will use last-mod-wins unless you pick a winner."/>
+                            </TextBlock>
+                        </DockPanel>
+                    </Border>
+                    <!-- Same banner treatment as the conflict one above, for field-validity findings —
+                         both can show at once (stacked, DockPanel.Dock="Top" on each), since a conflict
+                         and a bad field name are independent problems a queue can have simultaneously. -->
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBrush}"
+                            BorderThickness="1" CornerRadius="5" Padding="10,7" Margin="0,0,0,8"
+                            Visibility="{Binding HasFieldIssues, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DockPanel LastChildFill="True">
+                            <Button DockPanel.Dock="Right" Content="Review" Command="{Binding ReviewFieldIssuesCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                    AutomationProperties.Name="Review field issues from banner"/>
+                            <Path DockPanel.Dock="Left" Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}"
+                                  StrokeThickness="1.6" StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Top"/>
+                            <TextBlock Margin="0,0,10,0" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Center">
+                                <Run Text="{Binding FieldIssueCount, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"/>
+                                <Run Text=" field issue(s) found — these mods set a field that isn't real, so the change won't do anything in-game."/>
                             </TextBlock>
                         </DockPanel>
                     </Border>
@@ -200,11 +226,19 @@
                 <Border Grid.Row="3" Style="{StaticResource SectionDividerStyle}" Margin="0,14,0,10"/>
                 <TextBlock Grid.Row="4" Text="Build &amp; install" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8"/>
 
-                <StackPanel Grid.Row="5" Orientation="Horizontal">
-                    <Button Content="Review conflicts" Command="{Binding ReviewConflictsCommand}"
-                            ToolTip="See which fields two or more queued mods both change, and optionally pick a winner per field instead of the default last-mod-wins"/>
-                    <TextBlock Text="{Binding ConflictStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                               Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
+                <StackPanel Grid.Row="5">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Review conflicts" Command="{Binding ReviewConflictsCommand}"
+                                ToolTip="See which fields two or more queued mods both change, and optionally pick a winner per field instead of the default last-mod-wins"/>
+                        <TextBlock Text="{Binding ConflictStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button Content="Check field validity" Command="{Binding ReviewFieldIssuesCommand}"
+                                ToolTip="Checks every queued mod's own fields against the currently-extracted game data — catches a typo'd or renamed field name that would otherwise merge and pack fine but silently do nothing in-game"/>
+                        <TextBlock Text="{Binding FieldIssueStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
+                    </StackPanel>
                 </StackPanel>
 
                 <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,12,0,0">
