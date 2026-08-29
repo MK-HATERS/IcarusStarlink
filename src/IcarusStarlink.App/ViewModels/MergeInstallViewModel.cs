@@ -1721,6 +1721,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 : $"Installed to '{result.InstalledPakPath}'.";
             _activityLog.Log($"Installed pack to {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityEntryKind.Success);
             HasExistingInstall = true;
+
+            // Read back on the NEXT app launch (SettingsViewModel) to check whether a real game
+            // crash happened since — see AppSettings.LastInstallAtUtc's own doc comment for why.
+            _settingsService.Current.LastInstallAtUtc = DateTimeOffset.UtcNow;
+            _settingsService.Save();
         }
         catch (IOException ex)
         {

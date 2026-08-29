@@ -51,4 +51,14 @@ public sealed class AppSettings
     /// genuine detected version change going forward, never out of nowhere.
     /// </summary>
     public string? LastSeenAppVersion { get; set; }
+
+    /// <summary>
+    /// Set right after a successful real Install (MergeInstallViewModel.InstallAsync) — read back
+    /// on the NEXT app launch (SettingsViewModel) to check whether a real game crash happened since
+    /// then via GameSessionHealthCheck.FindCrashesSince, the same "did that merge actually work"
+    /// signal the Validate mods pre-flight check can't provide on its own (that one only inspects
+    /// static data; this one observes whether the real engine actually crashed). Null means no
+    /// install has happened yet this app has ever recorded — nothing to check against.
+    /// </summary>
+    public DateTimeOffset? LastInstallAtUtc { get; set; }
 }

@@ -14,6 +14,8 @@ using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog.AppUpdate;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Catalog.Ue4ss;
+using IcarusStarlink.Core.Activity;
+using IcarusStarlink.Core.GameHealth;
 using IcarusStarlink.Core.Migration;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
@@ -44,6 +46,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ICustomSkinStore _customSkinStore;
     private readonly ImmMigrationService _immMigrationService;
     private readonly IUnrealPakInstaller _unrealPakInstaller;
+    private readonly IActivityLog _activityLog;
     private readonly string _stagedUe4ssDirectory;
 
     /// <summary>Resolved lazily (not injected directly) purely to avoid forcing Merge &amp; Install's own construction — with its Library scan and catalog wiring — every time Settings is opened.</summary>
@@ -171,10 +174,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         INxmProtocolRegistrar nxmProtocolRegistrar, IUe4ssLoaderInstallService ue4ssLoaderInstallService,
         IUe4ssReleaseClient ue4ssReleaseClient, IAppUpdateClient appUpdateClient, HttpClient httpClient,
         IThemeService themeService, ICustomSkinStore customSkinStore, ImmMigrationService immMigrationService,
-        Func<MergeInstallViewModel> mergeInstallViewModel, IUnrealPakInstaller unrealPakInstaller,
+        Func<MergeInstallViewModel> mergeInstallViewModel, IUnrealPakInstaller unrealPakInstaller, IActivityLog activityLog,
         string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath,
         string stagedUe4ssDirectory)
     {
+        _activityLog = activityLog;
         _unrealPakInstaller = unrealPakInstaller;
         _stagedUe4ssDirectory = stagedUe4ssDirectory;
         _settingsService = settingsService;
@@ -214,6 +218,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ = CheckUe4ssLatestReleaseAsync();
         _ = CheckForAppUpdatesOnLaunchAsync();
         _ = EnsureUnrealPakOnLaunchAsync();
+        CheckForGameCrashesSinceLastInstall();
 
         LoadSkinTokens();
     }
@@ -1346,6 +1351,41 @@ public sealed partial class SettingsViewModel : ObservableObject
         if (result)
         {
             await InstallAppUpdateAsync();
+        }
+    }
+
+    /// <summary>
+    /// Silent once-per-launch check, same shape as CheckForAppUpdatesOnLaunchAsync — the closest
+    /// thing this app can offer to "did that merge actually work in Icarus" without guessing at
+    /// DataTable-parse-error text (see GameSessionHealthCheck's own doc comment for why). Only a
+    /// real crash reported AFTER the last recorded Install logs anything; nothing here ever nags on
+    /// a launch with no prior install, or one where the game simply never crashed.
+    /// </summary>
+    private void CheckForGameCrashesSinceLastInstall()
+    {
+        if (_settingsService.Current.LastInstallAtUtc is not { } lastInstallAtUtc)
+        {
+            return;
+        }
+
+        try
+        {
+            var crashes = GameSessionHealthCheck.FindCrashesSince(lastInstallAtUtc);
+            if (crashes.Count == 0)
+            {
+                return;
+            }
+
+            var mostRecent = crashes[0];
+            _activityLog.Log(
+                $"Icarus crashed since your last install ({mostRecent.OccurredAtUtc.ToLocalTime():g}): {mostRecent.ErrorMessage}",
+                ActivityEntryKind.Warning);
+        }
+        catch (Exception)
+        {
+            // Passive background check — a locked/inaccessible crash folder is not something to
+            // ever surface as an error, same "can't tell, don't nag" contract every other silent
+            // launch check in this class already follows.
         }
     }
 }
