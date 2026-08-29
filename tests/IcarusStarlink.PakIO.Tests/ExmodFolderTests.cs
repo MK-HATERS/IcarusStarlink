@@ -143,6 +143,60 @@ public class ExmodFolderTests : IDisposable
         Assert.Throws<FormatException>(() => ExmodFolder.Read(_tempDir));
     }
 
+    [Fact]
+    public void Read_EveryAssetWrappedInAFolderMatchingTheModsOwnFileName_StripsTheWrapper()
+    {
+        Directory.CreateDirectory(Path.Combine(_tempDir, "Extracted Mods"));
+        var package = ExmodJson.Parse("""
+            {"name": "N", "author": "A", "version": "1", "description": "D", "fileName": "Weapons_Pack_1"}
+            """);
+        File.WriteAllText(Path.Combine(_tempDir, "Extracted Mods", "Weapons_Pack_1.EXMOD"), ExmodJson.Serialize(package));
+        Directory.CreateDirectory(Path.Combine(_tempDir, "Weapons_Pack_1", "Pistols"));
+        File.WriteAllBytes(Path.Combine(_tempDir, "Weapons_Pack_1", "Pistols", "Pistol_A.uasset"), [1, 2, 3]);
+
+        var result = ExmodFolder.Read(_tempDir);
+
+        var asset = Assert.Single(result.Assets);
+        Assert.Equal("Pistols/Pistol_A.uasset", asset.RelativePath);
+    }
+
+    [Fact]
+    public void Read_AssetsWrappedInFolderNotMatchingModsFileName_LeavesPathsUnchanged()
+    {
+        Directory.CreateDirectory(Path.Combine(_tempDir, "Extracted Mods"));
+        var package = ExmodJson.Parse("""
+            {"name": "N", "author": "A", "version": "1", "description": "D", "fileName": "Weapons_Pack_1"}
+            """);
+        File.WriteAllText(Path.Combine(_tempDir, "Extracted Mods", "Weapons_Pack_1.EXMOD"), ExmodJson.Serialize(package));
+        Directory.CreateDirectory(Path.Combine(_tempDir, "SomeOtherFolder"));
+        File.WriteAllBytes(Path.Combine(_tempDir, "SomeOtherFolder", "Pistol_A.uasset"), [1, 2, 3]);
+
+        var result = ExmodFolder.Read(_tempDir);
+
+        var asset = Assert.Single(result.Assets);
+        Assert.Equal("SomeOtherFolder/Pistol_A.uasset", asset.RelativePath);
+    }
+
+    [Fact]
+    public void Read_AssetsInSeveralDistinctTopLevelFolders_LeavesPathsUnchanged()
+    {
+        Directory.CreateDirectory(Path.Combine(_tempDir, "Extracted Mods"));
+        var package = ExmodJson.Parse("""
+            {"name": "N", "author": "A", "version": "1", "description": "D", "fileName": "Multi_Folder_Mod"}
+            """);
+        File.WriteAllText(Path.Combine(_tempDir, "Extracted Mods", "Multi_Folder_Mod.EXMOD"), ExmodJson.Serialize(package));
+        Directory.CreateDirectory(Path.Combine(_tempDir, "Outlet"));
+        Directory.CreateDirectory(Path.Combine(_tempDir, "Water_Pump"));
+        File.WriteAllBytes(Path.Combine(_tempDir, "Outlet", "BP_Outlet.uasset"), [1]);
+        File.WriteAllBytes(Path.Combine(_tempDir, "Water_Pump", "BP_Pump.uasset"), [2]);
+
+        var result = ExmodFolder.Read(_tempDir);
+
+        Assert.Equal(2, result.Assets.Count);
+        Assert.Contains(result.Assets, a => a.RelativePath == "Outlet/BP_Outlet.uasset");
+        Assert.Contains(result.Assets, a => a.RelativePath == "Water_Pump/BP_Pump.uasset");
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))

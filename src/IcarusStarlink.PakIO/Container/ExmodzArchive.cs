@@ -225,7 +225,7 @@ public static class ExmodzArchive
             assets.Add(new ExmodAssetEntry(entry.Name, content));
         }
 
-        return new ExmodPackageContents(package, assets);
+        return new ExmodPackageContents(package, ExmodAssetPathNormalizer.StripRedundantWrapperFolder(package.FileName, assets));
     }
 
     public static void Write(Stream outputStream, ExmodPackageContents contents)

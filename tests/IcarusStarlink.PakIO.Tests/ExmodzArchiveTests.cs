@@ -385,4 +385,69 @@ public class ExmodzArchiveTests
 
         Assert.Throws<FormatException>(() => ExmodzArchive.Read(stream));
     }
+
+    private static MemoryStream BuildRawZip(string exmodJson, string exmodEntryName, params (string Name, byte[] Content)[] assetEntries)
+    {
+        var stream = new MemoryStream();
+        using (var archive = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (var writer = new StreamWriter(archive.CreateEntry(exmodEntryName).Open()))
+            {
+                writer.Write(exmodJson);
+            }
+
+            foreach (var (name, content) in assetEntries)
+            {
+                using var entryStream = archive.CreateEntry(name).Open();
+                entryStream.Write(content);
+            }
+        }
+
+        stream.Position = 0;
+        return stream;
+    }
+
+    [Fact]
+    public void Read_EveryAssetWrappedInAFolderMatchingTheModsOwnFileName_StripsTheWrapper()
+    {
+        using var stream = BuildRawZip(
+            """{"name": "N", "author": "A", "version": "1", "description": "D", "fileName": "Weapons_Pack_1"}""",
+            "Extracted Mods/Weapons_Pack_1.EXMOD",
+            ("Weapons_Pack_1/Pistols/Pistol_A.uasset", [1, 2, 3]));
+
+        var result = ExmodzArchive.Read(stream);
+
+        var asset = Assert.Single(result.Assets);
+        Assert.Equal("Pistols/Pistol_A.uasset", asset.RelativePath);
+    }
+
+    [Fact]
+    public void Read_AssetsWrappedInFolderNotMatchingModsFileName_LeavesPathsUnchanged()
+    {
+        using var stream = BuildRawZip(
+            """{"name": "N", "author": "A", "version": "1", "description": "D", "fileName": "Weapons_Pack_1"}""",
+            "Extracted Mods/Weapons_Pack_1.EXMOD",
+            ("SomeOtherFolder/Pistol_A.uasset", [1, 2, 3]));
+
+        var result = ExmodzArchive.Read(stream);
+
+        var asset = Assert.Single(result.Assets);
+        Assert.Equal("SomeOtherFolder/Pistol_A.uasset", asset.RelativePath);
+    }
+
+    [Fact]
+    public void Read_AssetsInSeveralDistinctTopLevelFolders_LeavesPathsUnchanged()
+    {
+        using var stream = BuildRawZip(
+            """{"name": "N", "author": "A", "version": "1", "description": "D", "fileName": "Multi_Folder_Mod"}""",
+            "Extracted Mods/Multi_Folder_Mod.EXMOD",
+            ("Outlet/BP_Outlet.uasset", [1]),
+            ("Water_Pump/BP_Pump.uasset", [2]));
+
+        var result = ExmodzArchive.Read(stream);
+
+        Assert.Equal(2, result.Assets.Count);
+        Assert.Contains(result.Assets, a => a.RelativePath == "Outlet/BP_Outlet.uasset");
+        Assert.Contains(result.Assets, a => a.RelativePath == "Water_Pump/BP_Pump.uasset");
+    }
 }

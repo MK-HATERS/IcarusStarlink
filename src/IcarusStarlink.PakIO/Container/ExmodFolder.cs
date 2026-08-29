@@ -35,7 +35,7 @@ public static class ExmodFolder
             assets.Add(new ExmodAssetEntry(relativePath, content));
         }
 
-        return new ExmodPackageContents(package, assets);
+        return new ExmodPackageContents(package, ExmodAssetPathNormalizer.StripRedundantWrapperFolder(package.FileName, assets));
     }
 
     /// <summary>
