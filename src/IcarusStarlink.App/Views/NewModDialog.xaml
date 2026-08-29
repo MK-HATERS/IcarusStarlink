@@ -17,18 +17,28 @@
 
         <TextBlock Text="Starting point" Style="{StaticResource FieldLabelStyle}"/>
         <!--
-        The two real templates are classic IMM's own official Blank_Craftable_Item/
-        Blank_Consumable_Item.EXMODZ (Jimk72's own GitHub) — a genuinely complete, working item
-        skeleton reusing real vanilla assets, not an invented starting point.
+        All five real templates are classic IMM's own official ones (Jimk72's own GitHub) — the
+        first two from its published Blank_Craftable_Item/Blank_Consumable_Item.EXMODZ, the other
+        three from that same tool's own bundled NewItemOptions.json ("Add Item to Mod... premade
+        templates") — each a genuinely complete, working item skeleton, not an invented one.
         -->
         <RadioButton x:Name="BlankRadio" GroupName="Template" IsChecked="True" Margin="0,6,0,0"
                      Content="Blank — no fields yet, build it up by hand"/>
         <RadioButton x:Name="CraftableRadio" GroupName="Template" Margin="0,6,0,0"
                      Content="Craftable / deployable item"
                      ToolTip="A complete placeable/craftable item skeleton (recipe, mesh, icon, all reusing a real vanilla campfire's own assets as placeholders) — the same official template classic IMM itself ships."/>
-        <RadioButton x:Name="ConsumableRadio" GroupName="Template" Margin="0,6,0,16"
+        <RadioButton x:Name="ConsumableRadio" GroupName="Template" Margin="0,6,0,0"
                      Content="Consumable / meta item"
                      ToolTip="A complete craftable consumable item skeleton (recipe, icon, byproducts) reusing a real vanilla crate icon as a placeholder — the same official template classic IMM itself ships."/>
+        <RadioButton x:Name="BuildingPieceRadio" GroupName="Template" Margin="0,6,0,0"
+                     Content="Building piece"
+                     ToolTip="A craftable wood wall skeleton (recipe, stability/type traits, building-piece entry) reusing the real vanilla wood-kit mesh — its own Blueprint/icon are left as placeholders for your own custom art, the same as classic IMM's own template."/>
+        <RadioButton x:Name="ElectricGeneratorRadio" GroupName="Template" Margin="0,6,0,0"
+                     Content="Electric generator"
+                     ToolTip="A craftable deployable that produces energy (recipe, resource/energy traits) — its own mesh/Blueprint are left as placeholders for your own custom art, the same as classic IMM's own template."/>
+        <RadioButton x:Name="WaterPumpRadio" GroupName="Template" Margin="0,6,0,16"
+                     Content="Water pump"
+                     ToolTip="A craftable deployable that produces water for a resource network (recipe, generator/resource traits) reusing the real vanilla machining-kit mesh — its own Blueprint is left as a placeholder for your own custom art, the same as classic IMM's own template."/>
 
         <TextBlock x:Name="ErrorText" Foreground="#E05555" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap" Visibility="Collapsed"/>
 

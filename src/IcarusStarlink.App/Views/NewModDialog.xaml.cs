@@ -25,11 +25,12 @@ public partial class NewModDialog : Window
 
         ModName = NameBox.Text.Trim();
         ModAuthor = AuthorBox.Text.Trim();
-        SelectedTemplate = CraftableRadio.IsChecked == true
-            ? ModTemplate.CraftableOrDeployableItem
-            : ConsumableRadio.IsChecked == true
-                ? ModTemplate.ConsumableItem
-                : ModTemplate.Blank;
+        SelectedTemplate = CraftableRadio.IsChecked == true ? ModTemplate.CraftableOrDeployableItem
+            : ConsumableRadio.IsChecked == true ? ModTemplate.ConsumableItem
+            : BuildingPieceRadio.IsChecked == true ? ModTemplate.BuildingPiece
+            : ElectricGeneratorRadio.IsChecked == true ? ModTemplate.ElectricGenerator
+            : WaterPumpRadio.IsChecked == true ? ModTemplate.WaterPump
+            : ModTemplate.Blank;
         DialogResult = true;
     }
 
