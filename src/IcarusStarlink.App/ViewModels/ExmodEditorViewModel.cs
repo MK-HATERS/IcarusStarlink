@@ -318,7 +318,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         SelectedItem = Items[(currentIndex + 1) % Items.Count];
     }
 
-    /// <summary>Reveals the selected item's real, unmodified base game data file in whatever the OS has associated with .json — read-only reference, not something this app opens an in-app viewer for.</summary>
+    /// <summary>Reveals the selected item's real, unmodified base game data file in an in-app read-only viewer — a user picking this is almost always about to go back and forth with the editor itself, so keeping it in-app beats shelling out to whatever the OS has associated with .json.</summary>
     [RelayCommand]
     private void OpenOriginalFile()
     {
@@ -335,7 +335,11 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
-        if (UrlOpener.TryOpen(realPath) is { } ex)
+        try
+        {
+            new TextFileViewerWindow(SelectedItem.RealPath, realPath) { Owner = Application.Current.MainWindow }.Show();
+        }
+        catch (IOException ex)
         {
             StatusMessage = $"Couldn't open the file: {ex.Message}";
         }

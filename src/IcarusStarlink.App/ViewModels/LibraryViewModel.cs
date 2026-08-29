@@ -389,6 +389,23 @@ public sealed partial class LibraryViewModel : ObservableObject
             _ => [],
         })];
 
+    /// <summary>Used by ModDetailWindow's own Prev/Next navigation — the same flattened visible
+    /// order FlattenModItems already produces for Shift-click/Select all, so "next" matches
+    /// whatever's actually currently shown (respecting the active search/sort), not some other
+    /// ordering. Null at either end of the list rather than wrapping around.</summary>
+    public LibraryItemViewModel? GetAdjacentItem(LibraryItemViewModel current, int direction)
+    {
+        var flattened = FlattenModItems();
+        var index = flattened.IndexOf(current);
+        if (index < 0)
+        {
+            return null;
+        }
+
+        var targetIndex = index + direction;
+        return targetIndex >= 0 && targetIndex < flattened.Count ? flattened[targetIndex] : null;
+    }
+
     /// <summary>Shared by Reload's own column-sort switch — SortDescending flips OrderBy/OrderByDescending, generic over TKey so both string columns (StringComparer.OrdinalIgnoreCase) and ImportedAtUtc's own DateTimeOffset share one implementation.</summary>
     private List<LibraryGroup> SortGroups<TKey>(
         IReadOnlyList<LibraryGroup> groups, Func<LibraryGroup, TKey> keySelector, IComparer<TKey>? comparer = null) =>

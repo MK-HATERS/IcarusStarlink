@@ -151,7 +151,12 @@
                             <Run Text="No mods queued yet. Go to "/><Run Text="Library" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text=", select one or more mods (Ctrl/Shift-click for more than one), then right-click → "/><Run Text="Add to merge queue" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text="."/>
                         </TextBlock>
                     </Border>
-                    <ListBox ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueEntry}" MinHeight="100">
+                    <ListBox ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueEntry}" MinHeight="100"
+                             ToolTip="Drag a row to reorder the queue"
+                             AllowDrop="True"
+                             PreviewMouseLeftButtonDown="QueueList_PreviewMouseLeftButtonDown"
+                             PreviewMouseMove="QueueList_PreviewMouseMove"
+                             Drop="QueueList_Drop">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal">

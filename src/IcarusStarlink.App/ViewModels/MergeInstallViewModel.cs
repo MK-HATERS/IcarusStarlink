@@ -1024,6 +1024,21 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
     }
 
+    /// <summary>Drag-and-drop reordering (MergeInstallView's own code-behind drives the actual drag
+    /// gesture — WPF has no clean MVVM path for it) — same Queue.Move the up/down buttons already
+    /// use, so it triggers the identical CollectionChanged-driven manual-pick invalidation above
+    /// for free.</summary>
+    public void ReorderQueueEntry(LibraryEntry entry, int targetIndex)
+    {
+        var currentIndex = Queue.IndexOf(entry);
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= Queue.Count || currentIndex == targetIndex)
+        {
+            return;
+        }
+
+        Queue.Move(currentIndex, targetIndex);
+    }
+
     /// <summary>
     /// Big-plan item 8b: opens the pak-vs-pak comparison window (non-modal, like the editor's own
     /// research windows) — built for verifying this app's rebuilt pak against classic IMM's own

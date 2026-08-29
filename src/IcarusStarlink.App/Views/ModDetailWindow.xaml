@@ -22,10 +22,26 @@
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0">
+        <!-- Steps through the same flattened, visible-order list Library's own Shift-click range-
+             select already uses, so "next" matches whatever's actually shown there right now. -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,8">
+            <Button Style="{StaticResource IconButtonStyle}" Width="30" Margin="0,0,4,0"
+                    Click="ShowPrevious_Click" ToolTip="Previous mod" AutomationProperties.Name="Previous mod">
+                <Path Data="{StaticResource IconChevronLeft}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform"/>
+            </Button>
+            <Button Style="{StaticResource IconButtonStyle}" Width="30"
+                    Click="ShowNext_Click" ToolTip="Next mod" AutomationProperties.Name="Next mod">
+                <Path Data="{StaticResource IconChevronRight}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform"/>
+            </Button>
+        </StackPanel>
+
+        <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -103,7 +119,7 @@
                             <TextBlock Text="Edit…" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Margin="0,0,0,4"
+                    <Button Margin="0,0,8,4"
                             Command="{Binding LibraryViewModel.DeleteItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                             CommandParameter="{Binding}"
                             AutomationProperties.Name="Delete selected mod">
@@ -112,6 +128,13 @@
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
                             <TextBlock Text="Delete" VerticalAlignment="Center"/>
                         </StackPanel>
+                    </Button>
+                    <Button Margin="0,0,0,4"
+                            Command="{Binding LibraryViewModel.LinkToNexusCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            CommandParameter="{Binding}"
+                            ToolTip="Connect this mod to a real Nexus mod ID for update-checking"
+                            AutomationProperties.Name="Link to Nexus ID">
+                        <TextBlock Text="Link to Nexus ID…" VerticalAlignment="Center"/>
                     </Button>
                 </WrapPanel>
 
@@ -132,7 +155,7 @@
             </Border>
         </Grid>
 
-        <TabControl Grid.Row="1" Margin="0,12,0,0">
+        <TabControl Grid.Row="2" Margin="0,12,0,0">
             <TabItem Header="Changes"
                      ToolTip="What this mod actually changes — read-only. For editing, see the EXMOD editor.">
                 <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" MinHeight="110">
@@ -159,16 +182,34 @@
 
                     <Grid Grid.Row="1">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="200"/>
+                            <ColumnDefinition Width="200" MinWidth="120" MaxWidth="480"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
+                        <!-- No ItemTemplate previously meant a long asset path (this window is
+                             popped out and freely resizable, unlike the deliberately-fixed-width
+                             list pickers elsewhere) forced the ListBox's own horizontal scroll to
+                             shift right to keep a newly-selected long item in view — since every
+                             row shares that one scroll offset, every shorter filename's own start
+                             got clipped off along with it. TextTrimming with the scrollbar disabled
+                             trims long names in place instead, so nothing else ever shifts. -->
                         <ListBox Grid.Column="0" ItemsSource="{Binding AssetPaths}"
-                                 SelectedItem="{Binding SelectedAssetPath}"/>
-                        <TextBox Grid.Column="1" Text="{Binding SelectedAssetPreview, Mode=OneWay}"
+                                 SelectedItem="{Binding SelectedAssetPath}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" ToolTip="{Binding}"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                      Background="{DynamicResource BorderBrush}" ResizeBehavior="PreviousAndNext"
+                                      AutomationProperties.Name="Resize file list"/>
+                        <TextBox Grid.Column="2" Text="{Binding SelectedAssetPreview, Mode=OneWay}"
                                  Margin="8,0,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                                  AcceptsReturn="True"
                                  Visibility="{Binding SelectedAssetImage, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        <Border Grid.Column="1" Margin="8,0,0,0" Background="{DynamicResource CardBackgroundBrush}"
+                        <Border Grid.Column="2" Margin="8,0,0,0" Background="{DynamicResource CardBackgroundBrush}"
                                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="8"
                                 Visibility="{Binding SelectedAssetImage, Converter={StaticResource NullToVisibilityConverter}}">
                             <Image Source="{Binding SelectedAssetImage}" Stretch="Uniform"

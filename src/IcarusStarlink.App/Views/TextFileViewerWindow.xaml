@@ -1,0 +1,21 @@
+<Window x:Class="IcarusStarlink.App.Views.TextFileViewerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        mc:Ignorable="d"
+        Height="640" Width="820" MinHeight="300" MinWidth="420"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        Foreground="{DynamicResource ForegroundBrush}">
+
+    <!--
+    A plain in-app viewer for a real read-only reference file (e.g. the EXMOD editor's own "Open
+    original file") — replaces shelling out to whatever the OS has associated with .json, since a
+    user picking "open" here is almost always about to go back and forth with the editor, not
+    leave the app. No ViewModel: the code-behind sets the two properties below directly at
+    construction, matching how this project's other small single-purpose dialogs are built.
+    -->
+    <TextBox x:Name="ContentTextBox" IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas" FontSize="12.5"
+             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+             AcceptsReturn="True" BorderThickness="0" Padding="10" Margin="10"/>
+</Window>
