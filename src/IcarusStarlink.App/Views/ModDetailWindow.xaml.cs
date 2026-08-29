@@ -23,6 +23,13 @@ public partial class ModDetailWindow : Window
     /// newly-shown mod's own folder rather than the one navigated away from.</summary>
     private void ShowItem(LibraryItemViewModel item)
     {
+        // Description/Changes/Files/Readme are all lazy-loaded on first real selection (normally
+        // triggered by LibraryViewModel.OnSelectedItemChanged when the main tree's own SelectedItem
+        // changes) — Prev/Next never touches that property, it only swaps this window's own
+        // DataContext directly, so without this the newly-shown mod's own content just silently
+        // never loads. Self-guarding (a one-time flag per item instance), so calling it again for
+        // an item already shown once elsewhere is a safe no-op.
+        item.EnsureDetailsLoaded();
         DataContext = item;
 
         // Without this, deleting the mod this window is showing (via its own Delete button, or
