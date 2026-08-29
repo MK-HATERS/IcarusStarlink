@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using IcarusStarlink.Diffing;
+using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.PakIO.DataChanges;
 
@@ -70,5 +71,9 @@ public static class DataFolderChangeTracker
         Directory.GetFiles(rootDirectory, "*.json", SearchOption.AllDirectories)
             .ToDictionary(path => Path.GetRelativePath(rootDirectory, path).Replace('\\', '/'), path => path, StringComparer.OrdinalIgnoreCase);
 
-    private static JsonObject ReadJsonObject(string path) => JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? [];
+    // DuplicateTolerantJson, not a plain JsonNode.Parse: these are real extracted DataTable JSON
+    // files (the same "Update data folder" snapshots RebuildService's own ReadBaseTables reads),
+    // confirmed elsewhere to sometimes repeat a JSON key — which JsonNode.Parse throws on and
+    // would abort this whole weekly-change computation instead of degrading gracefully.
+    private static JsonObject ReadJsonObject(string path) => DuplicateTolerantJson.Parse(File.ReadAllText(path))?.AsObject() ?? [];
 }

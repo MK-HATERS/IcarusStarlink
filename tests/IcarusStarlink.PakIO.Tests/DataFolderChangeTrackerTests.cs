@@ -90,6 +90,24 @@ public class DataFolderChangeTrackerTests : IDisposable
     }
 
     [Fact]
+    public void Compute_FileWithDuplicateJsonKey_DoesNotThrowAndLastValueWins()
+    {
+        // A real base-game DataTable file has been confirmed to repeat a JSON key (see
+        // DuplicateTolerantJson's own doc comment) — a plain JsonNode.Parse throws
+        // ArgumentException on that, which would abort this whole weekly-change computation
+        // instead of degrading the same way every other real reader of this data already does.
+        WritePrevious("Crafting/D_Fuel.json", """{"Rows":[{"Name":"Composter","Amount":10}]}""");
+        WriteCurrent("Crafting/D_Fuel.json", """{"Rows":[{"Name":"Composter","Amount":10,"Amount":20}]}""");
+
+        var report = DataFolderChangeTracker.Compute(_previousDir, _currentDir, PreviousAt, CurrentAt);
+
+        var file = Assert.Single(report.ChangedFiles);
+        var change = Assert.Single(file.FieldChanges);
+        Assert.Equal("Amount", change.FieldName);
+        Assert.Equal(20, change.NewValue!.GetValue<int>());
+    }
+
+    [Fact]
     public void Compute_IdenticalFile_IsExcludedFromChangedFiles()
     {
         WritePrevious("Crafting/D_Fuel.json", """{"Rows":[{"Name":"Composter","Amount":10}]}""");

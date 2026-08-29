@@ -150,6 +150,20 @@ public class PatchServiceTests : IDisposable
         await Assert.ThrowsAsync<FormatException>(() => _service.ImportAsync(path));
     }
 
+    [Fact]
+    public async Task ImportAsync_CorruptZipWithNoValidCentralDirectory_ThrowsFormatExceptionNotRawInvalidDataException()
+    {
+        // Same technique as ExmodzArchiveTests' own corrupt-zip case: a real local file header
+        // signature (so ImportAsync's own header sniff routes this to ReadZipPatch) with no End Of
+        // Central Directory record after it — ZipArchive's constructor throws InvalidDataException
+        // for this, which ReadZipPatch must normalize to FormatException like every other
+        // untrusted-archive read in this codebase, rather than let the raw framework type escape.
+        var path = Path.Combine(_dir, "corrupt.zip");
+        await File.WriteAllBytesAsync(path, [0x50, 0x4B, 0x03, 0x04, 0x00, 0x00]);
+
+        await Assert.ThrowsAsync<FormatException>(() => _service.ImportAsync(path));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

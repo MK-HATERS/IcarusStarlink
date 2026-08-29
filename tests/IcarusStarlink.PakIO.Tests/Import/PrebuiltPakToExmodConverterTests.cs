@@ -224,7 +224,7 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         Assert.NotNull(result);
         Assert.Empty(result.Contents.Package.Rows);
         Assert.Contains(result.Contents.Assets, a => a.RelativePath == "data/Crafting/D_ProcessorRecipes.json");
-        Assert.Contains(report.Warnings, w => w.Contains("isn't valid JSON"));
+        Assert.Contains(report.Warnings, w => w.Contains("couldn't be read"));
     }
 
     /// <summary>Real content, byte-for-byte a real embedded EXMOD confirmed by extracting a real

@@ -78,6 +78,12 @@ public static class ExmodBaseDiffer
     /// belong to one parent. Internal (not private): ModVersionComparer.ToKeyedTablesByFile reuses
     /// this same per-row transform rather than re-deriving it, since the two are the identical
     /// "sparse EXMOD row → TableDiffer-shaped JsonObject" rule.
+    ///
+    /// Two FileItems sharing the same Name is possible in real EXMOD content — the plain indexer
+    /// assignment below (keyed[item.Name] = fields) means the last one simply wins, deliberately:
+    /// the same last-one-wins convention DataTableJson.RowsToKeyedObject applies to a duplicate row
+    /// name, and MergeEngine.GroupByField applies to one mod touching the same field twice — not a
+    /// gap to close here.
     /// </summary>
     internal static JsonObject ToKeyedObject(ExmodFileRow row)
     {

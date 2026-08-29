@@ -518,6 +518,18 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
         try
         {
+            // Checked before any read: DecodeCompiledAssetPreviewAsync does its own async decode
+            // straight from disk (via FolderName's own path + this relative path) and never touches
+            // this method's own `bytes` — reading a compiled asset's full content synchronously
+            // here first, only to discard it, was pure wasted work blocking the UI thread for
+            // nothing (a large mesh/texture .uasset can be many MB). Found live.
+            if (string.Equals(Path.GetExtension(value), ".uasset", StringComparison.OrdinalIgnoreCase))
+            {
+                SelectedAssetPreview = "Decoding this asset...";
+                _ = DecodeCompiledAssetPreviewAsync(value, generation);
+                return;
+            }
+
             var bytes = _repository.ReadAssetContent(FolderName, value);
 
             // The spec's "preview text/images" — an image asset used to render as binary noise in
@@ -526,13 +538,6 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             {
                 SelectedAssetImage = image;
                 SelectedAssetPreview = null;
-                return;
-            }
-
-            if (string.Equals(Path.GetExtension(value), ".uasset", StringComparison.OrdinalIgnoreCase))
-            {
-                SelectedAssetPreview = "Decoding this asset...";
-                _ = DecodeCompiledAssetPreviewAsync(value, generation);
                 return;
             }
 

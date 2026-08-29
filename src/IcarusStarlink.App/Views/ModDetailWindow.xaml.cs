@@ -57,6 +57,18 @@ public partial class ModDetailWindow : Window
 
         DataContext = item;
 
+        // FrameMeshCamera is otherwise only ever triggered by SelectedAssetMesh's own
+        // PropertyChanged event (see OnCurrentItemPropertyChanged below) — which never fires
+        // here: LibraryItemViewModel instances are cached/reused (LibraryViewModel's own
+        // GetOrCreateItem), so switching to an item whose mesh was already decoded on an earlier
+        // visit (or is already selected in the main window's own Files tab, since both share this
+        // same ViewModel instance) leaves SelectedAssetMesh holding the exact same Model3D
+        // reference it already had — no change notification, so no reframe, and the camera is
+        // left wherever a PREVIOUS mesh (or the constructor's own fixed defaults) put it. Calling
+        // this explicitly for whatever the newly-shown item's mesh currently is closes that gap;
+        // it's a no-op when there's nothing to frame (see FrameMeshCamera's own null/empty guard).
+        FrameMeshCamera(item.SelectedAssetMesh);
+
         // Without this, deleting the mod this window is showing (via its own Delete button, or
         // from the main window's tree while this pop-out is still open) left the window sitting
         // open on stale data — its Edit/Get update buttons would then operate on a folder that no

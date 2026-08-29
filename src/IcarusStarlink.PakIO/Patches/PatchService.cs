@@ -74,25 +74,37 @@ public sealed class PatchService : IPatchService
 
     private static PatchImportContents ReadZipPatch(Stream stream)
     {
-        using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
-        var sizeBudget = new ExmodSizeBudget("Patch archive");
-
-        var manifestEntry = archive.GetEntry("manifest.json")
-            ?? throw new FormatException("Patch archive is missing manifest.json.");
-        var manifest = Deserialize(Encoding.UTF8.GetString(ReadEntryBytes(manifestEntry, sizeBudget, "manifest.json")));
-
-        var bundledMods = new Dictionary<string, ExmodPackageContents>();
-        foreach (var mod in manifest.Mods.Where(m => m.Bundled))
+        try
         {
-            var entryName = $"Bundled/{mod.FolderName}.EXMODZ";
-            var entry = archive.GetEntry(entryName)
-                ?? throw new FormatException($"Patch archive is missing the bundled mod '{mod.Name}' ({entryName}).");
-            var bytes = ReadEntryBytes(entry, sizeBudget, entryName);
-            using var entryContentStream = new MemoryStream(bytes, writable: false);
-            bundledMods[mod.FolderName] = ExmodzArchive.Read(entryContentStream);
-        }
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+            var sizeBudget = new ExmodSizeBudget("Patch archive");
 
-        return new PatchImportContents(manifest, bundledMods);
+            var manifestEntry = archive.GetEntry("manifest.json")
+                ?? throw new FormatException("Patch archive is missing manifest.json.");
+            var manifest = Deserialize(Encoding.UTF8.GetString(ReadEntryBytes(manifestEntry, sizeBudget, "manifest.json")));
+
+            var bundledMods = new Dictionary<string, ExmodPackageContents>();
+            foreach (var mod in manifest.Mods.Where(m => m.Bundled))
+            {
+                var entryName = $"Bundled/{mod.FolderName}.EXMODZ";
+                var entry = archive.GetEntry(entryName)
+                    ?? throw new FormatException($"Patch archive is missing the bundled mod '{mod.Name}' ({entryName}).");
+                var bytes = ReadEntryBytes(entry, sizeBudget, entryName);
+                using var entryContentStream = new MemoryStream(bytes, writable: false);
+                bundledMods[mod.FolderName] = ExmodzArchive.Read(entryContentStream);
+            }
+
+            return new PatchImportContents(manifest, bundledMods);
+        }
+        catch (InvalidDataException ex)
+        {
+            // Same normalization ExmodzArchive.Read already applies to its own corrupt/truncated
+            // zip case — a patch archive is exactly as untrusted (shared by a friend, downloaded
+            // from a server), so callers can keep catching one FormatException type for "this
+            // isn't a usable archive" instead of also needing to know about ZipArchive's own
+            // exception type.
+            throw new FormatException("Couldn't read this patch archive — it may be corrupt or truncated.", ex);
+        }
     }
 
     /// <summary>

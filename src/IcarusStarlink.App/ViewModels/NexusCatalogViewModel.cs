@@ -59,8 +59,8 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     /// <summary>The last successful fetch, kept so local badges can be recomputed (a Library import/delete elsewhere, a Track click) without another API round-trip.</summary>
     private IReadOnlyList<NexusModInfo> _lastFetched = [];
 
-    /// <summary>Tracked mods already notified about having an update — so a page revisit or filter toggle (both call RebuildRows) doesn't re-log the same update every time, only genuinely new ones.</summary>
-    private readonly HashSet<int> _notifiedUpdateModIds = [];
+    /// <summary>Tracked mods already notified about having an update, keyed by the Nexus version string they were notified for — so a page revisit or filter toggle (both call RebuildRows) doesn't re-log the same update every time, only genuinely new ones. Keyed by version rather than a plain HashSet&lt;int&gt; of mod IDs: a mod ID alone can't tell "already notified for v1.2" apart from "already notified, but v1.3 just came out" — the former should stay quiet, the latter must notify again.</summary>
+    private readonly Dictionary<int, string> _notifiedUpdateVersions = [];
 
     private readonly IActivityLog _activityLog;
 
@@ -305,10 +305,14 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
 
             // Surface a genuinely new update on a tracked mod through the Activity panel instead
             // of a dedicated "check for updates" button — this already runs on every load/refresh/
-            // filter-toggle, so there's nothing to click; _notifiedUpdateModIds keeps a revisit from
-            // re-announcing the same update every time RebuildRows runs.
-            if (isTracked && hasUpdate && _notifiedUpdateModIds.Add(mod.ModId))
+            // filter-toggle, so there's nothing to click; _notifiedUpdateVersions keeps a revisit
+            // from re-announcing the same update every time RebuildRows runs, while still
+            // re-notifying if the mod has since moved on to a newer update than the one last
+            // announced (a plain "already notified this mod ID" set — the original shape here —
+            // could never do that: once an ID was added it stayed notified forever).
+            if (isTracked && hasUpdate && !string.Equals(_notifiedUpdateVersions.GetValueOrDefault(mod.ModId), mod.Version, StringComparison.OrdinalIgnoreCase))
             {
+                _notifiedUpdateVersions[mod.ModId] = mod.Version;
                 _activityLog.Log($"Update available for tracked mod '{mod.Name}' (v{libraryEntry!.Version} installed → v{mod.Version} on Nexus).", ActivityEntryKind.Info);
             }
 

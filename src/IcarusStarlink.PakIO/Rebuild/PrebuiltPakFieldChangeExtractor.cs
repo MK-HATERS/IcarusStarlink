@@ -81,14 +81,19 @@ public static class PrebuiltPakFieldChangeExtractor
 
                 moddedKeyed = keyed;
             }
-            catch (JsonException)
+            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
             {
-                // A prebuilt pak's own "data" folder isn't guaranteed to hold well-formed DataTable
-                // JSON the way this app's own extracted game data always is — a broken third-party
-                // mod tool's output shouldn't abort the whole Rebuild, just fall back to a raw copy
-                // for this one file instead of a field-level merge.
+                // A prebuilt pak's own "data" folder isn't guaranteed to hold well-formed, readable
+                // DataTable JSON the way this app's own extracted game data always is — a broken
+                // third-party mod tool's output, or a file the OS/antivirus still has locked right
+                // after UnrealPak just extracted it, shouldn't abort the whole Rebuild, just fall
+                // back to a raw copy for this one file instead of a field-level merge. Widened past
+                // JsonException alone (found live) — a read failure here is exactly as plausible as
+                // a parse failure and deserves the same graceful degradation, matching the
+                // JsonException-or-IOException-or-UnauthorizedAccessException shape this codebase
+                // already uses for every other untrusted-file-parse of this kind (e.g. JsonFileStore).
                 report.AddWarning(
-                    $"Prebuilt pak '{pakName}''s own '{currentFile}' isn't valid JSON — copied through as-is instead of field-merged.");
+                    $"Prebuilt pak '{pakName}''s own '{currentFile}' couldn't be read ({ex.Message}) — copied through as-is instead of field-merged.");
                 continue;
             }
 

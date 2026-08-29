@@ -1404,9 +1404,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         return (conflicts, names);
     }
 
+    /// <summary>Guards RecomputeConflictCountAsync against two overlapping runs (the queue/options changing again while a previous background recompute is still in flight) finishing out of order — same "only the newest request's result is applied" shape as NexusCatalogViewModel's own _loadVersion.</summary>
+    private int _conflictCountVersion;
+
     /// <summary>Best-effort background refresh of ConflictCount — a malformed queued mod here just leaves the badge at its last value; ReviewConflictsAsync/Rebuild surface the real error when the user actually acts.</summary>
     private async Task RecomputeConflictCountAsync()
     {
+        var version = ++_conflictCountVersion;
+
         if (Queue.Count == 0)
         {
             ConflictCount = 0;
@@ -1416,11 +1421,17 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         try
         {
             var (conflicts, _) = await FindQueueConflictsAsync();
-            ConflictCount = conflicts.Count;
+            if (version == _conflictCountVersion)
+            {
+                ConflictCount = conflicts.Count;
+            }
         }
         catch (Exception)
         {
-            ConflictCount = 0;
+            if (version == _conflictCountVersion)
+            {
+                ConflictCount = 0;
+            }
         }
     }
 
