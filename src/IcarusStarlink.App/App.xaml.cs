@@ -367,6 +367,15 @@ public partial class App : Application
                 mainWindow.Show();
                 splash.Close();
 
+                // WPF only auto-assigns Application.MainWindow to the FIRST window that ever calls
+                // Show() — since the splash screen shows before this one, Application.MainWindow
+                // would otherwise be left pointing at the (now closed) splash for the app's entire
+                // life. A closed window can't be used as another window's Owner (WPF throws
+                // "Cannot set Owner property to a Window that has not been shown previously"), which
+                // crashed the app the moment any ThemedConfirmDialog/ThemedMessageBox tried to show
+                // using Application.Current.MainWindow as its owner.
+                Application.Current.MainWindow = mainWindow;
+
                 // Constructed eagerly (page ViewModels are otherwise built lazily on first
                 // navigation) so its launch checks — the app-update prompt, Nexus key
                 // re-validation, and the UnrealPak first-run verify/locate/install offer —
