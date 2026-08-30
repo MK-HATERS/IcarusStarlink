@@ -5,25 +5,6 @@ namespace IcarusStarlink.Core.Tests.Nexus;
 public class NexusModWebUrlTests
 {
     [Theory]
-    [InlineData("https://www.nexusmods.com/icarus/mods/289", 289)]
-    [InlineData("https://nexusmods.com/icarus/mods/42?tab=files", 42)]
-    [InlineData("  HTTPS://WWW.NEXUSMODS.COM/ICARUS/MODS/7  ", 7)]
-    public void TryParseModIdFromUrl_RealPageUrlShapes_ExtractsTheId(string url, int expectedId)
-    {
-        Assert.True(NexusModWebUrl.TryParseModIdFromUrl(url, out var modId));
-        Assert.Equal(expectedId, modId);
-    }
-
-    [Theory]
-    [InlineData("289")]
-    [InlineData("not a url")]
-    [InlineData("https://www.nexusmods.com/skyrim/mods/289")]
-    public void TryParseModIdFromUrl_BareIdOrWrongGameOrGarbage_ReturnsFalse(string text)
-    {
-        Assert.False(NexusModWebUrl.TryParseModIdFromUrl(text, out _));
-    }
-
-    [Theory]
     [InlineData("289", 289)]
     [InlineData(" 289 ", 289)]
     [InlineData("https://www.nexusmods.com/icarus/mods/289", 289)]

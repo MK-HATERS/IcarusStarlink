@@ -494,30 +494,6 @@
                         </Button>
                     </StackPanel>
 
-                    <!-- Folded in from the former standalone Downloads page's own "Mods" tab: paste
-                         a Nexus mod page URL (or an nxm:// link) to fetch and auto-import a mod
-                         without going through the Nexus page at all. -->
-                    <DockPanel Grid.Row="1" Margin="0,0,0,10" LastChildFill="True">
-                        <Button DockPanel.Dock="Right" Command="{Binding Downloads.FetchNxmUrlCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                ToolTip="Paste a Nexus mod page URL (fetches its main file) or an nxm:// link — imports automatically once downloaded"
-                                AutomationProperties.Name="Fetch">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
-                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                                <TextBlock Text="Fetch" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <TextBlock DockPanel.Dock="Right" Text="{Binding Downloads.PendingDownloadStatusMessage}" VerticalAlignment="Center" Margin="0,0,10,0"
-                                   Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" TextWrapping="Wrap" MaxWidth="260"
-                                   Visibility="{Binding Downloads.PendingDownloadStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-                        <Grid Margin="0,0,8,0">
-                            <TextBox Text="{Binding Downloads.ManualNxmUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                            <TextBlock Text="e.g. nexusmods.com/icarus/mods/304 (or an nxm:// link from Mod Manager Download)"
-                                       Style="{StaticResource PlaceholderTextStyle}" TextTrimming="CharacterEllipsis"
-                                       Visibility="{Binding Downloads.ManualNxmUrl, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
-                    </DockPanel>
-
                     <!-- Only shown when something genuinely needs attention — a successful download
                          already auto-imports and just becomes a normal row above, so the common case
                          is this section not appearing at all. -->
@@ -575,6 +551,7 @@
                     </StackPanel>
 
                     <StackPanel Grid.Row="3" Margin="0,0,0,12">
+                        <TextBlock Text="Search your library" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
                         <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                                  ToolTip="Search by name, author, notes, or mod file/item contents"/>
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}">

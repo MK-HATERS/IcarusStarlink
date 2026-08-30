@@ -156,9 +156,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
     public ObservableCollection<PendingDownloadItemViewModel> PendingDownloads { get; } = [];
 
     [ObservableProperty]
-    private string _manualNxmUrl = "";
-
-    [ObservableProperty]
     private bool _isFetchingDownload;
 
     [ObservableProperty]
@@ -616,26 +613,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
 
         UrlOpener.TryOpen(url);
-    }
-
-    [RelayCommand]
-    private Task FetchNxmUrl()
-    {
-        if (string.IsNullOrWhiteSpace(ManualNxmUrl))
-        {
-            PendingDownloadStatusMessage = "Paste a Nexus mod page URL or an nxm:// link first.";
-            return Task.CompletedTask;
-        }
-
-        var text = ManualNxmUrl.Trim();
-        ManualNxmUrl = "";
-
-        // A plain mod-page URL (what's actually in a browser's address bar — an nxm:// link isn't
-        // something most users ever see or copy) resolves the same way a card's own Download
-        // button does: look up the primary file, then fetch through the real nxm pipeline.
-        return NexusModWebUrl.TryParseModIdFromUrl(text, out var nexusModId)
-            ? ResolvePrimaryFileAndFetchAsync(nexusModId)
-            : FetchAndDownloadAsync(text);
     }
 
     /// <summary>

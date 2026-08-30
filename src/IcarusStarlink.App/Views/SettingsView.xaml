@@ -139,13 +139,18 @@
                         </DockPanel>
 
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <!-- Named differently from Merge & Install's own "Import IMM mod list…" on
+                                 purpose — that one only rebuilds the queue from mods already in your
+                                 Library; this one is the fuller one-time migration, copying the mods
+                                 themselves out of classic IMM's own folder first. Identical labels on
+                                 two different actions was a real, reported point of confusion. -->
                             <Button Command="{Binding ImportImmModListCommand}" IsEnabled="{Binding CanMigrateFromImm}"
-                                    AutomationProperties.Name="Import IMM mod list"
-                                    ToolTip="Pick LastMergedMods.txt from your classic IMM folder (or the IMM_Merged_Mod.txt next to the pak it installed into your game)">
+                                    AutomationProperties.Name="Migrate mods and mod list"
+                                    ToolTip="Copies each mod out of classic IMM's own folder into your Library, then rebuilds your merge list in Merge &amp; Install — a one-time full migration, not just a queue re-sync. Pick LastMergedMods.txt from your classic IMM folder (or the IMM_Merged_Mod.txt next to the pak it installed into your game)">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                                    <TextBlock Text="Import IMM mod list…" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Migrate mods + mod list…" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                             <TextBlock Text="{Binding MigrationStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="420"
