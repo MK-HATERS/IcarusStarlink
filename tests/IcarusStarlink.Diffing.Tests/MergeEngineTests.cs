@@ -279,6 +279,45 @@ public class MergeEngineTests
         Assert.Throws<ArgumentException>(() => MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA]));
     }
 
+    [Fact]
+    public void GroupConflictsByMod_TwoModsConflict_EachNamesTheOther()
+    {
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 10) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+        var conflicts = MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA, modB]);
+
+        var byMod = MergeEngine.GroupConflictsByMod(conflicts);
+
+        Assert.Equal(["Mod B"], byMod["Mod A"]);
+        Assert.Equal(["Mod A"], byMod["Mod B"]);
+    }
+
+    [Fact]
+    public void GroupConflictsByMod_ModConflictsWithDifferentModsOnDifferentFields_BothNamed()
+    {
+        // Mod A conflicts with Mod B on Damage and with Mod C on Weight — a real shape this
+        // aggregation exists to handle: one mod's own "conflicts with" set can span several
+        // different mods across several different fields, not just one.
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 10), ScalarChange("Sword", "Weight", 1) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+        var modC = new List<FieldChange> { ScalarChange("Sword", "Weight", 2) };
+        var conflicts = MergeEngine.FindConflicts(["Mod A", "Mod B", "Mod C"], [modA, modB, modC]);
+
+        var byMod = MergeEngine.GroupConflictsByMod(conflicts);
+
+        Assert.Equal(["Mod B", "Mod C"], byMod["Mod A"].OrderBy(n => n));
+        Assert.Equal(["Mod A"], byMod["Mod B"]);
+        Assert.Equal(["Mod A"], byMod["Mod C"]);
+    }
+
+    [Fact]
+    public void GroupConflictsByMod_NoConflicts_ReturnsEmpty()
+    {
+        var byMod = MergeEngine.GroupConflictsByMod([]);
+
+        Assert.Empty(byMod);
+    }
+
     private static IReadOnlyDictionary<string, JsonObject> BaseTables(string currentFile, string item, string field, int baseValue) =>
         new Dictionary<string, JsonObject> { [currentFile] = new JsonObject { [item] = new JsonObject { [field] = JsonValue.Create(baseValue) } } };
 
@@ -403,5 +442,52 @@ public class MergeEngineTests
 
         var change = Assert.Single(resolved);
         Assert.Equal(conflict.Candidates[pickedIndex].Change.NewValue!.GetValue<int>(), change.NewValue!.GetValue<int>());
+    }
+
+    [Fact]
+    public void CountChangesDifferingFromBase_AllChangesDifferFromBase_CountsAll()
+    {
+        var changes = new List<FieldChange> { ScalarChange("Sword", "Damage", 30), ScalarChange("Sword", "Weight", 5) };
+        var baseTables = new Dictionary<string, JsonObject>
+        {
+            ["Items-D_ItemsStatic.json"] = new JsonObject { ["Sword"] = new JsonObject { ["Damage"] = JsonValue.Create(10), ["Weight"] = JsonValue.Create(1) } },
+        };
+
+        Assert.Equal(2, MergeEngine.CountChangesDifferingFromBase(changes, baseTables));
+    }
+
+    [Fact]
+    public void CountChangesDifferingFromBase_OneChangeMatchesBaseExactly_ExcludedFromCount()
+    {
+        // The real "stale whole-item-copy" scenario the field notes document: Weight is carried
+        // along unchanged from base, Damage is the mod's one genuine edit.
+        var changes = new List<FieldChange> { ScalarChange("Sword", "Damage", 30), ScalarChange("Sword", "Weight", 1) };
+        var baseTables = new Dictionary<string, JsonObject>
+        {
+            ["Items-D_ItemsStatic.json"] = new JsonObject { ["Sword"] = new JsonObject { ["Damage"] = JsonValue.Create(10), ["Weight"] = JsonValue.Create(1) } },
+        };
+
+        Assert.Equal(1, MergeEngine.CountChangesDifferingFromBase(changes, baseTables));
+    }
+
+    [Fact]
+    public void CountChangesDifferingFromBase_SameFieldTouchedTwiceByOneMod_CollapsesToLastValueFirst()
+    {
+        // A real EXMOD pattern (see the field notes): a mod's own File_Items can list the same
+        // item twice with different values — the LAST entry is what TableApplier would actually
+        // produce, so only that one should be judged against base, not both.
+        var changes = new List<FieldChange> { ScalarChange("Sword", "Damage", 999), ScalarChange("Sword", "Damage", 10) };
+        var baseTables = BaseTables("Items-D_ItemsStatic.json", "Sword", "Damage", baseValue: 10);
+
+        Assert.Equal(0, MergeEngine.CountChangesDifferingFromBase(changes, baseTables));
+    }
+
+    [Fact]
+    public void CountChangesDifferingFromBase_FieldNotInBaseTables_CountsAsDiffering()
+    {
+        var changes = new List<FieldChange> { ScalarChange("BrandNewItem", "Damage", 5) };
+        var baseTables = new Dictionary<string, JsonObject> { ["Items-D_ItemsStatic.json"] = new JsonObject() };
+
+        Assert.Equal(1, MergeEngine.CountChangesDifferingFromBase(changes, baseTables));
     }
 }

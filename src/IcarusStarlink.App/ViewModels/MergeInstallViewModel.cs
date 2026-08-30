@@ -121,6 +121,16 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     partial void OnConflictCountChanged(int value) => OnPropertyChanged(nameof(HasConflicts));
 
+    /// <summary>
+    /// Keyed by LibraryEntry.Name (matching ConflictCandidate.ModName's own "display text, not a
+    /// folder identifier" convention — see FieldConflict's doc comment) — lets a queue row's own
+    /// DataTemplate show which OTHER queued mods it conflicts with, without needing to open Review
+    /// conflicts first. Recomputed alongside ConflictCount everywhere that already runs
+    /// FindQueueConflictsAsync, so it never drifts out of sync with the badge/banner.
+    /// </summary>
+    [ObservableProperty]
+    private IReadOnlyDictionary<string, IReadOnlyList<string>> _conflictingModNamesByMod = new Dictionary<string, IReadOnlyList<string>>();
+
     // --- Mod validation ("will this actually do anything in-game") ---
     [ObservableProperty]
     private string? _validationStatusMessage;
@@ -733,17 +743,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     }
 
     /// <summary>
-    /// "Import + Sync reinstalls listed mods (force refresh; does not skip same version)" per the
-    /// spec — a bundled mod always overwrites whatever's already in the Library under the same
-    /// folder name, rather than skipping it as "already have it", since the whole point is syncing
-    /// exactly what the patch carries. A referenced (non-bundled) mod is matched by (Name, Author)
-    /// against the local Library; if it's missing, this reports it rather than failing the whole
-    /// import — same SkipWithWarning philosophy as everywhere else the merge pipeline can hit a
-    /// gap. ImportAsync itself doesn't need the network (unlike Export), but this still awaits it
-    /// properly rather than blocking the UI thread on a zip read/extract that can take real time
-    /// for a patch with bundled EXMODZ content.
-    /// </summary>
-    /// <summary>
     /// Loads a classic-IMM merge list (LastMergedMods.txt / IMM_Merged_Mod.txt — or this app's own
     /// ISL-Merged.txt, same format) and rebuilds the queue from it, in the list's own order (merge
     /// priority). REPLACES the current queue, matching classic IMM's own "Load Merge list"
@@ -751,28 +750,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// queued. Names that don't match any Library entry land in the Warnings list rather than
     /// being silently dropped, so the user can resolve them (import the missing mod, or Rename/
     /// Link an existing one) and re-import.
-    /// </summary>
-    [RelayCommand]
-    private void ImportImmModList()
-    {
-        var dialog = new OpenFileDialog
-        {
-            Title = "Import an IMM mod list",
-            Filter = "Mod list (*.txt, *.lst)|*.txt;*.lst|All files (*.*)|*.*",
-        };
-        if (dialog.ShowDialog() != true)
-        {
-            return;
-        }
-
-        LoadModListFromFile(dialog.FileName);
-    }
-
-    /// <summary>
-    /// The queue-rebuilding half of Import IMM mod list, separated from its own file dialog so the
-    /// classic-IMM migration (Settings) can finish the job it starts: bringing the mods over is
-    /// only half a migration — the user's actual merge list, in its real order, is the other half,
-    /// and having to rebuild that by hand is exactly what migrating is supposed to avoid.
+    ///
+    /// Public and called only by Settings' own classic-IMM migration (which finishes the job it
+    /// starts: bringing the mods over is only half a migration — the user's actual merge list, in
+    /// its real order, is the other half) — this page no longer has its own separate file-dialog
+    /// entry point for it (removed as a redundant-looking near-duplicate of the Settings flow).
     /// </summary>
     public void LoadModListFromFile(string modListPath)
     {
@@ -813,6 +795,17 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// "Import + Sync reinstalls listed mods (force refresh; does not skip same version)" per the
+    /// spec — a bundled mod always overwrites whatever's already in the Library under the same
+    /// folder name, rather than skipping it as "already have it", since the whole point is syncing
+    /// exactly what the patch carries. A referenced (non-bundled) mod is matched by (Name, Author)
+    /// against the local Library; if it's missing, this reports it rather than failing the whole
+    /// import — same SkipWithWarning philosophy as everywhere else the merge pipeline can hit a
+    /// gap. ImportAsync itself doesn't need the network (unlike Export), but this still awaits it
+    /// properly rather than blocking the UI thread on a zip read/extract that can take real time
+    /// for a patch with bundled EXMODZ content.
+    /// </summary>
     [RelayCommand]
     private async Task ImportPatchAsync()
     {
@@ -907,6 +900,124 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             ? "Baseline cleared — no mods are auto-added anymore."
             : $"Baseline set — these {Queue.Count} mod(s) will be auto-added to every profile's queue.";
         _activityLog.Log(Queue.Count == 0 ? "Cleared the baseline mod list." : $"Set baseline mod list ({Queue.Count} mod(s)).", ActivityEntryKind.Info);
+    }
+
+    /// <summary>
+    /// Reorders the queue's real EXMOD mods so the ones making fewer genuine edits (compared to
+    /// current base game data) sit later — later wins conflicts by default, so a small, deliberate
+    /// field change no longer loses to a big overhaul-style mod that happens to also touch the
+    /// same field, often as a stale whole-item-copy artifact rather than a deliberate one. See
+    /// MergeEngine.CountChangesDifferingFromBase's own doc comment for why raw field count alone
+    /// isn't a safe enough signal on its own — a mod's declared field count can be inflated by
+    /// unchanged copied fields an old-style extractor carried along.
+    ///
+    /// Opaque paks keep their own exact queue position — there's no per-field diff to rank them by
+    /// without a real UnrealPak extraction — only the EXMOD entries around them get reordered into
+    /// the slots they already occupied. This only ever suggests; nothing is applied without an
+    /// explicit confirmation naming the exact new order.
+    /// </summary>
+    [RelayCommand]
+    private async Task SuggestQueueOrderAsync()
+    {
+        var (entries, packages, _) = await LoadQueuedPackagesAsync();
+        if (entries.Count < 2)
+        {
+            StatusMessage = "Nothing to reorder — need at least 2 real (non-prebuilt-pak) mods in the queue.";
+            return;
+        }
+
+        var classifier = new DefaultSemanticClassifier();
+        var currentQueue = Queue.ToList();
+
+        var (newOrder, changed) = await Task.Run(() =>
+        {
+            var modChangesByFolder = entries.Zip(packages, (entry, package) =>
+                    (entry.FolderName, Changes: ExmodFieldChangeMapper.ToFieldChanges(package.Package, classifier)))
+                .ToDictionary(x => x.FolderName, x => x.Changes, StringComparer.OrdinalIgnoreCase);
+
+            // Best-effort, matching FindQueueConflictsAsync's own fallback — no filtering (falls
+            // back to raw field count) rather than blocking the suggestion on a locked/unreadable
+            // base file.
+            IReadOnlyDictionary<string, JsonObject>? baseTablesByFile = null;
+            try
+            {
+                var requiredFiles = modChangesByFolder.Values.SelectMany(c => c).Select(c => c.CurrentFile).Distinct();
+                baseTablesByFile = _rebuildService.ReadKeyedBaseTables(requiredFiles, _dataFolder, new MergeReport());
+            }
+            catch (Exception)
+            {
+                // Best-effort — see the comment above.
+            }
+
+            var realChangeCountByFolder = modChangesByFolder.ToDictionary(
+                kv => kv.Key,
+                kv => baseTablesByFile is not null
+                    ? MergeEngine.CountChangesDifferingFromBase(kv.Value, baseTablesByFile)
+                    : kv.Value.Count,
+                StringComparer.OrdinalIgnoreCase);
+
+            // Sort descending by real change count (most sweeping first/lowest priority, fewest
+            // changes last/highest priority — so a targeted edit wins), then slot the sorted EXMOD
+            // entries back into their own original positions, leaving any opaque pak exactly where
+            // it was.
+            var sortedExmodEntries = currentQueue
+                .Where(e => realChangeCountByFolder.ContainsKey(e.FolderName))
+                .OrderByDescending(e => realChangeCountByFolder[e.FolderName])
+                .ToList();
+
+            var nextSortedIndex = 0;
+            var newOrder = currentQueue
+                .Select(e => realChangeCountByFolder.ContainsKey(e.FolderName) ? sortedExmodEntries[nextSortedIndex++] : e)
+                .ToList();
+
+            var changed = !newOrder.Select(e => e.FolderName)
+                .SequenceEqual(currentQueue.Select(e => e.FolderName), StringComparer.OrdinalIgnoreCase);
+            return (newOrder, changed);
+        });
+
+        if (!changed)
+        {
+            StatusMessage = "The queue is already in a reasonable order — no change suggested.";
+            return;
+        }
+
+        // Named here (not just implied) because a plain queue reorder is otherwise easy to lose:
+        // NOTHING about Queue.CollectionChanged persists it, only an explicit Save profile click
+        // does — a real, reported point of confusion once ("I applied it, but it wasn't there after
+        // relaunch"). Saving right here when a profile is already selected treats the user's
+        // explicit "Apply this order? Yes" as the real, deliberate confirmation it is, instead of
+        // silently leaving it as unsaved scratch state on top of an already-loaded profile.
+        var saveNote = SelectedProfileName is { } selectedProfileName
+            ? $" and save it to '{selectedProfileName}'"
+            : " (no profile is selected, so this won't survive a restart until you create/select one and Save profile)";
+        var preview = string.Join("\n", newOrder.Select((e, i) => $"{i + 1}. {e.Name}"));
+        var confirmed = ThemedMessageBox.Show(
+            "Suggests putting mods that make fewer real edits (compared to current game data) later in the queue, " +
+            "so a small, deliberate change doesn't lose to a bigger mod that happens to also touch the same field.\n\n" +
+            $"New order:\n{preview}\n\nApply this order{saveNote}?",
+            "Suggested order", ThemedConfirmSeverity.Question);
+        if (!confirmed)
+        {
+            return;
+        }
+
+        Queue.Clear();
+        foreach (var entry in newOrder)
+        {
+            Queue.Add(entry);
+        }
+
+        if (SelectedProfileName is { } name)
+        {
+            SaveProfile();
+            StatusMessage = $"Applied the suggested order and saved it to '{name}'.";
+        }
+        else
+        {
+            StatusMessage = "Applied the suggested order — create or select a profile, then Save profile, to keep it across a restart.";
+        }
+
+        _activityLog.Log("Applied a suggested queue order.", ActivityEntryKind.Info);
     }
 
     /// <summary>
@@ -1453,6 +1564,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             if (version == _conflictCountVersion)
             {
                 ConflictCount = conflicts.Count;
+                ConflictingModNamesByMod = MergeEngine.GroupConflictsByMod(conflicts);
             }
         }
         catch (Exception)
@@ -1460,6 +1572,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             if (version == _conflictCountVersion)
             {
                 ConflictCount = 0;
+                ConflictingModNamesByMod = new Dictionary<string, IReadOnlyList<string>>();
             }
         }
     }
@@ -1484,6 +1597,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             var (conflicts, modNames) = await FindQueueConflictsAsync(includePrebuiltPaks: true);
             ConflictCount = conflicts.Count;
+            ConflictingModNamesByMod = MergeEngine.GroupConflictsByMod(conflicts);
 
             if (conflicts.Count == 0)
             {

@@ -81,6 +81,73 @@ public static class MergeEngine
     }
 
     /// <summary>
+    /// For every mod named in any conflict's own Candidates, the set of every OTHER mod it shares
+    /// at least one conflicting field with — aggregated across all conflicts, since two mods can
+    /// disagree on more than one field, and a mod can conflict with different mods on different
+    /// fields. Built for a per-row "which mods does this one conflict with" queue indicator, so a
+    /// user doesn't need to open the full conflict picker just to see that a row is involved in one.
+    /// Keyed by ConflictCandidate.ModName — display text, not a folder identifier, matching
+    /// FieldConflict's own established convention (see its doc comment).
+    /// </summary>
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>> GroupConflictsByMod(IReadOnlyList<FieldConflict> conflicts)
+    {
+        var byMod = new Dictionary<string, HashSet<string>>();
+        foreach (var conflict in conflicts)
+        {
+            foreach (var candidate in conflict.Candidates)
+            {
+                if (!byMod.TryGetValue(candidate.ModName, out var others))
+                {
+                    others = [];
+                    byMod[candidate.ModName] = others;
+                }
+
+                foreach (var other in conflict.Candidates)
+                {
+                    if (other.ModName != candidate.ModName)
+                    {
+                        others.Add(other.ModName);
+                    }
+                }
+            }
+        }
+
+        return byMod.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value.ToList());
+    }
+
+    /// <summary>
+    /// How many of one mod's own field changes actually differ from the current base game value —
+    /// used by the "suggest queue order" heuristic to tell a mod making a few real, deliberate
+    /// edits apart from one whose EXMOD carries many unchanged, stale copied fields. See
+    /// GroupByField's own doc comment: an old-style extractor pulled whole items, so a mod's raw
+    /// field count alone overstates how much it actually changes — comparing each field against
+    /// real base data first is what makes this a genuine signal instead of a guess. Collapses the
+    /// same (file, item, field) touched more than once by this one mod down to its last value
+    /// first, matching GroupByField's own per-mod dedup rule (see its doc comment for why).
+    /// </summary>
+    public static int CountChangesDifferingFromBase(
+        IReadOnlyList<FieldChange> modChanges, IReadOnlyDictionary<string, JsonObject> baseTablesByFile)
+    {
+        var lastByKey = new Dictionary<(string CurrentFile, string ItemName, string FieldName), FieldChange>(FieldChangeKeyComparer.Instance);
+        foreach (var change in modChanges)
+        {
+            lastByKey[(change.CurrentFile, change.ItemName, change.FieldName)] = change;
+        }
+
+        var count = 0;
+        foreach (var (key, change) in lastByKey)
+        {
+            var (found, baseValue) = TryGetBaseValue(baseTablesByFile, key.CurrentFile, key.ItemName, key.FieldName);
+            if (!found || !JsonNode.DeepEquals(change.NewValue, baseValue))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>
     /// Groups every mod's changes by (file, item, field), keeping AT MOST ONE entry per mod — the
     /// last value that mod itself supplies for that field.
     ///

@@ -43,14 +43,15 @@
         </DockPanel>
         <TextBlock Grid.Row="2" Text="{Binding ProfileStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0"/>
 
-        <!-- Import & migrate: collapsed by default — export/import a patch and importing a classic-
-             IMM mod list are real but occasional actions, not something a returning user needs to
-             see every time. -->
+        <!-- Import & migrate: collapsed by default — exporting/importing a patch is a real but
+             occasional action, not something a returning user needs to see every time. Classic IMM
+             migration lives only in Settings now (Migrate from IMM tab) — a second, queue-only
+             "Import IMM mod list" here looked redundant with it and was removed. -->
         <Expander Grid.Row="3" Margin="0,16,0,0" IsExpanded="False" AutomationProperties.Name="Import and migrate">
             <Expander.Header>
                 <DockPanel LastChildFill="False">
                     <TextBlock DockPanel.Dock="Left" Text="Import &amp; migrate" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                    <TextBlock DockPanel.Dock="Left" Text="Export patch · Import patch · Import IMM mod list" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                    <TextBlock DockPanel.Dock="Left" Text="Export patch · Import patch" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                 </DockPanel>
             </Expander.Header>
             <StackPanel Orientation="Horizontal">
@@ -70,15 +71,6 @@
                         <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                               StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
                         <TextBlock Text="Import patch…" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
-                <Button Command="{Binding ImportImmModListCommand}" Margin="8,0,0,0"
-                        ToolTip="Load a classic IMM merge list (LastMergedMods.txt / IMM_Merged_Mod.txt) — rebuilds the queue from it in the list's own order, reporting any mod not in your Library yet"
-                        AutomationProperties.Name="Import IMM mod list">
-                    <StackPanel Orientation="Horizontal">
-                        <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
-                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                        <TextBlock Text="Import IMM mod list…" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
             </StackPanel>
@@ -103,9 +95,6 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -192,14 +181,39 @@
                                           ToolTip="Prebuilt .pak — no field-level merge; its files are folded into the merged pak as-is on Rebuild"
                                           Visibility="{Binding IsOpaquePak, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                     <TextBlock Text="{Binding Name}"/>
+                                    <!-- Per-row conflict indicator — shows without needing to open Review
+                                         conflicts first. Both bindings reach the page-level ViewModel's own
+                                         ConflictingModNamesByMod from inside this per-row DataTemplate, the
+                                         same AncestorType=UserControl relay this app already uses elsewhere
+                                         to reach a page ViewModel from inside a nested template. -->
+                                    <Path Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.4"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"
+                                          Margin="5,0,0,0" VerticalAlignment="Center">
+                                        <Path.Visibility>
+                                            <MultiBinding Converter="{StaticResource QueueConflictVisibilityConverter}">
+                                                <Binding Path="Name"/>
+                                                <Binding Path="DataContext.ConflictingModNamesByMod" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                            </MultiBinding>
+                                        </Path.Visibility>
+                                        <Path.ToolTip>
+                                            <MultiBinding Converter="{StaticResource QueueConflictTooltipConverter}">
+                                                <Binding Path="Name"/>
+                                                <Binding Path="DataContext.ConflictingModNamesByMod" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                            </MultiBinding>
+                                        </Path.ToolTip>
+                                    </Path>
                                 </StackPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
                 </DockPanel>
 
-                <!-- WrapPanel, not StackPanel: at narrower widths the trailing buttons (Set
-                     baseline) were clipped off the column's edge with no way to reach them. -->
+                <!-- WrapPanel, not StackPanel: at narrower widths the trailing buttons were clipped
+                     off the column's edge with no way to reach them. Review conflicts/Validate
+                     mods/Update install (formerly their own "Build & install" section below) join
+                     the queue-editing buttons here — one compact action bar instead of two stacked
+                     ones, per the user's own request. Their per-action status text moved out to its
+                     own row underneath (Grid.Row="3"), since it no longer fits beside each button. -->
                 <WrapPanel Grid.Row="2" Margin="0,8,0,0">
                     <Button Command="{Binding MoveQueueEntryUpCommand}" Style="{StaticResource IconButtonStyle}"
                             Width="30" ToolTip="Move up" AutomationProperties.Name="Move up" Margin="0,0,4,0">
@@ -219,29 +233,20 @@
                         </StackPanel>
                     </Button>
                     <Button Content="Clear" Command="{Binding ClearQueueCommand}" Margin="0,0,8,0"/>
-                    <Button Content="Set baseline" Command="{Binding SetBaselineCommand}"
+                    <Button Content="Set baseline" Command="{Binding SetBaselineCommand}" Margin="0,0,10,0"
                             ToolTip="Saves the current queue as your baseline — these mods are auto-added (lowest priority) to every profile's queue from now on. Click with an empty queue to clear the baseline."/>
-                </WrapPanel>
+                    <Button Content="Suggest order" Command="{Binding SuggestQueueOrderCommand}" Margin="0,0,10,0"
+                            ToolTip="Proposes reordering the queue so mods making fewer real edits (vs. current game data) sit later and win conflicts, instead of losing to a bigger mod that happens to touch the same field. Shows the new order and asks before changing anything — applying it also saves it to the selected profile, so it survives a restart."/>
 
-                <Border Grid.Row="3" Style="{StaticResource SectionDividerStyle}" Margin="0,14,0,10"/>
-                <TextBlock Grid.Row="4" Text="Build &amp; install" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8"/>
+                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Margin="0,4,10,4"/>
 
-                <StackPanel Grid.Row="5">
-                    <StackPanel Orientation="Horizontal">
-                        <Button Content="Review conflicts" Command="{Binding ReviewConflictsCommand}"
-                                ToolTip="See which fields two or more queued mods both change, and optionally pick a winner per field instead of the default last-mod-wins"/>
-                        <TextBlock Text="{Binding ConflictStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                                   Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <Button Content="Validate mods" Command="{Binding ReviewValidationIssuesCommand}"
-                                ToolTip="Checks every queued mod's own fields, references, and bundled assets against the currently-extracted game data and each other — catches a typo'd/renamed field, a recipe pointing at an item that doesn't exist, or two mods silently overwriting the same file, any of which would otherwise merge and pack fine but silently not work in-game"/>
-                        <TextBlock Text="{Binding ValidationStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                                   Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
-                    </StackPanel>
-                </StackPanel>
+                    <Button Content="Review conflicts" Command="{Binding ReviewConflictsCommand}" Margin="0,0,8,0"
+                            ToolTip="See which fields two or more queued mods both change, and optionally pick a winner per field instead of the default last-mod-wins"/>
+                    <Button Content="Validate mods" Command="{Binding ReviewValidationIssuesCommand}" Margin="0,0,10,0"
+                            ToolTip="Checks every queued mod's own fields, references, and bundled assets against the currently-extracted game data and each other — catches a typo'd/renamed field, a recipe pointing at an item that doesn't exist, or two mods silently overwriting the same file, any of which would otherwise merge and pack fine but silently not work in-game"/>
 
-                <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,12,0,0">
+                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Margin="0,4,10,4"/>
+
                     <!-- One button now does the whole "merge, then install" flow — chained internally
                          (RebuildAndInstallCommand), not merged into one method, so the real-game-write
                          confirmation dialog still appears only right before that actual write, after
@@ -256,11 +261,15 @@
                             <TextBlock Text="{Binding InstallButtonLabel}" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                               Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
+                </WrapPanel>
+
+                <StackPanel Grid.Row="3" Margin="0,8,0,0">
+                    <TextBlock Text="{Binding ConflictStatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding ValidationStatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                    <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0"/>
                 </StackPanel>
 
-                <Grid Grid.Row="7" Margin="0,8,0,0" Visibility="{Binding IsRebuilding, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid Grid.Row="4" Margin="0,8,0,0" Visibility="{Binding IsRebuilding, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -270,13 +279,13 @@
                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
                 </Grid>
 
-                <ListBox Grid.Row="8" ItemsSource="{Binding Warnings}" Margin="0,8,0,0" MaxHeight="120"
+                <ListBox Grid.Row="5" ItemsSource="{Binding Warnings}" Margin="0,8,0,0" MaxHeight="120"
                          Foreground="{DynamicResource AccentBrush}" FontSize="12"/>
 
                 <!-- Verify + Uninstall: real, occasionally-needed tools, folded into one collapsed
                      section instead of two always-visible ones — neither competes with Install for
                      a new user's attention, but both stay one click away. -->
-                <Expander Grid.Row="9" Margin="0,14,0,0" IsExpanded="False" AutomationProperties.Name="Advanced actions">
+                <Expander Grid.Row="6" Margin="0,14,0,0" IsExpanded="False" AutomationProperties.Name="Advanced actions">
                     <Expander.Header>
                         <DockPanel LastChildFill="False">
                             <TextBlock DockPanel.Dock="Left" Text="Advanced actions" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
