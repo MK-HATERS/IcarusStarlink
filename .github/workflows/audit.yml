@@ -1,0 +1,74 @@
+name: Audit
+
+# Complements ci.yml (build+test) with checks aimed at things a green build/test run doesn't
+# catch: known-vulnerable dependencies, and secrets accidentally committed. Relevant here
+# specifically because this app stores Nexus API keys and FTP site credentials (Secrets/
+# Credential Manager integration) and ships a real auto-updater — both genuine security surface.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # Weekly, since a package can go from "fine" to "newly disclosed CVE" with no code change here.
+    - cron: "0 10 * * 1"
+  workflow_dispatch:
+
+jobs:
+  dependency-audit:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore IcarusStarlink.slnx
+
+      - name: Check for vulnerable packages
+        shell: pwsh
+        run: |
+          $output = dotnet list IcarusStarlink.slnx package --vulnerable --include-transitive 2>&1 | Tee-Object -Variable lines
+          $lines | ForEach-Object { Write-Output $_ }
+          if ($lines -match "has the following vulnerable packages") {
+            Write-Error "One or more NuGet packages have a known vulnerability — see the listing above."
+            exit 1
+          }
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  codeql:
+    runs-on: windows-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: |
+          dotnet restore IcarusStarlink.slnx
+          dotnet build IcarusStarlink.slnx --configuration Release --no-restore
+
+      - uses: github/codeql-action/analyze@v3
