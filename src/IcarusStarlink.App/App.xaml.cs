@@ -174,7 +174,7 @@ public partial class App : Application
         builder.Services.AddSingleton<IInstallService, InstallService>();
         builder.Services.AddSingleton<IPakCompareService, PakCompareService>();
         builder.Services.AddSingleton<IUnrealPakInstaller>(sp =>
-            new UnrealPakInstaller(sp.GetRequiredService<IProcessRunner>(), appDataDirectory));
+            new UnrealPakInstaller(sp.GetRequiredService<IProcessRunner>(), sp.GetRequiredService<HttpClient>(), appDataDirectory));
         builder.Services.AddSingleton<IModVersionComparer, ModVersionComparer>();
         builder.Services.AddSingleton(sp => new ImmMigrationService(
             sp.GetRequiredService<ILibraryRepository>(),

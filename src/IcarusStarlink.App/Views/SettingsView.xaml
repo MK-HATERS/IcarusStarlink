@@ -58,7 +58,7 @@
                         <WrapPanel Margin="0,0,0,12">
                             <Button Command="{Binding InstallBundledUnrealPakCommand}" IsEnabled="{Binding CanInstallBundledUnrealPak}"
                                     Content="{Binding InstallUnrealPakButtonLabel}"
-                                    ToolTip="Puts the copy shipped with this app (UnrealPak 4.27 — the UE4 version Icarus itself uses) into Tools\UnrealPak next to the exe. Reinstalling repairs a broken copy. A newer UnrealPak is deliberately NOT offered: UE5 builds write pak formats Icarus's engine can't load."
+                                    ToolTip="Installs UnrealPak 4.27 (the UE4 version Icarus itself uses) into Tools\UnrealPak next to the exe — from a copy shipped with this app if there is one, else downloaded fresh. Reinstalling repairs a broken copy. A newer UnrealPak is deliberately NOT offered: UE5 builds write pak formats Icarus's engine can't load."
                                     ToolTipService.ShowOnDisabled="True"/>
                             <Button Content="Check" Command="{Binding VerifyUnrealPakCommand}" Margin="8,0,0,0"
                                     ToolTip="Actually runs the configured UnrealPak.exe to confirm it works, and reports its engine version"/>

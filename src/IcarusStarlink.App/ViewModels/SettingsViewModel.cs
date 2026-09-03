@@ -579,13 +579,19 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string? _unrealPakStatusMessage;
 
+    /// <summary>
+    /// Always true (see IUnrealPakInstaller.PayloadAvailable) — kept as the binding target for the
+    /// install button's IsEnabled rather than removed, so a future build that genuinely can't offer
+    /// an install (e.g. a sandboxed environment with no filesystem/network access at all) has
+    /// somewhere to wire that in without touching the view.
+    /// </summary>
     public bool CanInstallBundledUnrealPak => _unrealPakInstaller.PayloadAvailable;
 
-    /// <summary>Label flips to Reinstall once the bundled copy is what's configured — same button, and reinstalling IS the repair path for a broken copy.</summary>
+    /// <summary>Label flips to Reinstall once the installed copy is what's configured — same button, and reinstalling IS the repair path for a broken copy. Says "UnrealPak" rather than "bundled copy" since installing it may mean downloading it, not just extracting something already shipped alongside the app.</summary>
     public string InstallUnrealPakButtonLabel =>
         string.Equals(UnrealPakExePath, _unrealPakInstaller.InstalledExePath, StringComparison.OrdinalIgnoreCase)
-            ? "Reinstall bundled copy"
-            : "Install bundled copy";
+            ? "Reinstall UnrealPak"
+            : "Install UnrealPak";
 
     partial void OnUnrealPakExePathChanged(string? value) => OnPropertyChanged(nameof(InstallUnrealPakButtonLabel));
 
@@ -600,9 +606,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(UnrealPakExePath))
         {
-            UnrealPakStatusMessage = CanInstallBundledUnrealPak
-                ? "No UnrealPak.exe set — install the bundled copy, or Browse… to one you already have."
-                : "No UnrealPak.exe set — Browse… to one you already have (e.g. classic IMM's own, under its UnrealPak folder).";
+            UnrealPakStatusMessage = "No UnrealPak.exe set — install it, or Browse… to one you already have.";
             return;
         }
 
@@ -615,7 +619,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 + (result.EngineVersion.StartsWith('4') ? " (UE4, matches Icarus)." : " — WARNING: not a UE4 build; its paks may not load in Icarus."),
             UnrealPakHealth.Ok => "Working.",
             UnrealPakHealth.Missing => $"Not found at that path. {result.Detail}",
-            _ => $"Broken copy: {result.Detail} " + (CanInstallBundledUnrealPak ? "Reinstall bundled copy fixes this." : "Point at a fresh copy."),
+            _ => $"Broken copy: {result.Detail} Reinstall fixes this.",
         };
     }
 
@@ -659,25 +663,18 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        if (_unrealPakInstaller.PayloadAvailable)
+        var answer = ThemedMessageBox.Show(
+            "IcarusStarlink needs UnrealPak.exe to build and unpack mod paks, and none is set up yet.\n\n"
+            + "Install it now? (Downloads a small, one-time payload if there isn't already a copy shipped alongside the app. Choose No to point at one you already have, in Settings.)",
+            "Set up UnrealPak", ThemedConfirmSeverity.Question);
+        if (answer)
         {
-            var answer = ThemedMessageBox.Show(
-                "IcarusStarlink needs UnrealPak.exe to build and unpack mod paks, and none is set up yet.\n\n"
-                + "Install the bundled copy next to the app now? (Choose No to point at one you already have, in Settings.)",
-                "Set up UnrealPak", ThemedConfirmSeverity.Question);
-            if (answer)
-            {
-                await InstallBundledUnrealPakAsync();
-            }
-            else
-            {
-                UnrealPakStatusMessage = "No UnrealPak.exe set — install the bundled copy, or Browse… to one you already have.";
-            }
-
-            return;
+            await InstallBundledUnrealPakAsync();
         }
-
-        UnrealPakStatusMessage = "No UnrealPak.exe set — Browse… to one you already have (e.g. classic IMM's own, under its UnrealPak folder).";
+        else
+        {
+            UnrealPakStatusMessage = "No UnrealPak.exe set — install it, or Browse… to one you already have.";
+        }
     }
 
     [RelayCommand]
@@ -746,9 +743,9 @@ public sealed partial class SettingsViewModel : ObservableObject
             {
                 UnrealPakHealth.Ok => $"Update failed: {ex.Message}",
                 UnrealPakHealth.Missing => $"Update failed — UnrealPak.exe isn't at that path ({verify.Detail}) "
-                    + (CanInstallBundledUnrealPak ? "Reinstall bundled copy in the UnrealPak section above." : "Point Browse… at a working copy."),
+                    + "Reinstall in the UnrealPak section above.",
                 _ => $"Update failed — your UnrealPak.exe copy looks broken ({verify.Detail}) "
-                    + (CanInstallBundledUnrealPak ? "Reinstall bundled copy in the UnrealPak section above fixes this." : "Point Browse… at a fresh copy."),
+                    + "Reinstall in the UnrealPak section above fixes this.",
             };
         }
         finally
