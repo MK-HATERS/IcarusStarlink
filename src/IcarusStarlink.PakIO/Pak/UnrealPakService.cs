@@ -39,11 +39,7 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         try
         {
             var result = await processRunner.RunAsync(unrealPakExePath, [dataPakPath, "-Extract", tempExtractDirectory], cancellationToken);
-            if (result.ExitCode != 0)
-            {
-                var detail = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
-                throw new InvalidOperationException($"UnrealPak.exe exited with code {result.ExitCode}: {detail}");
-            }
+            EnsureSuccess(result);
 
             WeeklyChangeReport? changeReport = null;
             if (previousUpdateAt is { } previousAt && Directory.Exists(outputDirectory))
@@ -148,11 +144,7 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
             // extract-and-diff round trip against the compressed output confirmed byte-identical
             // content, so this is free space savings, not a tradeoff.
             var result = await processRunner.RunAsync(unrealPakExePath, [outputPakPath, $"-Create={responseFilePath}", "-compress"], cancellationToken);
-            if (result.ExitCode != 0)
-            {
-                var detail = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
-                throw new InvalidOperationException($"UnrealPak.exe exited with code {result.ExitCode}: {detail}");
-            }
+            EnsureSuccess(result);
 
             return files.Length;
         }
@@ -178,11 +170,7 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         }
 
         var result = await processRunner.RunAsync(unrealPakExePath, [pakFilePath, "-List"], cancellationToken);
-        if (result.ExitCode != 0)
-        {
-            var detail = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
-            throw new InvalidOperationException($"UnrealPak.exe exited with code {result.ExitCode}: {detail}");
-        }
+        EnsureSuccess(result);
 
         var paths = new List<string>();
         foreach (var line in result.StandardOutput.Split('\n'))
@@ -208,11 +196,7 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         Directory.CreateDirectory(outputDirectory);
 
         var result = await processRunner.RunAsync(unrealPakExePath, [pakFilePath, "-Extract", outputDirectory], cancellationToken);
-        if (result.ExitCode != 0)
-        {
-            var detail = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
-            throw new InvalidOperationException($"UnrealPak.exe exited with code {result.ExitCode}: {detail}");
-        }
+        EnsureSuccess(result);
 
         // Counted from stdout's own "Extracted "..."" lines, not a directory-wide file count —
         // outputDirectory can already hold other files (RebuildService extracts each attached
@@ -272,6 +256,20 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         if (string.IsNullOrWhiteSpace(unrealPakExePath) || !File.Exists(unrealPakExePath))
         {
             throw new FileNotFoundException($"UnrealPak.exe not found at '{unrealPakExePath}' — check the UnrealPak.exe path setting.");
+        }
+    }
+
+    /// <summary>
+    /// Shared by every method here except VerifyPakAsync, whose own non-zero exit code means
+    /// something different (a real "pak is corrupt" outcome to report, not a tool failure to throw
+    /// for) — see its own doc comment.
+    /// </summary>
+    private static void EnsureSuccess(ProcessRunResult result)
+    {
+        if (result.ExitCode != 0)
+        {
+            var detail = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
+            throw new InvalidOperationException($"UnrealPak.exe exited with code {result.ExitCode}: {detail}");
         }
     }
 }

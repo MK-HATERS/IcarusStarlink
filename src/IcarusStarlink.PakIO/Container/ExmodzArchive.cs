@@ -134,39 +134,13 @@ public static class ExmodzArchive
         var exmodEntry = exmodEntries[0];
         var sizeBudget = new ExmodSizeBudget("Archive");
 
-        // The .EXMOD entry is just as untrusted as the asset entries below it. Checking the
-        // declared Length alone isn't enough — that comes from the archive's own directory, which
-        // a crafted archive can have disagree with what the compressed data actually decompresses
-        // to — so, like the asset path, read into a Length-sized buffer via ReadExactly (which
-        // structurally never reads more than that many bytes, regardless of what the underlying
-        // stream actually contains) instead of an unbounded ReadToEnd().
-        sizeBudget.Charge("archive's .EXMOD entry", exmodEntry.Length);
-
-        ExmodPackage package;
-        using (var exmodStream = exmodEntry.Open())
-        {
-            var buffer = new byte[exmodEntry.Length];
-            try
-            {
-                exmodStream.ReadExactly(buffer);
-            }
-            catch (EndOfStreamException ex)
-            {
-                throw new FormatException(
-                    $"Archive's .EXMOD entry is corrupt — declared {exmodEntry.Length:N0} bytes but contained fewer.", ex);
-            }
-
-            if (exmodStream.ReadByte() != -1)
-            {
-                throw new FormatException(
-                    $"Archive's .EXMOD entry is corrupt — contains more data than its declared {exmodEntry.Length:N0} byte size.");
-            }
-
-            // TrimStart handles a leading UTF-8 BOM some tools write; StreamReader used to do
-            // this implicitly, decoding raw bytes ourselves doesn't.
-            var json = Encoding.UTF8.GetString(buffer).TrimStart('\uFEFF');
-            package = ExmodJson.Parse(json);
-        }
+        // The .EXMOD entry is just as untrusted as the asset entries below it — see
+        // ArchiveEntryReader's own doc comment for why a plain unbounded ReadToEnd() isn't used.
+        var exmodBytes = ArchiveEntryReader.ReadExactly("Archive's .EXMOD entry", exmodEntry.Length, exmodEntry.Open, sizeBudget);
+        // TrimStart handles a leading UTF-8 BOM some tools write; StreamReader used to do
+        // this implicitly, decoding raw bytes ourselves doesn't.
+        var json = Encoding.UTF8.GetString(exmodBytes).TrimStart('\uFEFF');
+        var package = ExmodJson.Parse(json);
 
         var assets = new List<ExmodAssetEntry>();
         var seenAssetPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -191,37 +165,9 @@ public static class ExmodzArchive
                 throw new FormatException($"Archive contains duplicate entry '{entry.Name}'.");
             }
 
-            // Declared uncompressed size, from the archive's own directory. Checking it before
-            // reading (rather than only capping bytes copied) rejects a decompression-bomb entry
-            // without decompressing a single byte of it, and reading directly into a
-            // correctly-sized buffer avoids CopyTo-into-a-growing-MemoryStream-then-ToArray's
-            // extra reallocation and full-buffer copy.
-            sizeBudget.Charge($"archive entry '{entry.Name}'", entry.Length);
-
-            using var entryStream = entry.Open();
-            var content = new byte[entry.Length];
-            try
-            {
-                entryStream.ReadExactly(content);
-            }
-            catch (EndOfStreamException ex)
-            {
-                // Declared size (from the archive's own directory) overstated the actual content —
-                // keep this a FormatException like every other invalid-archive path here, rather
-                // than an unhandled EndOfStreamException a caller catching FormatException won't expect.
-                throw new FormatException(
-                    $"Archive entry '{entry.Name}' is corrupt — declared {entry.Length:N0} bytes but contained fewer.", ex);
-            }
-
-            // The opposite mismatch: declared size understated the actual content. ReadExactly
-            // alone wouldn't catch this — it happily stops once the buffer is full — so check
-            // explicitly that nothing is left, instead of silently accepting truncated content.
-            if (entryStream.ReadByte() != -1)
-            {
-                throw new FormatException(
-                    $"Archive entry '{entry.Name}' is corrupt — contains more data than its declared {entry.Length:N0} byte size.");
-            }
-
+            // Declared uncompressed size, from the archive's own directory — see
+            // ArchiveEntryReader's own doc comment for why it's checked before reading.
+            var content = ArchiveEntryReader.ReadExactly($"Archive entry '{entry.Name}'", entry.Length, entry.Open, sizeBudget);
             assets.Add(new ExmodAssetEntry(entry.Name, content));
         }
 

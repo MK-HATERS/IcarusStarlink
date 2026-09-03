@@ -3,19 +3,37 @@ using System.Windows;
 namespace IcarusStarlink.App.Views;
 
 /// <summary>
-/// NewDisplayName is null when the dialog closes via Reset (clear the override, go back to the
-/// default name) — distinct from Cancel (DialogResult stays false, caller does nothing at all).
+/// Generic rename prompt, reused across a few different "override this thing's display name"
+/// features (Library mods, tracked Nexus watchlist entries) — description and Reset's target
+/// value/wording differ per caller since what "reset" means isn't the same in each: Library's own
+/// default (resetValue left null) clears the override entirely, going back to the mod's own
+/// declared name; a caller with a real fallback value to revert to (e.g. the live Nexus name)
+/// passes it as resetValue instead, so NewDisplayName after Reset is that value, not null.
+/// NewDisplayName is only ever null when the dialog closes via Reset with no resetValue given —
+/// distinct from Cancel (DialogResult stays false, caller does nothing at all).
 /// </summary>
 public partial class RenameModDialog : Window
 {
     public string? NewDisplayName { get; private set; }
 
-    public RenameModDialog(string currentDisplayName)
+    private readonly string? _resetValue;
+
+    public RenameModDialog(
+        string currentDisplayName,
+        string description = "Changes how this mod displays in your Library only — its real folder, file name, and mod content are never touched.",
+        string? resetValue = null,
+        string resetLabel = "Reset to default",
+        string resetTooltip = "Clears the override — goes back to the mod's own declared name")
     {
         InitializeComponent();
+        DescriptionText.Text = description;
         NameBox.Text = currentDisplayName;
         NameBox.SelectAll();
         Loaded += (_, _) => NameBox.Focus();
+
+        _resetValue = resetValue;
+        ResetButton.Content = resetLabel;
+        ResetButton.ToolTip = resetTooltip;
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -26,7 +44,7 @@ public partial class RenameModDialog : Window
 
     private void Reset_Click(object sender, RoutedEventArgs e)
     {
-        NewDisplayName = null;
+        NewDisplayName = _resetValue;
         DialogResult = true;
     }
 

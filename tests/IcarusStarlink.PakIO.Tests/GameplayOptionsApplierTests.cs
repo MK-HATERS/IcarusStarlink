@@ -94,6 +94,33 @@ public class GameplayOptionsApplierTests
         Assert.Contains(report.Warnings, w => w.Contains("Remove Weight") && w.Contains("Weight"));
     }
 
+    /// <summary>
+    /// Regression guard for a real bug in classic IMM's own history (its changelog: "Fixed Remove
+    /// weight merge option from crashing the game. When only it was selected the stack size was
+    /// going to 0.") — Remove Weight and Stacks both write into the same Traits-D_Itemable.json,
+    /// on the same rows, so this is the one place a shared-mutation bug between them could occur.
+    /// Confirms MaxStack and Weight are scaled/zeroed completely independently: enabling both
+    /// together must scale MaxStack exactly as if Stacks were the only option enabled, and zero
+    /// Weight exactly as if Remove Weight were the only option enabled.
+    /// </summary>
+    [Fact]
+    public void Apply_StacksMultiplierAndRemoveWeightTogether_NeitherOptionCorruptsTheOthersField()
+    {
+        var tables = new Dictionary<string, JsonObject>
+        {
+            ["Traits-D_Itemable.json"] = new()
+            {
+                ["Item_Fiber"] = Row("""{"MaxStack": 200, "Weight": 10}"""),
+            },
+        };
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { StacksMultiplier = 3, RemoveWeight = true }, tables, new MergeReport());
+
+        var row = tables["Traits-D_Itemable.json"]["Item_Fiber"]!;
+        Assert.Equal(600, (int)row["MaxStack"]!);
+        Assert.Equal(0, (int)row["Weight"]!);
+    }
+
     [Fact]
     public void Apply_SlotsMultiplier_ScalesStartingSlots()
     {

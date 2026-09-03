@@ -204,87 +204,61 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         }
     }
 
-    public void MarkLocallyEdited(string folderName)
-    {
-        ResolveFolder(folderName);
-
-        var meta = _metaStore.Load(folderName);
-        meta.IsLocallyEdited = true;
-        _metaStore.Save(folderName, meta);
-
-        var existing = _cachedEntries.Find(e => e.FolderName == folderName);
-        if (existing is not null)
-        {
-            existing.IsLocallyEdited = true;
-        }
-    }
+    public void MarkLocallyEdited(string folderName) =>
+        UpdateMeta(folderName, meta => meta.IsLocallyEdited = true, entry => entry.IsLocallyEdited = true);
 
     /// <summary>See LibraryEntry.ConvertedFromPrebuiltPak — same shape as MarkLocallyEdited.</summary>
-    public void MarkConvertedFromPrebuiltPak(string folderName)
-    {
-        ResolveFolder(folderName);
-
-        var meta = _metaStore.Load(folderName);
-        meta.ConvertedFromPrebuiltPak = true;
-        _metaStore.Save(folderName, meta);
-
-        var existing = _cachedEntries.Find(e => e.FolderName == folderName);
-        if (existing is not null)
-        {
-            existing.ConvertedFromPrebuiltPak = true;
-        }
-    }
+    public void MarkConvertedFromPrebuiltPak(string folderName) =>
+        UpdateMeta(folderName, meta => meta.ConvertedFromPrebuiltPak = true, entry => entry.ConvertedFromPrebuiltPak = true);
 
     public void SetDisplayNameOverride(string folderName, string? displayName)
     {
-        ResolveFolder(folderName);
-
-        var meta = _metaStore.Load(folderName);
-        meta.DisplayNameOverride = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
-        _metaStore.Save(folderName, meta);
-
-        // Unlike Pin/Favorite/Notes/IsLocallyEdited above (each a simple, independently-known field
-        // that can be poked directly into the cached entry), clearing the override needs to fall
-        // back to the mod's own default name — its EXMOD's own declared name, or an opaque pak's
-        // Nexus-enriched name/filename — which isn't cheaply available here without re-deriving the
-        // exact same logic ToEntry/ToOpaquePakEntry already encode. A full rescan is the simple,
-        // always-correct choice for a rare, deliberate user action like a rename.
+        // No cached-entry mutator: unlike Pin/Favorite/Notes/IsLocallyEdited above (each a simple,
+        // independently-known field that can be poked directly into the cached entry), clearing the
+        // override needs to fall back to the mod's own default name — its EXMOD's own declared name,
+        // or an opaque pak's Nexus-enriched name/filename — which isn't cheaply available here
+        // without re-deriving the exact same logic ToEntry/ToOpaquePakEntry already encode. A full
+        // rescan is the simple, always-correct choice for a rare, deliberate user action like a rename.
+        UpdateMeta(folderName, meta => meta.DisplayNameOverride = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(), mutateCachedEntry: null);
         RescanAll();
     }
 
-    public void LinkToNexus(string folderName, int nexusModId)
-    {
-        ResolveFolder(folderName);
+    public void LinkToNexus(string folderName, int nexusModId) =>
+        UpdateMeta(folderName,
+            meta => { meta.NexusModId = nexusModId; meta.Source = "Nexus"; },
+            entry => { entry.NexusModId = nexusModId; entry.Source = "Nexus"; });
 
-        var meta = _metaStore.Load(folderName);
-        meta.NexusModId = nexusModId;
-        meta.Source = "Nexus";
-        _metaStore.Save(folderName, meta);
-
-        var existing = _cachedEntries.Find(e => e.FolderName == folderName);
-        if (existing is not null)
-        {
-            existing.NexusModId = nexusModId;
-            existing.Source = "Nexus";
-        }
-    }
-
-    public void SetCatalogEntry(string folderName, string catalogEntryId)
-    {
-        ResolveFolder(folderName);
-
-        var meta = _metaStore.Load(folderName);
-        meta.CatalogEntryId = catalogEntryId;
-        meta.Source = "Database";
-        _metaStore.Save(folderName, meta);
-
+    public void SetCatalogEntry(string folderName, string catalogEntryId) =>
         // Same surgical cached-entry update LinkToNexus does — nothing about the mod's own files
         // changed, so a full rescan would be pure waste.
+        UpdateMeta(folderName,
+            meta => { meta.CatalogEntryId = catalogEntryId; meta.Source = "Database"; },
+            entry => { entry.CatalogEntryId = catalogEntryId; entry.Source = "Database"; });
+
+    /// <summary>
+    /// Shared by every "patch one sidecar metadata field, then mirror it into the cache" mutator
+    /// above — ResolveFolder validates the mod exists, then meta is loaded/mutated/saved, then
+    /// (unless mutateCachedEntry is null — SetDisplayNameOverride's own case, see its doc comment)
+    /// the matching cached entry, if any, is patched the same way so a full RescanAll isn't needed
+    /// for these narrow, single/few-field changes.
+    /// </summary>
+    private void UpdateMeta(string folderName, Action<LibraryMeta> mutateMeta, Action<LibraryEntry>? mutateCachedEntry)
+    {
+        ResolveFolder(folderName);
+
+        var meta = _metaStore.Load(folderName);
+        mutateMeta(meta);
+        _metaStore.Save(folderName, meta);
+
+        if (mutateCachedEntry is null)
+        {
+            return;
+        }
+
         var existing = _cachedEntries.Find(e => e.FolderName == folderName);
         if (existing is not null)
         {
-            existing.CatalogEntryId = catalogEntryId;
-            existing.Source = "Database";
+            mutateCachedEntry(existing);
         }
     }
 
@@ -346,30 +320,29 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             .FirstOrDefault();
     }
 
-    public void SetNexusMetadata(string folderName, string? name, string? author, string? description, string? version)
-    {
-        ResolveFolder(folderName);
-
-        var meta = _metaStore.Load(folderName);
-        meta.NexusName = name;
-        meta.NexusAuthor = author;
-        meta.NexusDescription = description;
-        meta.NexusVersion = version;
-        _metaStore.Save(folderName, meta);
-
-        // Only an opaque pak or a converted-from-one entry actually reads these back (ToOpaquePakEntry/
-        // ToEntry's own ConvertedFromPrebuiltPak branch) — for an ordinary, author-declared EXMOD
-        // entry this metadata is saved but never surfaced, so a Nexus lookup can never silently
-        // overwrite a real author's own declared name.
-        var existing = _cachedEntries.Find(e => e.FolderName == folderName);
-        if (existing is { IsOpaquePak: true } or { ConvertedFromPrebuiltPak: true })
-        {
-            existing.Name = name ?? existing.Name;
-            existing.Author = author ?? existing.Author;
-            existing.Description = description ?? existing.Description;
-            existing.Version = version ?? existing.Version;
-        }
-    }
+    public void SetNexusMetadata(string folderName, string? name, string? author, string? description, string? version) =>
+        UpdateMeta(folderName,
+            meta =>
+            {
+                meta.NexusName = name;
+                meta.NexusAuthor = author;
+                meta.NexusDescription = description;
+                meta.NexusVersion = version;
+            },
+            // Only an opaque pak or a converted-from-one entry actually reads these back
+            // (ToOpaquePakEntry/ToEntry's own ConvertedFromPrebuiltPak branch) — for an ordinary,
+            // author-declared EXMOD entry this metadata is saved but never surfaced, so a Nexus
+            // lookup can never silently overwrite a real author's own declared name.
+            entry =>
+            {
+                if (entry is { IsOpaquePak: true } or { ConvertedFromPrebuiltPak: true })
+                {
+                    entry.Name = name ?? entry.Name;
+                    entry.Author = author ?? entry.Author;
+                    entry.Description = description ?? entry.Description;
+                    entry.Version = version ?? entry.Version;
+                }
+            });
 
     /// <summary>An opaque .pak entry (LibraryEntry.IsOpaquePak) has no .EXMOD to enumerate assets from — nothing to browse in the Files tab.</summary>
     public IReadOnlyList<string> ListAssetPaths(string folderName) =>

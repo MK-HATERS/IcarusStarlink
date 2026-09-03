@@ -31,35 +31,16 @@ public static class DataFolderChangeTracker
         {
             var hasPrevious = previousFiles.TryGetValue(relativePath, out var previousAbsolutePath);
             var hasCurrent = currentFiles.TryGetValue(relativePath, out var currentAbsolutePath);
+            var previousTable = hasPrevious ? DataTableJson.RowsToKeyedObject(ReadJsonObject(previousAbsolutePath!)) : null;
+            var currentTable = hasCurrent ? DataTableJson.RowsToKeyedObject(ReadJsonObject(currentAbsolutePath!)) : null;
 
-            if (hasPrevious && !hasCurrent)
+            // reportEmptyNewFile: false — an empty file appearing between game patches is noise,
+            // not a real content change worth showing in Weekly Changes. See DataTableFileDiffer's
+            // own doc comment.
+            var changed = DataTableFileDiffer.Diff(relativePath, previousTable, currentTable, classifier, reportEmptyNewFile: false);
+            if (changed is not null)
             {
-                var previousTable = DataTableJson.RowsToKeyedObject(ReadJsonObject(previousAbsolutePath!));
-                changedFiles.Add(new ChangedDataFile(
-                    relativePath, IsNewFile: false, IsRemovedFile: true,
-                    RemovedRowNames: [.. previousTable.Select(kv => kv.Key)], FieldChanges: []));
-                continue;
-            }
-
-            if (!hasPrevious && hasCurrent)
-            {
-                var currentTable = DataTableJson.RowsToKeyedObject(ReadJsonObject(currentAbsolutePath!));
-                var newFileChanges = TableDiffer.Diff(new JsonObject(), currentTable, relativePath, classifier);
-                if (newFileChanges.Count > 0)
-                {
-                    changedFiles.Add(new ChangedDataFile(relativePath, IsNewFile: true, IsRemovedFile: false, RemovedRowNames: [], newFileChanges));
-                }
-                continue;
-            }
-
-            var previousKeyed = DataTableJson.RowsToKeyedObject(ReadJsonObject(previousAbsolutePath!));
-            var currentKeyed = DataTableJson.RowsToKeyedObject(ReadJsonObject(currentAbsolutePath!));
-            var fieldChanges = TableDiffer.Diff(previousKeyed, currentKeyed, relativePath, classifier);
-            var removedRowNames = previousKeyed.Select(kv => kv.Key).Except(currentKeyed.Select(kv => kv.Key)).ToList();
-
-            if (fieldChanges.Count > 0 || removedRowNames.Count > 0)
-            {
-                changedFiles.Add(new ChangedDataFile(relativePath, IsNewFile: false, IsRemovedFile: false, removedRowNames, fieldChanges));
+                changedFiles.Add(changed);
             }
         }
 

@@ -108,35 +108,13 @@ public sealed class PatchService : IPatchService
     }
 
     /// <summary>
-    /// Reads a zip entry's full content by its own declared (central-directory) length, charged
-    /// against sizeBudget first — same declared-size-before-reading + ReadExactly + no-trailing-
-    /// data shape ExmodzArchive.Read already uses for its own entries, applied one layer up since
-    /// a patch archive is exactly as untrusted (shared by a friend, downloaded from a server).
+    /// Reads a zip entry's full content by its own declared (central-directory) length — same
+    /// shape ExmodzArchive.Read already uses for its own entries (see ArchiveEntryReader's own doc
+    /// comment), applied one layer up since a patch archive is exactly as untrusted (shared by a
+    /// friend, downloaded from a server).
     /// </summary>
-    private static byte[] ReadEntryBytes(ZipArchiveEntry entry, ExmodSizeBudget sizeBudget, string description)
-    {
-        sizeBudget.Charge(description, entry.Length);
-
-        using var entryStream = entry.Open();
-        var buffer = new byte[entry.Length];
-        try
-        {
-            entryStream.ReadExactly(buffer);
-        }
-        catch (EndOfStreamException ex)
-        {
-            throw new FormatException(
-                $"Patch archive entry '{description}' is corrupt — declared {entry.Length:N0} bytes but contained fewer.", ex);
-        }
-
-        if (entryStream.ReadByte() != -1)
-        {
-            throw new FormatException(
-                $"Patch archive entry '{description}' is corrupt — contains more data than its declared {entry.Length:N0} byte size.");
-        }
-
-        return buffer;
-    }
+    private static byte[] ReadEntryBytes(ZipArchiveEntry entry, ExmodSizeBudget sizeBudget, string description) =>
+        ArchiveEntryReader.ReadExactly($"Patch archive entry '{description}'", entry.Length, entry.Open, sizeBudget);
 
     private static PatchManifest Deserialize(string json)
     {

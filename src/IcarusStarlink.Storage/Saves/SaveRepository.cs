@@ -84,14 +84,8 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         return characters;
     }
 
-    public string? SaveProfile(string steamId, JsonObject profile, bool takeBackup = true)
-    {
-        var backupPath = takeBackup ? BackupSlot(steamId) : null;
-        JsonFileStore.WriteAtomically(
-            Path.Combine(ResolveSlot(steamId), ProfileFileName),
-            profile.ToJsonString(GameStyleJson));
-        return backupPath;
-    }
+    public string? SaveProfile(string steamId, JsonObject profile, bool takeBackup = true) =>
+        SaveObject(steamId, ProfileFileName, profile, takeBackup);
 
     public string? SaveCharacters(string steamId, IReadOnlyList<JsonObject> characters, bool takeBackup = true)
     {
@@ -112,39 +106,23 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
 
     public JsonObject LoadAccolades(string steamId) => LoadOptionalObject(steamId, AccoladesFileName, () => new JsonObject { ["CompletedAccolades"] = new JsonArray() });
 
-    public string? SaveAccolades(string steamId, JsonObject accolades, bool takeBackup = true)
-    {
-        var backupPath = takeBackup ? BackupSlot(steamId) : null;
-        JsonFileStore.WriteAtomically(Path.Combine(ResolveSlot(steamId), AccoladesFileName), accolades.ToJsonString(GameStyleJson));
-        return backupPath;
-    }
+    public string? SaveAccolades(string steamId, JsonObject accolades, bool takeBackup = true) =>
+        SaveObject(steamId, AccoladesFileName, accolades, takeBackup);
 
     public JsonObject LoadBestiary(string steamId) => LoadOptionalObject(steamId, BestiaryFileName, () => new JsonObject { ["BestiaryTracking"] = new JsonArray(), ["FishTracking"] = new JsonArray() });
 
-    public string? SaveBestiary(string steamId, JsonObject bestiary, bool takeBackup = true)
-    {
-        var backupPath = takeBackup ? BackupSlot(steamId) : null;
-        JsonFileStore.WriteAtomically(Path.Combine(ResolveSlot(steamId), BestiaryFileName), bestiary.ToJsonString(GameStyleJson));
-        return backupPath;
-    }
+    public string? SaveBestiary(string steamId, JsonObject bestiary, bool takeBackup = true) =>
+        SaveObject(steamId, BestiaryFileName, bestiary, takeBackup);
 
     public JsonObject LoadMetaInventory(string steamId) => LoadOptionalObject(steamId, MetaInventoryFileName, () => new JsonObject { ["InventoryID"] = "MetaInventoryID_Main", ["Items"] = new JsonArray() });
 
-    public string? SaveMetaInventory(string steamId, JsonObject metaInventory, bool takeBackup = true)
-    {
-        var backupPath = takeBackup ? BackupSlot(steamId) : null;
-        JsonFileStore.WriteAtomically(Path.Combine(ResolveSlot(steamId), MetaInventoryFileName), metaInventory.ToJsonString(GameStyleJson));
-        return backupPath;
-    }
+    public string? SaveMetaInventory(string steamId, JsonObject metaInventory, bool takeBackup = true) =>
+        SaveObject(steamId, MetaInventoryFileName, metaInventory, takeBackup);
 
     public JsonObject LoadMounts(string steamId) => LoadOptionalObject(steamId, MountsFileName, () => new JsonObject { ["SavedMounts"] = new JsonArray() });
 
-    public string? SaveMounts(string steamId, JsonObject mounts, bool takeBackup = true)
-    {
-        var backupPath = takeBackup ? BackupSlot(steamId) : null;
-        JsonFileStore.WriteAtomically(Path.Combine(ResolveSlot(steamId), MountsFileName), mounts.ToJsonString(GameStyleJson));
-        return backupPath;
-    }
+    public string? SaveMounts(string steamId, JsonObject mounts, bool takeBackup = true) =>
+        SaveObject(steamId, MountsFileName, mounts, takeBackup);
 
     /// <summary>Shared by LoadAccolades/LoadBestiary/LoadMetaInventory — unlike Profile.json (guaranteed present for anything ListSlots calls a real slot), these files may not exist yet for a character that hasn't triggered that system, so a missing file degrades to an empty-shaped default rather than throwing.</summary>
     private JsonObject LoadOptionalObject(string steamId, string fileName, Func<JsonObject> defaultValue)
@@ -157,6 +135,14 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
 
         return JsonNode.Parse(File.ReadAllText(path)) as JsonObject
             ?? throw new FormatException($"{fileName} isn't a JSON object.");
+    }
+
+    /// <summary>Mirror image of LoadOptionalObject, shared by SaveProfile/SaveAccolades/SaveBestiary/SaveMetaInventory/SaveMounts — every plain-JsonObject save follows the same backup-then-write shape; only SaveCharacters differs (the JSON-in-JSON re-wrap), so it isn't routed through this.</summary>
+    private string? SaveObject(string steamId, string fileName, JsonObject value, bool takeBackup)
+    {
+        var backupPath = takeBackup ? BackupSlot(steamId) : null;
+        JsonFileStore.WriteAtomically(Path.Combine(ResolveSlot(steamId), fileName), value.ToJsonString(GameStyleJson));
+        return backupPath;
     }
 
     public IReadOnlyList<int>? LoadBinaryFlags(string steamId)

@@ -17,13 +17,84 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 {
     private const string BaseUrl = "https://api.nexusmods.com/v1";
     private const string GraphQlUrl = "https://api.nexusmods.com/v2/graphql";
+    private const string RejectedStoredKeyMessage = "Nexus rejected the stored API key.";
+
+    /// <summary>
+    /// Shared by every authenticated v1 REST call — builds the request, attaches the "apikey"
+    /// header, and sends it. Deliberately doesn't interpret the response at all (not even the
+    /// 401/403 case every caller already checks): what an auth failure means differs per endpoint
+    /// (ValidateKeyAsync/GetModInfoAsync treat it as "no info" and return null, most others throw a
+    /// specific message, SetEndorsementAsync's own message covers a non-key cause too) — see each
+    /// call site's own handling right after this.
+    /// </summary>
+    private async Task<HttpResponseMessage> SendAuthenticatedAsync(
+        HttpMethod method, string url, string apiKey, HttpContent? content, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(method, url) { Content = content };
+        request.Headers.Add("apikey", apiKey);
+        var response = await httpClient.SendAsync(request, cancellationToken);
+        try
+        {
+            EnsureNotRateLimited(response);
+        }
+        catch
+        {
+            // A throw here means the caller's own "using var response = await SendAuthenticatedAsync(...)"
+            // never completes its assignment, so it never gets a chance to dispose this — has to
+            // happen here instead, on this specific path, or it leaks.
+            response.Dispose();
+            throw;
+        }
+
+        return response;
+    }
+
+    /// <summary>
+    /// Nexus returns 429 with x-rl-hourly-remaining/x-rl-daily-remaining/x-rl-hourly-reset/
+    /// x-rl-daily-reset headers on every response (confirmed against FluentNexus's own
+    /// RateLimitManager, a real third-party Nexus API client, not guessed) when the account's
+    /// hourly or daily request budget is exhausted — distinct from a 401/403 (a bad or unauthorized
+    /// key) and worth its own clear, actionable message instead of a generic HTTP failure from
+    /// EnsureSuccessStatusCode(). Checked centrally here (every v1 REST call funnels through
+    /// SendAuthenticatedAsync) rather than per caller, unlike 401/403: a rate limit means the same
+    /// thing everywhere it happens, so there's nothing for an individual caller to interpret
+    /// differently the way GetDownloadLinksAsync/SetEndorsementAsync's own ambiguous 401/403
+    /// messages do. SearchModsAsync/ListAllModsAsync call this directly since their v2 GraphQL
+    /// requests don't go through SendAuthenticatedAsync (their apiKey is optional).
+    /// </summary>
+    private static void EnsureNotRateLimited(HttpResponseMessage response)
+    {
+        if (response.StatusCode != HttpStatusCode.TooManyRequests)
+        {
+            return;
+        }
+
+        var resetAt = EarliestRateLimitReset(response);
+        var whenClause = resetAt is { } reset ? $" Try again after {reset.ToLocalTime():t}." : " Try again later.";
+        throw new InvalidOperationException($"Nexus's API rate limit was exceeded.{whenClause}");
+    }
+
+    private static DateTimeOffset? EarliestRateLimitReset(HttpResponseMessage response)
+    {
+        var hourly = TryGetHeaderDateTimeOffset(response, "x-rl-hourly-reset");
+        var daily = TryGetHeaderDateTimeOffset(response, "x-rl-daily-reset");
+        if (hourly is null)
+        {
+            return daily;
+        }
+
+        return daily is null ? hourly : (hourly < daily ? hourly : daily);
+    }
+
+    private static DateTimeOffset? TryGetHeaderDateTimeOffset(HttpResponseMessage response, string headerName) =>
+        response.Headers.TryGetValues(headerName, out var values)
+        && DateTimeOffset.TryParse(values.FirstOrDefault(), out var parsed)
+            ? parsed
+            : null;
 
     public async Task<NexusUserInfo?> ValidateKeyAsync(string apiKey, CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/users/validate");
-        request.Headers.Add("apikey", apiKey);
-
-        using var response = await httpClient.SendAsync(request, cancellationToken);
+        using var response = await SendAuthenticatedAsync(HttpMethod.Get, $"{BaseUrl}/users/validate", apiKey, content: null, cancellationToken);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
             return null;
@@ -48,10 +119,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
             url += $"?key={Uri.EscapeDataString(key)}&expires={expires}";
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("apikey", apiKey);
-
-        using var response = await httpClient.SendAsync(request, cancellationToken);
+        using var response = await SendAuthenticatedAsync(HttpMethod.Get, url, apiKey, content: null, cancellationToken);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
             throw new InvalidOperationException("Nexus rejected this download request — the key may be wrong, expired, or you may need to be signed in as a premium member to use manager downloads without one.");
@@ -64,10 +132,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
     public async Task<NexusModInfo?> GetModInfoAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{modId}");
-        request.Headers.Add("apikey", apiKey);
-
-        using var response = await httpClient.SendAsync(request, cancellationToken);
+        using var response = await SendAuthenticatedAsync(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{modId}", apiKey, content: null, cancellationToken);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
             return null;
@@ -90,13 +155,10 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
             _ => "latest_updated",
         };
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{path}");
-        request.Headers.Add("apikey", apiKey);
-
-        using var response = await httpClient.SendAsync(request, cancellationToken);
+        using var response = await SendAuthenticatedAsync(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{path}", apiKey, content: null, cancellationToken);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            throw new InvalidOperationException("Nexus rejected the stored API key.");
+            throw new InvalidOperationException(RejectedStoredKeyMessage);
         }
 
         response.EnsureSuccessStatusCode();
@@ -111,16 +173,18 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         dto.ModId, WebUtility.HtmlDecode(dto.Name), dto.Author, WebUtility.HtmlDecode(dto.Summary), dto.Version, dto.PictureUrl,
         dto.CreatedTime, dto.UpdatedTime);
 
+    /// <summary>v2 GraphQL counterpart to ToModInfo(ModInfoResponseDto) above — same HTML-decoding treatment, different (camelCase) DTO shape.</summary>
+    private static NexusModInfo ToModInfo(GraphModDto dto) => new(
+        dto.ModId, WebUtility.HtmlDecode(dto.Name), dto.Author, WebUtility.HtmlDecode(dto.Summary), dto.Version, dto.PictureUrl,
+        dto.CreatedAt, dto.UpdatedAt);
+
     public async Task<IReadOnlyList<NexusModFile>> GetModFilesAsync(
         string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{modId}/files");
-        request.Headers.Add("apikey", apiKey);
-
-        using var response = await httpClient.SendAsync(request, cancellationToken);
+        using var response = await SendAuthenticatedAsync(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{modId}/files", apiKey, content: null, cancellationToken);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            throw new InvalidOperationException("Nexus rejected the stored API key.");
+            throw new InvalidOperationException(RejectedStoredKeyMessage);
         }
 
         response.EnsureSuccessStatusCode();
@@ -136,13 +200,10 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
     public async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetChangelogsAsync(
         string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{modId}/changelogs");
-        request.Headers.Add("apikey", apiKey);
-
-        using var response = await httpClient.SendAsync(request, cancellationToken);
+        using var response = await SendAuthenticatedAsync(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{modId}/changelogs", apiKey, content: null, cancellationToken);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            throw new InvalidOperationException("Nexus rejected the stored API key.");
+            throw new InvalidOperationException(RejectedStoredKeyMessage);
         }
 
         response.EnsureSuccessStatusCode();
@@ -175,13 +236,10 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
     public async Task<IReadOnlyList<NexusEndorsement>> GetEndorsementsAsync(string apiKey, CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/user/endorsements");
-        request.Headers.Add("apikey", apiKey);
-
-        using var response = await httpClient.SendAsync(request, cancellationToken);
+        using var response = await SendAuthenticatedAsync(HttpMethod.Get, $"{BaseUrl}/user/endorsements", apiKey, content: null, cancellationToken);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            throw new InvalidOperationException("Nexus rejected the stored API key.");
+            throw new InvalidOperationException(RejectedStoredKeyMessage);
         }
 
         response.EnsureSuccessStatusCode();
@@ -195,13 +253,9 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         // Path segment is literally "endorse" or "abstain" — confirmed against the official
         // client's own endorseMod, which builds the URL the exact same way.
         var verb = endorse ? "endorse" : "abstain";
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/games/{gameDomain}/mods/{modId}/{verb}")
-        {
-            Content = JsonContent.Create(new { Version = modVersion }),
-        };
-        request.Headers.Add("apikey", apiKey);
-
-        using var response = await httpClient.SendAsync(request, cancellationToken);
+        using var response = await SendAuthenticatedAsync(
+            HttpMethod.Post, $"{BaseUrl}/games/{gameDomain}/mods/{modId}/{verb}", apiKey,
+            JsonContent.Create(new { Version = modVersion }), cancellationToken);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
             // Unlike a plain read, a 401/403 here doesn't necessarily mean the key itself is bad —
@@ -334,12 +388,11 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         }
 
         using var response = await httpClient.SendAsync(request, cancellationToken);
+        EnsureNotRateLimited(response);
         response.EnsureSuccessStatusCode();
         var dto = await response.Content.ReadFromJsonAsync<GraphResponseDto>(cancellationToken);
 
-        return [.. (dto?.Data?.Mods?.Nodes ?? []).Select(n => new NexusModInfo(
-            n.ModId, WebUtility.HtmlDecode(n.Name), n.Author, WebUtility.HtmlDecode(n.Summary), n.Version, n.PictureUrl,
-            n.CreatedAt, n.UpdatedAt))];
+        return [.. (dto?.Data?.Mods?.Nodes ?? []).Select(ToModInfo)];
     }
 
     public async Task<NexusModPage> ListAllModsAsync(
@@ -370,12 +423,11 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         }
 
         using var response = await httpClient.SendAsync(request, cancellationToken);
+        EnsureNotRateLimited(response);
         response.EnsureSuccessStatusCode();
         var dto = await response.Content.ReadFromJsonAsync<GraphResponseDto>(cancellationToken);
 
-        var mods = (dto?.Data?.Mods?.Nodes ?? []).Select(n => new NexusModInfo(
-            n.ModId, WebUtility.HtmlDecode(n.Name), n.Author, WebUtility.HtmlDecode(n.Summary), n.Version, n.PictureUrl,
-            n.CreatedAt, n.UpdatedAt)).ToList();
+        var mods = (dto?.Data?.Mods?.Nodes ?? []).Select(ToModInfo).ToList();
         return new NexusModPage(mods, dto?.Data?.Mods?.TotalCount ?? mods.Count);
     }
 

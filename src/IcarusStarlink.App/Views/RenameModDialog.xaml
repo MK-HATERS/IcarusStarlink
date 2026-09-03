@@ -9,14 +9,15 @@
         Background="{DynamicResource ContentBackgroundBrush}">
 
     <StackPanel Margin="20">
-        <TextBlock Text="Changes how this mod displays in your Library only — its real folder, file name, and mod content are never touched."
+        <TextBlock x:Name="DescriptionText"
+                   Text="Changes how this mod displays in your Library only — its real folder, file name, and mod content are never touched."
                    Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,16"/>
 
         <TextBlock Text="Display name" Style="{StaticResource FieldLabelStyle}"/>
         <TextBox x:Name="NameBox" Margin="0,4,0,12"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="Reset to default" Click="Reset_Click" Margin="0,0,8,0"
+            <Button x:Name="ResetButton" Content="Reset to default" Click="Reset_Click" Margin="0,0,8,0"
                     ToolTip="Clears the override — goes back to the mod's own declared name"/>
             <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0"/>
             <Button Content="Save" Click="Save_Click" Style="{StaticResource PrimaryButtonStyle}"/>

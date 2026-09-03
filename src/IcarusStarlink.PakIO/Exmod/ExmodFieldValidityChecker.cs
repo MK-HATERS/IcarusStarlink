@@ -34,9 +34,8 @@ public static class ExmodFieldValidityChecker
 
         foreach (var row in package.Rows)
         {
-            // A universal terminator marker, not a game file reference — see ExmodBaseDiffer's own
-            // identical exclusion for why this always fails to resolve and isn't a real problem.
-            if (string.Equals(row.CurrentFile, "EndOfMod", StringComparison.OrdinalIgnoreCase))
+            // See ExmodSentinelFiles.IsEndOfModMarker's own doc comment.
+            if (ExmodSentinelFiles.IsEndOfModMarker(row.CurrentFile))
             {
                 continue;
             }

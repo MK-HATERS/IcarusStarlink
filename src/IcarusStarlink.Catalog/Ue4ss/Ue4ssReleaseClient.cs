@@ -41,7 +41,7 @@ public sealed partial class Ue4ssReleaseClient : IUe4ssReleaseClient
                 return null;
             }
 
-            var version = dto.TagName.StartsWith('v') ? dto.TagName[1..] : dto.TagName;
+            var version = GitHubReleaseTag.StripLeadingV(dto.TagName);
             return new Ue4ssReleaseInfo(version, asset.BrowserDownloadUrl);
         }
         catch (Exception)

@@ -117,8 +117,8 @@
                                     </StackPanel>
                                 </Grid>
                                 <StackPanel Margin="12,10,12,12">
-                                    <TextBlock Text="{Binding Mod.Name}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"
-                                               ToolTip="{Binding Mod.Name}"/>
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding DisplayName}"/>
                                     <TextBlock Margin="0,1,0,0" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
                                         <Run Text="{Binding Mod.Author, Mode=OneWay}"/><Run Text=" · v"/><Run Text="{Binding Mod.Version, Mode=OneWay}"/>
                                     </TextBlock>
@@ -186,6 +186,15 @@
                                                     </TextBlock.Style>
                                                 </TextBlock>
                                             </StackPanel>
+                                        </Button>
+                                        <Button Margin="0,0,0,4" Style="{StaticResource IconButtonStyle}"
+                                                Command="{Binding DataContext.RenameTrackedEntryCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}"
+                                                Visibility="{Binding IsTracked, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                ToolTip="Rename this tracked entry (local only — doesn't touch anything on Nexus)"
+                                                AutomationProperties.Name="Rename tracked entry">
+                                            <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
+                                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform"/>
                                         </Button>
                                         <Button Margin="8,0,8,4"
                                                 Command="{Binding DataContext.OpenModPageCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"

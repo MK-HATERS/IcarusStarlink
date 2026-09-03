@@ -65,15 +65,17 @@ public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPak
             var firstTable = inFirst ? TryReadDataTable(firstPath!) : null;
             var secondTable = inSecond ? TryReadDataTable(secondPath!) : null;
 
+            // reportEmptyNewFile: true — "a new file exists" is itself meaningful to someone
+            // checking whether two paks are equivalent, even if that file happens to be empty
+            // right now. See DataTableFileDiffer's own doc comment.
             if (inFirst && inSecond)
             {
                 if (firstTable is not null && secondTable is not null)
                 {
-                    var fieldChanges = TableDiffer.Diff(firstTable, secondTable, relativePath, classifier);
-                    var removedRowNames = firstTable.Select(kv => kv.Key).Except(secondTable.Select(kv => kv.Key)).ToList();
-                    if (fieldChanges.Count > 0 || removedRowNames.Count > 0)
+                    var changed = DataTableFileDiffer.Diff(relativePath, firstTable, secondTable, classifier, reportEmptyNewFile: true);
+                    if (changed is not null)
                     {
-                        dataDifferences.Add(new ChangedDataFile(relativePath, IsNewFile: false, IsRemovedFile: false, removedRowNames, fieldChanges));
+                        dataDifferences.Add(changed);
                     }
                 }
                 else if (!FileContentComparer.AreIdentical(firstPath!, secondPath!))
@@ -85,9 +87,11 @@ public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPak
             {
                 if (firstTable is not null)
                 {
-                    dataDifferences.Add(new ChangedDataFile(
-                        relativePath, IsNewFile: false, IsRemovedFile: true,
-                        RemovedRowNames: [.. firstTable.Select(kv => kv.Key)], FieldChanges: []));
+                    var changed = DataTableFileDiffer.Diff(relativePath, firstTable, null, classifier, reportEmptyNewFile: true);
+                    if (changed is not null)
+                    {
+                        dataDifferences.Add(changed);
+                    }
                 }
                 else
                 {
@@ -98,8 +102,11 @@ public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPak
             {
                 if (secondTable is not null)
                 {
-                    var newFileChanges = TableDiffer.Diff(new JsonObject(), secondTable, relativePath, classifier);
-                    dataDifferences.Add(new ChangedDataFile(relativePath, IsNewFile: true, IsRemovedFile: false, RemovedRowNames: [], newFileChanges));
+                    var changed = DataTableFileDiffer.Diff(relativePath, null, secondTable, classifier, reportEmptyNewFile: true);
+                    if (changed is not null)
+                    {
+                        dataDifferences.Add(changed);
+                    }
                 }
                 else
                 {

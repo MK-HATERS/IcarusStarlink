@@ -6,6 +6,16 @@ using System.Windows.Automation;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
 
+// This process has no app.manifest, so without this call Windows treats it as DPI-unaware and
+// virtualizes every coordinate it sees (GetCursorPos, SetCursorPos, BoundingRectangle) on a
+// mixed-DPI multi-monitor setup. Legitimate fix on its own merits even though it turned out NOT to
+// be the cause of this session's right-click investigation (see ContextMenuClick's own remarks) —
+// the target window sat entirely on the primary, 100%-scaled monitor, so virtualization wasn't
+// actually in play there. Still correct to set unconditionally: any future target window on the
+// secondary (scaled) monitor would otherwise hit exactly the drift this avoids. Must run before any
+// cursor or AutomationElement geometry call.
+NativeMethods.SetProcessDpiAwarenessContext(NativeMethods.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
 if (args.Length == 0)
 {
     Console.WriteLine("usage: capture|list-controls|click|set-text|set-slider-value|seed-library|select-by-text|expand|is-expanded|right-click|context-menu-click|real-left-click ...");
@@ -21,7 +31,7 @@ switch (args[0])
         ListControls(int.Parse(args[1]));
         break;
     case "click":
-        Click(int.Parse(args[1]), args[2], args[3]);
+        Click(int.Parse(args[1]), args[2], args[3], args.Length > 4 ? int.Parse(args[4]) : 0);
         break;
     case "set-text":
         SetText(int.Parse(args[1]), int.Parse(args[2]), args[3]);
@@ -188,10 +198,15 @@ static void ListControls(int pid)
 // Prefers an exact Name match over a mere substring one — e.g. a button literally named "Install"
 // would otherwise be shadowed by "Compare to installed" (which also contains "install") if that
 // happens to come first in visual-tree order. Only falls back to substring matching when nothing
-// matches exactly.
-static AutomationElement FindByTypeAndName(IReadOnlyList<AutomationElement> roots, string controlType, string nameContains)
+// matches exactly. index (0-based) picks among multiple identically-named controls in visual-tree
+// order — e.g. this app's per-card "Untrack mod"/"Track mod" buttons all share the same Name, so
+// index is the only way to target a specific card's button rather than always hitting the first
+// one on the page. Exact matches are indexed before substring ones, same priority as index 0's
+// original single-match behavior.
+static AutomationElement FindByTypeAndName(IReadOnlyList<AutomationElement> roots, string controlType, string nameContains, int index = 0)
 {
-    AutomationElement? firstSubstringMatch = null;
+    var exactMatches = new List<AutomationElement>();
+    var substringMatches = new List<AutomationElement>();
     foreach (var root in roots)
     {
         var all = root.FindAll(TreeScope.Descendants, Condition.TrueCondition);
@@ -204,20 +219,29 @@ static AutomationElement FindByTypeAndName(IReadOnlyList<AutomationElement> root
             }
             if (string.Equals(c.Name, nameContains, StringComparison.OrdinalIgnoreCase))
             {
-                return el;
+                exactMatches.Add(el);
             }
-            if (firstSubstringMatch is null && c.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase))
+            else if (c.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase))
             {
-                firstSubstringMatch = el;
+                substringMatches.Add(el);
             }
         }
     }
-    return firstSubstringMatch ?? throw new InvalidOperationException($"No {controlType} containing '{nameContains}' found");
+    if (index < exactMatches.Count)
+    {
+        return exactMatches[index];
+    }
+    var substringIndex = index - exactMatches.Count;
+    if (substringIndex >= 0 && substringIndex < substringMatches.Count)
+    {
+        return substringMatches[substringIndex];
+    }
+    throw new InvalidOperationException($"No {controlType} containing '{nameContains}' found at index {index} (found {exactMatches.Count} exact, {substringMatches.Count} substring match(es))");
 }
 
-static void Click(int pid, string controlType, string nameContains)
+static void Click(int pid, string controlType, string nameContains, int index = 0)
 {
-    var el = FindByTypeAndName(GetAllRoots(pid), controlType, nameContains);
+    var el = FindByTypeAndName(GetAllRoots(pid), controlType, nameContains, index);
 
     if (el.TryGetCurrentPattern(InvokePattern.Pattern, out var invokeObj))
     {
@@ -358,17 +382,35 @@ static void ContextMenuClick(int pid, string rowText, string menuItemText)
     var x = (int)(rect.Left + rect.Width / 2);
     var y = (int)(rect.Top + rect.Height / 2);
     NativeMethods.SetCursorPos(x, y);
-    NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
-    NativeMethods.mouse_event(NativeMethods.MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero);
+
+    // A background window's FIRST click is commonly consumed purely as an activation click
+    // (WM_MOUSEACTIVATE) rather than reaching the app as a real button-down/up, and
+    // SetForegroundWindow cannot reliably force activation from an unrelated process (Windows'
+    // foreground-lock-timeout restriction) — confirmed on this machine even combined with
+    // AttachThreadInput and an Alt-key tap, GetForegroundWindow kept reporting the caller's own
+    // console, never the target. A real left-click is a normally-allowed activation path a
+    // programmatic SetForegroundWindow call is not, so send one here first as a best-effort nudge
+    // before the right-click that actually needs the ContextMenu to open. NOTE: on this specific
+    // dev machine even this did not make the right-click open the ContextMenu — GetForegroundWindow
+    // read back as 0 (no window anywhere holding input focus) after the click sequence despite an
+    // unlocked, active interactive session, which points at something upstream of WinTools itself
+    // (how its own calling process/console is hosted) rather than a fixable coordinate or timing
+    // bug. Left in as a legitimate improvement for environments where that deeper issue doesn't
+    // apply; see the Known limitations section of README.md for the full writeup.
+    NativeMethods.SendMouseButtonEvent(NativeMethods.MOUSEEVENTF_LEFTDOWN);
+    NativeMethods.SendMouseButtonEvent(NativeMethods.MOUSEEVENTF_LEFTUP);
+    System.Threading.Thread.Sleep(200);
+
+    NativeMethods.SendMouseButtonEvent(NativeMethods.MOUSEEVENTF_RIGHTDOWN);
+    NativeMethods.SendMouseButtonEvent(NativeMethods.MOUSEEVENTF_RIGHTUP);
     System.Threading.Thread.Sleep(400);
 
-    var menuItem = GetAllRoots(pid)
+    var allMenuItems = GetAllRoots(pid)
         .SelectMany(r => r.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)).Cast<AutomationElement>())
-        .FirstOrDefault(m => m.Current.Name.Equals(menuItemText, StringComparison.OrdinalIgnoreCase))
-        ?? GetAllRoots(pid)
-            .SelectMany(r => r.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)).Cast<AutomationElement>())
-            .FirstOrDefault(m => m.Current.Name.Contains(menuItemText, StringComparison.OrdinalIgnoreCase))
-        ?? throw new InvalidOperationException($"No MenuItem containing '{menuItemText}' found in the open context menu");
+        .ToList();
+    var menuItem = allMenuItems.FirstOrDefault(m => m.Current.Name.Equals(menuItemText, StringComparison.OrdinalIgnoreCase))
+        ?? allMenuItems.FirstOrDefault(m => m.Current.Name.Contains(menuItemText, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"No MenuItem containing '{menuItemText}' found in the open context menu. Found: [{string.Join(", ", allMenuItems.Select(m => $"'{m.Current.Name}'"))}]");
 
     if (!menuItem.Current.IsEnabled)
     {
@@ -627,8 +669,48 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool SetCursorPos(int x, int y);
 
+    public static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new(-4);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+
     [DllImport("user32.dll")]
     public static extern void mouse_event(uint dwFlags, int dx, int dy, int dwData, UIntPtr dwExtraInfo);
 
     public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct INPUT
+    {
+        public uint type;
+        public MOUSEINPUT mi;
+    }
+
+    public const uint INPUT_MOUSE = 0;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    // SendInput is the modern replacement for mouse_event — injects into the same low-level input
+    // stream real hardware uses, rather than mouse_event's older direct message-queue path, which
+    // proved unreliable at actually opening a WPF ContextMenu on this machine (button-down/up were
+    // "sent" with no error, cursor genuinely moved to the right element, yet no popup HWND ever
+    // appeared — see ContextMenuClick/RightClick). Cursor positioning still goes through
+    // SetCursorPos beforehand; this only injects the button transition itself.
+    public static void SendMouseButtonEvent(uint flags)
+    {
+        var input = new INPUT { type = INPUT_MOUSE, mi = new MOUSEINPUT { dwFlags = flags } };
+        SendInput(1, [input], Marshal.SizeOf<INPUT>());
+    }
 }

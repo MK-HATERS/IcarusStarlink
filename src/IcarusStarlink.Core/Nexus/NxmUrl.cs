@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace IcarusStarlink.Core.Nexus;
 
 /// <summary>
@@ -9,10 +11,10 @@ namespace IcarusStarlink.Core.Nexus;
 /// enough. Deliberately narrower than Vortex's own parser: this app only handles plain mod-file
 /// downloads (not collections/OAuth/premium-ping variants Vortex's own client also has to parse).
 /// </summary>
-public sealed record NxmUrl(string GameDomain, int ModId, int FileId, string? Key, long? Expires)
+public sealed partial record NxmUrl(string GameDomain, int ModId, int FileId, string? Key, long? Expires)
 {
-    private static readonly System.Text.RegularExpressions.Regex ModFilePattern =
-        new(@"^/mods/(\d+)/files/(\d+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    [GeneratedRegex(@"^/mods/(\d+)/files/(\d+)$", RegexOptions.IgnoreCase)]
+    private static partial Regex ModFilePattern();
 
     /// <summary>Throws FormatException for anything that isn't a plain nxm://.../mods/{id}/files/{id} URL — collection/OAuth/premium nxm variants aren't handled by this app.</summary>
     public static NxmUrl Parse(string nxmUrlText)
@@ -32,7 +34,7 @@ public sealed record NxmUrl(string GameDomain, int ModId, int FileId, string? Ke
             throw new FormatException($"'{nxmUrlText}' is not an nxm:// URL.");
         }
 
-        var match = ModFilePattern.Match(parsed.AbsolutePath);
+        var match = ModFilePattern().Match(parsed.AbsolutePath);
         if (!match.Success)
         {
             throw new FormatException($"'{nxmUrlText}' isn't a recognized mod-file nxm URL (only nxm://<game>/mods/<id>/files/<id> is supported).");

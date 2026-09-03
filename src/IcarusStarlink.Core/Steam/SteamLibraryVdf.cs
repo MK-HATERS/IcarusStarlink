@@ -9,14 +9,15 @@ namespace IcarusStarlink.Core.Steam;
 /// Phase 7.5 planning: each library is a numbered top-level block containing a "path" key, with
 /// backslashes escaped as "\\" the way Steam itself writes them.
 /// </summary>
-public static class SteamLibraryVdf
+public static partial class SteamLibraryVdf
 {
-    private static readonly Regex PathKeyPattern = new("\"path\"\\s*\"((?:[^\"\\\\]|\\\\.)*)\"", RegexOptions.Compiled);
+    [GeneratedRegex("\"path\"\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")]
+    private static partial Regex PathKeyPattern();
 
     public static IReadOnlyList<string> ParseLibraryPaths(string vdfContent)
     {
         var paths = new List<string>();
-        foreach (Match match in PathKeyPattern.Matches(vdfContent))
+        foreach (Match match in PathKeyPattern().Matches(vdfContent))
         {
             paths.Add(match.Groups[1].Value.Replace("\\\\", "\\"));
         }

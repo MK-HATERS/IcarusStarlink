@@ -29,13 +29,11 @@ public static class ExmodBaseDiffer
 
         foreach (var row in package.Rows)
         {
-            // A real, universal terminator marker — confirmed present at the end of every one of
-            // dozens of real EXMOD files inspected, always with an empty File_Items — not a game
-            // file reference at all, just a "this is the end of the mod" sentinel every known
-            // extraction tool appends. Diffing it against base game data can only ever fail (there
-            // is no "EndOfMod" table), producing a "no matching base file" warning that reads as a
-            // real problem with the mod when it's actually universal and harmless.
-            if (string.Equals(row.CurrentFile, "EndOfMod", StringComparison.OrdinalIgnoreCase))
+            // See ExmodSentinelFiles.IsEndOfModMarker's own doc comment — diffing it against base
+            // game data can only ever fail (there is no "EndOfMod" table), producing a "no matching
+            // base file" warning that reads as a real problem with the mod when it's actually
+            // universal and harmless.
+            if (ExmodSentinelFiles.IsEndOfModMarker(row.CurrentFile))
             {
                 continue;
             }

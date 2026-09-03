@@ -1,12 +1,12 @@
 namespace IcarusStarlink.Core.Catalog;
 
 /// <summary>
-/// One mod the user is manually tracking from Nexus — there's no in-app Nexus API for v1 (the
-/// spec itself defers "Premium in-app download" to a later update), so this is purely local
-/// bookkeeping: a URL the user pasted in, a NexusId parsed out of it, and a name the user
-/// supplies (Nexus's mod name isn't fetchable without the API or scraping the page, so it isn't
-/// guessed at). Whether it's already downloaded is computed against the Library at display time,
-/// not stored here.
+/// One mod the user is tracking from Nexus — Name/Author/Version are captured from the live Nexus
+/// API result at the moment it's tracked (see NexusCatalogViewModel.TrackMod), then kept as this
+/// store's own local copy: Name can later be overridden in place via UpdateName, independent of
+/// whatever Nexus itself currently calls the mod, while Author/Version are a point-in-time record
+/// rather than a live value. Whether it's already downloaded is computed against the Library at
+/// display time, not stored here.
 /// </summary>
 public sealed class NexusWatchlistEntry
 {

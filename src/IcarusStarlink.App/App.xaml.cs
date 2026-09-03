@@ -126,6 +126,7 @@ public partial class App : Application
                 Path.Combine(appDataDirectory, "custom_skin.json"),
                 sp.GetRequiredService<ILogger<CustomSkinStore>>()));
         builder.Services.AddSingleton<IThemeService, ThemeService>();
+        builder.Services.AddSingleton<IDialogService, WpfDialogService>();
         builder.Services.AddSingleton<ILibraryRepository>(sp =>
             new FolderLibraryRepository(
                 Path.Combine(appDataDirectory, "Extracted_Mods"),
@@ -250,7 +251,8 @@ public partial class App : Application
             sp.GetRequiredService<IPrebuiltPakImporter>(),
             sp.GetRequiredService<IPrebuiltPakToExmodConverter>(),
             sp.GetRequiredService<IPrebuiltPakSourceStore>(),
-            Path.Combine(appDataDirectory, "Cache", "Thumbnails")));
+            Path.Combine(appDataDirectory, "Cache", "Thumbnails"),
+            sp.GetRequiredService<IDialogService>()));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IRebuildService>(),

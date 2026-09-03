@@ -53,6 +53,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IPrebuiltPakToExmodConverter _prebuiltPakToExmodConverter;
     private readonly IPrebuiltPakSourceStore _prebuiltPakSourceStore;
     private readonly string _thumbnailCacheDirectory;
+    private readonly IDialogService _dialogService;
 
     /// <summary>Resolved lazily (Merge & Install is constructed on first navigation, not at DI composition time) — same pattern SettingsViewModel already uses to reach it. Only invoked once the user actually adds something to the queue from here, so opening Library alone never forces Merge & Install into existence.</summary>
     private readonly Func<MergeInstallViewModel> _mergeInstallViewModel;
@@ -234,8 +235,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         DownloadsViewModel downloadsViewModel, Func<NexusCatalogViewModel> nexusCatalogViewModel,
         IActiveDownloadsTracker activeDownloadsTracker, Func<MergeInstallViewModel> mergeInstallViewModel, string backupDirectory,
         string dataFolder, IPrebuiltPakImporter prebuiltPakImporter, IPrebuiltPakToExmodConverter prebuiltPakToExmodConverter,
-        IPrebuiltPakSourceStore prebuiltPakSourceStore, string thumbnailCacheDirectory)
+        IPrebuiltPakSourceStore prebuiltPakSourceStore, string thumbnailCacheDirectory, IDialogService dialogService)
     {
+        _dialogService = dialogService;
         _modVersionComparer = modVersionComparer;
         _prebuiltPakImporter = prebuiltPakImporter;
         _prebuiltPakToExmodConverter = prebuiltPakToExmodConverter;
@@ -797,7 +799,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var linkPrompt = ThemedMessageBox.Show(
+        var linkPrompt = _dialogService.Confirm(
             $"'{entry.Name}' doesn't have a name/author of its own yet — imported .pak files don't carry that until you tell it where they came from.\n\nIs this a Nexus mod? Link it now so IcarusStarlink can show its real name and check for updates.",
             "Link to Nexus?", ThemedConfirmSeverity.Question);
         if (!(linkPrompt))
@@ -970,6 +972,10 @@ public sealed partial class LibraryViewModel : ObservableObject
                 // that failure would lose the working old copy.
                 _repository.BackupMod(folderName);
                 _repository.Delete(folderName);
+                // Only actually matters when the swap below goes the isExmodz route (no fresh
+                // PrebuiltPakImporter.ImportAsync -> sourceStore.Save for this folder name to
+                // overwrite it) — otherwise harmless, since Save below replaces it anyway.
+                _prebuiltPakSourceStore.Delete(folderName);
 
                 try
                 {
@@ -1425,7 +1431,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// <summary>Asks first, then shows — the post-update half of the same comparison the context menu offers on demand.</summary>
     private async Task OfferVersionComparisonAsync(string modName, string folderName)
     {
-        var answer = ThemedMessageBox.Show(
+        var answer = _dialogService.Confirm(
             $"'{modName}' was updated.\n\nSee what the author changed between your old version and this one?",
             "Update installed", ThemedConfirmSeverity.Information);
         if (answer)
@@ -1477,7 +1483,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var confirmResult = ThemedMessageBox.Show(
+        var confirmResult = _dialogService.Confirm(
             $"This replaces '{item.Name}''s current content with its most recent backup — any edit made since then is lost.\n\nContinue?",
             "Restore backup", ThemedConfirmSeverity.Question);
         if (!(confirmResult))
@@ -1569,15 +1575,15 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var dialog = new RenameModDialog(item.Name) { Owner = Application.Current.MainWindow };
-        if (dialog.ShowDialog() != true)
+        var result = _dialogService.PromptRename(item.Name);
+        if (result.Cancelled)
         {
             return;
         }
 
         try
         {
-            _repository.SetDisplayNameOverride(item.FolderName, dialog.NewDisplayName);
+            _repository.SetDisplayNameOverride(item.FolderName, result.NewDisplayName);
             Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         }
@@ -1684,7 +1690,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         // asks first, matching how every other irreversible action in this app behaves. Names the
         // real count rather than a generic "these mods" so a fat-fingered bulk selection is obvious
         // before it's too late to back out.
-        var confirm = ThemedMessageBox.Show(
+        var confirm = _dialogService.Confirm(
             items.Count == 1
                 ? $"Delete '{items[0].Name}' from your Library?\n\nIts folder is removed from disk. This can't be undone (unless you made a backup first)."
                 : $"Delete {items.Count} mods from your Library?\n\nTheir folders are removed from disk. This can't be undone (unless you made a backup first).",
@@ -1705,6 +1711,10 @@ public sealed partial class LibraryViewModel : ObservableObject
             try
             {
                 _repository.Delete(item.FolderName);
+                // Purges this mod's saved original pak (if it has one — a no-op otherwise) so a
+                // deleted mod doesn't leave an orphaned copy under PrebuiltPakSources forever; mirrors
+                // how the repository already purges its own LibraryMeta sidecar record on Delete.
+                _prebuiltPakSourceStore.Delete(item.FolderName);
                 deletedCount++;
                 if (SelectedItem == item)
                 {

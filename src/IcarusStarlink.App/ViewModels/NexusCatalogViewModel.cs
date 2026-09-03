@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog.Nexus;
@@ -26,7 +27,13 @@ namespace IcarusStarlink.App.ViewModels;
 /// where LocalBadge shows the stronger "In Library" but the Track toggle still needs to know it's
 /// tracked), so the Tracked filter and the card's Track/Untrack button both key off this instead.
 /// </summary>
-public sealed record NexusCatalogRow(NexusModInfo Mod, string? LocalBadge, bool HasUpdate, bool IsTracked);
+/// <summary>
+/// DisplayName is the tracked watchlist entry's own stored Name when IsTracked (which
+/// RenameTrackedEntry can override), falling back to the live Mod.Name otherwise — distinct from
+/// Mod.Name so a rename is actually visible: without this, the card would always show the live
+/// Nexus name regardless of any stored override.
+/// </summary>
+public sealed record NexusCatalogRow(NexusModInfo Mod, string? LocalBadge, bool HasUpdate, bool IsTracked, string DisplayName);
 
 /// <summary>
 /// The whole Nexus page — a real mod list with images driven by the saved API key, so browsing
@@ -44,6 +51,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     private readonly INexusWatchlistStore _watchlistStore;
     private readonly ILibraryRepository _libraryRepository;
     private readonly IPendingDownloadStore _pendingDownloadStore;
+    private readonly IDialogService _dialogService;
 
     /// <summary>
     /// Exposed so the Nexus page's own XAML can reach DownloadsViewModel's Track-by-URL (for a mod
@@ -132,7 +140,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     public NexusCatalogViewModel(
         INexusApiClient nexusApiClient, ICredentialStore credentialStore, INexusWatchlistStore watchlistStore,
         ILibraryRepository libraryRepository, IPendingDownloadStore pendingDownloadStore, DownloadsViewModel downloads,
-        IActivityLog activityLog)
+        IActivityLog activityLog, IDialogService dialogService)
     {
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
@@ -141,6 +149,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         _pendingDownloadStore = pendingDownloadStore;
         Downloads = downloads;
         _activityLog = activityLog;
+        _dialogService = dialogService;
 
         // Activating/deleting a mod elsewhere changes what "In Library" is true for — recompute
         // badges from the cached fetch, deliberately with no network involved (this VM is a
@@ -287,7 +296,8 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             .GroupBy(e => e.NexusModId!.Value)
             .ToDictionary(g => g.Key, g => g.First());
         var pendingModIds = _pendingDownloadStore.Entries.Select(e => e.ModId).ToHashSet();
-        var trackedModIds = _watchlistStore.Entries.Select(e => e.NexusId).ToHashSet();
+        var trackedEntriesByModId = _watchlistStore.Entries.ToDictionary(e => e.NexusId);
+        var trackedModIds = trackedEntriesByModId.Keys.ToHashSet();
 
         Mods.Clear();
         foreach (var mod in _lastFetched)
@@ -336,7 +346,10 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                 continue;
             }
 
-            Mods.Add(new NexusCatalogRow(mod, badge, hasUpdate, isTracked));
+            var displayName = isTracked && trackedEntriesByModId.TryGetValue(mod.ModId, out var trackedEntry)
+                ? trackedEntry.Name
+                : mod.Name ?? $"Nexus mod #{mod.ModId}";
+            Mods.Add(new NexusCatalogRow(mod, badge, hasUpdate, isTracked, displayName));
         }
     }
 
@@ -434,6 +447,8 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                     NexusId = mod.ModId,
                     Url = NexusModWebUrl.For(mod.ModId),
                     Name = mod.Name ?? $"Nexus mod #{mod.ModId}",
+                    Author = mod.Author ?? "",
+                    Version = mod.Version ?? "",
                 });
                 StatusMessage = $"Tracking '{mod.Name}' — use the Tracked filter above to see everything you're tracking.";
             }
@@ -443,6 +458,45 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't save the watchlist: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Overrides a tracked entry's own display name — same rename pattern LibraryViewModel.RenameItem
+    /// uses, reusing the same RenameModDialog, with the live Nexus name (not null) as Reset's target:
+    /// a tracked watchlist entry always has SOME name, so "reset" here means "back to what Nexus
+    /// itself currently calls it" rather than Library's own "clear the override entirely" meaning.
+    /// Only meaningful for a currently-tracked row — RenameTrackedEntry_CanExecute (via IsTracked)
+    /// keeps the command disabled otherwise, matching how a rename affordance shouldn't be visible
+    /// for a row with no stored override to change in the first place.
+    /// </summary>
+    [RelayCommand]
+    private void RenameTrackedEntry(NexusCatalogRow? row)
+    {
+        if (row is null || !row.IsTracked)
+        {
+            return;
+        }
+
+        var result = _dialogService.PromptRename(
+            row.DisplayName,
+            description: "Overrides how this tracked mod displays here — never touches anything on Nexus itself.",
+            resetValue: row.Mod.Name ?? $"Nexus mod #{row.Mod.ModId}",
+            resetLabel: "Reset to Nexus name",
+            resetTooltip: "Goes back to whatever Nexus itself currently calls this mod");
+        if (result.Cancelled || result.NewDisplayName is not { } newName)
+        {
+            return;
+        }
+
+        try
+        {
+            _watchlistStore.UpdateName(row.Mod.ModId, newName);
+            RebuildRows();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't rename: {ex.Message}";
         }
     }
 

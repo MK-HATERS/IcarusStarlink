@@ -6,8 +6,9 @@ namespace IcarusStarlink.Catalog.Tests.Nexus;
 public class NexusApiClientTests
 {
     private static NexusApiClient CreateClient(
-        Dictionary<string, string> responsesByUrl, Dictionary<string, HttpStatusCode>? statusCodesByUrl = null) =>
-        new(new HttpClient(new FakeHttpMessageHandler(responsesByUrl, statusCodesByUrl)));
+        Dictionary<string, string> responsesByUrl, Dictionary<string, HttpStatusCode>? statusCodesByUrl = null,
+        Dictionary<string, Dictionary<string, string>>? headersByUrl = null) =>
+        new(new HttpClient(new FakeHttpMessageHandler(responsesByUrl, statusCodesByUrl, headersByUrl)));
 
     // Real shape, confirmed against Nexus's own official node-nexus-api client source (IValidateKeyResponse).
     private const string RealisticValidateJson = """
@@ -345,5 +346,64 @@ public class NexusApiClientTests
             new Dictionary<string, HttpStatusCode> { [url] = HttpStatusCode.Unauthorized });
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetModListAsync("wrong-key", "icarus", NexusModList.Trending));
+    }
+
+    [Fact]
+    public async Task ValidateKeyAsync_RateLimited_ThrowsWithResetTime()
+    {
+        // Real header names, confirmed against FluentNexus's own RateLimitManager (a real
+        // third-party Nexus API client) — every v1 response carries these, and 429 means the
+        // hourly or daily budget is exhausted, distinct from a bad key (401/403).
+        var url = "https://api.nexusmods.com/v1/users/validate";
+        var resetAt = new DateTimeOffset(2026, 9, 3, 15, 0, 0, TimeSpan.Zero);
+        var client = CreateClient(
+            new Dictionary<string, string> { [url] = """{"message":"Too Many Requests"}""" },
+            new Dictionary<string, HttpStatusCode> { [url] = HttpStatusCode.TooManyRequests },
+            new Dictionary<string, Dictionary<string, string>>
+            {
+                [url] = new()
+                {
+                    ["x-rl-hourly-limit"] = "100",
+                    ["x-rl-hourly-remaining"] = "0",
+                    ["x-rl-hourly-reset"] = resetAt.ToString("O"),
+                    ["x-rl-daily-limit"] = "2000",
+                    ["x-rl-daily-remaining"] = "500",
+                    ["x-rl-daily-reset"] = resetAt.AddHours(9).ToString("O"),
+                },
+            });
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.ValidateKeyAsync("some-key"));
+
+        // The hourly reset is earlier than the daily reset here, so it's the one that should be
+        // quoted — matches "whichever budget you're blocked on resets first is when you can retry".
+        Assert.Contains(resetAt.ToLocalTime().ToString("t"), ex.Message);
+    }
+
+    [Fact]
+    public async Task ValidateKeyAsync_RateLimitedWithNoResetHeaders_ThrowsGenericRetryMessage()
+    {
+        // Defensive: if Nexus ever omits the headers (or a proxy strips them), this must still
+        // throw a clear rate-limit message rather than crashing on a missing/unparsable header.
+        var url = "https://api.nexusmods.com/v1/users/validate";
+        var client = CreateClient(
+            new Dictionary<string, string> { [url] = """{"message":"Too Many Requests"}""" },
+            new Dictionary<string, HttpStatusCode> { [url] = HttpStatusCode.TooManyRequests });
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.ValidateKeyAsync("some-key"));
+
+        Assert.Contains("rate limit", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("later", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SearchModsAsync_RateLimited_ThrowsInvalidOperation()
+    {
+        // The v2 GraphQL endpoints (SearchModsAsync/ListAllModsAsync) don't go through
+        // SendAuthenticatedAsync, so the rate-limit check has to be called explicitly there too.
+        var client = CreateClient(
+            new Dictionary<string, string> { ["https://api.nexusmods.com/v2/graphql"] = """{"message":"Too Many Requests"}""" },
+            new Dictionary<string, HttpStatusCode> { ["https://api.nexusmods.com/v2/graphql"] = HttpStatusCode.TooManyRequests });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SearchModsAsync("some-key", "icarus", "cheat"));
     }
 }

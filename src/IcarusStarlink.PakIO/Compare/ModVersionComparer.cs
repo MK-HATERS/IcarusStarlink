@@ -60,30 +60,16 @@ public sealed class ModVersionComparer(IPakCompareService pakCompareService) : I
         foreach (var currentFile in oldTables.Keys.Union(newTables.Keys, StringComparer.OrdinalIgnoreCase)
                      .OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
         {
-            var inOld = oldTables.TryGetValue(currentFile, out var oldTable);
-            var inNew = newTables.TryGetValue(currentFile, out var newTable);
+            oldTables.TryGetValue(currentFile, out var oldTable);
+            newTables.TryGetValue(currentFile, out var newTable);
 
-            if (inOld && !inNew)
+            // reportEmptyNewFile: true — "a new file exists" is itself meaningful to someone
+            // checking what an author changed, even if that file happens to be empty right now.
+            // See DataTableFileDiffer's own doc comment.
+            var changed = DataTableFileDiffer.Diff(currentFile, oldTable, newTable, classifier, reportEmptyNewFile: true);
+            if (changed is not null)
             {
-                differences.Add(new ChangedDataFile(
-                    currentFile, IsNewFile: false, IsRemovedFile: true,
-                    RemovedRowNames: [.. oldTable!.Select(kv => kv.Key)], FieldChanges: []));
-                continue;
-            }
-
-            if (!inOld && inNew)
-            {
-                differences.Add(new ChangedDataFile(
-                    currentFile, IsNewFile: true, IsRemovedFile: false, RemovedRowNames: [],
-                    TableDiffer.Diff(new JsonObject(), newTable!, currentFile, classifier)));
-                continue;
-            }
-
-            var fieldChanges = TableDiffer.Diff(oldTable!, newTable!, currentFile, classifier);
-            var removedRowNames = oldTable!.Select(kv => kv.Key).Except(newTable!.Select(kv => kv.Key)).ToList();
-            if (fieldChanges.Count > 0 || removedRowNames.Count > 0)
-            {
-                differences.Add(new ChangedDataFile(currentFile, IsNewFile: false, IsRemovedFile: false, removedRowNames, fieldChanges));
+                differences.Add(changed);
             }
         }
 

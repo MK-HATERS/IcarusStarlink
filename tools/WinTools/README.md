@@ -95,14 +95,52 @@ Get the running app's PID first (e.g. `tasklist` or `Get-Process IcarusStarlink.
 - `expand <pid> <exactText>` / `is-expanded <pid> <exactText>` — finds the
   nearest TreeItem ancestor of an element with that exact Name and
   expands/queries it via ExpandCollapsePattern.
-- `right-click <pid> <exactText>` — the one command that isn't pattern-based:
-  moves the real cursor to the element's BoundingRectangle center and
-  synthesizes a real right-click via `mouse_event`, since WPF ContextMenus
-  don't open through any Automation pattern. Only verified working on a
-  single-monitor/uniform-DPI setup — on a multi-monitor/mixed-DPI layout the
-  derived screen coordinates can miss the element (hit this during Phase 3.5;
-  never resolved, just worked around by verifying that specific case via code
-  review instead).
+- `right-click <pid> <exactText>` / `context-menu-click <pid> <exactText> <menuItemText>` /
+  `flyout-click <pid> <buttonText> <menuItemText>` / `real-left-click <pid> <exactText>` /
+  `double-click <pid> <exactText>` — the commands that aren't pattern-based:
+  move the real cursor to the element's BoundingRectangle center and
+  synthesize a real click via `SendInput`, since WPF ContextMenus don't open
+  through any Automation pattern (`context-menu-click`/`flyout-click` also
+  hunt for and Invoke() a named MenuItem afterward, in the same process run,
+  since a popup opened in one WinTools process doesn't survive into the next
+  — same reasoning as `select-combo-item` above). `flyout-click` opens its
+  menu via `InvokePattern.Invoke()` on the button instead of a synthetic
+  click, so it doesn't share the caveat below.
+
+  **Known-broken on at least one dev machine as of the Library
+  rename/delete verification pass**: a synthetic right-click here can fail
+  to open a WPF ContextMenu at all, with no error — `mouse_event` and
+  `SendInput` both "succeed", the cursor lands on the correct element
+  (verified via BoundingRectangle math and a debug print of the computed
+  coordinates), yet zero new top-level popup HWND ever appears afterward.
+  Ruled out, in order: (1) DPI virtualization from this process having no
+  app.manifest — fixed via `SetProcessDpiAwarenessContext` at startup
+  regardless, since it's a real latent bug independent of this issue, but
+  didn't fix it here (the target window sat entirely on the primary,
+  100%-scaled monitor, so virtualization wasn't actually in play for this
+  specific case); (2) `mouse_event` vs the modern `SendInput` — switched to
+  `SendInput`, no change; (3) the target window not being the real OS
+  foreground window — confirmed via `GetForegroundWindow()`, and neither
+  `SetForegroundWindow` nor the standard `AttachThreadInput` /
+  Alt-key-tap workarounds could make it become foreground (blocked by
+  Windows' foreground-lock-timeout restriction on an unrelated background
+  process); (4) a real left-click first, to activate the window the way a
+  human's first click on a background window normally does — added as a
+  best-effort step since it's harmless, but `GetForegroundWindow()` read
+  back as 0 (no window anywhere holding input focus) immediately after the
+  full click sequence even though the session was confirmed active and
+  unlocked (`query session`, `OpenInputDesktop` both checked out normal).
+  That result points at something upstream of WinTools itself — how its own
+  calling process/console is hosted — rather than a fixable coordinate,
+  timing, or DPI bug; not resolved this pass. Originally flagged (Phase 3.5)
+  as "only verified working on a single-monitor/uniform-DPI setup" — that
+  framing undersold it: DPI/multi-monitor was investigated this pass and
+  ruled out as the actual cause. If this bites again, `list-controls`
+  right after the click attempt (or the debug prints this investigation
+  added and then removed — see git history on this file) is the fastest way
+  to tell "menu opened and closed before I could query it" apart from "menu
+  never opened at all" (the latter is what happened here — only the
+  window's own title-bar System menu was ever found).
 - `seed-library <extractedModsDir>` — writes 3 synthetic EXMOD fixture mods
   (including a 2-member `Take_Home` variant family) directly via
   `ExmodFolder.Write`, for quick manual Library testing without a real

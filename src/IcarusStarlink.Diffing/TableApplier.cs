@@ -29,7 +29,10 @@ public static class TableApplier
         // not a file path). Without this, two changes to the "same" newly-created item that only
         // differ in CurrentFile casing would be tracked as two separate items, splitting one item's
         // real field count across two notes instead of reporting it once, correctly.
-        var createdItemKeys = new HashSet<string>(StringComparer.Ordinal);
+        //
+        // One dictionary doing double duty as both "is this createdKey a newly-created item" (via
+        // ContainsKey/TryGetValue) and "what's its running field count" — a createdKey is only ever
+        // added here, at creation, so its mere presence already means what a separate HashSet would.
         var createdItemInfo = new Dictionary<string, (string CurrentFile, string ItemName, int FieldCount)>(StringComparer.Ordinal);
 
         foreach (var change in changes)
@@ -47,15 +50,12 @@ public static class TableApplier
 
                 row = new JsonObject();
                 result[change.ItemName] = row;
-                createdItemKeys.Add(createdKey);
+                createdItemInfo[createdKey] = (change.CurrentFile, change.ItemName, 0);
             }
 
-            if (createdItemKeys.Contains(createdKey))
+            if (createdItemInfo.TryGetValue(createdKey, out var existing))
             {
-                var (currentFile, itemName, fieldCount) = createdItemInfo.TryGetValue(createdKey, out var existing)
-                    ? existing
-                    : (change.CurrentFile, change.ItemName, 0);
-                createdItemInfo[createdKey] = (currentFile, itemName, fieldCount + 1);
+                createdItemInfo[createdKey] = (existing.CurrentFile, existing.ItemName, existing.FieldCount + 1);
             }
 
             // IsFieldRemoved (not NewValue == null — see FieldChange) distinguishes "remove the
@@ -70,9 +70,8 @@ public static class TableApplier
             }
         }
 
-        foreach (var createdKey in createdItemKeys)
+        foreach (var (currentFile, itemName, fieldCount) in createdItemInfo.Values)
         {
-            var (currentFile, itemName, fieldCount) = createdItemInfo[createdKey];
             report?.AddNote(StaleItemHeuristic.BuildNote(currentFile, itemName, fieldCount));
         }
 

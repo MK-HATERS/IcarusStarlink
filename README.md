@@ -79,9 +79,14 @@ page covering every feature above.
   can issue; the app uses a manual paste-your-API-key flow instead.
 - **UnrealPak.exe is bundled, not downloaded**, and pinned to the UE4 build Icarus itself uses
   (4.27) rather than "whatever's newest" — a newer UE5 UnrealPak writes pak formats Icarus's own
-  engine can't load. Whether Epic's own EULA permits redistributing UnrealPak.exe at all has not
-  been independently verified — if you're taking this app to a wider public release, that's worth
-  a human legal read before shipping the bundled copy.
+  engine can't load. Real, concrete exposure here, not just an unverified worry: the Unreal Engine
+  EULA defines "Engine Tools" as editors/tools included in the Engine Code (UnrealPak.exe is
+  exactly that) and states any public Distribution of Engine Tools must go through Epic's own
+  Marketplace (Fab) or a fork of Epic's GitHub UnrealEngine Network — neither of which is what
+  bundling it into a GitHub release does. Classic IMM has bundled UnrealPak.exe the same way for
+  years with no known enforcement action, which is real-world precedent this is tolerated in
+  practice, not evidence it's actually permitted. This isn't legal advice — get a human legal read
+  on the exact current EULA text before a wider public release.
 - The Save editor can't duplicate or remove a character slot yet, and doesn't extract the game's
   own icons (Settings' item/creature icons stay text-only) — that needs a real UE4.27 texture
   decoder, a separate, larger piece of work than anything else in the editor so far.

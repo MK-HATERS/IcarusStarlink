@@ -43,9 +43,8 @@ public static class ExmodReferenceChecker
 
         foreach (var row in package.Rows)
         {
-            // A universal terminator marker, not a game file reference — see ExmodBaseDiffer's own
-            // identical exclusion for why.
-            if (string.Equals(row.CurrentFile, "EndOfMod", StringComparison.OrdinalIgnoreCase))
+            // See ExmodSentinelFiles.IsEndOfModMarker's own doc comment.
+            if (ExmodSentinelFiles.IsEndOfModMarker(row.CurrentFile))
             {
                 continue;
             }
@@ -198,7 +197,8 @@ public sealed class DataTableRowIndex
 
         foreach (var row in package.Rows)
         {
-            if (string.Equals(row.CurrentFile, "EndOfMod", StringComparison.OrdinalIgnoreCase))
+            // See ExmodSentinelFiles.IsEndOfModMarker's own doc comment.
+            if (ExmodSentinelFiles.IsEndOfModMarker(row.CurrentFile))
             {
                 continue;
             }

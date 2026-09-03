@@ -1380,6 +1380,22 @@ public sealed partial class SettingsViewModel : ObservableObject
             _activityLog.Log(
                 $"Icarus crashed since your last install ({mostRecent.OccurredAtUtc.ToLocalTime():g}): {mostRecent.ErrorMessage}",
                 ActivityEntryKind.Warning);
+
+            // The other half of this same health check (see GameSessionHealthCheck's own doc
+            // comment): a real crash is a strong enough signal to also show what UE4SS itself was
+            // last doing, in case a UE4SS mod's load failure is what actually caused it — plain log
+            // text, not pattern-matched, for the same "no guessing" reason FindCrashesSince's own
+            // message isn't inferred either.
+            if (!string.IsNullOrWhiteSpace(IcarusContentPath))
+            {
+                var logTail = GameSessionHealthCheck.ReadUe4ssLogTail(IcarusContentPath);
+                if (logTail.Count > 0)
+                {
+                    _activityLog.Log(
+                        $"UE4SS.log tail at the time of that crash:\n{string.Join('\n', logTail)}",
+                        ActivityEntryKind.Info);
+                }
+            }
         }
         catch (Exception)
         {

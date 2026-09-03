@@ -30,7 +30,7 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
                 return null;
             }
 
-            var version = dto.TagName.StartsWith('v') ? dto.TagName[1..] : dto.TagName;
+            var version = GitHubReleaseTag.StripLeadingV(dto.TagName);
             return new AppUpdateRelease(version, dto.Body ?? "", asset.BrowserDownloadUrl);
         }
         catch (Exception)
