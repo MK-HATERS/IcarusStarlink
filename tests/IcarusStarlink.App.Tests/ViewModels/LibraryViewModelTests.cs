@@ -587,19 +587,34 @@ public sealed class LibraryViewModelTests
     }
 
     [Fact]
-    public async Task GetUpdateCommand_SuccessfulUpdateAcceptsVersionCompare_LooksUpTheBackupUnderTheOldFolderNameNotTheNew()
+    public async Task GetUpdateCommand_SuccessfulUpdateAcceptsVersionCompare_LooksUpTheBackupUnderTheOldFolderNameAndTheCurrentFolderUnderTheNew()
     {
-        // Regression test: OfferVersionComparisonAsync used to be called with imported.FolderName
-        // (the NEW folder name a reimport can land on) instead of the OLD one BackupMod actually
-        // saved the backup under — silently reporting "no earlier copy" even when one exists. This
-        // test uses two DIFFERENT folder names on purpose (ModA_v1 -> ModA_v2) so the bug and the
-        // fix produce genuinely different, observable outcomes:
-        //  - bug present:  TryGetLatestModBackupPath("ModA_v2") -> null -> "no earlier copy" message.
-        //  - bug fixed:    TryGetLatestModBackupPath("ModA_v1") -> a real path (BackupMod saved one
-        //                  under that name above) -> proceeds into IModVersionComparer.CompareAsync,
-        //                  which this harness's fake always throws from (see FakeModVersionComparer's
-        //                  own comment) — caught and turned into the "Couldn't compare versions"
-        //                  message, which only happens if the backup lookup actually succeeded.
+        // Regression test for TWO bugs in this same flow, found one after the other:
+        //
+        // Bug 1 (fixed first): OfferVersionComparisonAsync used to be called with imported.FolderName
+        // (the NEW folder name a reimport can land on) for BOTH the backup lookup and the current-
+        // folder lookup, instead of the OLD name BackupMod actually saved the backup under —
+        // silently reporting "no earlier copy" even when one exists.
+        //
+        // Bug 2 (found reviewing the fix for bug 1): fixing bug 1 by switching BOTH lookups to the
+        // OLD name instead just traded which one broke — TryGetLatestModBackupPath("ModA_v1")
+        // (correct) but then GetFolderPath("ModA_v1") (wrong: that folder was already Delete()d:
+        // the current copy lives under "ModA_v2" now). The real fix needed two separate folder-name
+        // parameters, one per lookup.
+        //
+        // This test uses two DIFFERENT folder names on purpose (ModA_v1 -> ModA_v2) and a
+        // FakeLibraryRepository.GetFolderPath that actually enforces existence (mirroring the real
+        // FolderLibraryRepository) so all three outcomes are genuinely distinguishable:
+        //  - bug 1 present:  TryGetLatestModBackupPath("ModA_v2") -> null -> "no earlier copy" message.
+        //  - bug 2 present:  TryGetLatestModBackupPath("ModA_v1") -> succeeds, but
+        //                    GetFolderPath("ModA_v1") -> throws DirectoryNotFoundException (that
+        //                    folder's gone) -> "Couldn't compare versions: No library entry named…"
+        //  - both fixed:     TryGetLatestModBackupPath("ModA_v1") and GetFolderPath("ModA_v2") both
+        //                    succeed -> proceeds into IModVersionComparer.CompareAsync, which this
+        //                    harness's fake always throws NotSupportedException from (see
+        //                    FakeModVersionComparer's own comment) -> "Couldn't compare versions:
+        //                    Not exercised by these tests…", the only outcome that proves BOTH
+        //                    lookups actually succeeded with their own correct, different folder name.
         var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
         harness.AddMod("ModA_v1", name: "ModA", version: "1.0", source: "Database", catalogEntryId: "cat1");
 
@@ -621,7 +636,9 @@ public sealed class LibraryViewModelTests
         await vm.GetUpdateCommand.ExecuteAsync(item);
 
         Assert.DoesNotContain("no earlier copy", vm.StatusMessage);
+        Assert.DoesNotContain("No library entry named", vm.StatusMessage);
         Assert.Contains("Couldn't compare versions", vm.StatusMessage);
+        Assert.Contains("Not exercised by these tests", vm.StatusMessage);
     }
 
     [Fact]
@@ -1018,7 +1035,20 @@ public sealed class LibraryViewModelTests
         public string? ReadReadme(string folderName) => null;
         public string? ReadReadme(string folderName, IReadOnlyList<string> precomputedFiles) => null;
         public IReadOnlyList<string> ListFolderFiles(string folderName) => [];
-        public string GetFolderPath(string folderName) => Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests.NonExistentModFolder", folderName);
+        // Matches the real FolderLibraryRepository.GetFolderPath: a plain existence check against
+        // the current entries, throwing (not returning a path anyway) for a folder name that isn't
+        // one right now — e.g. because it was already Delete()d. An earlier version of this fake
+        // returned a fabricated path unconditionally, which masked a real bug: LibraryViewModel's
+        // ShowVersionComparisonAsync used to be called with a folder name that GetFolderPath can't
+        // actually resolve after a reimport lands on a new folder name (see
+        // GetUpdateCommand_SuccessfulUpdateAcceptsVersionCompare_LooksUpTheBackupUnderTheOldFolderNameNotTheNew's
+        // own comment) — a test against the old, always-succeeding fake couldn't tell that apart
+        // from IModVersionComparer's own always-throws fake behavior, since both produce the same
+        // "Couldn't compare versions" status text.
+        public string GetFolderPath(string folderName) =>
+            _entries.Any(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase))
+                ? Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests.NonExistentModFolder", folderName)
+                : throw new DirectoryNotFoundException($"No library entry named '{folderName}'.");
     }
 
     private sealed class FakeUe4ssModRepository : IUe4ssModRepository

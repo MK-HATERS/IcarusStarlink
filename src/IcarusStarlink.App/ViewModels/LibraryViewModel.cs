@@ -1071,12 +1071,14 @@ public sealed partial class LibraryViewModel : ObservableObject
                     // The backup taken above is the mod's own previous version, so "what did the
                     // author actually change?" is answerable right now — offered rather than shown
                     // automatically, since an update the user just wanted applied shouldn't force a
-                    // window open. Deliberately passes the OLD folderName, not imported.FolderName —
-                    // BackupMod above was keyed on the pre-update folder name, and a reimport can
-                    // land on a different one (e.g. the mod's own declared fileName changed between
-                    // versions); passing the new name here would look up a backup that was never
-                    // saved under it and silently report "no earlier copy" even though one exists.
-                    await OfferVersionComparisonAsync(imported.Name, folderName);
+                    // window open. Passes BOTH folder names, since a reimport can land on a
+                    // different one than it started with (e.g. the mod's own declared fileName
+                    // changed between versions): the OLD folderName is where BackupMod above
+                    // actually saved the backup, but imported.FolderName is where the just-reimported
+                    // CURRENT copy now lives on disk — using the old name for both would find the
+                    // backup but then fail to find the current folder (already deleted under that
+                    // name), and using the new name for both would fail to find the backup instead.
+                    await OfferVersionComparisonAsync(imported.Name, folderName, imported.FolderName);
                 }
                 catch (Exception importEx)
                 {
@@ -1500,24 +1502,32 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        await ShowVersionComparisonAsync(item.Name, item.FolderName);
+        await ShowVersionComparisonAsync(item.Name, item.FolderName, item.FolderName);
     }
 
     /// <summary>Asks first, then shows — the post-update half of the same comparison the context menu offers on demand.</summary>
-    private async Task OfferVersionComparisonAsync(string modName, string folderName)
+    private async Task OfferVersionComparisonAsync(string modName, string backupFolderName, string currentFolderName)
     {
         var answer = _dialogService.Confirm(
             $"'{modName}' was updated.\n\nSee what the author changed between your old version and this one?",
             "Update installed", ThemedConfirmSeverity.Information);
         if (answer)
         {
-            await ShowVersionComparisonAsync(modName, folderName);
+            await ShowVersionComparisonAsync(modName, backupFolderName, currentFolderName);
         }
     }
 
-    private async Task ShowVersionComparisonAsync(string modName, string folderName)
+    /// <summary>
+    /// Two separate folder names on purpose, not one: <paramref name="backupFolderName"/> is where
+    /// TryGetLatestModBackupPath looks for the earlier copy (the name it was backed up under),
+    /// <paramref name="currentFolderName"/> is where GetFolderPath looks for the current one (the
+    /// name it lives under on disk right now) — a post-update reimport can land on a different
+    /// folder name than it started with, so these two can genuinely differ. CompareToPreviousVersionAsync
+    /// passes the same name for both, since nothing has renamed the folder in that path.
+    /// </summary>
+    private async Task ShowVersionComparisonAsync(string modName, string backupFolderName, string currentFolderName)
     {
-        var previousVersionPath = _repository.TryGetLatestModBackupPath(folderName);
+        var previousVersionPath = _repository.TryGetLatestModBackupPath(backupFolderName);
         if (previousVersionPath is null)
         {
             StatusMessage = $"There's no earlier copy of '{modName}' to compare against — this app only has one once it's updated or backed up (right-click → Create mod backup).";
@@ -1528,7 +1538,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             var result = await _modVersionComparer.CompareAsync(
-                previousVersionPath, _repository.GetFolderPath(folderName), _settingsService.Current.UnrealPakExePath);
+                previousVersionPath, _repository.GetFolderPath(currentFolderName), _settingsService.Current.UnrealPakExePath);
 
             var window = new ModVersionCompareWindow(new ModVersionCompareViewModel(modName, result))
             {

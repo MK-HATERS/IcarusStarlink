@@ -380,7 +380,7 @@ public sealed class SavesViewModelTests : IDisposable
         var item = vm.MetaInventoryItems.Single();
         Assert.Null(item.IconPath);
         Assert.Null(item.Icon);
-        Assert.Equal(0, iconDecoder.RequestedPaths.Count);
+        Assert.Empty(iconDecoder.RequestedPaths);
     }
 
     /// <summary>The exact "missing/unresolvable icon degrades to text-only" contract — a real IconPath exists, gets requested, but the decoder can't actually produce a picture for it (unmounted base game, unmatched asset, whatever) — the row must be left showing its plain text, never crash or hang the load.</summary>
