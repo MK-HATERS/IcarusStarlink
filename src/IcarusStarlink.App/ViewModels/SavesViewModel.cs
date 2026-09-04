@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.IO;
 using System.Text.Json.Nodes;
 using System.Windows;
@@ -21,8 +20,13 @@ namespace IcarusStarlink.App.ViewModels;
 /// Safety posture, stricter than any other page: nothing writes without a full slot backup first
 /// (the repository enforces it), Restore writes a pre_restore zip (ditto), saving is refused
 /// outright while Icarus is running (the game holds these files and overwrites them on exit —
-/// an edit made mid-session would be silently lost or, worse, half-read), and every destructive
-/// action confirms first.
+/// an edit made mid-session would be silently lost or, worse, half-read — checked once before the
+/// confirm dialog and again immediately before the real write, since the first check can go stale
+/// for however long the user takes to answer that dialog), and every destructive action confirms
+/// first — except a plain list-remove (delete a mount, delete an inventory item) that's only ever
+/// staged in memory until Save's own confirm covers it; deleting a whole character is the one
+/// exception to THAT, since losing one's entire progress is too big to leave to Save's generic
+/// confirm text.
 /// </summary>
 public sealed partial class SavesViewModel : ObservableObject
 {
@@ -42,6 +46,8 @@ public sealed partial class SavesViewModel : ObservableObject
     private readonly ISaveRepository _repository;
     private readonly IActivityLog _activityLog;
     private readonly SaveGameNames _gameNames;
+    private readonly IDialogService _dialogService;
+    private readonly IGameProcessChecker _gameProcessChecker;
     private readonly Utilities.DebounceTimer _talentSearchDebounceTimer;
 
     private JsonObject? _profile;
@@ -52,8 +58,28 @@ public sealed partial class SavesViewModel : ObservableObject
     private JsonObject? _metaInventoryRoot;
     private bool _metaInventoryDirty;
     private JsonObject? _mountsRoot;
+
+    /// <summary>
+    /// Characters and Mounts are BOTH per-field dirty-tracked already (see DirtyTrackedCollections
+    /// below) — but adding or removing a whole entry from either list (Duplicate/Delete character,
+    /// Delete mount) isn't a per-field edit, so nothing in that tracking would ever notice it on
+    /// its own. These two flags catch exactly that gap, the same reasoning _metaInventoryDirty
+    /// already applies to a collection with no per-field tracking at all.
+    /// </summary>
+    private bool _charactersListDirty;
+    private bool _mountsListDirty;
+
     private SaveSlot? _lastLoadedSlot;
     private bool _suppressSlotChangeGuard;
+
+    /// <summary>
+    /// Fire-and-forget from OnSelectedSlotChanged — production UI never needs to await this
+    /// (bindings just pick up the ObservableCollection mutations once they land), but a test that
+    /// sets SelectedSlot has no other way to know the async load (real file I/O, or a fake
+    /// repository, off the UI thread) has actually finished before asserting against
+    /// Characters/Currencies/etc. See WaitForPendingSlotLoadAsync.
+    /// </summary>
+    private Task _pendingSlotLoad = Task.CompletedTask;
 
     public string Title => "Saves (Beta)";
 
@@ -97,13 +123,18 @@ public sealed partial class SavesViewModel : ObservableObject
     private IEnumerable<IEnumerable<IDirtyTrackable>> DirtyTrackedCollections =>
         [Characters, Currencies, AccountFlags, BinaryFlags, WorkshopTalents, Accolades, BestiaryEntries, Mounts];
 
-    public bool HasUnsavedChanges => DirtyTrackedCollections.Any(c => c.Any(x => x.IsDirty)) || _metaInventoryDirty;
+    public bool HasUnsavedChanges =>
+        DirtyTrackedCollections.Any(c => c.Any(x => x.IsDirty)) || _metaInventoryDirty || _charactersListDirty || _mountsListDirty;
 
-    public SavesViewModel(ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames)
+    public SavesViewModel(
+        ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames,
+        IDialogService dialogService, IGameProcessChecker gameProcessChecker)
     {
         _repository = repository;
         _activityLog = activityLog;
         _gameNames = gameNames;
+        _dialogService = dialogService;
+        _gameProcessChecker = gameProcessChecker;
         _talentSearchDebounceTimer = new Utilities.DebounceTimer(TimeSpan.FromMilliseconds(250), RefreshTalentFilter);
         RefreshSlots();
     }
@@ -252,9 +283,13 @@ public sealed partial class SavesViewModel : ObservableObject
         }
 
         // Fire-and-forget, matching DownloadsViewModel.RefreshCatalogAsync's own established
-        // precedent for a UI event that kicks off async work with nothing to await it here.
-        _ = LoadSlotAsync();
+        // precedent for a UI event that kicks off async work with nothing to await it here — the
+        // Task itself is still kept (not discarded) so a test can await WaitForPendingSlotLoadAsync.
+        _pendingSlotLoad = LoadSlotAsync();
     }
+
+    /// <summary>Test seam only — see _pendingSlotLoad's own doc comment for why this exists.</summary>
+    internal Task WaitForPendingSlotLoadAsync() => _pendingSlotLoad;
 
     private async Task LoadSlotAsync()
     {
@@ -274,6 +309,8 @@ public sealed partial class SavesViewModel : ObservableObject
         _metaInventoryRoot = null;
         _metaInventoryDirty = false;
         _mountsRoot = null;
+        _charactersListDirty = false;
+        _mountsListDirty = false;
         SelectedCharacter = null;
 
         _lastLoadedSlot = SelectedSlot;
@@ -704,12 +741,45 @@ public sealed partial class SavesViewModel : ObservableObject
         RefreshMountFilter();
     }
 
+    /// <summary>Same view+delete shape as DeleteMetaInventoryItem, mirrored exactly — no confirmation prompt (a mount is one collectible among many, the same severity as one inventory item, unlike deleting a whole character), just remove-and-mark-dirty; Save's own confirm covers the actual write.</summary>
+    [RelayCommand]
+    private void DeleteMount(SaveMountViewModel? mount)
+    {
+        if (mount is null)
+        {
+            return;
+        }
+
+        Mounts.Remove(mount);
+        FilteredMounts.Remove(mount);
+        _mountsListDirty = true;
+        NotifyDirtyChanged();
+    }
+
+    /// <summary>
+    /// Full rebuild from the CURRENT Mounts collection, not an in-place-only foreach over it — a
+    /// mount removed from Mounts (DeleteMount, above) never touched _mountsRoot itself, since each
+    /// mount's own Node is still a live child of the OLD SavedMounts array at that point; an
+    /// in-place-only pass (this method's own shape before mount deletion existed) would silently
+    /// keep a "deleted" mount in the written file. DeepClone is required, not optional, on the way
+    /// into the new array: a JsonNode can only ever belong to one parent, and mount.Node is still
+    /// parented to the array this replaces. Mirrors ApplyMetaInventoryEdits' own reasoning.
+    /// </summary>
     private void ApplyMountEdits()
     {
+        if (_mountsRoot is null)
+        {
+            return;
+        }
+
+        var newArray = new JsonArray();
         foreach (var mount in Mounts)
         {
             mount.ApplyToNode();
+            newArray.Add(mount.Node.DeepClone());
         }
+
+        _mountsRoot["SavedMounts"] = newArray;
     }
 
     /// <summary>Writes AccountFlags/WorkshopTalents back into the profile node — the profile-level counterpart of SaveCharacterViewModel.ApplyToNode, same minimal-diff rules.</summary>
@@ -795,6 +865,110 @@ public sealed partial class SavesViewModel : ObservableObject
         SelectedTabIndex = 1;
     }
 
+    /// <summary>
+    /// Clones the selected character's own JsonObject wholesale (deep clone — a JsonNode can only
+    /// ever belong to one parent, so the clone must be fully independent before it's added
+    /// anywhere, same reasoning every other DeepClone call in this class already relies on). ChrSlot
+    /// is the real identifier the game itself uses to keep characters distinct in Characters.json
+    /// (confirmed against a real save: every character carries one, and the profile's own
+    /// NextChrSlot is exactly the counter the game increments each time it hands out a new one) —
+    /// two characters sharing a ChrSlot would be a genuine collision, not just a cosmetic one, so
+    /// the duplicate gets a freshly allocated slot via AllocateNextChrSlot() rather than a copy of
+    /// the source's. CharacterName carries no such uniqueness requirement in the format, but
+    /// "(Copy)" is still appended so the new entry doesn't look identical to its source in every
+    /// list this page shows it in (Overview cards, the Characters list).
+    /// </summary>
+    [RelayCommand]
+    private void DuplicateCharacter(SaveCharacterViewModel? character)
+    {
+        if (character is null)
+        {
+            return;
+        }
+
+        var clone = character.Node.DeepClone().AsObject();
+        clone["ChrSlot"] = AllocateNextChrSlot();
+        var newName = $"{character.Name} (Copy)";
+        clone["CharacterName"] = newName;
+
+        var newCharacter = new SaveCharacterViewModel(clone, _gameNames, NotifyDirtyChanged);
+
+        // Kept adjacent to the source in both lists — purely cosmetic (order has no meaning to the
+        // game; SaveCharacters below writes the whole array regardless of order), but it keeps the
+        // duplicate easy to find right next to what it was duplicated from.
+        var nodeIndex = _characterNodes.IndexOf(character.Node);
+        _characterNodes.Insert(nodeIndex >= 0 ? nodeIndex + 1 : _characterNodes.Count, clone);
+        var vmIndex = Characters.IndexOf(character);
+        Characters.Insert(vmIndex >= 0 ? vmIndex + 1 : Characters.Count, newCharacter);
+
+        _charactersListDirty = true;
+        SelectedCharacter = newCharacter;
+        NotifyDirtyChanged();
+        StatusMessage = $"Duplicated '{character.Name}' as '{newName}' (slot {clone["ChrSlot"]!.GetValue<int>()}) — click Save player data to make it permanent.";
+    }
+
+    /// <summary>
+    /// The next ChrSlot value nothing currently on this profile is using. Starts from the
+    /// profile's own NextChrSlot (exactly what the game itself would hand out next) but never
+    /// trusts it blindly — same defensive posture as BuildAccountFlags/BuildBinaryFlags' own
+    /// Math.Max fallbacks elsewhere in this class — in case a save's NextChrSlot is stale, missing,
+    /// or a prior duplicate already consumed it without the profile having been reloaded. Also
+    /// advances NextChrSlot past the value just handed out, so the game itself (or a second
+    /// Duplicate right after this one) can't be handed the same slot next.
+    /// </summary>
+    private int AllocateNextChrSlot()
+    {
+        var used = _characterNodes.Select(n => n["ChrSlot"]?.GetValue<int>() ?? -1).Where(id => id >= 0).ToHashSet();
+        var candidate = _profile?["NextChrSlot"]?.GetValue<int>() ?? (used.Count == 0 ? 0 : used.Max() + 1);
+        while (used.Contains(candidate))
+        {
+            candidate++;
+        }
+
+        if (_profile is not null)
+        {
+            _profile["NextChrSlot"] = candidate + 1;
+        }
+
+        return candidate;
+    }
+
+    /// <summary>
+    /// Deleting a whole character is far more consequential than any other destructive list-edit on
+    /// this page (talents, flags, cosmetics, XP — the character's entire progress, gone), which is
+    /// why this one confirms first via IDialogService — unlike DeleteMetaInventoryItem/DeleteMount,
+    /// which mirror this page's usual "staged edit, Save's own confirm covers it" pattern, since
+    /// losing one item or one mount is a much smaller loss to walk back from.
+    /// </summary>
+    [RelayCommand]
+    private void DeleteCharacter(SaveCharacterViewModel? character)
+    {
+        if (character is null)
+        {
+            return;
+        }
+
+        var confirm = _dialogService.Confirm(
+            $"Permanently remove '{character.Name}' from this save slot?\n\n"
+            + "This deletes the character's entire progress — talents, flags, cosmetics, XP, everything — the next time you save.",
+            "Delete character", ThemedConfirmSeverity.Warning);
+        if (!confirm)
+        {
+            return;
+        }
+
+        _characterNodes.Remove(character.Node);
+        Characters.Remove(character);
+        if (ReferenceEquals(SelectedCharacter, character))
+        {
+            SelectedCharacter = Characters.FirstOrDefault();
+        }
+
+        _charactersListDirty = true;
+        NotifyDirtyChanged();
+        StatusMessage = $"Removed '{character.Name}' — click Save player data to make it permanent.";
+    }
+
     [RelayCommand]
     private void BackupNow()
     {
@@ -830,7 +1004,10 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        var confirm = ThemedMessageBox.Show(
+        // Via IDialogService, not ThemedMessageBox.Show directly (unlike OnSelectedSlotChanged's
+        // own confirm above this method) — this method's real write below needs to be testable
+        // without a live WPF Dispatcher, same reasoning DeleteCharacter's own confirm relies on.
+        var confirm = _dialogService.Confirm(
             $"Replace this save slot's current files with the backup from {SelectedBackup.TakenAtUtc.LocalDateTime:g}?\n\n"
             + "A pre_restore safety zip of the slot as it is right now is written first, so this is itself undoable.",
             "Restore save backup", ThemedConfirmSeverity.Warning);
@@ -841,6 +1018,20 @@ public sealed partial class SavesViewModel : ObservableObject
 
         try
         {
+            // A SECOND, LATE check, immediately before the real write below — the first
+            // IsGameRunning() check above (before the confirm dialog) can go stale for however long
+            // the user takes to answer that dialog, and Icarus could be launched in that window.
+            // This doesn't close the race entirely (no check here can, without an OS-level file
+            // lock held across processes for the whole write) — it only shrinks the exposed window
+            // down to "immediately before the write" instead of "however long the confirm dialog
+            // was up", aborting late-and-safe (nothing has been touched yet) rather than
+            // early-and-stale.
+            if (IsGameRunning())
+            {
+                StatusMessage = "Icarus started running while this restore was about to write — nothing was touched. Close it and try again.";
+                return;
+            }
+
             _repository.RestoreSlot(SelectedSlot.SteamId, SelectedBackup.FilePath);
             await LoadSlotAsync();
             StatusMessage = "Restored. The replaced state was saved as a pre_restore zip.";
@@ -872,7 +1063,10 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        var confirm = ThemedMessageBox.Show(
+        // Via IDialogService, not ThemedMessageBox.Show directly — same reasoning as
+        // RestoreBackupAsync's own confirm: this method's real write needs to be testable without
+        // a live WPF Dispatcher, including the late re-check immediately below.
+        var confirm = _dialogService.Confirm(
             "Write your edits into the player save?\n\nA full backup of the slot is taken automatically first (Restore can undo this).",
             "Save player data", ThemedConfirmSeverity.Question);
         if (!(confirm))
@@ -893,6 +1087,20 @@ public sealed partial class SavesViewModel : ObservableObject
             }
 
             ApplyProfileEdits();
+
+            // A SECOND, LATE check, immediately before the first real disk write below — the first
+            // IsGameRunning() check above (before the confirm dialog) can go stale for however long
+            // the user takes to answer that dialog, and Icarus could be launched in that window.
+            // This doesn't close the race entirely (no check here can, without an OS-level file
+            // lock held across processes for the whole write) — it only shrinks the exposed window
+            // down to "immediately before the write" instead of "however long the confirm dialog
+            // was up", aborting late-and-safe (nothing has been written yet) rather than
+            // early-and-stale.
+            if (IsGameRunning())
+            {
+                StatusMessage = "Icarus started running while this save was about to write — nothing was touched. Close it and try Save again.";
+                return;
+            }
 
             // ONE backup for the whole save pass, taken up front — every SaveXxx call below passes
             // takeBackup: false. A single click used to be able to zip the same slot up to 6 times
@@ -941,10 +1149,14 @@ public sealed partial class SavesViewModel : ObservableObject
                 _metaInventoryDirty = false;
             }
 
-            if (Mounts.Any(m => m.IsDirty))
+            // _mountsListDirty (a mount removed from the list) is checked alongside per-field
+            // dirtiness — a pure removal with no remaining mount edited would otherwise never
+            // trigger this write at all, silently leaving a "deleted" mount in Mounts.json.
+            if (_mountsListDirty || Mounts.Any(m => m.IsDirty))
             {
                 ApplyMountEdits();
                 _repository.SaveMounts(SelectedSlot.SteamId, _mountsRoot!, takeBackup: false);
+                _mountsListDirty = false;
             }
 
             foreach (var collection in DirtyTrackedCollections)
@@ -954,6 +1166,12 @@ public sealed partial class SavesViewModel : ObservableObject
                     item.MarkClean();
                 }
             }
+
+            // Characters (unlike Mounts above) always writes unconditionally via _characterNodes,
+            // so no write-gating is needed for _charactersListDirty — it only ever gated whether
+            // the Save button itself was enabled, so it's cleared here alongside every other
+            // dirty-tracking reset now that the write has actually happened.
+            _charactersListDirty = false;
 
             OnPropertyChanged(nameof(HasUnsavedChanges));
             RefreshBackupsList();
@@ -978,6 +1196,13 @@ public sealed partial class SavesViewModel : ObservableObject
         UrlOpener.TryOpen(Path.GetDirectoryName(any.FilePath)!);
     }
 
-    /// <summary>The game holds these files and rewrites them on exit — any edit made while it runs is lost or half-read, so save/restore refuse rather than race it.</summary>
-    private static bool IsGameRunning() => Process.GetProcessesByName("Icarus-Win64-Shipping").Length > 0;
+    /// <summary>
+    /// The game holds these files and rewrites them on exit — any edit made while it runs is lost
+    /// or half-read, so save/restore refuse rather than race it. Delegates to IGameProcessChecker
+    /// (rather than calling Process.GetProcessesByName directly, which is all this used to do)
+    /// purely so a test can fake the answer — including a DIFFERENT answer on a second call within
+    /// the same pass, to exercise the late re-check SaveChanges/RestoreBackupAsync each run
+    /// immediately before their real write.
+    /// </summary>
+    private bool IsGameRunning() => _gameProcessChecker.IsRunning();
 }

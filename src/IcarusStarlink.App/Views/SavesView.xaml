@@ -139,18 +139,52 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <ListBox Grid.Column="0" ItemsSource="{Binding Characters}" SelectedItem="{Binding SelectedCharacter}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Margin="4" Orientation="Horizontal">
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
-                                    <TextBlock Text=" *" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold"
-                                               Visibility="{Binding IsDirty, Converter={StaticResource BoolToVisibilityConverter}}"
-                                               ToolTip="Unsaved changes"/>
+                    <Grid Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <ListBox Grid.Row="0" ItemsSource="{Binding Characters}" SelectedItem="{Binding SelectedCharacter}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="4" Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                        <TextBlock Text=" *" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold"
+                                                   Visibility="{Binding IsDirty, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                   ToolTip="Unsaved changes"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <!-- Act on whichever character is selected above. Duplicate is instant, no
+                             confirm (matches ExmodEditorViewModel's own Duplicate) — it only adds
+                             data. Delete removes the character's entire progress and confirms first,
+                             unlike every other destructive edit on this page (those stay staged in
+                             memory until Save's own confirm covers them; a whole character is too
+                             big a loss for that). -->
+                        <WrapPanel Grid.Row="1" Margin="0,8,0,0">
+                            <Button Command="{Binding DuplicateCharacterCommand}" CommandParameter="{Binding SelectedCharacter}"
+                                    AutomationProperties.Name="Duplicate character"
+                                    ToolTip="Clones the selected character under a fresh character slot — talents/flags/cosmetics all come along, the name is suffixed '(Copy)'">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconCopy}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Duplicate" VerticalAlignment="Center"/>
                                 </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                            </Button>
+                            <Button Command="{Binding DeleteCharacterCommand}" CommandParameter="{Binding SelectedCharacter}"
+                                    Margin="8,0,0,0" AutomationProperties.Name="Delete character"
+                                    ToolTip="Permanently removes the selected character's entire progress — confirms first">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Delete" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </WrapPanel>
+                    </Grid>
 
                     <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
                         <StackPanel MaxWidth="560" HorizontalAlignment="Left"
@@ -478,6 +512,11 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel Margin="2,4,2,4">
+                                    <Button DockPanel.Dock="Right" Content="Delete" Padding="8,2"
+                                            Command="{Binding DataContext.DeleteMountCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip="Removes this mount — nothing else in the list is touched"/>
+
                                     <TextBox DockPanel.Dock="Left" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
                                              Width="150" Margin="0,0,10,0" ToolTip="This mount's name"/>
 

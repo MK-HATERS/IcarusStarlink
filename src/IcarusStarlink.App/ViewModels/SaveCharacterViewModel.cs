@@ -24,6 +24,9 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
     private long _originalXp;
     private bool _originalIsMale;
 
+    /// <summary>The character's own live JsonObject — exposed (like SaveMountViewModel/SaveInventoryItemViewModel's own Node) so SavesViewModel can keep its private _characterNodes list in sync when a whole character is duplicated or removed, not just per-field edits applied through ApplyToNode.</summary>
+    public JsonObject Node => _node;
+
     [ObservableProperty]
     private string _name;
 

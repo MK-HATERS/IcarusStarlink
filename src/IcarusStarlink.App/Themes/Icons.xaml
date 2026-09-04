@@ -59,4 +59,10 @@
     <!-- A right-pointing play triangle — the nav rail's own "Launch game" quick-link. -->
     <Geometry x:Key="IconPlay">M6 4L6 20L20 12Z</Geometry>
 
+    <!-- Duplicate/copy (the Saves page's own "Duplicate character"): two plain closed squares,
+         offset diagonally so they overlap. Deliberately two independent M...Z subpaths rather than
+         one traced outline — every use site strokes only (no Fill), so there's no EvenOdd/Nonzero
+         fill-rule interaction between the overlap to reason about, just two outlined squares. -->
+    <Geometry x:Key="IconCopy">M4 8L13 8L13 17L4 17Z M8 4L17 4L17 13L8 13Z</Geometry>
+
 </ResourceDictionary>
