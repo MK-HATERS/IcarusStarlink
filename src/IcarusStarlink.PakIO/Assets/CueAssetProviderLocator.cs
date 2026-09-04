@@ -18,7 +18,25 @@ internal static class CueAssetProviderLocator
     // instead of a fresh allocation per decode call.
     private static readonly VersionContainer Versions = new(EGame.GAME_UE4_27);
 
-    public static T? TryLoadExport<T>(string modFolderPath, string relativeAssetPath) where T : class
+    public static T? TryLoadExport<T>(string modFolderPath, string relativeAssetPath) where T : class =>
+        TryLoadExportAndProject<T, T>(modFolderPath, relativeAssetPath, static export => export);
+
+    /// <summary>
+    /// Same lookup as TryLoadExport, but keeps the mod-local DefaultFileProvider alive for the
+    /// duration of <paramref name="project"/> — required for any consumer that reads a lazily-
+    /// resolved cross-package reference off the export (CueUassetMaterialDecoder's GetParams call
+    /// resolving another package's Texture2D for a texture parameter is exactly this case).
+    /// CUE4Parse resolves an FPackageIndex reference on first access, not at load time, and
+    /// TryLoadExport's own `using var provider` disposes (clearing Files/VirtualPaths and every
+    /// mounted VFS reader) the instant it returns — silently starving any such later resolution
+    /// (it fails closed, returning null/false, never throwing) rather than a caller noticing
+    /// anything went wrong. A consumer with this need can't safely call TryLoadExport and process
+    /// the result afterward at all; it has to do all of that processing here, inside project,
+    /// while the provider backing the export is still open.
+    /// </summary>
+    public static TResult? TryLoadExportAndProject<T, TResult>(
+        string modFolderPath, string relativeAssetPath, Func<T, TResult> project)
+        where T : class where TResult : class
     {
         using var provider = new DefaultFileProvider(modFolderPath, SearchOption.AllDirectories, Versions, StringComparer.OrdinalIgnoreCase);
         provider.Initialize();
@@ -36,6 +54,7 @@ internal static class CueAssetProviderLocator
         }
 
         var package = provider.LoadPackage(matchedKey);
-        return package.ExportsLazy.Select(export => export.Value).OfType<T>().FirstOrDefault();
+        var export = package.ExportsLazy.Select(e => e.Value).OfType<T>().FirstOrDefault();
+        return export is null ? null : project(export);
     }
 }

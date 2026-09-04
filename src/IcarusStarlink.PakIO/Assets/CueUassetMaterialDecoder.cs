@@ -78,15 +78,21 @@ public sealed class CueUassetMaterialDecoder : IUassetMaterialDecoder
 
         try
         {
-            var material = CueAssetProviderLocator.TryLoadExport<UMaterialInterface>(modFolderPath, relativeAssetPath);
-            if (material is null)
-            {
-                return null;
-            }
-
-            var localResult = BuildMaterialParams(material);
-            var unresolvedParentAssetPath = TryGetUnresolvedParentAssetPath(material);
-            return ApplyBaseGameFallbackIfNeeded(localResult, unresolvedParentAssetPath);
+            // BuildMaterialParams's own GetParams call resolves cross-package Texture references
+            // lazily, on first access — so it (and TryGetUnresolvedParentAssetPath, run alongside
+            // it for convenience) has to happen INSIDE this projection, while the mod-local
+            // provider backing `material` is still open. Calling TryLoadExport instead and
+            // processing its result afterward would silently starve every cross-package texture
+            // reference the mod's own local material makes (the provider disposes the instant
+            // TryLoadExport returns) — see TryLoadExportAndProject's own doc comment for why.
+            return CueAssetProviderLocator.TryLoadExportAndProject<UMaterialInterface, UassetMaterialParams>(
+                modFolderPath, relativeAssetPath,
+                material =>
+                {
+                    var localResult = BuildMaterialParams(material);
+                    var unresolvedParentAssetPath = TryGetUnresolvedParentAssetPath(material);
+                    return ApplyBaseGameFallbackIfNeeded(localResult, unresolvedParentAssetPath);
+                });
         }
         catch (Exception)
         {
