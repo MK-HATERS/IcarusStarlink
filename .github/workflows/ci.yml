@@ -44,9 +44,10 @@ jobs:
           retention-days: 14
 
       # The app's own Release build output — not a packaged release (that's still a deliberate,
-      # separate manual step per the project's own release-readiness notes: a real release also
-      # needs the bundled UnrealPak payload folded in by hand), just a downloadable sanity check
-      # that a given commit still produces a working build.
+      # separate manual step: dotnet publish + zip + a GitHub release with real notes), just a
+      # downloadable sanity check that a given commit still produces a working build. UnrealPak.exe
+      # itself is never part of this output either way — the app fetches it separately, on first
+      # launch, from its own small dedicated GitHub release (see UnrealPakInstaller.cs).
       - name: Upload build output
         if: always()
         uses: actions/upload-artifact@v4

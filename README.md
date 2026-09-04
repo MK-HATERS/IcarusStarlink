@@ -91,16 +91,20 @@ every feature above.
 
 - **Nexus single-click SSO login** — Nexus's SSO flow needs an application slug only their staff
   can issue; the app uses a manual paste-your-API-key flow instead.
-- **UnrealPak.exe is bundled, not downloaded**, and pinned to the UE4 build Icarus itself uses
-  (4.27) rather than "whatever's newest" — a newer UE5 UnrealPak writes pak formats Icarus's own
-  engine can't load. Real, concrete exposure here, not just an unverified worry: the Unreal Engine
-  EULA defines "Engine Tools" as editors/tools included in the Engine Code (UnrealPak.exe is
-  exactly that) and states any public Distribution of Engine Tools must go through Epic's own
-  Marketplace (Fab) or a fork of Epic's GitHub UnrealEngine Network — neither of which is what
-  bundling it into a GitHub release does. Classic IMM has bundled UnrealPak.exe the same way for
-  years with no known enforcement action, which is real-world precedent this is tolerated in
-  practice, not evidence it's actually permitted. This isn't legal advice — get a human legal read
-  on the exact current EULA text before a wider public release.
+- **UnrealPak.exe isn't bundled into the app's own release zip** — it's fetched on first launch
+  (Settings → UnrealPak → Install) from a small, fixed, dedicated GitHub release in this same repo
+  (not re-bundled into every app version, since it's pinned to one Unreal build and doesn't change
+  release to release), pinned to the UE4 build Icarus itself uses (4.27) rather than "whatever's
+  newest" — a newer UE5 UnrealPak writes pak formats Icarus's own engine can't load. Real, concrete
+  exposure here, not just an unverified worry: the Unreal Engine EULA defines "Engine Tools" as
+  editors/tools included in the Engine Code (UnrealPak.exe is exactly that) and states any public
+  Distribution of Engine Tools must go through Epic's own Marketplace (Fab) or a fork of Epic's
+  GitHub UnrealEngine Network — neither of which is what hosting it as a downloadable GitHub release
+  asset does, same underlying concern as bundling it directly would have been. Classic IMM has
+  bundled UnrealPak.exe (a different distribution mechanism, same underlying exe) for years with no
+  known enforcement action, which is real-world precedent this is tolerated in practice, not
+  evidence it's actually permitted. This isn't legal advice — get a human legal read on the exact
+  current EULA text before a wider public release.
 - Material preview's base-game fallback only actually recovers texture/color values when the
   resolved parent is a plain base-game material — a common case (confirmed live against real mods:
   28 real textures and 17 real colors recovered for a real modded material that came back completely
