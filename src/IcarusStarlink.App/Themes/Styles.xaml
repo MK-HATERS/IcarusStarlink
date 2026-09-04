@@ -14,6 +14,7 @@
     <converters:VariantSuffixConverter x:Key="VariantSuffixConverter"/>
     <converters:StaleItemTooltipConverter x:Key="StaleItemTooltipConverter"/>
     <converters:MountTypeDisplayConverter x:Key="MountTypeDisplayConverter"/>
+    <converters:TrackedAutomationNameConverter x:Key="TrackedAutomationNameConverter"/>
     <converters:SortIndicatorConverter x:Key="SortIndicatorConverter"/>
     <converters:QueueConflictVisibilityConverter x:Key="QueueConflictVisibilityConverter"/>
     <converters:QueueConflictTooltipConverter x:Key="QueueConflictTooltipConverter"/>

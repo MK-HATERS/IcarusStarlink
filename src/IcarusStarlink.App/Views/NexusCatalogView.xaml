@@ -143,15 +143,14 @@
                                              watchlist membership itself, so the click always does
                                              the opposite of whatever IsTracked shows right now. -->
                                         <Button Command="{Binding DataContext.TrackModCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                CommandParameter="{Binding Mod}" Margin="0,0,0,4">
+                                                CommandParameter="{Binding Mod}" Margin="0,0,0,4"
+                                                AutomationProperties.Name="{Binding IsTracked, Converter={StaticResource TrackedAutomationNameConverter}}">
                                             <Button.Style>
                                                 <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                                     <Setter Property="ToolTip" Value="Add to Downloads' Nexus watchlist, so it's checked for updates"/>
-                                                    <Setter Property="AutomationProperties.Name" Value="Track mod"/>
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding IsTracked}" Value="True">
                                                             <Setter Property="ToolTip" Value="Stop tracking this mod"/>
-                                                            <Setter Property="AutomationProperties.Name" Value="Untrack mod"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
