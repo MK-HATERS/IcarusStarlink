@@ -41,6 +41,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IUnrealPakService _unrealPakService;
     private readonly IUassetTextureDecoder _uassetTextureDecoder;
     private readonly IUassetStaticMeshDecoder _uassetStaticMeshDecoder;
+    private readonly IOpaquePakAssetPreviewService _opaquePakAssetPreviewService;
     private readonly INexusApiClient _nexusApiClient;
     private readonly ICredentialStore _credentialStore;
     private readonly Func<string, ExmodEditorViewModel> _editorFactory;
@@ -53,6 +54,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IPrebuiltPakToExmodConverter _prebuiltPakToExmodConverter;
     private readonly IPrebuiltPakSourceStore _prebuiltPakSourceStore;
     private readonly string _thumbnailCacheDirectory;
+    private readonly string _pakPreviewCacheDirectory;
     private readonly IDialogService _dialogService;
 
     /// <summary>Resolved lazily (Merge & Install is constructed on first navigation, not at DI composition time) — same pattern SettingsViewModel already uses to reach it. Only invoked once the user actually adds something to the queue from here, so opening Library alone never forces Merge & Install into existence.</summary>
@@ -227,7 +229,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
         IUe4ssModMetaStore ue4ssModMetaStore, IUe4ssLoaderInstallService ue4ssLoaderInstallService,
         ISettingsService settingsService, IUnrealPakService unrealPakService, IUassetTextureDecoder uassetTextureDecoder,
-        IUassetStaticMeshDecoder uassetStaticMeshDecoder,
+        IUassetStaticMeshDecoder uassetStaticMeshDecoder, IOpaquePakAssetPreviewService opaquePakAssetPreviewService,
         INexusApiClient nexusApiClient,
         ICredentialStore credentialStore,
         Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
@@ -235,7 +237,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         DownloadsViewModel downloadsViewModel, Func<NexusCatalogViewModel> nexusCatalogViewModel,
         IActiveDownloadsTracker activeDownloadsTracker, Func<MergeInstallViewModel> mergeInstallViewModel, string backupDirectory,
         string dataFolder, IPrebuiltPakImporter prebuiltPakImporter, IPrebuiltPakToExmodConverter prebuiltPakToExmodConverter,
-        IPrebuiltPakSourceStore prebuiltPakSourceStore, string thumbnailCacheDirectory, IDialogService dialogService)
+        IPrebuiltPakSourceStore prebuiltPakSourceStore, string thumbnailCacheDirectory, string pakPreviewCacheDirectory,
+        IDialogService dialogService)
     {
         _dialogService = dialogService;
         _modVersionComparer = modVersionComparer;
@@ -243,6 +246,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         _prebuiltPakToExmodConverter = prebuiltPakToExmodConverter;
         _prebuiltPakSourceStore = prebuiltPakSourceStore;
         _thumbnailCacheDirectory = thumbnailCacheDirectory;
+        _pakPreviewCacheDirectory = pakPreviewCacheDirectory;
         _mergeInstallViewModel = mergeInstallViewModel;
         _activeDownloadsTracker = activeDownloadsTracker;
         Downloads = downloadsViewModel;
@@ -258,6 +262,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         _unrealPakService = unrealPakService;
         _uassetTextureDecoder = uassetTextureDecoder;
         _uassetStaticMeshDecoder = uassetStaticMeshDecoder;
+        _opaquePakAssetPreviewService = opaquePakAssetPreviewService;
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
         _editorFactory = editorFactory;
@@ -1715,6 +1720,16 @@ public sealed partial class LibraryViewModel : ObservableObject
                 // deleted mod doesn't leave an orphaned copy under PrebuiltPakSources forever; mirrors
                 // how the repository already purges its own LibraryMeta sidecar record on Delete.
                 _prebuiltPakSourceStore.Delete(item.FolderName);
+                // Same reasoning, for this mod's own cached opaque-pak preview extraction (if any
+                // was ever populated — see DecodeOpaquePakAssetPreviewAsync). Unlike the small,
+                // deliberately-never-purged Thumbnails cache just below, this cache can be as
+                // large as the mod's own .pak itself, so — like PrebuiltPakSources above — it
+                // shouldn't survive as an orphaned copy forever once the mod it came from is gone.
+                var pakPreviewCacheDirectory = Path.Combine(_pakPreviewCacheDirectory, item.FolderName);
+                if (Directory.Exists(pakPreviewCacheDirectory))
+                {
+                    Directory.Delete(pakPreviewCacheDirectory, recursive: true);
+                }
                 deletedCount++;
                 if (SelectedItem == item)
                 {
@@ -1954,9 +1969,10 @@ public sealed partial class LibraryViewModel : ObservableObject
         // tree until some unrelated change (a search edit, a delete) happens to trigger the next
         // Reload().
         var created = new LibraryItemViewModel(
-            entry, _repository, _unrealPakService, _uassetTextureDecoder, _uassetStaticMeshDecoder, _settingsService,
+            entry, _repository, _unrealPakService, _uassetTextureDecoder, _uassetStaticMeshDecoder,
+            _opaquePakAssetPreviewService, _settingsService,
             _nexusApiClient, _credentialStore,
-            _downloadHttpClient, _thumbnailCacheDirectory, Downloads.GetOrFetchCatalogAsync,
+            _downloadHttpClient, _thumbnailCacheDirectory, _pakPreviewCacheDirectory, Downloads.GetOrFetchCatalogAsync,
             status => StatusMessage = status, () => Reload());
         _itemsByFolderName[entry.FolderName] = created;
         return created;

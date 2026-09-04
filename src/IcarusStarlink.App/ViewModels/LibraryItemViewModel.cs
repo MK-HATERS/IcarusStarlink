@@ -30,11 +30,13 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     private readonly IUnrealPakService _unrealPakService;
     private readonly IUassetTextureDecoder _uassetTextureDecoder;
     private readonly IUassetStaticMeshDecoder _uassetStaticMeshDecoder;
+    private readonly IOpaquePakAssetPreviewService _opaquePakAssetPreviewService;
     private readonly ISettingsService _settingsService;
     private readonly INexusApiClient _nexusApiClient;
     private readonly ICredentialStore _credentialStore;
     private readonly HttpClient _httpClient;
     private readonly string _thumbnailCacheDirectory;
+    private readonly string _pakPreviewCacheDirectory;
     private readonly Func<Task<IReadOnlyList<CatalogEntry>>> _getOrFetchCatalog;
     private readonly Action<string> _reportStatus;
     private readonly Action _onPinnedChanged;
@@ -344,19 +346,23 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     public LibraryItemViewModel(
         LibraryEntry entry, ILibraryRepository repository, IUnrealPakService unrealPakService,
-        IUassetTextureDecoder uassetTextureDecoder, IUassetStaticMeshDecoder uassetStaticMeshDecoder, ISettingsService settingsService,
+        IUassetTextureDecoder uassetTextureDecoder, IUassetStaticMeshDecoder uassetStaticMeshDecoder,
+        IOpaquePakAssetPreviewService opaquePakAssetPreviewService, ISettingsService settingsService,
         INexusApiClient nexusApiClient, ICredentialStore credentialStore, HttpClient httpClient, string thumbnailCacheDirectory,
+        string pakPreviewCacheDirectory,
         Func<Task<IReadOnlyList<CatalogEntry>>> getOrFetchCatalog, Action<string> reportStatus, Action onPinnedChanged)
     {
         _repository = repository;
         _unrealPakService = unrealPakService;
         _uassetTextureDecoder = uassetTextureDecoder;
         _uassetStaticMeshDecoder = uassetStaticMeshDecoder;
+        _opaquePakAssetPreviewService = opaquePakAssetPreviewService;
         _settingsService = settingsService;
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
         _httpClient = httpClient;
         _thumbnailCacheDirectory = thumbnailCacheDirectory;
+        _pakPreviewCacheDirectory = pakPreviewCacheDirectory;
         _getOrFetchCatalog = getOrFetchCatalog;
         _reportStatus = reportStatus;
         _onPinnedChanged = onPinnedChanged;
@@ -509,10 +515,20 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         if (IsOpaquePak)
         {
             // These paths came from UnrealPak -List, not this mod's own folder on disk —
-            // ReadAssetContent (ExmodFolder-based) has nothing to read them from, and they're
-            // compiled Unreal binary assets anyway, no different from any other .uasset's
-            // "no preview" case elsewhere in this same pane.
-            SelectedAssetPreview = "(packed inside this .pak — no preview available for opaque pak entries)";
+            // ReadAssetContent (ExmodFolder-based) has nothing to read them from. A .uasset is
+            // still worth a real decode attempt (see DecodeOpaquePakAssetPreviewAsync below,
+            // which extracts this mod's own .pak and runs it through the same decoders a regular
+            // EXMOD mod's preview already uses) — everything else here (.uexp, .ubulk, or a
+            // non-asset file) has no decoder to try and falls back to a plain "no preview"
+            // message, the same as any file type DecodeCompiledAssetPreviewAsync can't show.
+            if (string.Equals(Path.GetExtension(value), ".uasset", StringComparison.OrdinalIgnoreCase))
+            {
+                SelectedAssetPreview = "Decoding this asset...";
+                _ = DecodeOpaquePakAssetPreviewAsync(value, generation);
+                return;
+            }
+
+            SelectedAssetPreview = "(packed inside this .pak — no preview available for this file type)";
             return;
         }
 
@@ -605,6 +621,95 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         else
         {
             SelectedAssetPreview = "(compiled Unreal asset — not a texture or static mesh, or couldn't be decoded — no preview available)";
+        }
+    }
+
+    /// <summary>
+    /// Real preview attempt for a .uasset packed inside an opaque/prebuilt-imported pak.
+    /// DecodeCompiledAssetPreviewAsync above can point its decoders straight at this mod's own
+    /// folder on disk because a regular EXMOD mod's assets already live there loose — an opaque
+    /// pak's own assets don't; they're only ever packed inside its single .pak file, which
+    /// CueAssetProviderLocator (what both decoders go through) can't index directly. So this
+    /// extracts that pak first — cached under this app's own Cache directory, same convention
+    /// ThumbnailImage's own remote-picture cache already uses, keyed by this mod's FolderName so
+    /// repeated preview clicks against the same pak don't each pay a fresh whole-pak extract (see
+    /// OpaquePakAssetPreviewService's own doc comment for why it's whole-pak, not scoped, and
+    /// what that costs the first time) — then runs the exact same two decoders through it. Same
+    /// generation-based staleness guard as DecodeCompiledAssetPreviewAsync.
+    /// </summary>
+    private async Task DecodeOpaquePakAssetPreviewAsync(string relativeAssetPath, int generation)
+    {
+        var unrealPakExePath = _settingsService.Current.UnrealPakExePath;
+        if (string.IsNullOrWhiteSpace(unrealPakExePath))
+        {
+            if (generation == _assetPreviewGeneration)
+            {
+                SelectedAssetPreview = "couldn't decode this asset: set UnrealPak.exe's path in Settings first";
+            }
+            return;
+        }
+
+        string? pakFilePath;
+        try
+        {
+            pakFilePath = Directory.GetFiles(_repository.GetFolderPath(FolderName), "*.pak").FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            if (generation == _assetPreviewGeneration)
+            {
+                SelectedAssetPreview = $"couldn't decode this asset: {ex.Message}";
+            }
+            return;
+        }
+
+        if (pakFilePath is null)
+        {
+            if (generation == _assetPreviewGeneration)
+            {
+                SelectedAssetPreview = "couldn't decode this asset: couldn't find this mod's own .pak file";
+            }
+            return;
+        }
+
+        var cacheDirectory = Path.Combine(_pakPreviewCacheDirectory, FolderName);
+        OpaquePakAssetPreviewResult result;
+        try
+        {
+            result = await _opaquePakAssetPreviewService.PreviewAssetAsync(unrealPakExePath, pakFilePath, relativeAssetPath, cacheDirectory);
+        }
+        catch (Exception ex)
+        {
+            // Not expected — OpaquePakAssetPreviewService reports every failure it knows about
+            // through its own result type — but this is still a background-thread continuation
+            // reached from a binding-driven property setter, the same UI boundary
+            // DecodeCompiledAssetPreviewAsync's own callers guard, so an unanticipated exception
+            // here becomes a status message instead of crashing the app.
+            if (generation == _assetPreviewGeneration)
+            {
+                SelectedAssetPreview = $"couldn't decode this asset: {ex.Message}";
+            }
+            return;
+        }
+
+        if (generation != _assetPreviewGeneration)
+        {
+            return;
+        }
+
+        if (result.PngBytes is not null && TryDecodeImage(result.PngBytes) is { } image)
+        {
+            SelectedAssetImage = image;
+            SelectedAssetPreview = null;
+        }
+        else if (result.Mesh is not null)
+        {
+            SelectedAssetMesh = BuildMeshModel(result.Mesh);
+            SelectedAssetPreview = null;
+        }
+        else
+        {
+            SelectedAssetPreview = $"couldn't decode this asset: {result.FailureReason ?? "unknown reason"}";
         }
     }
 

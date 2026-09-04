@@ -162,6 +162,7 @@ public partial class App : Application
         builder.Services.AddSingleton<IUnrealPakService, UnrealPakService>();
         builder.Services.AddSingleton<IUassetTextureDecoder, CueUassetTextureDecoder>();
         builder.Services.AddSingleton<IUassetStaticMeshDecoder, CueUassetStaticMeshDecoder>();
+        builder.Services.AddSingleton<IOpaquePakAssetPreviewService, OpaquePakAssetPreviewService>();
         builder.Services.AddSingleton<IWeeklyChangeReportStore>(sp =>
             new WeeklyChangeReportStore(
                 Path.Combine(appDataDirectory, "Cache"),
@@ -235,6 +236,7 @@ public partial class App : Application
             sp.GetRequiredService<IUnrealPakService>(),
             sp.GetRequiredService<IUassetTextureDecoder>(),
             sp.GetRequiredService<IUassetStaticMeshDecoder>(),
+            sp.GetRequiredService<IOpaquePakAssetPreviewService>(),
             sp.GetRequiredService<INexusApiClient>(),
             sp.GetRequiredService<ICredentialStore>(),
             sp.GetRequiredService<Func<string, ExmodEditorViewModel>>(),
@@ -252,6 +254,7 @@ public partial class App : Application
             sp.GetRequiredService<IPrebuiltPakToExmodConverter>(),
             sp.GetRequiredService<IPrebuiltPakSourceStore>(),
             Path.Combine(appDataDirectory, "Cache", "Thumbnails"),
+            Path.Combine(appDataDirectory, "Cache", "PakPreviews"),
             sp.GetRequiredService<IDialogService>()));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
