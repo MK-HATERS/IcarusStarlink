@@ -177,6 +177,19 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private string? _stalenessCheckStatusMessage;
 
+    /// <summary>The "Check" dropdown's own four whole-library actions (Check for updates/Check
+    /// mods against game data/Check endorsements/Convert opaque mods) each run over every mod in
+    /// the library and are mutually exclusive in practice — bound to each MenuItem's IsEnabled so a
+    /// user can't fire a second one while one is already in flight, matching the re-entrancy guard
+    /// each of the four async methods already checks on its own busy flag.</summary>
+    public bool CanRunLibraryCheck =>
+        !IsCheckingForUpdates && !IsCheckingStaleness && !IsConvertingAllOpaqueMods && !IsCheckingEndorsements;
+
+    partial void OnIsCheckingForUpdatesChanged(bool value) => OnPropertyChanged(nameof(CanRunLibraryCheck));
+    partial void OnIsCheckingStalenessChanged(bool value) => OnPropertyChanged(nameof(CanRunLibraryCheck));
+    partial void OnIsConvertingAllOpaqueModsChanged(bool value) => OnPropertyChanged(nameof(CanRunLibraryCheck));
+    partial void OnIsCheckingEndorsementsChanged(bool value) => OnPropertyChanged(nameof(CanRunLibraryCheck));
+
     /// <summary>Ctrl/Shift-click multi-select, for "Add to merge queue" — the only way mods reach Merge & Install's queue now that its own Library pane is gone. A plain list (not a HashSet): insertion order isn't meaningful here, but ObservableCollection gives free CollectionChanged notification for HasBulkSelection/BulkSelectedCount.</summary>
     public ObservableCollection<LibraryItemViewModel> BulkSelectedItems { get; } = [];
 
@@ -906,33 +919,6 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         StatusMessage = "Library refreshed.";
         Reload(fullResync: true);
-    }
-
-    [RelayCommand]
-    private void EditSelected()
-    {
-        if (SelectedItem is null)
-        {
-            return;
-        }
-
-        if (SelectedItem.IsOpaquePak)
-        {
-            StatusMessage = "An opaque .pak import has no .EXMOD to edit.";
-            return;
-        }
-
-        try
-        {
-            OpenEditor(SelectedItem.FolderName);
-        }
-        catch (Exception ex)
-        {
-            // Same UI boundary as NewMod's own identical OpenEditor call — the mod's .EXMOD can
-            // have gone missing, become ambiguous, or be locked by another process since Library
-            // last scanned it.
-            StatusMessage = $"Couldn't open the editor: {ex.Message}";
-        }
     }
 
     [RelayCommand]
@@ -1678,7 +1664,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
     }
 
-    /// <summary>Phase 10: an inline per-row Edit action (row hover icons) — takes the row's own item directly rather than requiring it to be selected first, unlike EditSelectedCommand.</summary>
+    /// <summary>An inline per-row Edit action (row hover icons) — takes the row's own item directly rather than requiring it to be selected first.</summary>
     [RelayCommand]
     private void EditItem(LibraryItemViewModel? item)
     {
@@ -2097,6 +2083,11 @@ public sealed partial class LibraryViewModel : ObservableObject
     [RelayCommand]
     private async Task CheckEndorsements()
     {
+        if (IsCheckingEndorsements)
+        {
+            return;
+        }
+
         var nexusLinkedItems = _itemsByFolderName.Values.Where(i => i.HasNexusLink).ToList();
         if (nexusLinkedItems.Count == 0)
         {
@@ -2371,6 +2362,11 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// </summary>
     private async Task CheckForUpdatesAsync(bool isAutomatic)
     {
+        if (IsCheckingForUpdates)
+        {
+            return;
+        }
+
         var nexusItems = _itemsByFolderName.Values
             .Where(i => string.Equals(i.Source, "Nexus", StringComparison.OrdinalIgnoreCase) && i.NexusModId is not null)
             .ToList();
