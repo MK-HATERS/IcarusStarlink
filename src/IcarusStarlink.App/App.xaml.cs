@@ -164,7 +164,16 @@ public partial class App : Application
         builder.Services.AddSingleton<IUassetStaticMeshDecoder, CueUassetStaticMeshDecoder>();
         builder.Services.AddSingleton<IUassetSkeletalMeshDecoder, CueUassetSkeletalMeshDecoder>();
         builder.Services.AddSingleton<IUassetSoundDecoder, CueUassetSoundDecoder>();
+        // Base-game-only CUE4Parse index (Content\Paks, never a mod's own folder) — a DI singleton
+        // so its one-time ~550ms mount (lazy, first real use) is paid at most once per app session,
+        // not once per material preview. See CueUassetMaterialDecoder's own doc comment for the
+        // parent-chain gap this exists to fall back into.
+        builder.Services.AddSingleton<IBaseGameContentProvider, CueBaseGameContentProvider>();
         builder.Services.AddSingleton<IUassetMaterialDecoder, CueUassetMaterialDecoder>();
+        // Same base-game index as above, wrapped for the Save editor's own item/mount/creature icon
+        // lookups (D_Itemable/D_Mounts/D_BestiaryData's own Icon/Image fields) — see
+        // IBaseGameIconDecoder's own doc comment for why this isn't just IUassetTextureDecoder again.
+        builder.Services.AddSingleton<IBaseGameIconDecoder, CueBaseGameIconDecoder>();
         builder.Services.AddSingleton<IOpaquePakAssetPreviewService, OpaquePakAssetPreviewService>();
         builder.Services.AddSingleton<IWeeklyChangeReportStore>(sp =>
             new WeeklyChangeReportStore(

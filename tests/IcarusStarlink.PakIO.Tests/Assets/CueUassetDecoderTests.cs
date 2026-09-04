@@ -22,6 +22,12 @@ namespace IcarusStarlink.PakIO.Tests.Assets;
 /// anything else it can't decode. That contract is exactly what a future change (a CUE4Parse
 /// upgrade, a refactor of CueAssetProviderLocator) is most likely to accidentally break, and it's
 /// fully exercisable without any real binary fixture.
+///
+/// CueUassetMaterialDecoder's own base-game fallback branching (ApplyBaseGameFallbackIfNeeded) is
+/// ALSO fully testable with no real binary fixture — see the tests below — since it takes an
+/// already-built UassetMaterialParams and a plain path string, never a real CUE4Parse object, so a
+/// FakeBaseGameContentProvider stands in for CueBaseGameContentProvider with no game install
+/// needed either.
 /// </summary>
 public class CueUassetDecoderTests : IDisposable
 {
@@ -30,7 +36,7 @@ public class CueUassetDecoderTests : IDisposable
     private readonly CueUassetStaticMeshDecoder _meshDecoder = new();
     private readonly CueUassetSkeletalMeshDecoder _skeletalMeshDecoder = new();
     private readonly CueUassetSoundDecoder _soundDecoder = new();
-    private readonly CueUassetMaterialDecoder _materialDecoder = new();
+    private readonly CueUassetMaterialDecoder _materialDecoder = new(new FakeBaseGameContentProvider());
 
     public CueUassetDecoderTests() => Directory.CreateDirectory(_tempDir);
 
@@ -179,11 +185,88 @@ public class CueUassetDecoderTests : IDisposable
         Assert.Null(result);
     }
 
+    [Fact]
+    public void ApplyBaseGameFallbackIfNeeded_LocalResultHasTextures_NeverCallsTheFallbackProvider()
+    {
+        var fakeProvider = new FakeBaseGameContentProvider();
+        var decoder = new CueUassetMaterialDecoder(fakeProvider);
+        var localResult = new UassetMaterialParams(
+            [new MaterialTextureParam("Diffuse", [0x01])], [], [], "BLEND_Opaque", "MSM_DefaultLit");
+
+        var result = decoder.ApplyBaseGameFallbackIfNeeded(localResult, "Weapons/Materials/M_BaseWeapon.uasset");
+
+        Assert.Same(localResult, result);
+        Assert.Equal(0, fakeProvider.CallCount);
+    }
+
+    [Fact]
+    public void ApplyBaseGameFallbackIfNeeded_LocalResultHasColors_NeverCallsTheFallbackProvider()
+    {
+        var fakeProvider = new FakeBaseGameContentProvider();
+        var decoder = new CueUassetMaterialDecoder(fakeProvider);
+        var localResult = new UassetMaterialParams(
+            [], [], [new MaterialColorParam("Tint", 1, 0, 0, 1)], "BLEND_Opaque", "MSM_DefaultLit");
+
+        var result = decoder.ApplyBaseGameFallbackIfNeeded(localResult, "Weapons/Materials/M_BaseWeapon.uasset");
+
+        Assert.Same(localResult, result);
+        Assert.Equal(0, fakeProvider.CallCount);
+    }
+
+    [Fact]
+    public void ApplyBaseGameFallbackIfNeeded_LocalResultEmptyButNoParentPath_NeverCallsTheFallbackProvider()
+    {
+        var fakeProvider = new FakeBaseGameContentProvider();
+        var decoder = new CueUassetMaterialDecoder(fakeProvider);
+        var localResult = new UassetMaterialParams([], [], [], "BLEND_Opaque", "MSM_DefaultLit");
+
+        var result = decoder.ApplyBaseGameFallbackIfNeeded(localResult, unresolvedParentAssetPath: null);
+
+        Assert.Same(localResult, result);
+        Assert.Equal(0, fakeProvider.CallCount);
+    }
+
+    [Fact]
+    public void ApplyBaseGameFallbackIfNeeded_LocalResultEmptyAndHasUnresolvedParent_CallsTheFallbackProviderWithThatPath()
+    {
+        var fakeProvider = new FakeBaseGameContentProvider();
+        var decoder = new CueUassetMaterialDecoder(fakeProvider);
+        var localResult = new UassetMaterialParams([], [], [], "BLEND_Opaque", "MSM_DefaultLit");
+
+        // FakeBaseGameContentProvider always returns null (no real base-game asset in a unit
+        // test) — the fallback-was-genuinely-attempted signal is the call itself, not what comes
+        // back, so this asserts the call happened AND the caller still gets a usable (if still
+        // empty) result back rather than a null/throw.
+        var result = decoder.ApplyBaseGameFallbackIfNeeded(localResult, "Weapons/Materials/M_BaseWeapon.uasset");
+
+        Assert.Equal(1, fakeProvider.CallCount);
+        Assert.Equal("Weapons/Materials/M_BaseWeapon.uasset", fakeProvider.LastAssetPath);
+        Assert.Same(localResult, result);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))
         {
             Directory.Delete(_tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Stands in for CueBaseGameContentProvider in every test above — always returns null (no real
+    /// base-game install in a unit test), so what's under test is purely whether
+    /// ApplyBaseGameFallbackIfNeeded calls it at all, never what a real match would decode to.
+    /// </summary>
+    private sealed class FakeBaseGameContentProvider : IBaseGameContentProvider
+    {
+        public int CallCount { get; private set; }
+        public string? LastAssetPath { get; private set; }
+
+        public T? TryLoadExport<T>(string assetPath) where T : class
+        {
+            CallCount++;
+            LastAssetPath = assetPath;
+            return null;
         }
     }
 }
