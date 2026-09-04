@@ -58,8 +58,23 @@ public interface IUnrealPakService
     /// -Create produces one single pak (matching classic IMM's own real behavior) rather than a
     /// separate sidecar file. Returns the number of files extracted. Throws on failure, same
     /// convention as the other methods here.
+    ///
+    /// filter (optional, defaults to null): passed straight through as UnrealPak.exe's own
+    /// -Filter=&lt;value&gt; argument to the real -Extract invocation when non-null — confirmed live
+    /// against the real bundled UnrealPak.exe: a single exact relative path (e.g.
+    /// "AI/D_AIDescriptors.json") extracts just that one file in ~3ms instead of the whole pak, and
+    /// a wildcard (e.g. "AI/*") matches and extracts multiple files. Left null (the default), the
+    /// flag is omitted entirely and this does a full extract exactly as before — purely additive,
+    /// every existing caller is unaffected. IMPORTANT for a caller targeting one specific asset: a
+    /// real asset is never just its .uasset file alone — it always has a companion .uexp, and
+    /// sometimes a .ubulk too for large bulk data — so the filter passed for a single asset must be
+    /// a wildcard covering the asset's own base name (e.g. "Path/To/AssetName.*"), NOT the bare
+    /// "Path/To/AssetName.uasset" path by itself, or the companion file(s) needed to actually
+    /// decode the asset will silently be left out of the extract.
     /// </summary>
-    Task<int> ExtractPakAsync(string unrealPakExePath, string pakFilePath, string outputDirectory, CancellationToken cancellationToken = default);
+    Task<int> ExtractPakAsync(
+        string unrealPakExePath, string pakFilePath, string outputDirectory,
+        CancellationToken cancellationToken = default, string? filter = null);
 
     /// <summary>
     /// UnrealPak's own real internal integrity check (`-Verify`), confirmed live against both a

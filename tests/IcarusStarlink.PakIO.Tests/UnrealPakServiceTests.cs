@@ -466,6 +466,42 @@ public class UnrealPakServiceTests : IDisposable
         Assert.Contains("corrupt pak", ex.Message);
     }
 
+    [Fact]
+    public async Task ExtractPakAsync_FilterNull_ProducesExactSameArgumentsAsBeforeFilterExisted()
+    {
+        // Regression guard for the filter parameter's own doc comment promise: leaving filter null
+        // (the default) must be purely additive — the exact same 3-argument list this method
+        // always sent to the real UnrealPak.exe before -Filter support existed, with no trailing
+        // empty/null entry sneaking in.
+        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
+        File.WriteAllText(pakPath, "fake pak bytes");
+        var outputDirectory = Path.Combine(_tempDir, "Extracted");
+        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "", ""));
+        var service = new UnrealPakService(runner);
+
+        await service.ExtractPakAsync(_unrealPakExePath, pakPath, outputDirectory, filter: null);
+
+        Assert.Equal([pakPath, "-Extract", outputDirectory], runner.LastArguments);
+    }
+
+    [Fact]
+    public async Task ExtractPakAsync_FilterProvided_ArgumentsIncludeFilterFlag()
+    {
+        // Confirmed live against the real bundled UnrealPak.exe: -Filter=<value> on -Extract
+        // restricts extraction to just the matching entry/entries instead of the whole pak.
+        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
+        File.WriteAllText(pakPath, "fake pak bytes");
+        var outputDirectory = Path.Combine(_tempDir, "Extracted");
+        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "", ""));
+        var service = new UnrealPakService(runner);
+
+        await service.ExtractPakAsync(_unrealPakExePath, pakPath, outputDirectory, filter: "AI/D_AIDescriptors.*");
+
+        Assert.Equal(
+            [pakPath, "-Extract", outputDirectory, "-Filter=AI/D_AIDescriptors.*"],
+            runner.LastArguments);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))

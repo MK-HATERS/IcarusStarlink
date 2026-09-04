@@ -69,7 +69,9 @@ public class RebuildServiceTests : IDisposable
                 FakeExtractedFilesByPakPath.TryGetValue(pakFilePath, out var files) ? [.. files.Keys] : []);
         public List<string> ExtractedPakPaths { get; } = [];
 
-        public Task<int> ExtractPakAsync(string unrealPakExePath, string pakFilePath, string outputDirectory, CancellationToken cancellationToken = default)
+        public Task<int> ExtractPakAsync(
+            string unrealPakExePath, string pakFilePath, string outputDirectory,
+            CancellationToken cancellationToken = default, string? filter = null)
         {
             ExtractedPakPaths.Add(pakFilePath);
             // Matches the real UnrealPakService.ExtractPakAsync, which always creates

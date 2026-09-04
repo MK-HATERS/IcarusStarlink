@@ -38,7 +38,9 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         public List<string> ExtractedPakPaths { get; } = [];
         public string? LastScratchDirectory { get; private set; }
 
-        public Task<int> ExtractPakAsync(string unrealPakExePath, string pakFilePath, string outputDirectory, CancellationToken cancellationToken = default)
+        public Task<int> ExtractPakAsync(
+            string unrealPakExePath, string pakFilePath, string outputDirectory,
+            CancellationToken cancellationToken = default, string? filter = null)
         {
             ExtractedPakPaths.Add(pakFilePath);
             LastScratchDirectory = outputDirectory;

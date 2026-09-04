@@ -185,7 +185,9 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         return paths;
     }
 
-    public async Task<int> ExtractPakAsync(string unrealPakExePath, string pakFilePath, string outputDirectory, CancellationToken cancellationToken = default)
+    public async Task<int> ExtractPakAsync(
+        string unrealPakExePath, string pakFilePath, string outputDirectory,
+        CancellationToken cancellationToken = default, string? filter = null)
     {
         ValidateUnrealPakExePath(unrealPakExePath);
         if (!File.Exists(pakFilePath))
@@ -195,7 +197,15 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
 
         Directory.CreateDirectory(outputDirectory);
 
-        var result = await processRunner.RunAsync(unrealPakExePath, [pakFilePath, "-Extract", outputDirectory], cancellationToken);
+        // filter is appended, not baked into the literal above, so the null case (every existing
+        // caller today) builds the exact same 3-argument list as before this parameter existed.
+        var arguments = new List<string> { pakFilePath, "-Extract", outputDirectory };
+        if (filter is not null)
+        {
+            arguments.Add($"-Filter={filter}");
+        }
+
+        var result = await processRunner.RunAsync(unrealPakExePath, arguments, cancellationToken);
         EnsureSuccess(result);
 
         // Counted from stdout's own "Extracted "..."" lines, not a directory-wide file count —

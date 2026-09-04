@@ -9,14 +9,20 @@ namespace IcarusStarlink.PakIO.Assets;
 /// it can't be pointed at bytes still packed inside a .pak), so an opaque pak's own .uasset
 /// entries get a genuine decode attempt instead of an unconditional "no preview available".
 ///
-/// IUnrealPakService.ExtractPakAsync has no scoped/selective-extract form (confirmed by reading
-/// its own interface) — it always runs UnrealPak.exe's own `-Extract`, which pulls a pak's ENTIRE
-/// contents, not just the one asset being previewed. For a large opaque pak (the base game's own
-/// pak-chunks run well into the hundreds of MB) that's a real cost to pay just to preview one
-/// texture — cached per-pak below so it's paid once, not on every single asset the user clicks
-/// through in the Files tab, but the first click against any given pak still extracts everything.
-/// A scoped extract (if UnrealPak.exe itself ever grew one) would remove this cost entirely; this
-/// class is the one place that cost would need to change.
+/// IUnrealPakService.ExtractPakAsync DOES now have an optional scoped/selective-extract form (a
+/// `filter` parameter, confirmed live against the real bundled UnrealPak.exe's own `-Filter` flag)
+/// — but this call site deliberately still passes none, so it always extracts a pak's ENTIRE
+/// contents rather than just the one asset being previewed. That's a real cost for a large opaque
+/// mod pak, but it's paid at most once per pak (cached below, keyed on a size+mtime stamp), not on
+/// every asset the user clicks through in the Files tab. Switching this call site to a scoped
+/// filter isn't a safe drop-in: a material's own Parent chain, or a skeletal mesh's own skeleton
+/// reference, can point at ANOTHER asset inside this same opaque pak, and a filter scoped to just
+/// relativeAssetPath's own base name would silently leave that companion asset unextracted —
+/// exactly the kind of thing that already happens for base-game Content\Paks (see
+/// CueUassetMaterialDecoder's own doc comment) but has no equivalent fallback here, since the
+/// asset a scoped filter dropped would need to come from THIS pak, not the base game's. Doing this
+/// safely would mean discovering an asset's own cross-references before deciding what to extract,
+/// which the decoders here don't currently expose — a real follow-up, not done here.
 /// </summary>
 public sealed class OpaquePakAssetPreviewService(
     IUnrealPakService unrealPakService, IUassetTextureDecoder textureDecoder, IUassetStaticMeshDecoder meshDecoder,

@@ -1078,7 +1078,9 @@ public sealed class LibraryViewModelTests
 
     private sealed class FakeUnrealPakService : IUnrealPakService
     {
-        public Task<int> ExtractPakAsync(string unrealPakExePath, string pakFilePath, string outputDirectory, CancellationToken cancellationToken = default) =>
+        public Task<int> ExtractPakAsync(
+            string unrealPakExePath, string pakFilePath, string outputDirectory,
+            CancellationToken cancellationToken = default, string? filter = null) =>
             throw new NotSupportedException("Not exercised by these tests.");
         public Task<UnrealPakExtractResult> ExtractDataPakAsync(
             string unrealPakExePath, string icarusContentPath, string outputDirectory,

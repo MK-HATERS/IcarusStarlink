@@ -32,7 +32,9 @@ public class OpaquePakAssetPreviewServiceTests : IDisposable
         public string? LastOutputDirectory { get; private set; }
         public Exception? ThrowOnExtract { get; set; }
 
-        public Task<int> ExtractPakAsync(string unrealPakExePath, string pakFilePath, string outputDirectory, CancellationToken cancellationToken = default)
+        public Task<int> ExtractPakAsync(
+            string unrealPakExePath, string pakFilePath, string outputDirectory,
+            CancellationToken cancellationToken = default, string? filter = null)
         {
             ExtractCallCount++;
             LastOutputDirectory = outputDirectory;

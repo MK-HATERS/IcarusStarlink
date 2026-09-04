@@ -202,7 +202,9 @@ public sealed class PakCompareServiceTests : IDisposable
 
     private sealed class FakeUnrealPakService(IReadOnlyDictionary<string, string> pakToSourceFolder) : IUnrealPakService
     {
-        public Task<int> ExtractPakAsync(string unrealPakExePath, string pakFilePath, string outputDirectory, CancellationToken cancellationToken = default)
+        public Task<int> ExtractPakAsync(
+            string unrealPakExePath, string pakFilePath, string outputDirectory,
+            CancellationToken cancellationToken = default, string? filter = null)
         {
             var source = pakToSourceFolder[pakFilePath];
             var count = 0;
