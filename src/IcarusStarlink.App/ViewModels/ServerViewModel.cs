@@ -470,13 +470,14 @@ public sealed partial class ServerViewModel : ObservableObject
         }
         finally
         {
+            var disconnectedSiteName = _connectedSite?.Name;
             await _connectedClient.DisposeAsync();
             _connectedClient = null;
             _connectedSite = null;
             IsConnected = false;
             RemoteEntries.Clear();
             ConnectionStatusMessage = "Disconnected.";
-            _activityLog.Log($"Disconnected from FTP site '{SelectedSite?.Name}'.");
+            _activityLog.Log($"Disconnected from FTP site '{disconnectedSiteName}'.");
         }
     }
 
@@ -564,12 +565,12 @@ public sealed partial class ServerViewModel : ObservableObject
             await _connectedClient.UploadFileAsync(dialog.FileName, remotePath);
             await LoadDirectoryAsync(CurrentRemotePath);
             ConnectionStatusMessage = $"Uploaded '{Path.GetFileName(dialog.FileName)}'.";
-            _activityLog.Log($"Uploaded '{Path.GetFileName(dialog.FileName)}' to '{SelectedSite?.Name}'.", ActivityEntryKind.Success);
+            _activityLog.Log($"Uploaded '{Path.GetFileName(dialog.FileName)}' to '{_connectedSite?.Name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             ConnectionStatusMessage = $"Upload failed: {ex.Message}";
-            _activityLog.Log($"Upload to '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
+            _activityLog.Log($"Upload to '{_connectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
@@ -603,12 +604,12 @@ public sealed partial class ServerViewModel : ObservableObject
             var remotePath = CombineRemotePath(CurrentRemotePath, entry.Name);
             await _connectedClient.DownloadFileAsync(remotePath, dialog.FileName);
             ConnectionStatusMessage = $"Downloaded '{entry.Name}'.";
-            _activityLog.Log($"Downloaded '{entry.Name}' from '{SelectedSite?.Name}'.", ActivityEntryKind.Success);
+            _activityLog.Log($"Downloaded '{entry.Name}' from '{_connectedSite?.Name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             ConnectionStatusMessage = $"Download failed: {ex.Message}";
-            _activityLog.Log($"Download of '{entry.Name}' from '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
+            _activityLog.Log($"Download of '{entry.Name}' from '{_connectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
@@ -646,13 +647,13 @@ public sealed partial class ServerViewModel : ObservableObject
             RememberDeleteCapability(true);
             await LoadDirectoryAsync(CurrentRemotePath);
             ConnectionStatusMessage = $"Deleted '{entry.Name}'.";
-            _activityLog.Log($"Deleted '{entry.Name}' from '{SelectedSite?.Name}'.", ActivityEntryKind.Success);
+            _activityLog.Log($"Deleted '{entry.Name}' from '{_connectedSite?.Name}'.", ActivityEntryKind.Success);
         }
         catch (FtpOperationRejectedException ex)
         {
             RememberDeleteCapability(false);
             ConnectionStatusMessage = $"Delete failed — this host doesn't allow it: {ex.ServerMessage}";
-            _activityLog.Log($"Delete of '{entry.Name}' on '{SelectedSite?.Name}' was rejected by the server: {ex.ServerMessage}", ActivityEntryKind.Warning);
+            _activityLog.Log($"Delete of '{entry.Name}' on '{_connectedSite?.Name}' was rejected by the server: {ex.ServerMessage}", ActivityEntryKind.Warning);
         }
         catch (Exception ex)
         {
@@ -660,7 +661,7 @@ public sealed partial class ServerViewModel : ObservableObject
             // capability — only a real server rejection (caught above) does, so SupportsDelete is
             // deliberately left unchanged here.
             ConnectionStatusMessage = $"Delete failed: {ex.Message}";
-            _activityLog.Log($"Delete of '{entry.Name}' on '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
+            _activityLog.Log($"Delete of '{entry.Name}' on '{_connectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
@@ -670,16 +671,22 @@ public sealed partial class ServerViewModel : ObservableObject
 
     /// <summary>Persists whether this site's own FTP account can delete/overwrite an existing file,
     /// once actually confirmed either way — shared by the single-file Delete button and Install
-    /// merged pak to server, so either one learning the answer benefits the other.</summary>
+    /// merged pak to server, so either one learning the answer benefits the other.
+    ///
+    /// Written against _connectedSite, not SelectedSite: the capability was just learned from a
+    /// real delete result against the LIVE connection, and SelectedSite can have drifted to a
+    /// different saved site in the list without disconnecting (see _connectedSite's own doc
+    /// comment) — writing to SelectedSite in that case would silently persist an untested fact onto
+    /// the wrong site's profile while discarding the real result.</summary>
     private void RememberDeleteCapability(bool supportsDelete)
     {
-        if (SelectedSite is null || SelectedSite.SupportsDelete == supportsDelete)
+        if (_connectedSite is null || _connectedSite.SupportsDelete == supportsDelete)
         {
             return;
         }
 
-        SelectedSite.SupportsDelete = supportsDelete;
-        _siteStore.Save(SelectedSite);
+        _connectedSite.SupportsDelete = supportsDelete;
+        _siteStore.Save(_connectedSite);
         OnPropertyChanged(nameof(HasKnownDeleteRestriction));
     }
 
@@ -732,15 +739,19 @@ public sealed partial class ServerViewModel : ObservableObject
                 toUpload.Add(Path.GetFileName(_pakManifestPath));
             }
 
-            var knownBlocked = existing.Count > 0 && SelectedSite?.SupportsDelete == false;
+            // _connectedSite, not SelectedSite: this gates a real delete attempt against the LIVE
+            // connection, and must reflect what's actually known about the site being acted on, not
+            // whatever row happens to be selected in the list right now (see _connectedSite's own
+            // doc comment on why those two can drift).
+            var knownBlocked = existing.Count > 0 && _connectedSite?.SupportsDelete == false;
             string prompt;
             if (knownBlocked)
             {
                 prompt =
-                    $"'{SelectedSite?.Name}' doesn't allow deleting or replacing files via FTP, so the existing file(s) below will remain after this upload:\n"
+                    $"'{_connectedSite?.Name}' doesn't allow deleting or replacing files via FTP, so the existing file(s) below will remain after this upload:\n"
                     + string.Join('\n', existing.Select(e => $"  - {e.Name}"))
                     + $"\n\nUpload will add:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
-                    + $"You'll need to remove the old file(s) yourself via {SelectedSite?.Name}'s own file manager afterward — otherwise the server may end up loading multiple conflicting merged paks. Upload anyway?";
+                    + $"You'll need to remove the old file(s) yourself via {_connectedSite?.Name}'s own file manager afterward — otherwise the server may end up loading multiple conflicting merged paks. Upload anyway?";
             }
             else
             {
@@ -749,7 +760,7 @@ public sealed partial class ServerViewModel : ObservableObject
                     : "";
                 prompt =
                     $"This will {deleteList}upload:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
-                    + $"to '{RemoteModsPath}' on '{SelectedSite?.Name}'. Continue?";
+                    + $"to '{RemoteModsPath}' on '{_connectedSite?.Name}'. Continue?";
             }
 
             if (!(ThemedMessageBox.Show(prompt, "Install merged pak to server", ThemedConfirmSeverity.Warning)))
@@ -791,22 +802,22 @@ public sealed partial class ServerViewModel : ObservableObject
             if (deleteFailures.Count > 0)
             {
                 ConnectionStatusMessage =
-                    $"Installed the new pak, but couldn't remove {deleteFailures.Count} old file(s) on '{SelectedSite?.Name}' — "
+                    $"Installed the new pak, but couldn't remove {deleteFailures.Count} old file(s) on '{_connectedSite?.Name}' — "
                     + $"remove them yourself via its file manager, or the server may load multiple conflicting merged paks.";
                 _activityLog.Log(
-                    $"Installed the merged pak to FTP site '{SelectedSite?.Name}', but {deleteFailures.Count} old file(s) ({string.Join(", ", deleteFailures)}) couldn't be removed.",
+                    $"Installed the merged pak to FTP site '{_connectedSite?.Name}', but {deleteFailures.Count} old file(s) ({string.Join(", ", deleteFailures)}) couldn't be removed.",
                     ActivityEntryKind.Warning);
             }
             else
             {
-                ConnectionStatusMessage = $"Installed the merged pak to '{SelectedSite?.Name}'.";
-                _activityLog.Log($"Installed the merged pak to FTP site '{SelectedSite?.Name}' (replaced {existing.Count} file(s)).", ActivityEntryKind.Success);
+                ConnectionStatusMessage = $"Installed the merged pak to '{_connectedSite?.Name}'.";
+                _activityLog.Log($"Installed the merged pak to FTP site '{_connectedSite?.Name}' (replaced {existing.Count} file(s)).", ActivityEntryKind.Success);
             }
         }
         catch (Exception ex)
         {
             ConnectionStatusMessage = $"Install to server failed: {ex.Message}";
-            _activityLog.Log($"Install to server '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
+            _activityLog.Log($"Install to server '{_connectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
@@ -883,7 +894,7 @@ public sealed partial class ServerViewModel : ObservableObject
 
             var prompt =
                 $"This will upload {localFiles.Count} loader file(s) (UE4SS.dll, dwmapi.dll, etc.) to '{RemoteWin64Path}' on "
-                + $"'{SelectedSite?.Name}', replacing its current loader ({(remoteVersion is null ? "not installed" : $"v{remoteVersion}")}). "
+                + $"'{_connectedSite?.Name}', replacing its current loader ({(remoteVersion is null ? "not installed" : $"v{remoteVersion}")}). "
                 + $"The server's own Mods folder{(remoteHasSettings ? " and its existing UE4SS-settings.ini" : "")} won't be touched. Continue?";
             if (!(ThemedMessageBox.Show(prompt, "Sync UE4SS loader to server", ThemedConfirmSeverity.Warning)))
             {
@@ -898,13 +909,13 @@ public sealed partial class ServerViewModel : ObservableObject
 
             await _connectedClient.UploadFileAsync(Ue4ssGamePaths.ResolveDwmapiPath(contentPath), $"{RemoteWin64Path}/dwmapi.dll");
 
-            ConnectionStatusMessage = $"Synced UE4SS v{localVersion} to '{SelectedSite?.Name}'.";
-            _activityLog.Log($"Synced UE4SS loader (v{localVersion}) to FTP site '{SelectedSite?.Name}'.", ActivityEntryKind.Success);
+            ConnectionStatusMessage = $"Synced UE4SS v{localVersion} to '{_connectedSite?.Name}'.";
+            _activityLog.Log($"Synced UE4SS loader (v{localVersion}) to FTP site '{_connectedSite?.Name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             ConnectionStatusMessage = $"UE4SS sync failed: {ex.Message}";
-            _activityLog.Log($"UE4SS loader sync to '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
+            _activityLog.Log($"UE4SS loader sync to '{_connectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
@@ -970,7 +981,7 @@ public sealed partial class ServerViewModel : ObservableObject
             }
 
             var prompt =
-                $"This will upload the following UE4SS mod(s) to '{RemoteModsRootPath}' on '{SelectedSite?.Name}' "
+                $"This will upload the following UE4SS mod(s) to '{RemoteModsRootPath}' on '{_connectedSite?.Name}' "
                 + $"(nothing already there is touched):\n{string.Join('\n', missing.Select(n => $"  - {n}"))}\n\nContinue?";
             if (!(ThemedMessageBox.Show(prompt, "Sync UE4SS mods to server", ThemedConfirmSeverity.Warning)))
             {
@@ -987,13 +998,13 @@ public sealed partial class ServerViewModel : ObservableObject
                 }
             }
 
-            ConnectionStatusMessage = $"Uploaded {missing.Count} UE4SS mod(s) to '{SelectedSite?.Name}'.";
-            _activityLog.Log($"Uploaded {missing.Count} UE4SS mod(s) to FTP site '{SelectedSite?.Name}': {string.Join(", ", missing)}.", ActivityEntryKind.Success);
+            ConnectionStatusMessage = $"Uploaded {missing.Count} UE4SS mod(s) to '{_connectedSite?.Name}'.";
+            _activityLog.Log($"Uploaded {missing.Count} UE4SS mod(s) to FTP site '{_connectedSite?.Name}': {string.Join(", ", missing)}.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             ConnectionStatusMessage = $"UE4SS mod sync failed: {ex.Message}";
-            _activityLog.Log($"UE4SS mod sync to '{SelectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
+            _activityLog.Log($"UE4SS mod sync to '{_connectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
