@@ -1071,8 +1071,12 @@ public sealed partial class LibraryViewModel : ObservableObject
                     // The backup taken above is the mod's own previous version, so "what did the
                     // author actually change?" is answerable right now — offered rather than shown
                     // automatically, since an update the user just wanted applied shouldn't force a
-                    // window open.
-                    await OfferVersionComparisonAsync(imported.Name, imported.FolderName);
+                    // window open. Deliberately passes the OLD folderName, not imported.FolderName —
+                    // BackupMod above was keyed on the pre-update folder name, and a reimport can
+                    // land on a different one (e.g. the mod's own declared fileName changed between
+                    // versions); passing the new name here would look up a backup that was never
+                    // saved under it and silently report "no earlier copy" even though one exists.
+                    await OfferVersionComparisonAsync(imported.Name, folderName);
                 }
                 catch (Exception importEx)
                 {
