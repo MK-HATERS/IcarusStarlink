@@ -75,6 +75,16 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// <summary>Debounces the conflict/validation recompute that follows a Queue mutation — see the Queue.CollectionChanged handler below for why.</summary>
     private readonly DebounceTimer _recomputeDebounceTimer;
 
+    /// <summary>
+    /// Test-only seam (see DebounceTimerTests' own doc comment on why a real elapsed-time firing
+    /// isn't observable without a live Dispatcher message pump): proves a Queue mutation defers to
+    /// the debounced recompute rather than running it synchronously inline, without needing the
+    /// timer to actually elapse. RecomputeConflictCountAsync/RecomputeValidationIssueCountAsync
+    /// (internal for the same reason) let a test then invoke the exact same recompute the timer
+    /// would have, on demand, to check it produces the right answer for the current queue.
+    /// </summary>
+    internal bool IsRecomputeDebouncePending => _recomputeDebounceTimer.IsRunning;
+
     /// <summary>A cheap-to-compute stand-in for "have this folder's own files changed since the cached package was read" — file count (catches an add/remove) plus the newest LastWriteTimeUtc among the folder's own files (catches an in-place edit, e.g. ExmodEditorViewModel.Save overwriting the same .EXMOD filename — a Windows directory's OWN LastWriteTimeUtc does NOT reliably bump just because a child file's content changed, only its own entry does, so the folder's own timestamp alone isn't safe to key on).</summary>
     private readonly record struct FolderFingerprint(int FileCount, DateTime MaxLastWriteUtc);
 
@@ -969,61 +979,16 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand]
     private async Task SuggestQueueOrderAsync()
     {
-        var (entries, packages, _) = await LoadQueuedPackagesAsync();
-        if (entries.Count < 2)
+        // A synchronous, no-I/O count (IsOpaquePak is a plain LibraryEntry field) rather than
+        // LoadQueuedPackagesAsync's own real disk read — that happens exactly once, inside
+        // ComputeSuggestedQueueOrderAsync below, not a second time redundantly just for this gate.
+        if (Queue.Count(e => !e.IsOpaquePak) < 2)
         {
             StatusMessage = "Nothing to reorder — need at least 2 real (non-prebuilt-pak) mods in the queue.";
             return;
         }
 
-        var classifier = new DefaultSemanticClassifier();
-        var currentQueue = Queue.ToList();
-
-        var (newOrder, changed) = await Task.Run(() =>
-        {
-            var modChangesByFolder = entries.Zip(packages, (entry, package) =>
-                    (entry.FolderName, Changes: ExmodFieldChangeMapper.ToFieldChanges(package.Package, classifier)))
-                .ToDictionary(x => x.FolderName, x => x.Changes, StringComparer.OrdinalIgnoreCase);
-
-            // Best-effort, matching FindQueueConflictsAsync's own fallback — no filtering (falls
-            // back to raw field count) rather than blocking the suggestion on a locked/unreadable
-            // base file.
-            IReadOnlyDictionary<string, JsonObject>? baseTablesByFile = null;
-            try
-            {
-                var requiredFiles = modChangesByFolder.Values.SelectMany(c => c).Select(c => c.CurrentFile).Distinct();
-                baseTablesByFile = _rebuildService.ReadKeyedBaseTables(requiredFiles, _dataFolder, new MergeReport());
-            }
-            catch (Exception)
-            {
-                // Best-effort — see the comment above.
-            }
-
-            var realChangeCountByFolder = modChangesByFolder.ToDictionary(
-                kv => kv.Key,
-                kv => baseTablesByFile is not null
-                    ? MergeEngine.CountChangesDifferingFromBase(kv.Value, baseTablesByFile)
-                    : kv.Value.Count,
-                StringComparer.OrdinalIgnoreCase);
-
-            // Sort descending by real change count (most sweeping first/lowest priority, fewest
-            // changes last/highest priority — so a targeted edit wins), then slot the sorted EXMOD
-            // entries back into their own original positions, leaving any opaque pak exactly where
-            // it was.
-            var sortedExmodEntries = currentQueue
-                .Where(e => realChangeCountByFolder.ContainsKey(e.FolderName))
-                .OrderByDescending(e => realChangeCountByFolder[e.FolderName])
-                .ToList();
-
-            var nextSortedIndex = 0;
-            var newOrder = currentQueue
-                .Select(e => realChangeCountByFolder.ContainsKey(e.FolderName) ? sortedExmodEntries[nextSortedIndex++] : e)
-                .ToList();
-
-            var changed = !newOrder.Select(e => e.FolderName)
-                .SequenceEqual(currentQueue.Select(e => e.FolderName), StringComparer.OrdinalIgnoreCase);
-            return (newOrder, changed);
-        });
+        var (newOrder, changed) = await ComputeSuggestedQueueOrderAsync();
 
         if (!changed)
         {
@@ -1068,6 +1033,67 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
 
         _activityLog.Log("Applied a suggested queue order.", ActivityEntryKind.Info);
+    }
+
+    /// <summary>
+    /// SuggestQueueOrderAsync's own reordering algorithm, extracted so a test can exercise it
+    /// directly — the rest of that method (the confirmation preview/apply/save) goes through
+    /// ThemedMessageBox.Show, a real blocking WPF dialog with no live Application in a test host.
+    /// Internal, not private, purely for that seam. Reads the live Queue/package cache itself
+    /// (same as the caller above did inline) rather than taking them as parameters, so a test calls
+    /// this exactly the way SuggestQueueOrderAsync itself does.
+    /// </summary>
+    internal async Task<(List<LibraryEntry> NewOrder, bool Changed)> ComputeSuggestedQueueOrderAsync()
+    {
+        var (entries, packages, _) = await LoadQueuedPackagesAsync();
+        var classifier = new DefaultSemanticClassifier();
+        var currentQueue = Queue.ToList();
+
+        return await Task.Run(() =>
+        {
+            var modChangesByFolder = entries.Zip(packages, (entry, package) =>
+                    (entry.FolderName, Changes: ExmodFieldChangeMapper.ToFieldChanges(package.Package, classifier)))
+                .ToDictionary(x => x.FolderName, x => x.Changes, StringComparer.OrdinalIgnoreCase);
+
+            // Best-effort, matching FindQueueConflictsAsync's own fallback — no filtering (falls
+            // back to raw field count) rather than blocking the suggestion on a locked/unreadable
+            // base file.
+            IReadOnlyDictionary<string, JsonObject>? baseTablesByFile = null;
+            try
+            {
+                var requiredFiles = modChangesByFolder.Values.SelectMany(c => c).Select(c => c.CurrentFile).Distinct();
+                baseTablesByFile = _rebuildService.ReadKeyedBaseTables(requiredFiles, _dataFolder, new MergeReport());
+            }
+            catch (Exception)
+            {
+                // Best-effort — see the comment above.
+            }
+
+            var realChangeCountByFolder = modChangesByFolder.ToDictionary(
+                kv => kv.Key,
+                kv => baseTablesByFile is not null
+                    ? MergeEngine.CountChangesDifferingFromBase(kv.Value, baseTablesByFile)
+                    : kv.Value.Count,
+                StringComparer.OrdinalIgnoreCase);
+
+            // Sort descending by real change count (most sweeping first/lowest priority, fewest
+            // changes last/highest priority — so a targeted edit wins), then slot the sorted EXMOD
+            // entries back into their own original positions, leaving any opaque pak exactly where
+            // it was.
+            var sortedExmodEntries = currentQueue
+                .Where(e => realChangeCountByFolder.ContainsKey(e.FolderName))
+                .OrderByDescending(e => realChangeCountByFolder[e.FolderName])
+                .ToList();
+
+            var nextSortedIndex = 0;
+            var newOrder = currentQueue
+                .Select(e => realChangeCountByFolder.ContainsKey(e.FolderName) ? sortedExmodEntries[nextSortedIndex++] : e)
+                .ToList();
+
+            var changed = !newOrder.Select(e => e.FolderName)
+                .SequenceEqual(currentQueue.Select(e => e.FolderName), StringComparer.OrdinalIgnoreCase);
+            return (newOrder, changed);
+        });
     }
 
     /// <summary>
@@ -1335,7 +1361,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     // Install button replaced the separate Rebuild/Install pair; the generated commands would be
     // dead bindings nothing in XAML references anymore.
     /// <returns>True only if this call actually produced a fresh pak — RebuildAndInstallAsync uses this, not File.Exists(_outputPakPath), to decide whether it's safe to Install (see its own comment for why that distinction is load-bearing).</returns>
-    private async Task<bool> RebuildAsync()
+    /// <remarks>Internal, not private — RebuildAndInstallAsync's own orchestration (does Install only run when Rebuild really succeeded, does it never run when Rebuild guards out or throws) is exactly the thing worth testing directly against fakes for IRebuildService/IInstallService, without ever reaching InstallAsync's own ThemedMessageBox confirmation (a real blocking WPF dialog with no live Application in a test host).</remarks>
+    internal async Task<bool> RebuildAsync()
     {
         var gameplayOptions = BuildGameplayOptionsFromUi();
         // Gameplay options can apply on their own, with an empty queue, per the spec ("the ability
@@ -1680,8 +1707,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// <summary>Guards RecomputeConflictCountAsync against two overlapping runs (the queue/options changing again while a previous background recompute is still in flight) finishing out of order — same "only the newest request's result is applied" shape as NexusCatalogViewModel's own _loadVersion.</summary>
     private int _conflictCountVersion;
 
-    /// <summary>Best-effort background refresh of ConflictCount — a malformed queued mod here just leaves the badge at its last value; ReviewConflictsAsync/Rebuild surface the real error when the user actually acts.</summary>
-    private async Task RecomputeConflictCountAsync()
+    /// <summary>Best-effort background refresh of ConflictCount — a malformed queued mod here just leaves the badge at its last value; ReviewConflictsAsync/Rebuild surface the real error when the user actually acts. Internal (not private) purely so a test can invoke the exact same recompute the debounce timer would have, on demand — see IsRecomputeDebouncePending's own doc comment.</summary>
+    internal async Task RecomputeConflictCountAsync()
     {
         var version = ++_conflictCountVersion;
 
@@ -1794,13 +1821,31 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // IEnumerable<ExmodPackage> overload copies the base tables exactly once), so this
             // scales with the queue, not the queue squared.
             //
-            // TODO: this only fixes the false-POSITIVE direction. It does NOT detect the reverse —
-            // a mod REMOVING or RENAMING a row that some OTHER queued mod's own reference still
-            // depends on — since nothing here diffs "what a queued mod's edits take away" against
-            // "what another mod still expects to find". That needs real design (e.g. deciding
-            // whether an EDITED-but-not-removed row should count, and how to tell a genuine removal
-            // apart from a field that was simply never touched) that doesn't fit in this fix; left
-            // for later.
+            // The REVERSE direction (a queued mod's own edit removing or renaming a row some OTHER
+            // queued mod's reference depends on) does NOT need the same treatment — confirmed by
+            // reading the format, not assumed: there is no mechanism anywhere in this pipeline by
+            // which a queued mod can make that happen.
+            //   - No row can be deleted at all. TableDiffer's own doc comment is explicit: "no
+            //     invented row deletion semantics... there's no evidence that's a real modding
+            //     pattern" — confirmed all the way through TableApplier.Apply too, which only ever
+            //     creates a row or edits/removes a FIELD within one; nothing removes a row itself.
+            //   - No row can be renamed either, because a row's identity IS its own "Name" key, and
+            //     "Name" categorically cannot travel through the sparse EXMOD field-change format:
+            //     ReservedFieldNames.EnsureFieldNameAllowed rejects it as an ordinary field outright
+            //     (ExmodFieldChangeMapper.FromFieldChanges/ExmodJson.ToJsonObject both enforce this
+            //     on write), and even a hand-crafted .EXMOD file that snuck a "Name" key into one
+            //     File_Item's own object would have it silently skipped on read — see
+            //     ExmodJson.ParseRow's own `if (key == "Name") continue;`.
+            //   - A mod CAN remove an individual FIELD from a row it declares (FieldChange.
+            //     IsFieldRemoved), but that never removes the row's own Name from THIS index —
+            //     AddDeclaredRows below adds item.Name unconditionally, regardless of which fields
+            //     that item does or doesn't carry — so a field-level edit from one queued mod can
+            //     never make another queued mod's row-existence reference look broken.
+            // Net: nothing a queued mod can actually express invalidates another queued mod's
+            // reference, so there is no reverse-direction gap here to detect. (A row genuinely
+            // renamed/removed by an upstream GAME PATCH is a real, different case — already handled
+            // by TableApplier's own "item no longer exists in base data" warning at Rebuild time,
+            // orthogonal to this queue-vs-queue check.)
             var queueWideReferenceIndex = DataTableRowIndex.Build(_dataFolder).WithDeclaredRows(packages.Select(p => p.Package));
             var rows = new List<ValidationIssueRowViewModel>();
 
@@ -1841,8 +1886,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// <summary>Guards RecomputeValidationIssueCountAsync the same way _conflictCountVersion guards its own sibling — see that field's own comment for why.</summary>
     private int _validationIssueCountVersion;
 
-    /// <summary>Best-effort background refresh of ValidationIssueCount — a malformed queued mod here just leaves the badge at its last value; ReviewValidationIssuesAsync surfaces the real error when the user actually acts.</summary>
-    private async Task RecomputeValidationIssueCountAsync()
+    /// <summary>Best-effort background refresh of ValidationIssueCount — a malformed queued mod here just leaves the badge at its last value; ReviewValidationIssuesAsync surfaces the real error when the user actually acts. Internal (not private) for the same test-seam reason as RecomputeConflictCountAsync — see IsRecomputeDebouncePending's own doc comment.</summary>
+    internal async Task RecomputeValidationIssueCountAsync()
     {
         var version = ++_validationIssueCountVersion;
 
