@@ -29,14 +29,19 @@ public interface IDialogService
     /// resetValue null vs a real string means): Cancelled true means the caller does nothing at
     /// all; Cancelled false with NewDisplayName null means "reset/clear the override" (only
     /// reachable when resetValue was null); Cancelled false with a NewDisplayName string means the
-    /// user typed and saved a name, or clicked Reset with a non-null resetValue.
+    /// user typed and saved a name, or clicked Reset with a non-null resetValue. Despite the
+    /// method's name this is this app's one generic single-line text prompt — title defaults to
+    /// "Rename mod" for the rename callers that already exist, but a caller prompting for something
+    /// else entirely (e.g. a UE4SS mod's declared minimum loader version) should pass its own.
     /// </summary>
     RenamePromptResult PromptRename(
         string currentName,
         string description = "Changes how this mod displays in your Library only — its real folder, file name, and mod content are never touched.",
         string? resetValue = null,
         string resetLabel = "Reset to default",
-        string resetTooltip = "Clears the override — goes back to the mod's own declared name");
+        string resetTooltip = "Clears the override — goes back to the mod's own declared name",
+        string title = "Rename mod",
+        string fieldLabel = "Display name");
 }
 
 public sealed record RenamePromptResult(bool Cancelled, string? NewDisplayName);

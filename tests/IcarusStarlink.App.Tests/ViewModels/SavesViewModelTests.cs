@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Text.Json.Nodes;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
@@ -407,7 +408,9 @@ public sealed class SavesViewModelTests
             string description = "",
             string? resetValue = null,
             string resetLabel = "",
-            string resetTooltip = "") => new(true, null);
+            string resetTooltip = "",
+            string title = "",
+            string fieldLabel = "") => new(true, null);
     }
 
     /// <summary>Returns each answer in responses in order, then repeats the last one — lets a test say "not running when SaveChanges/RestoreBackupAsync first checks, but running by the time of the late, immediately-before-the-write recheck".</summary>

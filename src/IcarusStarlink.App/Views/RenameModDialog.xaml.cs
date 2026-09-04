@@ -10,7 +10,10 @@ namespace IcarusStarlink.App.Views;
 /// declared name; a caller with a real fallback value to revert to (e.g. the live Nexus name)
 /// passes it as resetValue instead, so NewDisplayName after Reset is that value, not null.
 /// NewDisplayName is only ever null when the dialog closes via Reset with no resetValue given —
-/// distinct from Cancel (DialogResult stays false, caller does nothing at all).
+/// distinct from Cancel (DialogResult stays false, caller does nothing at all). Despite the name,
+/// this is really this app's one generic "prompt for a single line of text" dialog — title is
+/// parameterized too so a non-rename caller (e.g. declaring a UE4SS mod's minimum loader version)
+/// doesn't show a literal "Rename mod" window title.
 /// </summary>
 public partial class RenameModDialog : Window
 {
@@ -23,10 +26,14 @@ public partial class RenameModDialog : Window
         string description = "Changes how this mod displays in your Library only — its real folder, file name, and mod content are never touched.",
         string? resetValue = null,
         string resetLabel = "Reset to default",
-        string resetTooltip = "Clears the override — goes back to the mod's own declared name")
+        string resetTooltip = "Clears the override — goes back to the mod's own declared name",
+        string title = "Rename mod",
+        string fieldLabel = "Display name")
     {
         InitializeComponent();
+        Title = title;
         DescriptionText.Text = description;
+        FieldLabelText.Text = fieldLabel;
         NameBox.Text = currentDisplayName;
         NameBox.SelectAll();
         Loaded += (_, _) => NameBox.Focus();

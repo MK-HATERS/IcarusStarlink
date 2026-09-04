@@ -989,10 +989,17 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// known starting version yet — versus the original shape, where any enrichment failure meant
     /// the ID was never saved at all, permanently excluding the mod from update-checking with no way
     /// to relink it (Library's UE4SS tab has no manual "Link to Nexus…" action, unlike its Mods tab).
+    ///
+    /// Load-modify-Save, not a fresh `new Ue4ssModMeta { ... }` — folderName is freshly staged by
+    /// this same activation almost always, but a disambiguated/reused folder name could already
+    /// carry a user-declared MinUe4ssVersion (see its own doc comment) from a previous mod that once
+    /// lived under this same name; a blind replace would silently wipe that out.
     /// </summary>
     private async Task EnrichUe4ssModFromNexusAsync(string folderName, int modId)
     {
-        _ue4ssModMetaStore.Save(folderName, new Ue4ssModMeta { NexusModId = modId });
+        var meta = _ue4ssModMetaStore.Load(folderName);
+        meta.NexusModId = modId;
+        _ue4ssModMetaStore.Save(folderName, meta);
 
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
         if (apiKey is null)
@@ -1005,7 +1012,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
             var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
             if (info is not null)
             {
-                _ue4ssModMetaStore.Save(folderName, new Ue4ssModMeta { NexusModId = modId, NexusVersion = info.Version });
+                meta.NexusVersion = info.Version;
+                _ue4ssModMetaStore.Save(folderName, meta);
             }
         }
         catch (Exception)

@@ -512,6 +512,11 @@ public sealed partial class LibraryViewModel : ObservableObject
             var modsFolder = Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath);
             var states = _ue4ssModStateService.GetAll(modsFolder);
 
+            // Read once per reload, not once per mod below — it's the same installed loader
+            // regardless of which mod row is asking, same as SettingsViewModel.RefreshUe4ssStatus's
+            // own single call.
+            var installedLoaderVersion = _ue4ssLoaderInstallService.GetStatus(_settingsService.Current.IcarusContentPath!).InstalledVersion;
+
             // This reload also runs on every LibraryChangedMessage (an unrelated import/delete/link
             // elsewhere in the app, not just this page's own Refresh/Apply) — rebuilding every row
             // from scratch would otherwise silently drop an unsaved pending enable/disable toggle
@@ -527,7 +532,9 @@ public sealed partial class LibraryViewModel : ObservableObject
                 // what's currently IN the game's real Mods folder, so a disabled/staged mod (built-in
                 // or not) would silently misclassify as "user-added" by simple absence from it.
                 var isBuiltIn = _ue4ssLoaderInstallService.IsFrameworkOwned(_settingsService.Current.IcarusContentPath!, state.Name);
-                var row = new Ue4ssModRowViewModel(state.Name, state.IsEnabled, isBuiltIn, meta.NexusModId, meta.NexusVersion, RecomputeHasPendingUe4ssChanges);
+                var row = new Ue4ssModRowViewModel(
+                    state.Name, state.IsEnabled, isBuiltIn, meta.NexusModId, meta.NexusVersion,
+                    meta.MinUe4ssVersion, installedLoaderVersion, RecomputeHasPendingUe4ssChanges);
                 if (previousByName.TryGetValue(state.Name, out var previous))
                 {
                     if (previous.IsDirty)
@@ -637,6 +644,57 @@ public sealed partial class LibraryViewModel : ObservableObject
         catch (Exception ex)
         {
             Ue4ssStatusMessage = $"Couldn't link: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Manual, user-declared-only counterpart to LinkUe4ssModToNexus, right next to it in the row's
+    /// own context menu — same IUe4ssModMetaStore sidecar write, same reload-after-write to refresh
+    /// the row's constructor-set properties. There is no automatic source for a mod's own minimum
+    /// UE4SS version (see Ue4ssModMeta.MinUe4ssVersion's own doc comment), so this is the only way
+    /// the field is ever set: the user reads it off the mod's own Nexus page/readme and types it in.
+    /// Reuses IDialogService.PromptRename (this app's one generic single-line text prompt, despite
+    /// its name) rather than a new dialog type — resetValue is left null so "Clear requirement"
+    /// clears the field entirely (Ue4ssVersionComparer.Compare then reports Unknown, never a
+    /// warning), the same "reset means clear the override" semantics Library's own RenameItem uses.
+    /// </summary>
+    [RelayCommand]
+    private void SetMinUe4ssVersion(Ue4ssModRowViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        var result = _dialogService.PromptRename(
+            item.MinUe4ssVersion ?? string.Empty,
+            description: "Enter the minimum UE4SS loader version this mod needs (e.g. \"3.0.1\") — read it from the mod's own Nexus page or readme, since this app has no way to detect a mod's own requirement automatically. Compared against your installed UE4SS loader version to show a warning if it's too old.",
+            resetValue: null,
+            resetLabel: "Clear requirement",
+            resetTooltip: "Removes the minimum UE4SS version requirement — no warning will show for this mod",
+            title: "Set minimum UE4SS version",
+            fieldLabel: "Minimum UE4SS version");
+        if (result.Cancelled)
+        {
+            return;
+        }
+
+        try
+        {
+            var meta = _ue4ssModMetaStore.Load(item.Name);
+            meta.MinUe4ssVersion = string.IsNullOrWhiteSpace(result.NewDisplayName) ? null : result.NewDisplayName.Trim();
+            _ue4ssModMetaStore.Save(item.Name, meta);
+
+            // Same reason ApplyUe4ssChanges/LinkUe4ssModToNexus already reload after their own
+            // writes — Ue4ssModRowViewModel's MinUe4ssVersion is constructor-set, not observable.
+            ReloadInstalledUe4ssMods();
+            Ue4ssStatusMessage = meta.MinUe4ssVersion is null
+                ? $"Cleared the minimum UE4SS version requirement for '{item.Name}'."
+                : $"'{item.Name}' now requires UE4SS v{meta.MinUe4ssVersion}+.";
+        }
+        catch (Exception ex)
+        {
+            Ue4ssStatusMessage = $"Couldn't save: {ex.Message}";
         }
     }
 

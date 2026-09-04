@@ -13,7 +13,7 @@
                    Text="Changes how this mod displays in your Library only — its real folder, file name, and mod content are never touched."
                    Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,16"/>
 
-        <TextBlock Text="Display name" Style="{StaticResource FieldLabelStyle}"/>
+        <TextBlock x:Name="FieldLabelText" Text="Display name" Style="{StaticResource FieldLabelStyle}"/>
         <TextBox x:Name="NameBox" Margin="0,4,0,12"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

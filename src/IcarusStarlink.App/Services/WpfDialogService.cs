@@ -14,9 +14,11 @@ public sealed class WpfDialogService : IDialogService
         string description = "Changes how this mod displays in your Library only — its real folder, file name, and mod content are never touched.",
         string? resetValue = null,
         string resetLabel = "Reset to default",
-        string resetTooltip = "Clears the override — goes back to the mod's own declared name")
+        string resetTooltip = "Clears the override — goes back to the mod's own declared name",
+        string title = "Rename mod",
+        string fieldLabel = "Display name")
     {
-        var dialog = new RenameModDialog(currentName, description, resetValue, resetLabel, resetTooltip)
+        var dialog = new RenameModDialog(currentName, description, resetValue, resetLabel, resetTooltip, title, fieldLabel)
         {
             Owner = Application.Current?.MainWindow,
         };
