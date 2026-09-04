@@ -90,7 +90,7 @@ public sealed partial class HelpViewModel : ObservableObject
             Two more tabs on the **Library** page, alongside the **Mods** tab covered above:
 
             - **IMM Database** — a live, community-maintained catalog. Search, filter by author/category, sort any column, and see at a glance whether a mod is already extracted, outdated, or not downloaded yet.
-            - **Mods**' own pending-download list also holds files you've downloaded from Nexus, waiting to install — this is where a real Nexus "Mod Manager Download" click lands, where the Nexus page's own Download button lands a file, or where a manually pasted `nxm://` link goes. Activate a file to import it into your Library, or discard it.
+            - **Mods**' own pending-download list also holds files you've downloaded from Nexus, waiting to install — this is where a real Nexus "Mod Manager Download" click lands (once registered in Settings), or where the **Nexus** page's own per-mod Download button lands a file either way. Activate a file to import it into your Library, or discard it.
 
             Tracking mods you're following, and browsing/searching Nexus itself, both live on the **Nexus** page now — see its own Help topic.
             """),

@@ -355,8 +355,8 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
 
     /// <summary>
     /// Direct download from the card — delegates the whole "find the primary file, fetch it"
-    /// pipeline to DownloadsViewModel.ResolvePrimaryFileAndFetchAsync, the same shared helper the
-    /// manual paste box uses when given a plain mod-page URL, so this logic exists in one place.
+    /// pipeline to DownloadsViewModel.ResolvePrimaryFileAndFetchAsync, the app's own always-
+    /// available download path independent of whether the nxm:// protocol handler is registered.
     /// </summary>
     [RelayCommand]
     private async Task DownloadModAsync(NexusModInfo? mod)

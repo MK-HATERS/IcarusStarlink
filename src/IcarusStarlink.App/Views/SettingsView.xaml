@@ -201,7 +201,7 @@
                                    Visibility="{Binding NexusStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
                         <TextBlock Text="Download handler (nxm:// links)" Style="{StaticResource FieldLabelStyle}"/>
-                        <TextBlock Text="Makes Nexus's own &quot;Mod Manager Download&quot; buttons open IcarusStarlink directly, landing files in Library's own Mods tab. Optional — pasting an nxm:// link there manually always works too."
+                        <TextBlock Text="Makes Nexus's own &quot;Mod Manager Download&quot; buttons open IcarusStarlink directly, landing files in Library's own Mods tab. Optional — you can always download through this app's own Nexus browsing tab instead."
                                    Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10"/>
 
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8"

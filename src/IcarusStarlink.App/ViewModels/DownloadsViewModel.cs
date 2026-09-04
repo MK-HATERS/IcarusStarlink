@@ -156,9 +156,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
     public ObservableCollection<PendingDownloadItemViewModel> PendingDownloads { get; } = [];
 
     [ObservableProperty]
-    private bool _isFetchingDownload;
-
-    [ObservableProperty]
     private string? _pendingDownloadStatusMessage;
 
     public DownloadsViewModel(
@@ -617,12 +614,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
     /// <summary>
     /// Resolves a bare Nexus mod ID to a downloadable file, then runs it through
-    /// FetchAndDownloadAsync — the same two-step DownloadModAsync uses. Shared here so the manual
-    /// paste box (given a plain mod-page URL) and NexusCatalogViewModel's own per-card Download
-    /// button don't each carry their own copy of this logic. A mod with exactly one file downloads
-    /// it directly, same as before; a mod with more than one (different versions, optional
-    /// add-ons, or FOMOD-style variant packs) shows a real picker instead of silently grabbing
-    /// whatever Nexus marks primary — that was silently discarding every other file a mod offered.
+    /// FetchAndDownloadAsync — the same two-step DownloadModAsync uses. Shared here so
+    /// NexusCatalogViewModel's own per-card Download button (its only real caller) doesn't carry
+    /// its own copy of this logic. A mod with exactly one file downloads it directly, same as
+    /// before; a mod with more than one (different versions, optional add-ons, or FOMOD-style
+    /// variant packs) shows a real picker instead of silently grabbing whatever Nexus marks
+    /// primary — that was silently discarding every other file a mod offered.
     /// </summary>
     public async Task ResolvePrimaryFileAndFetchAsync(int nexusModId, string? displayName = null)
     {
@@ -678,17 +675,17 @@ public sealed partial class DownloadsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Phase 8.3b's real download pipeline — parse the nxm:// link, resolve it to a real CDN URL
-    /// via Nexus's own API, download the bytes, record it in Pending Downloads, then immediately
+    /// The real download pipeline — parse the nxm:// link, resolve it to a real CDN URL via
+    /// Nexus's own API, download the bytes, record it in Pending Downloads, then immediately
     /// activate it (the same classify-and-import logic ActivatePendingDownloadAsync already has,
     /// which already tells an EXMOD mod from a prebuilt pak from a UE4SS mod). A successful
     /// download just becomes a normal Library (or UE4SS) entry with no separate click needed —
     /// per direct feedback, a downloaded mod should "blend in" automatically. displayName (when
-    /// the caller already knows it — a Nexus card's own mod.Name) drives the Library page's
-    /// in-progress stub; falls back to "mod #N" for a raw pasted link, which has no name to show
-    /// until Nexus's own headers reveal the real file name partway through. Public (not private)
-    /// since this is also the eventual landing point for a real nxm:// link handed off from the OS
-    /// protocol handler — the manual paste box exercises the exact same path in the meantime.
+    /// the caller already knows it) drives the Library page's in-progress stub; falls back to
+    /// "mod #N" when it isn't known yet, which has no name to show until Nexus's own headers
+    /// reveal the real file name partway through. Public (not private) since this is the landing
+    /// point for a real nxm:// link handed off from the OS protocol handler (App.xaml.cs's
+    /// HandleNxmUrl) — its only real caller.
     /// </summary>
     public async Task FetchAndDownloadAsync(string nxmUrlText, string? displayName = null)
     {
@@ -712,7 +709,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         var trackerKey = $"{nxmUrl.ModId}:{nxmUrl.FileId}";
         _activeDownloadsTracker.Start(trackerKey, displayName ?? $"Mod #{nxmUrl.ModId}");
-        IsFetchingDownload = true;
         try
         {
             var links = await _nexusApiClient.GetDownloadLinksAsync(
@@ -792,7 +788,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
         finally
         {
-            IsFetchingDownload = false;
             _activeDownloadsTracker.Finish(trackerKey);
         }
     }
