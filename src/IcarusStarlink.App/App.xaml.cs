@@ -162,6 +162,9 @@ public partial class App : Application
         builder.Services.AddSingleton<IUnrealPakService, UnrealPakService>();
         builder.Services.AddSingleton<IUassetTextureDecoder, CueUassetTextureDecoder>();
         builder.Services.AddSingleton<IUassetStaticMeshDecoder, CueUassetStaticMeshDecoder>();
+        builder.Services.AddSingleton<IUassetSkeletalMeshDecoder, CueUassetSkeletalMeshDecoder>();
+        builder.Services.AddSingleton<IUassetSoundDecoder, CueUassetSoundDecoder>();
+        builder.Services.AddSingleton<IUassetMaterialDecoder, CueUassetMaterialDecoder>();
         builder.Services.AddSingleton<IOpaquePakAssetPreviewService, OpaquePakAssetPreviewService>();
         builder.Services.AddSingleton<IWeeklyChangeReportStore>(sp =>
             new WeeklyChangeReportStore(
@@ -236,6 +239,9 @@ public partial class App : Application
             sp.GetRequiredService<IUnrealPakService>(),
             sp.GetRequiredService<IUassetTextureDecoder>(),
             sp.GetRequiredService<IUassetStaticMeshDecoder>(),
+            sp.GetRequiredService<IUassetSkeletalMeshDecoder>(),
+            sp.GetRequiredService<IUassetSoundDecoder>(),
+            sp.GetRequiredService<IUassetMaterialDecoder>(),
             sp.GetRequiredService<IOpaquePakAssetPreviewService>(),
             sp.GetRequiredService<INexusApiClient>(),
             sp.GetRequiredService<ICredentialStore>(),

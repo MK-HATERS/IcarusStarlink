@@ -32,6 +32,15 @@ public partial class ModDetailWindow : Window
             {
                 _currentItem.PropertyChanged -= OnCurrentItemPropertyChanged;
             }
+
+            // Releases whatever temp .wav file this window's own MediaElement still has open —
+            // LibraryItemViewModel's own CleanupAudioTempFile only ever runs on the NEXT asset
+            // selection, which might not happen again for a while (or ever) once this window is
+            // closed, so without this a closed window could leave a playing/loaded file locked
+            // well past the point anything could still delete it. Close() first, so the delete
+            // below isn't racing MediaElement's own file handle release.
+            AudioPlayer.Close();
+            _currentItem?.ReleaseAudioPreview();
         };
     }
 
@@ -68,6 +77,17 @@ public partial class ModDetailWindow : Window
         // this explicitly for whatever the newly-shown item's mesh currently is closes that gap;
         // it's a no-op when there's nothing to frame (see FrameMeshCamera's own null/empty guard).
         FrameMeshCamera(item.SelectedAssetMesh);
+
+        // Same "instance reuse means no automatic reset" gap FrameMeshCamera's own doc comment
+        // already covers for a mesh, but for audio specifically: LibraryItemViewModel instances
+        // are cached/reused, so if a sound was left PLAYING when Prev/Next swapped this window's
+        // DataContext away, nothing about that swap alone stops it — MediaElement's own Source
+        // binding only re-fires when the newly-shown item's own SelectedAssetAudioPath actually
+        // differs from whatever this MediaElement already has loaded, which isn't guaranteed (the
+        // previous item's own path could be numerically unrelated to the new item's, or the new
+        // item could have no sound selected at all yet). An unconditional Stop() here is a safe
+        // no-op when nothing is playing, so there's no need to first check what state this is in.
+        AudioPlayer.Stop();
 
         // Without this, deleting the mod this window is showing (via its own Delete button, or
         // from the main window's tree while this pop-out is still open) left the window sitting
@@ -195,4 +215,15 @@ public partial class ModDetailWindow : Window
             ShowItem(next);
         }
     }
+
+    // MediaElement has no simple bool Play/Pause property of its own to bind — with
+    // LoadedBehavior/UnloadedBehavior="Manual" (set in this window's own XAML), starting, pausing,
+    // and stopping playback only ever happens through these three explicit method calls, the same
+    // simple code-behind Click-handler shape RenameModDialog.xaml.cs's own Save/Reset/Cancel
+    // buttons already use for something a plain command binding can't express cleanly.
+    private void AudioPlay_Click(object sender, RoutedEventArgs e) => AudioPlayer.Play();
+
+    private void AudioPause_Click(object sender, RoutedEventArgs e) => AudioPlayer.Pause();
+
+    private void AudioStop_Click(object sender, RoutedEventArgs e) => AudioPlayer.Stop();
 }

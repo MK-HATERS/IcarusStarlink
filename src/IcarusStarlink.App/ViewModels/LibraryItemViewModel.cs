@@ -21,6 +21,36 @@ using IcarusStarlink.PakIO.Pak;
 
 namespace IcarusStarlink.App.ViewModels;
 
+/// <summary>One texture-valued material parameter, ready for the Files tab's own Image control — the
+/// WPF counterpart of PakIO's own MaterialTextureParam, whose PngBytes this decodes exactly once
+/// (via LibraryItemViewModel's own TryDecodeImage) rather than the XAML layer needing a byte[]-to-
+/// BitmapImage converter of its own.</summary>
+public sealed record MaterialTextureParamDisplay(string Name, BitmapImage Thumbnail);
+
+/// <summary>One scalar (float) material parameter, ready to show as-is.</summary>
+public sealed record MaterialScalarParamDisplay(string Name, float Value);
+
+/// <summary>
+/// One color material parameter, ready for a small Border/Rectangle swatch plus a readable text
+/// value. SwatchColor is a straightforward linear-to-byte mapping (each channel clamped to 0..1,
+/// then scaled to 0..255) — not a true sRGB gamma correction, since this is a plain parameter-list
+/// swatch, not meant to be colorimetrically exact the way an in-engine material preview would be.
+/// </summary>
+public sealed record MaterialColorParamDisplay(string Name, Color SwatchColor, string DisplayText);
+
+/// <summary>
+/// The WPF-ready counterpart of PakIO's own UassetMaterialParams — LibraryItemViewModel's public
+/// SelectedAssetMaterialParams surface never exposes that raw PakIO record directly (its own
+/// texture parameters are still un-decoded PNG bytes), same "convert to a WPF-ready type before
+/// exposing it as a bound property" precedent BuildMeshModel already sets for SelectedAssetMesh.
+/// </summary>
+public sealed record MaterialParamsDisplay(
+    IReadOnlyList<MaterialTextureParamDisplay> Textures,
+    IReadOnlyList<MaterialScalarParamDisplay> Scalars,
+    IReadOnlyList<MaterialColorParamDisplay> Colors,
+    string BlendMode,
+    string ShadingModel);
+
 public sealed partial class LibraryItemViewModel : ObservableObject
 {
     private static readonly HashSet<string> ImageExtensions =
@@ -30,6 +60,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     private readonly IUnrealPakService _unrealPakService;
     private readonly IUassetTextureDecoder _uassetTextureDecoder;
     private readonly IUassetStaticMeshDecoder _uassetStaticMeshDecoder;
+    private readonly IUassetSkeletalMeshDecoder _uassetSkeletalMeshDecoder;
+    private readonly IUassetSoundDecoder _uassetSoundDecoder;
+    private readonly IUassetMaterialDecoder _uassetMaterialDecoder;
     private readonly IOpaquePakAssetPreviewService _opaquePakAssetPreviewService;
     private readonly ISettingsService _settingsService;
     private readonly INexusApiClient _nexusApiClient;
@@ -47,6 +80,12 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// thread, and this lets a stale decode's result be discarded if the user selects something
     /// else before it finishes, instead of overwriting whatever the user is now looking at.</summary>
     private int _assetPreviewGeneration;
+
+    /// <summary>The temp .wav file backing SelectedAssetAudioPath, if any — tracked separately from
+    /// the property itself so a later reselect can delete THIS specific file even after
+    /// SelectedAssetAudioPath has already been reset to null (WPF's MediaElement plays from a real
+    /// file path, not raw bytes, so a decoded sound has to land on disk somewhere first).</summary>
+    private string? _currentAudioTempFilePath;
 
     public string FolderName { get; }
 
@@ -327,13 +366,21 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private string? _selectedAssetPreview;
 
-    /// <summary>Set instead of SelectedAssetPreview when the picked asset is a decodable image — exactly one of SelectedAssetImage/SelectedAssetMesh/SelectedAssetPreview is ever non-null, which is what the Files tab switches its preview pane on.</summary>
+    /// <summary>Set instead of SelectedAssetPreview when the picked asset is a decodable image — exactly one of SelectedAssetImage/SelectedAssetMesh/SelectedAssetAudioPath/SelectedAssetMaterialParams/SelectedAssetPreview is ever non-null, which is what the Files tab switches its preview pane on.</summary>
     [ObservableProperty]
     private BitmapImage? _selectedAssetImage;
 
-    /// <summary>Set instead of SelectedAssetPreview/SelectedAssetImage when the picked asset is a decodable static mesh — a Model3D ready to bind straight into the Files tab's Viewport3D.</summary>
+    /// <summary>Set instead of SelectedAssetPreview/SelectedAssetImage when the picked asset is a decodable static OR skeletal mesh (bind pose only for the latter — see IUassetSkeletalMeshDecoder) — a Model3D ready to bind straight into the Files tab's Viewport3D. Both mesh kinds share this one property since they render through the exact same Viewport3D with no distinction the UI needs to make.</summary>
     [ObservableProperty]
     private Model3D? _selectedAssetMesh;
+
+    /// <summary>Set instead of every other SelectedAsset* preview property when the picked asset is a decodable sound — a real temp .wav file path (WPF's MediaElement plays from a file/URI, not raw bytes) that CleanupAudioTempFile deletes the moment a different asset is selected or this mod's selection is torn down.</summary>
+    [ObservableProperty]
+    private string? _selectedAssetAudioPath;
+
+    /// <summary>Set instead of every other SelectedAsset* preview property when the picked asset is a decodable material — its own resolved parameter list (textures/scalars/colors/BlendMode/ShadingModel), not a rendered preview.</summary>
+    [ObservableProperty]
+    private MaterialParamsDisplay? _selectedAssetMaterialParams;
 
     /// <summary>
     /// Set from an asset conventionally named "ImageOnly" (any common image extension) if the
@@ -347,6 +394,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     public LibraryItemViewModel(
         LibraryEntry entry, ILibraryRepository repository, IUnrealPakService unrealPakService,
         IUassetTextureDecoder uassetTextureDecoder, IUassetStaticMeshDecoder uassetStaticMeshDecoder,
+        IUassetSkeletalMeshDecoder uassetSkeletalMeshDecoder, IUassetSoundDecoder uassetSoundDecoder,
+        IUassetMaterialDecoder uassetMaterialDecoder,
         IOpaquePakAssetPreviewService opaquePakAssetPreviewService, ISettingsService settingsService,
         INexusApiClient nexusApiClient, ICredentialStore credentialStore, HttpClient httpClient, string thumbnailCacheDirectory,
         string pakPreviewCacheDirectory,
@@ -356,6 +405,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         _unrealPakService = unrealPakService;
         _uassetTextureDecoder = uassetTextureDecoder;
         _uassetStaticMeshDecoder = uassetStaticMeshDecoder;
+        _uassetSkeletalMeshDecoder = uassetSkeletalMeshDecoder;
+        _uassetSoundDecoder = uassetSoundDecoder;
+        _uassetMaterialDecoder = uassetMaterialDecoder;
         _opaquePakAssetPreviewService = opaquePakAssetPreviewService;
         _settingsService = settingsService;
         _nexusApiClient = nexusApiClient;
@@ -503,6 +555,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     {
         SelectedAssetImage = null;
         SelectedAssetMesh = null;
+        SelectedAssetMaterialParams = null;
+        CleanupAudioTempFile();
         _assetPreviewGeneration++;
         var generation = _assetPreviewGeneration;
 
@@ -574,11 +628,23 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     }
 
     /// <summary>
+    /// The one non-null slot in CompiledAssetDecodeResult — an asset is realistically only ever one
+    /// of these types, so DecodeCompiledAssetPreviewAsync's own chain stops at the first decoder
+    /// that succeeds instead of running every one of the (real, CPU-costing) remaining decoders for
+    /// nothing. Static and skeletal meshes share the one Mesh slot: both end up rendered through
+    /// the exact same BuildMeshModel/Viewport3D path, so nothing downstream needs to tell them apart.
+    /// </summary>
+    private sealed record CompiledAssetDecodeResult(
+        byte[]? PngBytes, StaticMeshGeometry? Mesh, UassetSoundAudio? Sound, UassetMaterialParams? Material);
+
+    /// <summary>
     /// A .uasset is compiled Unreal binary, not something the flat-image/text branches above can
-    /// show — this decodes it as a real Unreal texture, then (if that fails) a real static mesh,
-    /// via CUE4Parse. Runs off the UI thread since indexing the mod's own asset folder and
-    /// decoding either one both take real time; the generation check discards a stale result if
-    /// the user has already selected something else by the time it finishes.
+    /// show — this tries, in order, a real Unreal texture, a static mesh, a skeletal mesh (bind
+    /// pose only), a sound, then a material, via CUE4Parse — the same "texture first, most-proven
+    /// decoders first" order this chain already used before the last three were added. Runs off
+    /// the UI thread since indexing the mod's own asset folder and decoding any one of these takes
+    /// real time; the generation check discards a stale result if the user has already selected
+    /// something else by the time it finishes.
     /// </summary>
     private async Task DecodeCompiledAssetPreviewAsync(string relativeAssetPath, int generation)
     {
@@ -596,31 +662,129 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             return;
         }
 
-        var (pngBytes, meshGeometry) = await Task.Run(() =>
-        {
-            var png = _uassetTextureDecoder.TryDecodeToPng(modFolderPath, relativeAssetPath);
-            var mesh = png is null ? _uassetStaticMeshDecoder.TryDecodeStaticMesh(modFolderPath, relativeAssetPath) : null;
-            return (png, mesh);
-        });
+        var result = await Task.Run(() => DecodeCompiledAsset(modFolderPath, relativeAssetPath));
 
         if (generation != _assetPreviewGeneration)
         {
             return;
         }
 
-        if (pngBytes is not null && TryDecodeImage(pngBytes) is { } image)
+        if (result.PngBytes is not null && TryDecodeImage(result.PngBytes) is { } image)
         {
             SelectedAssetImage = image;
             SelectedAssetPreview = null;
         }
-        else if (meshGeometry is not null)
+        else if (result.Mesh is not null)
         {
-            SelectedAssetMesh = BuildMeshModel(meshGeometry);
+            SelectedAssetMesh = BuildMeshModel(result.Mesh);
+            SelectedAssetPreview = null;
+        }
+        else if (result.Sound is { WavBytes: { } wavBytes })
+        {
+            try
+            {
+                SelectedAssetAudioPath = WriteAudioTempFile(wavBytes);
+                SelectedAssetPreview = null;
+            }
+            catch (Exception ex)
+            {
+                // A real but unlikely failure (disk full, %TEMP% unavailable/locked down) — same UI
+                // boundary as everything else in this method: a status message, not an unobserved
+                // exception out of this fire-and-forget decode task.
+                SelectedAssetPreview = $"(compiled Unreal asset — couldn't write this sound to a temp file for playback: {ex.Message})";
+            }
+        }
+        else if (result.Sound is { UnsupportedFormatReason: { } unsupportedReason })
+        {
+            SelectedAssetPreview = $"(compiled Unreal asset — {unsupportedReason})";
+        }
+        else if (result.Material is not null)
+        {
+            SelectedAssetMaterialParams = BuildMaterialParamsDisplay(result.Material);
             SelectedAssetPreview = null;
         }
         else
         {
-            SelectedAssetPreview = "(compiled Unreal asset — not a texture or static mesh, or couldn't be decoded — no preview available)";
+            SelectedAssetPreview = "(compiled Unreal asset — not a texture, mesh, sound, or material, or couldn't be decoded — no preview available)";
+        }
+    }
+
+    private CompiledAssetDecodeResult DecodeCompiledAsset(string modFolderPath, string relativeAssetPath)
+    {
+        var png = _uassetTextureDecoder.TryDecodeToPng(modFolderPath, relativeAssetPath);
+        if (png is not null)
+        {
+            return new CompiledAssetDecodeResult(png, null, null, null);
+        }
+
+        var mesh = _uassetStaticMeshDecoder.TryDecodeStaticMesh(modFolderPath, relativeAssetPath)
+            ?? _uassetSkeletalMeshDecoder.TryDecodeSkeletalMesh(modFolderPath, relativeAssetPath);
+        if (mesh is not null)
+        {
+            return new CompiledAssetDecodeResult(null, mesh, null, null);
+        }
+
+        var sound = _uassetSoundDecoder.TryDecodeAudio(modFolderPath, relativeAssetPath);
+        if (sound is not null)
+        {
+            return new CompiledAssetDecodeResult(null, null, sound, null);
+        }
+
+        var material = _uassetMaterialDecoder.TryDecodeMaterial(modFolderPath, relativeAssetPath);
+        return new CompiledAssetDecodeResult(null, null, null, material);
+    }
+
+    /// <summary>
+    /// Writes a decoded sound's own real, complete WAV bytes to a fresh temp file — WPF's
+    /// MediaElement plays from a file/URI, not raw bytes, so a decoded sound has to land on disk
+    /// somewhere first. The PREVIOUS temp file (if any) was already deleted by
+    /// OnSelectedAssetPathChanged's own CleanupAudioTempFile call before this decode even started,
+    /// so there's nothing left over to clean up here — only this new one needs tracking, for
+    /// whenever the NEXT selection change comes along.
+    /// </summary>
+    private string WriteAudioTempFile(byte[] wavBytes)
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_AudioPreview_{Guid.NewGuid():N}.wav");
+        File.WriteAllBytes(tempPath, wavBytes);
+        _currentAudioTempFilePath = tempPath;
+        return tempPath;
+    }
+
+    /// <summary>
+    /// ModDetailWindow's own Closed handler calls this (after releasing the MediaElement's file
+    /// handle via AudioPlayer.Close()) — without it, closing the window left whatever temp .wav
+    /// was last previewed on disk indefinitely: this instance is cached/reused by LibraryViewModel,
+    /// so CleanupAudioTempFile's own normal trigger (the NEXT selection change) might not fire
+    /// again for the life of the session.
+    /// </summary>
+    public void ReleaseAudioPreview() => CleanupAudioTempFile();
+
+    /// <summary>
+    /// Best-effort delete of whatever temp .wav WriteAudioTempFile last created — called at the
+    /// start of every selection change (see OnSelectedAssetPathChanged) and by ReleaseAudioPreview
+    /// (see its own doc comment), so at most one of these temp files exists per
+    /// LibraryItemViewModel instance at any given time, rather than one accumulating per sound ever
+    /// previewed for the life of the app.
+    /// </summary>
+    private void CleanupAudioTempFile()
+    {
+        SelectedAssetAudioPath = null;
+
+        if (_currentAudioTempFilePath is not { } path)
+        {
+            return;
+        }
+
+        _currentAudioTempFilePath = null;
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception)
+        {
+            // Best-effort only, same convention this codebase's other temp-file cleanup already
+            // uses (e.g. DownloadsViewModel's own download temp files) — a locked/already-gone
+            // file here is cosmetic (an OS temp directory, not mod data), never worth surfacing.
         }
     }
 
@@ -759,6 +923,44 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         group.Freeze();
         return group;
     }
+
+    /// <summary>
+    /// Converts PakIO's own plain UassetMaterialParams into the WPF-ready MaterialParamsDisplay the
+    /// Files tab's own material panel actually binds to — same "convert before exposing" step
+    /// BuildMeshModel already does for SelectedAssetMesh. A texture parameter whose own PNG bytes
+    /// don't decode to a real image (shouldn't happen — CueUassetMaterialDecoder only ever adds a
+    /// texture parameter after already encoding it to PNG itself — but TryDecodeImage's own
+    /// contract is "never throw, return null instead") is left out of the list entirely, the exact
+    /// same "don't show what didn't decode" convention MaterialTextureParam's own doc comment
+    /// already establishes for a texture that couldn't be decoded in the first place.
+    /// </summary>
+    private static MaterialParamsDisplay BuildMaterialParamsDisplay(UassetMaterialParams materialParams)
+    {
+        var textures = new List<MaterialTextureParamDisplay>();
+        foreach (var texture in materialParams.Textures)
+        {
+            if (TryDecodeImage(texture.PngBytes) is { } thumbnail)
+            {
+                textures.Add(new MaterialTextureParamDisplay(texture.Name, thumbnail));
+            }
+        }
+
+        var scalars = materialParams.Scalars
+            .Select(scalar => new MaterialScalarParamDisplay(scalar.Name, scalar.Value))
+            .ToList();
+
+        var colors = materialParams.Colors
+            .Select(color => new MaterialColorParamDisplay(
+                color.Name,
+                Color.FromArgb(ToDisplayByte(color.A), ToDisplayByte(color.R), ToDisplayByte(color.G), ToDisplayByte(color.B)),
+                $"R {color.R:0.###}  G {color.G:0.###}  B {color.B:0.###}  A {color.A:0.###}"))
+            .ToList();
+
+        return new MaterialParamsDisplay(textures, scalars, colors, materialParams.BlendMode, materialParams.ShadingModel);
+    }
+
+    /// <summary>Unreal's own linear-color channels aren't clamped to 0..1 by construction (an emissive color, in particular, can legitimately run well above 1) — clamped here before scaling so an out-of-range value becomes a plain solid swatch color instead of an invalid byte.</summary>
+    private static byte ToDisplayByte(float channel) => (byte)(Math.Clamp(channel, 0f, 1f) * 255);
 
     private void SaveMetadata()
     {

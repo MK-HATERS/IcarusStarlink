@@ -5,6 +5,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- LibraryItemViewModelTests is the first test file in this project to touch a ViewModel's
+         own WPF-typed public properties directly (BitmapImage/Model3D, via LibraryItemViewModel's
+         SelectedAssetImage/SelectedAssetMesh/SelectedAssetMaterialParams) rather than only
+         WPF-independent types (plain POCOs, CommunityToolkit.Mvvm's own ObservableObject) — declared
+         explicitly here rather than relying on IcarusStarlink.App's own UseWPF flowing transitively
+         through the ProjectReference below, since that transitive behavior wasn't otherwise already
+         proven by an existing test in this project. -->
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
 
   <ItemGroup>

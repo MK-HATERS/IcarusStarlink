@@ -205,10 +205,11 @@
                         <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                       Background="{DynamicResource BorderBrush}" ResizeBehavior="PreviousAndNext"
                                       AutomationProperties.Name="Resize file list"/>
-                        <!-- Exactly one of SelectedAssetPreview/SelectedAssetImage/SelectedAssetMesh is
-                             ever non-null at a time (see LibraryItemViewModel's own doc comments on
-                             each), so each pane's own Visibility can bind directly to its own
-                             property instead of needing to know about the other two. -->
+                        <!-- Exactly one of SelectedAssetPreview/SelectedAssetImage/SelectedAssetMesh/
+                             SelectedAssetAudioPath/SelectedAssetMaterialParams is ever non-null at a
+                             time (see LibraryItemViewModel's own doc comments on each), so each
+                             pane's own Visibility can bind directly to its own property instead of
+                             needing to know about the others. -->
                         <TextBox Grid.Column="2" Text="{Binding SelectedAssetPreview, Mode=OneWay}"
                                  Margin="8,0,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                                  AcceptsReturn="True"
@@ -231,6 +232,93 @@
                                 </Viewport3D.Camera>
                                 <ModelVisual3D x:Name="MeshModelVisual" Content="{Binding SelectedAssetMesh}"/>
                             </Viewport3D>
+                        </Border>
+                        <!-- MediaElement has no simple bool Play/Pause binding of its own — LoadedBehavior/
+                             UnloadedBehavior="Manual" mean it only ever starts/pauses/stops from the explicit
+                             Play_Click/Pause_Click/Stop_Click code-behind handlers below, never on its own
+                             just because a new file loaded (an unasked-for autoplay would be surprising here).
+                             Collapsed rather than sized small: this is audio-only, there's no video surface
+                             worth reserving layout space for. -->
+                        <Border Grid.Column="2" Margin="8,0,0,0" Background="{DynamicResource CardBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                Visibility="{Binding SelectedAssetAudioPath, Converter={StaticResource NullToVisibilityConverter}}">
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="16">
+                                <TextBlock Text="Sound preview" Style="{StaticResource FieldLabelStyle}" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+                                <MediaElement x:Name="AudioPlayer" Source="{Binding SelectedAssetAudioPath}"
+                                              LoadedBehavior="Manual" UnloadedBehavior="Manual" Visibility="Collapsed"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <Button Content="▶ Play" Padding="10,5" Margin="0,0,8,0"
+                                            Click="AudioPlay_Click" AutomationProperties.Name="Play sound"/>
+                                    <Button Content="II Pause" Padding="10,5" Margin="0,0,8,0"
+                                            Click="AudioPause_Click" AutomationProperties.Name="Pause sound"/>
+                                    <Button Content="■ Stop" Padding="10,5"
+                                            Click="AudioStop_Click" AutomationProperties.Name="Stop sound"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2" Margin="8,0,0,0" Background="{DynamicResource CardBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                Visibility="{Binding SelectedAssetMaterialParams, Converter={StaticResource NullToVisibilityConverter}}">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8">
+                                <StackPanel DataContext="{Binding SelectedAssetMaterialParams}">
+                                    <TextBlock Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,8">
+                                        <Run Text="{Binding BlendMode, Mode=OneWay}"/>
+                                        <Run Text=" · "/>
+                                        <Run Text="{Binding ShadingModel, Mode=OneWay}"/>
+                                    </TextBlock>
+
+                                    <!-- An empty Textures/Colors/Scalars list renders as an empty,
+                                         zero-height ItemsControl with nothing shown — no separate
+                                         "hide this section" binding needed for that case. -->
+                                    <ItemsControl ItemsSource="{Binding Textures}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Margin="0,0,10,10" Width="84">
+                                                    <Border Width="80" Height="80" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                                                        <Image Source="{Binding Thumbnail}" Stretch="Uniform" Margin="2"/>
+                                                    </Border>
+                                                    <TextBlock Text="{Binding Name}" FontSize="10.5" TextTrimming="CharacterEllipsis"
+                                                               ToolTip="{Binding Name}" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <ItemsControl ItemsSource="{Binding Colors}" Margin="0,4,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                                    <Border Width="16" Height="16" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,0,8,0">
+                                                        <Border.Background>
+                                                            <SolidColorBrush Color="{Binding SwatchColor}"/>
+                                                        </Border.Background>
+                                                    </Border>
+                                                    <TextBlock FontFamily="Consolas" FontSize="11.5">
+                                                        <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold"/>
+                                                        <Run Text="  "/>
+                                                        <Run Text="{Binding DisplayText, Mode=OneWay}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                    </TextBlock>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <ItemsControl ItemsSource="{Binding Scalars}" Margin="0,4,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock FontFamily="Consolas" FontSize="11.5" Margin="0,0,0,4">
+                                                    <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold"/>
+                                                    <Run Text="  "/>
+                                                    <Run Text="{Binding Value, Mode=OneWay, StringFormat={}{0:0.###}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
                         </Border>
                     </Grid>
                 </Grid>

@@ -1,6 +1,4 @@
 using CUE4Parse.UE4.Assets.Exports.Texture;
-using CUE4Parse_Conversion.Textures;
-using SkiaSharp;
 
 namespace IcarusStarlink.PakIO.Assets;
 
@@ -23,20 +21,7 @@ public sealed class CueUassetTextureDecoder : IUassetTextureDecoder
         try
         {
             var texture = CueAssetProviderLocator.TryLoadExport<UTexture2D>(modFolderPath, relativeAssetPath);
-            if (texture is null)
-            {
-                return null;
-            }
-
-            var decoded = TextureDecoder.Decode(texture, ETexturePlatform.DesktopMobile);
-            if (decoded is null)
-            {
-                return null;
-            }
-
-            using var bitmap = TextureEncoder.ToSkBitmap(decoded);
-            using var pngData = bitmap.Encode(SKEncodedImageFormat.Png, 100);
-            return pngData.ToArray();
+            return texture is null ? null : UassetTexturePngEncoder.TryEncodeToPng(texture);
         }
         catch (Exception)
         {

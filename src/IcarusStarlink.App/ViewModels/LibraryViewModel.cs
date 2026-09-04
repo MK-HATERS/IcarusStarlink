@@ -41,6 +41,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IUnrealPakService _unrealPakService;
     private readonly IUassetTextureDecoder _uassetTextureDecoder;
     private readonly IUassetStaticMeshDecoder _uassetStaticMeshDecoder;
+    private readonly IUassetSkeletalMeshDecoder _uassetSkeletalMeshDecoder;
+    private readonly IUassetSoundDecoder _uassetSoundDecoder;
+    private readonly IUassetMaterialDecoder _uassetMaterialDecoder;
     private readonly IOpaquePakAssetPreviewService _opaquePakAssetPreviewService;
     private readonly INexusApiClient _nexusApiClient;
     private readonly ICredentialStore _credentialStore;
@@ -229,7 +232,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         ILibraryRepository repository, IUe4ssModRepository ue4ssModRepository, IUe4ssModStateService ue4ssModStateService,
         IUe4ssModMetaStore ue4ssModMetaStore, IUe4ssLoaderInstallService ue4ssLoaderInstallService,
         ISettingsService settingsService, IUnrealPakService unrealPakService, IUassetTextureDecoder uassetTextureDecoder,
-        IUassetStaticMeshDecoder uassetStaticMeshDecoder, IOpaquePakAssetPreviewService opaquePakAssetPreviewService,
+        IUassetStaticMeshDecoder uassetStaticMeshDecoder, IUassetSkeletalMeshDecoder uassetSkeletalMeshDecoder,
+        IUassetSoundDecoder uassetSoundDecoder, IUassetMaterialDecoder uassetMaterialDecoder,
+        IOpaquePakAssetPreviewService opaquePakAssetPreviewService,
         INexusApiClient nexusApiClient,
         ICredentialStore credentialStore,
         Func<string, ExmodEditorViewModel> editorFactory, IActivityLog activityLog, HttpClient downloadHttpClient,
@@ -262,6 +267,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         _unrealPakService = unrealPakService;
         _uassetTextureDecoder = uassetTextureDecoder;
         _uassetStaticMeshDecoder = uassetStaticMeshDecoder;
+        _uassetSkeletalMeshDecoder = uassetSkeletalMeshDecoder;
+        _uassetSoundDecoder = uassetSoundDecoder;
+        _uassetMaterialDecoder = uassetMaterialDecoder;
         _opaquePakAssetPreviewService = opaquePakAssetPreviewService;
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
@@ -1970,6 +1978,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         // Reload().
         var created = new LibraryItemViewModel(
             entry, _repository, _unrealPakService, _uassetTextureDecoder, _uassetStaticMeshDecoder,
+            _uassetSkeletalMeshDecoder, _uassetSoundDecoder, _uassetMaterialDecoder,
             _opaquePakAssetPreviewService, _settingsService,
             _nexusApiClient, _credentialStore,
             _downloadHttpClient, _thumbnailCacheDirectory, _pakPreviewCacheDirectory, Downloads.GetOrFetchCatalogAsync,
