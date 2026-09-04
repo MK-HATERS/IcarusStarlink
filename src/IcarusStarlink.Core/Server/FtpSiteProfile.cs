@@ -20,6 +20,19 @@ public sealed class FtpSiteProfile
     /// <summary>Remote directory to land in on connect — e.g. the server's own mods folder. Blank means whatever the server's own login directory is.</summary>
     public string RemotePath { get; set; } = "";
 
+    /// <summary>Override for where "Install merged pak to server" uploads on THIS site, when its
+    /// host lays out the dedicated server differently than SurvivalServers' own convention (see
+    /// ServerViewModel's DefaultRemoteModsPath doc comment). Null/blank means "use that fixed
+    /// default" — so a site saved before this field existed, or one that never sets it, behaves
+    /// exactly as before.</summary>
+    public string? ModsPath { get; set; }
+
+    /// <summary>Override for where the UE4SS loader/mods sync buttons upload on THIS site, same
+    /// null/blank-means-default convention as ModsPath above. The loader and UE4SS-mods paths are
+    /// both derived from this one (see ServerViewModel), so overriding it moves all three syncs
+    /// together.</summary>
+    public string? Win64Path { get; set; }
+
     public FtpEncryptionMode EncryptionMode { get; set; } = FtpEncryptionMode.None;
 
     /// <summary>SHA-256 thumbprint of a TLS certificate this site's user has explicitly chosen to

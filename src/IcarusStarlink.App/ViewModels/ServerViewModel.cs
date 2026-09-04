@@ -35,13 +35,54 @@ public sealed partial class ServerViewModel : ObservableObject
     // root is NOT the game project root — it's one level up, with the actual Content\/Binaries\
     // tree sitting under a fixed "Icarus" subfolder (alongside IcarusServer.exe, a "Saved" folder,
     // etc.) — SurvivalServers' own per-game-type convention, not something this user configured.
-    // Below that, it's an exact mirror of the local layout, just with forward slashes. Fixed
-    // rather than a per-site field, per the user's own call ("assume a fixed relative path should
-    // be fine").
-    private const string RemoteModsPath = "Icarus/Content/Paks/mods";
-    private const string RemoteWin64Path = "Icarus/Binaries/Win64";
-    private const string RemoteLoaderPath = "Icarus/Binaries/Win64/ue4ss";
-    private const string RemoteModsRootPath = "Icarus/Binaries/Win64/ue4ss/Mods";
+    // Below that, it's an exact mirror of the local layout, just with forward slashes. Originally
+    // fixed rather than a per-site field, per the user's own call ("assume a fixed relative path
+    // should be fine") — since widened into FtpSiteProfile.ModsPath/Win64Path (both optional)
+    // once other hosts turned out to lay a dedicated server out differently. These two remain the
+    // fallback for any site that leaves its own override unset, so nothing changes for the site
+    // this was originally reverse-engineered against.
+    private const string DefaultRemoteModsPath = "Icarus/Content/Paks/mods";
+    private const string DefaultRemoteWin64Path = "Icarus/Binaries/Win64";
+
+    /// <summary>Which saved site the LIVE connection (_connectedClient) actually belongs to — kept
+    /// deliberately separate from SelectedSite, which only drives the site-details form and the
+    /// Sites list selection and can drift away from the connected site (nothing stops selecting a
+    /// different saved site in the list while still connected to another one). Set once ConnectAsync
+    /// actually succeeds; cleared on DisconnectAsync. The four Remote*Path properties below resolve
+    /// against THIS, not SelectedSite, so a stale selection can't upload to the wrong site's path.</summary>
+    private FtpSiteProfile? _connectedSite;
+
+    /// <summary>The connected site's own ModsPath override when it set one, else the fixed
+    /// SurvivalServers-shaped default above. Internal (not private) purely so ServerViewModelTests
+    /// can assert on it after a real ConnectAsync round trip — this ViewModel had no tests at all
+    /// before this, and every command that actually uploads also pops a real ThemedMessageBox
+    /// confirmation, which can't run in a unit test host.</summary>
+    internal string RemoteModsPath
+    {
+        get
+        {
+            var siteOverride = _connectedSite?.ModsPath;
+            return string.IsNullOrWhiteSpace(siteOverride) ? DefaultRemoteModsPath : siteOverride;
+        }
+    }
+
+    /// <summary>Same override-or-default resolution as RemoteModsPath, against Win64Path.</summary>
+    internal string RemoteWin64Path
+    {
+        get
+        {
+            var siteOverride = _connectedSite?.Win64Path;
+            return string.IsNullOrWhiteSpace(siteOverride) ? DefaultRemoteWin64Path : siteOverride;
+        }
+    }
+
+    /// <summary>Derived from RemoteWin64Path (not a second independent override) so a site that
+    /// overrides Win64Path moves its UE4SS loader location along with it, same relative layout as
+    /// the fixed default (Win64/ue4ss).</summary>
+    internal string RemoteLoaderPath => $"{RemoteWin64Path}/ue4ss";
+
+    /// <summary>Derived from RemoteLoaderPath, same reasoning — Win64/ue4ss/Mods.</summary>
+    internal string RemoteModsRootPath => $"{RemoteLoaderPath}/Mods";
 
     private IFtpClient? _connectedClient;
 
@@ -73,6 +114,14 @@ public sealed partial class ServerViewModel : ObservableObject
 
     [ObservableProperty]
     private string _remotePathInput = "";
+
+    /// <summary>Blank means "use the fixed SurvivalServers-shaped default" (DefaultRemoteModsPath) — same convention as RemotePathInput above, not a validated/required field.</summary>
+    [ObservableProperty]
+    private string _modsPathInput = "";
+
+    /// <summary>Blank means "use the fixed default" (DefaultRemoteWin64Path) — same convention as ModsPathInput.</summary>
+    [ObservableProperty]
+    private string _win64PathInput = "";
 
     [ObservableProperty]
     private FtpEncryptionMode _encryptionModeInput;
@@ -174,6 +223,8 @@ public sealed partial class ServerViewModel : ObservableObject
         UsernameInput = value.Username;
         PasswordInput = "";
         RemotePathInput = value.RemotePath;
+        ModsPathInput = value.ModsPath ?? "";
+        Win64PathInput = value.Win64Path ?? "";
         EncryptionModeInput = value.EncryptionMode;
         SiteStatusMessage = null;
         IsSiteFormOpen = true;
@@ -189,6 +240,8 @@ public sealed partial class ServerViewModel : ObservableObject
         UsernameInput = "";
         PasswordInput = "";
         RemotePathInput = "";
+        ModsPathInput = "";
+        Win64PathInput = "";
         EncryptionModeInput = FtpEncryptionMode.None;
         SiteStatusMessage = null;
         IsSiteFormOpen = true;
@@ -213,7 +266,10 @@ public sealed partial class ServerViewModel : ObservableObject
         var site = new FtpSiteProfile
         {
             Id = id, Name = SiteNameInput, Host = HostInput, Port = port, Username = UsernameInput,
-            RemotePath = RemotePathInput, EncryptionMode = EncryptionModeInput,
+            RemotePath = RemotePathInput,
+            ModsPath = string.IsNullOrWhiteSpace(ModsPathInput) ? null : ModsPathInput,
+            Win64Path = string.IsNullOrWhiteSpace(Win64PathInput) ? null : Win64PathInput,
+            EncryptionMode = EncryptionModeInput,
             // Neither field has a UI of its own to edit — both are learned elsewhere (a real
             // certificate-trust prompt during Connect; a real delete attempt against the server)
             // and would otherwise be silently wiped back to "never tested" every time this form
@@ -370,6 +426,7 @@ public sealed partial class ServerViewModel : ObservableObject
             }
 
             _connectedClient = client;
+            _connectedSite = site;
             IsConnected = true;
             ConnectionStatusMessage = $"Connected to '{site.Name}'.";
             _activityLog.Log($"Connected to FTP site '{site.Name}'.", ActivityEntryKind.Success);
@@ -415,6 +472,7 @@ public sealed partial class ServerViewModel : ObservableObject
         {
             await _connectedClient.DisposeAsync();
             _connectedClient = null;
+            _connectedSite = null;
             IsConnected = false;
             RemoteEntries.Clear();
             ConnectionStatusMessage = "Disconnected.";

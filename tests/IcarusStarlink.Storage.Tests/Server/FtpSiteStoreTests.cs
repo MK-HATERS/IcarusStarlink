@@ -73,6 +73,7 @@ public class FtpSiteStoreTests : IDisposable
         {
             Id = id, Name = "Full Fields", Host = "203.0.113.5", Port = 2121, Username = "admin",
             RemotePath = "/home/icarus/mods", EncryptionMode = FtpEncryptionMode.Explicit,
+            ModsPath = "gameserver/Content/Paks/mods", Win64Path = "gameserver/Binaries/Win64",
         };
         CreateStore().Save(site);
 
@@ -84,6 +85,25 @@ public class FtpSiteStoreTests : IDisposable
         Assert.Equal(site.Username, reloaded.Username);
         Assert.Equal(site.RemotePath, reloaded.RemotePath);
         Assert.Equal(site.EncryptionMode, reloaded.EncryptionMode);
+        Assert.Equal(site.ModsPath, reloaded.ModsPath);
+        Assert.Equal(site.Win64Path, reloaded.Win64Path);
+    }
+
+    /// <summary>
+    /// ModsPath/Win64Path are nullable specifically so a site saved before these fields existed —
+    /// or one whose host matches the SurvivalServers-shaped default and never sets an override —
+    /// keeps working unchanged; this is the regression test for that back-compat contract.
+    /// </summary>
+    [Fact]
+    public void Save_NeitherPerSitePathOverrideSet_RoundTripsAsNullRatherThanEmptyString()
+    {
+        var id = Guid.NewGuid();
+        CreateStore().Save(MakeSite(id));
+
+        var reloaded = Assert.Single(CreateStore().GetAll());
+
+        Assert.Null(reloaded.ModsPath);
+        Assert.Null(reloaded.Win64Path);
     }
 
     [Fact]

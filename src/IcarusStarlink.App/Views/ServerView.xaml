@@ -76,7 +76,7 @@
                     <Expander.Header>
                         <DockPanel LastChildFill="False">
                             <TextBlock DockPanel.Dock="Left" Text="Site details" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                            <TextBlock DockPanel.Dock="Left" Text="Name · Host · Port · Username · Password · Remote path · Encryption" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                            <TextBlock DockPanel.Dock="Left" Text="Name · Host · Port · Username · Password · Remote path · Mods path · Win64 path · Encryption" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                         </DockPanel>
                     </Expander.Header>
                     <StackPanel>
@@ -100,6 +100,18 @@
                     <TextBlock Text="Remote path" FontSize="12" Margin="0,8,0,2"/>
                     <TextBox Text="{Binding RemotePathInput, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Directory to land in on connect — e.g. the server's own mods folder. Blank = wherever the server logs you in."/>
+
+                    <!-- Optional per-site overrides for the Icarus server sync buttons below —
+                         those assume a fixed SurvivalServers-shaped layout by default (relative to
+                         the FTP login root); only needed when this site's own host lays its
+                         dedicated server out differently. -->
+                    <TextBlock Text="Mods path" FontSize="12" Margin="0,8,0,2"/>
+                    <TextBox Text="{Binding ModsPathInput, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Where 'Install merged pak' uploads on THIS site, relative to the FTP login root. Blank = the default Icarus/Content/Paks/mods. Only needed if this host lays out the dedicated server differently."/>
+
+                    <TextBlock Text="Win64 path" FontSize="12" Margin="0,8,0,2"/>
+                    <TextBox Text="{Binding Win64PathInput, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Where the UE4SS loader/mods sync buttons upload on THIS site, relative to the FTP login root. Blank = the default Icarus/Binaries/Win64. Only needed if this host lays out the dedicated server differently."/>
 
                     <TextBlock Text="Encryption" FontSize="12" Margin="0,8,0,2"/>
                     <ComboBox ItemsSource="{Binding EncryptionModes}" SelectedItem="{Binding EncryptionModeInput}"/>
@@ -135,18 +147,19 @@
                                Foreground="{DynamicResource DangerBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
                                Visibility="{Binding HasKnownDeleteRestriction, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
-                    <!-- Icarus-server-specific sync actions — a fixed relative path from the FTP
-                         login root (Content/Paks/mods, Binaries/Win64/...), confirmed against a
-                         real dedicated server rather than a per-site configurable field. Each one
-                         names exactly what it's about to delete/upload/skip in its own confirmation
-                         prompt before doing anything. -->
+                    <!-- Icarus-server-specific sync actions — a relative path from the FTP login
+                         root (Content/Paks/mods, Binaries/Win64/...), confirmed against a real
+                         dedicated server (SurvivalServers) as the default, with this site's own
+                         Mods path/Win64 path above overriding it when set. Each one names exactly
+                         what it's about to delete/upload/skip in its own confirmation prompt
+                         before doing anything. -->
                     <TextBlock Text="Icarus server sync" Style="{StaticResource FieldLabelStyle}"
                                Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,20,0,6"/>
                     <WrapPanel IsEnabled="{Binding IsNotBusy}" Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Button Content="Install merged pak" Command="{Binding InstallPakToServerCommand}"
-                                ToolTip="Uploads the last built merged pak (Merge &amp; Install's own Rebuild output) to the server's Content/Paks/mods, replacing whatever's already there."/>
+                                ToolTip="Uploads the last built merged pak (Merge &amp; Install's own Rebuild output) to the server's mods folder (Content/Paks/mods by default, or this site's own Mods path override), replacing whatever's already there."/>
                         <Button Content="Sync UE4SS loader" Command="{Binding SyncUe4ssLoaderToServerCommand}" Margin="8,0,0,0"
-                                ToolTip="Checks the server's own UE4SS version and uploads the loader if it's missing or out of date. Never touches the server's own Mods folder or an existing UE4SS-settings.ini."/>
+                                ToolTip="Checks the server's own UE4SS version and uploads the loader if it's missing or out of date, to Binaries/Win64 by default or this site's own Win64 path override. Never touches the server's own Mods folder or an existing UE4SS-settings.ini."/>
                         <Button Content="Sync UE4SS mods" Command="{Binding SyncUe4ssModsToServerCommand}" Margin="8,0,0,0"
                                 ToolTip="Uploads any locally-enabled UE4SS mod the server doesn't already have. Never removes or overwrites a mod already on the server."/>
                     </WrapPanel>
