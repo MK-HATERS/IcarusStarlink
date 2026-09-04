@@ -24,8 +24,9 @@ across selected items, undo, add-item-from-game-data, a pop-out for any pane wit
 position kept in sync with wherever else that same view is open, and a cross-file "what else
 references this" search over the whole extracted data folder); real asset preview for a mod's own
 textures, static/skeletal meshes (3D, orbit camera), sound (playback), and materials (texture/color/
-scalar parameters) — covers opaque prebuilt-`.pak` imports too, not just EXMOD mods; proactive
-staleness detection that
+scalar parameters, including a base-game fallback so a modded material overriding an existing
+base-game parent can still show that parent's own texture/color values, not just an empty list) —
+covers opaque prebuilt-`.pak` imports too, not just EXMOD mods; proactive staleness detection that
 flags mods whose targets a game update may have renamed or removed, with confidence-tiered
 auto-repair (always backed up first). A prebuilt `.pak` mod converts into a real, editable EXMOD
 automatically wherever it's possible to (at import, on demand via **Convert opaque mods…**, or
@@ -69,10 +70,11 @@ path overrides for a host whose folder layout differs from the built-in default.
 
 **Saves** — a full player save editor: characters (name, XP, duplicate/delete a slot), currencies,
 talents (character and account-wide Workshop research), account/character/binary unlock flags,
-Bestiary encounter progress, Accolade completion, the account-wide item bank, per-character
-cosmetic values, and tamed mounts (name, level, species, delete) — with mandatory automatic
-backups before every write and hard safety gates (refuses to touch a save while the game is
-running, re-checked immediately before the write itself).
+Bestiary encounter progress, Accolade completion, the account-wide item bank (with real item/
+creature icons resolved straight from the base game's own compiled content, not text-only), and
+tamed mounts (name, level, species, delete) — with mandatory automatic backups before every write
+and hard safety gates (refuses to touch a save while the game is running, re-checked immediately
+before the write itself).
 
 **Migration & verification** — import a mod list straight from a classic IMM install and match it
 against your Library, plus two comparison tools: one that diffs any two `.pak` files field by field
@@ -99,17 +101,19 @@ every feature above.
   years with no known enforcement action, which is real-world precedent this is tolerated in
   practice, not evidence it's actually permitted. This isn't legal advice — get a human legal read
   on the exact current EULA text before a wider public release.
-- The Save editor's item/creature entries still show as text only, no icon — this app does now have
-  a real UE4.27 texture decoder (added for Library's own asset preview), so the remaining work is
-  wiring an existing capability into the Save editor's display, not building one from scratch. The
-  real blocker: an item/creature's icon path (confirmed present in the game's own data) points at
-  base-game compiled content inside one of Content\Paks' 33 pakchunks, and this app has never read
-  anything from there — only ever the plain-JSON Content\Data\data.pak this app itself extracts.
-- Material preview reliably shows scalar/blend-mode data, but real modded content overwhelmingly
-  overrides an existing base-game parent material, and this app has no way to resolve that parent's
-  own texture slots (same underlying "can't read Content\Paks" limitation above) — so the texture
-  and color parameter lists come back empty for most real mods, confirmed against several of the
-  user's own real materials, not just a guess.
+- Material preview's base-game fallback only actually recovers texture/color values when the
+  resolved parent is a plain base-game material — a common case (confirmed live against real mods:
+  28 real textures and 17 real colors recovered for a real modded material that came back completely
+  empty before this fallback existed), but if the parent turns out to be *another* material instance
+  rather than a plain material, the same underlying CachedExpressionData gap this fallback works
+  around can still leave that one empty too (see `CueUassetMaterialDecoder`'s own doc comment for
+  why).
+- The Save editor's item/mount/creature icons resolve from the same base-game content as above, so
+  they inherit that same edge case, plus one more: a very small number of older save entries store an
+  item's row name slightly differently than the current game data does (one real example found:
+  `LegendaryWeapon_ApeClub` in a save vs. `LegendaryWeapon_Ape_Club` in the live data table) — those
+  rows already showed the wrong (raw ID) display name before this feature existed, and now also show
+  no icon, for the same underlying reason: the row simply isn't found under the name the save uses.
 - Sound preview is implemented and correct, but Icarus's own shipped content uses FMOD exclusively
   (confirmed against the real game's asset registry: zero native UE4 USoundWave assets anywhere in
   86,000+ real assets) — a real mod would need to ship a genuinely unusual asset for this to ever
