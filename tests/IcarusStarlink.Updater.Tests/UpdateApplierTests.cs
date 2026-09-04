@@ -94,4 +94,37 @@ public sealed class UpdateApplierTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => UpdateApplier.Apply(_installDirectory, _newFilesDirectory, _ => { }));
         Assert.Equal("old exe", File.ReadAllText(Path.Combine(_installDirectory, "IcarusStarlink.App.exe")));
     }
+
+    /// <summary>
+    /// The rollback story: if CopyWithRetry exhausts its retries partway through (here, simulated
+    /// with a real exclusively-locked file — the same real-world condition CopyWithRetry's own
+    /// retry loop exists for), every file this Apply call had already overwritten must be restored
+    /// to its pre-update content, not left as a mix of old and new. Whichever order the copy loop
+    /// happens to visit these files in, the end state must always be "exactly as it started" —
+    /// the assertions below hold either way (see UpdateApplier.Apply's own remarks).
+    /// </summary>
+    [Fact]
+    public void Apply_RollsBackAlreadyOverwrittenFilesWhenACopyFailsPartway()
+    {
+        WriteInstall("IcarusStarlink.App.exe", "old exe");
+        WriteInstall("GoodFile.dll", "old good");
+        WriteInstall("LockedFile.dll", "old locked");
+        WriteNew("IcarusStarlink.App.exe", "new exe");
+        WriteNew("GoodFile.dll", "new good");
+        WriteNew("LockedFile.dll", "new locked");
+
+        var lockedPath = Path.Combine(_installDirectory, "LockedFile.dll");
+        using (new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            // Held open with zero sharing for the whole Apply call — every attempt to even read
+            // this file for its own backup (let alone overwrite it) hits a real sharing violation
+            // until this handle closes at the end of this using block, exactly like a file the
+            // just-exited main process hasn't fully released yet.
+            Assert.Throws<IOException>(() => UpdateApplier.Apply(_installDirectory, _newFilesDirectory, _ => { }));
+        }
+
+        Assert.Equal("old exe", File.ReadAllText(Path.Combine(_installDirectory, "IcarusStarlink.App.exe")));
+        Assert.Equal("old good", File.ReadAllText(Path.Combine(_installDirectory, "GoodFile.dll")));
+        Assert.Equal("old locked", File.ReadAllText(lockedPath));
+    }
 }
