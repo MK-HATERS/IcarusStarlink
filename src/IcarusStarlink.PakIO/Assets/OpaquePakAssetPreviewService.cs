@@ -4,7 +4,7 @@ using IcarusStarlink.PakIO.Pak;
 namespace IcarusStarlink.PakIO.Assets;
 
 /// <summary>
-/// Wires IUnrealPakService.ExtractPakAsync to the same two decoders a regular EXMOD mod's own
+/// Wires IUnrealPakService.ExtractPakAsync to the same five decoders a regular EXMOD mod's own
 /// preview already goes through (CueAssetProviderLocator needs a real folder on disk to index —
 /// it can't be pointed at bytes still packed inside a .pak), so an opaque pak's own .uasset
 /// entries get a genuine decode attempt instead of an unconditional "no preview available".
@@ -19,7 +19,8 @@ namespace IcarusStarlink.PakIO.Assets;
 /// class is the one place that cost would need to change.
 /// </summary>
 public sealed class OpaquePakAssetPreviewService(
-    IUnrealPakService unrealPakService, IUassetTextureDecoder textureDecoder, IUassetStaticMeshDecoder meshDecoder)
+    IUnrealPakService unrealPakService, IUassetTextureDecoder textureDecoder, IUassetStaticMeshDecoder meshDecoder,
+    IUassetSkeletalMeshDecoder skeletalMeshDecoder, IUassetSoundDecoder soundDecoder, IUassetMaterialDecoder materialDecoder)
     : IOpaquePakAssetPreviewService
 {
     // Marks a cache directory as "this exact pak, already fully extracted here" — a cheap
@@ -101,20 +102,37 @@ public sealed class OpaquePakAssetPreviewService(
         {
             try
             {
+                // Same order LibraryItemViewModel.DecodeCompiledAsset already uses for a regular
+                // EXMOD mod's own preview: texture first, then static mesh, then skeletal mesh
+                // (both mesh kinds share the one Mesh slot), then sound, then material — the first
+                // decoder to actually produce something short-circuits every decoder still after it.
                 var png = textureDecoder.TryDecodeToPng(cacheDirectory, relativeAssetPath);
                 if (png is not null)
                 {
                     return OpaquePakAssetPreviewResult.Decoded(pngBytes: png);
                 }
 
-                var mesh = meshDecoder.TryDecodeStaticMesh(cacheDirectory, relativeAssetPath);
-                return mesh is not null
-                    ? OpaquePakAssetPreviewResult.Decoded(mesh: mesh)
-                    : OpaquePakAssetPreviewResult.Failed("not a texture or static mesh, or couldn't be decoded");
+                var mesh = meshDecoder.TryDecodeStaticMesh(cacheDirectory, relativeAssetPath)
+                    ?? skeletalMeshDecoder.TryDecodeSkeletalMesh(cacheDirectory, relativeAssetPath);
+                if (mesh is not null)
+                {
+                    return OpaquePakAssetPreviewResult.Decoded(mesh: mesh);
+                }
+
+                var sound = soundDecoder.TryDecodeAudio(cacheDirectory, relativeAssetPath);
+                if (sound is not null)
+                {
+                    return OpaquePakAssetPreviewResult.Decoded(sound: sound);
+                }
+
+                var material = materialDecoder.TryDecodeMaterial(cacheDirectory, relativeAssetPath);
+                return material is not null
+                    ? OpaquePakAssetPreviewResult.Decoded(material: material)
+                    : OpaquePakAssetPreviewResult.Failed("not a texture, mesh, sound, or material, or couldn't be decoded");
             }
             catch (Exception ex)
             {
-                // Belt-and-suspenders: both decoders already catch internally and return null
+                // Belt-and-suspenders: every decoder already catches internally and returns null
                 // rather than throw (see their own doc comments) — this only guards against a
                 // future change to that contract turning into an unhandled exception here.
                 return OpaquePakAssetPreviewResult.Failed($"couldn't decode this asset: {ex.Message}");

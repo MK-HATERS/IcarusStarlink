@@ -793,13 +793,14 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// DecodeCompiledAssetPreviewAsync above can point its decoders straight at this mod's own
     /// folder on disk because a regular EXMOD mod's assets already live there loose — an opaque
     /// pak's own assets don't; they're only ever packed inside its single .pak file, which
-    /// CueAssetProviderLocator (what both decoders go through) can't index directly. So this
+    /// CueAssetProviderLocator (what every decoder goes through) can't index directly. So this
     /// extracts that pak first — cached under this app's own Cache directory, same convention
     /// ThumbnailImage's own remote-picture cache already uses, keyed by this mod's FolderName so
     /// repeated preview clicks against the same pak don't each pay a fresh whole-pak extract (see
     /// OpaquePakAssetPreviewService's own doc comment for why it's whole-pak, not scoped, and
-    /// what that costs the first time) — then runs the exact same two decoders through it. Same
-    /// generation-based staleness guard as DecodeCompiledAssetPreviewAsync.
+    /// what that costs the first time) — then runs the exact same five decoders through it. Same
+    /// generation-based staleness guard, and the same PngBytes/Mesh/Sound/Material branching, as
+    /// DecodeCompiledAssetPreviewAsync.
     /// </summary>
     private async Task DecodeOpaquePakAssetPreviewAsync(string relativeAssetPath, int generation)
     {
@@ -869,6 +870,29 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         else if (result.Mesh is not null)
         {
             SelectedAssetMesh = BuildMeshModel(result.Mesh);
+            SelectedAssetPreview = null;
+        }
+        else if (result.Sound is { WavBytes: { } wavBytes })
+        {
+            try
+            {
+                SelectedAssetAudioPath = WriteAudioTempFile(wavBytes);
+                SelectedAssetPreview = null;
+            }
+            catch (Exception ex)
+            {
+                // Same UI boundary as DecodeCompiledAssetPreviewAsync's own sound branch: a real
+                // but unlikely failure (disk full, %TEMP% unavailable/locked down).
+                SelectedAssetPreview = $"(compiled Unreal asset — couldn't write this sound to a temp file for playback: {ex.Message})";
+            }
+        }
+        else if (result.Sound is { UnsupportedFormatReason: { } unsupportedReason })
+        {
+            SelectedAssetPreview = $"(compiled Unreal asset — {unsupportedReason})";
+        }
+        else if (result.Material is not null)
+        {
+            SelectedAssetMaterialParams = BuildMaterialParamsDisplay(result.Material);
             SelectedAssetPreview = null;
         }
         else
