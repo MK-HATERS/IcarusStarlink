@@ -459,6 +459,13 @@ public sealed partial class ServerViewModel : ObservableObject
             return;
         }
 
+        // This command touches the shared _connectedClient the same way every other FTP command
+        // does, so it needs the same IsBusy=true guard around its own body — without it, every
+        // IsEnabled="{Binding IsNotBusy}" button stayed clickable for the full duration of the two
+        // awaits below, and _connectedClient stayed non-null until the finally block, so a command
+        // like Refresh could genuinely race DisconnectAsync's own DisconnectAsync()/DisposeAsync()
+        // calls on the same non-thread-safe client instance.
+        IsBusy = true;
         try
         {
             await _connectedClient.DisconnectAsync();
@@ -478,6 +485,7 @@ public sealed partial class ServerViewModel : ObservableObject
             RemoteEntries.Clear();
             ConnectionStatusMessage = "Disconnected.";
             _activityLog.Log($"Disconnected from FTP site '{disconnectedSiteName}'.");
+            IsBusy = false;
         }
     }
 

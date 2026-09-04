@@ -29,7 +29,7 @@ public sealed class ServerViewModelTests
         ModsPath = modsPath, Win64Path = win64Path,
     };
 
-    private static ServerViewModel CreateViewModel(FakeFtpSiteStore siteStore, FakeFtpClient ftpClient) => new(
+    private static ServerViewModel CreateViewModel(FakeFtpSiteStore siteStore, IFtpClient ftpClient) => new(
         siteStore,
         new FakeCredentialStore(),
         () => ftpClient,
@@ -101,6 +101,39 @@ public sealed class ServerViewModelTests
         Assert.Equal("Icarus/Binaries/Win64", vm.RemoteWin64Path);
     }
 
+    /// <summary>
+    /// Regression test: DisconnectAsync used to be the one FTP-touching command in this class that
+    /// never set IsBusy=true around its own body, unlike every other one (see the class's own IsBusy
+    /// doc comment) — so every IsEnabled="{Binding IsNotBusy}" button stayed clickable for the full
+    /// duration of its two awaits, and _connectedClient stayed non-null until the very end, letting a
+    /// command like Refresh genuinely race Disconnect's own DisconnectAsync/DisposeAsync calls on the
+    /// same client instance. GatedFtpClient's own DisconnectAsync blocks on a TaskCompletionSource so
+    /// this test can observe IsBusy mid-flight, before the fix would have already flipped it back.
+    /// </summary>
+    [Fact]
+    public async Task DisconnectAsync_WhileInFlight_SetsIsBusySoOtherCommandsCantRaceIt()
+    {
+        var site = MakeSite(Guid.NewGuid());
+        var gatedClient = new GatedFtpClient();
+        var vm = CreateViewModel(new FakeFtpSiteStore([site]), gatedClient);
+        vm.SelectedSite = vm.Sites.Single();
+        vm.PasswordInput = "irrelevant-password";
+        await vm.ConnectCommand.ExecuteAsync(null);
+        Assert.False(vm.IsBusy);
+
+        var disconnectTask = vm.DisconnectCommand.ExecuteAsync(null);
+        await gatedClient.EnteredDisconnect.Task;
+
+        Assert.True(vm.IsBusy);
+        Assert.True(vm.IsConnected);
+
+        gatedClient.ReleaseDisconnect.SetResult();
+        await disconnectTask;
+
+        Assert.False(vm.IsBusy);
+        Assert.False(vm.IsConnected);
+    }
+
     private sealed class FakeFtpSiteStore(IEnumerable<FtpSiteProfile> sites) : IFtpSiteStore
     {
         private readonly List<FtpSiteProfile> _sites = sites.ToList();
@@ -136,6 +169,38 @@ public sealed class ServerViewModelTests
             throw new NotSupportedException("Not exercised by these tests.");
 
         public Task DisconnectAsync() => Task.CompletedTask;
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    /// <summary>Same instant-connect happy path as FakeFtpClient, but DisconnectAsync blocks on a
+    /// TaskCompletionSource until the test releases it — lets a test observe ServerViewModel's own
+    /// state (IsBusy, IsConnected) WHILE a disconnect is genuinely still in flight, not just before
+    /// and after.</summary>
+    private sealed class GatedFtpClient : IFtpClient
+    {
+        public TaskCompletionSource EnteredDisconnect { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseDisconnect { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<FtpEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<FtpEntry>>([]);
+
+        public Task UploadFileAsync(string localPath, string remotePath, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("Not exercised by these tests.");
+
+        public Task DownloadFileAsync(string remotePath, string localPath, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("Not exercised by these tests.");
+
+        public Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("Not exercised by these tests.");
+
+        public async Task DisconnectAsync()
+        {
+            EnteredDisconnect.SetResult();
+            await ReleaseDisconnect.Task;
+        }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
