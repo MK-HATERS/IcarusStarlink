@@ -55,7 +55,7 @@
                 </DockPanel>
             </Expander.Header>
             <StackPanel Orientation="Horizontal">
-                <Button Command="{Binding ExportPatchCommand}"
+                <Button Command="{Binding ExportPatchCommand}" IsEnabled="{Binding IsNotExportingPatch}"
                         ToolTip="Share the selected profile's mod list with a friend or server — bundles anything not in the community catalog"
                         AutomationProperties.Name="Export patch">
                     <StackPanel Orientation="Horizontal">

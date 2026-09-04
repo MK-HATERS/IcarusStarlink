@@ -191,6 +191,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private bool _isExportingPatch;
 
+    /// <summary>Bound to the Export patch button's own IsEnabled — a real, if slow, network + file
+    /// operation (catalog fetch, then a SaveFileDialog), so a fast double-click could otherwise
+    /// start two overlapping exports.</summary>
+    public bool IsNotExportingPatch => !IsExportingPatch;
+
+    partial void OnIsExportingPatchChanged(bool value) => OnPropertyChanged(nameof(IsNotExportingPatch));
+
     [ObservableProperty]
     private string? _patchStatusMessage;
 
@@ -717,6 +724,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand]
     private async Task ExportPatchAsync()
     {
+        if (IsExportingPatch)
+        {
+            return;
+        }
+
         if (SelectedProfileName is not { } profileName)
         {
             PatchStatusMessage = "Select or save a profile first.";
