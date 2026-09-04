@@ -308,10 +308,13 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         ReadBaseTables(currentFiles, dataFolder, report).Keyed;
 
     /// <summary>
-    /// EXMOD's own CurrentFile convention flattens the real folder path with dashes
-    /// ("Traits-D_Fuel.json") — confirmed against dozens of real .EXMOD files, where a plain
-    /// `.Replace('-', '/')` recovers the real extracted-data-relative path ("Traits/D_Fuel.json")
-    /// with no ambiguity (no real DataTable filename contains an embedded dash).
+    /// The resolve-CurrentFile-to-a-real-base-file-and-parse-it step is BaseDataFileReader.ParseFile
+    /// (shared with ExmodBaseDiffer/GameplayOptionsFieldChangeGenerator/PrebuiltPakFieldChangeExtractor/
+    /// ExmodFieldValidityChecker, so its warning wording and path-resolution convention can't drift
+    /// between call sites) — this method's own job on top of that is keeping both the keyed AND the
+    /// original unkeyed JsonObject per file (RebuildService needs the original to preserve its own
+    /// RowStruct/Defaults when writing a merged table back out; the shared helper's own ReadKeyedTable
+    /// wrapper only keeps the keyed form, which is why this calls ParseFile directly instead).
     /// </summary>
     private static (Dictionary<string, JsonObject> Keyed, Dictionary<string, JsonObject> Original) ReadBaseTables(
         IEnumerable<string> currentFiles, string dataFolder, MergeReport report)
@@ -325,37 +328,12 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
 
         foreach (var currentFile in currentFiles.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var realRelativePath = currentFile.Replace('-', '/');
-
-            // CurrentFile is untrusted EXMOD content (an attacker-shared or downloaded mod), not
-            // just an internal identifier — without this guard, a rooted or ".."-laden CurrentFile
-            // would let Path.Combine below read an arbitrary file anywhere the app process can
-            // access, via nothing more than the completely ordinary "queue a mod" workflow.
-            string basePath;
-            try
+            var fileJson = BaseDataFileReader.ParseFile(dataFolder, currentFile, report);
+            if (fileJson is null)
             {
-                basePath = AssetPathGuard.ResolveWithinDirectory(dataFolder, realRelativePath);
-            }
-            catch (FormatException)
-            {
-                report.AddWarning(
-                    $"Skipped '{currentFile}' — its path isn't a valid location inside the extracted game data.");
                 continue;
             }
 
-            if (!File.Exists(basePath))
-            {
-                report.AddWarning(
-                    $"Skipped '{currentFile}' — no matching file at '{realRelativePath}' in the extracted game data. "
-                    + "Run Update data folder again if the game has updated since your last one.");
-                continue;
-            }
-
-            // DuplicateTolerantJson, not a plain JsonNode.Parse: a real base-game DataTable file
-            // has been confirmed to contain a duplicate JSON key (a Jimk72-authored file's own
-            // "ResourceCostMultipliers" appears twice), which JsonNode.Parse throws on — this is
-            // the main Rebuild pipeline, so that would abort a whole Rebuild instead of degrading.
-            var fileJson = IcarusStarlink.PakIO.Exmod.DuplicateTolerantJson.Parse(File.ReadAllText(basePath))!.AsObject();
             original[currentFile] = fileJson;
             keyed[currentFile] = DataTableJson.RowsToKeyedObject(fileJson, duplicateName => report.AddWarning(
                 $"'{currentFile}' has more than one row named '{duplicateName}' — only the last one was kept, so a merge against the others' baseline is invisible."));
