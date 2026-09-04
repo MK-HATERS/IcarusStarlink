@@ -72,6 +72,20 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     private readonly object _packageCacheLock = new();
 
+    /// <summary>
+    /// FindQueueValidationIssuesAsync's own base DataTableRowIndex.Build(_dataFolder) call — a full
+    /// walk-and-parse of every extracted game-data JSON file (measured ~500ms-1.3s against this
+    /// app's real ~300-file data folder) — used to run fresh on every single call, even though
+    /// RecomputeValidationIssueCountAsync (its only real caller) fires on every debounced Queue
+    /// mutation and _dataFolder's own contents only ever change on a real "Update data folder" run.
+    /// GameDataIndexCache already solved this exact problem for the same data; this mirrors that
+    /// same lazy-build-once-then-invalidate-on-WeeklyChangeReportUpdatedMessage pattern locally,
+    /// under _packageCacheLock (reused rather than a second lock — both guard state read/written by
+    /// the same pair of concurrently-fired Recompute methods). WithDeclaredRows below returns a
+    /// fresh copy without mutating the cached base index, so caching it here is safe.
+    /// </summary>
+    private DataTableRowIndex? _cachedBaseDataTableIndex;
+
     /// <summary>Debounces the conflict/validation recompute that follows a Queue mutation — see the Queue.CollectionChanged handler below for why.</summary>
     private readonly DebounceTimer _recomputeDebounceTimer;
 
@@ -414,6 +428,17 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) =>
         {
             ((MergeInstallViewModel)recipient).InvalidatePackageCache();
+        });
+
+        // _dataFolder's own contents only ever change via a real "Update data folder" run — the
+        // same trigger GameDataIndexCache and LibraryViewModel already invalidate their own base-data
+        // caches on.
+        WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) =>
+        {
+            lock (((MergeInstallViewModel)recipient)._packageCacheLock)
+            {
+                ((MergeInstallViewModel)recipient)._cachedBaseDataTableIndex = null;
+            }
         });
 
         _ = RefreshHasExistingInstallAsync();
@@ -1637,6 +1662,21 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Builds DataTableRowIndex.Build(_dataFolder) — a full walk-and-parse of every extracted
+    /// game-data JSON file — at most once, reused by every later call until a real "Update data
+    /// folder" run invalidates it (see the WeeklyChangeReportUpdatedMessage registration in the
+    /// constructor). Safe to cache the base build: WithDeclaredRows (the only thing callers do with
+    /// the result) copies before mutating, never touching this cached instance.
+    /// </summary>
+    private DataTableRowIndex GetOrBuildBaseDataTableIndex()
+    {
+        lock (_packageCacheLock)
+        {
+            return _cachedBaseDataTableIndex ??= DataTableRowIndex.Build(_dataFolder);
+        }
+    }
+
+    /// <summary>
     /// Shared by ReviewConflictsAsync and the background badge computation — both need the exact
     /// same (queued packages) -&gt; (conflicts) pipeline. Also folds in the same "Built-in gameplay
     /// options" synthetic entry RebuildService itself appends (GameplayOptionsFieldChangeGenerator)
@@ -1858,7 +1898,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // renamed/removed by an upstream GAME PATCH is a real, different case — already handled
             // by TableApplier's own "item no longer exists in base data" warning at Rebuild time,
             // orthogonal to this queue-vs-queue check.)
-            var queueWideReferenceIndex = DataTableRowIndex.Build(_dataFolder).WithDeclaredRows(packages.Select(p => p.Package));
+            var queueWideReferenceIndex = GetOrBuildBaseDataTableIndex().WithDeclaredRows(packages.Select(p => p.Package));
             var rows = new List<ValidationIssueRowViewModel>();
 
             for (var i = 0; i < packages.Count; i++)
