@@ -1,3 +1,4 @@
+using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -18,6 +19,13 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
 
     public bool IsBoss { get; }
 
+    /// <summary>D_BestiaryData's own raw "Image" field (a "/Game/…/T_Bestiary_Xxx.T_Bestiary_Xxx" texture reference) — null for a creature with no current data-table entry (e.g. an old save's tracked RowName the game no longer defines) or no Image on it.</summary>
+    public string? ImagePath { get; }
+
+    /// <summary>Null until (if ever) SavesViewModel's own background resolution decodes ImagePath through the base-game content provider — a row shows text-only for however long that takes, or forever if it never resolves.</summary>
+    [ObservableProperty]
+    private BitmapImage? _icon;
+
     [ObservableProperty]
     private string _pointsText;
 
@@ -26,12 +34,13 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
     /// <summary>What Save should actually write: the parsed text, or the last-known-good value if the box is currently unparsable (e.g. mid-edit, cleared) — a save must never drop this entry just because the text box isn't a valid number right now.</summary>
     public int EffectivePoints => int.TryParse(PointsText, out var points) ? points : _originalPoints;
 
-    public SaveBestiaryEntryViewModel(string rowName, string displayName, int pointsRequired, bool isBoss, int currentPoints, Action onDirtyChanged)
+    public SaveBestiaryEntryViewModel(string rowName, string displayName, int pointsRequired, bool isBoss, int currentPoints, string? imagePath, Action onDirtyChanged)
     {
         RowName = rowName;
         DisplayName = displayName;
         PointsRequired = pointsRequired;
         IsBoss = isBoss;
+        ImagePath = imagePath;
         _originalPoints = currentPoints;
         _pointsText = currentPoints.ToString();
         _onDirtyChanged = onDirtyChanged;

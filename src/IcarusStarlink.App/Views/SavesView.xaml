@@ -385,6 +385,15 @@
                                         <Button Content="Set max" Command="{Binding SetMaxCommand}" Padding="8,2" Margin="8,0,0,0"
                                                 ToolTip="Fills in this creature's own TotalPointsRequired — fully unlocks its field-guide entry"/>
                                     </StackPanel>
+                                    <!-- Resolved lazily off the base game's own extracted pak content (see
+                                         IBaseGameIconDecoder) — collapsed entirely until (if ever) it
+                                         resolves, so a row never shows an empty placeholder box. -->
+                                    <Border DockPanel.Dock="Left" Width="28" Height="28" Margin="0,0,8,0"
+                                            Background="{DynamicResource CardRaisedBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
+                                            Visibility="{Binding Icon, Converter={StaticResource NullToVisibilityConverter}}">
+                                        <Image Source="{Binding Icon}" Stretch="Uniform" Margin="2"/>
+                                    </Border>
                                     <StackPanel>
                                         <TextBlock FontSize="12.5">
                                             <Run Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
@@ -480,6 +489,15 @@
                                             Command="{Binding DataContext.DeleteMetaInventoryItemCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding}"
                                             ToolTip="Removes this item from the meta bank — nothing else in the bank is touched"/>
+                                    <!-- Resolved lazily off the base game's own extracted pak content (see
+                                         IBaseGameIconDecoder) — collapsed entirely until (if ever) it
+                                         resolves, so a row never shows an empty placeholder box. -->
+                                    <Border DockPanel.Dock="Left" Width="28" Height="28" Margin="0,0,8,0"
+                                            Background="{DynamicResource CardRaisedBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
+                                            Visibility="{Binding Icon, Converter={StaticResource NullToVisibilityConverter}}">
+                                        <Image Source="{Binding Icon}" Stretch="Uniform" Margin="2"/>
+                                    </Border>
                                     <TextBlock VerticalAlignment="Center" FontSize="12.5">
                                         <Run Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/><Run Text="  "/><Run Text="{Binding WeightDisplay, Mode=OneWay}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/><Run Text="  "/><Run Text="{Binding MaxStackDisplay, Mode=OneWay}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
                                     </TextBlock>
@@ -516,6 +534,16 @@
                                             Command="{Binding DataContext.DeleteMountCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding}"
                                             ToolTip="Removes this mount — nothing else in the list is touched"/>
+
+                                    <!-- Resolved lazily off the base game's own extracted pak content (see
+                                         IBaseGameIconDecoder) — collapsed entirely until (if ever) it
+                                         resolves, so a row never shows an empty placeholder box. -->
+                                    <Border DockPanel.Dock="Left" Width="28" Height="28" Margin="0,0,10,0"
+                                            Background="{DynamicResource CardRaisedBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
+                                            Visibility="{Binding Icon, Converter={StaticResource NullToVisibilityConverter}}">
+                                        <Image Source="{Binding Icon}" Stretch="Uniform" Margin="2"/>
+                                    </Border>
 
                                     <TextBox DockPanel.Dock="Left" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
                                              Width="150" Margin="0,0,10,0" ToolTip="This mount's name"/>

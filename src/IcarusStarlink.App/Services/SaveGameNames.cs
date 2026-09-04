@@ -21,6 +21,7 @@ public sealed class SaveGameNames(string dataFolder)
     private IReadOnlyDictionary<string, BestiaryCreatureInfo>? _bestiaryCreatures;
     private IReadOnlyDictionary<string, ItemInfo>? _items;
     private IReadOnlyList<string>? _mountTypeRowNames;
+    private IReadOnlyDictionary<string, string>? _mountTypeIcons;
 
     public IReadOnlyList<string> CharacterFlagNames => _characterFlagNames ??= LoadRowNames(Path.Combine("Flags", "D_CharacterFlags.json"));
 
@@ -40,6 +41,9 @@ public sealed class SaveGameNames(string dataFolder)
 
     /// <summary>Every real, valid Mounts.json MountType value — D_Mounts's own row names (37 on a current extraction), confirmed to be exactly what MountType stores. Used to offer only real choices in a picker rather than free text, the same way a save's own binary flags/talent ranks are already bounded by real game data.</summary>
     public IReadOnlyList<string> MountTypeRowNames => _mountTypeRowNames ??= LoadRowNames(Path.Combine("AI", "D_Mounts.json"));
+
+    /// <summary>D_Mounts's own "Icon" field per row (a raw "/Game/…/T_Talent_Base_Xxx.T_Talent_Base_Xxx" texture reference, the same self-named-asset shape D_Itemable's own Icon/D_BestiaryData's own Image use), keyed by RowName — what a saved mount's own MountType resolves to for its thumbnail. A separate lazy load from MountTypeRowNames above (a second pass over the same small file) rather than folding into it, since that one's callers only ever wanted plain row names and a picker never needed icons.</summary>
+    public IReadOnlyDictionary<string, string> MountTypeIcons => _mountTypeIcons ??= LoadMountTypeIcons();
 
     public string CharacterFlagName(int id) => id >= 0 && id < CharacterFlagNames.Count ? CharacterFlagNames[id] : $"Flag {id}";
 
@@ -67,6 +71,36 @@ public sealed class SaveGameNames(string dataFolder)
         {
             return [];
         }
+    }
+
+    private IReadOnlyDictionary<string, string> LoadMountTypeIcons()
+    {
+        var icons = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var path = Path.Combine(dataFolder, "AI", "D_Mounts.json");
+            if (!File.Exists(path))
+            {
+                return icons;
+            }
+
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+            {
+                if (row.TryGetProperty("Name", out var name) && name.GetString() is { } rowName
+                    && row.TryGetProperty("Icon", out var icon) && icon.GetString() is { Length: > 0 } iconPath)
+                {
+                    icons[rowName] = iconPath;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Missing/corrupt table just means mounts show with no thumbnail — the type picker
+            // itself (MountTypeRowNames) degrades the exact same way already.
+        }
+
+        return icons;
     }
 
     private IReadOnlyDictionary<string, TalentInfo> LoadTalents()
@@ -186,11 +220,13 @@ public sealed class SaveGameNames(string dataFolder)
 
                 var pointsRequired = row.TryGetProperty("TotalPointsRequired", out var points) && points.ValueKind == JsonValueKind.Number ? points.GetInt32() : 0;
                 var isBoss = row.TryGetProperty("bIsBoss", out var boss) && boss.ValueKind == JsonValueKind.True;
+                var imagePath = row.TryGetProperty("Image", out var image) && image.GetString() is { Length: > 0 } img ? img : null;
 
                 creatures.TryAdd(rowName, new BestiaryCreatureInfo(
                     ParseLocText(row, "CreatureName") ?? rowName,
                     pointsRequired,
-                    isBoss));
+                    isBoss,
+                    imagePath));
             }
         }
         catch (Exception)
@@ -223,7 +259,7 @@ public sealed class SaveGameNames(string dataFolder)
                 return items;
             }
 
-            var itemableInfo = new Dictionary<string, (string DisplayName, int Weight, int MaxStack)>(StringComparer.OrdinalIgnoreCase);
+            var itemableInfo = new Dictionary<string, (string DisplayName, int Weight, int MaxStack, string? IconPath)>(StringComparer.OrdinalIgnoreCase);
             using (var itemableDoc = JsonDocument.Parse(File.ReadAllText(itemablePath)))
             {
                 foreach (var row in itemableDoc.RootElement.GetProperty("Rows").EnumerateArray())
@@ -232,7 +268,8 @@ public sealed class SaveGameNames(string dataFolder)
                     {
                         var weight = row.TryGetProperty("Weight", out var w) && w.ValueKind == JsonValueKind.Number ? w.GetInt32() : 0;
                         var maxStack = row.TryGetProperty("MaxStack", out var m) && m.ValueKind == JsonValueKind.Number ? m.GetInt32() : 1;
-                        itemableInfo[itemableRowName] = (ParseLocText(row, "DisplayName") ?? itemableRowName, weight, maxStack);
+                        var iconPath = row.TryGetProperty("Icon", out var icon) && icon.GetString() is { Length: > 0 } ip ? ip : null;
+                        itemableInfo[itemableRowName] = (ParseLocText(row, "DisplayName") ?? itemableRowName, weight, maxStack, iconPath);
                     }
                 }
             }
@@ -255,7 +292,7 @@ public sealed class SaveGameNames(string dataFolder)
                     && itemableRowNameEl.GetString() is { } itemableRowName && itemableRowName != "None"
                     && itemableInfo.TryGetValue(itemableRowName, out var info))
                 {
-                    items.TryAdd(rowName, new ItemInfo(info.DisplayName, info.Weight, info.MaxStack));
+                    items.TryAdd(rowName, new ItemInfo(info.DisplayName, info.Weight, info.MaxStack, info.IconPath));
                 }
             }
         }
@@ -287,6 +324,8 @@ public sealed record TalentInfo(string DisplayName, string Description, string T
 public sealed record AccoladeInfo(string DisplayName, string Description, string Category, int GoalCount);
 
 /// <param name="PointsRequired">The row's own TotalPointsRequired — what the editor treats as "maxed out" for a Set to max action.</param>
-public sealed record BestiaryCreatureInfo(string DisplayName, int PointsRequired, bool IsBoss);
+/// <param name="ImagePath">The row's own raw "Image" field (a "/Game/…/T_Bestiary_Xxx.T_Bestiary_Xxx" texture reference) — null for a row that never carried one, or when the table itself is missing.</param>
+public sealed record BestiaryCreatureInfo(string DisplayName, int PointsRequired, bool IsBoss, string? ImagePath);
 
-public sealed record ItemInfo(string DisplayName, int Weight, int MaxStack);
+/// <param name="IconPath">The Itemable row's own raw "Icon" field (a "/Game/…/ITEM_Xxx.ITEM_Xxx" texture reference) — null for a row that never carried one, or when the table itself is missing.</param>
+public sealed record ItemInfo(string DisplayName, int Weight, int MaxStack, string? IconPath);

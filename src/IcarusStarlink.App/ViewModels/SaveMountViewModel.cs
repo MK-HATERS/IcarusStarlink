@@ -1,3 +1,4 @@
+using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using IcarusStarlink.App.Services;
 
@@ -36,6 +37,13 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
     /// <summary>Every real MountType value currently known (D_Mounts's own row names) — the picker's own item source, so editing Type can only ever land on a real, valid species.</summary>
     public IReadOnlyList<string> AvailableTypeRowNames { get; }
 
+    /// <summary>D_Mounts's own raw "Icon" field for the TYPE this mount had when the save was loaded (a "/Game/…/T_Talent_Base_Xxx.T_Talent_Base_Xxx" texture reference) — resolved once at construction from SaveGameNames.MountTypeIcons, not kept in sync with a later edit to TypeRowName below; changing a mount's species in the picker updates its saved MountType but not this row's own already-resolved (or already-attempted) Icon. Null when the current data extraction has no Icon for this type.</summary>
+    public string? IconPath { get; }
+
+    /// <summary>Null until (if ever) SavesViewModel's own background resolution decodes IconPath through the base-game content provider — a row shows text-only for however long that takes, or forever if it never resolves.</summary>
+    [ObservableProperty]
+    private BitmapImage? _icon;
+
     public bool IsDirty =>
         Name != _originalName
         || (int.TryParse(LevelText, out var level) ? level != _originalLevel : LevelText != _originalLevel.ToString())
@@ -43,7 +51,7 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
 
     public SaveMountViewModel(
         System.Text.Json.Nodes.JsonObject node, string name, int level, string typeRowName,
-        IReadOnlyList<string> availableTypeRowNames, Action onDirtyChanged)
+        IReadOnlyList<string> availableTypeRowNames, string? iconPath, Action onDirtyChanged)
     {
         Node = node;
         _name = name;
@@ -53,6 +61,7 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
         _typeRowName = typeRowName;
         _originalTypeRowName = typeRowName;
         AvailableTypeRowNames = availableTypeRowNames;
+        IconPath = iconPath;
         _onDirtyChanged = onDirtyChanged;
     }
 

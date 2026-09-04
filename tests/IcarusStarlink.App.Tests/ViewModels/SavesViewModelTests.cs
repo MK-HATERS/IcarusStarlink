@@ -6,6 +6,7 @@ using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Saves;
+using IcarusStarlink.PakIO.Assets;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
 
@@ -25,9 +26,18 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// and RestoreBackupAsync testable at all here — see SavesViewModel's own updated doc comments at
 /// those two call sites.
 /// </summary>
-public sealed class SavesViewModelTests
+public sealed class SavesViewModelTests : IDisposable
 {
     private const string SteamId = "76561198000000001";
+
+    private readonly List<string> _tempFoldersToCleanUp = [];
+
+    // A real, minimal, valid 1x1 PNG — same fixture LibraryItemViewModelTests already uses for the
+    // same reason: the icon-resolution success path doesn't just check "bytes came back non-null",
+    // it decodes them into a real BitmapImage (SavesViewModel's own TryDecodeImage) before treating
+    // a row's icon as resolved.
+    private static readonly byte[] MinimalPng = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
     private static JsonObject MakeCharacter(string name, int chrSlot) => new()
     {
@@ -68,16 +78,69 @@ public sealed class SavesViewModelTests
     }
 
     private static SavesViewModel CreateViewModel(
-        FakeSaveRepository repository, FakeDialogService? dialogService = null, FakeGameProcessChecker? gameProcessChecker = null) =>
+        FakeSaveRepository repository, FakeDialogService? dialogService = null, FakeGameProcessChecker? gameProcessChecker = null,
+        SaveGameNames? gameNames = null, FakeBaseGameIconDecoder? baseGameIconDecoder = null) =>
         new(
             repository,
             new FakeActivityLog(),
             // A folder that doesn't exist — SaveGameNames degrades every table to empty rather than
             // throwing (see its own doc comment), which is exactly what a test with no real
-            // extracted game data needs.
-            new SaveGameNames(Path.Combine(Path.GetTempPath(), $"IcarusStarlinkTests_NoGameData_{Guid.NewGuid():N}")),
+            // extracted game data needs. A test that actually needs an item/mount/creature to carry
+            // a real IconPath passes its own SaveGameNames built over CreateGameDataFolder below.
+            gameNames ?? new SaveGameNames(Path.Combine(Path.GetTempPath(), $"IcarusStarlinkTests_NoGameData_{Guid.NewGuid():N}")),
             dialogService ?? new FakeDialogService(confirmResult: true),
-            gameProcessChecker ?? new FakeGameProcessChecker(false));
+            gameProcessChecker ?? new FakeGameProcessChecker(false),
+            baseGameIconDecoder ?? new FakeBaseGameIconDecoder());
+
+    /// <summary>
+    /// A minimal real extracted-Data folder — just enough of D_Itemable/D_ItemsStatic/D_Mounts/
+    /// D_BestiaryData for SaveGameNames to resolve one real Icon/Image path per table, mirroring the
+    /// exact row shape confirmed against a real game extraction (see SaveGameNames' own doc
+    /// comments for the two-hop Item resolution and the Icon/Image field names per table).
+    /// </summary>
+    private string CreateGameDataFolder()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_GameData", Guid.NewGuid().ToString("N"));
+        _tempFoldersToCleanUp.Add(folder);
+        Directory.CreateDirectory(Path.Combine(folder, "Traits"));
+        Directory.CreateDirectory(Path.Combine(folder, "Items"));
+        Directory.CreateDirectory(Path.Combine(folder, "AI"));
+        Directory.CreateDirectory(Path.Combine(folder, "Bestiary"));
+
+        File.WriteAllText(Path.Combine(folder, "Traits", "D_Itemable.json"), """
+            { "Rows": [ { "Name": "Item_Fiber", "DisplayName": "NSLOCTEXT(\"D_Itemable\", \"Item_Fiber-DisplayName\", \"Fiber\")", "Icon": "/Game/Assets/2DArt/UI/Items/Item_Icons/Resources/ITEM_Fibre.ITEM_Fibre", "Weight": 10, "MaxStack": 200 } ] }
+            """);
+
+        File.WriteAllText(Path.Combine(folder, "Items", "D_ItemsStatic.json"), """
+            { "Rows": [ { "Name": "ItemStatic_Fiber", "Itemable": { "RowName": "Item_Fiber" } } ] }
+            """);
+
+        File.WriteAllText(Path.Combine(folder, "AI", "D_Mounts.json"), """
+            { "Rows": [ { "Name": "Wolf", "Icon": "/Game/Assets/2DArt/UI/Talents/Companion/T_Talent_Base_Wolf.T_Talent_Base_Wolf" } ] }
+            """);
+
+        File.WriteAllText(Path.Combine(folder, "Bestiary", "D_BestiaryData.json"), """
+            { "Rows": [ { "Name": "PackWolf", "CreatureName": "NSLOCTEXT(\"D_BestiaryData\", \"PackWolf-CreatureName\", \"Pack Wolf\")", "Image": "/Game/Assets/2DArt/UI/FieldGuide/Creatures/Conifer/T_Bestiary_PackWolf.T_Bestiary_PackWolf", "TotalPointsRequired": 100 } ] }
+            """);
+
+        return folder;
+    }
+
+    private static JsonObject MakeMetaInventoryRoot(params JsonObject[] items)
+    {
+        var array = new JsonArray();
+        foreach (var item in items)
+        {
+            array.Add(item);
+        }
+
+        return new JsonObject { ["Items"] = array };
+    }
+
+    private static JsonObject MakeMetaInventoryItem(string itemStaticRowName) => new()
+    {
+        ["ItemStaticData"] = new JsonObject { ["RowName"] = itemStaticRowName },
+    };
 
     [Fact]
     public async Task DuplicateCharacterCommand_ProducesADistinctEntryWithAFreshChrSlot()
@@ -228,6 +291,160 @@ public sealed class SavesViewModelTests
         var savedArray = repository.LastSavedMounts!["SavedMounts"]!.AsArray();
         var remaining = Assert.Single(savedArray);
         Assert.Equal("Bessie", remaining!["MountName"]!.GetValue<string>());
+    }
+
+    // --- Icons: SavesViewModel's own background resolution of item/mount/creature thumbnails
+    //     through the new IBaseGameIconDecoder, via FakeBaseGameIconDecoder below (no real game
+    //     install or binary asset needed — same fake-per-dependency convention as everywhere else
+    //     in this file). CreateGameDataFolder gives one real IconPath per table so the "was this
+    //     row's icon actually queued, with the right path" behavior is genuinely exercised, not just
+    //     the "no path, nothing happens" no-op branch. ---
+
+    [Fact]
+    public async Task LoadSlot_ItemWithARealIconPath_ResolvesItThroughTheBaseGameIconDecoderAndFillsInIcon()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            MetaInventory = MakeMetaInventoryRoot(MakeMetaInventoryItem("ItemStatic_Fiber")),
+        };
+        var iconDecoder = new FakeBaseGameIconDecoder { PngBytesToReturn = MinimalPng };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateGameDataFolder()), baseGameIconDecoder: iconDecoder);
+        await vm.WaitForPendingSlotLoadAsync();
+        await vm.WaitForPendingIconLoadAsync();
+
+        var item = vm.MetaInventoryItems.Single();
+        Assert.Equal("/Game/Assets/2DArt/UI/Items/Item_Icons/Resources/ITEM_Fibre.ITEM_Fibre", item.IconPath);
+        Assert.Contains(item.IconPath, iconDecoder.RequestedPaths);
+        Assert.NotNull(item.Icon);
+    }
+
+    [Fact]
+    public async Task LoadSlot_MountWithARealIconPath_ResolvesItThroughTheBaseGameIconDecoderAndFillsInIcon()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            Mounts = MakeMountsRoot(MakeMount("Rex", 3, "Wolf")),
+        };
+        var iconDecoder = new FakeBaseGameIconDecoder { PngBytesToReturn = MinimalPng };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateGameDataFolder()), baseGameIconDecoder: iconDecoder);
+        await vm.WaitForPendingSlotLoadAsync();
+        await vm.WaitForPendingIconLoadAsync();
+
+        var mount = vm.Mounts.Single();
+        Assert.Equal("/Game/Assets/2DArt/UI/Talents/Companion/T_Talent_Base_Wolf.T_Talent_Base_Wolf", mount.IconPath);
+        Assert.Contains(mount.IconPath, iconDecoder.RequestedPaths);
+        Assert.NotNull(mount.Icon);
+    }
+
+    [Fact]
+    public async Task LoadSlot_BestiaryCreatureWithARealImagePath_ResolvesItThroughTheBaseGameIconDecoderAndFillsInIcon()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+        };
+        var iconDecoder = new FakeBaseGameIconDecoder { PngBytesToReturn = MinimalPng };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateGameDataFolder()), baseGameIconDecoder: iconDecoder);
+        await vm.WaitForPendingSlotLoadAsync();
+        await vm.WaitForPendingIconLoadAsync();
+
+        // BestiaryEntries lists every creature the current data tables define, not just ones the
+        // save itself tracks yet — see BuildBestiaryEntries' own doc comment.
+        var creature = vm.BestiaryEntries.Single(b => b.RowName == "PackWolf");
+        Assert.Equal("/Game/Assets/2DArt/UI/FieldGuide/Creatures/Conifer/T_Bestiary_PackWolf.T_Bestiary_PackWolf", creature.ImagePath);
+        Assert.Contains(creature.ImagePath, iconDecoder.RequestedPaths);
+        Assert.NotNull(creature.Icon);
+    }
+
+    [Fact]
+    public async Task LoadSlot_ItemWithNoIconPath_NeverCallsTheIconDecoder_StaysTextOnly()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            // No matching D_ItemsStatic/D_Itemable entry (default NoGameData folder) — DisplayName
+            // falls back to the raw RowName, and IconPath has nothing to resolve from.
+            MetaInventory = MakeMetaInventoryRoot(MakeMetaInventoryItem("Unknown_RowName")),
+        };
+        var iconDecoder = new FakeBaseGameIconDecoder { PngBytesToReturn = MinimalPng };
+        var vm = CreateViewModel(repository, baseGameIconDecoder: iconDecoder);
+        await vm.WaitForPendingSlotLoadAsync();
+        await vm.WaitForPendingIconLoadAsync();
+
+        var item = vm.MetaInventoryItems.Single();
+        Assert.Null(item.IconPath);
+        Assert.Null(item.Icon);
+        Assert.Equal(0, iconDecoder.RequestedPaths.Count);
+    }
+
+    /// <summary>The exact "missing/unresolvable icon degrades to text-only" contract — a real IconPath exists, gets requested, but the decoder can't actually produce a picture for it (unmounted base game, unmatched asset, whatever) — the row must be left showing its plain text, never crash or hang the load.</summary>
+    [Fact]
+    public async Task LoadSlot_IconDecoderReturnsNull_RowStaysTextOnlyWithoutThrowing()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            Mounts = MakeMountsRoot(MakeMount("Rex", 3, "Wolf")),
+        };
+        var iconDecoder = new FakeBaseGameIconDecoder { PngBytesToReturn = null };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateGameDataFolder()), baseGameIconDecoder: iconDecoder);
+        await vm.WaitForPendingSlotLoadAsync();
+        await vm.WaitForPendingIconLoadAsync();
+
+        var mount = vm.Mounts.Single();
+        Assert.NotNull(mount.IconPath);
+        Assert.Contains(mount.IconPath, iconDecoder.RequestedPaths);
+        Assert.Null(mount.Icon);
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    /// <summary>Same degrade-to-text-only contract, but for bytes the decoder DID return that just aren't a real decodable image — TryDecodeImage's own catch branch, exercised end to end rather than in isolation.</summary>
+    [Fact]
+    public async Task LoadSlot_IconDecoderReturnsUndecodableBytes_RowStaysTextOnlyWithoutThrowing()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            Mounts = MakeMountsRoot(MakeMount("Rex", 3, "Wolf")),
+        };
+        var iconDecoder = new FakeBaseGameIconDecoder { PngBytesToReturn = [0x01, 0x02, 0x03] };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateGameDataFolder()), baseGameIconDecoder: iconDecoder);
+        await vm.WaitForPendingSlotLoadAsync();
+        await vm.WaitForPendingIconLoadAsync();
+
+        Assert.Null(vm.Mounts.Single().Icon);
+    }
+
+    [Fact]
+    public async Task LoadSlot_TwoMountsOfTheSameType_OnlyDecodesTheSharedIconPathOnce()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            Mounts = MakeMountsRoot(MakeMount("Rex", 3, "Wolf"), MakeMount("Fang", 7, "Wolf")),
+        };
+        var iconDecoder = new FakeBaseGameIconDecoder { PngBytesToReturn = MinimalPng };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateGameDataFolder()), baseGameIconDecoder: iconDecoder);
+        await vm.WaitForPendingSlotLoadAsync();
+        await vm.WaitForPendingIconLoadAsync();
+
+        Assert.All(vm.Mounts, m => Assert.NotNull(m.Icon));
+        // Both mounts share the exact same MountType, so the exact same IconPath — the session
+        // icon cache should mean the real decode only ever runs once for it. Counted by path
+        // rather than asserting RequestedPaths.Count outright, since CreateGameDataFolder's own
+        // Bestiary row (PackWolf, a different IconPath entirely) is requested too and isn't what
+        // this test is about.
+        var mountIconPath = vm.Mounts.First().IconPath;
+        Assert.Equal(1, iconDecoder.RequestedPaths.Count(p => p == mountIconPath));
     }
 
     [Fact]
@@ -440,5 +657,38 @@ public sealed class SavesViewModelTests
 
         public void Log(string message, ActivityEntryKind kind = ActivityEntryKind.Info) =>
             Entries.Insert(0, new ActivityEntry(message, kind, DateTimeOffset.Now));
+    }
+
+    /// <summary>
+    /// Stands in for CueBaseGameIconDecoder in every icon test above — records every gameIconPath
+    /// it was actually asked to decode (RequestedPaths), so a test can assert an icon-resolution
+    /// attempt genuinely happened (or genuinely didn't, for a row with no IconPath at all) — the
+    /// same "the call itself is the signal under test, not what a real decode would produce" posture
+    /// CueUassetDecoderTests' own FakeBaseGameContentProvider already establishes for
+    /// ApplyBaseGameFallbackIfNeeded. Returns whatever PngBytesToReturn is currently set to — null
+    /// by default (an unresolvable icon), swappable per test to exercise a real decode instead.
+    /// </summary>
+    private sealed class FakeBaseGameIconDecoder : IBaseGameIconDecoder
+    {
+        public byte[]? PngBytesToReturn { get; set; }
+
+        public List<string?> RequestedPaths { get; } = [];
+
+        public byte[]? TryDecodeIconToPng(string? gameIconPath)
+        {
+            RequestedPaths.Add(gameIconPath);
+            return PngBytesToReturn;
+        }
+    }
+
+    public void Dispose()
+    {
+        foreach (var folder in _tempFoldersToCleanUp)
+        {
+            if (Directory.Exists(folder))
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+        }
     }
 }
