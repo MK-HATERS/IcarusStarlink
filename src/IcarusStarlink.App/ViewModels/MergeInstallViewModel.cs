@@ -56,6 +56,28 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     private readonly string _outputPakPath;
     private readonly string _backupDirectory;
 
+    /// <summary>
+    /// Per-folder cache of ExmodFolder.Read's own result, keyed by LibraryEntry.FolderName plus a
+    /// cheap on-disk fingerprint (see ComputeFolderFingerprint) — LoadQueuedPackagesAsync runs on
+    /// every Queue mutation (both RecomputeConflictCountAsync and RecomputeValidationIssueCountAsync
+    /// call it independently, per the Queue.CollectionChanged handler below), and until this existed
+    /// EVERY queued mod's own .EXMOD got re-read and re-parsed from disk on every single one of
+    /// those, even for a mod that wasn't the one that changed (e.g. reordering two OTHER mods, or
+    /// adding a brand-new one). Guarded by _packageCacheLock: those two Recompute methods genuinely
+    /// can run concurrently on background threads (both are fired, undebounced relative to each
+    /// other, from the same handler), and Dictionary isn't thread-safe.
+    /// </summary>
+    private readonly Dictionary<string, (FolderFingerprint Fingerprint, ExmodPackageContents Package)> _packageCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly object _packageCacheLock = new();
+
+    /// <summary>Debounces the conflict/validation recompute that follows a Queue mutation — see the Queue.CollectionChanged handler below for why.</summary>
+    private readonly DebounceTimer _recomputeDebounceTimer;
+
+    /// <summary>A cheap-to-compute stand-in for "have this folder's own files changed since the cached package was read" — file count (catches an add/remove) plus the newest LastWriteTimeUtc among the folder's own files (catches an in-place edit, e.g. ExmodEditorViewModel.Save overwriting the same .EXMOD filename — a Windows directory's OWN LastWriteTimeUtc does NOT reliably bump just because a child file's content changed, only its own entry does, so the folder's own timestamp alone isn't safe to key on).</summary>
+    private readonly record struct FolderFingerprint(int FileCount, DateTime MaxLastWriteUtc);
+
     public string Title => "Merge & Install";
 
     /// <summary>
@@ -308,6 +330,17 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         _outputPakPath = outputPakPath;
         _backupDirectory = backupDirectory;
 
+        // Fires once a burst of queue mutations (multi-select add, a fast drag-reorder) settles,
+        // rather than once per individual mutation — each of those otherwise re-reads/re-parses
+        // every queued mod's own EXMOD from disk (mitigated separately by _packageCache above, but
+        // even a cache lookup plus a conflict/validation recompute per mutation is wasted work when
+        // three more mutations are about to land in the next few hundred milliseconds anyway).
+        _recomputeDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), () =>
+        {
+            _ = RecomputeConflictCountAsync();
+            _ = RecomputeValidationIssueCountAsync();
+        });
+
         ReloadProfileNames();
 
         // A fresh launch starts with no profile selected in this session — auto-restoring
@@ -325,9 +358,16 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         // Any queue change at all invalidates existing conflict picks — see _manualPicks' own
         // comment for why an Add/Remove/Move/Clear can silently change what a pick's index means.
+        // The actual conflict/validation recompute is debounced (_recomputeDebounceTimer, above)
+        // rather than kicked off directly here — a multi-select "Add to merge queue" or a fast
+        // drag-reorder fires this handler many times in a row, and each one used to independently
+        // relaunch the full recompute path with only a version counter to discard the stale result;
+        // the wasted work still happened. The cheap, synchronous resets below still happen on every
+        // single mutation, so status text never lingers stale even mid-burst.
         Queue.CollectionChanged += (_, _) =>
         {
-            InvalidateManualPicks();
+            _manualPicks = null;
+            ConflictStatusMessage = null;
             OnPropertyChanged(nameof(HasQueuedMods));
             OnPropertyChanged(nameof(IsQueueEmpty));
 
@@ -335,7 +375,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // which also depend on gameplay options), so this recomputes on Queue changes only —
             // not from every gameplay-option toggle the way InvalidateManualPicks does.
             ValidationStatusMessage = null;
-            _ = RecomputeValidationIssueCountAsync();
+
+            _recomputeDebounceTimer.Restart();
         };
 
         // Without this, the Install/"Update install" label goes stale after the user changes the
@@ -348,6 +389,15 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             _ = ((MergeInstallViewModel)recipient).RefreshHasExistingInstallAsync();
         });
 
+        // A queued mod's own files can change on disk without any Queue mutation at all (most
+        // commonly the EXMOD editor's own Save, which sends this same message) — _packageCache's
+        // own fingerprint check already catches that correctly on the NEXT recompute regardless,
+        // but clearing it here too means a rename/re-import/delete under a REUSED folder name can
+        // never serve another mod's stale cached content, however unlikely that coincidence is.
+        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) =>
+        {
+            ((MergeInstallViewModel)recipient).InvalidatePackageCache();
+        });
 
         _ = RefreshHasExistingInstallAsync();
 
@@ -1435,12 +1485,15 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Queue order = merge priority (index 0 lowest, matching MergeEngine's own convention) — read
-    /// fresh from disk every time rather than caching, so an edit made outside the app (or via the
-    /// EXMOD editor) is picked up. The snapshot itself is taken synchronously on the UI thread
-    /// (cheap, no I/O) so a user edit to Queue (Add/Remove) mid-read can't race with the actual disk
-    /// reads, which are the slow part and run off-thread on that fixed snapshot instead. Shared by
-    /// RebuildAsync and ReviewConflictsAsync, which both need the exact same materialization.
+    /// Queue order = merge priority (index 0 lowest, matching MergeEngine's own convention). Each
+    /// EXMOD entry's own package is served from _packageCache when that folder's own on-disk
+    /// fingerprint hasn't changed since it was last read (see GetOrReadPackage) — still effectively
+    /// "fresh" for an edit made outside the app or via the EXMOD editor, since the fingerprint check
+    /// itself is real (if cheap) disk I/O done every call, not a time-based assumption. The snapshot
+    /// itself is taken synchronously on the UI thread (cheap, no I/O) so a user edit to Queue
+    /// (Add/Remove) mid-read can't race with the actual disk reads, which are the slow part and run
+    /// off-thread on that fixed snapshot instead. Shared by RebuildAsync and ReviewConflictsAsync,
+    /// which both need the exact same materialization.
     ///
     /// Queue can hold opaque pak entries (LibraryEntry.IsOpaquePak) alongside real EXMOD mods —
     /// split apart here since RebuildService needs them as two separate parameters. Entries stays
@@ -1456,7 +1509,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         var (packages, prebuiltPakFilePaths) = await Task.Run(() =>
         {
             var packages = exmodEntries
-                .Select(entry => ExmodFolder.Read(_libraryRepository.GetFolderPath(entry.FolderName)))
+                .Select(GetOrReadPackage)
                 .ToList();
 
             // Each opaque pak folder holds exactly one .pak file (ImportPak's own write path) — a
@@ -1475,6 +1528,76 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     }
 
     /// <summary>
+    /// ExmodFolder.Read is real disk I/O plus a full JSON parse of the mod's own .EXMOD — this
+    /// serves a cached result whenever entry.FolderName's own on-disk fingerprint (file count plus
+    /// the newest LastWriteTimeUtc among its files) hasn't changed since the last read, avoiding
+    /// that cost for every OTHER queued mod on a mutation that only actually touched one of them.
+    /// Runs on the same background thread LoadQueuedPackagesAsync already does its I/O on (never
+    /// called from the UI thread) — the fingerprint computation itself is still a real, if cheap,
+    /// disk walk (Directory.EnumerateFiles + a stat per file), not a time-based assumption.
+    /// </summary>
+    private ExmodPackageContents GetOrReadPackage(LibraryEntry entry)
+    {
+        var folderPath = _libraryRepository.GetFolderPath(entry.FolderName);
+        var fingerprint = ComputeFolderFingerprint(folderPath);
+
+        lock (_packageCacheLock)
+        {
+            if (_packageCache.TryGetValue(entry.FolderName, out var cached) && cached.Fingerprint == fingerprint)
+            {
+                return cached.Package;
+            }
+        }
+
+        var package = ExmodFolder.Read(folderPath);
+
+        lock (_packageCacheLock)
+        {
+            _packageCache[entry.FolderName] = (fingerprint, package);
+        }
+
+        return package;
+    }
+
+    private static FolderFingerprint ComputeFolderFingerprint(string folderPath)
+    {
+        if (!Directory.Exists(folderPath))
+        {
+            return default;
+        }
+
+        var fileCount = 0;
+        var maxWriteUtc = DateTime.MinValue;
+        foreach (var filePath in Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories))
+        {
+            fileCount++;
+            var writeUtc = File.GetLastWriteTimeUtc(filePath);
+            if (writeUtc > maxWriteUtc)
+            {
+                maxWriteUtc = writeUtc;
+            }
+        }
+
+        return new FolderFingerprint(fileCount, maxWriteUtc);
+    }
+
+    /// <summary>
+    /// Drops every cached package — the fingerprint check in GetOrReadPackage already catches a
+    /// queued mod's own on-disk change correctly on its own (that's its whole point), so this is
+    /// belt-and-suspenders: cheap insurance against a rename/delete/re-import reusing a FolderName
+    /// (LibraryChangedMessage's own trigger) ever serving another mod's stale cached content, however
+    /// unlikely that exact coincidence is. Not itself a trigger for a fresh recompute — the next one
+    /// that runs (from an actual Queue mutation) just won't read stale cached content when it does.
+    /// </summary>
+    private void InvalidatePackageCache()
+    {
+        lock (_packageCacheLock)
+        {
+            _packageCache.Clear();
+        }
+    }
+
+    /// <summary>
     /// Shared by ReviewConflictsAsync and the background badge computation — both need the exact
     /// same (queued packages) -&gt; (conflicts) pipeline. Also folds in the same "Built-in gameplay
     /// options" synthetic entry RebuildService itself appends (GameplayOptionsFieldChangeGenerator)
@@ -1489,8 +1612,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// user-initiated action) turns it on; the background badge recompute leaves it off so adding a
     /// mod to a queue that already has prebuilt paks attached doesn't silently re-launch UnrealPak
     /// on every single queue mutation.
+    ///
+    /// Also runs MergeEngine.FindNewItemNameCollisions over the exact same (names, orderedModChanges,
+    /// baseTablesByFile) — a genuinely different question from FieldConflict's own "do two mods
+    /// disagree on one field's value" (see NewItemNameCollision's own doc comment), surfaced through
+    /// the same picker rather than a parallel mechanism.
     /// </summary>
-    private async Task<(IReadOnlyList<FieldConflict> Conflicts, List<string> ModNames)> FindQueueConflictsAsync(bool includePrebuiltPaks = false)
+    private async Task<(IReadOnlyList<FieldConflict> Conflicts, IReadOnlyList<NewItemNameCollision> NewItemCollisions, List<string> ModNames)> FindQueueConflictsAsync(bool includePrebuiltPaks = false)
     {
         var (entries, packages, prebuiltPakFilePaths) = await LoadQueuedPackagesAsync();
         var gameplayOptions = BuildGameplayOptionsFromUi();
@@ -1519,7 +1647,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             names.Add("Built-in gameplay options");
         }
 
-        var conflicts = await Task.Run(() =>
+        var (conflicts, newItemCollisions) = await Task.Run(() =>
         {
             // Base-aware filtering (see MergeEngine.Merge's own doc comment) needs real current
             // base values for whatever files this preview's own candidates touch — genuinely
@@ -1527,7 +1655,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // locked/permission-denied base file — ReadBaseTables' own File.ReadAllText has no
             // catch for that, unlike a merely-missing file) falls back to no filtering rather than
             // blocking the conflict badge/picker entirely, matching what this comment already
-            // promised before this try/catch actually backed it.
+            // promised before this try/catch actually backed it. The same baseTablesByFile is what
+            // lets FindNewItemNameCollisions tell a genuinely new item apart from an existing one
+            // every real EXMOD-sourced FieldChange otherwise always marks IsNewItem: true (see its
+            // own doc comment) — without it, this would fall back to that unreliable raw flag.
             IReadOnlyDictionary<string, JsonObject>? baseTablesByFile = null;
             try
             {
@@ -1539,9 +1670,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 // Best-effort — see the comment above.
             }
 
-            return MergeEngine.FindConflicts(names, orderedModChanges, baseTablesByFile);
+            return (
+                MergeEngine.FindConflicts(names, orderedModChanges, baseTablesByFile),
+                MergeEngine.FindNewItemNameCollisions(names, orderedModChanges, baseTablesByFile));
         });
-        return (conflicts, names);
+        return (conflicts, newItemCollisions, names);
     }
 
     /// <summary>Guards RecomputeConflictCountAsync against two overlapping runs (the queue/options changing again while a previous background recompute is still in flight) finishing out of order — same "only the newest request's result is applied" shape as NexusCatalogViewModel's own _loadVersion.</summary>
@@ -1560,11 +1693,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            var (conflicts, _) = await FindQueueConflictsAsync();
+            var (conflicts, newItemCollisions, _) = await FindQueueConflictsAsync();
             if (version == _conflictCountVersion)
             {
-                ConflictCount = conflicts.Count;
-                ConflictingModNamesByMod = MergeEngine.GroupConflictsByMod(conflicts);
+                ConflictCount = conflicts.Count + newItemCollisions.Count;
+                ConflictingModNamesByMod = MergeEngine.GroupConflictsByMod(conflicts, newItemCollisions);
             }
         }
         catch (Exception)
@@ -1595,28 +1728,29 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            var (conflicts, modNames) = await FindQueueConflictsAsync(includePrebuiltPaks: true);
-            ConflictCount = conflicts.Count;
-            ConflictingModNamesByMod = MergeEngine.GroupConflictsByMod(conflicts);
+            var (conflicts, newItemCollisions, modNames) = await FindQueueConflictsAsync(includePrebuiltPaks: true);
+            ConflictCount = conflicts.Count + newItemCollisions.Count;
+            ConflictingModNamesByMod = MergeEngine.GroupConflictsByMod(conflicts, newItemCollisions);
 
-            if (conflicts.Count == 0)
+            if (conflicts.Count == 0 && newItemCollisions.Count == 0)
             {
                 _manualPicks = null;
                 ConflictStatusMessage = $"No conflicts among {modNames.Count} mod(s) — every changed field is touched by only one mod, or they all agree.";
                 return;
             }
 
-            _activityLog.Log($"{conflicts.Count} conflict(s) found among {modNames.Count} queued mod(s).", ActivityEntryKind.Warning);
+            var collisionNote = newItemCollisions.Count > 0 ? $", {newItemCollisions.Count} new-item name collision(s)" : "";
+            _activityLog.Log($"{conflicts.Count} conflict(s){collisionNote} found among {modNames.Count} queued mod(s).", ActivityEntryKind.Warning);
 
-            var pickerViewModel = new ConflictPickerViewModel(conflicts, _manualPicks);
+            var pickerViewModel = new ConflictPickerViewModel(conflicts, _manualPicks, newItemCollisions);
             var window = new ConflictPickerWindow(pickerViewModel) { Owner = Application.Current.MainWindow };
             if (window.ShowDialog() == true)
             {
                 var picks = window.ResultPicks!;
                 _manualPicks = picks.Count > 0 ? picks : null;
                 ConflictStatusMessage = picks.Count > 0
-                    ? $"{conflicts.Count} conflict(s) found, {picks.Count} manually picked — Rebuild to apply."
-                    : $"{conflicts.Count} conflict(s) found, all left on default (last mod wins).";
+                    ? $"{conflicts.Count} conflict(s){collisionNote} found, {picks.Count} manually picked — Rebuild to apply."
+                    : $"{conflicts.Count} conflict(s){collisionNote} found, all left on default (last mod wins).";
             }
         }
         catch (Exception ex)
@@ -1650,7 +1784,24 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         return await Task.Run(() =>
         {
             var schemaCache = new Dictionary<string, Dictionary<string, System.Text.Json.JsonValueKind>?>();
-            var referenceIndex = DataTableRowIndex.Build(_dataFolder);
+
+            // Layer EVERY queued mod's own declared rows into ONE combined index before checking
+            // any of them — not just each package's own rows, which is all ExmodReferenceChecker.
+            // Check's own internal WithDeclaredRows call does on its own. Without this, Mod B
+            // referencing a row only Mod A (also queued) declares produced a false "broken
+            // reference": the base-game index alone has no way to know about a row a DIFFERENT
+            // queued mod is adding. Built once per validation pass, not once per package (the
+            // IEnumerable<ExmodPackage> overload copies the base tables exactly once), so this
+            // scales with the queue, not the queue squared.
+            //
+            // TODO: this only fixes the false-POSITIVE direction. It does NOT detect the reverse —
+            // a mod REMOVING or RENAMING a row that some OTHER queued mod's own reference still
+            // depends on — since nothing here diffs "what a queued mod's edits take away" against
+            // "what another mod still expects to find". That needs real design (e.g. deciding
+            // whether an EDITED-but-not-removed row should count, and how to tell a genuine removal
+            // apart from a field that was simply never touched) that doesn't fit in this fix; left
+            // for later.
+            var queueWideReferenceIndex = DataTableRowIndex.Build(_dataFolder).WithDeclaredRows(packages.Select(p => p.Package));
             var rows = new List<ValidationIssueRowViewModel>();
 
             for (var i = 0; i < packages.Count; i++)
@@ -1664,7 +1815,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                         "Field", modName, finding.CurrentFile.Replace('-', '/'), finding.ItemName, finding.FieldName, finding.Reason));
                 }
 
-                foreach (var finding in ExmodReferenceChecker.Check(package, _dataFolder, referenceIndex))
+                foreach (var finding in ExmodReferenceChecker.Check(package, _dataFolder, queueWideReferenceIndex))
                 {
                     rows.Add(new ValidationIssueRowViewModel(
                         "Reference", modName, finding.CurrentFile.Replace('-', '/'), finding.ItemName, finding.FieldPath, finding.Reason));

@@ -158,6 +158,60 @@ public class ExmodReferenceCheckerTests : IDisposable
         Assert.Single(secondResult);
     }
 
+    [Fact]
+    public void WithDeclaredRows_MultiplePackages_ModBCanReferenceARowOnlyModADeclares()
+    {
+        // The real false-positive this exists to fix: ExmodReferenceChecker was previously only
+        // ever given ONE mod's own declared rows layered on top of base — a mod referencing a row
+        // only a DIFFERENT queued mod declares looked exactly like a genuinely broken reference.
+        // Layering every queued mod's own rows into ONE combined index (as MergeInstallViewModel's
+        // own validation pass now does before checking each package) fixes that.
+        var index = DataTableRowIndex.Build(_dataFolder);
+        var modA = MakePackage(MakeRow("Items-D_ItemTemplate.json", "My_New_Gadget", new()));
+        var modB = MakePackage(MakeRow("Crafting-D_ProcessorRecipes.json", "Some_Recipe",
+            new() { ["Outputs"] = new JsonArray(new JsonObject { ["Element"] = MakeReference("My_New_Gadget", "D_ItemTemplate") }) }));
+
+        var queueWideIndex = index.WithDeclaredRows([modA, modB]);
+        var findings = ExmodReferenceChecker.Check(modB, _dataFolder, queueWideIndex);
+
+        Assert.Empty(findings);
+    }
+
+    [Fact]
+    public void WithDeclaredRows_MultiplePackages_ARowNoQueuedModDeclaresAnywhere_StillFlagged()
+    {
+        // The combined index must not become so permissive it stops catching a genuinely broken
+        // reference — a row no queued mod declares anywhere is still flagged.
+        var index = DataTableRowIndex.Build(_dataFolder);
+        var modA = MakePackage(MakeRow("Items-D_ItemTemplate.json", "My_New_Gadget", new()));
+        var modB = MakePackage(MakeRow("Crafting-D_ProcessorRecipes.json", "Some_Recipe",
+            new() { ["Outputs"] = new JsonArray(new JsonObject { ["Element"] = MakeReference("Nobody_Declares_This", "D_ItemTemplate") }) }));
+
+        var queueWideIndex = index.WithDeclaredRows([modA, modB]);
+        var findings = ExmodReferenceChecker.Check(modB, _dataFolder, queueWideIndex);
+
+        var finding = Assert.Single(findings);
+        Assert.Contains("Nobody_Declares_This", finding.Reason);
+    }
+
+    [Fact]
+    public void WithDeclaredRows_MultiplePackages_DoesNotMutateTheOriginalIndex()
+    {
+        var index = DataTableRowIndex.Build(_dataFolder);
+        var modA = MakePackage(MakeRow("Items-D_ItemTemplate.json", "My_New_Gadget", new()));
+
+        _ = index.WithDeclaredRows([modA]);
+
+        // The original (base-only) index must still say "not found" for a row only the COPY
+        // WithDeclaredRows built actually knows about — same safety guarantee the single-package
+        // overload already documents (this one is left untouched).
+        var referencesModAsItem = MakePackage(MakeRow("Crafting-D_ProcessorRecipes.json", "Some_Recipe",
+            new() { ["Outputs"] = new JsonArray(new JsonObject { ["Element"] = MakeReference("My_New_Gadget", "D_ItemTemplate") }) }));
+        var findings = ExmodReferenceChecker.Check(referencesModAsItem, _dataFolder, index);
+
+        Assert.Single(findings);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dataFolder))

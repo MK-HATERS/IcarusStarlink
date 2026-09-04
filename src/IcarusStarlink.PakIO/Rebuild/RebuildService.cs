@@ -212,16 +212,22 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyDictionary<string, string> prebuiltPakScratchDirectories,
         IReadOnlyDictionary<string, IReadOnlySet<string>> prebuiltPakDiffedPaths, string stagingDirectory, MergeReport report)
     {
+        // Scanned once, up front — previously rebuilt from scratch on every single iteration of the
+        // loop below (a real cost for a queue with several prebuilt paks attached). Updated
+        // incrementally as each pak's own files are folded in (the HashSet.Add below), so a LATER
+        // prebuilt pak in this same loop still correctly detects a collision against an EARLIER
+        // one's own folded-in file — exactly what the from-scratch rescan used to guarantee, just
+        // without redoing the scan itself every time.
+        var alreadyStaged = new HashSet<string>(
+            Directory.GetFiles(stagingDirectory, "*", SearchOption.AllDirectories)
+                .Select(f => Path.GetRelativePath(stagingDirectory, f).Replace('\\', '/')),
+            StringComparer.OrdinalIgnoreCase);
+
         foreach (var prebuiltPakPath in prebuiltPakFilePaths)
         {
             var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
             var prebuiltScratchDirectory = prebuiltPakScratchDirectories[prebuiltPakPath];
             var diffedPaths = prebuiltPakDiffedPaths[prebuiltPakPath];
-
-            var alreadyStaged = new HashSet<string>(
-                Directory.GetFiles(stagingDirectory, "*", SearchOption.AllDirectories)
-                    .Select(f => Path.GetRelativePath(stagingDirectory, f).Replace('\\', '/')),
-                StringComparer.OrdinalIgnoreCase);
 
             foreach (var sourceFile in Directory.GetFiles(prebuiltScratchDirectory, "*", SearchOption.AllDirectories))
             {
@@ -231,7 +237,10 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                     continue;
                 }
 
-                if (alreadyStaged.Contains(relativePath))
+                // Add's own return value doubles as the collision check — false means this exact
+                // relative path was already staged (by a queued mod's own merge/asset output, or an
+                // earlier prebuilt pak in this same loop).
+                if (!alreadyStaged.Add(relativePath))
                 {
                     report.AddWarning(
                         $"Prebuilt pak '{pakName}' overwrites '{relativePath}', which another queued mod (or "

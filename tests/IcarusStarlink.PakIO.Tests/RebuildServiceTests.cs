@@ -501,6 +501,30 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RebuildAsync_TwoPrebuiltPaksCollideOnTheSameUnmergedFile_SecondOneWinsWithWarning()
+    {
+        // Regression test for FoldInUnmergedPrebuiltPakFiles' own alreadyStaged set being hoisted
+        // out of the per-pak loop (previously rebuilt from scratch every iteration, which happened
+        // to also re-observe every earlier pak's own already-copied files for free) — the
+        // incrementally-updated set must still catch a SECOND prebuilt pak overwriting a file the
+        // FIRST prebuilt pak already folded in, not just a collision against a queued mod's own
+        // merged/asset output.
+        var prebuiltPakPathA = Path.Combine(_tempDir, "PakA_P.pak");
+        var prebuiltPakPathB = Path.Combine(_tempDir, "PakB_P.pak");
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFilesByPakPath[prebuiltPakPathA] = new() { ["Prebuilt/Icon.uasset"] = "from A" };
+        pakService.FakeExtractedFilesByPakPath[prebuiltPakPathB] = new() { ["Prebuilt/Icon.uasset"] = "from B" };
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync(
+            [], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPathA, prebuiltPakPathB]);
+
+        Assert.Contains(result.Warnings, w => w.Contains("PakB_P") && w.Contains("Prebuilt/Icon.uasset"));
+        var stagedContent = pakService.StagedFileContentsAtCallTime["Prebuilt/Icon.uasset"];
+        Assert.Equal("from B", stagedContent); // later pak in the list still wins on disk
+    }
+
+    [Fact]
     public async Task RebuildAsync_PrebuiltPakWithNoCollisions_NoWarning()
     {
         WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");

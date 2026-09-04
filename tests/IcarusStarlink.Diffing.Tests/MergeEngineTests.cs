@@ -490,4 +490,188 @@ public class MergeEngineTests
 
         Assert.Equal(1, MergeEngine.CountChangesDifferingFromBase(changes, baseTables));
     }
+
+    [Fact]
+    public void FindConflicts_BaseTablesGiven_ConflictCarriesTheLiveBaseValue()
+    {
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 30) };
+        var baseTables = BaseTables("Items-D_ItemsStatic.json", "Sword", "Damage", baseValue: 10);
+
+        var conflict = Assert.Single(MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA, modB], baseTables));
+
+        Assert.True(conflict.HasBaseValue);
+        Assert.Equal(10, conflict.BaseValue!.GetValue<int>());
+    }
+
+    [Fact]
+    public void FindConflicts_NoBaseTablesGiven_ConflictHasNoBaseValue()
+    {
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 30) };
+
+        var conflict = Assert.Single(MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA, modB]));
+
+        Assert.False(conflict.HasBaseValue);
+        Assert.Null(conflict.BaseValue);
+    }
+
+    private static FieldChange NewItemChange(string currentFile, string item, string field, int value, bool isNewItem = true) =>
+        new(currentFile, item, field, OriginalValue: null, JsonValue.Create(value), ValueSemantic.Scalar, IsNewItem: isNewItem);
+
+    [Fact]
+    public void FindNewItemNameCollisions_TwoModsAddSameNewItemName_NonOverlappingFields_ReportsOneCollision()
+    {
+        // The exact real gap FindConflicts alone can't see: non-overlapping fields never produce a
+        // shared (file, item, field) key, so nothing about this looks like a field conflict, even
+        // though both mods are really adding two unrelated things under the same name.
+        var modA = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Damage", 5) };
+        var modB = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Weight", 1) };
+
+        var collisions = MergeEngine.FindNewItemNameCollisions(["Mod A", "Mod B"], [modA, modB]);
+
+        var collision = Assert.Single(collisions);
+        Assert.Equal("Wooden_Table", collision.ItemName);
+        Assert.Equal(["Mod A", "Mod B"], collision.ModNames);
+    }
+
+    [Fact]
+    public void FindNewItemNameCollisions_SameModListsTheNewItemTwice_IsNotACollision()
+    {
+        var oneMod = new List<FieldChange>
+        {
+            NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Damage", 5),
+            NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Weight", 1),
+        };
+
+        var collisions = MergeEngine.FindNewItemNameCollisions(["Mod A"], [oneMod]);
+
+        Assert.Empty(collisions);
+    }
+
+    [Fact]
+    public void FindNewItemNameCollisions_NeitherModMarksItNew_NoCollision()
+    {
+        var modA = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Sword", "Damage", 5, isNewItem: false) };
+        var modB = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Sword", "Weight", 1, isNewItem: false) };
+
+        var collisions = MergeEngine.FindNewItemNameCollisions(["Mod A", "Mod B"], [modA, modB]);
+
+        Assert.Empty(collisions);
+    }
+
+    [Fact]
+    public void FindNewItemNameCollisions_OnlyOneModMarksItNew_NoCollision()
+    {
+        // ModB is editing an existing item (not adding one), so there's no name collision here —
+        // just one mod adding something and another mod separately editing it.
+        var modA = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Sword", "Damage", 5, isNewItem: true) };
+        var modB = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Sword", "Weight", 1, isNewItem: false) };
+
+        var collisions = MergeEngine.FindNewItemNameCollisions(["Mod A", "Mod B"], [modA, modB]);
+
+        Assert.Empty(collisions);
+    }
+
+    [Fact]
+    public void FindNewItemNameCollisions_DifferentNewItemNames_NoCollision()
+    {
+        var modA = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Damage", 5) };
+        var modB = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Stone_Table", "Damage", 5) };
+
+        var collisions = MergeEngine.FindNewItemNameCollisions(["Mod A", "Mod B"], [modA, modB]);
+
+        Assert.Empty(collisions);
+    }
+
+    [Fact]
+    public void FindNewItemNameCollisions_CurrentFileCasingDiffers_StillOneCollision()
+    {
+        var modA = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Damage", 5) };
+        var modB = new List<FieldChange> { NewItemChange("items-d_itemsstatic.json", "Wooden_Table", "Weight", 1) };
+
+        var collisions = MergeEngine.FindNewItemNameCollisions(["Mod A", "Mod B"], [modA, modB]);
+
+        Assert.Single(collisions);
+    }
+
+    [Fact]
+    public void FindNewItemNameCollisions_ThreeMods_OnlyTwoShareANewItemName_OnlyThatPairIsReported()
+    {
+        var modA = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Damage", 5) };
+        var modB = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Weight", 1) };
+        var modC = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Stone_Table", "Damage", 5) };
+
+        var collision = Assert.Single(MergeEngine.FindNewItemNameCollisions(["Mod A", "Mod B", "Mod C"], [modA, modB, modC]));
+
+        Assert.Equal("Wooden_Table", collision.ItemName);
+        Assert.Equal(["Mod A", "Mod B"], collision.ModNames);
+    }
+
+    [Fact]
+    public void FindNewItemNameCollisions_MismatchedListLengths_Throws()
+    {
+        var modA = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Damage", 5) };
+
+        Assert.Throws<ArgumentException>(() => MergeEngine.FindNewItemNameCollisions(["Mod A", "Mod B"], [modA]));
+    }
+
+    [Fact]
+    public void FindNewItemNameCollisions_BaseTablesGiven_RawAlwaysTrueIsNewItemFlagIsIgnoredForAnExistingItem()
+    {
+        // The critical real-world case: ExmodFieldChangeMapper.ToFieldChanges always sets
+        // IsNewItem: true on every FieldChange it produces (the EXMOD format never records whether
+        // a row existed at extraction time) — so two real mods that simply both edit the SAME
+        // EXISTING item on non-overlapping fields would otherwise ALWAYS look like a "new item name
+        // collision" if the raw flag were trusted as-is. With real base data given, this must
+        // correctly see the item already exists and report no collision at all.
+        var modA = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Sword", "Damage", 20, isNewItem: true) };
+        var modB = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Sword", "Weight", 1, isNewItem: true) };
+        var baseTables = new Dictionary<string, JsonObject>
+        {
+            ["Items-D_ItemsStatic.json"] = new JsonObject { ["Sword"] = new JsonObject { ["Damage"] = JsonValue.Create(10) } },
+        };
+
+        var collisions = MergeEngine.FindNewItemNameCollisions(["Mod A", "Mod B"], [modA, modB], baseTables);
+
+        Assert.Empty(collisions);
+    }
+
+    [Fact]
+    public void FindNewItemNameCollisions_BaseTablesGiven_GenuinelyNewItemStillReportsACollision()
+    {
+        var modA = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Damage", 5, isNewItem: true) };
+        var modB = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Weight", 1, isNewItem: true) };
+        var baseTables = new Dictionary<string, JsonObject> { ["Items-D_ItemsStatic.json"] = new JsonObject() };
+
+        var collisions = MergeEngine.FindNewItemNameCollisions(["Mod A", "Mod B"], [modA, modB], baseTables);
+
+        Assert.Single(collisions);
+    }
+
+    [Fact]
+    public void GroupConflictsByMod_NewItemCollisionGiven_BothModsNameEachOther()
+    {
+        var modA = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Damage", 5) };
+        var modB = new List<FieldChange> { NewItemChange("Items-D_ItemsStatic.json", "Wooden_Table", "Weight", 1) };
+        var collisions = MergeEngine.FindNewItemNameCollisions(["Mod A", "Mod B"], [modA, modB]);
+
+        var byMod = MergeEngine.GroupConflictsByMod([], collisions);
+
+        Assert.Equal(["Mod B"], byMod["Mod A"]);
+        Assert.Equal(["Mod A"], byMod["Mod B"]);
+    }
+
+    [Fact]
+    public void GroupConflictsByMod_OmittingNewItemCollisions_BehavesExactlyAsBefore()
+    {
+        var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 10) };
+        var modB = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };
+        var conflicts = MergeEngine.FindConflicts(["Mod A", "Mod B"], [modA, modB]);
+
+        var byMod = MergeEngine.GroupConflictsByMod(conflicts);
+
+        Assert.Equal(["Mod B"], byMod["Mod A"]);
+        Assert.Equal(["Mod A"], byMod["Mod B"]);
+    }
 }

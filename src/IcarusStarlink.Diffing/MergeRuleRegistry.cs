@@ -10,6 +10,7 @@ public sealed class MergeRuleRegistry(IEnumerable<IFieldMergeRule>? rules = null
     private static readonly IFieldMergeRule[] DefaultRules =
     [
         new GameplayTagQueryCombineRule(),
+        new ArrayUnionCombineRule(),
         new LastWriteWinsRule(),
     ];
 

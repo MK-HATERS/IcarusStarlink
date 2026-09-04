@@ -192,9 +192,36 @@ public sealed class DataTableRowIndex
     /// </summary>
     public DataTableRowIndex WithDeclaredRows(ExmodPackage package)
     {
-        var copy = _rowNamesByTable.ToDictionary(
+        var copy = CopyRowNamesByTable();
+        AddDeclaredRows(copy, package);
+        return new DataTableRowIndex(copy);
+    }
+
+    /// <summary>
+    /// Same idea as the single-package overload, but layers EVERY given package's own declared rows
+    /// into ONE combined copy of this index — for a whole merge-queue validation pass, where the
+    /// real false-positive isn't just "does a mod's own recipe reference an item IT ALSO declares"
+    /// but "does mod B's own reference point at a row only mod A (also queued) declares". Building
+    /// exactly one copy of the base tables here (not one per package) means a validation pass over N
+    /// queued mods pays for that copy once, not N times.
+    /// </summary>
+    public DataTableRowIndex WithDeclaredRows(IEnumerable<ExmodPackage> packages)
+    {
+        var copy = CopyRowNamesByTable();
+        foreach (var package in packages)
+        {
+            AddDeclaredRows(copy, package);
+        }
+
+        return new DataTableRowIndex(copy);
+    }
+
+    private Dictionary<string, HashSet<string>> CopyRowNamesByTable() =>
+        _rowNamesByTable.ToDictionary(
             kv => kv.Key, kv => new HashSet<string>(kv.Value, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
 
+    private static void AddDeclaredRows(Dictionary<string, HashSet<string>> rowNamesByTable, ExmodPackage package)
+    {
         foreach (var row in package.Rows)
         {
             // See ExmodSentinelFiles.IsEndOfModMarker's own doc comment.
@@ -207,10 +234,10 @@ public sealed class DataTableRowIndex
             // this codebase uses (e.g. BaseDataFileReader) — the table name a reference names is
             // always this file's own base name, e.g. "Items-D_ItemTemplate.json" -> "D_ItemTemplate".
             var tableName = Path.GetFileNameWithoutExtension(row.CurrentFile.Replace('-', '/'));
-            if (!copy.TryGetValue(tableName, out var names))
+            if (!rowNamesByTable.TryGetValue(tableName, out var names))
             {
                 names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                copy[tableName] = names;
+                rowNamesByTable[tableName] = names;
             }
 
             foreach (var item in row.FileItems)
@@ -218,7 +245,5 @@ public sealed class DataTableRowIndex
                 names.Add(item.Name);
             }
         }
-
-        return new DataTableRowIndex(copy);
     }
 }

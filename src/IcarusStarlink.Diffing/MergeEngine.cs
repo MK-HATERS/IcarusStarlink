@@ -48,7 +48,10 @@ public static class MergeEngine
                 continue;
             }
 
-            resolved.Add(registry.Resolve(new FieldChangeGroup(key.CurrentFile, key.ItemName, key.FieldName, changes)));
+            var (hasBaseValue, baseValue) = baseTablesByFile is not null
+                ? TryGetBaseValue(baseTablesByFile, key.CurrentFile, key.ItemName, key.FieldName)
+                : (false, null);
+            resolved.Add(registry.Resolve(new FieldChangeGroup(key.CurrentFile, key.ItemName, key.FieldName, changes, hasBaseValue, baseValue)));
         }
 
         return resolved;
@@ -77,38 +80,129 @@ public static class MergeEngine
             .Select(kv => (kv.Key, Candidates: kv.Value.Select(c => new ConflictCandidate(modNames[c.ModIndex], c.Change)).ToList()))
             .Where(g => g.Candidates.Count > 1
                         && !g.Candidates.All(c => JsonNode.DeepEquals(c.Change.NewValue, g.Candidates[0].Change.NewValue)))
-            .Select(g => new FieldConflict(g.Key.CurrentFile, g.Key.ItemName, g.Key.FieldName, g.Candidates))];
+            .Select(g =>
+            {
+                var (hasBaseValue, baseValue) = baseTablesByFile is not null
+                    ? TryGetBaseValue(baseTablesByFile, g.Key.CurrentFile, g.Key.ItemName, g.Key.FieldName)
+                    : (false, null);
+                return new FieldConflict(g.Key.CurrentFile, g.Key.ItemName, g.Key.FieldName, g.Candidates, hasBaseValue, baseValue);
+            })];
     }
 
     /// <summary>
-    /// For every mod named in any conflict's own Candidates, the set of every OTHER mod it shares
-    /// at least one conflicting field with — aggregated across all conflicts, since two mods can
-    /// disagree on more than one field, and a mod can conflict with different mods on different
-    /// fields. Built for a per-row "which mods does this one conflict with" queue indicator, so a
-    /// user doesn't need to open the full conflict picker just to see that a row is involved in one.
-    /// Keyed by ConflictCandidate.ModName — display text, not a folder identifier, matching
-    /// FieldConflict's own established convention (see its doc comment).
+    /// Finds every (file, item name) that two or more DIFFERENT mods each introduce as a brand-new
+    /// item — a real gap FindConflicts alone can't see, since it only ever groups by (file, item,
+    /// FIELD): two mods each adding a new item under the identical name but touching entirely
+    /// different fields never share a single (file, item, field) key, so nothing above ever looks
+    /// like a conflict — even though MergeRuleRegistry.Resolve's own IsNewItem OR-ing (see its own
+    /// doc comment) silently splices both mods' fields into one merged item with no indication two
+    /// unrelated "new item" additions happened to collide. Deliberately its own separate pass (not
+    /// folded into FindConflicts' own grouping) since it asks a different question at a different
+    /// granularity — "do these mods' own new-item declarations collide by name" rather than "do two
+    /// mods disagree on one field's value" — see NewItemNameCollision's own doc comment.
+    ///
+    /// baseTablesByFile matters MORE here than it does for FindConflicts: a real EXMOD-sourced
+    /// FieldChange always carries IsNewItem: true (ExmodFieldChangeMapper's own doc comment — the
+    /// format never records whether a row existed at extraction time), so change.IsNewItem alone is
+    /// NOT a reliable "this mod's own item is genuinely new" signal in practice — trusting it as-is
+    /// would flag every item two or more real mods happen to both touch, new or not, as a
+    /// "collision". When baseTablesByFile is given, this instead asks the same question
+    /// MergeRuleRegistry ultimately needs answered correctly at apply time: does this (file, item)
+    /// actually exist in the CURRENT base game data at all. Omitting it falls back to the raw
+    /// IsNewItem flag (useful for a caller/test that constructs FieldChange directly with a real,
+    /// deliberate value), matching every other base-aware method in this class's own "no base
+    /// tables given -> can't refine, so don't" convention.
     /// </summary>
-    public static IReadOnlyDictionary<string, IReadOnlyList<string>> GroupConflictsByMod(IReadOnlyList<FieldConflict> conflicts)
+    public static IReadOnlyList<NewItemNameCollision> FindNewItemNameCollisions(
+        IReadOnlyList<string> modNames, IReadOnlyList<IReadOnlyList<FieldChange>> orderedModChanges,
+        IReadOnlyDictionary<string, JsonObject>? baseTablesByFile = null)
     {
-        var byMod = new Dictionary<string, HashSet<string>>();
-        foreach (var conflict in conflicts)
+        if (modNames.Count != orderedModChanges.Count)
         {
-            foreach (var candidate in conflict.Candidates)
+            throw new ArgumentException("modNames must have exactly one entry per orderedModChanges entry.", nameof(modNames));
+        }
+
+        // (file, item) -> the set of mod INDICES that declared it as a new item — a HashSet, not a
+        // count, so one mod naming the same new item twice within its own EXMOD (a real, confirmed
+        // pattern — see GroupByField's own doc comment) still only ever counts as that one mod.
+        var modIndicesByKey = new Dictionary<(string CurrentFile, string ItemName), HashSet<int>>(FieldChangeItemKeyComparer.Instance);
+
+        for (var i = 0; i < orderedModChanges.Count; i++)
+        {
+            foreach (var change in orderedModChanges[i])
             {
-                if (!byMod.TryGetValue(candidate.ModName, out var others))
+                var isNew = baseTablesByFile is not null
+                    ? !ItemExistsInBase(baseTablesByFile, change.CurrentFile, change.ItemName)
+                    : change.IsNewItem;
+                if (!isNew)
                 {
-                    others = [];
-                    byMod[candidate.ModName] = others;
+                    continue;
                 }
 
-                foreach (var other in conflict.Candidates)
+                var key = (change.CurrentFile, change.ItemName);
+                if (!modIndicesByKey.TryGetValue(key, out var indices))
                 {
-                    if (other.ModName != candidate.ModName)
+                    indices = [];
+                    modIndicesByKey[key] = indices;
+                }
+
+                indices.Add(i);
+            }
+        }
+
+        return [.. modIndicesByKey
+            .Where(kv => kv.Value.Count > 1)
+            .Select(kv => new NewItemNameCollision(
+                kv.Key.CurrentFile, kv.Key.ItemName, [.. kv.Value.OrderBy(i => i).Select(i => modNames[i])]))];
+    }
+
+    /// <summary>
+    /// For every mod named in any conflict's own Candidates (or, when given, any newItemCollision's
+    /// own ModNames — the same "which other mods should this queue row warn about" question, just
+    /// for a name collision instead of a field disagreement), the set of every OTHER mod it shares
+    /// that with — aggregated across all of them, since two mods can disagree on more than one
+    /// field (or collide on more than one item name), and a mod can be involved with different mods
+    /// in different ways. Built for a per-row "which mods does this one conflict with" queue
+    /// indicator, so a user doesn't need to open the full conflict picker just to see that a row is
+    /// involved in one. Keyed by ConflictCandidate.ModName/NewItemNameCollision.ModNames — display
+    /// text, not a folder identifier, matching FieldConflict's own established convention (see its
+    /// doc comment).
+    /// </summary>
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>> GroupConflictsByMod(
+        IReadOnlyList<FieldConflict> conflicts, IReadOnlyList<NewItemNameCollision>? newItemCollisions = null)
+    {
+        var byMod = new Dictionary<string, HashSet<string>>();
+
+        void AddMutualNames(IReadOnlyList<string> modNames)
+        {
+            foreach (var modName in modNames)
+            {
+                if (!byMod.TryGetValue(modName, out var others))
+                {
+                    others = [];
+                    byMod[modName] = others;
+                }
+
+                foreach (var other in modNames)
+                {
+                    if (other != modName)
                     {
-                        others.Add(other.ModName);
+                        others.Add(other);
                     }
                 }
+            }
+        }
+
+        foreach (var conflict in conflicts)
+        {
+            AddMutualNames([.. conflict.Candidates.Select(c => c.ModName)]);
+        }
+
+        if (newItemCollisions is not null)
+        {
+            foreach (var collision in newItemCollisions)
+            {
+                AddMutualNames(collision.ModNames);
             }
         }
 
@@ -237,5 +331,21 @@ public static class MergeEngine
         }
 
         return (true, item.TryGetPropertyValue(fieldName, out var value) ? value : null);
+    }
+
+    /// <summary>Whether ItemName exists at all in the current base table for CurrentFile — FindNewItemNameCollisions' own real "is this genuinely new" signal (see its own doc comment for why change.IsNewItem alone can't be trusted for this).</summary>
+    private static bool ItemExistsInBase(IReadOnlyDictionary<string, JsonObject> baseTablesByFile, string currentFile, string itemName) =>
+        baseTablesByFile.TryGetValue(currentFile, out var table) && table[itemName] is JsonObject;
+
+    /// <summary>Same case-insensitive-CurrentFile/case-sensitive-ItemName convention as FieldChangeKeyComparer, for the 2-part (file, item) key FindNewItemNameCollisions groups by.</summary>
+    private sealed class FieldChangeItemKeyComparer : IEqualityComparer<(string CurrentFile, string ItemName)>
+    {
+        public static readonly FieldChangeItemKeyComparer Instance = new();
+
+        public bool Equals((string CurrentFile, string ItemName) x, (string CurrentFile, string ItemName) y) =>
+            string.Equals(x.CurrentFile, y.CurrentFile, StringComparison.OrdinalIgnoreCase) && x.ItemName == y.ItemName;
+
+        public int GetHashCode((string CurrentFile, string ItemName) obj) =>
+            HashCode.Combine(obj.CurrentFile.ToUpperInvariant(), obj.ItemName);
     }
 }

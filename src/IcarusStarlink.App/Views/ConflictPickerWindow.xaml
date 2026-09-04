@@ -26,6 +26,9 @@
                         <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,10">
                             <StackPanel>
                                 <TextBlock Text="{Binding Display}" FontFamily="Consolas" FontSize="12" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding BaseValueDisplay}" FontFamily="Consolas" FontSize="11" FontStyle="Italic"
+                                           Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6" TextWrapping="Wrap"
+                                           Visibility="{Binding BaseValueDisplay, Converter={StaticResource NullToVisibilityConverter}}"/>
                                 <ComboBox ItemsSource="{Binding Options}" SelectedIndex="{Binding SelectedOptionIndex}"
                                           HorizontalAlignment="Left" MinWidth="320"
                                           ToolTip="Pick which mod's value should win for this field, or leave Default"/>
