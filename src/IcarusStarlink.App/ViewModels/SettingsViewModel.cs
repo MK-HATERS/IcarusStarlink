@@ -47,6 +47,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ImmMigrationService _immMigrationService;
     private readonly IUnrealPakInstaller _unrealPakInstaller;
     private readonly IActivityLog _activityLog;
+    private readonly IDialogService _dialogService;
     private readonly string _stagedUe4ssDirectory;
 
     /// <summary>Resolved lazily (not injected directly) purely to avoid forcing Merge &amp; Install's own construction — with its Library scan and catalog wiring — every time Settings is opened.</summary>
@@ -175,10 +176,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         IUe4ssReleaseClient ue4ssReleaseClient, IAppUpdateClient appUpdateClient, HttpClient httpClient,
         IThemeService themeService, ICustomSkinStore customSkinStore, ImmMigrationService immMigrationService,
         Func<MergeInstallViewModel> mergeInstallViewModel, IUnrealPakInstaller unrealPakInstaller, IActivityLog activityLog,
+        IDialogService dialogService,
         string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath,
         string stagedUe4ssDirectory)
     {
         _activityLog = activityLog;
+        _dialogService = dialogService;
         _unrealPakInstaller = unrealPakInstaller;
         _stagedUe4ssDirectory = stagedUe4ssDirectory;
         _settingsService = settingsService;
@@ -663,7 +666,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var answer = ThemedMessageBox.Show(
+        var answer = _dialogService.Confirm(
             "IcarusStarlink needs UnrealPak.exe to build and unpack mod paks, and none is set up yet.\n\n"
             + "Install it now? (Downloads a small, one-time payload if there isn't already a copy shipped alongside the app. Choose No to point at one you already have, in Settings.)",
             "Set up UnrealPak", ThemedConfirmSeverity.Question);
@@ -886,7 +889,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void RegisterNxmProtocol()
     {
-        var result = ThemedMessageBox.Show(
+        var result = _dialogService.Confirm(
             "This registers IcarusStarlink as the handler for nxm:// links (Nexus's \"Mod Manager Download\" buttons) for your Windows account.\n\n" +
             "If another mod manager (e.g. Vortex) currently handles these, it will be replaced — you can switch back with Unregister below, or by re-registering that other app.\n\n" +
             "Continue?",
@@ -983,7 +986,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         var wasInstalled = IsUe4ssInstalled;
         var verb = wasInstalled ? "Update" : "Install";
-        var result = ThemedMessageBox.Show(
+        var result = _dialogService.Confirm(
             $"This downloads UE4SS v{release.Version} from GitHub and installs it into your game's Binaries\\Win64 folder " +
             "— the loader that lets Lua/scripting mods run.\n\n" +
             "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Any mods already in your Mods folder, " +
@@ -1058,7 +1061,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             ? $"Your own {userMods.Count} mod(s) — {string.Join(", ", userMods)} — are moved back to this app's staging first (re-enable them if you ever reinstall UE4SS).\n\n"
             : "No mods of your own were found in its Mods folder.\n\n";
 
-        var result = ThemedMessageBox.Show(
+        var result = _dialogService.Confirm(
             "This removes the UE4SS loader completely from your game's Binaries\\Win64 folder (dwmapi.dll and the ue4ss folder) — "
             + "Lua/scripting mods stop working until it's reinstalled.\n\n"
             + userModsLine
@@ -1196,7 +1199,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var confirmed = ThemedMessageBox.Show(
+        var confirmed = _dialogService.Confirm(
             $"Download and install v{LatestAppUpdateRelease.Version} now?\n\nThe app will close, update itself, and reopen. Your mods, profiles, and settings are not touched.",
             "Install update", ThemedConfirmSeverity.Question);
         if (confirmed)
@@ -1342,7 +1345,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var result = ThemedMessageBox.Show(
+        var result = _dialogService.Confirm(
             $"IcarusStarlink v{release.Version} is available — you're on v{InstalledAppVersion}.\n\nDownload and install it now? The app will close, update itself, and reopen — your mods, profiles, and settings are not touched.",
             "Update available", ThemedConfirmSeverity.Information);
         if (result)

@@ -11,13 +11,15 @@ namespace IcarusStarlink.App.Services;
 /// no WPF involved at all, while WpfDialogService (the real implementation) is what production DI
 /// registers.
 ///
-/// This is a PARTIAL migration — it covers the two dialog shapes the "unwired features" pass this
-/// session actually touched (a plain confirm, and RenameModDialog's rename/reset/cancel prompt).
-/// The app has roughly 30 more direct dialog/window construction call sites across 9 ViewModels
-/// (custom pickers, file/folder dialogs, editor sub-windows) that still construct their Window
-/// directly and aren't covered here — extending this interface with one method per additional
-/// dialog shape, the same way Confirm/PromptRename were added, is the natural way to bring them in
-/// as each one's own ViewModel logic needs real test coverage.
+/// This is a PARTIAL migration — it covers the two dialog shapes touched so far (a plain confirm,
+/// and RenameModDialog's rename/reset/cancel prompt). Confirm alone now also backs every plain
+/// Yes/No confirmation in SavesViewModel and SettingsViewModel (the latter's own six — UnrealPak
+/// first-launch setup, nxm:// registration, UE4SS install/update/uninstall, and both app-update
+/// confirms — migrated together in one pass once the first one made the need obvious). The app
+/// still has direct dialog/window construction call sites in other ViewModels (custom pickers,
+/// file/folder dialogs, editor sub-windows) that aren't covered here — extending this interface
+/// with one method per additional dialog shape, the same way Confirm/PromptRename were added, is
+/// the natural way to bring them in as each one's own ViewModel logic needs real test coverage.
 /// </summary>
 public interface IDialogService
 {

@@ -324,6 +324,7 @@ public partial class App : Application
             sp.GetRequiredService<MergeInstallViewModel>,
             sp.GetRequiredService<IUnrealPakInstaller>(),
             sp.GetRequiredService<IActivityLog>(),
+            sp.GetRequiredService<IDialogService>(),
             Path.Combine(appDataDirectory, "Backups"),
             Path.Combine(appDataDirectory, "Data"),
             logsDirectory,
