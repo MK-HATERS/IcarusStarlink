@@ -136,8 +136,6 @@ public sealed partial class SavesViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedTabIndex;
 
-    public bool HasSlots => Slots.Count > 0;
-
     /// <summary>
     /// Every dirty-tracked collection on this page — the one place that needs to know about all 8
     /// (Characters/Currencies/AccountFlags/BinaryFlags/WorkshopTalents/Accolades/BestiaryEntries/
@@ -257,7 +255,6 @@ public sealed partial class SavesViewModel : ObservableObject
         RefreshTalentFilter();
     }
 
-    [RelayCommand]
     private void RefreshSlots()
     {
         var previous = SelectedSlot?.SteamId;
@@ -274,7 +271,6 @@ public sealed partial class SavesViewModel : ObservableObject
             StatusMessage = $"Couldn't read the game's PlayerData folder: {ex.Message}";
         }
 
-        OnPropertyChanged(nameof(HasSlots));
         SelectedSlot = Slots.FirstOrDefault(s => s.SteamId == previous) ?? Slots.FirstOrDefault();
         StatusMessage = Slots.Count == 0
             ? "No player saves found — Icarus keeps them under %LocalAppData%\\Icarus\\Saved\\PlayerData once you've run the game."
