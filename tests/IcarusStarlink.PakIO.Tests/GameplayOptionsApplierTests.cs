@@ -142,6 +142,57 @@ public class GameplayOptionsApplierTests
         Assert.Contains(report.Warnings, w => w.Contains("Slots multiplier") && w.Contains("StartingSlots"));
     }
 
+    /// <summary>
+    /// Regression test: Quickbar's own real shape (10 regular slots, then SlotOverrides reserving
+    /// position 10 for "Any_Utility" and 11 for "Player_Fists", right after them) — those two
+    /// positions only mean "the last two slots" relative to Quickbar's OWN 12-slot count. Scaling
+    /// StartingSlots to 24 without excluding this row would leave the reserved slots stranded at
+    /// positions 10-11 out of 24 (the middle, not the end), with 12 new regular slots appended after
+    /// them. Confirmed against two real, independent community "increase slots" mods
+    /// (Sarge_Deployable_Slots_Changes, Jimk72's own Increased Slots) that neither ever touches
+    /// Quickbar, Equipment, Space_Equipment, or ArmourStand — all four have a SlotOverrides array —
+    /// while both freely rewrite dozens of ordinary storage/processor rows that don't.
+    /// </summary>
+    [Fact]
+    public void Apply_SlotsMultiplier_SkipsRowsWithSlotOverrides_LikeQuickbar()
+    {
+        var tables = Table("Inventory-D_InventoryInfo.json", new JsonObject
+        {
+            ["Quickbar"] = Row("""
+                {
+                    "StartingSlots": 12,
+                    "SlotOverrides": [
+                        { "Query": { "RowName": "Any_Utility" }, "Location": 10 },
+                        { "Query": { "RowName": "Player_Fists" }, "Location": 11 }
+                    ]
+                }
+                """),
+            ["Backpack"] = Row("""{"StartingSlots": 24}"""),
+        });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SlotsMultiplier = 2 }, tables, new MergeReport());
+
+        var result = tables["Inventory-D_InventoryInfo.json"];
+        Assert.Equal(12, (int)result["Quickbar"]!["StartingSlots"]!); // untouched — SlotOverrides present
+        Assert.Equal(48, (int)result["Backpack"]!["StartingSlots"]!); // scaled normally — no SlotOverrides
+    }
+
+    [Fact]
+    public void Apply_SlotsMultiplier_RowWithEmptySlotOverridesArray_StillGetsScaled()
+    {
+        // An empty SlotOverrides array (the real Defaults value every ordinary row starts from) is
+        // not the same as one that actually reserves a position — only a non-empty array should
+        // skip the row.
+        var tables = Table("Inventory-D_InventoryInfo.json", new JsonObject
+        {
+            ["Container"] = Row("""{"StartingSlots": 20, "SlotOverrides": []}"""),
+        });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SlotsMultiplier = 2 }, tables, new MergeReport());
+
+        Assert.Equal(40, (int)tables["Inventory-D_InventoryInfo.json"]["Container"]!["StartingSlots"]!);
+    }
+
     [Fact]
     public void Apply_CraftCostReduction_ScalesInputsCountAndResourceInputsButNotOutputs()
     {

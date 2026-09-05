@@ -80,7 +80,10 @@ public static class GameplayOptionsApplier
         }
         if (options.SlotsMultiplier is > 0 and var slotsMultiplier)
         {
-            ScaleExistingNumericField(keyedTablesByFile, InventoryFile, "StartingSlots", slotsMultiplier, minimum: 1, report, "Slots multiplier");
+            // skipRow: HasSlotOverrides — see that method's own doc comment for why (Quickbar's
+            // reserved Utility/Fists slots, Equipment/Space_Equipment/ArmourStand's fully-reserved
+            // layouts all reference absolute positions that a blind scale would corrupt).
+            ScaleExistingNumericField(keyedTablesByFile, InventoryFile, "StartingSlots", slotsMultiplier, minimum: 1, report, "Slots multiplier", skipRow: HasSlotOverrides);
         }
 
         ApplyCraftCostReduction(options, keyedTablesByFile, report);
@@ -106,7 +109,8 @@ public static class GameplayOptionsApplier
 
     /// <summary>Field name/base values confirmed from real Data\Traits\D_Itemable.json (MaxStack, Weight sit on every item row alongside each other) — the exact multiplier is user-supplied since classic IMM never documented one for its own "Stacks Level 1/2".</summary>
     private static void ScaleExistingNumericField(
-        IDictionary<string, JsonObject> tables, string file, string fieldName, double multiplier, int minimum, MergeReport report, string optionName)
+        IDictionary<string, JsonObject> tables, string file, string fieldName, double multiplier, int minimum, MergeReport report, string optionName,
+        Func<JsonObject, bool>? skipRow = null)
     {
         if (!tables.TryGetValue(file, out var table))
         {
@@ -117,6 +121,11 @@ public static class GameplayOptionsApplier
         foreach (var (itemName, rowValue) in table)
         {
             if (rowValue is not JsonObject row || row[fieldName] is not JsonValue currentValue || !currentValue.TryGetValue<double>(out var current))
+            {
+                continue;
+            }
+
+            if (skipRow?.Invoke(row) == true)
             {
                 continue;
             }
@@ -133,6 +142,22 @@ public static class GameplayOptionsApplier
 
         tables[file] = TableApplier.Apply(table, changes, report);
     }
+
+    /// <summary>
+    /// Real base-game rows with a non-empty SlotOverrides array reserve specific ABSOLUTE slot
+    /// positions for a specific item type (e.g. Quickbar's own SlotOverrides pin position 10 to
+    /// "Any_Utility" and 11 to "Player_Fists", right after its 10 regular slots) — those positions
+    /// only make sense relative to the row's ORIGINAL StartingSlots. Blindly scaling StartingSlots
+    /// without moving them would strand Quickbar's reserved slots in the middle of a larger bar
+    /// instead of at the end, and would do the same (less visibly, since every position is already
+    /// an override there) to Equipment/Space_Equipment/ArmourStand, whose entire slot count is
+    /// nothing but SlotOverrides. Confirmed against real, independent community "increase slots"
+    /// mods (Sarge_Deployable_Slots_Changes, Jimk72's own Increased Slots) — both hand-pick which
+    /// rows to touch and neither one EVER includes Quickbar, Equipment, Space_Equipment, or
+    /// ArmourStand, exactly this reasoning. This mirrors that same real-world convention instead of
+    /// scaling every row indiscriminately.
+    /// </summary>
+    private static bool HasSlotOverrides(JsonObject row) => row["SlotOverrides"] is JsonArray { Count: > 0 };
 
     private static void ZeroExistingField(IDictionary<string, JsonObject> tables, string file, string fieldName, MergeReport report, string optionName)
     {
