@@ -30,6 +30,18 @@ public static class ImmExtractedMods
 
         foreach (var element in modsArray.EnumerateArray())
         {
+            // TryGetProperty (inside ReadString below) throws InvalidOperationException if element
+            // itself isn't a JSON object — a real risk here since this file is produced/maintained by
+            // the classic, legacy IMM tool this app doesn't control, and a single malformed entry
+            // (hand-edited, or partially written by a crash in that old tool) would otherwise abort
+            // the ENTIRE migration for every other mod in the list, not just this one. Skipped the
+            // same way a missing fileName already is below — one bad entry losing its own
+            // enrichment data is never a reason to fail every other mod's migration.
+            if (element.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
             var folderName = ReadString(element, "fileName");
             if (string.IsNullOrWhiteSpace(folderName))
             {

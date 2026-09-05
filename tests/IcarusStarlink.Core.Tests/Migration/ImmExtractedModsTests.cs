@@ -84,4 +84,31 @@ public sealed class ImmExtractedModsTests
     {
         Assert.Empty(ImmExtractedMods.Parse("{}"));
     }
+
+    /// <summary>
+    /// Regression guard: a "mods" array entry that isn't a JSON object (a stray string, number, or
+    /// null — realistic corruption in a file this app doesn't own or control, produced by the
+    /// classic, legacy IMM tool) used to throw InvalidOperationException from TryGetProperty, aborting
+    /// the ENTIRE migration for every other mod in the list, not just this one malformed entry.
+    /// </summary>
+    [Fact]
+    public void Parse_ModsArrayContainsANonObjectEntry_SkipsItRatherThanThrowing()
+    {
+        var mods = ImmExtractedMods.Parse(
+            """{"mods":[{"name":"Good","author":"x","version":"1.0","fileName":"Good"},"not an object",null,42]}""");
+
+        var good = Assert.Single(mods);
+        Assert.Equal("Good", good.FolderName);
+    }
+
+    [Fact]
+    public void Parse_NonObjectEntryBetweenTwoGoodOnes_StillReadsBothGoodOnes()
+    {
+        var mods = ImmExtractedMods.Parse(
+            """{"mods":[{"name":"First","author":"x","version":"1.0","fileName":"First"},"garbage",{"name":"Second","author":"y","version":"2.0","fileName":"Second"}]}""");
+
+        Assert.Equal(2, mods.Count);
+        Assert.Contains(mods, m => m.FolderName == "First");
+        Assert.Contains(mods, m => m.FolderName == "Second");
+    }
 }
