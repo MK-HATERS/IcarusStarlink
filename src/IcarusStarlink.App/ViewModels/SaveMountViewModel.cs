@@ -87,10 +87,16 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
         Node["MountType"] = TypeRowName;
     }
 
+    /// <summary>
+    /// The Level branch must reject exactly what ApplyToNode() rejects — a negative LevelText that
+    /// Save silently declined to write must not be adopted as the new "clean" baseline either, or
+    /// IsDirty would compare LevelText against itself and read false, showing "Saved" with the Save
+    /// button disabled while MountLevel on disk is actually still whatever it was before the edit.
+    /// </summary>
     public void MarkClean()
     {
         _originalName = Name;
-        if (int.TryParse(LevelText, out var level))
+        if (int.TryParse(LevelText, out var level) && level >= 0)
         {
             _originalLevel = level;
         }

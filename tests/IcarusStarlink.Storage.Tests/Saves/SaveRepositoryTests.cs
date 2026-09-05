@@ -203,6 +203,53 @@ public sealed class SaveRepositoryTests : IDisposable
             dir => Path.GetFileName(dir).Contains("_restore_scratch_"));
     }
 
+    /// <summary>
+    /// Regression guard for the real bug this method exists to prevent: the OLD shape ("delete
+    /// destinationFolder, then move newContentFolder into place, and on ANY failure delete
+    /// newContentFolder too") would destroy BOTH the original and the replacement if the second
+    /// move failed after the delete had already succeeded (e.g. a file inside newContentFolder
+    /// briefly locked by a real-time antivirus scan right after extraction). Simulated here by
+    /// pointing newContentFolder at a path that doesn't exist, which reliably fails Directory.Move
+    /// with DirectoryNotFoundException — the exact same "the swap-in move throws" shape a real file
+    /// lock would produce, just via a cause this test can construct deterministically.
+    /// </summary>
+    [Fact]
+    public void SwapFolderInPlace_NewContentMoveFails_OriginalIsRestoredNotLost()
+    {
+        var destination = Path.Combine(_root, "destination");
+        Directory.CreateDirectory(destination);
+        File.WriteAllText(Path.Combine(destination, "original.txt"), "original content");
+        var missingNewContent = Path.Combine(_root, "does_not_exist");
+        var oldFolderPath = Path.Combine(_root, "old");
+
+        Assert.ThrowsAny<Exception>(() => SaveRepository.SwapFolderInPlace(destination, missingNewContent, oldFolderPath));
+
+        // The original must still be there, under its ORIGINAL path — not lost, not stuck under
+        // oldFolderPath forever.
+        Assert.True(Directory.Exists(destination));
+        Assert.Equal("original content", File.ReadAllText(Path.Combine(destination, "original.txt")));
+        Assert.False(Directory.Exists(oldFolderPath));
+    }
+
+    [Fact]
+    public void SwapFolderInPlace_Success_ReplacesContentAndCleansUpTheOriginal()
+    {
+        var destination = Path.Combine(_root, "destination");
+        Directory.CreateDirectory(destination);
+        File.WriteAllText(Path.Combine(destination, "original.txt"), "original content");
+        var newContent = Path.Combine(_root, "new_content");
+        Directory.CreateDirectory(newContent);
+        File.WriteAllText(Path.Combine(newContent, "replacement.txt"), "new content");
+        var oldFolderPath = Path.Combine(_root, "old");
+
+        SaveRepository.SwapFolderInPlace(destination, newContent, oldFolderPath);
+
+        Assert.True(File.Exists(Path.Combine(destination, "replacement.txt")));
+        Assert.False(File.Exists(Path.Combine(destination, "original.txt")));
+        Assert.False(Directory.Exists(newContent));
+        Assert.False(Directory.Exists(oldFolderPath));
+    }
+
     [Fact]
     public void ListBackups_NewestFirst_OnlyThisSlots()
     {
@@ -409,6 +456,24 @@ public sealed class SaveRepositoryTests : IDisposable
     public void LoadBinaryFlags_TruncatedFile_ThrowsFormatException()
     {
         File.WriteAllBytes(Path.Combine(_playerData, SteamId, $"flags_{SteamId}.dat"), [1, 0, 0]);
+
+        Assert.Throws<FormatException>(() => _repository.LoadBinaryFlags(SteamId));
+    }
+
+    /// <summary>
+    /// Regression guard: a corrupted header whose strLen sits right at/below int.MaxValue (here,
+    /// exactly int.MaxValue) used to make the plain-int "4 + strLen" bounds-check arithmetic
+    /// silently overflow into a negative offset, slipping past the guard and reaching
+    /// BitConverter.ToInt32 with a negative index — throwing ArgumentOutOfRangeException instead of
+    /// the intended FormatException. SavesViewModel.BuildBinaryFlags only ever caught FormatException,
+    /// so this failed the ENTIRE save-slot load instead of just hiding the binary-flags section.
+    /// </summary>
+    [Fact]
+    public void LoadBinaryFlags_HeaderLengthNearIntMaxValue_ThrowsFormatExceptionNotArgumentOutOfRange()
+    {
+        var bytes = new byte[20];
+        BitConverter.GetBytes(int.MaxValue).CopyTo(bytes, 0);
+        File.WriteAllBytes(Path.Combine(_playerData, SteamId, $"flags_{SteamId}.dat"), bytes);
 
         Assert.Throws<FormatException>(() => _repository.LoadBinaryFlags(SteamId));
     }

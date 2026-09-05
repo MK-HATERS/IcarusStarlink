@@ -230,10 +230,16 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         }
     }
 
+    /// <summary>
+    /// The XP branch must reject exactly what ApplyToNode() rejects — a negative XpText that Save
+    /// silently declined to write must not be adopted as the new "clean" baseline either, or
+    /// IsDirty would compare XpText against itself and read false, showing "Saved" with the Save
+    /// button disabled while the on-disk XP is actually still whatever it was before the edit.
+    /// </summary>
     public void MarkClean()
     {
         _originalName = Name;
-        if (long.TryParse(XpText, out var xp))
+        if (long.TryParse(XpText, out var xp) && xp >= 0)
         {
             _originalXp = xp;
         }

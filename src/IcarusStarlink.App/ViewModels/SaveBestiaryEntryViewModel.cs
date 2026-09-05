@@ -54,13 +54,33 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
     // showing its real number instead of being silently reduced just by opening the editor.
     partial void OnPointsTextChanged(string value)
     {
-        if (PointsRequired > 0 && int.TryParse(value, out var parsed))
+        if (int.TryParse(value, out var parsed))
         {
-            var ceiling = Math.Max(PointsRequired, _originalPoints);
-            if (parsed > ceiling)
+            // Negative progress can never be legitimate — floor it at 0 the same way a too-high
+            // value is ceiling-clamped below, rather than letting it through unclamped: EffectivePoints
+            // has no separate rejection path the way e.g. SaveCurrencyViewModel.ApplyToNode has for
+            // its own numeric field, so an unclamped negative value would otherwise flow straight
+            // into ApplyBestiaryEdits and — since it also fails that method's own `points > 0` check
+            // — silently delete this creature's entire tracked-progress entry from the save instead
+            // of the edit simply being rejected/corrected.
+            if (parsed < 0)
             {
-                _pointsText = ceiling.ToString();
+                _pointsText = "0";
                 OnPropertyChanged(nameof(PointsText));
+                _onDirtyChanged();
+                return;
+            }
+
+            if (PointsRequired > 0)
+            {
+                var ceiling = Math.Max(PointsRequired, _originalPoints);
+                if (parsed > ceiling)
+                {
+                    _pointsText = ceiling.ToString();
+                    OnPropertyChanged(nameof(PointsText));
+                    _onDirtyChanged();
+                    return;
+                }
             }
         }
 

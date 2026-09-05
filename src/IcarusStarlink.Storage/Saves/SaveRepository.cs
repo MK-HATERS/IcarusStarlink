@@ -162,13 +162,21 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         }
 
         var strLen = BitConverter.ToInt32(bytes, 0);
-        var countOffset = 4 + strLen;
+        // long, not int, for the same reason the count-derived offset just below already promotes
+        // to 4L: strLen comes straight from a corrupted/malformed file's own first 4 bytes, and for
+        // a handful of values near int.MaxValue, plain "4 + strLen" wraps into a negative int32
+        // offset that then slips past the bounds check below (bytes.Length is never "less than" a
+        // negative number) and reaches BitConverter.ToInt32 with a negative index — throwing
+        // ArgumentOutOfRangeException instead of the intended FormatException, which the one real
+        // caller (SavesViewModel.BuildBinaryFlags) doesn't catch, failing the WHOLE save slot load
+        // instead of just hiding this one binary-flags section as the code's own design intends.
+        var countOffset = 4L + strLen;
         if (strLen < 1 || bytes.Length < countOffset + 4)
         {
             throw new FormatException($"'{Path.GetFileName(path)}' has an invalid header.");
         }
 
-        var count = BitConverter.ToInt32(bytes, countOffset);
+        var count = BitConverter.ToInt32(bytes, (int)countOffset);
         var idsOffset = countOffset + 4;
         if (count < 0 || bytes.Length < idsOffset + count * 4L)
         {
@@ -178,7 +186,7 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         var ids = new List<int>(count);
         for (var i = 0; i < count; i++)
         {
-            ids.Add(BitConverter.ToInt32(bytes, idsOffset + i * 4));
+            ids.Add(BitConverter.ToInt32(bytes, (int)idsOffset + i * 4));
         }
 
         return ids;
@@ -284,9 +292,15 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
 
         // The spec's own safety rule, verbatim: "Restore writes a pre_restore safety zip first,
         // then replaces the slot" — so even a restore of the wrong backup is itself undoable.
+        // Same temp-name-then-rename pattern as BackupSlot's own zip write, for the same reason:
+        // this is the one safety net an interrupted restore (the very moment this whole method
+        // exists to protect against) needs to still be trustworthy, not a truncated zip nothing
+        // ever checks before offering it back as "the state right before this restore."
         Directory.CreateDirectory(backupsDirectory);
         var preRestorePath = FolderBackup.MakeUniqueTimestampedPath(backupsDirectory, $"{steamId}_pre_restore", DateTimeOffset.Now, ".zip");
-        ZipFile.CreateFromDirectory(slotFolder, preRestorePath);
+        var preRestoreTempPath = preRestorePath + ".tmp";
+        ZipFile.CreateFromDirectory(slotFolder, preRestoreTempPath);
+        File.Move(preRestoreTempPath, preRestorePath);
 
         // Extracted to a scratch folder FIRST, while the live slot is still fully intact — a
         // corrupt or truncated backup zip (a slow-drive copy, a file that was mid-write when
@@ -300,16 +314,11 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         try
         {
             ZipFile.ExtractToDirectory(backupFilePath, scratchFolder);
-
-            // Replace, not merge: a restore means "the slot as it was then", and files created
-            // since the backup (a new character's sidecar, the game's own rolling .backup copies)
-            // lingering beside restored ones would be a half-and-half state neither the user nor
-            // the game chose. Only reached once the extraction above has already fully succeeded.
-            Directory.Delete(slotFolder, recursive: true);
-            Directory.Move(scratchFolder, slotFolder);
         }
         catch
         {
+            // Nothing has touched the live slot yet at this point — safe to just clean up the
+            // not-yet-used scratch folder and rethrow.
             if (Directory.Exists(scratchFolder))
             {
                 Directory.Delete(scratchFolder, recursive: true);
@@ -318,6 +327,24 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
             throw;
         }
 
+        // Replace, not merge: a restore means "the slot as it was then", and files created since
+        // the backup (a new character's sidecar, the game's own rolling .backup copies) lingering
+        // beside restored ones would be a half-and-half state neither the user nor the game chose.
+        //
+        // Deliberately NOT "delete slotFolder, then move scratchFolder into place, then on any
+        // failure delete scratchFolder": that shape has a real gap once the delete has already
+        // succeeded — if the move that follows it then fails (e.g. a file inside scratchFolder
+        // gets briefly locked by a real-time antivirus scan right after extraction, a common
+        // Windows occurrence), the live slot is already gone AND the only remaining copy of the
+        // restored data gets deleted by the same catch, destroying both the original and the
+        // restore. Renaming the live slot out of the way first (a same-volume rename, not a
+        // recursive delete, so it can't fail partway through the way a big recursive delete can)
+        // means there is never a moment where neither the original nor the replacement exists on
+        // disk — and if the final swap-in still fails for some reason, the original is renamed
+        // back rather than anything being deleted.
+        var oldSlotFolder = Path.Combine(playerDataDirectory, $"{steamId}_restore_old_{Guid.NewGuid():N}");
+        SwapFolderInPlace(slotFolder, scratchFolder, oldSlotFolder);
+
         // Pruning runs LAST, only after backupFilePath has already been fully read — running it
         // right after the pre-restore zip (as this used to) could delete backupFilePath itself
         // before extraction, since PruneBackups doesn't know it's about to be needed: the live
@@ -325,6 +352,55 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         PruneBackups(steamId);
 
         return preRestorePath;
+    }
+
+    /// <summary>
+    /// Replaces destinationFolder's content with newContentFolder's, never leaving a moment where
+    /// neither the original nor the replacement exists on disk: renames destinationFolder out of
+    /// the way (a same-volume rename, not a recursive delete, so it can't fail partway through the
+    /// way a big recursive delete can), moves newContentFolder into destinationFolder's place, and
+    /// only deletes the renamed-away original once that move has confirmed succeeded. If the swap-in
+    /// move itself fails (e.g. a file inside newContentFolder gets briefly locked by a real-time
+    /// antivirus scan right after extraction — a real, common Windows occurrence, not hypothetical),
+    /// the renamed-away original is moved back into place rather than anything being deleted —
+    /// deliberately NOT the simpler "delete destinationFolder, then move newContentFolder into
+    /// place" shape, whose own failure-cleanup would otherwise delete the only remaining copy of the
+    /// replacement data right after the original was already gone, destroying both. Internal (not
+    /// private) so this specific safety property is directly unit-testable without needing to force
+    /// a real OS-level file lock, which isn't reliably reproducible in an automated test.
+    /// </summary>
+    internal static void SwapFolderInPlace(string destinationFolder, string newContentFolder, string oldFolderPath)
+    {
+        Directory.Move(destinationFolder, oldFolderPath);
+        try
+        {
+            Directory.Move(newContentFolder, destinationFolder);
+        }
+        catch
+        {
+            // Put the original back rather than leaving destinationFolder missing — but only if
+            // nothing already landed there (Directory.Move on Windows is all-or-nothing for a
+            // same-volume rename, so this is a defensive check, not an expected case).
+            if (!Directory.Exists(destinationFolder))
+            {
+                Directory.Move(oldFolderPath, destinationFolder);
+            }
+
+            throw;
+        }
+
+        // Only reached once the new data is confirmed in place — safe to remove the renamed-away
+        // original now. A failure here (a locked file) leaves an inert, harmless leftover folder
+        // rather than risking any real data.
+        try
+        {
+            Directory.Delete(oldFolderPath, recursive: true);
+        }
+        catch (IOException)
+        {
+            // Same reasoning as PruneBackups' own locked-file tolerance — never worth failing an
+            // otherwise-successful restore over housekeeping.
+        }
     }
 
     private string ResolveSlot(string steamId)

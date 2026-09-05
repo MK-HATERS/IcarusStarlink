@@ -36,9 +36,15 @@ public sealed partial class SaveCurrencyViewModel : ObservableObject, IDirtyTrac
         }
     }
 
+    /// <summary>
+    /// Must reject exactly what ApplyToNode() rejects — a negative CountText that Save silently
+    /// declined to write must not be adopted as the new "clean" baseline either, or IsDirty would
+    /// compare CountText against itself and read false, showing "Saved" with the Save button
+    /// disabled while the on-disk value is actually still whatever it was before the edit.
+    /// </summary>
     public void MarkClean()
     {
-        if (long.TryParse(CountText, out var count))
+        if (long.TryParse(CountText, out var count) && count >= 0)
         {
             _originalCount = count;
         }

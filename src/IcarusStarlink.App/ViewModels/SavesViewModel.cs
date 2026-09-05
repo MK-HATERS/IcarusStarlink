@@ -457,10 +457,14 @@ public sealed partial class SavesViewModel : ObservableObject
         {
             _binaryFlagIds = _repository.LoadBinaryFlags(SelectedSlot.SteamId) is { } ids ? [.. ids] : null;
         }
-        catch (FormatException)
+        catch (Exception ex) when (ex is FormatException or ArgumentOutOfRangeException)
         {
             // An unreadable flags file just means the section stays hidden — the JSON-side editing
             // still works, and hiding beats showing toggles that couldn't be written back safely.
+            // ArgumentOutOfRangeException is a defensive belt-and-suspenders catch alongside
+            // LoadBinaryFlags' own fix for the corrupted-header case that used to produce it
+            // instead of FormatException — this way a similarly-shaped bug anywhere else in that
+            // method degrades to "hide this section" too, instead of failing the whole slot load.
         }
 
         if (_binaryFlagIds is { } unlocked)

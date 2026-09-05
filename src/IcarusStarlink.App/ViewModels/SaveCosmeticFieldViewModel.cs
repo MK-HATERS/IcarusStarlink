@@ -33,5 +33,18 @@ public sealed partial class SaveCosmeticFieldViewModel : ObservableObject, IDirt
 
     partial void OnValueTextChanged(string value) => _onDirtyChanged();
 
-    public void MarkClean() => _originalValueText = ValueText;
+    /// <summary>
+    /// Must reject exactly what SaveCharacterViewModel.ApplyToNode()'s Cosmetics loop rejects — an
+    /// unparsable ValueText that Save silently declined to write must not be adopted as the new
+    /// "clean" baseline either, or IsDirty would compare ValueText against itself and read false,
+    /// showing "Saved" with the Save button disabled while the real cosmetic hash on disk is
+    /// actually still whatever it was before the edit.
+    /// </summary>
+    public void MarkClean()
+    {
+        if (long.TryParse(ValueText, out _))
+        {
+            _originalValueText = ValueText;
+        }
+    }
 }
