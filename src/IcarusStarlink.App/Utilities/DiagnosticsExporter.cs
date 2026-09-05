@@ -1,5 +1,8 @@
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -7,11 +10,14 @@ namespace IcarusStarlink.App.Utilities;
 
 /// <summary>
 /// "Export diagnostics zip (logs + sanitized settings, no API keys/tokens)" per the spec — bundles
-/// every rolled Serilog log file plus a redacted copy of settings.json into one zip a user can
-/// attach to a bug report. Nothing this app stores in settings.json today is actually a secret (the
-/// Nexus API key and FTP passwords both live in Windows Credential Manager via ICredentialStore,
-/// never in this file) — the redaction pass below is defensive, in case a future settings field
-/// ever holds something sensitive, not a fix for something currently exposed.
+/// a system-info.txt (app version, OS, .NET runtime), every rolled Serilog log file (which, since
+/// LoggingActivityLog exists, includes the session's own activity history and any crash reports
+/// written by CrashReportWriter — both surface here as *.log/crash-*.txt entries, not as separate
+/// bundling logic), plus a redacted copy of settings.json into one zip a user can attach to a bug
+/// report. Nothing this app stores in settings.json today is actually a secret (the Nexus API key
+/// and FTP passwords both live in Windows Credential Manager via ICredentialStore, never in this
+/// file) — the redaction pass below is defensive, in case a future settings field ever holds
+/// something sensitive, not a fix for something currently exposed.
 /// </summary>
 public static class DiagnosticsExporter
 {
@@ -21,11 +27,32 @@ public static class DiagnosticsExporter
     {
         using var archive = ZipFile.Open(outputZipPath, ZipArchiveMode.Create);
 
+        // A plain, always-present entry rather than relying on whoever reads this zip to notice a
+        // version/OS line buried inside one specific day's rolling log (or find none at all, if
+        // that day's log happened to roll over or wasn't written for some other reason) — every
+        // crash report already carries this too (see CrashReportWriter), but a diagnostics export
+        // isn't always crash-triggered, so it needs its own copy.
+        var systemInfoEntry = archive.CreateEntry("system-info.txt");
+        using (var writer = new StreamWriter(systemInfoEntry.Open()))
+        {
+            var version = Assembly.GetExecutingAssembly()
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
+            writer.WriteLine($"IcarusStarlink version: {version}");
+            writer.WriteLine($"OS: {RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})");
+            writer.WriteLine($".NET runtime: {RuntimeInformation.FrameworkDescription} ({RuntimeInformation.ProcessArchitecture})");
+            writer.WriteLine($"Exported: {DateTimeOffset.Now:O}");
+        }
+
         if (Directory.Exists(logsDirectory))
         {
             // *.log already matches both the regular icarusstarlink-*.log files and the
-            // app.perf-*.log files — no need for a second, overlapping glob.
-            foreach (var logFile in Directory.EnumerateFiles(logsDirectory, "*.log"))
+            // app.perf-*.log files. crash-*.txt is CrashReportWriter's own output (a .txt, not a
+            // .log, specifically so it reads as a standalone document rather than another rolling
+            // log — but that means it needs its own glob here, or it would silently never make it
+            // into this zip at all).
+            var logFiles = Directory.EnumerateFiles(logsDirectory, "*.log")
+                .Concat(Directory.EnumerateFiles(logsDirectory, "crash-*.txt"));
+            foreach (var logFile in logFiles)
             {
                 try
                 {

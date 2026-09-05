@@ -84,8 +84,13 @@ exactly what a mod's author changed between the version you have and an update.
 **Also**: three built-in themes plus a fully user-authorable custom skin (edit any of ~19 colors,
 or hand-edit the underlying JSON), a real in-app auto-updater (verifies the download's integrity,
 downloads, applies with automatic rollback if it fails partway, and relaunches itself — never
-touches your mods, profiles, or settings), diagnostics export, and an in-app Help page covering
-every feature above.
+touches your mods, profiles, or settings), real crash reporting (every unhandled exception —
+whether it's on the UI thread, the background startup sequence, or inside any async action like
+Rebuild/Install/FTP/downloads/save-editing — writes a crash report with the full exception, app/OS
+version, and recent activity history to the Logs folder, instead of the app previously either
+hard-crashing with nothing recorded or silently freezing/doing-nothing with no trace at all),
+diagnostics export (now also bundling app/OS version info and any crash reports alongside the
+regular logs), and an in-app Help page covering every feature above.
 
 ## What it doesn't (yet)
 

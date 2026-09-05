@@ -78,7 +78,7 @@ public class DiagnosticsExporterTests : IDisposable
     }
 
     [Fact]
-    public void Export_NoLogsDirectory_StillProducesAZipWithJustSettings()
+    public void Export_NoLogsDirectory_StillProducesAZipWithJustSystemInfoAndSettings()
     {
         Directory.Delete(_logsDirectory);
         File.WriteAllText(_settingsFilePath, """{"ThemeName": "Dark"}""");
@@ -86,7 +86,34 @@ public class DiagnosticsExporterTests : IDisposable
         DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath);
 
         using var archive = ZipFile.OpenRead(_outputZipPath);
-        Assert.Single(archive.Entries);
+        Assert.Equal(2, archive.Entries.Count);
+        Assert.Contains(archive.Entries, e => e.FullName == "system-info.txt");
+        Assert.Contains(archive.Entries, e => e.FullName == "settings.json");
+    }
+
+    [Fact]
+    public void Export_AlwaysIncludesSystemInfoWithVersionAndOsDetails()
+    {
+        DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath);
+
+        using var archive = ZipFile.OpenRead(_outputZipPath);
+        var entry = Assert.Single(archive.Entries, e => e.FullName == "system-info.txt");
+        using var reader = new StreamReader(entry.Open());
+        var content = reader.ReadToEnd();
+        Assert.Contains("IcarusStarlink version:", content);
+        Assert.Contains("OS:", content);
+        Assert.Contains(".NET runtime:", content);
+    }
+
+    [Fact]
+    public void Export_BundlesCrashReportTextFilesAlongsideLogs()
+    {
+        File.WriteAllText(Path.Combine(_logsDirectory, "crash-20260101-120000.txt"), "crash report content");
+
+        DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath);
+
+        using var archive = ZipFile.OpenRead(_outputZipPath);
+        Assert.Contains(archive.Entries, e => e.FullName == "Logs/crash-20260101-120000.txt");
     }
 
     [Fact]
@@ -112,14 +139,15 @@ public class DiagnosticsExporterTests : IDisposable
     }
 
     [Fact]
-    public void Export_NoSettingsFile_StillProducesAZipWithJustLogs()
+    public void Export_NoSettingsFile_StillProducesAZipWithSystemInfoAndLogs()
     {
         File.WriteAllText(Path.Combine(_logsDirectory, "icarusstarlink-20260101.log"), "log line");
 
         DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath);
 
         using var archive = ZipFile.OpenRead(_outputZipPath);
-        Assert.Single(archive.Entries);
+        Assert.Equal(2, archive.Entries.Count);
+        Assert.Contains(archive.Entries, e => e.FullName == "system-info.txt");
         Assert.DoesNotContain(archive.Entries, e => e.FullName == "settings.json");
     }
 }

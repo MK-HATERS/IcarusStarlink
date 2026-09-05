@@ -1,6 +1,8 @@
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
@@ -53,10 +55,22 @@ public partial class App : Application
 {
     private IHost? _host;
     private SingleInstanceService? _singleInstanceService;
+    private string _logsDirectory = string.Empty;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Wired up before anything else below has a chance to throw — previously this app had NO
+        // global exception handling at all, meaning a real crash depended entirely on WHERE it
+        // happened: a sync UI-thread exception crashed with nothing logged, a background-thread
+        // startup exception froze the splash screen forever with no trace, and an exception inside
+        // almost any async command (Rebuild/Install/FTP/downloads/save-editing are all built this
+        // way) was silently discarded by CommunityToolkit.Mvvm's own default behavior. All three
+        // now funnel into CrashReportWriter — see its own doc comment.
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
         // A real nxm:// click launches a brand-new process by default — the OS has no idea
         // IcarusStarlink might already be running. If we're the second one, hand our own nxm://
@@ -92,6 +106,7 @@ public partial class App : Application
 
         var appDataDirectory = AppContext.BaseDirectory;
         var logsDirectory = Path.Combine(appDataDirectory, "Logs");
+        _logsDirectory = logsDirectory;
         Directory.CreateDirectory(logsDirectory);
 
         Log.Logger = new LoggerConfiguration()
@@ -118,7 +133,13 @@ public partial class App : Application
         builder.Services.AddSingleton<ISettingsService>(sp =>
             new AppSettingsService(appDataDirectory, sp.GetRequiredService<ILogger<AppSettingsService>>()));
         builder.Services.AddSingleton(sp => new PerformanceTracker(sp.GetRequiredService<ISettingsService>(), logsDirectory));
-        builder.Services.AddSingleton<IActivityLog, ActivityLog>();
+        // Wrapped rather than registered directly: LoggingActivityLog bridges every entry into
+        // Serilog too, so "what was the user doing right before this" survives a crash instead of
+        // only ever living in the plain ActivityLog's in-memory, never-persisted collection. See
+        // LoggingActivityLog's own doc comment.
+        builder.Services.AddSingleton<ActivityLog>();
+        builder.Services.AddSingleton<IActivityLog>(sp =>
+            new LoggingActivityLog(sp.GetRequiredService<ActivityLog>(), sp.GetRequiredService<ILogger<LoggingActivityLog>>()));
         builder.Services.AddSingleton<IActiveDownloadsTracker, ActiveDownloadsTracker>();
         builder.Services.AddSingleton<ActivityPanelViewModel>();
         builder.Services.AddSingleton<ICustomSkinStore>(sp =>
@@ -360,7 +381,35 @@ public partial class App : Application
         // larger one). None of this touches a Window/UIElement, so it's safe to build entirely off
         // the UI thread — only the final MainWindow construction below needs to run on it. The
         // splash's own message pump is what stays responsive while this runs.
+        // Wrapped in its own try/catch — an exception anywhere in this background startup work
+        // (including one that propagates back from the Dispatcher.Invoke block below, since
+        // exceptions from a cross-thread Dispatcher.Invoke call return to the CALLING thread, i.e.
+        // land right back here) used to have nowhere to go at all: an unobserved faulted Task from
+        // a bare Task.Run doesn't terminate the process on modern .NET, so the splash screen just
+        // hung forever with no log, no dialog, no crash. Now it's reported the same way any other
+        // crash is, and the app shuts down cleanly instead of hanging.
         Task.Run(() =>
+        {
+            try
+            {
+                RunStartup();
+            }
+            catch (Exception ex)
+            {
+                CrashReportWriter.Write(_logsDirectory, ex, "Startup", _host?.Services.GetService<IActivityLog>());
+                Dispatcher.Invoke(() =>
+                {
+                    MessageBox.Show(
+                        $"IcarusStarlink couldn't start up:\n\n{ex.Message}\n\nA crash report was written to the Logs folder.",
+                        "IcarusStarlink — startup failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                    splash.Close();
+                    Shutdown(-1);
+                });
+            }
+        });
+        return;
+
+        void RunStartup()
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -368,7 +417,11 @@ public partial class App : Application
             _host.Start();
 
             var logger = _host.Services.GetRequiredService<ILogger<App>>();
-            logger.LogInformation("IcarusStarlink starting up");
+            var appVersion = Assembly.GetExecutingAssembly()
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
+            logger.LogInformation(
+                "IcarusStarlink v{Version} starting up ({OS}, {Runtime})",
+                appVersion, RuntimeInformation.OSDescription, RuntimeInformation.FrameworkDescription);
 
             splash.UpdateStatus("Loading library…");
             var mainViewModel = _host.Services.GetRequiredService<MainViewModel>();
@@ -420,7 +473,54 @@ public partial class App : Application
                     Dispatcher.BeginInvoke(() => HandleNxmUrl(ownNxmArg));
                 }
             });
-        });
+        }
+    }
+
+    /// <summary>
+    /// A synchronous exception that escaped all the way out through WPF's own message loop — the
+    /// only crash path that could ever have produced a real OS-level artifact (a Windows crash
+    /// dump) before this handler existed, since every other path in this app either froze silently
+    /// or was swallowed by CommunityToolkit.Mvvm — see CrashReportWriter's own doc comment.
+    /// Deliberately leaves e.Handled false: an exception that reached here means something already
+    /// went wrong in a way this app can't identify as safe to just shrug off, so the right call is
+    /// to report it and let WPF's own default (terminate) proceed, not to guess the app is still in
+    /// a good state and keep running.
+    /// </summary>
+    private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        CrashReportWriter.Write(_logsDirectory, e.Exception, "UI thread (DispatcherUnhandledException)", _host?.Services.GetService<IActivityLog>());
+        MessageBox.Show(
+            $"IcarusStarlink hit an unexpected error and needs to close:\n\n{e.Exception.Message}\n\nA crash report was written to the Logs folder.",
+            "IcarusStarlink — unexpected error", MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
+    /// <summary>
+    /// Fires immediately before the process actually terminates for a truly unhandled exception
+    /// (e.IsTerminating is effectively always true here) — nothing can stop the process dying at
+    /// this point, and nothing should try; this is purely the last chance to write down what
+    /// happened before it's gone.
+    /// </summary>
+    private void OnAppDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        if (e.ExceptionObject is Exception exception)
+        {
+            CrashReportWriter.Write(_logsDirectory, exception, "AppDomain (process terminating)", _host?.Services.GetService<IActivityLog>());
+        }
+    }
+
+    /// <summary>
+    /// Where an exception from an async [RelayCommand] method actually surfaces, now that every
+    /// one of them has FlowExceptionsToTaskScheduler = true — without that, CommunityToolkit.Mvvm's
+    /// own default behavior stores the exception on the command's internal ExecutionTask and
+    /// discards it, so this handler would never fire for the app's own Rebuild/Install/FTP/
+    /// download/save-editing commands at all. SetObserved() prevents this from being treated as a
+    /// second, redundant unhandled exception once the faulted Task is garbage-collected — this
+    /// handler is the one place that exception is actually being handled (logged + reported).
+    /// </summary>
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        CrashReportWriter.Write(_logsDirectory, e.Exception, "Unobserved task exception (a command or background task)", _host?.Services.GetService<IActivityLog>());
+        e.SetObserved();
     }
 
     private void HandleNxmUrl(string nxmUrl)
