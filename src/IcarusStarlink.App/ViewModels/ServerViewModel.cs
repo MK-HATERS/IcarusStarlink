@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Secrets;
@@ -28,6 +29,7 @@ public sealed partial class ServerViewModel : ObservableObject
     private readonly IActivityLog _activityLog;
     private readonly ISettingsService _settingsService;
     private readonly IUe4ssModRepository _ue4ssModRepository;
+    private readonly IDialogService _dialogService;
     private readonly string _outputPakPath;
     private readonly string _pakManifestPath;
 
@@ -185,6 +187,7 @@ public sealed partial class ServerViewModel : ObservableObject
         IActivityLog activityLog,
         ISettingsService settingsService,
         IUe4ssModRepository ue4ssModRepository,
+        IDialogService dialogService,
         string outputPakPath)
     {
         _siteStore = siteStore;
@@ -193,6 +196,7 @@ public sealed partial class ServerViewModel : ObservableObject
         _activityLog = activityLog;
         _settingsService = settingsService;
         _ue4ssModRepository = ue4ssModRepository;
+        _dialogService = dialogService;
         _outputPakPath = outputPakPath;
         _pakManifestPath = Path.Combine(Path.GetDirectoryName(outputPakPath)!, InstallManifestNames.PakManifest);
 
@@ -263,6 +267,15 @@ public sealed partial class ServerViewModel : ObservableObject
         }
 
         var id = SelectedSite?.Id ?? Guid.NewGuid();
+        // Prefer _connectedSite over SelectedSite as the carry-forward source when they're the same
+        // site: RememberDeleteCapability (and the certificate-trust prompt) write their freshly
+        // learned facts onto _connectedSite specifically, not onto whatever object SelectedSite
+        // happens to currently point at (see _connectedSite's and RememberDeleteCapability's own doc
+        // comments on why those can be different objects even for "the same" site). Reading from
+        // SelectedSite here could otherwise race a just-completed delete-capability check: this
+        // synchronous save landing between that async check's own await and its RememberDeleteCapability
+        // call would carry forward the OLD value and silently overwrite the fact that check just learned.
+        var carryForwardSource = _connectedSite?.Id == id ? _connectedSite : SelectedSite?.Id == id ? SelectedSite : null;
         var site = new FtpSiteProfile
         {
             Id = id, Name = SiteNameInput, Host = HostInput, Port = port, Username = UsernameInput,
@@ -277,8 +290,8 @@ public sealed partial class ServerViewModel : ObservableObject
             // or losing the known delete-support state for no reason tied to what was actually
             // edited. Only applies when editing the SAME already-saved site — a brand-new site has
             // no prior state to carry forward.
-            TrustedCertificateThumbprint = SelectedSite?.Id == id ? SelectedSite.TrustedCertificateThumbprint : null,
-            SupportsDelete = SelectedSite?.Id == id ? SelectedSite.SupportsDelete : null,
+            TrustedCertificateThumbprint = carryForwardSource?.TrustedCertificateThumbprint,
+            SupportsDelete = carryForwardSource?.SupportsDelete,
         };
 
         try
@@ -309,6 +322,15 @@ public sealed partial class ServerViewModel : ObservableObject
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task DeleteSiteAsync()
     {
+        // Matches every FTP-touching command's own IsBusy guard (see its doc comment above) — this
+        // one can also touch the shared _connectedClient below (via DisconnectAsync), so a click
+        // landing mid-Upload/Download/Delete must refuse rather than race it or delete the site's
+        // saved profile out from under a still-live connection.
+        if (IsBusy)
+        {
+            return;
+        }
+
         if (SelectedSite is not { } site)
         {
             SiteStatusMessage = "Select a site first.";
@@ -320,7 +342,7 @@ public sealed partial class ServerViewModel : ObservableObject
         // during this app's own real testing, permanently wiping a real saved site + its stored
         // password with no undo. Recovered that time only because the details were still known;
         // this confirmation is the actual fix, not just a lesson noted for later.
-        var confirm = ThemedMessageBox.Show(
+        var confirm = _dialogService.Confirm(
             $"Delete the saved site '{site.Name}'? Its saved password will be removed too. This can't be undone from here.",
             "Delete site", ThemedConfirmSeverity.Warning);
         if (!(confirm))
@@ -331,12 +353,22 @@ public sealed partial class ServerViewModel : ObservableObject
         // A live connection to the very site being deleted would otherwise dangle: _connectedClient
         // stays connected and every Upload/Download/Delete action keeps working against it, but
         // SelectedSite is about to be cleared by NewSite() below, so the UI would show "Connected"
-        // next to a blank site form with no way to tell which server it's still talking to.
-        if (IsConnected && SelectedSite?.Id == site.Id)
+        // next to a blank site form with no way to tell which server it's still talking to. Checked
+        // against _connectedSite (the site the LIVE connection actually belongs to), not
+        // SelectedSite — site IS SelectedSite here (see above), so comparing against SelectedSite's
+        // own Id is always true and would disconnect from whatever site happens to be connected even
+        // when deleting a completely unrelated, never-connected site.
+        //
+        // Deliberately called BEFORE this method's own IsBusy=true below, not inside it:
+        // DisconnectAsync manages its own IsBusy=true/false around its body (see its doc comment),
+        // and early-returns if IsBusy is already true — nesting it inside our own IsBusy=true would
+        // make it silently no-op instead of actually disconnecting.
+        if (IsConnected && _connectedSite?.Id == site.Id)
         {
             await DisconnectAsync();
         }
 
+        IsBusy = true;
         try
         {
             _siteStore.Delete(site.Id);
@@ -348,6 +380,10 @@ public sealed partial class ServerViewModel : ObservableObject
         catch (Exception ex)
         {
             SiteStatusMessage = $"Couldn't delete site: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
         }
     }
 
@@ -408,7 +444,7 @@ public sealed partial class ServerViewModel : ObservableObject
                 // A real "trust this certificate?" prompt — the same convention FileZilla/WinSCP
                 // use for exactly this case (common on budget game-server hosts presenting a
                 // self-signed cert), rather than just failing with a generic TLS error.
-                var trust = ThemedMessageBox.Show(
+                var trust = _dialogService.Confirm(
                     $"{certEx.Message}\n\nSubject: {certEx.Subject}\nIssuer: {certEx.Issuer}\nThumbprint: {certEx.Thumbprint}\n\n"
                     + $"Trust this certificate for '{site.Name}' and connect anyway? Only do this if you recognize this server.",
                     "Untrusted certificate", ThemedConfirmSeverity.Warning);
@@ -640,7 +676,7 @@ public sealed partial class ServerViewModel : ObservableObject
             return;
         }
 
-        var result = ThemedMessageBox.Show(
+        var result = _dialogService.Confirm(
             $"Delete '{entry.Name}' from the server? This can't be undone from here.",
             "Delete remote file", ThemedConfirmSeverity.Warning);
         if (!(result))
@@ -771,7 +807,7 @@ public sealed partial class ServerViewModel : ObservableObject
                     + $"to '{RemoteModsPath}' on '{_connectedSite?.Name}'. Continue?";
             }
 
-            if (!(ThemedMessageBox.Show(prompt, "Install merged pak to server", ThemedConfirmSeverity.Warning)))
+            if (!(_dialogService.Confirm(prompt, "Install merged pak to server", ThemedConfirmSeverity.Warning)))
             {
                 return;
             }
@@ -904,7 +940,7 @@ public sealed partial class ServerViewModel : ObservableObject
                 $"This will upload {localFiles.Count} loader file(s) (UE4SS.dll, dwmapi.dll, etc.) to '{RemoteWin64Path}' on "
                 + $"'{_connectedSite?.Name}', replacing its current loader ({(remoteVersion is null ? "not installed" : $"v{remoteVersion}")}). "
                 + $"The server's own Mods folder{(remoteHasSettings ? " and its existing UE4SS-settings.ini" : "")} won't be touched. Continue?";
-            if (!(ThemedMessageBox.Show(prompt, "Sync UE4SS loader to server", ThemedConfirmSeverity.Warning)))
+            if (!(_dialogService.Confirm(prompt, "Sync UE4SS loader to server", ThemedConfirmSeverity.Warning)))
             {
                 return;
             }
@@ -991,7 +1027,7 @@ public sealed partial class ServerViewModel : ObservableObject
             var prompt =
                 $"This will upload the following UE4SS mod(s) to '{RemoteModsRootPath}' on '{_connectedSite?.Name}' "
                 + $"(nothing already there is touched):\n{string.Join('\n', missing.Select(n => $"  - {n}"))}\n\nContinue?";
-            if (!(ThemedMessageBox.Show(prompt, "Sync UE4SS mods to server", ThemedConfirmSeverity.Warning)))
+            if (!(_dialogService.Confirm(prompt, "Sync UE4SS mods to server", ThemedConfirmSeverity.Warning)))
             {
                 return;
             }
