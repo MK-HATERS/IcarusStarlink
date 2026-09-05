@@ -168,7 +168,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
 
     partial void OnSearchTextChanged(string value) => _searchDebounceTimer.Restart();
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private Task Refresh() => LoadAsync();
 
     /// <summary>A fresh load — kind/search change or an explicit Refresh — always starts back at page 1 of All, since the offset from a previous browse/search context wouldn't mean anything here.</summary>
@@ -253,7 +253,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private Task NextPageAsync()
     {
         if (IsLoading || !CanGoToNextPage)
@@ -265,7 +265,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         return LoadPageAsync();
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private Task PreviousPageAsync()
     {
         if (IsLoading || !CanGoToPreviousPage)
@@ -358,7 +358,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     /// pipeline to DownloadsViewModel.ResolvePrimaryFileAndFetchAsync, the app's own always-
     /// available download path independent of whether the nxm:// protocol handler is registered.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task DownloadModAsync(NexusModInfo? mod)
     {
         if (mod is null)
@@ -380,7 +380,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     /// (a mismatch between the mod's own displayed version and its changelog's own version
     /// labels is possible — an author can word these differently).
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ShowChangelogAsync(NexusModInfo? mod)
     {
         if (mod is null)

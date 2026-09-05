@@ -306,7 +306,7 @@ public sealed partial class ServerViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task DeleteSiteAsync()
     {
         if (SelectedSite is not { } site)
@@ -357,7 +357,7 @@ public sealed partial class ServerViewModel : ObservableObject
     /// always saves it, matching Save's own behavior, so connecting once is enough to make every
     /// future connect password-free too.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ConnectAsync()
     {
         // IsEnabled on the Connect button is bound to IsNotConnected, which only flips false once
@@ -449,7 +449,7 @@ public sealed partial class ServerViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task DisconnectAsync()
     {
         // Never dispose out from under a still-running Upload/Download/Delete/etc. — see the
@@ -518,10 +518,10 @@ public sealed partial class ServerViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private Task Refresh() => IsBusy ? Task.CompletedTask : LoadDirectoryAsync(CurrentRemotePath);
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private Task NavigateInto(FtpEntry? entry)
     {
         if (IsBusy || entry is null || !entry.IsDirectory)
@@ -532,7 +532,7 @@ public sealed partial class ServerViewModel : ObservableObject
         return LoadDirectoryAsync(CombineRemotePath(CurrentRemotePath, entry.Name));
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private Task NavigateUp()
     {
         if (IsBusy)
@@ -552,7 +552,7 @@ public sealed partial class ServerViewModel : ObservableObject
         return $"{trimmed}/{name}";
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task UploadAsync()
     {
         if (_connectedClient is null || IsBusy)
@@ -586,7 +586,7 @@ public sealed partial class ServerViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task DownloadAsync()
     {
         if (IsBusy)
@@ -626,7 +626,7 @@ public sealed partial class ServerViewModel : ObservableObject
     }
 
     /// <summary>Deletes a file on the real remote server — asks for confirmation first, since this isn't something a later Disable/re-Apply step can undo the way local UE4SS mod moves can.</summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task DeleteRemoteAsync()
     {
         if (IsBusy)
@@ -714,7 +714,7 @@ public sealed partial class ServerViewModel : ObservableObject
     /// not yet known either way still tries each delete for real (learning the answer for next
     /// time), but never lets one rejected delete abort the whole upload.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task InstallPakToServerAsync()
     {
         if (IsBusy)
@@ -840,7 +840,7 @@ public sealed partial class ServerViewModel : ObservableObject
     /// the server's own Mods\ folder or its UE4SS-settings.ini if one already exists there, so a
     /// loader update can't clobber whatever's already configured/running on the server.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task SyncUe4ssLoaderToServerAsync()
     {
         if (IsBusy)
@@ -939,7 +939,7 @@ public sealed partial class ServerViewModel : ObservableObject
     /// install and enable/disable state service both already use — this never touches or removes a
     /// mod already on the server, including the framework's own built-ins.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task SyncUe4ssModsToServerAsync()
     {
         if (IsBusy)

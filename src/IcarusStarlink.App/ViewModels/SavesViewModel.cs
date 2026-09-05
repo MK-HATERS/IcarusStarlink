@@ -1122,7 +1122,7 @@ public sealed partial class SavesViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task RestoreBackupAsync()
     {
         if (SelectedSlot is null || SelectedBackup is null)

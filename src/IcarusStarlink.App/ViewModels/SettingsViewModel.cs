@@ -269,7 +269,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// order — so the user's existing merge setup comes across whole instead of being rebuilt by
     /// hand.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportImmModListAsync()
     {
         var dialog = new OpenFileDialog
@@ -604,7 +604,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// title, and a newer UE5 UnrealPak writes pak formats the game's engine can't mount. The
     /// property that matters is "4.x and intact", which is exactly what this reports.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task VerifyUnrealPakAsync()
     {
         if (string.IsNullOrWhiteSpace(UnrealPakExePath))
@@ -626,7 +626,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         };
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task InstallBundledUnrealPakAsync()
     {
         try
@@ -691,7 +691,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         WeakReferenceMessenger.Default.Send(new SettingsSavedMessage());
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task UpdateDataFolderAsync()
     {
         if (string.IsNullOrWhiteSpace(IcarusContentPath) || string.IsNullOrWhiteSpace(UnrealPakExePath))
@@ -800,7 +800,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// user's own explicit ask, not a hardcoded test key. Only saves the key to Windows Credential
     /// Manager once Nexus itself has confirmed it's genuinely valid.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task AuthorizeNexusAsync()
     {
         if (string.IsNullOrWhiteSpace(NexusApiKeyInput))
@@ -969,7 +969,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// the UE4SS Mods folder). Same gating philosophy as the real pak install and the nxm://
     /// protocol registration: never automatic, and only proceeds behind this explicit confirmation.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task InstallOrUpdateUe4ssAsync()
     {
         if (string.IsNullOrWhiteSpace(IcarusContentPath))
@@ -1039,7 +1039,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// the whole install is backed up (keep-last-5), and only then does anything get deleted.
     /// Icarus's own files are never touched; UE4SS lives entirely in those two paths.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task UninstallUe4ssAsync()
     {
         if (string.IsNullOrWhiteSpace(IcarusContentPath))
@@ -1158,7 +1158,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     partial void OnLatestAppUpdateReleaseChanged(AppUpdateRelease? value) => OnPropertyChanged(nameof(IsAppUpdateAvailable));
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task CheckForAppUpdatesAsync()
     {
         IsCheckingForAppUpdate = true;
@@ -1191,7 +1191,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// UpdateApplier), and relaunches the app. Gated behind its own explicit Yes/No, like every
     /// other self-affecting action in this app.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task UpdateNowAsync()
     {
         if (LatestAppUpdateRelease is null)

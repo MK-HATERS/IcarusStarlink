@@ -285,7 +285,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         return _allCatalogEntries;
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task RefreshCatalogAsync()
     {
         IsLoadingCatalog = true;
@@ -489,7 +489,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
             : CatalogEntries.FirstOrDefault(row => row.Entry.Id == previouslySelectedId);
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task DownloadAndExtractAsync()
     {
         if (SelectedCatalogEntry is null)
@@ -568,7 +568,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     }
 
     /// <summary>Sequential, not parallel — a burst of concurrent downloads against the same catalog source (and Library import, which isn't designed for concurrent writers) is more likely to trip a rate limit or a file-collision than to meaningfully speed this up.</summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task DownloadAndExtractSelectedAsync()
     {
         if (_selectedCatalogEntriesForBatch.Count == 0)
@@ -802,7 +802,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// new import then fails, the entry is left correctly showing "deleted from Library" rather
     /// than silently keeping a stale, no-longer-accurate "installed" state.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ActivatePendingDownloadAsync(PendingDownloadItemViewModel? item)
     {
         if (item is null)

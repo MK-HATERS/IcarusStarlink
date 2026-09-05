@@ -610,7 +610,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// offered for a framework-built-in row (see the XAML's own IsBuiltIn-gated menu item) — those
     /// ship with the loader itself and have no standalone Nexus page of their own to link to.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task LinkUe4ssModToNexus(Ue4ssModRowViewModel? item)
     {
         if (item is null)
@@ -752,7 +752,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// Multiselect, routed through ImportPaths below, so picking several archives at once works the
     /// same as dragging several onto the page.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportFile()
     {
         var dialog = new OpenFileDialog
@@ -863,7 +863,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// to the separate "Link to Nexus ID…" context-menu action on an already-imported mod, which is
     /// easy to never discover for something imported this way in the first place.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportPak()
     {
         var dialog = new OpenFileDialog
@@ -957,7 +957,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// Download through the existing nxm:// pipeline (or its "Open page" action, for a non-Premium
     /// account that needs the real website).
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task GetUpdateAsync(LibraryItemViewModel? item)
     {
         if (item is null)
@@ -1153,7 +1153,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// as EXMOD rows/assets — and restores that backup if anything after the delete throws, so a
     /// failure never leaves the mod in a half-converted, unreadable state.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ConvertToExmodAsync(LibraryItemViewModel? item)
     {
         if (item is null)
@@ -1259,7 +1259,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// meaningless giant diff (see MergeInstallViewModel's own reimport, which deliberately never
     /// routes through this either).
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ConvertAllOpaqueModsAsync()
     {
         if (IsConvertingAllOpaqueMods)
@@ -1480,7 +1480,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// version, whether that backup came from an update or a manual Create mod backup) against
     /// what's installed now. Read-only: nothing is restored, moved, or written.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task CompareToPreviousVersionAsync(LibraryItemViewModel? item)
     {
         if (item is null)
@@ -1586,7 +1586,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// DownloadsViewModel.EnrichOpaquePakFromNexusAsync's own two-step shape — a rejected/missing
     /// key just means the ID link itself still succeeds without the extra display data.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task LinkToNexus(LibraryItemViewModel? item)
     {
         if (item is null)
@@ -2066,10 +2066,10 @@ public sealed partial class LibraryViewModel : ObservableObject
         return group;
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private Task CheckForUpdates() => CheckForUpdatesAsync(isAutomatic: false);
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private Task CheckModsAgainstCurrentData() => CheckModsAgainstCurrentDataAsync();
 
     /// <summary>
@@ -2080,7 +2080,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// CheckForUpdatesAsync (a different question — version-checking vs. "have I endorsed this"),
     /// same as CheckModsAgainstCurrentDataAsync already is.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task CheckEndorsements()
     {
         if (IsCheckingEndorsements)

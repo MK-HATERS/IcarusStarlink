@@ -353,7 +353,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// blank boxes field by field. A copy left unedited is identical to base, so it merges as a
     /// no-op — safe to add speculatively.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task AddItemFromGameAsync()
     {
         IReadOnlyList<GameDataItemRef> gameItemIndex;
@@ -443,7 +443,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// consume 'Wood'; which items grant a stat). Non-modal, like the editor itself — a research
     /// companion meant to sit beside the fields being edited.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task SearchGameDataAsync()
     {
         IReadOnlyList<GameDataSearchEntry> gameSearchIndex;

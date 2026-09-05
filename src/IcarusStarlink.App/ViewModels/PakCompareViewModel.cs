@@ -79,7 +79,7 @@ public sealed partial class PakCompareViewModel : ObservableObject
         return dialog.ShowDialog() == true ? dialog.FileName : null;
     }
 
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task CompareAsync()
     {
         if (!File.Exists(FirstPakPath) || !File.Exists(SecondPakPath))

@@ -746,7 +746,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// itself. Exports whatever's currently in Queue (not a fresh reload of the saved profile),
     /// matching SaveProfile's own live-state semantics.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ExportPatchAsync()
     {
         if (IsExportingPatch)
@@ -903,7 +903,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// properly rather than blocking the UI thread on a zip read/extract that can take real time
     /// for a patch with bundled EXMODZ content.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportPatchAsync()
     {
         var dialog = new OpenFileDialog
@@ -1013,7 +1013,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// the slots they already occupied. This only ever suggests; nothing is applied without an
     /// explicit confirmation naming the exact new order.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task SuggestQueueOrderAsync()
     {
         // A synchronous, no-I/O count (IsOpaquePak is a plain LibraryEntry field) rather than
@@ -1315,7 +1315,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// there. UE4SS mods aren't part of this either (Phase 8.5) — see Library's own UE4SS tab,
     /// which shows their real state directly.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task CompareToInstalledAsync()
     {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
@@ -1375,7 +1375,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// actual risky write, not before the safe rebuild step that precedes it. Skips the install
     /// step (and never shows its confirmation dialog at all) if the rebuild itself failed.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task RebuildAndInstallAsync()
     {
         // Gates on RebuildAsync's own success THIS call, not merely "a pak file happens to exist
@@ -1796,7 +1796,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// by the next Rebuild; they're invalidated the moment the queue changes at all, so this needs
     /// re-running after any Add/Remove/Move/Clear if the user wants to review again.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ReviewConflictsAsync()
     {
         if (Queue.Count == 0)
@@ -1976,7 +1976,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// place this app can tell you before you install that a change is quietly going to do nothing
     /// in-game.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ReviewValidationIssuesAsync()
     {
         if (Queue.Count == 0)
@@ -2118,7 +2118,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// game held the file open, nothing about the staged pak changed, and rebuilding it again to
     /// retry the copy is pure waste.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task CopyToGameAsync()
     {
         if (!File.Exists(_outputPakPath))
@@ -2137,7 +2137,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// the same request as deleting it from the local library, so this only ever touches the real
     /// game folder.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task RemoveFromGameAsync()
     {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))

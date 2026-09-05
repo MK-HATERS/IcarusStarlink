@@ -216,12 +216,12 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         AbstainCommand.NotifyCanExecuteChanged();
     }
 
-    [RelayCommand(CanExecute = nameof(CanEndorse))]
+    [RelayCommand(CanExecute = nameof(CanEndorse), FlowExceptionsToTaskScheduler = true)]
     private Task Endorse() => SetEndorsementAsync(endorse: true);
 
     private bool CanEndorse() => HasNexusLink && !IsEndorsing && EndorsementStatus != NexusEndorsementStatus.Endorsed;
 
-    [RelayCommand(CanExecute = nameof(CanAbstain))]
+    [RelayCommand(CanExecute = nameof(CanAbstain), FlowExceptionsToTaskScheduler = true)]
     private Task Abstain() => SetEndorsementAsync(endorse: false);
 
     private bool CanAbstain() => HasNexusLink && !IsEndorsing && EndorsementStatus != NexusEndorsementStatus.Abstained;
@@ -1073,7 +1073,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// command, not just called internally, so the Files tab can offer a manual retry after the
     /// user goes and sets UnrealPak.exe's path in Settings.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task LoadPakContentsAsync()
     {
         var unrealPakExePath = _settingsService.Current.UnrealPakExePath;
