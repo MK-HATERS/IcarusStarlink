@@ -860,6 +860,44 @@ public sealed class LibraryViewModelTests
         Assert.Contains("Couldn't find 'ModA' in the catalog anymore.", vm.StatusMessage);
     }
 
+    /// <summary>
+    /// Regression guard, found live: "clicking Update on a Nexus mod, downloading through the page
+    /// it opens, doesn't update the mod I clicked update on." GetUpdateAsync's own Nexus branch (see
+    /// the test above) never downloads anything itself — it opens the mod's Nexus page and tells the
+    /// user to use ITS OWN Download button, which lands in DownloadsViewModel.ActivatePendingDownloadAsync.
+    /// That method only ever deleted an existing entry when THIS SPECIFIC PendingDownloadEntry had
+    /// already been activated once before (item.IsInstalled) — but a mod originally installed some
+    /// other way (a manual import, a migration from classic IMM, or simply a download from before
+    /// Pending Downloads existed) has no such prior activation on THIS entry, even though a real
+    /// Library entry for the same Nexus mod ID already exists. Without deleting that existing entry
+    /// first, the reimport below just added a second, differently-named copy alongside the original —
+    /// which is exactly why the original looked completely untouched.
+    /// </summary>
+    [Fact]
+    public async Task ActivatePendingDownloadCommand_ExistingLibraryEntryLinkedToSameNexusModId_ReplacesItInsteadOfDuplicating()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("OldFolderName", name: "Some Mod", source: "Nexus", nexusModId: 555);
+        harness.PendingDownloadStore.EntriesList.Add(new PendingDownloadEntry
+        {
+            ModId = 555, FileId = 999, FileName = "SomeMod-v2.pak", LocalFilePath = @"C:\fake\SomeMod-v2.pak",
+        });
+        harness.PrebuiltPakImporter.Result = new LibraryEntry
+        {
+            FolderName = "NewFolderName", Name = "Some Mod", Author = "Someone", Version = "2.0",
+            Description = "d", FileName = "NewFolderName",
+        };
+
+        var vm = harness.Build();
+        var pendingItem = vm.Downloads.PendingDownloads.Single(p => p.ModId == 555);
+
+        await vm.Downloads.ActivatePendingDownloadCommand.ExecuteAsync(pendingItem);
+
+        Assert.Contains("OldFolderName", harness.Repository.DeleteCalls);
+        Assert.DoesNotContain(harness.Repository.GetAll(), e => e.FolderName == "OldFolderName");
+        Assert.Contains(harness.Repository.GetAll(), e => e.FolderName == "NewFolderName");
+    }
+
     // =========================================================================================
     // Test harness — one shared bundle of fakes for every dependency LibraryViewModel's own
     // (very large) constructor needs, plus a real DownloadsViewModel (itself constructed from

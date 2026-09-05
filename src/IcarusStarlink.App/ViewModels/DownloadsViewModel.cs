@@ -524,6 +524,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
             return (false, $"'{catalogEntry.Name}' has no downloadable file listed.");
         }
 
+        // A real catalog entry can point at a github.com "view this file" page instead of its raw
+        // content (a common submission mistake — see GitHubBlobUrl's own doc comment) — downloading
+        // that HTML page and treating it as an archive fails opaquely, so this is normalized before
+        // ever reaching the actual GetByteArrayAsync call below.
+        downloadUrl = GitHubBlobUrl.ToRawContentUrl(downloadUrl);
+
         var isExmodz = catalogEntry.ExmodzUrl is not null;
         var tempPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_{Guid.NewGuid():N}{(isExmodz ? ".EXMODZ" : ".pak")}");
 
@@ -832,6 +838,32 @@ public sealed partial class DownloadsViewModel : ObservableObject
                     // is orphaned on disk — never cleaned up, and a stale link if a different,
                     // unrelated mod later happens to land under the same folder name.
                     _ue4ssModMetaStore.Delete(existingFolderName);
+                }
+            }
+            else
+            {
+                // This exact PendingDownloadEntry has never been activated before through THIS row
+                // (a first-time download of a new file for this Nexus mod — e.g. clicking "Update"
+                // on a mod that was originally installed some other way: a manual EXMOD/pak import,
+                // a migration from classic IMM, or a download from before Pending Downloads existed
+                // at all) — but a Library or UE4SS entry already linked to this same Nexus mod ID can
+                // still exist on disk. Without deleting it first, the classify-and-import below just
+                // adds a second, "_2"-suffixed copy alongside the original, which is left completely
+                // untouched — from the user's own perspective, clicking "Update" on their existing
+                // mod silently did nothing to it at all (a real bug found live: "I download the
+                // update but it's not updating the mod I clicked update on").
+                var existingLibraryEntry = _libraryRepository.GetAll().FirstOrDefault(e => e.NexusModId == item.ModId);
+                if (existingLibraryEntry is not null)
+                {
+                    _libraryRepository.Delete(existingLibraryEntry.FolderName);
+                }
+
+                var existingUe4ssFolderName = _ue4ssModRepository.GetAll()
+                    .FirstOrDefault(folderName => _ue4ssModMetaStore.Load(folderName).NexusModId == item.ModId);
+                if (existingUe4ssFolderName is not null)
+                {
+                    _ue4ssModRepository.Delete(existingUe4ssFolderName);
+                    _ue4ssModMetaStore.Delete(existingUe4ssFolderName);
                 }
             }
 
