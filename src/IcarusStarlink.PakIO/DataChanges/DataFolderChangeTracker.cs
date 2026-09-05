@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Exmod;
@@ -31,8 +32,26 @@ public static class DataFolderChangeTracker
         {
             var hasPrevious = previousFiles.TryGetValue(relativePath, out var previousAbsolutePath);
             var hasCurrent = currentFiles.TryGetValue(relativePath, out var currentAbsolutePath);
-            var previousTable = hasPrevious ? DataTableJson.RowsToKeyedObject(ReadJsonObject(previousAbsolutePath!)) : null;
-            var currentTable = hasCurrent ? DataTableJson.RowsToKeyedObject(ReadJsonObject(currentAbsolutePath!)) : null;
+
+            JsonObject? previousTable;
+            JsonObject? currentTable;
+            try
+            {
+                previousTable = hasPrevious ? DataTableJson.RowsToKeyedObject(ReadJsonObject(previousAbsolutePath!)) : null;
+                currentTable = hasCurrent ? DataTableJson.RowsToKeyedObject(ReadJsonObject(currentAbsolutePath!)) : null;
+            }
+            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+            {
+                // A single malformed/truncated/locked JSON file must not abort this whole weekly-
+                // change computation — UnrealPakService.ExtractDataPakAsync's own caller throws away
+                // the freshly-extracted new data and never commits it if THIS method throws, which
+                // would permanently block "Update data folder" from ever succeeding again: nothing
+                // about retrying fixes a file that's already corrupted on disk in the OLD extraction
+                // being diffed against. Skipped the same way every other per-item batch in this
+                // codebase already tolerates one bad entry (ImmExtractedMods.Parse,
+                // JsonFileStore.LoadList, WeeklyChangeReportStore.LoadHistory).
+                continue;
+            }
 
             // reportEmptyNewFile: false — an empty file appearing between game patches is noise,
             // not a real content change worth showing in Weekly Changes. See DataTableFileDiffer's

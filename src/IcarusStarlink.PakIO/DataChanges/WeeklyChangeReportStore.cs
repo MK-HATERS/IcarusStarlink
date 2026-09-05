@@ -38,7 +38,16 @@ public sealed class WeeklyChangeReportStore : IWeeklyChangeReportStore
     {
         var path = Path.Combine(_historyDirectory, FileNameFor(report.CurrentUpdateAt));
         var json = JsonSerializer.Serialize(report, JsonOptions);
-        File.WriteAllText(path, json);
+        // Written via a temp file + File.Move(overwrite: true), not a direct File.WriteAllText —
+        // that truncates the target in place, so a process kill mid-write (a crash, forced shutdown,
+        // power loss) would leave a half-written file. LoadHistory's own JsonException catch would
+        // then silently skip it on the very next launch, losing that week's report entirely — this
+        // report is the one thing "Update data folder" produces that nothing else can regenerate.
+        // Same pattern IcarusStarlink.Storage.JsonFileStore.WriteAtomically already uses elsewhere;
+        // inlined here rather than referenced since this project (PakIO) doesn't depend on Storage.
+        var tempPath = $"{path}.{Guid.NewGuid():N}.tmp";
+        File.WriteAllText(tempPath, json);
+        File.Move(tempPath, path, overwrite: true);
 
         _history.Insert(0, report);
         _history.Sort((a, b) => b.CurrentUpdateAt.CompareTo(a.CurrentUpdateAt));

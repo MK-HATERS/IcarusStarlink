@@ -128,6 +128,42 @@ public class DataFolderChangeTrackerTests : IDisposable
         Assert.Equal(CurrentAt, report.CurrentUpdateAt);
     }
 
+    /// <summary>
+    /// Regression guard: a genuinely malformed (not just duplicate-keyed — truncated, non-JSON, or
+    /// otherwise unparseable) file used to throw straight out of Compute, aborting the ENTIRE
+    /// weekly-change computation for every other file too. UnrealPakService.ExtractDataPakAsync's own
+    /// caller throws away the freshly-extracted new data and never commits it if Compute throws — so
+    /// one bad file would permanently block "Update data folder" from ever succeeding again, since
+    /// retrying does nothing to fix a file that's already corrupted on disk in the OLD extraction
+    /// being diffed against.
+    /// </summary>
+    [Fact]
+    public void Compute_OneFileIsUnparseableJson_SkipsItButStillReportsOtherFilesChanges()
+    {
+        WritePrevious("Broken/D_Broken.json", """{"Rows":[{"Name":"Composter""");
+        WriteCurrent("Broken/D_Broken.json", """{"Rows":[{"Name":"Composter","Amount":10}]}""");
+        WritePrevious("Crafting/D_Fuel.json", """{"Rows":[{"Name":"Generator","Amount":5}]}""");
+        WriteCurrent("Crafting/D_Fuel.json", """{"Rows":[{"Name":"Generator","Amount":15}]}""");
+
+        var report = DataFolderChangeTracker.Compute(_previousDir, _currentDir, PreviousAt, CurrentAt);
+
+        var file = Assert.Single(report.ChangedFiles);
+        Assert.Equal("Crafting/D_Fuel.json", file.RelativePath);
+    }
+
+    [Fact]
+    public void Compute_UnparseableFileOnlyOnThePreviousSide_SkipsItRatherThanThrowing()
+    {
+        WritePrevious("Broken/D_Broken.json", "not json at all {{{");
+        WritePrevious("Crafting/D_Fuel.json", """{"Rows":[{"Name":"Generator","Amount":5}]}""");
+        WriteCurrent("Crafting/D_Fuel.json", """{"Rows":[{"Name":"Generator","Amount":15}]}""");
+
+        var report = DataFolderChangeTracker.Compute(_previousDir, _currentDir, PreviousAt, CurrentAt);
+
+        var file = Assert.Single(report.ChangedFiles);
+        Assert.Equal("Crafting/D_Fuel.json", file.RelativePath);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))
