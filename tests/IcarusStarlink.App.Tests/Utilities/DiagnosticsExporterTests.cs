@@ -150,4 +150,24 @@ public class DiagnosticsExporterTests : IDisposable
         Assert.Contains(archive.Entries, e => e.FullName == "system-info.txt");
         Assert.DoesNotContain(archive.Entries, e => e.FullName == "settings.json");
     }
+
+    /// <summary>
+    /// Regression guard: ZipArchiveMode.Create opens with FileMode.CreateNew under the hood, which
+    /// throws IOException if outputZipPath already exists. SettingsViewModel's own SaveFileDialog
+    /// already shows a native "this file exists, overwrite?" prompt and gets a "yes" whenever the
+    /// user picks an existing path — but that prompt only confirms intent, it doesn't delete
+    /// anything — so confirming it used to still end in "Export failed: ... already exists.",
+    /// directly contradicting the answer the user just gave.
+    /// </summary>
+    [Fact]
+    public void Export_OutputPathAlreadyExists_OverwritesItInsteadOfThrowing()
+    {
+        File.WriteAllText(_outputZipPath, "this is not a zip file — stands in for a real stale previous export");
+        File.WriteAllText(Path.Combine(_logsDirectory, "icarusstarlink-20260101.log"), "log line");
+
+        DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath);
+
+        using var archive = ZipFile.OpenRead(_outputZipPath);
+        Assert.Contains(archive.Entries, e => e.FullName == "Logs/icarusstarlink-20260101.log");
+    }
 }

@@ -127,4 +127,33 @@ public sealed class UpdateApplierTests : IDisposable
         Assert.Equal("old good", File.ReadAllText(Path.Combine(_installDirectory, "GoodFile.dll")));
         Assert.Equal("old locked", File.ReadAllText(lockedPath));
     }
+
+    /// <summary>
+    /// Regression guard: when rollback ITSELF can't fully restore a file — the real "(same lock)"
+    /// case this class's own doc comment now calls out, where the exact same stuck file that broke
+    /// the forward overwrite also blocks the backward restore-copy of that same file — Apply used to
+    /// just re-throw the original exception unchanged, indistinguishable from an ordinary failed
+    /// update whose rollback DID fully succeed. Program.cs (which runs with no visible window at
+    /// all) needs to tell those two outcomes apart to know when a user-visible notification is
+    /// actually warranted. FileShare.Read (not None): the backup step only needs to READ the file
+    /// (succeeds, so it lands in backedUpRelativePaths), but both the forward overwrite AND the
+    /// later rollback restore need to WRITE it — blocked by the same open handle for the whole call.
+    /// </summary>
+    [Fact]
+    public void Apply_RollbackItselfCannotRestoreAFile_ThrowsUpdateRollbackIncompleteException()
+    {
+        WriteInstall("IcarusStarlink.App.exe", "old exe");
+        WriteInstall("LockedFile.dll", "old locked");
+        WriteNew("IcarusStarlink.App.exe", "new exe");
+        WriteNew("LockedFile.dll", "new locked");
+
+        var lockedPath = Path.Combine(_installDirectory, "LockedFile.dll");
+        using (new FileStream(lockedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
+        {
+            var ex = Assert.Throws<UpdateRollbackIncompleteException>(
+                () => UpdateApplier.Apply(_installDirectory, _newFilesDirectory, _ => { }));
+
+            Assert.True(Directory.Exists(ex.BackupDirectory));
+        }
+    }
 }

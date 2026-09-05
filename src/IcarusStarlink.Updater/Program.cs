@@ -68,6 +68,24 @@ try
 {
     UpdateApplier.Apply(installDirectory, newFilesDirectory, Log);
 }
+catch (UpdateRollbackIncompleteException ex)
+{
+    Log($"Update FAILED: {ex.Message}");
+
+    // This process runs with CreateNoWindow: true (see SettingsViewModel's own launch of it) — a
+    // normal failed update (rollback fully restored the old install) doesn't need a visible
+    // notification, the app still works fine as the old version. This specific case is different:
+    // the install directory may genuinely be broken, and updater.log is the only other place this
+    // is recorded — a real Win32 message box (not a console window; there is none here) is the
+    // only way for this headless process to make sure the user actually sees it.
+    NativeMessageBox.Show(
+        $"The IcarusStarlink update failed and could not be fully rolled back.\n\n"
+        + $"{ex.Message}\n\n"
+        + $"A backup of the files that were overwritten is kept at:\n{ex.BackupDirectory}\n\n"
+        + $"Full details are in {logPath}",
+        "IcarusStarlink update failed");
+    return 4;
+}
 catch (Exception ex)
 {
     Log($"Update FAILED: {ex.Message}");

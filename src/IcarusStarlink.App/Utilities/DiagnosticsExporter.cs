@@ -25,6 +25,17 @@ public static class DiagnosticsExporter
 
     public static void Export(string logsDirectory, string settingsFilePath, string outputZipPath)
     {
+        // ZipArchiveMode.Create opens with FileMode.CreateNew under the hood, which throws
+        // IOException if outputZipPath already exists — SettingsViewModel's own SaveFileDialog
+        // already asks (and gets a "yes") via its native overwrite-confirmation prompt whenever the
+        // user picks an existing file, but that prompt only confirms intent; it doesn't delete
+        // anything. Without this, confirming that prompt still ended in "Export failed: ... already
+        // exists.", directly contradicting the answer the user just gave.
+        if (File.Exists(outputZipPath))
+        {
+            File.Delete(outputZipPath);
+        }
+
         using var archive = ZipFile.Open(outputZipPath, ZipArchiveMode.Create);
 
         // A plain, always-present entry rather than relying on whoever reads this zip to notice a

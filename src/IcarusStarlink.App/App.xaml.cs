@@ -3,6 +3,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
@@ -61,6 +62,16 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Assigned before the handlers below are wired, not after (a pure string computation, no
+        // I/O, so there's no cost to doing this first) — every one of those handlers calls
+        // CrashReportWriter.Write(_logsDirectory, ...), and _logsDirectory's own field initializer
+        // default is "". CrashReportWriter.Write's own Directory.CreateDirectory("") throws
+        // ArgumentException, caught internally and swallowed — so a crash in the real, throwable code
+        // below (SingleInstanceService construction/StartListening, both real OS-resource calls)
+        // used to silently write NO crash report at all, while OnDispatcherUnhandledException's own
+        // MessageBox still claimed "A crash report was written to the Logs folder" regardless.
+        _logsDirectory = Path.Combine(AppContext.BaseDirectory, "Logs");
+
         // Wired up before anything else below has a chance to throw — previously this app had NO
         // global exception handling at all, meaning a real crash depended entirely on WHERE it
         // happened: a sync UI-thread exception crashed with nothing logged, a background-thread
@@ -105,8 +116,7 @@ public partial class App : Application
         singleInstanceService.StartListening(nxmUrl => Dispatcher.BeginInvoke(() => HandleNxmUrl(nxmUrl)));
 
         var appDataDirectory = AppContext.BaseDirectory;
-        var logsDirectory = Path.Combine(appDataDirectory, "Logs");
-        _logsDirectory = logsDirectory;
+        var logsDirectory = _logsDirectory;
         Directory.CreateDirectory(logsDirectory);
 
         Log.Logger = new LoggerConfiguration()
@@ -355,6 +365,7 @@ public partial class App : Application
             sp.GetRequiredService<IUnrealPakInstaller>(),
             sp.GetRequiredService<IActivityLog>(),
             sp.GetRequiredService<IDialogService>(),
+            sp.GetRequiredService<IGameProcessChecker>(),
             Path.Combine(appDataDirectory, "Backups"),
             Path.Combine(appDataDirectory, "Data"),
             logsDirectory,
@@ -368,6 +379,7 @@ public partial class App : Application
             sp.GetRequiredService<IActivityLog>(),
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUe4ssModRepository>(),
+            sp.GetRequiredService<IDialogService>(),
             Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak")));
         builder.Services.AddSingleton<HelpViewModel>();
 
@@ -388,7 +400,19 @@ public partial class App : Application
         // a bare Task.Run doesn't terminate the process on modern .NET, so the splash screen just
         // hung forever with no log, no dialog, no crash. Now it's reported the same way any other
         // crash is, and the app shuts down cleanly instead of hanging.
-        Task.Run(() =>
+        //
+        // Captured here (still on the UI thread — OnStartup itself always runs there) and installed
+        // by StartupThreading on the background thread below (see its own doc comment for why):
+        // RunStartup's own synchronous work (the Library scan/FTS5 rebuild) doesn't care about
+        // SynchronizationContext, but MainViewModel.SelectDefaultPage() eagerly resolves
+        // LibraryViewModel, which eagerly resolves DownloadsViewModel — whose constructor fires a
+        // real fire-and-forget catalog fetch (RefreshCatalogAsync). Without a SynchronizationContext
+        // installed on THIS thread, that fetch's `await`s would resume on an arbitrary ThreadPool
+        // thread instead of the UI thread, and its own AvailableAuthors/AvailableCategories/
+        // ApplyCatalogFilters() writes — genuine cross-thread ObservableCollection mutations once
+        // MainWindow is already showing and bound to them — would throw.
+        var uiSynchronizationContext = SynchronizationContext.Current;
+        _ = StartupThreading.RunWithCapturedContextAsync(uiSynchronizationContext, () =>
         {
             try
             {
@@ -396,7 +420,7 @@ public partial class App : Application
             }
             catch (Exception ex)
             {
-                CrashReportWriter.Write(_logsDirectory, ex, "Startup", _host?.Services.GetService<IActivityLog>());
+                CrashReportWriter.Write(_logsDirectory, ex, "Startup", TryGetActivityLog());
                 Dispatcher.Invoke(() =>
                 {
                     MessageBox.Show(
@@ -488,7 +512,7 @@ public partial class App : Application
     /// </summary>
     private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
     {
-        CrashReportWriter.Write(_logsDirectory, e.Exception, "UI thread (DispatcherUnhandledException)", _host?.Services.GetService<IActivityLog>());
+        CrashReportWriter.Write(_logsDirectory, e.Exception, "UI thread (DispatcherUnhandledException)", TryGetActivityLog());
         MessageBox.Show(
             $"IcarusStarlink hit an unexpected error and needs to close:\n\n{e.Exception.Message}\n\nA crash report was written to the Logs folder.",
             "IcarusStarlink — unexpected error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -504,7 +528,7 @@ public partial class App : Application
     {
         if (e.ExceptionObject is Exception exception)
         {
-            CrashReportWriter.Write(_logsDirectory, exception, "AppDomain (process terminating)", _host?.Services.GetService<IActivityLog>());
+            CrashReportWriter.Write(_logsDirectory, exception, "AppDomain (process terminating)", TryGetActivityLog());
         }
     }
 
@@ -519,9 +543,19 @@ public partial class App : Application
     /// </summary>
     private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
     {
-        CrashReportWriter.Write(_logsDirectory, e.Exception, "Unobserved task exception (a command or background task)", _host?.Services.GetService<IActivityLog>());
+        CrashReportWriter.Write(_logsDirectory, e.Exception, "Unobserved task exception (a command or background task)", TryGetActivityLog());
         e.SetObserved();
     }
+
+    /// <summary>
+    /// Best-effort resolve of the app's own IActivityLog from the DI host, if one exists yet — the
+    /// _host?. null-check alone only guards _host being null (a crash early enough in startup that
+    /// the host was never built), not _host being disposed but still non-null (a crash late enough,
+    /// e.g. during shutdown, that OnExit's _host?.Dispose() already ran) — GetService on a disposed
+    /// ServiceProvider throws ObjectDisposedException, which every handler below used to let escape
+    /// as an argument-evaluation exception, before CrashReportWriter.Write was ever even called.
+    /// </summary>
+    private IActivityLog? TryGetActivityLog() => SafeServiceResolver.TryGetService<IActivityLog>(_host?.Services);
 
     private void HandleNxmUrl(string nxmUrl)
     {
