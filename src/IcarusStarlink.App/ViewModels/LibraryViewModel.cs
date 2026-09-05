@@ -11,6 +11,7 @@ using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog;
+using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
@@ -1039,6 +1040,12 @@ public sealed partial class LibraryViewModel : ObservableObject
                 StatusMessage = $"'{catalogEntry.Name}' has no downloadable file listed.";
                 return;
             }
+
+            // A real catalog entry can point at a github.com "view this file" page instead of its
+            // raw content (a common submission mistake — see GitHubBlobUrl's own doc comment) —
+            // downloading that HTML page and treating it as an archive fails opaquely, so this is
+            // normalized before ever reaching the actual GetByteArrayAsync call below.
+            downloadUrl = GitHubBlobUrl.ToRawContentUrl(downloadUrl);
 
             var isExmodz = catalogEntry.ExmodzUrl is not null;
             var tempPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_{Guid.NewGuid():N}{(isExmodz ? ".EXMODZ" : ".pak")}");
