@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Container;
@@ -82,7 +83,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
 
                 progress?.Report(new RebuildStageProgress("Packing…", 75));
                 var result = await PackAndVerifyAsync(
-                    queuedMods, prebuiltPakFilePaths, unrealPakExePath, outputPakPath, stagingDirectory, mergedTables.Count, report, cancellationToken);
+                    queuedMods, prebuiltPakFilePaths, gameplayOptions, unrealPakExePath, outputPakPath, stagingDirectory, mergedTables.Count, report, cancellationToken);
 
                 progress?.Report(new RebuildStageProgress("Done.", 100));
                 return result;
@@ -192,7 +193,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                 merged[file] = baseTable;
             }
         }
-        GameplayOptionsApplier.Apply(gameplayOptions, merged, report);
+        GameplayOptionsApplier.Apply(gameplayOptions, merged, report, originalJson);
 
         return (merged, originalJson, prebuiltPakDiffedPaths);
     }
@@ -257,8 +258,8 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
 
     /// <summary>Packs the staged directory, runs both independent post-build verification passes, writes the manifest, and builds the final result.</summary>
     private async Task<RebuildResult> PackAndVerifyAsync(
-        IReadOnlyList<ExmodPackageContents> queuedMods, IReadOnlyList<string> prebuiltPakFilePaths, string unrealPakExePath, string outputPakPath,
-        string stagingDirectory, int mergedTableCount, MergeReport report, CancellationToken cancellationToken)
+        IReadOnlyList<ExmodPackageContents> queuedMods, IReadOnlyList<string> prebuiltPakFilePaths, GameplayOptions gameplayOptions, string unrealPakExePath,
+        string outputPakPath, string stagingDirectory, int mergedTableCount, MergeReport report, CancellationToken cancellationToken)
     {
         var stagedRelativePaths = Directory.GetFiles(stagingDirectory, "*", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(stagingDirectory, f).Replace('\\', '/'))
@@ -266,7 +267,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         var packedFileCount = await unrealPakService.CreatePakAsync(unrealPakExePath, stagingDirectory, outputPakPath, cancellationToken);
         await VerifyEveryStagedFileWasActuallyPackedAsync(unrealPakExePath, outputPakPath, stagedRelativePaths, report, cancellationToken);
         await VerifyPakIntegrityAsync(unrealPakExePath, outputPakPath, report, cancellationToken);
-        var manifestPath = WriteManifest(queuedMods, prebuiltPakFilePaths, outputPakPath);
+        var manifestPath = WriteManifest(queuedMods, prebuiltPakFilePaths, gameplayOptions, outputPakPath);
 
         return new RebuildResult(mergedTableCount, packedFileCount, outputPakPath, manifestPath, report.Warnings, report.Notes);
     }
@@ -534,7 +535,26 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         }
     }
 
-    private static string WriteManifest(IReadOnlyList<ExmodPackageContents> queuedMods, IReadOnlyList<string> prebuiltPakFilePaths, string outputPakPath)
+    /// <summary>
+    /// A build with an empty queue and no prebuilt paks but at least one gameplay option enabled
+    /// (e.g. just Stacks Multiplier turned on) is real, mergeable content — GameplayOptions.
+    /// IsAnyActive's own doc comment traces the real bug this codebase already fixed once for the
+    /// SEPARATE "should Rebuild even run at all" guard (MergeInstallViewModel.RebuildAsync), but
+    /// this manifest had the same class of blind spot on its own: before this, an options-only build
+    /// still produced a REAL pak, but WriteManifest only ever knew about queuedMods/prebuiltPakFilePaths,
+    /// so its own output was just the bare "Includes the following mods:" header with nothing under
+    /// it — indistinguishable from "nothing was built." That degenerate manifest then read back as
+    /// an empty MergedPackModNames everywhere downstream (FolderLibraryRepository.ImportPak,
+    /// InstallService.GetInstalledStateAsync), which is what actually surfaces to a user as "there's
+    /// no record of what I just built": the freshly-installed pak's own Library entry looks exactly
+    /// like an unrelated, externally-sourced prebuilt .pak import, and "Compare to installed" shows
+    /// nothing. Fixed by recording gameplay options as their own separate, clearly-labeled section
+    /// — never mixed into the mods list ModListText.ParseNames/InstalledState.ModNames key off of,
+    /// since an option description ("Stacks x2") isn't a mod name and must never be fed into that
+    /// diffing logic (ParseNames stops at OptionsHeader for exactly this reason).
+    /// </summary>
+    private static string WriteManifest(
+        IReadOnlyList<ExmodPackageContents> queuedMods, IReadOnlyList<string> prebuiltPakFilePaths, GameplayOptions gameplayOptions, string outputPakPath)
     {
         var outputDirectory = Path.GetDirectoryName(outputPakPath)!;
         // Not relying on CreatePakAsync having already created this as a side effect — that's an
@@ -544,18 +564,30 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         var manifestPath = Path.Combine(outputDirectory, InstallManifestNames.PakManifest);
 
         var text = new StringBuilder();
-        text.AppendLine("Includes the following mods:");
-        foreach (var mod in queuedMods)
+        if (queuedMods.Count + prebuiltPakFilePaths.Count > 0)
         {
-            text.AppendLine(mod.Package.Name);
+            text.AppendLine(ModListText.Header);
+            foreach (var mod in queuedMods)
+            {
+                text.AppendLine(mod.Package.Name);
+            }
+
+            // Now genuinely part of this same pak (folded in via ExtractPakAsync above), so they belong
+            // in the "what's actually installed" record the same way a queued mod does — GetInstalledStateAsync
+            // reads this back for the "Compare to installed" diff, which would otherwise not know they're there.
+            foreach (var prebuiltPakPath in prebuiltPakFilePaths)
+            {
+                text.AppendLine(Path.GetFileNameWithoutExtension(prebuiltPakPath));
+            }
         }
 
-        // Now genuinely part of this same pak (folded in via ExtractPakAsync above), so they belong
-        // in the "what's actually installed" record the same way a queued mod does — GetInstalledStateAsync
-        // reads this back for the "Compare to installed" diff, which would otherwise not know they're there.
-        foreach (var prebuiltPakPath in prebuiltPakFilePaths)
+        if (gameplayOptions.IsAnyActive)
         {
-            text.AppendLine(Path.GetFileNameWithoutExtension(prebuiltPakPath));
+            text.AppendLine(ModListText.OptionsHeader);
+            foreach (var description in gameplayOptions.DescribeActiveOptions())
+            {
+                text.AppendLine(description);
+            }
         }
 
         File.WriteAllText(manifestPath, text.ToString());

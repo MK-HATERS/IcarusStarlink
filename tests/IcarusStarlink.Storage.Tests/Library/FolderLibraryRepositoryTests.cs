@@ -397,6 +397,38 @@ public class FolderLibraryRepositoryTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Regression guard: a Rebuild with an empty queue and at least one gameplay option enabled
+    /// produces a manifest with a "Gameplay options applied:" section instead of/alongside the mods
+    /// one — previously this left MergedPackModNames empty and the entry's own Description fell all
+    /// the way to the generic "no EXMOD data" wording, indistinguishable from importing a totally
+    /// unrelated prebuilt .pak, even though this really is the app's own Rebuild output.
+    /// </summary>
+    [Fact]
+    public void ImportPak_OptionsOnlyManifest_RecordsMergedPackOptionDescriptionsAndDescribesItAccordingly()
+    {
+        var pakPath = WriteFixturePakFile("ISL-Merged_P");
+        var manifestPath = Path.Combine(Path.GetDirectoryName(pakPath)!, IcarusStarlink.PakIO.InstallManifestNames.PakManifest);
+        File.WriteAllText(manifestPath, "Gameplay options applied:\nStacks x2\nRemove Weight\n");
+        using var repo = CreateRepository();
+
+        try
+        {
+            var entry = repo.ImportPak(pakPath, mergedPackProfileName: "Weekend Build");
+
+            Assert.True(entry.IsOpaquePak);
+            Assert.True(entry.MergedPackModNames is null or { Count: 0 });
+            Assert.Equal(["Stacks x2", "Remove Weight"], entry.MergedPackOptionDescriptions);
+            Assert.Contains("built from gameplay options only", entry.Description);
+            Assert.Contains("Stacks x2", entry.Description);
+            Assert.DoesNotContain("no EXMOD data", entry.Description);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
     [Fact]
     public void ImportPak_WithMergedPackProfileName_UsesItAsAuthorInsteadOfUnknown()
     {

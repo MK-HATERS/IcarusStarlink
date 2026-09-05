@@ -59,7 +59,7 @@ public sealed class GameplayOptions
     /// <summary>Multiplies every inventory/container's StartingSlots. Null or &lt;= 0 = unchanged.</summary>
     public double? SlotsMultiplier { get; set; }
 
-    /// <summary>Percent (0-100) to reduce RequiredMillijoules by, for recipes with no Water/Milk/Biofuel resource input or output — matches classic IMM's own documented conditional logic. Null or &lt;= 0 = unchanged.</summary>
+    /// <summary>Percent (0-100) to reduce every recipe's RequiredMillijoules by, including recipes with a Water/Milk/Biofuel resource input or output (a former exclusion here was dropped — two independent real "speed up crafting" mods don't special-case those recipes either). Also applies to recipes that only inherit RequiredMillijoules from their file's own Defaults block, not just ones with an explicit override. Null or &lt;= 0 = unchanged.</summary>
     public double? SpeedCraftingReductionPercent { get; set; }
 
     /// <summary>Percent (0-100) to reduce every creature's TameDurationInSeconds by (AI-D_Tames.json). No documented value from classic IMM (this option doesn't exist there), so it's a free user-supplied percentage, matching SpeedCraftingReductionPercent's own precedent. Null or &lt;= 0 = unchanged.</summary>
@@ -71,7 +71,18 @@ public sealed class GameplayOptions
 
     public bool DisableTemperatures { get; set; }
 
-    /// <summary>Sets Character-D_CharacterGrowth.json's "Player" row MaxDisplayLevel/MaxLevel to 50000 (real base values: 60/1000) — a plain on/off, not a free number, matching a real community mod's own chosen value (classic IMM never documented one, this option doesn't exist there).</summary>
+    /// <summary>
+    /// Sets Character-D_CharacterGrowth.json's "Player" row MaxDisplayLevel/MaxLevel to 50000 (real
+    /// base values: 60/1000) — a plain on/off, not a free number, matching a real community mod's own
+    /// chosen value (classic IMM never documented one, this option doesn't exist there). The cited
+    /// mod, laanp-RealLevels, ALSO rewrites the file's own struct-level Defaults block (which two of
+    /// the table's six rows, AI_Mounts and Settlement_Hub, otherwise inherit their level cap from) —
+    /// this option can't replicate that part: the merge pipeline's keyed-table representation
+    /// (DataTableJson.RowsToKeyedObject/KeyedObjectToRows) only ever carries row-level fields, never
+    /// Defaults, so this option's real-world fidelity to its own cited reference is narrower than
+    /// "Player is the only row it touches" alone implies — AI_Mounts/Settlement_Hub stay at their
+    /// vanilla Defaults-inherited cap of 50 even with this on, unlike under the actual reference mod.
+    /// </summary>
     public bool RemoveLevelCap { get; set; }
 
     /// <summary>
@@ -101,4 +112,55 @@ public sealed class GameplayOptions
     /// only needs adding to HasCategory1Active/HasCategory2Active above, not re-derived per caller.
     /// </summary>
     public bool IsAnyActive => HasCategory1Active || HasCategory2Active;
+
+    /// <summary>
+    /// One human-readable line per currently-active option — RebuildService.WriteManifest uses this
+    /// to give an options-only build (empty queue, no prebuilt paks, at least one option on) a real,
+    /// non-degenerate manifest record instead of the bare "Includes the following mods:" header it
+    /// used to produce with nothing under it. MergeInstallViewModel.BuildActiveOptionParts is a
+    /// separate, UI-bound-property version of this same idea (it needs a WPF value converter for
+    /// level labels that can't be referenced from this project) — the wording here doesn't need to
+    /// match it exactly, only every option this covers has to stay in sync with HasCategory1Active/
+    /// HasCategory2Active above.
+    /// </summary>
+    public IReadOnlyList<string> DescribeActiveOptions()
+    {
+        var parts = new List<string>();
+        if (SpeedBoost != BoostLevel.Off) parts.Add($"Speed Boost {DescribeBoostLevel(SpeedBoost)}");
+        if (PlayerBoost != BoostLevel.Off) parts.Add($"Player Boost {DescribeBoostLevel(PlayerBoost)}");
+        if (XpBoost != XpBoostLevel.Off) parts.Add($"XP Boost {DescribeXpBoostLevel(XpBoost)}");
+        if (CraftCost != CraftCostReduction.Off) parts.Add($"Craft Cost {DescribeCraftCost(CraftCost)}");
+        if (StacksMultiplier is > 0 and var stacks) parts.Add($"Stacks x{stacks:0.##}");
+        if (SlotsMultiplier is > 0 and var slots) parts.Add($"Slots x{slots:0.##}");
+        if (SpeedCraftingReductionPercent is > 0 and var speedCrafting) parts.Add($"Speed Crafting {speedCrafting:0.##}%");
+        if (TamingSpeedReductionPercent is > 0 and var tamingSpeed) parts.Add($"Faster Taming {tamingSpeed:0.##}%");
+        if (RemoveWeight) parts.Add("Remove Weight");
+        if (UnlimitedAmmo) parts.Add("Unlimited Ammo");
+        if (DisableTemperatures) parts.Add("Disable Temperatures");
+        if (RemoveLevelCap) parts.Add("Remove Level Cap");
+        return parts;
+    }
+
+    private static string DescribeBoostLevel(BoostLevel level) => level switch
+    {
+        BoostLevel.Level1 => "Level 1",
+        BoostLevel.Level2 => "Level 2",
+        _ => level.ToString(),
+    };
+
+    private static string DescribeXpBoostLevel(XpBoostLevel level) => level switch
+    {
+        XpBoostLevel.Level1 => "Level 1",
+        XpBoostLevel.Level2 => "Level 2",
+        XpBoostLevel.Level3 => "Level 3",
+        _ => level.ToString(),
+    };
+
+    private static string DescribeCraftCost(CraftCostReduction reduction) => reduction switch
+    {
+        CraftCostReduction.TwentyFivePercent => "25%",
+        CraftCostReduction.FiftyPercent => "50%",
+        CraftCostReduction.Creative => "Creative (0%)",
+        _ => reduction.ToString(),
+    };
 }

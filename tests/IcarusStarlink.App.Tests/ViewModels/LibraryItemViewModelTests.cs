@@ -49,9 +49,10 @@ public sealed class LibraryItemViewModelTests : IDisposable
         FakeUassetStaticMeshDecoder? staticMeshDecoder = null,
         FakeUassetSkeletalMeshDecoder? skeletalMeshDecoder = null,
         FakeUassetSoundDecoder? soundDecoder = null,
-        FakeUassetMaterialDecoder? materialDecoder = null) =>
+        FakeUassetMaterialDecoder? materialDecoder = null,
+        LibraryEntry? entry = null) =>
         new(
-            MakeEntry(), new FakeLibraryRepository(_modFolderPath), new FakeUnrealPakService(),
+            entry ?? MakeEntry(), new FakeLibraryRepository(_modFolderPath), new FakeUnrealPakService(),
             textureDecoder ?? new FakeUassetTextureDecoder(),
             staticMeshDecoder ?? new FakeUassetStaticMeshDecoder(),
             skeletalMeshDecoder ?? new FakeUassetSkeletalMeshDecoder(),
@@ -75,6 +76,47 @@ public sealed class LibraryItemViewModelTests : IDisposable
         {
             await Task.Delay(10);
         }
+    }
+
+    /// <summary>
+    /// Regression guard: an options-only Rebuild output (empty mod queue, at least one gameplay
+    /// option enabled) has an empty/null MergedPackModNames but a populated MergedPackOptionDescriptions
+    /// — IsMergedPack must still recognize it as a merged pack (the 📦 glyph, and LibraryViewModel's
+    /// own "never offer a merged pack for Convert to EXMOD" gate both key off this), or it gets
+    /// silently treated as an ordinary opaque prebuilt .pak and becomes eligible for auto-conversion,
+    /// which would diff the gameplay-option-scaled table against vanilla and produce a meaningless
+    /// giant diff.
+    /// </summary>
+    [Fact]
+    public void IsMergedPack_OptionsOnlyBuild_EmptyModNamesButOptionDescriptionsPresent_IsTrue()
+    {
+        var entry = MakeEntry();
+        entry.MergedPackModNames = [];
+        entry.MergedPackOptionDescriptions = ["Stacks x2"];
+        var item = CreateViewModel(entry: entry);
+
+        Assert.True(item.IsMergedPack);
+    }
+
+    [Fact]
+    public void IsMergedPack_NeitherModNamesNorOptionDescriptions_IsFalse()
+    {
+        var item = CreateViewModel(entry: MakeEntry());
+
+        Assert.False(item.IsMergedPack);
+    }
+
+    [Fact]
+    public void Update_OptionsOnlyBuildBecomesMergedPack_IsMergedPackRefreshes()
+    {
+        var item = CreateViewModel(entry: MakeEntry());
+        Assert.False(item.IsMergedPack);
+
+        var updated = MakeEntry();
+        updated.MergedPackOptionDescriptions = ["Remove Weight"];
+        item.Update(updated);
+
+        Assert.True(item.IsMergedPack);
     }
 
     [Fact]

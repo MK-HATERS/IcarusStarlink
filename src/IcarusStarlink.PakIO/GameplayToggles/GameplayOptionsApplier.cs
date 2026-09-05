@@ -61,6 +61,19 @@ public static class GameplayOptionsApplier
     private const string DeployableStorageTalentStatName = "(Value=\"CreatedDeployableStorageAlt_+\")";
 
     /// <summary>
+    /// Real Data\Traits\D_Itemable.json rows have no explicit item-category field, so a row's own
+    /// Icon path is the one data-driven signal available to tell an actual weapon/tool apart from
+    /// everything else (deployables, furniture, trophies, attachments, armour, etc.) — confirmed
+    /// against the real extracted table: every row under these three icon folders is a genuine
+    /// weapon or hand tool (e.g. Item_Wood_Bow, Item_Crossbow under "Weapons"; Item_Stone_Axe,
+    /// Item_Metal_Pickaxe under "Tools"; Item_LegendaryWeapon_* under "LegendaryWeapons"), matching
+    /// what two independent real "increase stacks" mods (Jimk72's, relentlessmoose's) never touch
+    /// even while freely adding new MaxStack values to hundreds of other Defaults-only rows — see
+    /// ScaleStacksMultiplier's own doc comment for the full picture.
+    /// </summary>
+    private static readonly string[] StackExclusionIconFolders = ["Weapons", "Tools", "LegendaryWeapons"];
+
+    /// <summary>
     /// Which real data files each Category-2 (broadcast-to-every-row) option needs loaded —
     /// RebuildService uses this to make sure a file lands in the merged-table set even if no
     /// queued mod's own FieldChange touches it (options work with zero mods queued too, per the
@@ -102,11 +115,25 @@ public static class GameplayOptionsApplier
         return files;
     }
 
-    public static void Apply(GameplayOptions options, IDictionary<string, JsonObject> keyedTablesByFile, MergeReport report)
+    private static readonly IReadOnlyDictionary<string, JsonObject> EmptyOriginalFiles = new Dictionary<string, JsonObject>();
+
+    /// <summary>
+    /// originalFilesByFile is each file's full pre-keying JsonObject (RebuildService's own
+    /// "originalJson"/"original" — the same one it separately retains to preserve RowStruct/Defaults
+    /// when writing a merged table back out) — optional (defaults to empty) since most options never
+    /// need a file's Defaults block, only StacksMultiplier/SpeedCrafting's own Defaults-fallback do.
+    /// RowsToKeyedObject already discards Defaults when building keyedTablesByFile, so this is the
+    /// only way those two options can see it.
+    /// </summary>
+    public static void Apply(
+        GameplayOptions options, IDictionary<string, JsonObject> keyedTablesByFile, MergeReport report,
+        IReadOnlyDictionary<string, JsonObject>? originalFilesByFile = null)
     {
+        var originals = originalFilesByFile ?? EmptyOriginalFiles;
+
         if (options.StacksMultiplier is > 0 and var stacksMultiplier)
         {
-            ScaleExistingNumericField(keyedTablesByFile, ItemableFile, "MaxStack", stacksMultiplier, minimum: 1, report, "Stacks multiplier");
+            ScaleStacksMultiplier(keyedTablesByFile, originals, stacksMultiplier, report);
         }
         if (options.RemoveWeight)
         {
@@ -123,7 +150,7 @@ public static class GameplayOptionsApplier
         }
 
         ApplyCraftCostReduction(options, keyedTablesByFile, report);
-        ApplySpeedCrafting(options, keyedTablesByFile, report);
+        ApplySpeedCrafting(options, keyedTablesByFile, originals, report);
 
         if (options.UnlimitedAmmo)
         {
@@ -177,6 +204,105 @@ public static class GameplayOptionsApplier
         }
 
         tables[file] = TableApplier.Apply(table, changes, report);
+    }
+
+    /// <summary>
+    /// A file's own struct-level Defaults value for one field — the fallback every row without an
+    /// explicit override of its own inherits at runtime (the same semantic ExmodFieldValidityChecker.
+    /// BuildFieldKinds' own doc comment already documents elsewhere in this codebase: "preferring
+    /// Defaults' own value... when a field appears in both"). RowsToKeyedObject discards Defaults
+    /// when building the keyed table this class normally operates on, so this reads it from the
+    /// separately-retained original (pre-keying) JsonObject instead.
+    /// </summary>
+    private static double? GetDefaultNumericValue(IReadOnlyDictionary<string, JsonObject> originalFilesByFile, string file, string fieldName)
+    {
+        if (originalFilesByFile.TryGetValue(file, out var originalFile)
+            && originalFile["Defaults"] is JsonObject defaults
+            && defaults[fieldName] is JsonValue defaultValue
+            && defaultValue.TryGetValue<double>(out var value))
+        {
+            return value;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Real Data\Traits\D_Itemable.json rows without an explicit MaxStack field inherit MaxStack=1
+    /// from the file's own struct-level Defaults block — invisible to a plain field-presence scan,
+    /// and until now silently unaffected by this option even though the UI's own tooltip promises
+    /// "e.g. 3x = triple every item's stack size" (an unqualified "every item"). Two real, independent
+    /// community mods (Jimk72's "Increase Stacks": 431 rows, relentlessmoose's "rm_Stack_Sizes": 775
+    /// rows) DO extend a new explicit MaxStack onto hundreds of these Defaults-only rows (deployable
+    /// kits, furniture, trophies, weapon attachments) while never doing so for actual weapons/tools —
+    /// matched here via IsWeaponOrTool since D_Itemable.json has no explicit item-category field of
+    /// its own. Rows that already have an explicit MaxStack keep being scaled exactly as before.
+    /// </summary>
+    private static void ScaleStacksMultiplier(
+        IDictionary<string, JsonObject> tables, IReadOnlyDictionary<string, JsonObject> originalFilesByFile, double multiplier, MergeReport report)
+    {
+        if (!tables.TryGetValue(ItemableFile, out var table))
+        {
+            return;
+        }
+
+        var defaultMaxStack = GetDefaultNumericValue(originalFilesByFile, ItemableFile, "MaxStack");
+
+        var changes = new List<FieldChange>();
+        foreach (var (itemName, rowValue) in table)
+        {
+            if (rowValue is not JsonObject row)
+            {
+                continue;
+            }
+
+            if (row["MaxStack"] is JsonValue currentValue && currentValue.TryGetValue<double>(out var current))
+            {
+                changes.Add(new FieldChange(ItemableFile, itemName, "MaxStack", currentValue, JsonValue.Create(Math.Max(1, (int)Math.Round(current * multiplier))), ValueSemantic.Scalar));
+            }
+            else if (row["MaxStack"] is null && defaultMaxStack is double defaultValue && !IsWeaponOrTool(row))
+            {
+                changes.Add(new FieldChange(ItemableFile, itemName, "MaxStack", null, JsonValue.Create(Math.Max(1, (int)Math.Round(defaultValue * multiplier))), ValueSemantic.Scalar));
+            }
+        }
+
+        if (changes.Count == 0)
+        {
+            report.AddWarning($"Couldn't apply Stacks multiplier — no rows in {ItemableFile} have (or default to) a 'MaxStack' value. The game data may have changed since this option's field name was last confirmed.");
+            return;
+        }
+
+        tables[ItemableFile] = TableApplier.Apply(table, changes, report);
+    }
+
+    /// <summary>
+    /// See StackExclusionIconFolders' own doc comment for why a row's Icon path is the signal used
+    /// here. A row with no Icon field of its own fails SAFE (treated as a weapon/tool, excluded)
+    /// rather than fails open — confirmed against real data that this isn't just a theoretical edge
+    /// case: Item_Hornet_Pistol, Item_Plant_Boss_Bow, and Item_Cat_Boss_Gauntlets (real, functional
+    /// boss-reward weapons, each with a full row in Tools-D_FirearmData.json or Tools-D_ToolDamage.json)
+    /// have no Icon field at all in Traits-D_Itemable.json, unlike every other real weapon/tool row.
+    /// Failing open here would make a handful of unique boss-drop weapons stackable — exactly what
+    /// this whole exclusion exists to prevent — whereas failing safe only costs a few ordinary,
+    /// non-weapon Defaults-only items (also icon-less) not getting stack-boosted, a far smaller
+    /// downside.
+    /// </summary>
+    private static bool IsWeaponOrTool(JsonObject row)
+    {
+        if (row["Icon"] is not JsonValue iconValue || !iconValue.TryGetValue<string>(out var icon))
+        {
+            return true;
+        }
+
+        foreach (var folder in StackExclusionIconFolders)
+        {
+            if (icon.Contains($"/Item_Icons/{folder}/", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -360,6 +486,16 @@ public static class GameplayOptionsApplier
     /// needs its own literal-zero path rather than a 100% factor through ScaleCountsInArray, since
     /// that helper deliberately floors every result at 1 (never lets 25%/50% round all the way down
     /// to free) — Creative mode's whole point is actually reaching 0, so it can't reuse that clamp.
+    /// Also scales QueryInputs (a separate, tag-based ingredient-cost structure — "consume 3 of any
+    /// raw meat", not a specific item) alongside Inputs/ResourceInputs: 24 real rows (Cooked_Fish,
+    /// the Butcher_*/Farmer_Plant_*/Fisher_*/Animal_*_Gruel families, etc.) rely on QueryInputs
+    /// ENTIRELY, with a completely empty Inputs array — confirmed a real, shipped "everything is
+    /// free" mod (laanp's FreeBuild) has this exact same gap itself (zeroes Inputs everywhere but
+    /// leaves QueryInputs, e.g. Animal_Feed_Omni's Any_Raw_Meat/Any_Vegetable, untouched), so without
+    /// this, Creative mode's promised "0 cost" isn't actually 0 for these recipes. QueryInputs
+    /// elements use the same "Count" key as Inputs/ResourceInputs (only the reference-object key
+    /// differs — "Query" vs "Element"), so the existing ZeroCountsInArray/ScaleCountsInArray helpers
+    /// apply unmodified.
     /// </summary>
     private static void ApplyCraftCostReduction(GameplayOptions options, IDictionary<string, JsonObject> tables, MergeReport report)
     {
@@ -406,6 +542,14 @@ public static class GameplayOptionsApplier
                 {
                     changes.Add(new FieldChange(file, itemName, "ResourceInputs", row["ResourceInputs"], newResourceInputs, ValueSemantic.GenericCompound));
                 }
+
+                var newQueryInputs = options.CraftCost == CraftCostReduction.Creative
+                    ? ZeroCountsInArray(row["QueryInputs"] as JsonArray, "Count")
+                    : ScaleCountsInArray(row["QueryInputs"] as JsonArray, "Count", factor);
+                if (newQueryInputs is not null)
+                {
+                    changes.Add(new FieldChange(file, itemName, "QueryInputs", row["QueryInputs"], newQueryInputs, ValueSemantic.GenericCompound));
+                }
             }
 
             if (changes.Count > 0)
@@ -417,7 +561,7 @@ public static class GameplayOptionsApplier
 
         if (!matchedAnyRow)
         {
-            report.AddWarning("Couldn't apply Craft Cost — no crafting recipes with an 'Inputs' or 'ResourceInputs' array were found. The game data may have changed since this option's field names were last confirmed.");
+            report.AddWarning("Couldn't apply Craft Cost — no crafting recipes with an 'Inputs', 'ResourceInputs', or 'QueryInputs' array were found. The game data may have changed since this option's field names were last confirmed.");
         }
     }
 
@@ -442,15 +586,25 @@ public static class GameplayOptionsApplier
     }
 
     /// <summary>
-    /// "Changed how Speed Crafting effects the Crafting recipe. It now considers if there are
-    /// resource inputs(Water, Milk, Biofuel) and resource outputs(Water, Milk, Biofuel) before
-    /// modifying the speed" per classic IMM's changelog (its own most recent, deliberately-refined
-    /// behavior — an older entry describes a cruder "sets craft time to 1 for all items", superseded
-    /// by this). RequiredMillijoules is the real recipe field that governs process time (confirmed:
-    /// real recipes have no separate Time/Duration field at all); the exact percentage is
-    /// user-supplied since no specific number is documented for the current behavior.
+    /// RequiredMillijoules is the real recipe field that governs process time (confirmed: real
+    /// recipes have no separate Time/Duration field at all); the exact percentage is user-supplied
+    /// since no specific number is documented for this behavior. Applies to every recipe with a
+    /// RequiredMillijoules value, including ones with a Water/Milk/Biofuel ResourceInputs/
+    /// ResourceOutputs entry — an older version of this method special-cased those out, matching a
+    /// misread of classic IMM's own changelog ("It now considers if there are resource inputs...
+    /// before modifying the speed"), but two independent, real "speed up crafting" mods (AgentKush's,
+    /// TheLysdexicOne's) both simply halve RequiredMillijoules on these recipes exactly like any
+    /// other, so the exclusion was dropped. Also falls back to the file's own Defaults
+    /// [\"RequiredMillijoules\"] value for a row with no explicit override of its own (confirmed
+    /// against real Data\Crafting\D_ProcessorRecipes.json: 817 of 2106 otherwise-eligible recipes —
+    /// e.g. Stone_Pickaxe, Stone_Axe, Wood_Spear — inherit RequiredMillijoules=2500 from Defaults and
+    /// were previously skipped entirely with zero effect; a real, actively-maintained mod, AgentKush's
+    /// "Faster Crafting", explicitly sets RequiredMillijoules on 800 of those exact rows, confirming
+    /// they're legitimate real-world targets) — writes the reduced value back as a new explicit
+    /// override, same pattern SetExistingOrEveryRowField already uses for Unlimited Ammo.
     /// </summary>
-    private static void ApplySpeedCrafting(GameplayOptions options, IDictionary<string, JsonObject> tables, MergeReport report)
+    private static void ApplySpeedCrafting(
+        GameplayOptions options, IDictionary<string, JsonObject> tables, IReadOnlyDictionary<string, JsonObject> originalFilesByFile, MergeReport report)
     {
         if (options.SpeedCraftingReductionPercent is not (> 0 and var percent))
         {
@@ -466,20 +620,33 @@ public static class GameplayOptionsApplier
                 continue;
             }
 
+            var defaultMillijoules = GetDefaultNumericValue(originalFilesByFile, file, "RequiredMillijoules");
+
             var changes = new List<FieldChange>();
             foreach (var (itemName, rowValue) in table)
             {
-                if (rowValue is not JsonObject row || HasElements(row["ResourceInputs"] as JsonArray) || HasElements(row["ResourceOutputs"] as JsonArray))
+                if (rowValue is not JsonObject row)
                 {
                     continue;
                 }
-                if (row["RequiredMillijoules"] is not JsonValue mjValue || !mjValue.TryGetValue<double>(out var current))
+
+                var originalValue = row["RequiredMillijoules"] as JsonValue;
+                double current;
+                if (originalValue is not null && originalValue.TryGetValue<double>(out current))
+                {
+                    // explicit row value — current already assigned above.
+                }
+                else if (originalValue is null && defaultMillijoules is double defaultValue)
+                {
+                    current = defaultValue;
+                }
+                else
                 {
                     continue;
                 }
 
                 var newValue = Math.Max(1, (int)Math.Round(current * factor));
-                changes.Add(new FieldChange(file, itemName, "RequiredMillijoules", mjValue, JsonValue.Create(newValue), ValueSemantic.Scalar));
+                changes.Add(new FieldChange(file, itemName, "RequiredMillijoules", originalValue, JsonValue.Create(newValue), ValueSemantic.Scalar));
             }
 
             if (changes.Count > 0)
@@ -491,7 +658,7 @@ public static class GameplayOptionsApplier
 
         if (!matchedAnyRow)
         {
-            report.AddWarning("Couldn't apply Speed Crafting — no eligible recipes with a 'RequiredMillijoules' field were found. The game data may have changed since this option's field name was last confirmed.");
+            report.AddWarning("Couldn't apply Speed Crafting — no eligible recipes with (or defaulting to) a 'RequiredMillijoules' value were found. The game data may have changed since this option's field name was last confirmed.");
         }
     }
 
@@ -516,6 +683,4 @@ public static class GameplayOptionsApplier
 
         return result;
     }
-
-    private static bool HasElements(JsonArray? array) => array is { Count: > 0 };
 }

@@ -65,4 +65,13 @@ public sealed class LibraryEntry
     /// 📦 glyph. Null for every other entry, including a plain prebuilt pak with no such manifest.
     /// </summary>
     public IReadOnlyList<string>? MergedPackModNames { get; set; }
+
+    /// <summary>
+    /// Set alongside MergedPackModNames, from the same sibling manifest's own "Gameplay options
+    /// applied:" section — real content for a build with an empty mod queue but at least one
+    /// gameplay option enabled (e.g. just Stacks Multiplier), which MergedPackModNames alone leaves
+    /// empty for. Null for every entry with no such section, including an ordinary externally-
+    /// sourced prebuilt .pak import.
+    /// </summary>
+    public IReadOnlyList<string>? MergedPackOptionDescriptions { get; set; }
 }

@@ -36,10 +36,106 @@ public class GameplayOptionsApplierTests
             },
         };
 
+        // No originalFilesByFile given (the 3-argument overload) — no Defaults are visible, so a row
+        // with no explicit MaxStack of its own stays untouched exactly like before this session's
+        // Defaults-fallback fix. See Apply_StacksMultiplier_DefaultsOnlyRow_* below for the new path.
         GameplayOptionsApplier.Apply(new GameplayOptions { StacksMultiplier = 3 }, tables, new MergeReport());
 
         Assert.Equal(600, (int)tables["Traits-D_Itemable.json"]["Item_Fiber"]!["MaxStack"]!);
         Assert.False(tables["Traits-D_Itemable.json"]["Item_Tool"]!.AsObject().ContainsKey("MaxStack"));
+    }
+
+    private static Dictionary<string, JsonObject> ItemableOriginalWithDefaultMaxStack(int defaultMaxStack = 1) => new()
+    {
+        ["Traits-D_Itemable.json"] = JsonNode.Parse($$"""{"Defaults": {"MaxStack": {{defaultMaxStack}}}, "Rows": []}""")!.AsObject(),
+    };
+
+    /// <summary>
+    /// Regression guard for the Defaults-fallback fix: real Data\Traits\D_Itemable.json has 2143 of
+    /// 3469 rows with no explicit MaxStack of their own — they inherit MaxStack=1 from the file's own
+    /// Defaults block and were previously invisible to this option entirely, even though the app's own
+    /// tooltip promises "e.g. 3x = triple every item's stack size" (an unqualified "every item").
+    /// </summary>
+    [Fact]
+    public void Apply_StacksMultiplier_DefaultsOnlyRow_GetsANewExplicitMaxStack()
+    {
+        var tables = Table("Traits-D_Itemable.json", new JsonObject
+        {
+            ["Item_Crafting_Bench"] = Row("""{"Weight": 20000, "Icon": "/Game/Assets/2DArt/UI/Items/Item_Icons/Deployables/ITEM_Crafting_Bench.ITEM_Crafting_Bench"}"""),
+        });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { StacksMultiplier = 3 }, tables, new MergeReport(), ItemableOriginalWithDefaultMaxStack());
+
+        Assert.Equal(3, (int)tables["Traits-D_Itemable.json"]["Item_Crafting_Bench"]!["MaxStack"]!);
+    }
+
+    /// <summary>
+    /// Regression guard: real, functional boss-reward weapons (Item_Hornet_Pistol, Item_Plant_Boss_Bow,
+    /// Item_Cat_Boss_Gauntlets — each confirmed present in Tools-D_FirearmData.json or
+    /// Tools-D_ToolDamage.json) have no Icon field of their own at all in the real Traits-D_Itemable.json,
+    /// unlike every other real weapon/tool row. Treating "no Icon to categorize by" as "definitely not
+    /// a weapon/tool" (fail open) would make these unique items stackable — exactly what
+    /// IsWeaponOrTool exists to prevent. Must fail SAFE (exclude) instead.
+    /// </summary>
+    [Fact]
+    public void Apply_StacksMultiplier_DefaultsOnlyRowWithNoIconAtAll_FailsSafeAndStaysUntouched()
+    {
+        var tables = Table("Traits-D_Itemable.json", new JsonObject { ["Item_Hornet_Pistol"] = Row("""{"Weight": 300}""") });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { StacksMultiplier = 3 }, tables, new MergeReport(), ItemableOriginalWithDefaultMaxStack());
+
+        Assert.False(tables["Traits-D_Itemable.json"]["Item_Hornet_Pistol"]!.AsObject().ContainsKey("MaxStack"));
+    }
+
+    /// <summary>
+    /// D_Itemable.json has no explicit item-category field — a row's own Icon path (e.g.
+    /// ".../Item_Icons/Weapons/...", ".../Item_Icons/Tools/...") is the one data-driven signal
+    /// available to exclude actual weapons/tools, matching what two real, independent "increase
+    /// stacks" mods (Jimk72's, relentlessmoose's) never touch even while freely stack-boosting
+    /// hundreds of other Defaults-only rows (deployables, furniture, trophies, attachments).
+    /// </summary>
+    [Theory]
+    [InlineData("/Game/Assets/2DArt/UI/Items/Item_Icons/Weapons/ITEM_Wood_Bow.ITEM_Wood_Bow")]
+    [InlineData("/Game/Assets/2DArt/UI/Items/Item_Icons/Tools/ITEM_Stone_Axe.ITEM_Stone_Axe")]
+    [InlineData("/Game/Assets/2DArt/UI/Items/Item_Icons/LegendaryWeapons/ITEM_LegendaryWeapon_Bow.ITEM_LegendaryWeapon_Bow")]
+    public void Apply_StacksMultiplier_DefaultsOnlyWeaponOrToolRow_StaysUntouched(string iconPath)
+    {
+        var tables = Table("Traits-D_Itemable.json", new JsonObject { ["Item_Weapon_Or_Tool"] = Row($$"""{"Icon": "{{iconPath}}"}""") });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { StacksMultiplier = 3 }, tables, new MergeReport(), ItemableOriginalWithDefaultMaxStack());
+
+        Assert.False(tables["Traits-D_Itemable.json"]["Item_Weapon_Or_Tool"]!.AsObject().ContainsKey("MaxStack"));
+    }
+
+    [Fact]
+    public void Apply_StacksMultiplier_DefaultsOnlyDeployableRow_IconOutsideExcludedFolders_GetsANewExplicitMaxStack()
+    {
+        var tables = Table("Traits-D_Itemable.json", new JsonObject
+        {
+            ["Item_Armour_Stand"] = Row("""{"Icon": "/Game/Assets/2DArt/UI/Items/Item_Icons/Deployables/ITEM_Armour_Stand.ITEM_Armour_Stand"}"""),
+        });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { StacksMultiplier = 5 }, tables, new MergeReport(), ItemableOriginalWithDefaultMaxStack());
+
+        Assert.Equal(5, (int)tables["Traits-D_Itemable.json"]["Item_Armour_Stand"]!["MaxStack"]!);
+    }
+
+    [Fact]
+    public void Apply_StacksMultiplier_ExplicitAndDefaultsOnlyRowsTogether_BothScaledCorrectly()
+    {
+        var tables = new Dictionary<string, JsonObject>
+        {
+            ["Traits-D_Itemable.json"] = new()
+            {
+                ["Item_Fiber"] = Row("""{"MaxStack": 200}"""),
+                ["Item_Crafting_Bench"] = Row("""{"Weight": 20000, "Icon": "/Game/Assets/2DArt/UI/Items/Item_Icons/Deployables/ITEM_Crafting_Bench.ITEM_Crafting_Bench"}"""),
+            },
+        };
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { StacksMultiplier = 3 }, tables, new MergeReport(), ItemableOriginalWithDefaultMaxStack());
+
+        Assert.Equal(600, (int)tables["Traits-D_Itemable.json"]["Item_Fiber"]!["MaxStack"]!);
+        Assert.Equal(3, (int)tables["Traits-D_Itemable.json"]["Item_Crafting_Bench"]!["MaxStack"]!);
     }
 
     [Fact]
@@ -357,6 +453,46 @@ public class GameplayOptionsApplierTests
         Assert.Equal(1, (int)row["Outputs"]![0]!["Count"]!);
     }
 
+    /// <summary>
+    /// Regression guard: 24 real rows in D_ProcessorRecipes.json (Cooked_Fish, the Butcher_*/
+    /// Farmer_Plant_*/Fisher_*/Animal_*_Gruel families, etc.) rely ENTIRELY on QueryInputs — a
+    /// separate, tag-based ingredient-cost structure ("consume 1 of any raw fish") — with a
+    /// completely empty Inputs array, so Creative mode's promised "0 cost" wasn't actually 0 for
+    /// them. Confirmed a real, shipped "everything is free" mod (laanp's FreeBuild) has this exact
+    /// same gap itself.
+    /// </summary>
+    [Fact]
+    public void Apply_CraftCostReduction_ScalesQueryInputsCount()
+    {
+        var tables = new Dictionary<string, JsonObject>
+        {
+            ["Crafting-D_ProcessorRecipes.json"] = new()
+            {
+                ["Cooked_Fish"] = Row("""{"Inputs": [], "QueryInputs": [{"Query": {"RowName": "Any_Raw_Fish"}, "Count": 4}]}"""),
+            },
+        };
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { CraftCost = CraftCostReduction.FiftyPercent }, tables, new MergeReport());
+
+        Assert.Equal(2, (int)tables["Crafting-D_ProcessorRecipes.json"]["Cooked_Fish"]!["QueryInputs"]![0]!["Count"]!);
+    }
+
+    [Fact]
+    public void Apply_CraftCostReduction_CreativeZeroesQueryInputsCompletely()
+    {
+        var tables = new Dictionary<string, JsonObject>
+        {
+            ["Crafting-D_ProcessorRecipes.json"] = new()
+            {
+                ["Cooked_Fish"] = Row("""{"Inputs": [], "QueryInputs": [{"Query": {"RowName": "Any_Raw_Fish"}, "Count": 4}]}"""),
+            },
+        };
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { CraftCost = CraftCostReduction.Creative }, tables, new MergeReport());
+
+        Assert.Equal(0, (int)tables["Crafting-D_ProcessorRecipes.json"]["Cooked_Fish"]!["QueryInputs"]![0]!["Count"]!);
+    }
+
     [Fact]
     public void Apply_CraftCostReduction_NeitherFileHasInputsOrResourceInputs_WarnsInsteadOfSilentlyDoingNothing()
     {
@@ -384,8 +520,14 @@ public class GameplayOptionsApplierTests
         Assert.Equal(1250, (int)tables["Crafting-D_ProcessorRecipes.json"]["Stone_Pickaxe"]!["RequiredMillijoules"]!);
     }
 
+    /// <summary>
+    /// Regression guard: an older version of this method skipped any recipe with a non-empty
+    /// ResourceInputs/ResourceOutputs (a misread of a classic-IMM changelog line) — dropped after two
+    /// independent, real "speed up crafting" mods (AgentKush's, TheLysdexicOne's) were both confirmed
+    /// to simply halve RequiredMillijoules on these recipes exactly like any other, never excluding them.
+    /// </summary>
     [Fact]
-    public void Apply_SpeedCrafting_SkipsRecipesWithResourceInputs()
+    public void Apply_SpeedCrafting_ScalesRecipesWithResourceInputsToo()
     {
         var tables = new Dictionary<string, JsonObject>
         {
@@ -399,11 +541,11 @@ public class GameplayOptionsApplierTests
 
         GameplayOptionsApplier.Apply(new GameplayOptions { SpeedCraftingReductionPercent = 50 }, tables, new MergeReport());
 
-        Assert.Equal(2500, (int)tables["Crafting-D_ProcessorRecipes.json"]["Dough_Bread"]!["RequiredMillijoules"]!);
+        Assert.Equal(1250, (int)tables["Crafting-D_ProcessorRecipes.json"]["Dough_Bread"]!["RequiredMillijoules"]!);
     }
 
     [Fact]
-    public void Apply_SpeedCrafting_SkipsRecipesWithResourceOutputs()
+    public void Apply_SpeedCrafting_ScalesRecipesWithResourceOutputsToo()
     {
         var tables = new Dictionary<string, JsonObject>
         {
@@ -417,23 +559,64 @@ public class GameplayOptionsApplierTests
 
         GameplayOptionsApplier.Apply(new GameplayOptions { SpeedCraftingReductionPercent = 50 }, tables, new MergeReport());
 
-        Assert.Equal(2500, (int)tables["Crafting-D_ProcessorRecipes.json"]["Biofuel1"]!["RequiredMillijoules"]!);
+        Assert.Equal(1250, (int)tables["Crafting-D_ProcessorRecipes.json"]["Biofuel1"]!["RequiredMillijoules"]!);
     }
 
     [Fact]
     public void Apply_SpeedCrafting_NoEligibleRecipes_WarnsInsteadOfSilentlyDoingNothing()
     {
-        // Every row present, but every one has a ResourceInputs entry — none is eligible, matching
-        // the exact silent-failure shape a game update removing RequiredMillijoules would also cause.
+        // Every row present, but none carries a RequiredMillijoules field and no Defaults value is
+        // available (the 3-argument Apply overload) — matching the exact silent-failure shape a game
+        // update removing RequiredMillijoules would also cause.
         var tables = Table("Crafting-D_ProcessorRecipes.json", new JsonObject
         {
-            ["Dough_Bread"] = Row("""{"RequiredMillijoules": 2500, "ResourceInputs": [{"Type": {"Value": "Water"}, "RequiredUnits": 100}]}"""),
+            ["Dough_Bread"] = Row("""{"CraftTime": 2500}"""),
         });
         var report = new MergeReport();
 
         GameplayOptionsApplier.Apply(new GameplayOptions { SpeedCraftingReductionPercent = 50 }, tables, report);
 
         Assert.Contains(report.Warnings, w => w.Contains("Speed Crafting") && w.Contains("RequiredMillijoules"));
+    }
+
+    /// <summary>
+    /// Regression guard for the Defaults-fallback fix: real Data\Crafting\D_ProcessorRecipes.json has
+    /// 817 recipes (Stone_Pickaxe, Stone_Axe, Wood_Spear, etc.) with no explicit RequiredMillijoules
+    /// of their own — they inherit the real 2500 value from the file's own Defaults block, and were
+    /// previously skipped entirely (zero effect for any percentage). A real, actively-maintained mod
+    /// (AgentKush's "Faster Crafting") explicitly sets RequiredMillijoules on 800 of those exact rows,
+    /// confirming they're legitimate targets.
+    /// </summary>
+    [Fact]
+    public void Apply_SpeedCrafting_DefaultsOnlyRecipe_FallsBackToTheFilesOwnDefaultValue()
+    {
+        var tables = Table("Crafting-D_ProcessorRecipes.json", new JsonObject
+        {
+            ["Stone_Pickaxe"] = Row("""{"Inputs": []}"""),
+        });
+        var originalFiles = new Dictionary<string, JsonObject>
+        {
+            ["Crafting-D_ProcessorRecipes.json"] = JsonNode.Parse("""{"Defaults": {"RequiredMillijoules": 2500}, "Rows": []}""")!.AsObject(),
+        };
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SpeedCraftingReductionPercent = 50 }, tables, new MergeReport(), originalFiles);
+
+        Assert.Equal(1250, (int)tables["Crafting-D_ProcessorRecipes.json"]["Stone_Pickaxe"]!["RequiredMillijoules"]!);
+    }
+
+    [Fact]
+    public void Apply_SpeedCrafting_NoDefaultsGiven_DefaultsOnlyRecipeStaysUntouched()
+    {
+        // Same shape as the fallback test above, but called through the 3-argument overload (no
+        // originalFilesByFile) — matches the old behavior exactly when Defaults truly aren't available.
+        var tables = Table("Crafting-D_ProcessorRecipes.json", new JsonObject
+        {
+            ["Stone_Pickaxe"] = Row("""{"Inputs": []}"""),
+        });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SpeedCraftingReductionPercent = 50 }, tables, new MergeReport());
+
+        Assert.False(tables["Crafting-D_ProcessorRecipes.json"]["Stone_Pickaxe"]!.AsObject().ContainsKey("RequiredMillijoules"));
     }
 
     [Fact]

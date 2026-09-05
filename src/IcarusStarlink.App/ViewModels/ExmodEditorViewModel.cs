@@ -339,8 +339,14 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         {
             new TextFileViewerWindow(SelectedItem.RealPath, realPath) { Owner = Application.Current.MainWindow }.Show();
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // Same reasoning as SearchGameDataWindow's own identical catch — File.Exists above can
+            // return true for a file whose CONTENT still can't be read (EFS encryption, a narrow
+            // ACL, a TOCTOU race), which throws UnauthorizedAccessException from TextFileViewerWindow's
+            // own File.ReadAllText, not IOException. Catching only IOException would let that reach
+            // the app's global unhandled-exception handler, which deliberately terminates the app —
+            // turning a benign "can't preview this one file" into a crash.
             StatusMessage = $"Couldn't open the file: {ex.Message}";
         }
     }
@@ -950,7 +956,19 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     {
         try
         {
-            ExmodFolder.Write(_repository.GetFolderPath(_folderName), new ExmodPackageContents(_package, []));
+            // Writes a STRIPPED copy — never mutates the live _package/its item.Fields in place, so
+            // nothing visibly vanishes from the open editor (Items list, Fields pane, amber
+            // highlights, Undo stack all keep operating on the real, unstripped session state). The
+            // ExmodJson round-trip is the same deep-copy pattern PushUndoSnapshot already uses, so
+            // every ExmodPackage-level property (Name/Author/Version/etc.) carries over correctly
+            // without being hand-copied field by field here.
+            var strippedRows = ExmodBaseDiffer.StripFieldsIdenticalToBase(_package, _dataFolder);
+            var strippedFieldCount = _package.Rows.Sum(r => r.FileItems.Sum(i => i.Fields.Count))
+                - strippedRows.Sum(r => r.FileItems.Sum(i => i.Fields.Count));
+
+            var writePackage = ExmodJson.Parse(ExmodJson.Serialize(_package));
+            writePackage.Rows = strippedRows;
+            ExmodFolder.Write(_repository.GetFolderPath(_folderName), new ExmodPackageContents(writePackage, []));
             _repository.MarkLocallyEdited(_folderName);
 
             // What just got written is now this mod's own "original" going forward — refreshing
@@ -960,7 +978,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             PopulateFieldsForSelection();
 
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-            StatusMessage = "Saved.";
+            StatusMessage = strippedFieldCount > 0
+                ? $"Saved — removed {strippedFieldCount} field(s) that matched base game data."
+                : "Saved.";
         }
         catch (Exception ex)
         {

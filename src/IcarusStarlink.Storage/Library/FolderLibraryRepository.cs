@@ -78,15 +78,25 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         // staging/game folder this repository has no other reason to know about, and it may not
         // even still exist by the time something needs this list.
         var sourceManifestPath = Path.Combine(Path.GetDirectoryName(pakFilePath)!, InstallManifestNames.PakManifest);
-        var mergedPackModNames = File.Exists(sourceManifestPath)
-            ? ModListText.ParseNames(File.ReadAllText(sourceManifestPath)).ToList()
-            : null;
+        List<string>? mergedPackModNames = null;
+        List<string>? mergedPackOptionDescriptions = null;
+        if (File.Exists(sourceManifestPath))
+        {
+            var manifestText = File.ReadAllText(sourceManifestPath);
+            mergedPackModNames = ModListText.ParseNames(manifestText).ToList();
+            var optionDescriptions = ModListText.ParseOptionDescriptions(manifestText);
+            if (optionDescriptions.Count > 0)
+            {
+                mergedPackOptionDescriptions = optionDescriptions.ToList();
+            }
+        }
 
         var meta = new LibraryMeta
         {
             ImportedAtUtc = DateTimeOffset.UtcNow, Source = source, NexusModId = nexusModId,
             CatalogEntryId = catalogEntryId, MergedPackModNames = mergedPackModNames,
             MergedPackProfileName = mergedPackProfileName,
+            MergedPackOptionDescriptions = mergedPackOptionDescriptions,
         };
         _metaStore.Save(folderName, meta);
 
@@ -503,11 +513,18 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         // matching MergeEngine's own convention) — it just wasn't ever LABELED as an order before.
         // Numbering it here makes that order visible without needing new storage: on an unresolved
         // conflict, the LAST-numbered mod touching a field is the one whose value won by default.
+        // A build with an empty mod queue but at least one gameplay option enabled (e.g. just Stacks
+        // Multiplier) leaves MergedPackModNames empty — without this branch, its own freshly-
+        // installed Library entry would fall all the way to the generic "no EXMOD data" wording
+        // below, indistinguishable from importing a totally unrelated prebuilt .pak, even though
+        // MergedPackProfileName proves this really is this app's own Rebuild output.
         var description = meta.MergedPackModNames is { Count: > 0 } mergedNames
             ? $"IcarusStarlink's own merged pack — folds in {mergedNames.Count} mod(s), in merge order " +
               $"(the last one listed wins a field conflict by default): {string.Join(", ", mergedNames.Select((n, i) => $"{i + 1}. {n}"))}."
-            : meta.NexusDescription
-                ?? $"Imported prebuilt .pak package ({sizeMb:N1} MB) — no EXMOD data, so no readme or editing. Its internal files can still be listed below.";
+            : meta.MergedPackOptionDescriptions is { Count: > 0 } optionDescriptions
+                ? $"IcarusStarlink's own merged pack — built from gameplay options only (no mods queued): {string.Join(", ", optionDescriptions)}."
+                : meta.NexusDescription
+                    ?? $"Imported prebuilt .pak package ({sizeMb:N1} MB) — no EXMOD data, so no readme or editing. Its internal files can still be listed below.";
         return new LibraryEntry
         {
             FolderName = folderName,
@@ -527,6 +544,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             CatalogEntryId = meta.CatalogEntryId,
             DisplayNameOverride = meta.DisplayNameOverride,
             MergedPackModNames = meta.MergedPackModNames,
+            MergedPackOptionDescriptions = meta.MergedPackOptionDescriptions,
         };
     }
 

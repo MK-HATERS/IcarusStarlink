@@ -417,6 +417,58 @@ public class RebuildServiceTests : IDisposable
         Assert.Contains("Second Mod", manifest);
     }
 
+    /// <summary>
+    /// Regression guard: an empty queue with at least one gameplay option enabled previously still
+    /// produced a manifest file, but a degenerate one — just the bare "Includes the following mods:"
+    /// header with nothing under it, indistinguishable downstream from "nothing was built at all"
+    /// (FolderLibraryRepository.ImportPak read it back into an empty MergedPackModNames, which made
+    /// the freshly-installed pak's own Library entry show the same generic "no EXMOD data" wording a
+    /// totally unrelated prebuilt .pak import would). A real options-only build's manifest must
+    /// record what was actually applied, in its own separate section.
+    /// </summary>
+    [Fact]
+    public async Task RebuildAsync_EmptyQueueWithGameplayOptionsOnly_ManifestRecordsTheOptionsNotJustAnEmptyModsHeader()
+    {
+        WriteBaseTable("Traits/D_Itemable.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Fiber","MaxStack":200}]}""");
+        var service = new RebuildService(new FakeUnrealPakService());
+
+        var result = await service.RebuildAsync([], new GameplayOptions { StacksMultiplier = 2 }, _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        var manifest = await File.ReadAllTextAsync(result.ManifestPath);
+        Assert.DoesNotContain("Includes the following mods:", manifest);
+        Assert.Contains("Gameplay options applied:", manifest);
+        Assert.Contains("Stacks x2", manifest);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_QueuedModsAndGameplayOptionsTogether_ManifestHasBothSections()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Only Mod", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var service = new RebuildService(new FakeUnrealPakService());
+
+        var result = await service.RebuildAsync([mod], new GameplayOptions { RemoveWeight = true }, _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        var manifest = await File.ReadAllTextAsync(result.ManifestPath);
+        Assert.Contains("Includes the following mods:", manifest);
+        Assert.Contains("Only Mod", manifest);
+        Assert.Contains("Gameplay options applied:", manifest);
+        Assert.Contains("Remove Weight", manifest);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_EmptyQueueAndNoGameplayOptions_ManifestHasNeitherSection()
+    {
+        var service = new RebuildService(new FakeUnrealPakService());
+
+        var result = await service.RebuildAsync([], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        var manifest = await File.ReadAllTextAsync(result.ManifestPath);
+        Assert.DoesNotContain("Includes the following mods:", manifest);
+        Assert.DoesNotContain("Gameplay options applied:", manifest);
+    }
+
     [Fact]
     public async Task RebuildAsync_ReturnsPackedFileCountFromUnrealPakService()
     {

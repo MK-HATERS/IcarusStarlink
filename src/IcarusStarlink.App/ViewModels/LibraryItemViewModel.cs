@@ -328,11 +328,22 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// <summary>True once this mod's own EXMOD was derived from a prebuilt pak (automatically at import, or via Convert to EXMOD…) rather than authored directly — the candidate set LibraryViewModel's own silent post-data-update refresh re-derives from its saved source pak, as long as IsLocallyEdited hasn't since gone true.</summary>
     public bool ConvertedFromPrebuiltPak { get; private set; }
 
-    /// <summary>A previously-Rebuild-and-Installed IcarusStarlink pak, re-imported as its own Library entry — the 📦 glyph. Drives Merge &amp; Install's queue rules.</summary>
-    public bool IsMergedPack => MergedPackModNames is { Count: > 0 };
+    /// <summary>
+    /// A previously-Rebuild-and-Installed IcarusStarlink pak, re-imported as its own Library entry —
+    /// the 📦 glyph. Drives Merge &amp; Install's queue rules. Also true for a build with an empty mod
+    /// queue but at least one gameplay option enabled (MergedPackOptionDescriptions non-empty,
+    /// MergedPackModNames empty) — without this, an options-only Rebuild output was indistinguishable
+    /// from an ordinary externally-sourced opaque .pak, which would wrongly make it a candidate for
+    /// LibraryViewModel's "Convert opaque mods" sweep (its own doc comment: converting a merged pack
+    /// "would produce a meaningless giant diff").
+    /// </summary>
+    public bool IsMergedPack => MergedPackModNames is { Count: > 0 } || MergedPackOptionDescriptions is { Count: > 0 };
 
     /// <summary>Every mod's own display Name folded into this merged pack — null for anything that isn't one.</summary>
     public IReadOnlyList<string>? MergedPackModNames { get; private set; }
+
+    /// <summary>Every gameplay option applied to this merged pack (e.g. "Stacks x2") — null for anything that isn't a gameplay-options-only build. See LibraryEntry.MergedPackOptionDescriptions.</summary>
+    public IReadOnlyList<string>? MergedPackOptionDescriptions { get; private set; }
 
     [ObservableProperty]
     private bool _isPinned;
@@ -432,6 +443,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         NexusModId = entry.NexusModId;
         CatalogEntryId = entry.CatalogEntryId;
         MergedPackModNames = entry.MergedPackModNames;
+        MergedPackOptionDescriptions = entry.MergedPackOptionDescriptions;
 
         // Assigning the backing fields directly (not the generated properties) means this
         // doesn't route through OnIsPinnedChanged/etc. and save straight back to the repository
@@ -473,6 +485,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         OnPropertyChanged(nameof(HasNexusLink));
         CatalogEntryId = entry.CatalogEntryId;
         MergedPackModNames = entry.MergedPackModNames;
+        MergedPackOptionDescriptions = entry.MergedPackOptionDescriptions;
         OnPropertyChanged(nameof(IsMergedPack));
 
         // Direct field assignment + manual notify, not the generated properties: this re-syncs

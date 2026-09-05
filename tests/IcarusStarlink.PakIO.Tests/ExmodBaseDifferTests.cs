@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Exmod;
 
@@ -158,6 +159,174 @@ public class ExmodBaseDifferTests : IDisposable
 
         Assert.Contains(firstReport.Warnings, w => w.Contains("NoSuchCategory-D_Missing.json"));
         Assert.Contains(secondReport.Warnings, w => w.Contains("NoSuchCategory-D_Missing.json"));
+    }
+
+    [Fact]
+    public void StripFieldsIdenticalToBase_FieldEqualToBase_IsStripped()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","RequiredMillijoules":2500,"Weight":10}]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Crafting-D_ProcessorRecipes.json",
+            FileItems =
+            [
+                new ExmodFileItem
+                {
+                    Name = "Stone_Pickaxe",
+                    // RequiredMillijoules matches base exactly (e.g. left over from "Add item from
+                    // game data" and never actually touched); Weight was genuinely changed.
+                    Fields = { ["RequiredMillijoules"] = JsonValue.Create(2500), ["Weight"] = JsonValue.Create(5) },
+                },
+            ],
+        });
+
+        var result = ExmodBaseDiffer.StripFieldsIdenticalToBase(package, _dataFolder);
+
+        var item = Assert.Single(Assert.Single(result).FileItems);
+        Assert.False(item.Fields.ContainsKey("RequiredMillijoules"));
+        Assert.Equal(5, (int)item.Fields["Weight"]!);
+    }
+
+    /// <summary>
+    /// The critical regression this whole feature must never introduce: AddItem + AddField is a
+    /// real, intentional editor workflow for hand-authoring a deliberately sparse item — e.g. typing
+    /// an item name that happens to match a real base row, then adding just ONE field, exactly the
+    /// classic hand-written EXMOD convention (only list what changed). Stripping must never invent a
+    /// "removed" entry for every OTHER field the real base row has that this sparse item simply
+    /// never mentions — that would silently turn "bump MaxStack on Item_Sword" into "delete every
+    /// other field of Item_Sword" the instant the mod is saved.
+    /// </summary>
+    [Fact]
+    public void StripFieldsIdenticalToBase_SparseHandAuthoredItem_NeverInventsRemovalsForFieldsItNeverMentioned()
+    {
+        WriteBaseTable("Traits/D_Itemable.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Sword","MaxStack":1,"Weight":500,"Icon":"/Some/Icon"}]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Itemable.json",
+            // Deliberately sparse — never touched Weight/Icon at all, not even via a full-row copy.
+            FileItems = [new ExmodFileItem { Name = "Item_Sword", Fields = { ["MaxStack"] = JsonValue.Create(200) } }],
+        });
+
+        var result = ExmodBaseDiffer.StripFieldsIdenticalToBase(package, _dataFolder);
+
+        var item = Assert.Single(Assert.Single(result).FileItems);
+        Assert.Equal(200, (int)item.Fields["MaxStack"]!);
+        Assert.False(item.Fields.ContainsKey("Weight"));
+        Assert.False(item.Fields.ContainsKey("Icon"));
+        Assert.Single(item.Fields);
+    }
+
+    [Fact]
+    public void StripFieldsIdenticalToBase_ItemNotInBase_KeepsEveryFieldUnconditionally()
+    {
+        WriteBaseTable("Traits/D_Fuel.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Fuel.json",
+            FileItems = [new ExmodFileItem { Name = "New_Item", Fields = { ["SomeField"] = JsonValue.Create(5) } }],
+        });
+
+        var result = ExmodBaseDiffer.StripFieldsIdenticalToBase(package, _dataFolder);
+
+        var item = Assert.Single(Assert.Single(result).FileItems);
+        Assert.Equal(5, (int)item.Fields["SomeField"]!);
+    }
+
+    [Fact]
+    public void StripFieldsIdenticalToBase_NoMatchingBaseFile_RowKeptCompletelyAsIs()
+    {
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "NoSuchCategory-D_Missing.json",
+            FileItems = [new ExmodFileItem { Name = "X", Fields = { ["Y"] = JsonValue.Create(1) } }],
+        });
+
+        var result = ExmodBaseDiffer.StripFieldsIdenticalToBase(package, _dataFolder);
+
+        var item = Assert.Single(Assert.Single(result).FileItems);
+        Assert.Equal(1, (int)item.Fields["Y"]!);
+    }
+
+    [Fact]
+    public void StripFieldsIdenticalToBase_EndOfModMarker_KeptCompletelyAsIs()
+    {
+        var package = MakePackage(new ExmodFileRow { CurrentFile = "EndOfMod", FileItems = [] });
+
+        var result = ExmodBaseDiffer.StripFieldsIdenticalToBase(package, _dataFolder);
+
+        Assert.Single(result);
+        Assert.Equal("EndOfMod", result[0].CurrentFile);
+    }
+
+    /// <summary>"Insert file at location" adds a row with no items yet, meant to be filled in later — it must survive a Save (and thus this strip pass) even though it currently has nothing to strip or keep.</summary>
+    [Fact]
+    public void StripFieldsIdenticalToBase_EmptyPlaceholderRow_IsPreservedNotDropped()
+    {
+        WriteBaseTable("Traits/D_Fuel.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(new ExmodFileRow { CurrentFile = "Traits-D_Fuel.json", FileItems = [] });
+
+        var result = ExmodBaseDiffer.StripFieldsIdenticalToBase(package, _dataFolder);
+
+        var row = Assert.Single(result);
+        Assert.Equal("Traits-D_Fuel.json", row.CurrentFile);
+        Assert.Empty(row.FileItems);
+    }
+
+    /// <summary>"Add item" adds an item with no fields yet (before "Add field" is used) — it must survive a Save the same way an empty placeholder row does, and so must an item whose every field ended up stripped (e.g. copied wholesale from game data and never actually edited).</summary>
+    [Fact]
+    public void StripFieldsIdenticalToBase_ItemWithNoRemainingFields_IsPreservedNotDropped()
+    {
+        WriteBaseTable("Traits/D_Fuel.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Wood","Weight":150}]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Fuel.json",
+            FileItems =
+            [
+                new ExmodFileItem { Name = "Item_Wood", Fields = { ["Weight"] = JsonValue.Create(150) } }, // fully redundant copy
+                new ExmodFileItem { Name = "Freshly_Added" }, // AddItem with no AddField yet
+            ],
+        });
+
+        var result = ExmodBaseDiffer.StripFieldsIdenticalToBase(package, _dataFolder);
+
+        var row = Assert.Single(result);
+        Assert.Equal(2, row.FileItems.Count);
+        Assert.Empty(row.FileItems.Single(i => i.Name == "Item_Wood").Fields);
+        Assert.Empty(row.FileItems.Single(i => i.Name == "Freshly_Added").Fields);
+    }
+
+    [Fact]
+    public void StripFieldsIdenticalToBase_ExplicitRemovalOfARealBaseField_IsKept()
+    {
+        // An explicit JSON null on a field base DOES have is a genuine removal — never strippable,
+        // since it's a real, intentional change (present-in-base -> absent-in-modded), not a no-op.
+        WriteBaseTable("Traits/D_Fuel.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Wood","Weight":150}]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Fuel.json",
+            FileItems = [new ExmodFileItem { Name = "Item_Wood", Fields = { ["Weight"] = null } }],
+        });
+
+        var result = ExmodBaseDiffer.StripFieldsIdenticalToBase(package, _dataFolder);
+
+        var item = Assert.Single(Assert.Single(result).FileItems);
+        Assert.True(item.Fields.ContainsKey("Weight"));
+        Assert.Null(item.Fields["Weight"]);
+    }
+
+    [Fact]
+    public void StripFieldsIdenticalToBase_ExplicitRemovalOfAFieldBaseNeverHad_IsStrippedAsANoOp()
+    {
+        WriteBaseTable("Traits/D_Fuel.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Wood","Weight":150}]}""");
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Fuel.json",
+            FileItems = [new ExmodFileItem { Name = "Item_Wood", Fields = { ["FieldBaseNeverHad"] = null } }],
+        });
+
+        var result = ExmodBaseDiffer.StripFieldsIdenticalToBase(package, _dataFolder);
+
+        Assert.Empty(Assert.Single(result).FileItems.Single().Fields);
     }
 
     public void Dispose()

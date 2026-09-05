@@ -37,4 +37,7 @@ internal sealed class LibraryMeta
 
     /// <summary>The Merge &amp; Install profile that produced this pak (e.g. "Default" for an ad hoc queue with no profile selected) — set alongside MergedPackModNames, at the same ImportPak call. Preferred over NexusAuthor/"Unknown" for a merged pack's own Author, so multiple profiles' own builds are distinguishable in Library.</summary>
     public string? MergedPackProfileName { get; set; }
+
+    /// <summary>Set at the same ImportPak call as MergedPackModNames, from the manifest's own separate "Gameplay options applied:" section — real content for a build with zero queued mods but at least one gameplay option enabled, which MergedPackModNames alone leaves empty. See LibraryEntry.MergedPackOptionDescriptions.</summary>
+    public List<string>? MergedPackOptionDescriptions { get; set; }
 }

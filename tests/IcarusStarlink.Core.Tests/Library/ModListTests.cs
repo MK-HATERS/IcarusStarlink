@@ -24,6 +24,46 @@ public class ModListTests
         Assert.Equal(["Mod A", "Mod B"], ModListText.ParseNames("Mod A\nMod B"));
     }
 
+    /// <summary>
+    /// Regression guard: an options-only build (RebuildService.WriteManifest) appends a "Gameplay
+    /// options applied:" section after the mods — an option description like "Stacks x2" must never
+    /// be fed into ParseNames' own mod-name diffing logic (InstalledState.ModNames/
+    /// InstalledVsListComparer).
+    /// </summary>
+    [Fact]
+    public void ParseNames_ManifestWithGameplayOptionsSectionAfterMods_StopsAtOptionsHeader()
+    {
+        var content = "Includes the following mods:\r\nMod_A\r\nGameplay options applied:\r\nStacks x2\r\nRemove Weight\r\n";
+
+        Assert.Equal(["Mod_A"], ModListText.ParseNames(content));
+    }
+
+    [Fact]
+    public void ParseNames_OptionsOnlyManifest_NoModsSectionAtAll_ReturnsEmpty()
+    {
+        // The real shape RebuildService.WriteManifest now produces for a build with an empty queue
+        // and no prebuilt paks but at least one gameplay option enabled.
+        var content = "Gameplay options applied:\r\nStacks x2\r\n";
+
+        Assert.Empty(ModListText.ParseNames(content));
+    }
+
+    [Fact]
+    public void ParseOptionDescriptions_ManifestWithBothSections_ReturnsOnlyTheOptionsLines()
+    {
+        var content = "Includes the following mods:\r\nMod_A\r\nGameplay options applied:\r\nStacks x2\r\nRemove Weight\r\n";
+
+        Assert.Equal(["Stacks x2", "Remove Weight"], ModListText.ParseOptionDescriptions(content));
+    }
+
+    [Fact]
+    public void ParseOptionDescriptions_NoOptionsSection_ReturnsEmpty()
+    {
+        var content = "Includes the following mods:\r\nMod_A\r\n";
+
+        Assert.Empty(ModListText.ParseOptionDescriptions(content));
+    }
+
     [Fact]
     public void Match_DisplayNameAndFolderStyleNamesMixed_BothMatch()
     {

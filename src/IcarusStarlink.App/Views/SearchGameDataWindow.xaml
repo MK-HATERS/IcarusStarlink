@@ -16,7 +16,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Searches every item in the game's own data — by name, AND by where a value is referenced inside other items' JSON (e.g. which recipes consume 'Wood', or which items grant a stat). Double-click a result to open its real file."
+        <TextBlock Grid.Row="0" Text="Searches every item in the game's own data — by name, AND by where a value is referenced inside other items' JSON (e.g. which recipes consume 'Wood', or which items grant a stat). Double-click a result to open its real file read-only, in-app."
                    Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
         <Grid Grid.Row="1" Margin="0,0,0,8">

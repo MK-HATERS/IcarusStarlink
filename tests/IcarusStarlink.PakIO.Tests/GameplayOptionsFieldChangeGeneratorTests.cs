@@ -118,8 +118,10 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
         Assert.Equal(2, changes.Count);
         Assert.Contains(changes, c => c.ItemName == "Player" && c.FieldName == "MaxDisplayLevel" && (int)c.NewValue! == 50000);
         Assert.Contains(changes, c => c.ItemName == "Player" && c.FieldName == "MaxLevel" && (int)c.NewValue! == 50000);
-        // AI's own row is never touched — RemoveLevelCap is Player-only, matching the real
-        // community mod (laanp-RealLevels) this option's value is sourced from.
+        // AI's own row is never touched — this option only ever emits a FieldChange for the Player
+        // row (the merge pipeline's keyed-table shape can't express a Defaults-level change, which is
+        // how the real reference mod, laanp-RealLevels, also reaches AI_Mounts/Settlement_Hub — see
+        // GameplayOptions.RemoveLevelCap's own doc comment).
         Assert.DoesNotContain(changes, c => c.ItemName == "AI");
     }
 

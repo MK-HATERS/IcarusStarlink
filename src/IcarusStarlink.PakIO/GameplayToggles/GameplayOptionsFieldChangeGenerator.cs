@@ -104,11 +104,21 @@ public static class GameplayOptionsFieldChangeGenerator
     }
 
     /// <summary>
-    /// "Player" is the only row of Character-D_CharacterGrowth.json's 6 (Player/AI/AI_Mounts/
-    /// AI_Pets/AI_SpeederBike/Settlement_Hub) a real community mod (laanp-RealLevels) touches — its
-    /// own chosen value, 50000, is what this uses too, since classic IMM never documented one of
-    /// its own (this option doesn't exist there). Real base values confirmed live: MaxDisplayLevel
-    /// 60, MaxLevel 1000.
+    /// "Player" is the only ROW of Character-D_CharacterGrowth.json's 6 (Player/AI/AI_Mounts/
+    /// AI_Pets/AI_SpeederBike/Settlement_Hub) this emits a FieldChange for — its chosen value, 50000,
+    /// is the real community mod laanp-RealLevels' own, since classic IMM never documented one of its
+    /// own (this option doesn't exist there). Real base values confirmed live: MaxDisplayLevel 60,
+    /// MaxLevel 1000. laanp-RealLevels ALSO rewrites the file's own struct-level Defaults block
+    /// (confirmed against its real bundled script: 4 ChangeValue calls, not 2 — Defaults.
+    /// MaxDisplayLevel/MaxLevel 50->50000 alongside the Player row's own 60/1000->50000), which two
+    /// rows here (AI_Mounts, Settlement_Hub) have no explicit MaxDisplayLevel/MaxLevel of their own
+    /// and so inherit — this method can't replicate that part: a FieldChange only ever addresses one
+    /// row's own field, and the keyed table this whole pipeline operates on
+    /// (DataTableJson.RowsToKeyedObject) never carries Defaults at all. So under the real cited mod,
+    /// AI_Mounts/Settlement_Hub also become uncapped as a side effect; under this option they stay at
+    /// their vanilla Defaults-inherited cap of 50. Narrower fidelity to the cited reference than
+    /// "Player is the only row it touches" alone would suggest — see GameplayOptions.RemoveLevelCap's
+    /// own doc comment for the full picture.
     /// </summary>
     private const int RemovedLevelCapValue = 50000;
 

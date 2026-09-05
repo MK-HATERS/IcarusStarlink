@@ -496,7 +496,7 @@
                               ToolTip="Removes hot/cold environmental damage and temperature management entirely"/>
                     <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding RemoveLevelCap}" Margin="0,12,0,0"
                               Content="Remove Level Cap"
-                              ToolTip="Raises the player level cap from 60 to 50000 (and the underlying XP cap from 1000 to match)"/>
+                              ToolTip="Raises the displayed/tracked level cap from 60 to 50000 (and the underlying XP cap from 1000 to match), matching the real community mod laanp-RealLevels — display/tracking only, does not itself grant extra talent, blueprint, or solo points beyond what the base progression curves award past level 60"/>
                 </StackPanel>
                 </ScrollViewer>
             </Expander>

@@ -20,10 +20,13 @@ EXMOD-shaped mod, a bare `.pak`, or a UE4SS mod from what's actually inside), fo
 `.pak` files; organize with pin/favorite/notes/rename and automatic variant grouping; user-
 configurable columns (right-click the header bar); a full EXMOD editor (item-field, raw file JSON,
 and full-package JSON views, amber-highlighted diffs against the real base game data, mass edit
-across selected items, undo, add-item-from-game-data, a pop-out for any pane with its scroll
-position kept in sync with wherever else that same view is open, and a cross-file "what else
-references this" search over the whole extracted data folder); real asset preview for a mod's own
-textures, static/skeletal meshes (3D, orbit camera), sound (playback), and materials (texture/color/
+across selected items, undo, add-item-from-game-data, Save reconstructing the mod so any field left
+byte-identical to the real base game data — the usual result of add-item-from-game-data cloning a
+whole row you only meant to change one field of — never makes it into the saved file, a pop-out for
+any pane with its scroll position kept in sync with wherever else that same view is open, and a
+cross-file "what else references this" search over the whole extracted data folder); real asset
+preview for a mod's own textures, static/skeletal meshes (3D, orbit camera), sound (playback), and
+materials (texture/color/
 scalar parameters, including a base-game fallback so a modded material overriding an existing
 base-game parent can still show that parent's own texture/color values, not just an empty list) —
 covers opaque prebuilt-`.pak` imports too, not just EXMOD mods; proactive staleness detection that
