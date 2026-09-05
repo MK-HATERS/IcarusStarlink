@@ -59,6 +59,31 @@ public class CueBaseGameContentProviderTests
     }
 
     [Fact]
+    public void TryLoadExportAndProject_IcarusContentPathNotSet_ReturnsNullInsteadOfThrowing()
+    {
+        var provider = new CueBaseGameContentProvider(new FakeSettingsService(new AppSettings()));
+
+        var result = provider.TryLoadExportAndProject<object, object>(
+            "Weapons/Materials/M_BaseWeapon.uasset", static export => export);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void TryLoadExportAndProject_PaksFolderDoesNotExist_NeverInvokesProject()
+    {
+        var contentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+        var provider = new CueBaseGameContentProvider(new FakeSettingsService(new AppSettings { IcarusContentPath = contentPath }));
+        var projectCallCount = 0;
+
+        var result = provider.TryLoadExportAndProject<object, object>(
+            "Weapons/Materials/M_BaseWeapon.uasset", export => { projectCallCount++; return export; });
+
+        Assert.Null(result);
+        Assert.Equal(0, projectCallCount);
+    }
+
+    [Fact]
     public void TryLoadExport_CalledRepeatedly_KeepsReturningNullWithoutRetryingAFailedMount()
     {
         // Not directly observable from outside (the cached failed-mount Task is private), but

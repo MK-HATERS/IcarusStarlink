@@ -256,13 +256,23 @@ public class CueUassetDecoderTests : IDisposable
     /// Stands in for CueBaseGameContentProvider in every test above — always returns null (no real
     /// base-game install in a unit test), so what's under test is purely whether
     /// ApplyBaseGameFallbackIfNeeded calls it at all, never what a real match would decode to.
+    /// TryLoadExport deliberately throws: ApplyBaseGameFallbackIfNeeded must call
+    /// TryLoadExportAndProject instead (see its own doc comment on why plain TryLoadExport, then
+    /// processing the result afterward outside CueBaseGameContentProvider's lock, is a real race) —
+    /// if a future change ever reverted back to that two-step shape, this fake would make every test
+    /// above that exercises the fallback path fail loudly instead of silently passing anyway.
     /// </summary>
     private sealed class FakeBaseGameContentProvider : IBaseGameContentProvider
     {
         public int CallCount { get; private set; }
         public string? LastAssetPath { get; private set; }
 
-        public T? TryLoadExport<T>(string assetPath) where T : class
+        public T? TryLoadExport<T>(string assetPath) where T : class =>
+            throw new NotSupportedException(
+                "ApplyBaseGameFallbackIfNeeded must call TryLoadExportAndProject, not TryLoadExport — see this fake's own doc comment.");
+
+        public TResult? TryLoadExportAndProject<T, TResult>(string assetPath, Func<T, TResult> project)
+            where T : class where TResult : class
         {
             CallCount++;
             LastAssetPath = assetPath;

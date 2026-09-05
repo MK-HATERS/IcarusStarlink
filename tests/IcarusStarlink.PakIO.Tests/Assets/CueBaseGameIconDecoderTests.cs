@@ -75,13 +75,26 @@ public class CueBaseGameIconDecoderTests
         Assert.Null(result);
     }
 
-    /// <summary>Records every assetPath it was asked to load and always reports "not found" — real enough to verify CueBaseGameIconDecoder's own path normalization without needing a real CUE4Parse export.</summary>
+    /// <summary>
+    /// Records every assetPath it was asked to load and always reports "not found" — real enough to
+    /// verify CueBaseGameIconDecoder's own path normalization without needing a real CUE4Parse
+    /// export. TryLoadExport deliberately throws: CueBaseGameIconDecoder must call
+    /// TryLoadExportAndProject instead (see its own doc comment on why plain TryLoadExport, then
+    /// running UassetTexturePngEncoder afterward outside CueBaseGameContentProvider's lock, is a real
+    /// race) — if a future change ever reverted back to that two-step shape, this fake would make
+    /// every test above fail loudly instead of silently passing anyway.
+    /// </summary>
     private sealed class FakeBaseGameContentProvider : IBaseGameContentProvider
     {
         public int CallCount { get; private set; }
         public string? LastAssetPath { get; private set; }
 
-        public T? TryLoadExport<T>(string assetPath) where T : class
+        public T? TryLoadExport<T>(string assetPath) where T : class =>
+            throw new NotSupportedException(
+                "CueBaseGameIconDecoder must call TryLoadExportAndProject, not TryLoadExport — see this fake's own doc comment.");
+
+        public TResult? TryLoadExportAndProject<T, TResult>(string assetPath, Func<T, TResult> project)
+            where T : class where TResult : class
         {
             CallCount++;
             LastAssetPath = assetPath;
@@ -92,5 +105,9 @@ public class CueBaseGameIconDecoderTests
     private sealed class ThrowingBaseGameContentProvider : IBaseGameContentProvider
     {
         public T? TryLoadExport<T>(string assetPath) where T : class => throw new InvalidOperationException("Simulated provider failure.");
+
+        public TResult? TryLoadExportAndProject<T, TResult>(string assetPath, Func<T, TResult> project)
+            where T : class where TResult : class =>
+            throw new InvalidOperationException("Simulated provider failure.");
     }
 }

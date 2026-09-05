@@ -132,16 +132,23 @@ public sealed class CueUassetMaterialDecoder : IUassetMaterialDecoder
 
         try
         {
-            var parentMaterial = _baseGameContentProvider.TryLoadExport<UMaterialInterface>(unresolvedParentAssetPath);
-            return parentMaterial is null ? localResult : BuildMaterialParams(parentMaterial);
+            // TryLoadExportAndProject, not TryLoadExport-then-BuildMaterialParams: BuildMaterialParams'
+            // own GetParams call resolves cross-package Texture references lazily, on first access,
+            // against the SAME shared, session-lifetime provider IBaseGameContentProvider serializes
+            // every caller through — running it outside that lock (the way a separate TryLoadExport +
+            // BuildMaterialParams call would) would let this lazy resolution race a concurrent
+            // material preview's own locked lookup against that same provider. See
+            // IBaseGameContentProvider.TryLoadExportAndProject's own doc comment.
+            return _baseGameContentProvider.TryLoadExportAndProject<UMaterialInterface, UassetMaterialParams>(
+                unresolvedParentAssetPath, BuildMaterialParams) ?? localResult;
         }
         catch (Exception)
         {
-            // IBaseGameContentProvider.TryLoadExport is already its own defensive boundary (never
-            // throws on its own) — this is the outer safety net for anything BuildMaterialParams
-            // itself might still raise against a real base-game asset, same "one bad reach
-            // shouldn't take down an otherwise-valid local result" posture as the per-texture catch
-            // inside BuildMaterialParams below.
+            // IBaseGameContentProvider.TryLoadExportAndProject is already its own defensive boundary
+            // (never throws on its own) — this is the outer safety net for anything
+            // BuildMaterialParams itself might still raise against a real base-game asset, same "one
+            // bad reach shouldn't take down an otherwise-valid local result" posture as the
+            // per-texture catch inside BuildMaterialParams below.
             return localResult;
         }
     }

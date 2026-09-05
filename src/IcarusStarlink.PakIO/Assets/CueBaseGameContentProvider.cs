@@ -50,7 +50,11 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
 
     public CueBaseGameContentProvider(ISettingsService settingsService) => _settingsService = settingsService;
 
-    public T? TryLoadExport<T>(string assetPath) where T : class
+    public T? TryLoadExport<T>(string assetPath) where T : class =>
+        TryLoadExportAndProject<T, T>(assetPath, static export => export);
+
+    public TResult? TryLoadExportAndProject<T, TResult>(string assetPath, Func<T, TResult> project)
+        where T : class where TResult : class
     {
         var mounted = GetOrMountProvider();
         if (mounted is null)
@@ -67,10 +71,17 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
         // This provider is a single DI singleton shared by every real caller (CueUassetMaterialDecoder's
         // fallback, CueBaseGameIconDecoder), each of which may run on its own background thread — the
         // underlying DefaultFileProvider's own thread-safety for concurrent LoadPackage calls was never
-        // confirmed, so the actual lookup + decode is serialized here, under the SAME lock GetOrMountProvider
-        // uses. That lock is only ever briefly held elsewhere (just to publish/read _mountTask, never for the
-        // mount itself, which runs on its own Task.Run), so this doesn't block the mount from progressing —
-        // it only serializes callers against each other once a provider exists.
+        // confirmed, so the actual lookup + decode + project is ALL serialized here, under the SAME
+        // lock GetOrMountProvider uses. project runs INSIDE this lock, not after it's released — a
+        // caller whose project reads a lazily-resolved cross-package reference off export (exactly
+        // what CueUassetMaterialDecoder's GetParams does) would otherwise trigger CUE4Parse's own
+        // on-first-access resolution against this SAME shared mounted.Provider from outside the lock,
+        // free to race a concurrent TryLoadExportAndProject call from another thread doing its own
+        // LoadPackage against the very same provider instance — the exact race this lock exists to
+        // prevent (see this class's own top doc comment). That lock is only ever briefly held
+        // elsewhere (just to publish/read _mountTask, never for the mount itself, which runs on its
+        // own Task.Run), so this doesn't block the mount from progressing — it only serializes
+        // callers against each other once a provider exists.
         lock (_lock)
         {
             if (!mounted.ContentPathIndex.TryGetValue(normalizedAssetPath, out var matchedKey))
@@ -81,7 +92,8 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
             try
             {
                 var package = mounted.Provider.LoadPackage(matchedKey);
-                return package.ExportsLazy.Select(export => export.Value).OfType<T>().FirstOrDefault();
+                var export = package.ExportsLazy.Select(e => e.Value).OfType<T>().FirstOrDefault();
+                return export is null ? null : project(export);
             }
             catch (Exception)
             {

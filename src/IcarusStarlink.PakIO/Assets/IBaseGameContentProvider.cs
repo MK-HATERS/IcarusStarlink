@@ -31,4 +31,21 @@ public interface IBaseGameContentProvider
     /// match doesn't decode as T — every case degrades to null, never a thrown exception.
     /// </returns>
     T? TryLoadExport<T>(string assetPath) where T : class;
+
+    /// <summary>
+    /// Same lookup as TryLoadExport, but runs <paramref name="project"/> under the SAME lock that
+    /// protects the load itself — required for any consumer that reads a lazily-resolved
+    /// cross-package reference off the export (CueUassetMaterialDecoder's GetParams call resolving
+    /// another package's Texture2D for a texture parameter is exactly this case). CUE4Parse resolves
+    /// an FPackageIndex reference on first access, not at load time, against the SAME shared,
+    /// session-lifetime DefaultFileProvider every other caller of this provider also uses — a
+    /// caller that calls plain TryLoadExport and processes the result afterward, outside this
+    /// provider's lock, would let that lazy resolution race a concurrent TryLoadExport/
+    /// TryLoadExportAndProject call from another thread against the exact same shared provider
+    /// instance (see CueBaseGameContentProvider's own doc comment on why that's never safe to
+    /// allow). Mirrors CueAssetProviderLocator.TryLoadExportAndProject's own shape and reasoning —
+    /// the mod-local case this project already established the pattern for.
+    /// </summary>
+    TResult? TryLoadExportAndProject<T, TResult>(string assetPath, Func<T, TResult> project)
+        where T : class where TResult : class;
 }

@@ -30,13 +30,21 @@ public sealed class CueBaseGameIconDecoder : IBaseGameIconDecoder
 
         try
         {
-            var texture = _baseGameContentProvider.TryLoadExport<UTexture2D>(assetPath);
-            return texture is null ? null : UassetTexturePngEncoder.TryEncodeToPng(texture);
+            // TryLoadExportAndProject, not TryLoadExport-then-TryEncodeToPng: TextureDecoder.Decode
+            // (inside UassetTexturePngEncoder) resolves the texture's own mip/bulk data lazily,
+            // against the SAME shared, session-lifetime provider IBaseGameContentProvider serializes
+            // every caller through — running it outside that lock (the way a separate TryLoadExport +
+            // TryEncodeToPng call would) would let this lazy resolution race a concurrent icon/
+            // material preview's own locked lookup against that same provider. See
+            // IBaseGameContentProvider.TryLoadExportAndProject's own doc comment (and
+            // CueUassetMaterialDecoder's own fallback, which closes the identical race the same way).
+            return _baseGameContentProvider.TryLoadExportAndProject<UTexture2D, byte[]>(
+                assetPath, texture => UassetTexturePngEncoder.TryEncodeToPng(texture)!);
         }
         catch (Exception)
         {
-            // IBaseGameContentProvider.TryLoadExport is already its own defensive boundary (never
-            // throws on its own) — this is the outer safety net for anything
+            // IBaseGameContentProvider.TryLoadExportAndProject is already its own defensive boundary
+            // (never throws on its own) — this is the outer safety net for anything
             // UassetTexturePngEncoder itself might still raise against a real base-game texture,
             // same "one bad reach shouldn't take down an otherwise-working preview" posture
             // CueUassetMaterialDecoder's own fallback already uses.
