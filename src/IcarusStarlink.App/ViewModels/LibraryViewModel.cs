@@ -81,6 +81,23 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly Dictionary<string, LibraryItemViewModel> _itemsByFolderName = [];
     private readonly Dictionary<string, LibraryGroupViewModel> _groupsByKey = [];
 
+    /// <summary>
+    /// Open-editor-window count per folder name — CheckModsAgainstCurrentDataAsync's own auto-fix
+    /// pass consults this (a snapshot taken before its background Task.Run, see there) to skip
+    /// writing to any folder with a count above zero. Without this, its background backup+rewrite
+    /// could land while an editor window for that same mod is open: the editor's own _package was
+    /// loaded from disk before the auto-fix ran and has no idea it happened, so the very next click
+    /// of the editor's own Save button would write that stale in-memory copy straight back over the
+    /// just-applied auto-fix — silently discarding it with no error, and leaving the repository
+    /// record inconsistent with what SetStaleItems/NotifyRepairedFromDisk just told the UI moments
+    /// earlier. Skipping the write entirely (rather than trying to coordinate two writers with a
+    /// lock, which wouldn't stop the editor's own later Save from still clobbering it) is the
+    /// simplest fix that actually closes the race — the next staleness check run picks up that mod
+    /// once every editor window for it has closed. A count, not a HashSet, because nothing stops the
+    /// same folder being opened in more than one editor window at once.
+    /// </summary>
+    private readonly Dictionary<string, int> _openEditorCountByFolder = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The last row clicked without Shift held — a Shift-click ranges from here, the same anchor concept Explorer/ListBox multi-select use. Cleared (never explicitly re-set to null; a stale anchor pointing at a since-deleted row is simply skipped by FlattenModItems' own lookup) whenever a fresh plain/Ctrl click moves it.</summary>
     private LibraryItemViewModel? _bulkSelectionAnchor;
 
@@ -592,9 +609,16 @@ public sealed partial class LibraryViewModel : ObservableObject
             var desired = Ue4ssMods.Where(m => m.IsDirty).ToDictionary(m => m.Name, m => m.IsEnabled);
             var changedCount = desired.Count;
 
-            _ue4ssModStateService.Apply(modsFolder, desired, _backupDirectory);
+            var failures = _ue4ssModStateService.Apply(modsFolder, desired, _backupDirectory);
+            // Always reload, even on partial failure — Apply itself never rolls back a change it
+            // already made to an EARLIER mod in this same batch just because a LATER one failed, so
+            // the UI must re-read real on-disk state either way rather than keep showing whatever
+            // was true before this call.
             ReloadInstalledUe4ssMods();
-            Ue4ssStatusMessage = $"Applied {changedCount} change(s).";
+            Ue4ssStatusMessage = failures.Count == 0
+                ? $"Applied {changedCount} change(s)."
+                : $"Applied {changedCount - failures.Count} of {changedCount} change(s) — failed: "
+                    + string.Join("; ", failures.Select(f => $"{f.Name} ({f.Reason})"));
         }
         catch (Exception ex)
         {
@@ -722,7 +746,15 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         try
         {
-            var folderName = _ue4ssModRepository.Import(dialog.FileName);
+            // Only meaningful if the game path is actually configured — with nothing to check
+            // against, this degrades to the same "no collision avoidance" behavior importing
+            // already had. See IUe4ssModRepository.Import's own doc comment for why this matters.
+            var icarusContentPath = _settingsService.Current.IcarusContentPath;
+            var installedUe4ssNames = !string.IsNullOrWhiteSpace(icarusContentPath)
+                ? _ue4ssModRepository.ListInstalledInGame(Ue4ssGamePaths.ResolveModsFolder(icarusContentPath))
+                : null;
+
+            var folderName = _ue4ssModRepository.Import(dialog.FileName, installedUe4ssNames);
             ReloadInstalledUe4ssMods();
             Ue4ssStatusMessage = $"Staged '{folderName}' — enable it below, then click Apply.";
         }
@@ -1708,8 +1740,25 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         var window = new ExmodEditorWindow(editorViewModel) { Owner = Application.Current.MainWindow };
+        _openEditorCountByFolder[folderName] = _openEditorCountByFolder.GetValueOrDefault(folderName) + 1;
+        window.Closed += (_, _) =>
+        {
+            var remaining = _openEditorCountByFolder[folderName] - 1;
+            if (remaining <= 0)
+            {
+                _openEditorCountByFolder.Remove(folderName);
+            }
+            else
+            {
+                _openEditorCountByFolder[folderName] = remaining;
+            }
+        };
         window.Show();
     }
+
+    /// <summary>Test-only seam — see AssemblyInfo.cs's own InternalsVisibleTo grant. OpenEditor itself constructs a real ExmodEditorWindow, which (like every other real Window in this app) can't run in a unit test host — this lets a test mark a folder as "has an open editor" the same way OpenEditor's own bookkeeping does, without needing a real window.</summary>
+    internal void MarkFolderEditorOpenForTesting(string folderName) =>
+        _openEditorCountByFolder[folderName] = _openEditorCountByFolder.GetValueOrDefault(folderName) + 1;
 
     /// <summary>The row's own warning badge — clicking it opens the mod in the editor with the first flagged item pre-selected (see OpenEditor's preSelect param), so the editor's already-existing amber base-diff highlighting does the rest.</summary>
     [RelayCommand]
@@ -2191,6 +2240,12 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             var folderNames = candidates.Select(i => i.FolderName).ToList();
+            // Snapshotted here, on the UI thread, before the Task.Run below reads it from a
+            // background thread — _openEditorCountByFolder is only ever mutated on the UI thread
+            // (OpenEditor/its window's Closed handler), so a live, unsynchronized read of it from
+            // that background thread would itself be a new race. See its own doc comment for why
+            // this exists at all.
+            var foldersWithOpenEditors = _openEditorCountByFolder.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             // Off the UI thread: this diffs every non-opaque mod's own items against the real
             // extracted game data (and, for anything confidently fixable, backs up + rewrites the
@@ -2213,7 +2268,8 @@ public sealed partial class LibraryViewModel : ObservableObject
                 {
                     try
                     {
-                        results[folderName] = CheckOneModAgainstCurrentData(folderName, baseTableCache, classifier);
+                        results[folderName] = CheckOneModAgainstCurrentData(
+                            folderName, baseTableCache, classifier, allowAutoFix: !foldersWithOpenEditors.Contains(folderName));
                     }
                     catch (Exception)
                     {
@@ -2288,9 +2344,12 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// Runs entirely off the UI thread (called from CheckModsAgainstCurrentDataAsync's own
     /// Task.Run) — every repository call here is plain file I/O, safe on a background thread; only
     /// its ModStalenessResult return value ever touches a bound property, back on the UI thread.
+    /// allowAutoFix false (an open editor window for this same folder, see
+    /// _openEditorCountByFolder's own doc comment) still detects and reports stale items as usual,
+    /// it just never backs up or writes anything for this mod this pass.
     /// </summary>
     private ModStalenessResult CheckOneModAgainstCurrentData(
-        string folderName, Dictionary<string, JsonObject?> baseTableCache, DefaultSemanticClassifier classifier)
+        string folderName, Dictionary<string, JsonObject?> baseTableCache, DefaultSemanticClassifier classifier, bool allowAutoFix)
     {
         var folderPath = _repository.GetFolderPath(folderName);
         var package = ExmodFolder.ReadPackageOnly(folderPath);
@@ -2320,7 +2379,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             var baseTable = baseTableCache.GetValueOrDefault(staleItem.CurrentFile);
             var suggestion = baseTable is null ? null : StaleItemFixSuggester.Suggest(staleItem.ItemName, fieldNames, baseTable);
 
-            if (suggestion is { CanAutoApply: true })
+            if (suggestion is { CanAutoApply: true } && allowAutoFix)
             {
                 if (!backupTaken)
                 {

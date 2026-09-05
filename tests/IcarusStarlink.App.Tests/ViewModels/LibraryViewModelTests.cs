@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
+using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
@@ -23,6 +24,7 @@ using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Assets;
 using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.Container;
+using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Import;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
@@ -518,6 +520,141 @@ public sealed class LibraryViewModelTests
         }
     }
 
+    // ---------------------------------------------------------------------------------------
+    // CheckModsAgainstCurrentDataCommand's own auto-fix pass vs. an open EXMOD editor window —
+    // the race LibraryViewModel's _openEditorCountByFolder/MarkFolderEditorOpenForTesting exist
+    // to close. See CreateStaleAutoFixableModOnDisk's own doc comment for how the fixture
+    // reproduces a genuine ExmodStalenessChecker.FindLikelyStaleItems + StaleItemFixSuggester
+    // CanAutoApply: true hit, not just a suggestion in isolation.
+    // ---------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task CheckModsAgainstCurrentDataCommand_FolderHasAnOpenEditorWindow_NeverWritesTheAutoFixToDisk()
+    {
+        // Regression guard: CheckModsAgainstCurrentDataAsync's background auto-fix pass used to back
+        // up and rewrite a mod's own .EXMOD with no regard for whether that same mod folder was
+        // already open in an ExmodEditorViewModel/ExmodEditorWindow (via LibraryViewModel.OpenEditor).
+        // The editor's own in-memory _package was loaded from disk BEFORE the auto-fix ran, so it has
+        // no idea the auto-fix happened — the very next click of that still-open editor's own Save
+        // button would write its stale in-memory copy straight back over the just-applied auto-fix,
+        // silently discarding it with no error and leaving the repository inconsistent with what the
+        // UI just told the user. The fix: CheckModsAgainstCurrentDataAsync snapshots which folders
+        // currently have an open editor window (_openEditorCountByFolder) on the UI thread before its
+        // background Task.Run, and CheckOneModAgainstCurrentData's auto-apply branch is gated on
+        // `allowAutoFix` — still detecting/reporting the stale item as usual, just never backing up or
+        // writing anything for that mod this pass. MarkFolderEditorOpenForTesting is the test-only
+        // seam that simulates "this folder has an open editor" without a real WPF Window, which can't
+        // run in this test host (see its own doc comment, and other ViewModel tests' precedent for the
+        // same constraint).
+        var harness = new TestHarness();
+        const string folderName = "RaceyMod_GuardedByOpenEditor";
+        var modFolderPath = CreateStaleAutoFixableModOnDisk(harness, folderName);
+        try
+        {
+            var vm = harness.Build();
+            vm.MarkFolderEditorOpenForTesting(folderName);
+
+            await vm.CheckModsAgainstCurrentDataCommand.ExecuteAsync(null);
+
+            var packageOnDisk = ExmodFolder.ReadPackageOnly(modFolderPath);
+            var itemOnDisk = Assert.Single(Assert.Single(packageOnDisk.Rows).FileItems);
+            Assert.Equal(StaleItemName, itemOnDisk.Name);
+            Assert.DoesNotContain(folderName, harness.Repository.BackupModCalls);
+
+            // Still detected and reported as stale — allowAutoFix:false only skips the write, not
+            // the detection — so the row's own warning badge still shows up for the user to fix by
+            // hand (e.g. via the still-open editor) once they close it and this check runs again.
+            var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == folderName);
+            Assert.True(item.HasPossiblyStaleItems);
+        }
+        finally
+        {
+            Directory.Delete(modFolderPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CheckModsAgainstCurrentDataCommand_NoOpenEditorWindow_AppliesTheAutoFixToDiskAndBacksUpFirst()
+    {
+        // The control for the guarded test above: same fixture, same mod, just without
+        // MarkFolderEditorOpenForTesting — proving the fixture genuinely reaches and exercises the
+        // auto-fix write path at all. Without this, the guarded test passing could just as easily
+        // mean the fixture never triggered CanAutoApply in the first place, not that the guard
+        // actually worked.
+        var harness = new TestHarness();
+        const string folderName = "RaceyMod_NoOpenEditor";
+        var modFolderPath = CreateStaleAutoFixableModOnDisk(harness, folderName);
+        try
+        {
+            var vm = harness.Build();
+
+            await vm.CheckModsAgainstCurrentDataCommand.ExecuteAsync(null);
+
+            var packageOnDisk = ExmodFolder.ReadPackageOnly(modFolderPath);
+            var itemOnDisk = Assert.Single(Assert.Single(packageOnDisk.Rows).FileItems);
+            Assert.Equal(FixedItemName, itemOnDisk.Name);
+            Assert.Contains(folderName, harness.Repository.BackupModCalls);
+
+            var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == folderName);
+            Assert.False(item.HasPossiblyStaleItems);
+        }
+        finally
+        {
+            Directory.Delete(modFolderPath, recursive: true);
+        }
+    }
+
+    // Exact same scenario StaleItemFixSuggesterTests.Suggest_UnambiguousCloseMatchWithGoodFieldOverlap_CanAutoApply
+    // proves triggers CanAutoApply: true (a stale item named "Stone_Pickaxe_Mk2" with field
+    // "RequiredMillijoules", against a base row "Stone_Pickaxe_MK2" with that same field) — reused
+    // here rather than inventing a new one, since that test is the known-good reference for what
+    // StaleItemFixSuggester.Suggest actually returns CanAutoApply: true for.
+    private const string StaleItemName = "Stone_Pickaxe_Mk2";
+    private const string FixedItemName = "Stone_Pickaxe_MK2";
+    private const string StaleItemCurrentFile = "Items-D_ItemTemplate.json";
+
+    /// <summary>
+    /// Builds a REAL on-disk mod folder (a real .EXMOD via ExmodFolder.Write) containing exactly one
+    /// item shaped to reproduce StaleItemFixSuggesterTests' own proven CanAutoApply: true scenario
+    /// (see the constants above), AND writes a matching real base-game JSON file under the harness's
+    /// own DataFolder (a real "Stone_Pickaxe_MK2" row with the same field) so
+    /// ExmodStalenessChecker.FindLikelyStaleItems' own diff-against-base step genuinely flags it as
+    /// stale too — not just StaleItemFixSuggester in isolation. Registers the mod with the harness
+    /// (AddMod) and wires FakeLibraryRepository.FolderPathOverrides so
+    /// CheckOneModAgainstCurrentData's real file I/O (ExmodFolder.ReadPackageOnly/Write, both keyed
+    /// off ILibraryRepository.GetFolderPath) lands on this real folder rather than the fake
+    /// repository's default nonexistent-path stand-in. Must be called BEFORE harness.Build() — same
+    /// AddMod-before-Build ordering every other test in this file already follows.
+    /// </summary>
+    private static string CreateStaleAutoFixableModOnDisk(TestHarness harness, string folderName)
+    {
+        var baseDataDir = Path.Combine(harness.DataFolder, "Items");
+        Directory.CreateDirectory(baseDataDir);
+        File.WriteAllText(
+            Path.Combine(baseDataDir, "D_ItemTemplate.json"),
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe_MK2","RequiredMillijoules":100}]}""");
+
+        var modFolderPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(modFolderPath);
+        var package = new ExmodPackage
+        {
+            Name = "Stale Race Mod", Author = "Someone", Version = "1.0", Description = "D", FileName = folderName,
+            Rows =
+            [
+                new ExmodFileRow
+                {
+                    CurrentFile = StaleItemCurrentFile,
+                    FileItems = [new ExmodFileItem { Name = StaleItemName, Fields = { ["RequiredMillijoules"] = JsonValue.Create(100) } }],
+                },
+            ],
+        };
+        ExmodFolder.Write(modFolderPath, new ExmodPackageContents(package, []));
+
+        harness.AddMod(folderName);
+        harness.Repository.FolderPathOverrides[folderName] = modFolderPath;
+        return modFolderPath;
+    }
+
     // A search-debounce test (SearchText -> wait past 250ms -> assert the filtered result) was
     // deliberately not added here: DebounceTimer wraps a WPF DispatcherTimer, whose Tick only fires
     // when something pumps that thread's Dispatcher message queue — which a plain xUnit host never
@@ -837,6 +974,17 @@ public sealed class LibraryViewModelTests
         public int RefreshCallCount { get; private set; }
         public Exception? RefreshException { get; set; }
 
+        /// <summary>
+        /// Additive escape hatch for a test that needs GetFolderPath to point at a REAL, test-created
+        /// directory on disk instead of GetFolderPath's own default nonexistent-path stand-in (see
+        /// that method's own comment) — e.g. CheckModsAgainstCurrentDataCommand's auto-fix pass does
+        /// genuine file I/O (ExmodFolder.ReadPackageOnly/Write) against whatever GetFolderPath
+        /// returns, which the default stand-in deliberately can't satisfy. Starts empty, so every
+        /// test that never touches this dictionary keeps getting the exact same nonexistent-path
+        /// behavior as before this was added — only a folder name explicitly added here is affected.
+        /// </summary>
+        public Dictionary<string, string> FolderPathOverrides { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public void Seed(LibraryEntry entry) => _entries.Add(entry);
 
         public IReadOnlyList<LibraryEntry> GetAll() => [.. _entries];
@@ -1046,9 +1194,11 @@ public sealed class LibraryViewModelTests
         // from IModVersionComparer's own always-throws fake behavior, since both produce the same
         // "Couldn't compare versions" status text.
         public string GetFolderPath(string folderName) =>
-            _entries.Any(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase))
-                ? Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests.NonExistentModFolder", folderName)
-                : throw new DirectoryNotFoundException($"No library entry named '{folderName}'.");
+            !_entries.Any(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase))
+                ? throw new DirectoryNotFoundException($"No library entry named '{folderName}'.")
+                : FolderPathOverrides.TryGetValue(folderName, out var overridePath)
+                    ? overridePath
+                    : Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests.NonExistentModFolder", folderName);
     }
 
     private sealed class FakeUe4ssModRepository : IUe4ssModRepository
@@ -1058,7 +1208,7 @@ public sealed class LibraryViewModelTests
         public string? LastSourceFolder { get; private set; }
         public string? LastFallbackName { get; private set; }
 
-        public string ImportFromFolder(string sourceFolder, string fallbackName)
+        public string ImportFromFolder(string sourceFolder, string fallbackName, IReadOnlyCollection<string>? namesAlreadyInUse = null)
         {
             ImportFromFolderCallCount++;
             LastSourceFolder = sourceFolder;
@@ -1067,18 +1217,18 @@ public sealed class LibraryViewModelTests
         }
 
         public IReadOnlyList<string> GetAll() => [];
-        public string Import(string zipFilePath) => throw new NotSupportedException("Not exercised by these tests.");
+        public string Import(string zipFilePath, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
         public void Delete(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
         public string GetFolderPath(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
         public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) => throw new NotSupportedException("Not exercised by these tests.");
-        public string AdoptFromGame(string gameModsFolderPath, string folderName) => throw new NotSupportedException("Not exercised by these tests.");
+        public string AdoptFromGame(string gameModsFolderPath, string folderName, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
     }
 
     private sealed class FakeUe4ssModStateService : IUe4ssModStateService
     {
         public IReadOnlyList<Ue4ssModState> GetAll(string gameModsFolderPath) =>
             throw new NotSupportedException("Not exercised by these tests — IcarusContentPath stays unset, so ReloadInstalledUe4ssMods returns before reaching this.");
-        public void Apply(string gameModsFolderPath, IReadOnlyDictionary<string, bool> desiredEnabledByName, string backupDirectory) =>
+        public IReadOnlyList<Ue4ssModApplyFailure> Apply(string gameModsFolderPath, IReadOnlyDictionary<string, bool> desiredEnabledByName, string backupDirectory) =>
             throw new NotSupportedException("Not exercised by these tests.");
     }
 
