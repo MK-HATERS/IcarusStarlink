@@ -16,7 +16,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// </summary>
 public sealed partial class ConflictRowViewModel : ObservableObject
 {
-    public ConflictRowViewModel(FieldConflict conflict, int? existingPickIndex)
+    public ConflictRowViewModel(FieldConflict conflict, int? existingPickIndex, MergeRuleRegistry mergeRuleRegistry)
     {
         Conflict = conflict;
         // EXMOD's own dash convention ("Traits-D_Fuel.json") converted back to the real path, same
@@ -28,9 +28,21 @@ public sealed partial class ConflictRowViewModel : ObservableObject
         // all) rather than showing a misleading "Base game value: null".
         BaseValueDisplay = conflict.HasBaseValue ? $"Base game value: {FormatRawValue(conflict.BaseValue)}" : null;
 
+        // "Default" isn't always "the last mod wins" — a combine rule (ArrayUnionCombineRule/
+        // GameplayTagQueryCombineRule) unions every candidate's own value instead whenever it
+        // applies, exactly the case FindConflicts flags as a "conflict" in the first place (each
+        // mod's raw NewValue differs). Mislabeling this "last mod wins" risks steering a user who
+        // wants to "be safe" into manually picking one mod's array — silently discarding every
+        // OTHER mod's own clean addition that Default would otherwise have kept.
         var lastModName = conflict.Candidates[^1].ModName;
+        var group = new FieldChangeGroup(
+            conflict.CurrentFile, conflict.ItemName, conflict.FieldName,
+            [.. conflict.Candidates.Select(c => c.Change)], conflict.HasBaseValue, conflict.BaseValue);
+        var defaultLabel = mergeRuleRegistry.DefaultIsLastWriteWins(group)
+            ? $"Default (last mod wins: {lastModName})"
+            : "Default (combines every mod's own additions)";
         Options = [
-            $"Default (last mod wins: {lastModName})",
+            defaultLabel,
             .. conflict.Candidates.Select(c => $"{c.ModName}: {FormatValue(c.Change)}{NumericHintSuffix(conflict, c.Change)}"),
         ];
 

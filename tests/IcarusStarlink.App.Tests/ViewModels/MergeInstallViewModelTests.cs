@@ -1,5 +1,7 @@
 using System.IO;
 using System.Text.Json.Nodes;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Catalog;
@@ -263,6 +265,38 @@ public sealed class MergeInstallViewModelTests : IDisposable
         await vm.RecomputeValidationIssueCountAsync();
 
         Assert.Equal(1, vm.ValidationIssueCount);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // 1b. Manual conflict picks must be invalidated whenever a queued mod's own content or the
+    //     base data folder changes — not just on a Queue mutation. MergeEngine.Merge applies a
+    //     pick as a plain index into that field's candidate list, rebuilt fresh at Rebuild time;
+    //     if the content behind that index changed, the SAME index can now mean something else
+    //     entirely, with no way to detect that from the index alone.
+    // ---------------------------------------------------------------------------------------
+
+    [Fact]
+    public void LibraryChangedMessage_InvalidatesAnyStoredManualPick()
+    {
+        var vm = CreateViewModel();
+        var pick = new Dictionary<(string, string, string), int> { [("File.json", "Item", "Field")] = 0 };
+        vm.ManualPicksForTesting = pick;
+
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+
+        Assert.Null(vm.ManualPicksForTesting);
+    }
+
+    [Fact]
+    public void WeeklyChangeReportUpdatedMessage_InvalidatesAnyStoredManualPick()
+    {
+        var vm = CreateViewModel();
+        var pick = new Dictionary<(string, string, string), int> { [("File.json", "Item", "Field")] = 0 };
+        vm.ManualPicksForTesting = pick;
+
+        WeakReferenceMessenger.Default.Send(new WeeklyChangeReportUpdatedMessage());
+
+        Assert.Null(vm.ManualPicksForTesting);
     }
 
     // ---------------------------------------------------------------------------------------

@@ -156,6 +156,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     // index now refers to, or whether the field is even still a conflict at all.
     private IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? _manualPicks;
 
+    /// <summary>Test-only seam — see AssemblyInfo.cs's own InternalsVisibleTo grant. Lets a test set up a stored manual pick and then assert whether a given invalidation trigger correctly cleared it, without a real conflict-picker dialog flow.</summary>
+    internal IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? ManualPicksForTesting
+    {
+        get => _manualPicks;
+        set => _manualPicks = value;
+    }
+
     [ObservableProperty]
     private string? _conflictStatusMessage;
 
@@ -425,20 +432,36 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // own fingerprint check already catches that correctly on the NEXT recompute regardless,
         // but clearing it here too means a rename/re-import/delete under a REUSED folder name can
         // never serve another mod's stale cached content, however unlikely that coincidence is.
+        // Also invalidates any manual conflict pick: MergeEngine.Merge applies a pick as a plain
+        // index into that field's candidate list, rebuilt fresh from each queued mod's CURRENT
+        // content at Rebuild time — if a queued mod's own EXMOD content just changed (this message
+        // firing IS that signal), the same in-range index can now mean a different value entirely,
+        // and there is no way to detect that from the index alone. Same reasoning already applied
+        // to Queue.CollectionChanged/InvalidateManualPicks above; this was the one other place a
+        // pick's own meaning can silently change out from under it.
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) =>
         {
-            ((MergeInstallViewModel)recipient).InvalidatePackageCache();
+            var viewModel = (MergeInstallViewModel)recipient;
+            viewModel.InvalidatePackageCache();
+            viewModel.InvalidateManualPicks();
         });
 
         // _dataFolder's own contents only ever change via a real "Update data folder" run — the
         // same trigger GameDataIndexCache and LibraryViewModel already invalidate their own base-data
-        // caches on.
+        // caches on. Also invalidates any manual conflict pick, for the same reason as
+        // LibraryChangedMessage's own handler above: MergeEngine.Merge re-resolves each field's
+        // candidate list (which now starts from the FRESH base data this message signals) at
+        // Rebuild time, and a pick stored as a plain index has no way to detect that its own
+        // meaning may have shifted underneath it.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) =>
         {
-            lock (((MergeInstallViewModel)recipient)._packageCacheLock)
+            var viewModel = (MergeInstallViewModel)recipient;
+            lock (viewModel._packageCacheLock)
             {
-                ((MergeInstallViewModel)recipient)._cachedBaseDataTableIndex = null;
+                viewModel._cachedBaseDataTableIndex = null;
             }
+
+            viewModel.InvalidateManualPicks();
         });
 
         _ = RefreshHasExistingInstallAsync();
@@ -1792,9 +1815,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// <summary>
     /// The advanced conflict picker's own entry point — computes which fields two or more queued
     /// mods change differently and, if any, opens a window to let the user pick a winner per field
-    /// (or leave it on the usual last-mod-wins default). Picks are stored in _manualPicks and used
-    /// by the next Rebuild; they're invalidated the moment the queue changes at all, so this needs
-    /// re-running after any Add/Remove/Move/Clear if the user wants to review again.
+    /// (or leave it on Default — usually last-mod-wins, but a combine rule instead unions every
+    /// candidate's own value for some field shapes; see ConflictRowViewModel's own doc comment).
+    /// Picks are stored in _manualPicks and used by the next Rebuild; they're invalidated the
+    /// moment the queue changes at all (or a queued mod's own content or the base data changes —
+    /// see the LibraryChangedMessage/WeeklyChangeReportUpdatedMessage handlers above), so this
+    /// needs re-running after any of those if the user wants to review again.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ReviewConflictsAsync()
@@ -1829,7 +1855,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 _manualPicks = picks.Count > 0 ? picks : null;
                 ConflictStatusMessage = picks.Count > 0
                     ? $"{conflicts.Count} conflict(s){collisionNote} found, {picks.Count} manually picked — Rebuild to apply."
-                    : $"{conflicts.Count} conflict(s){collisionNote} found, all left on default (last mod wins).";
+                    // "Default" per-field, not necessarily "last mod wins" — see ConflictRowViewModel's
+                    // own doc comment: a combine rule can instead union every candidate's own value.
+                    : $"{conflicts.Count} conflict(s){collisionNote} found, all left on default.";
             }
         }
         catch (Exception ex)

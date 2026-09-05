@@ -99,36 +99,62 @@ public sealed class ProfileStore : IProfileStore
         }
     }
 
-    public bool HasBackup(string name) => FindLatestBackupPath(name) is not null;
+    public bool HasBackup(string name) => FindLatestUsableBackupPath(name) is not null;
 
     /// <summary>
-    /// Replaces this profile's file with its own most recent backup — mirrors
+    /// Replaces this profile's file with its own most recent USABLE backup — mirrors
     /// ILibraryRepository.RestoreLatestModBackup exactly, including "missing backup returns false,
     /// not an error" and "the file is deleted first, not merged, so an edit made since the backup
-    /// is genuinely undone."
+    /// is genuinely undone." The write itself goes through JsonFileStore.WriteAtomically (temp file
+    /// + rename), not a direct File.Copy(overwrite: true) — the one recovery path this method exists
+    /// for must not itself be able to leave the live profile half-written if interrupted.
     /// </summary>
     public bool RestoreLatestBackup(string name)
     {
-        var backupPath = FindLatestBackupPath(name);
+        var backupPath = FindLatestUsableBackupPath(name);
         if (backupPath is null)
         {
             return false;
         }
 
-        File.Copy(backupPath, ResolvePath(name), overwrite: true);
+        JsonFileStore.WriteAtomically(ResolvePath(name), File.ReadAllText(backupPath));
         return true;
     }
 
-    private string? FindLatestBackupPath(string name)
+    /// <summary>
+    /// Newest-first, skipping any backup that doesn't actually deserialize as a real Profile —
+    /// FolderBackup.BackupFile's own copy (which produces these backups) isn't itself atomic, so a
+    /// crash/power loss mid-backup can leave a truncated file behind with a real (early)
+    /// CreationTimeUtc. Blindly trusting "newest by timestamp" as "the" usable backup would then
+    /// hand a corrupt file back as the one thing this whole feature exists to make trustworthy;
+    /// falling through to an older, still-valid backup is far better than that.
+    /// </summary>
+    private string? FindLatestUsableBackupPath(string name)
     {
         if (!Directory.Exists(_backupsDirectory))
         {
             return null;
         }
 
-        return Directory.GetFiles(_backupsDirectory, $"{name}_*.json")
-            .OrderByDescending(File.GetCreationTimeUtc)
-            .FirstOrDefault();
+        var candidates = Directory.GetFiles(_backupsDirectory, $"{name}_*.json")
+            .OrderByDescending(File.GetCreationTimeUtc);
+
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                if (JsonSerializer.Deserialize<Profile>(File.ReadAllText(candidate), JsonFileStore.Options) is not null)
+                {
+                    return candidate;
+                }
+            }
+            catch (JsonException)
+            {
+                // Corrupt/truncated — try the next-oldest candidate instead of treating this as usable.
+            }
+        }
+
+        return null;
     }
 
     private string ResolvePath(string name)

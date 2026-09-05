@@ -16,7 +16,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12">
-            <Run Text="These fields are changed differently by more than one mod in your queue. Pick which mod should win for each one, or leave it on Default to keep the usual last-mod-in-queue-wins behavior."/>
+            <Run Text="These fields are changed differently by more than one mod in your queue. Pick which mod should win for each one, or leave it on Default — each row's own label says exactly what Default does for that field (usually the last mod in queue, but some fields combine every mod's own additions instead)."/>
         </TextBlock>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">

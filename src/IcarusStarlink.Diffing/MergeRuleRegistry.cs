@@ -41,4 +41,17 @@ public sealed class MergeRuleRegistry(IEnumerable<IFieldMergeRule>? rules = null
             $"No merge rule applies to {group.CurrentFile}:{group.ItemName}.{group.FieldName} " +
             "— LastWriteWinsRule should always be registered as a fallback.");
     }
+
+    /// <summary>
+    /// True when LastWriteWinsRule is what Resolve(group) would actually apply for this field —
+    /// false means a combine rule (ArrayUnionCombineRule/GameplayTagQueryCombineRule) would instead
+    /// union every candidate's own value, not just pick the last mod's. Lets a caller that only
+    /// needs to know WHICH KIND of resolution "no manual pick" performs — not the resolved value
+    /// itself — answer that without depending on which concrete IFieldMergeRule implementations
+    /// exist. Built for the EXMOD editor's conflict picker: its own "Default" option used to be
+    /// unconditionally labeled "last mod wins," which is wrong whenever a combine rule actually
+    /// fires — a user who then manually picks one mod's value "to be safe" silently loses every
+    /// OTHER mod's own clean addition that Default would otherwise have kept.
+    /// </summary>
+    public bool DefaultIsLastWriteWins(FieldChangeGroup group) => _rules.First(rule => rule.Applies(group)) is LastWriteWinsRule;
 }

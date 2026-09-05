@@ -15,6 +15,12 @@ public sealed class ConflictPickerViewModel
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? existingPicks,
         IReadOnlyList<NewItemNameCollision>? newItemCollisions = null)
     {
+        // The same default rule set RebuildService/MergeEngine.Merge actually resolves conflicts
+        // with in production — needed so each row's own "Default" option can be labeled by what it
+        // will really do (last-mod-wins vs. a combine rule unioning every candidate) instead of
+        // unconditionally assuming last-mod-wins.
+        var mergeRuleRegistry = new MergeRuleRegistry();
+
         // Collisions first — a "two unrelated new items got merged into one" surprise is worth
         // seeing before the ordinary per-field picks below.
         var rows = new List<ConflictRowViewModel>();
@@ -27,7 +33,7 @@ public sealed class ConflictPickerViewModel
         {
             var key = (conflict.CurrentFile, conflict.ItemName, conflict.FieldName);
             var existingPick = existingPicks is not null && existingPicks.TryGetValue(key, out var index) ? (int?)index : null;
-            rows.Add(new ConflictRowViewModel(conflict, existingPick));
+            rows.Add(new ConflictRowViewModel(conflict, existingPick, mergeRuleRegistry));
         }
 
         Rows = rows;

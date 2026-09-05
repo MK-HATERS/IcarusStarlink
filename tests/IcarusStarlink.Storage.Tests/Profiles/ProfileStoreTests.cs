@@ -180,6 +180,68 @@ public class ProfileStoreTests : IDisposable
         Assert.Single(Directory.GetFiles(_backupsDir, "Weekend_*.json"));
     }
 
+    [Fact]
+    public void RestoreLatestBackup_NoBackupExists_ReturnsFalse()
+    {
+        var store = CreateStore();
+        store.Save(new Profile { Name = "Main", MergeQueueFolderNames = ["ModA"] }); // first save, no backup taken
+
+        Assert.False(store.RestoreLatestBackup("Main"));
+        Assert.False(store.HasBackup("Main"));
+    }
+
+    [Fact]
+    public void RestoreLatestBackup_ValidBackupExists_RestoresItAndReturnsTrue()
+    {
+        var store = CreateStore();
+        store.Save(new Profile { Name = "Main", MergeQueueFolderNames = ["ModA"] });
+        store.Save(new Profile { Name = "Main", MergeQueueFolderNames = ["ModB"] }); // backs up ModA
+
+        Assert.True(store.HasBackup("Main"));
+        var restored = store.RestoreLatestBackup("Main");
+
+        Assert.True(restored);
+        Assert.Equal(["ModA"], store.Load("Main").MergeQueueFolderNames);
+    }
+
+    /// <summary>
+    /// Regression guard: a truncated/corrupt backup file (the real-world cause: FolderBackup.
+    /// BackupFile's own File.Copy isn't atomic, so a crash mid-copy can leave one behind with a
+    /// real, "newest" CreationTimeUtc) must never get treated as "the" latest usable backup — it
+    /// should be skipped in favor of an older, still-valid one, not handed back as-is (which would
+    /// leave the live profile either unrestored or itself corrupted).
+    /// </summary>
+    [Fact]
+    public void RestoreLatestBackup_NewestBackupIsCorrupt_FallsBackToOlderValidBackup()
+    {
+        var store = CreateStore();
+        store.Save(new Profile { Name = "Main", MergeQueueFolderNames = ["Original"] });
+        store.Save(new Profile { Name = "Main", MergeQueueFolderNames = ["Newer"] }); // backs up "Original"
+        var validBackup = Assert.Single(Directory.GetFiles(_backupsDir, "Main_*.json"));
+        File.SetCreationTimeUtc(validBackup, DateTime.UtcNow.AddMinutes(-10));
+
+        var corruptBackupPath = Path.Combine(_backupsDir, "Main_99999999-999999.json");
+        File.WriteAllText(corruptBackupPath, "{ this is not valid json");
+        File.SetCreationTimeUtc(corruptBackupPath, DateTime.UtcNow); // newer than the valid backup
+
+        var restored = store.RestoreLatestBackup("Main");
+
+        Assert.True(restored);
+        Assert.Equal(["Original"], store.Load("Main").MergeQueueFolderNames);
+    }
+
+    [Fact]
+    public void HasBackup_OnlyCorruptBackupExists_ReturnsFalse()
+    {
+        var store = CreateStore();
+        Directory.CreateDirectory(_backupsDir);
+        File.WriteAllText(Path.Combine(_backupsDir, "Main_20260101-000000.json"), "not json at all");
+        store.Save(new Profile { Name = "Main", MergeQueueFolderNames = [] }); // creates the live file, no backup (first save)
+
+        Assert.False(store.HasBackup("Main"));
+        Assert.False(store.RestoreLatestBackup("Main"));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))
