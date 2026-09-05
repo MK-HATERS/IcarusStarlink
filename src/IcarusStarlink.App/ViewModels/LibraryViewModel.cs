@@ -1001,11 +1001,26 @@ public sealed partial class LibraryViewModel : ObservableObject
         if (string.Equals(item.Source, "Nexus", StringComparison.OrdinalIgnoreCase))
         {
             // Nexus downloads persist in Pending Downloads (MO2-style) — if a file for this mod is
-            // already sitting there, activating it is one click closer than a fresh browser trip,
-            // so point there instead of the website. (Can't distinguish which version that file is
-            // — PendingDownloadEntry carries no version — so this stays a pointer, not an
-            // automatic activation of a possibly-older file.)
-            if (item.NexusModId is { } nexusModId && _pendingDownloadStore.Entries.Any(e => e.ModId == nexusModId))
+            // already sitting there UNCLAIMED, activating it is one click closer than a fresh
+            // browser trip, so point there instead of the website. (Can't distinguish which version
+            // that file is — PendingDownloadEntry carries no version — so this stays a pointer, not
+            // an automatic activation of a possibly-older file.)
+            //
+            // "Unclaimed" specifically — not just "an entry for this mod ID exists at all" (a real
+            // bug found live): downloads are never removed except by an explicit Discard, so ANY mod
+            // ever downloaded from Nexus always has at least one PendingDownloadEntry sitting around
+            // forever. The old check matched regardless of activation state, meaning once a mod had
+            // been downloaded via this app even once, clicking Update on it could never again open
+            // its Nexus page for a newer file — it always redirected to Pending Downloads instead,
+            // even when the earlier download was already successfully activated and IS the mod
+            // currently showing right here. Only a pending entry that ISN'T currently reflected as a
+            // live Library item (never activated, or activated then since removed) is genuinely
+            // "unclaimed" and worth pointing the user at instead of Nexus.
+            var hasUnclaimedDownload = item.NexusModId is { } nexusModId && _pendingDownloadStore.Entries
+                .Where(e => e.ModId == nexusModId)
+                .Any(e => e.ActivatedFolderName is null
+                    || !_repository.GetAll().Any(le => string.Equals(le.FolderName, e.ActivatedFolderName, StringComparison.OrdinalIgnoreCase)));
+            if (hasUnclaimedDownload)
             {
                 StatusMessage = "A downloaded file for this mod is already in this page's own Mods tab — Activate/Reinstall it there (or re-download from Nexus if it's older than the update).";
                 return;
@@ -1093,6 +1108,18 @@ public sealed partial class LibraryViewModel : ObservableObject
                     StatusMessage = $"Updated '{imported.Name}' to v{imported.Version}.";
                     _activityLog.Log($"Updated '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
 
+                    // A real bug found live: HasUpdateAvailable compares Version against LatestVersion
+                    // (set by CheckForUpdatesAsync from the CATALOG's own listed version string), but
+                    // imported.Version comes from the downloaded file's OWN internal metadata — a mod
+                    // author can bump one and not the other (e.g. catalog says "2.0", the .EXMODZ
+                    // itself still declares "2.0.0"), so even a fully successful update could leave
+                    // the two permanently unequal and the "Update available" badge stuck forever. The
+                    // file we just fetched and installed is, by definition, current as of right now —
+                    // syncing LatestVersion straight to what we actually just installed (rather than
+                    // whatever string the catalog separately happens to use) clears the badge
+                    // regardless of any such mismatch in the source data.
+                    item.LatestVersion = imported.Version;
+
                     // The backup taken above is the mod's own previous version, so "what did the
                     // author actually change?" is answerable right now — offered rather than shown
                     // automatically, since an update the user just wanted applied shouldn't force a
@@ -1138,6 +1165,11 @@ public sealed partial class LibraryViewModel : ObservableObject
                         : $"Update failed: {importEx.Message}";
                 }
 
+                // Plain Reload(), not fullResync — the LibraryChangedMessage sent right below is
+                // handled by this same VM's own registration (see the constructor), which itself
+                // calls Reload(fullResync: true) on every such message, so the cached row's
+                // Version/Notes/etc. still get resynced from the reimported entry without paying
+                // for a second one here.
                 Reload();
                 WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             }

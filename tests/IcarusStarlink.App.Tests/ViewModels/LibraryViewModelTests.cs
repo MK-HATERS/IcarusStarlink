@@ -723,6 +723,85 @@ public sealed class LibraryViewModelTests
         Assert.DoesNotContain(vm.RootItems.OfType<LibraryItemViewModel>(), i => i.FolderName == "ModA_v1");
     }
 
+    /// <summary>
+    /// Regression guard, found live: "I click Update, the changelog prompt shows, but the Update
+    /// badge doesn't go away and nothing tells me if it actually worked." A real mod's own FileName
+    /// (and so its folder name) is typically fixed across versions — unlike the test above, which
+    /// deliberately uses two DIFFERENT folder names to stress a different bug. When the folder name
+    /// stays the SAME, GetOrCreateItem finds the already-cached LibraryItemViewModel and — per
+    /// Reload's own fullResync contract — leaves it completely untouched unless told to fully
+    /// resync. GetUpdateAsync's own success path used to call plain Reload(), so the row's own
+    /// Version property stayed stuck at the pre-update value even though the reimport itself fully
+    /// succeeded, and HasUpdateAvailable (LatestVersion != Version) kept reading true forever.
+    /// </summary>
+    [Fact]
+    public async Task GetUpdateCommand_SameFolderNameAcrossVersions_RefreshesTheCachedRowsVersionAndClearsTheUpdateBadge()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: false) };
+        harness.AddMod("ModA", name: "ModA", version: "1.0", source: "Database", catalogEntryId: "cat1");
+
+        harness.DaedalusClient.Result =
+        [
+            new CatalogEntry(CatalogSource.Daedalus, "cat1", "ModA", "SomeAuthor", "2.0", "d", "", null, null, null, null, "http://fake.test/ModA.exmodz", []),
+        ];
+        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler("fake-exmodz-bytes"u8.ToArray()));
+        harness.Repository.ImportHandler = (path, source, nexusId, catalogId) => new LibraryEntry
+        {
+            FolderName = "ModA", Name = "ModA", Author = "SomeAuthor", Version = "2.0", Description = "d",
+            FileName = "ModA", Source = source, CatalogEntryId = catalogId,
+        };
+
+        var vm = harness.Build();
+        await vm.Downloads.GetOrFetchCatalogAsync();
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
+        // Simulates an earlier CheckForUpdatesAsync scan already having found v2.0 as the latest —
+        // exactly what put the "Update available" badge there in the first place.
+        item.LatestVersion = "2.0";
+        Assert.True(item.HasUpdateAvailable);
+
+        await vm.GetUpdateCommand.ExecuteAsync(item);
+
+        var refreshedItem = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
+        Assert.Same(item, refreshedItem); // same cached instance, reused by folder name — not replaced
+        Assert.Equal("2.0", refreshedItem.Version);
+        Assert.False(refreshedItem.HasUpdateAvailable);
+        Assert.Contains("Updated 'ModA' to v2.0.", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task GetUpdateCommand_CatalogVersionStringDiffersFromImportedFilesOwnVersion_StillClearsTheUpdateBadge()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: false) };
+        harness.AddMod("ModA", name: "ModA", version: "1.0", source: "Database", catalogEntryId: "cat1");
+
+        harness.DaedalusClient.Result =
+        [
+            new CatalogEntry(CatalogSource.Daedalus, "cat1", "ModA", "SomeAuthor", "2.0", "d", "", null, null, null, null, "http://fake.test/ModA.exmodz", []),
+        ];
+        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler("fake-exmodz-bytes"u8.ToArray()));
+        // Simulates a real-world data mismatch: the catalog LISTS this release as "2.0", but the
+        // .EXMODZ file's own internal metadata (what Import actually reads Version from) says
+        // something subtly different — e.g. the author bumped the catalog entry but forgot to bump
+        // the package itself, or used a differently-formatted version tag inside the file.
+        harness.Repository.ImportHandler = (path, source, nexusId, catalogId) => new LibraryEntry
+        {
+            FolderName = "ModA", Name = "ModA", Author = "SomeAuthor", Version = "2.0.0", Description = "d",
+            FileName = "ModA", Source = source, CatalogEntryId = catalogId,
+        };
+
+        var vm = harness.Build();
+        await vm.Downloads.GetOrFetchCatalogAsync();
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
+        item.LatestVersion = "2.0";
+        Assert.True(item.HasUpdateAvailable);
+
+        await vm.GetUpdateCommand.ExecuteAsync(item);
+
+        var refreshedItem = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
+        Assert.Equal("2.0.0", refreshedItem.Version);
+        Assert.False(refreshedItem.HasUpdateAvailable);
+    }
+
     [Fact]
     public async Task GetUpdateCommand_SuccessfulUpdateAcceptsVersionCompare_LooksUpTheBackupUnderTheOldFolderNameAndTheCurrentFolderUnderTheNew()
     {
@@ -841,6 +920,41 @@ public sealed class LibraryViewModelTests
         Assert.Empty(harness.Repository.DeleteCalls);
         Assert.Empty(harness.Repository.BackupModCalls);
         Assert.Contains("already in this page's own Mods tab", vm.StatusMessage);
+    }
+
+    /// <summary>
+    /// Regression guard, found live: "when I update a Nexus mod from Library it says I already have
+    /// it downloaded, which is odd — once it downloads it should already be in Library." Pending
+    /// downloads are never removed except by an explicit Discard, so ANY mod ever downloaded from
+    /// Nexus always has at least one PendingDownloadEntry sitting around forever. The old check
+    /// matched on ModId alone, with no regard for whether that entry was already successfully
+    /// activated — meaning once a mod had been downloaded via this app even once, clicking Update on
+    /// it could never again open its real Nexus page for a newer file; it always redirected to
+    /// Pending Downloads instead, even when the earlier download is already activated and IS the
+    /// exact mod currently showing in Library. This is the control for the test above: same
+    /// PendingDownloadEntry shape, but WITH a real activation that's still present, which must NOT
+    /// trigger the redirect. SearchNexusFor itself isn't exercised here (the harness's own
+    /// _nexusCatalogViewModel factory deliberately throws — see its own doc comment, "no test
+    /// searches Nexus," building a real NexusCatalogViewModel is out of scope for this file) — that
+    /// same throw is the proof the redirect branch was skipped and control genuinely reached
+    /// SearchNexusFor, which is the one thing actually under test here.
+    /// </summary>
+    [Fact]
+    public async Task GetUpdateCommand_NexusSourcedModWithOnlyAnAlreadyActivatedDownloadPresent_OpensNexusInsteadOfRedirecting()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("ModA", source: "Nexus", nexusModId: 555);
+        harness.PendingDownloadStore.EntriesList.Add(new PendingDownloadEntry
+        {
+            ModId = 555, FileId = 1, FileName = "ModA.zip", LocalFilePath = @"C:\fake\ModA.zip",
+            ActivatedFolderName = "ModA", ActivatedKind = PendingDownloadActivationKind.Library,
+        });
+        var vm = harness.Build();
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => vm.GetUpdateCommand.ExecuteAsync(item));
+
+        Assert.Contains("no test searches Nexus", ex.Message);
     }
 
     [Fact]
