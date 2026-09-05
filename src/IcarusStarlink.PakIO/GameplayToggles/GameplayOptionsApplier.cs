@@ -30,6 +30,35 @@ public static class GameplayOptionsApplier
     private const string ExtractorRecipesFile = "Crafting-D_ExtractorRecipes.json";
     private const string FirearmDataFile = "Tools-D_FirearmData.json";
     private const string TamesFile = "AI-D_Tames.json";
+    private const string AlterationsFile = "Alterations-D_Alterations.json";
+    private const string TalentsFile = "Talents-D_Talents.json";
+
+    /// <summary>
+    /// The real stat keys Alteration deployable/backpack upgrades grant as a flat "+N slots" bonus
+    /// (confirmed against real Data\Alterations\D_Alterations.json: BaseGenericSlots_+ on
+    /// Storage_1-4, BaseBackpackSlots_+ on Carrying_Bonus_1/2 — 6 rows total, nothing else in that
+    /// whole 344-row table has a slot-shaped stat). Deliberately excludes mount/creature cargo
+    /// stats (BaseMountCargoSlots_+, BaseMountHeavyCargoSlots_+ on Talents-D_Talents.json's own
+    /// taming rewards) — a different system (mount capacity, not deployable storage), several of
+    /// which are negative (a real speed-for-cargo trade-off talent), so blindly scaling those would
+    /// both be out of scope for "more storage/backpack slots" and risk amplifying a deliberate
+    /// downside instead of a bonus.
+    /// </summary>
+    private static readonly string[] AlterationSlotBonusStatNames =
+    [
+        "(Value=\"BaseGenericSlots_+\")",
+        "(Value=\"BaseBackpackSlots_+\")",
+    ];
+
+    /// <summary>
+    /// The one real stat key deployable-storage Workshop talents grant (confirmed against real
+    /// Data\Talents\D_Talents.json: "CreatedDeployableStorageAlt_+" on Building_Storage_Increase and
+    /// Building_Storage_Increase_0's own Rewards, each with multiple reward tiers — every value
+    /// positive, nothing else in the whole 2227-row table uses this key). Matches exactly what the
+    /// real Sarge_Deployable_Slots_Changes community mod scales alongside Inventory-D_InventoryInfo.json
+    /// itself, confirmed by downloading and inspecting its own real EXMOD content.
+    /// </summary>
+    private const string DeployableStorageTalentStatName = "(Value=\"CreatedDeployableStorageAlt_+\")";
 
     /// <summary>
     /// Which real data files each Category-2 (broadcast-to-every-row) option needs loaded —
@@ -49,7 +78,12 @@ public static class GameplayOptionsApplier
         }
         if (options.SlotsMultiplier is > 0)
         {
+            // Alterations/Talents alongside the base Inventory table — see ScaleAlterationSlotBonuses/
+            // ScaleTalentDeployableStorageBonuses' own doc comments for why a player's REAL total
+            // slot count is base + these flat bonuses, not base alone.
             files.Add(InventoryFile);
+            files.Add(AlterationsFile);
+            files.Add(TalentsFile);
         }
         if (options.CraftCost != CraftCostReduction.Off || options.SpeedCraftingReductionPercent is > 0)
         {
@@ -84,6 +118,8 @@ public static class GameplayOptionsApplier
             // reserved Utility/Fists slots, Equipment/Space_Equipment/ArmourStand's fully-reserved
             // layouts all reference absolute positions that a blind scale would corrupt).
             ScaleExistingNumericField(keyedTablesByFile, InventoryFile, "StartingSlots", slotsMultiplier, minimum: 1, report, "Slots multiplier", skipRow: HasSlotOverrides);
+            ScaleAlterationSlotBonuses(keyedTablesByFile, slotsMultiplier, report);
+            ScaleTalentDeployableStorageBonuses(keyedTablesByFile, slotsMultiplier, report);
         }
 
         ApplyCraftCostReduction(options, keyedTablesByFile, report);
@@ -158,6 +194,112 @@ public static class GameplayOptionsApplier
     /// scaling every row indiscriminately.
     /// </summary>
     private static bool HasSlotOverrides(JsonObject row) => row["SlotOverrides"] is JsonArray { Count: > 0 };
+
+    /// <summary>
+    /// A player's real total slot count for many storage deployables/backpacks isn't just
+    /// Inventory-D_InventoryInfo.json's own StartingSlots — crafting a Storage_1-4 alteration or a
+    /// Carrying_Bonus_1/2 backpack alteration grants a flat "+N slots" bonus on top of it (see
+    /// AlterationSlotBonusStatNames' own doc comment for the real stat keys/rows this covers).
+    /// Without this, Slots Multiplier would only scale the base portion, so a player who's also
+    /// crafted one of these alterations would see less than a clean ×N increase in their real total
+    /// capacity. Each row's Stats object is scaled as a whole compound value (matching how
+    /// GameplayOptionsFieldChangeGenerator already treats StatsGranted), not per-key FieldChanges,
+    /// since TableApplier applies one FieldChange per (row, field) pair and Stats is the field here.
+    /// </summary>
+    private static void ScaleAlterationSlotBonuses(IDictionary<string, JsonObject> tables, double multiplier, MergeReport report)
+    {
+        if (!tables.TryGetValue(AlterationsFile, out var table))
+        {
+            return;
+        }
+
+        var changes = new List<FieldChange>();
+        foreach (var (itemName, rowValue) in table)
+        {
+            if (rowValue is not JsonObject row || row["Stats"] is not JsonObject stats)
+            {
+                continue;
+            }
+
+            var newStats = stats.DeepClone()!.AsObject();
+            var changedAny = false;
+            foreach (var statName in AlterationSlotBonusStatNames)
+            {
+                if (stats[statName] is JsonValue currentValue && currentValue.TryGetValue<double>(out var current))
+                {
+                    newStats[statName] = JsonValue.Create(Math.Max(1, (int)Math.Round(current * multiplier)));
+                    changedAny = true;
+                }
+            }
+
+            if (changedAny)
+            {
+                changes.Add(new FieldChange(AlterationsFile, itemName, "Stats", stats, newStats, ValueSemantic.GenericCompound));
+            }
+        }
+
+        if (changes.Count == 0)
+        {
+            report.AddWarning($"Couldn't apply Slots multiplier to Alteration upgrades — no rows in {AlterationsFile} have a slot-bonus stat. The game data may have changed since this option's field names were last confirmed.");
+            return;
+        }
+
+        tables[AlterationsFile] = TableApplier.Apply(table, changes, report);
+    }
+
+    /// <summary>
+    /// Same reasoning as ScaleAlterationSlotBonuses, for the "Extra Space" Workshop talent line's own
+    /// flat deployable-storage bonus (see DeployableStorageTalentStatName's own doc comment). A
+    /// talent's Rewards is an ARRAY (one entry per point spent in that talent), each with its own
+    /// GrantedStats — every tier that grants this specific stat gets scaled, not just the first.
+    /// </summary>
+    private static void ScaleTalentDeployableStorageBonuses(IDictionary<string, JsonObject> tables, double multiplier, MergeReport report)
+    {
+        if (!tables.TryGetValue(TalentsFile, out var table))
+        {
+            return;
+        }
+
+        var changes = new List<FieldChange>();
+        foreach (var (itemName, rowValue) in table)
+        {
+            if (rowValue is not JsonObject row || row["Rewards"] is not JsonArray rewards)
+            {
+                continue;
+            }
+
+            var newRewards = rewards.DeepClone()!.AsArray();
+            var changedAny = false;
+            for (var i = 0; i < newRewards.Count; i++)
+            {
+                if (newRewards[i] is not JsonObject newReward
+                    || rewards[i] is not JsonObject originalReward
+                    || originalReward["GrantedStats"] is not JsonObject originalGrantedStats
+                    || originalGrantedStats[DeployableStorageTalentStatName] is not JsonValue currentValue
+                    || !currentValue.TryGetValue<double>(out var current))
+                {
+                    continue;
+                }
+
+                (newReward["GrantedStats"] as JsonObject)![DeployableStorageTalentStatName] =
+                    JsonValue.Create(Math.Max(1, (int)Math.Round(current * multiplier)));
+                changedAny = true;
+            }
+
+            if (changedAny)
+            {
+                changes.Add(new FieldChange(TalentsFile, itemName, "Rewards", rewards, newRewards, ValueSemantic.GenericCompound));
+            }
+        }
+
+        if (changes.Count == 0)
+        {
+            report.AddWarning($"Couldn't apply Slots multiplier to Workshop talents — no rows in {TalentsFile} have a '{DeployableStorageTalentStatName}' reward. The game data may have changed since this option's field name was last confirmed.");
+            return;
+        }
+
+        tables[TalentsFile] = TableApplier.Apply(table, changes, report);
+    }
 
     private static void ZeroExistingField(IDictionary<string, JsonObject> tables, string file, string fieldName, MergeReport report, string optionName)
     {

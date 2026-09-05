@@ -194,6 +194,104 @@ public class GameplayOptionsApplierTests
     }
 
     [Fact]
+    public void RequiredCurrentFiles_SlotsEnabled_IncludesInventoryAlterationsAndTalents()
+    {
+        var files = GameplayOptionsApplier.RequiredCurrentFiles(new GameplayOptions { SlotsMultiplier = 2 });
+        Assert.Contains("Inventory-D_InventoryInfo.json", files);
+        Assert.Contains("Alterations-D_Alterations.json", files);
+        Assert.Contains("Talents-D_Talents.json", files);
+    }
+
+    /// <summary>
+    /// A player's real total slot count for many deployables isn't just the base Inventory table —
+    /// crafting a Storage_1-4 or Carrying_Bonus_1/2 alteration grants a flat "+N slots" bonus on top
+    /// of it. Matches the real Sarge_Deployable_Slots_Changes community mod, which scales this
+    /// alongside the base table rather than leaving it as a smaller, un-scaled fraction of the total.
+    /// </summary>
+    [Fact]
+    public void Apply_SlotsMultiplier_ScalesAlterationSlotBonusStats()
+    {
+        var tables = Table("Alterations-D_Alterations.json", new JsonObject
+        {
+            ["Storage_2"] = Row("""{"Stats": {"(Value=\"BaseGenericSlots_+\")": 5}}"""),
+            ["Carrying_Bonus_1"] = Row("""{"Stats": {"(Value=\"BaseBackpackSlots_+\")": 2}}"""),
+            ["Unrelated_Alteration"] = Row("""{"Stats": {"(Value=\"BaseMovementSpeed_+\")": 50}}"""),
+        });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SlotsMultiplier = 2 }, tables, new MergeReport());
+
+        var result = tables["Alterations-D_Alterations.json"];
+        Assert.Equal(10, (int)result["Storage_2"]!["Stats"]!["(Value=\"BaseGenericSlots_+\")"]!);
+        Assert.Equal(4, (int)result["Carrying_Bonus_1"]!["Stats"]!["(Value=\"BaseBackpackSlots_+\")"]!);
+        // Unrelated stat untouched, and the row isn't even in `changes` for this option at all.
+        Assert.Equal(50, (int)result["Unrelated_Alteration"]!["Stats"]!["(Value=\"BaseMovementSpeed_+\")"]!);
+    }
+
+    [Fact]
+    public void Apply_SlotsMultiplier_NoAlterationRowsHaveASlotStat_WarnsForThatTableSpecifically()
+    {
+        var tables = Table("Alterations-D_Alterations.json", new JsonObject
+        {
+            ["Some_Alteration"] = Row("""{"Stats": {"(Value=\"BaseMovementSpeed_+\")": 50}}"""),
+        });
+        var report = new MergeReport();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SlotsMultiplier = 2 }, tables, report);
+
+        Assert.Contains(report.Warnings, w => w.Contains("Alteration upgrades"));
+    }
+
+    /// <summary>
+    /// Same reasoning as the Alterations test, for the "Extra Space" Workshop talent line's own
+    /// flat deployable-storage bonus — each reward TIER (one per talent point spent) gets scaled
+    /// independently, matching real Data\Talents\D_Talents.json's own multi-tier Rewards array shape.
+    /// </summary>
+    [Fact]
+    public void Apply_SlotsMultiplier_ScalesEveryTalentRewardTierGrantingDeployableStorage()
+    {
+        var tables = Table("Talents-D_Talents.json", new JsonObject
+        {
+            ["Building_Storage_Increase_0"] = Row("""
+                {
+                    "Rewards": [
+                        { "GrantedStats": {"(Value=\"CreatedDeployableStorageAlt_+\")": 1}, "GrantedFlags": [] },
+                        { "GrantedStats": {"(Value=\"CreatedDeployableStorageAlt_+\")": 2}, "GrantedFlags": [] }
+                    ]
+                }
+                """),
+            ["Unrelated_Talent"] = Row("""
+                {
+                    "Rewards": [
+                        { "GrantedStats": {"(Value=\"BaseMaximumHealth_+\")": 50}, "GrantedFlags": [] }
+                    ]
+                }
+                """),
+        });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SlotsMultiplier = 3 }, tables, new MergeReport());
+
+        var rewards = tables["Talents-D_Talents.json"]["Building_Storage_Increase_0"]!["Rewards"]!.AsArray();
+        Assert.Equal(3, (int)rewards[0]!["GrantedStats"]!["(Value=\"CreatedDeployableStorageAlt_+\")"]!);
+        Assert.Equal(6, (int)rewards[1]!["GrantedStats"]!["(Value=\"CreatedDeployableStorageAlt_+\")"]!);
+        // A talent granting something else entirely is untouched.
+        Assert.Equal(50, (int)tables["Talents-D_Talents.json"]["Unrelated_Talent"]!["Rewards"]![0]!["GrantedStats"]!["(Value=\"BaseMaximumHealth_+\")"]!);
+    }
+
+    [Fact]
+    public void Apply_SlotsMultiplier_NoTalentRowsGrantDeployableStorage_WarnsForThatTableSpecifically()
+    {
+        var tables = Table("Talents-D_Talents.json", new JsonObject
+        {
+            ["Some_Talent"] = Row("""{"Rewards": [{"GrantedStats": {"(Value=\"BaseMaximumHealth_+\")": 50}, "GrantedFlags": []}]}"""),
+        });
+        var report = new MergeReport();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SlotsMultiplier = 2 }, tables, report);
+
+        Assert.Contains(report.Warnings, w => w.Contains("Workshop talents"));
+    }
+
+    [Fact]
     public void Apply_CraftCostReduction_ScalesInputsCountAndResourceInputsButNotOutputs()
     {
         var tables = new Dictionary<string, JsonObject>
