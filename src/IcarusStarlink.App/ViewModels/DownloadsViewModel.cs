@@ -720,7 +720,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 return;
             }
 
-            using var response = await _downloadHttpClient.GetAsync(link.Uri);
+            using var response = await HttpFileDownloader.GetWithStreamingResponseAsync(_downloadHttpClient, link.Uri);
             response.EnsureSuccessStatusCode();
 
             var fileName = response.Content.Headers.ContentDisposition?.FileNameStar?.Trim('"')
@@ -738,6 +738,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
             fileName = DownloadFileNameSanitizer.Sanitize(fileName);
 
             Directory.CreateDirectory(_pendingDownloadsDirectory);
+            // See DownloadFileNameSanitizer.ResolveUniqueFileName's own doc comment: disambiguates
+            // against a DIFFERENT (ModId, FileId) pair's download that happens to share this exact
+            // file name, without disturbing a legitimate re-download of this same pair.
+            fileName = DownloadFileNameSanitizer.ResolveUniqueFileName(
+                _pendingDownloadsDirectory, fileName, nxmUrl.ModId, nxmUrl.FileId,
+                path => _pendingDownloadStore.Entries.Any(e => e.ModId == nxmUrl.ModId && e.FileId == nxmUrl.FileId && e.LocalFilePath == path));
             var localPath = Path.Combine(_pendingDownloadsDirectory, fileName);
             await using (var fileStream = File.Create(localPath))
             {
@@ -908,9 +914,17 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private async Task<(string StatusMessage, string FolderName, PendingDownloadActivationKind Kind)> ClassifyAndImportExtractedModAsync(
         string extractedDirectory, string originalFileName, int modId)
     {
+        // Only meaningful if the game path is actually configured — with nothing to check against,
+        // this degrades to the same "no collision avoidance" behavior importing already had.
+        var icarusContentPath = _settingsService.Current.IcarusContentPath;
+        var installedUe4ssNames = !string.IsNullOrWhiteSpace(icarusContentPath)
+            ? _ue4ssModRepository.ListInstalledInGame(Ue4ssGamePaths.ResolveModsFolder(icarusContentPath))
+            : null;
+
         var (entryName, folderName, kind, _) = await ExtractedModClassifier.ClassifyAndImport(
             extractedDirectory, originalFileName, _libraryRepository, _ue4ssModRepository,
-            _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, source: "Nexus", nexusModId: modId);
+            _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, source: "Nexus", nexusModId: modId,
+            ue4ssNamesAlreadyInstalledInGame: installedUe4ssNames);
 
         string statusMessage;
         if (kind == PendingDownloadActivationKind.Library)

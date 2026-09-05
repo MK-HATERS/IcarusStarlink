@@ -321,7 +321,7 @@ public sealed class ExtractedModClassifierTests : IDisposable
         public string? LastSourceFolder { get; private set; }
         public string? LastFallbackName { get; private set; }
 
-        public string ImportFromFolder(string sourceFolder, string fallbackName)
+        public string ImportFromFolder(string sourceFolder, string fallbackName, IReadOnlyCollection<string>? namesAlreadyInUse = null)
         {
             ImportFromFolderCallCount++;
             LastSourceFolder = sourceFolder;
@@ -330,11 +330,11 @@ public sealed class ExtractedModClassifierTests : IDisposable
         }
 
         public IReadOnlyList<string> GetAll() => throw new NotSupportedException("Not exercised by these tests.");
-        public string Import(string zipFilePath) => throw new NotSupportedException("Not exercised by these tests.");
+        public string Import(string zipFilePath, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
         public void Delete(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
         public string GetFolderPath(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
         public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) => throw new NotSupportedException("Not exercised by these tests.");
-        public string AdoptFromGame(string gameModsFolderPath, string folderName) => throw new NotSupportedException("Not exercised by these tests.");
+        public string AdoptFromGame(string gameModsFolderPath, string folderName, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
     }
 
     private sealed class FakePrebuiltPakImporter : IPrebuiltPakImporter

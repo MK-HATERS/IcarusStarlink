@@ -33,7 +33,7 @@ public static class ExtractedModClassifier
         string extractedDirectory, string originalFileName,
         ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
-        string? source = null, int? nexusModId = null)
+        string? source = null, int? nexusModId = null, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame = null)
     {
         // A manual scan, not a "*.EXMOD" glob — Directory.EnumerateFiles' pattern matching follows
         // the filesystem's own case sensitivity, same reasoning ExmodFolder.FindExmodFile's own
@@ -66,7 +66,7 @@ public static class ExtractedModClassifier
         // Neither EXMOD-shaped nor a single prebuilt pak — treat as a UE4SS mod, the one kind of
         // mod this app handles that carries no metadata file of its own to detect it by.
         var fallbackName = Path.GetFileNameWithoutExtension(originalFileName);
-        var folderName = ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName);
+        var folderName = ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName, ue4ssNamesAlreadyInstalledInGame);
         return (folderName, folderName, PendingDownloadActivationKind.Ue4ssMod, IsOpaquePak: false);
     }
 }

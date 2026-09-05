@@ -35,7 +35,15 @@ public sealed partial record NxmUrl(string GameDomain, int ModId, int FileId, st
         }
 
         var match = ModFilePattern().Match(parsed.AbsolutePath);
-        if (!match.Success)
+        // ModFilePattern's \d+ only guarantees all-digits, not that it fits in an int32 — a
+        // malformed/oversized link (this is unvalidated external input, handed off from the OS
+        // protocol handler) would otherwise throw OverflowException here, a type this method's own
+        // doc comment doesn't promise and callers (e.g. DownloadsViewModel.FetchAndDownloadAsync)
+        // don't catch, so it's folded into the same "not a recognized mod-file nxm URL" FormatException
+        // every other rejection below already uses.
+        if (!match.Success
+            || !int.TryParse(match.Groups[1].Value, out var modId)
+            || !int.TryParse(match.Groups[2].Value, out var fileId))
         {
             throw new FormatException($"'{nxmUrlText}' isn't a recognized mod-file nxm URL (only nxm://<game>/mods/<id>/files/<id> is supported).");
         }
@@ -46,8 +54,8 @@ public sealed partial record NxmUrl(string GameDomain, int ModId, int FileId, st
 
         return new NxmUrl(
             GameDomain: parsed.Host,
-            ModId: int.Parse(match.Groups[1].Value),
-            FileId: int.Parse(match.Groups[2].Value),
+            ModId: modId,
+            FileId: fileId,
             Key: string.IsNullOrEmpty(key) ? null : key,
             Expires: expires);
     }

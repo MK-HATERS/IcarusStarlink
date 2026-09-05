@@ -48,4 +48,23 @@ public class NxmUrlTests
     {
         Assert.Throws<FormatException>(() => NxmUrl.Parse("not a url at all"));
     }
+
+    /// <summary>
+    /// Regression guard: the mod-file pattern's \d+ only guarantees all-digits, not that it fits in
+    /// an int32 — a malformed/oversized nxm:// link (this is unvalidated input straight from the OS
+    /// protocol handler) used to throw OverflowException here, a type this method's own doc comment
+    /// doesn't promise and DownloadsViewModel.FetchAndDownloadAsync's own catch (FormatException)
+    /// doesn't catch.
+    /// </summary>
+    [Fact]
+    public void Parse_ModIdTooLargeForInt32_ThrowsFormatExceptionNotOverflowException()
+    {
+        Assert.Throws<FormatException>(() => NxmUrl.Parse("nxm://icarus/mods/99999999999999999999/files/1234"));
+    }
+
+    [Fact]
+    public void Parse_FileIdTooLargeForInt32_ThrowsFormatExceptionNotOverflowException()
+    {
+        Assert.Throws<FormatException>(() => NxmUrl.Parse("nxm://icarus/mods/290/files/99999999999999999999"));
+    }
 }
