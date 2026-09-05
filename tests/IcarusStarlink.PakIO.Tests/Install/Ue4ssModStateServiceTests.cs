@@ -92,6 +92,56 @@ public class Ue4ssModStateServiceTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(_backupDirectory, "UE4SS")));
     }
 
+    /// <summary>
+    /// Regression guard: enabling a staged mod folder with no actual files in it (a stale/broken
+    /// staged entry) used to "succeed" — CopyDirectory happily copies zero files, and the real
+    /// staged copy (or lack thereof) then got deleted anyway, leaving neither a working staged copy
+    /// nor a working enabled one, with no error surfaced at all.
+    /// </summary>
+    [Fact]
+    public void Apply_EnableAModWithNoFilesStaged_ReportsFailureAndLeavesStagingUntouched()
+    {
+        Directory.CreateDirectory(Path.Combine(_stagedDirectory, "Empty"));
+
+        var failures = _service.Apply(_gameModsFolder, new Dictionary<string, bool> { ["Empty"] = true }, _backupDirectory);
+
+        var failure = Assert.Single(failures);
+        Assert.Equal("Empty", failure.Name);
+        Assert.True(Directory.Exists(Path.Combine(_stagedDirectory, "Empty")));
+        Assert.False(Directory.Exists(Path.Combine(_gameModsFolder, "Empty")));
+    }
+
+    /// <summary>
+    /// Regression guard: one mod's failure used to throw out of Apply entirely, silently skipping
+    /// every OTHER mod later in the same dictionary with no indication they were never attempted —
+    /// a locked file on mod #1 meant mod #2 (which had nothing wrong with it) never got processed.
+    /// </summary>
+    [Fact]
+    public void Apply_OneModFails_OtherModsInTheSameBatchStillGetApplied()
+    {
+        Directory.CreateDirectory(Path.Combine(_stagedDirectory, "Broken")); // no files
+        CreateStagedMod("Fine", "-- real content");
+
+        var failures = _service.Apply(
+            _gameModsFolder,
+            new Dictionary<string, bool> { ["Broken"] = true, ["Fine"] = true },
+            _backupDirectory);
+
+        Assert.Single(failures, f => f.Name == "Broken");
+        Assert.Equal("-- real content", File.ReadAllText(Path.Combine(_gameModsFolder, "Fine", "Scripts", "main.lua")));
+        Assert.False(Directory.Exists(Path.Combine(_stagedDirectory, "Fine")));
+    }
+
+    [Fact]
+    public void Apply_Success_ReturnsNoFailures()
+    {
+        CreateStagedMod("Fine");
+
+        var failures = _service.Apply(_gameModsFolder, new Dictionary<string, bool> { ["Fine"] = true }, _backupDirectory);
+
+        Assert.Empty(failures);
+    }
+
     [Fact]
     public void Apply_NameNotInDesiredDictionary_IsLeftAlone()
     {

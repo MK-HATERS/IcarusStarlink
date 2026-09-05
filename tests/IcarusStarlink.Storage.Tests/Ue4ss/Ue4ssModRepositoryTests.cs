@@ -162,6 +162,51 @@ public class Ue4ssModRepositoryTests : IDisposable
         Assert.True(File.Exists(Path.Combine(repo.GetFolderPath("Rada-CheatMenu"), "readme.txt")));
     }
 
+    /// <summary>
+    /// Regression guard: staging's own uniqueness check used to only ever look at what's already
+    /// staged, never at what's already installed in the game — so a newly-imported mod could land
+    /// under the exact same folder name as a completely unrelated, already-enabled game mod.
+    /// Ue4ssModStateService.GetAll's own name-keyed union of staged+installed mods would then
+    /// silently treat the two as "the same mod", making the just-imported one invisible/inaccessible
+    /// in the UI (still on disk, but with no way to select or enable it) until the other one
+    /// happened to get disabled.
+    /// </summary>
+    [Fact]
+    public void Import_NameCollidesWithAnAlreadyInstalledGameMod_DisambiguatesAgainstItToo()
+    {
+        var repo = CreateRepository();
+        var zip = MakeModZip("mod.zip", "NearbyCrafting");
+
+        var folderName = repo.Import(zip, namesAlreadyInUse: ["NearbyCrafting"]);
+
+        Assert.Equal("NearbyCrafting_2", folderName);
+    }
+
+    [Fact]
+    public void ImportFromFolder_NameCollidesWithAnAlreadyInstalledGameMod_DisambiguatesAgainstItToo()
+    {
+        var extracted = Path.Combine(_dir, "ExtractedCollision");
+        var wrapping = Path.Combine(extracted, "NearbyCrafting");
+        Directory.CreateDirectory(wrapping);
+        File.WriteAllText(Path.Combine(wrapping, "main.lua"), "-- lua");
+
+        var folderName = CreateRepository().ImportFromFolder(extracted, "NearbyCrafting", namesAlreadyInUse: ["NearbyCrafting"]);
+
+        Assert.Equal("NearbyCrafting_2", folderName);
+    }
+
+    [Fact]
+    public void AdoptFromGame_NameCollidesWithAnAlreadyInstalledGameMod_DisambiguatesAgainstItToo()
+    {
+        var gameModFolder = Path.Combine(_gameModsDir, "ActorDumperMod");
+        Directory.CreateDirectory(gameModFolder);
+        File.WriteAllText(Path.Combine(gameModFolder, "main.lua"), "-- content");
+
+        var adopted = CreateRepository().AdoptFromGame(_gameModsDir, "ActorDumperMod", namesAlreadyInUse: ["ActorDumperMod"]);
+
+        Assert.Equal("ActorDumperMod_2", adopted);
+    }
+
     [Fact]
     public void ImportFromFolder_NameCollision_DisambiguatesRatherThanOverwriting()
     {

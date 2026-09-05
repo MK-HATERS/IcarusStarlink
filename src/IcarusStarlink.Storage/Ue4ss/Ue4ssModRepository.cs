@@ -17,24 +17,24 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
     public IReadOnlyList<string> GetAll() =>
         [.. Directory.GetDirectories(_stagedDirectory).Select(Path.GetFileName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase)!];
 
-    public string Import(string zipFilePath)
+    public string Import(string zipFilePath, IReadOnlyCollection<string>? namesAlreadyInUse = null)
     {
         // Opens and scans the zip's entries once — DeriveFolderName+Extract used to each do this
         // independently, opening and scanning the same archive twice for every import.
         using var archive = Ue4ssModArchive.Open(zipFilePath);
-        var folderName = MakeUniqueFolderName(archive.DerivedFolderName);
+        var folderName = MakeUniqueFolderName(archive.DerivedFolderName, namesAlreadyInUse);
         var targetFolder = Path.Combine(_stagedDirectory, folderName);
         archive.ExtractTo(targetFolder);
         return folderName;
     }
 
-    public string ImportFromFolder(string sourceFolder, string fallbackName)
+    public string ImportFromFolder(string sourceFolder, string fallbackName, IReadOnlyCollection<string>? namesAlreadyInUse = null)
     {
         var wrapping = FindSingleWrappingFolder(sourceFolder);
         var actualSource = wrapping ?? sourceFolder;
         var derivedName = wrapping is not null ? Path.GetFileName(wrapping)! : fallbackName;
 
-        var folderName = MakeUniqueFolderName(derivedName);
+        var folderName = MakeUniqueFolderName(derivedName, namesAlreadyInUse);
         FolderBackup.CopyDirectory(actualSource, Path.Combine(_stagedDirectory, folderName));
         return folderName;
     }
@@ -48,7 +48,7 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
             ? [.. Directory.GetDirectories(gameModsFolderPath).Select(Path.GetFileName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase)!]
             : [];
 
-    public string AdoptFromGame(string gameModsFolderPath, string folderName)
+    public string AdoptFromGame(string gameModsFolderPath, string folderName, IReadOnlyCollection<string>? namesAlreadyInUse = null)
     {
         var sourceFolder = Path.Combine(gameModsFolderPath, folderName);
         if (!Directory.Exists(sourceFolder))
@@ -56,7 +56,7 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
             throw new DirectoryNotFoundException($"'{folderName}' isn't in the game's UE4SS Mods folder.");
         }
 
-        var targetName = MakeUniqueFolderName(folderName);
+        var targetName = MakeUniqueFolderName(folderName, namesAlreadyInUse);
         FolderBackup.CopyDirectory(sourceFolder, Path.Combine(_stagedDirectory, targetName));
         return targetName;
     }
@@ -68,7 +68,8 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
         return entries.Length == 1 && Directory.Exists(entries[0]) ? entries[0] : null;
     }
 
-    private string MakeUniqueFolderName(string name) => ModFolders.MakeUnique(_stagedDirectory, name);
+    private string MakeUniqueFolderName(string name, IReadOnlyCollection<string>? additionalNamesToAvoid = null) =>
+        ModFolders.MakeUnique(_stagedDirectory, name, additionalNamesToAvoid);
 
     private string ResolveFolder(string folderName) =>
         ModFolders.Resolve(_stagedDirectory, folderName, $"No staged UE4SS mod named '{folderName}'.");

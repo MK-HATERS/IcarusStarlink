@@ -403,6 +403,72 @@ public sealed class SettingsViewModelTests
         Assert.True(vm.IsUe4ssInstalled);
     }
 
+    /// <summary>
+    /// Regression guard: Install/uninstall write into the game's own Binaries\Win64 folder
+    /// (dwmapi.dll, UE4SS.dll) — files the running game process can hold open, exactly the class of
+    /// risk SavesViewModel already guards against via IGameProcessChecker. This used to never check
+    /// at all.
+    /// </summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_GameRunning_RefusesAndNeverDownloads()
+    {
+        using var harness = new Harness(dialogConfirmResult: true, gameProcessChecker: new FakeGameProcessChecker(true));
+        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip");
+        var vm = harness.BuildViewModel();
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Contains("Icarus is running", vm.Ue4ssStatusMessage);
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+        Assert.False(vm.IsInstallingUe4ss);
+    }
+
+    /// <summary>The late, immediately-before-the-write recheck: not running at the first check (before the confirm dialog), but running by the time the download finished.</summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_GameStartsRunningDuringDownload_LateCheckRefusesBeforeInstalling()
+    {
+        var payloadBytes = new byte[] { 1, 2, 3 };
+        using var harness = new Harness(
+            dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes), gameProcessChecker: new FakeGameProcessChecker(false, true));
+        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip");
+        var vm = harness.BuildViewModel();
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Contains("started running", vm.Ue4ssStatusMessage);
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+        Assert.False(vm.IsInstallingUe4ss);
+    }
+
+    [Fact]
+    public async Task UninstallUe4ssCommand_GameRunning_RefusesAndNeverUninstalls()
+    {
+        using var harness = new Harness(dialogConfirmResult: true, gameProcessChecker: new FakeGameProcessChecker(true));
+        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "3.0.1");
+        var vm = harness.BuildViewModel();
+
+        await vm.UninstallUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Contains("Icarus is running", vm.Ue4ssStatusMessage);
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.UninstallCallCount);
+        Assert.True(vm.IsUe4ssInstalled);
+    }
+
+    /// <summary>The late, immediately-before-the-write recheck: not running at the first check (before the confirm dialog), but running by the time the user answered it.</summary>
+    [Fact]
+    public async Task UninstallUe4ssCommand_GameStartsRunningAfterConfirm_LateCheckRefusesBeforeUninstalling()
+    {
+        using var harness = new Harness(dialogConfirmResult: true, gameProcessChecker: new FakeGameProcessChecker(false, true));
+        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "3.0.1");
+        var vm = harness.BuildViewModel();
+
+        await vm.UninstallUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Contains("started running", vm.Ue4ssStatusMessage);
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.UninstallCallCount);
+        Assert.True(vm.IsUe4ssInstalled);
+    }
+
     // =====================================================================================
     // Harness — builds a real SettingsViewModel with a fake per dependency (this codebase's own
     // established convention — see SavesViewModelTests). Defaults are chosen so the constructor's
@@ -424,9 +490,10 @@ public sealed class SettingsViewModelTests
         public readonly FakeAppUpdateClient AppUpdateClient = new();
         public readonly FakeDialogService DialogService;
         public readonly FakeActivityLog ActivityLog = new();
+        public readonly FakeGameProcessChecker GameProcessChecker;
         private readonly HttpMessageHandler _httpHandler;
 
-        public Harness(bool dialogConfirmResult = true, HttpMessageHandler? httpHandler = null)
+        public Harness(bool dialogConfirmResult = true, HttpMessageHandler? httpHandler = null, FakeGameProcessChecker? gameProcessChecker = null)
         {
             TempDir = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_Settings", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(TempDir);
@@ -441,6 +508,7 @@ public sealed class SettingsViewModelTests
             Settings.UnrealPakExePath = ValidUnrealPakExePath;
             SettingsService = new FakeSettingsService(Settings);
             DialogService = new FakeDialogService(dialogConfirmResult);
+            GameProcessChecker = gameProcessChecker ?? new FakeGameProcessChecker(false);
             _httpHandler = httpHandler ?? new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
         }
 
@@ -451,7 +519,7 @@ public sealed class SettingsViewModelTests
             new HttpClient(_httpHandler), new FakeThemeService(), new FakeCustomSkinStore(),
             BuildImmMigrationService(),
             () => throw new InvalidOperationException("MergeInstallViewModel factory not exercised by these tests"),
-            UnrealPakInstaller, ActivityLog, DialogService,
+            UnrealPakInstaller, ActivityLog, DialogService, GameProcessChecker,
             Path.Combine(TempDir, "Backups"), Path.Combine(TempDir, "Data"), Path.Combine(TempDir, "Logs"),
             Path.Combine(TempDir, "settings.json"), Path.Combine(TempDir, "Staged_UE4SS"));
 
@@ -754,6 +822,27 @@ public sealed class SettingsViewModelTests
 
         public void Log(string message, ActivityEntryKind kind = ActivityEntryKind.Info) =>
             Entries.Insert(0, new ActivityEntry(message, kind, DateTimeOffset.Now));
+    }
+
+    /// <summary>Same shape as SavesViewModelTests' own FakeGameProcessChecker — returns each answer in responses in order, then repeats the last one, so a test can say "not running at the first check, running by the late one".</summary>
+    private sealed class FakeGameProcessChecker(params bool[] responses) : IGameProcessChecker
+    {
+        private int _index;
+
+        public int CallCount { get; private set; }
+
+        public bool IsRunning()
+        {
+            CallCount++;
+            if (responses.Length == 0)
+            {
+                return false;
+            }
+
+            var value = responses[Math.Min(_index, responses.Length - 1)];
+            _index++;
+            return value;
+        }
     }
 
     /// <summary>Same shape as SavesViewModelTests' own FakeDialogService — copied deliberately rather than reinvented, per this session's own established convention.</summary>

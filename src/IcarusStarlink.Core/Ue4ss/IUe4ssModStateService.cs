@@ -15,7 +15,10 @@ public interface IUe4ssModStateService
     /// Moves each named mod to match its desired state — enabling moves it staging→game, disabling
     /// moves it game→staging (backed up first, keep-last-5) — but only touches a name whose desired
     /// state actually differs from its current one. Names not present in desiredEnabledByName are
-    /// left alone entirely.
+    /// left alone entirely. Never throws for a single mod's own failure (a locked file mid-copy, an
+    /// empty/missing staged folder with nothing to actually enable) — every OTHER named mod in the
+    /// same call still gets attempted, and any that failed are returned rather than silently
+    /// aborting the rest of the batch with no way to tell which ones did or didn't go through.
     /// </summary>
-    void Apply(string gameModsFolderPath, IReadOnlyDictionary<string, bool> desiredEnabledByName, string backupDirectory);
+    IReadOnlyList<Ue4ssModApplyFailure> Apply(string gameModsFolderPath, IReadOnlyDictionary<string, bool> desiredEnabledByName, string backupDirectory);
 }

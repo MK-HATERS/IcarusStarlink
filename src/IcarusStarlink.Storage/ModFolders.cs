@@ -8,12 +8,18 @@ namespace IcarusStarlink.Storage;
 /// </summary>
 internal static class ModFolders
 {
-    /// <summary>A folder name not already taken under rootDirectory, suffixing _2, _3, … on collision.</summary>
-    public static string MakeUnique(string rootDirectory, string desiredName)
+    /// <summary>
+    /// A folder name not already taken under rootDirectory, suffixing _2, _3, … on collision.
+    /// additionalNamesToAvoid, if given, is ALSO treated as taken — Ue4ssModRepository passes the
+    /// real game Mods folder's own current contents here, so a newly-staged mod can never land
+    /// under the same name as an already-installed, unrelated one (which GetAll's own name-keyed
+    /// union of staged+installed mods would otherwise silently treat as "the same mod").
+    /// </summary>
+    public static string MakeUnique(string rootDirectory, string desiredName, IReadOnlyCollection<string>? additionalNamesToAvoid = null)
     {
         var candidate = desiredName;
         var suffix = 1;
-        while (Directory.Exists(Path.Combine(rootDirectory, candidate)))
+        while (Directory.Exists(Path.Combine(rootDirectory, candidate)) || (additionalNamesToAvoid?.Contains(candidate, StringComparer.OrdinalIgnoreCase) ?? false))
         {
             candidate = $"{desiredName}_{++suffix}";
         }

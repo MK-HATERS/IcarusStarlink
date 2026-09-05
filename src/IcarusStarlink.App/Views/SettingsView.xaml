@@ -248,6 +248,7 @@
                                 </StackPanel>
                             </Button>
                             <Button Command="{Binding UninstallUe4ssCommand}" Margin="8,0,0,0"
+                                    IsEnabled="{Binding CanUninstallUe4ss}"
                                     Visibility="{Binding IsUe4ssInstalled, Converter={StaticResource BoolToVisibilityConverter}}"
                                     ToolTip="Removes the UE4SS loader completely (dwmapi.dll + the ue4ss folder). Your own mods are moved back to this app's staging first, everything removed is backed up, and Icarus's own files are never touched. Asks for confirmation."
                                     AutomationProperties.Name="Uninstall UE4SS">

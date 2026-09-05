@@ -13,8 +13,18 @@ public interface IUe4ssModRepository
 {
     IReadOnlyList<string> GetAll();
 
-    /// <summary>Extracts a UE4SS mod zip into staging, deriving a folder name from the zip itself and disambiguating on collision. Returns the folder name it landed under.</summary>
-    string Import(string zipFilePath);
+    /// <summary>
+    /// Extracts a UE4SS mod zip into staging, deriving a folder name from the zip itself and
+    /// disambiguating on collision. Returns the folder name it landed under. namesAlreadyInUse, if
+    /// given, is ALSO avoided alongside this repository's own staged names — pass the real game
+    /// Mods folder's own current contents (ListInstalledInGame) so a newly-imported mod can never
+    /// land under the same folder name as an already-ENABLED, completely unrelated mod: without
+    /// this, GetAll's own name-keyed union of staged+installed mods would silently treat the two as
+    /// "the same mod" (one of them becomes invisible/inaccessible in the UI, still present on disk
+    /// but with no way to select or enable it) purely because staging's own uniqueness check never
+    /// looked at what the game folder already had.
+    /// </summary>
+    string Import(string zipFilePath, IReadOnlyCollection<string>? namesAlreadyInUse = null);
 
     /// <summary>
     /// Stages a UE4SS mod from an already-extracted folder — e.g. Downloads' Activate, which
@@ -23,8 +33,9 @@ public interface IUe4ssModRepository
     /// present" logic, but there's no zip filename to fall back on for naming when there isn't
     /// one — fallbackName (the original archive's own name, sans extension) covers that case.
     /// Returns the folder name it landed under (disambiguated on collision, same as Import).
+    /// namesAlreadyInUse — see Import's own doc comment for why.
     /// </summary>
-    string ImportFromFolder(string sourceFolder, string fallbackName);
+    string ImportFromFolder(string sourceFolder, string fallbackName, IReadOnlyCollection<string>? namesAlreadyInUse = null);
 
     void Delete(string folderName);
 
@@ -39,7 +50,9 @@ public interface IUe4ssModRepository
     /// app's own staging. A copy, never a move on its own — the real game folder is untouched here;
     /// IUe4ssModStateService.Apply is what completes the "disable" move by deleting the source after
     /// calling this. Returns the folder name it landed under (disambiguated on collision, same as
-    /// Import).
+    /// Import). namesAlreadyInUse — see Import's own doc comment for why (here, typically every
+    /// OTHER currently-installed name, so this adopted copy can't collide with one of its own
+    /// siblings still left enabled).
     /// </summary>
-    string AdoptFromGame(string gameModsFolderPath, string folderName);
+    string AdoptFromGame(string gameModsFolderPath, string folderName, IReadOnlyCollection<string>? namesAlreadyInUse = null);
 }

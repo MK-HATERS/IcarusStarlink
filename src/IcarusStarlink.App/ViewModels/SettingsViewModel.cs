@@ -48,6 +48,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IUnrealPakInstaller _unrealPakInstaller;
     private readonly IActivityLog _activityLog;
     private readonly IDialogService _dialogService;
+    private readonly IGameProcessChecker _gameProcessChecker;
     private readonly string _stagedUe4ssDirectory;
 
     /// <summary>Resolved lazily (not injected directly) purely to avoid forcing Merge &amp; Install's own construction — with its Library scan and catalog wiring — every time Settings is opened.</summary>
@@ -130,6 +131,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _isInstallingUe4ss;
 
+    /// <summary>
+    /// Install/Update and Uninstall both write into the exact same real game files (dwmapi.dll,
+    /// Binaries\Win64\ue4ss\), so they must never run concurrently with each other OR with
+    /// themselves (a double-click) — CanInstallOrUpdateUe4ss/CanUninstallUe4ss both check both this
+    /// AND IsInstallingUe4ss for real mutual exclusion in both directions.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isUninstallingUe4ss;
+
     [ObservableProperty]
     private string? _ue4ssStatusMessage;
 
@@ -150,7 +160,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         (true, { } latest) => $"Update to v{latest.Version}",
     };
 
-    public bool CanInstallOrUpdateUe4ss => Ue4ssLatestRelease is not null && !IsInstallingUe4ss;
+    public bool CanInstallOrUpdateUe4ss => Ue4ssLatestRelease is not null && !IsInstallingUe4ss && !IsUninstallingUe4ss;
+
+    public bool CanUninstallUe4ss => !IsInstallingUe4ss && !IsUninstallingUe4ss;
 
     partial void OnIsUe4ssInstalledChanged(bool value)
     {
@@ -167,7 +179,17 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(CanInstallOrUpdateUe4ss));
     }
 
-    partial void OnIsInstallingUe4ssChanged(bool value) => OnPropertyChanged(nameof(CanInstallOrUpdateUe4ss));
+    partial void OnIsInstallingUe4ssChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanInstallOrUpdateUe4ss));
+        OnPropertyChanged(nameof(CanUninstallUe4ss));
+    }
+
+    partial void OnIsUninstallingUe4ssChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanInstallOrUpdateUe4ss));
+        OnPropertyChanged(nameof(CanUninstallUe4ss));
+    }
 
     public SettingsViewModel(
         ISettingsService settingsService, IUnrealPakService unrealPakService, IWeeklyChangeReportStore weeklyChangeReportStore,
@@ -176,12 +198,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         IUe4ssReleaseClient ue4ssReleaseClient, IAppUpdateClient appUpdateClient, HttpClient httpClient,
         IThemeService themeService, ICustomSkinStore customSkinStore, ImmMigrationService immMigrationService,
         Func<MergeInstallViewModel> mergeInstallViewModel, IUnrealPakInstaller unrealPakInstaller, IActivityLog activityLog,
-        IDialogService dialogService,
+        IDialogService dialogService, IGameProcessChecker gameProcessChecker,
         string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath,
         string stagedUe4ssDirectory)
     {
         _activityLog = activityLog;
         _dialogService = dialogService;
+        _gameProcessChecker = gameProcessChecker;
         _unrealPakInstaller = unrealPakInstaller;
         _stagedUe4ssDirectory = stagedUe4ssDirectory;
         _settingsService = settingsService;
@@ -999,6 +1022,12 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        if (IsGameRunning())
+        {
+            Ue4ssStatusMessage = "Icarus is running — close it before installing UE4SS, or the game may lock the files being replaced.";
+            return;
+        }
+
         IsInstallingUe4ss = true;
         Ue4ssStatusMessage = "Downloading…";
         var tempZipPath = Path.Combine(Path.GetTempPath(), $"UE4SS_{Guid.NewGuid():N}.zip");
@@ -1006,6 +1035,17 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             var bytes = await _httpClient.GetByteArrayAsync(release.DownloadUrl);
             await File.WriteAllBytesAsync(tempZipPath, bytes);
+
+            // A SECOND, LATE check, immediately before the real write below — the first
+            // IsGameRunning() check above (before the confirm dialog and the download itself) can go
+            // stale for however long those take, and Icarus could be launched in that window. This
+            // doesn't close the race entirely — it only shrinks the exposed window down to
+            // "immediately before the write" instead of "however long the dialog+download took".
+            if (IsGameRunning())
+            {
+                Ue4ssStatusMessage = "Icarus started running while this install was about to write — nothing was touched. Close it and try again.";
+                return;
+            }
 
             Ue4ssStatusMessage = "Installing…";
             await _ue4ssLoaderInstallService.InstallOrUpdateAsync(IcarusContentPath, tempZipPath, _backupDirectory);
@@ -1072,8 +1112,26 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        if (IsGameRunning())
+        {
+            Ue4ssStatusMessage = "Icarus is running — close it before uninstalling UE4SS, or the game may lock the files being removed.";
+            return;
+        }
+
+        IsUninstallingUe4ss = true;
         try
         {
+            // A SECOND, LATE check, immediately before the real removal below — the first
+            // IsGameRunning() check above (before the confirm dialog) can go stale for however long
+            // the user takes to answer that dialog, and Icarus could be launched in that window. This
+            // doesn't close the race entirely — it only shrinks the exposed window down to
+            // "immediately before the write" instead of "however long the confirm dialog was up".
+            if (IsGameRunning())
+            {
+                Ue4ssStatusMessage = "Icarus started running while this uninstall was about to write — nothing was touched. Close it and try again.";
+                return;
+            }
+
             Ue4ssStatusMessage = "Uninstalling…";
             var uninstallResult = await _ue4ssLoaderInstallService.UninstallAsync(IcarusContentPath, _stagedUe4ssDirectory, _backupDirectory);
 
@@ -1085,6 +1143,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         catch (Exception ex)
         {
             Ue4ssStatusMessage = $"Uninstall failed: {ex.Message}";
+        }
+        finally
+        {
+            IsUninstallingUe4ss = false;
         }
     }
 
@@ -1404,4 +1466,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             // launch check in this class already follows.
         }
     }
+
+    /// <summary>
+    /// UE4SS install/uninstall write into the game's own Binaries\Win64 folder (dwmapi.dll,
+    /// UE4SS.dll, the ue4ss folder) — files the running game process can hold open, the same class of
+    /// risk SavesViewModel already guards with IGameProcessChecker. Checked once before the confirm
+    /// dialog and again immediately before the real write, for the same reason: the first check can
+    /// go stale for however long the user takes to answer that dialog (or, for install, the download
+    /// on top of that).
+    /// </summary>
+    private bool IsGameRunning() => _gameProcessChecker.IsRunning();
 }
