@@ -12,14 +12,51 @@
     <ProjectReference Include="..\IcarusStarlink.Updater\IcarusStarlink.Updater.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
+  <!-- The Updater ProjectReference inherits this project's own RuntimeIdentifier when one is set
+       (e.g. `dotnet publish -r win-x64`), which moves ITS OWN build output from
+       bin\$(Configuration)\net10.0\ to bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\. Sourcing
+       from the non-RID path during a RID-specific build either finds nothing there yet, or (observed
+       shipping the real v1.4.0 release) silently picks up stale files an earlier non-RID
+       `dotnet build` happened to leave behind — three of the four files below were stale-but-present
+       that way, the fourth (the managed .dll itself) wasn't, so the shipped updater couldn't
+       actually run despite its own apphost .exe copying over fine. -->
+  <PropertyGroup>
+    <_UpdaterOutputDir>..\IcarusStarlink.Updater\bin\$(Configuration)\net10.0\</_UpdaterOutputDir>
+    <_UpdaterOutputDir Condition="'$(RuntimeIdentifier)' != ''">..\IcarusStarlink.Updater\bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\</_UpdaterOutputDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <_UpdaterFiles Include="$(_UpdaterOutputDir)IcarusStarlink.Updater.exe;
+                           $(_UpdaterOutputDir)IcarusStarlink.Updater.dll;
+                           $(_UpdaterOutputDir)IcarusStarlink.Updater.runtimeconfig.json;
+                           $(_UpdaterOutputDir)IcarusStarlink.Updater.deps.json" />
+  </ItemGroup>
+
+  <!-- Plain `dotnet build` (the normal F5/dev inner loop) — copies straight into $(OutDir). -->
   <Target Name="CopyUpdaterToOutput" AfterTargets="Build">
+    <Copy SourceFiles="@(_UpdaterFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- `dotnet publish` — $(OutDir) above still only reflects the intermediate BUILD output, not
+       wherever Publish actually ends up (its own default location, or a `-o` override); MSBuild
+       property-sniffing $(PublishDir) here doesn't work either, since it carries a non-empty default
+       value even when Publish never runs at all. The one correct, SDK-documented way to add extra
+       loose files to a publish output is to feed them into the same @(ResolvedFileToPublish) item
+       list the SDK's own publish pipeline copies from — this hook (BeforeTargets on the pipeline's
+       own list-building target) lets the SDK itself resolve the real destination correctly.
+
+       Only the managed .dll is added here, deliberately — the SDK's own publish pipeline already
+       auto-includes the Updater ProjectReference's own apphost .exe/.runtimeconfig.json/.deps.json
+       on its own (confirmed live: adding all four here throws NETSDK1152, "found multiple publish
+       output files with the same relative path", against those three). The managed .dll is the one
+       file that auto-inclusion does NOT cover — exactly the file the real v1.4.0 release shipped
+       without (see this file's own top comment on this target group). -->
+  <Target Name="AddUpdaterDllToPublishOutput" BeforeTargets="ComputeResolvedFilesToPublishList" AfterTargets="Build">
     <ItemGroup>
-      <UpdaterFiles Include="..\IcarusStarlink.Updater\bin\$(Configuration)\net10.0\IcarusStarlink.Updater.exe;
-                             ..\IcarusStarlink.Updater\bin\$(Configuration)\net10.0\IcarusStarlink.Updater.dll;
-                             ..\IcarusStarlink.Updater\bin\$(Configuration)\net10.0\IcarusStarlink.Updater.runtimeconfig.json;
-                             ..\IcarusStarlink.Updater\bin\$(Configuration)\net10.0\IcarusStarlink.Updater.deps.json" />
+      <ResolvedFileToPublish Include="$(_UpdaterOutputDir)IcarusStarlink.Updater.dll">
+        <RelativePath>IcarusStarlink.Updater.dll</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
     </ItemGroup>
-    <Copy SourceFiles="@(UpdaterFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
   <ItemGroup>
