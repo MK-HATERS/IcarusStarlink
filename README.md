@@ -13,6 +13,33 @@ detection, and packs and installs the result — while also giving you a proper 
 editor, native Nexus browsing, and a mod-authoring editor, all in one app. Icarus Starlink now
 covers everything both of the tools above do, plus a number of things neither of them has.
 
+*Icarus Starlink is an independent, fan-made tool — not affiliated with, endorsed by, or
+associated with RocketWerkz or the Icarus development team. See the full [Disclaimer](#disclaimer)
+below.*
+
+## Installation
+
+1. Download the latest release zip from the
+   **[Releases page](https://github.com/MK-HATERS/IcarusStarlink/releases/latest)**.
+2. Create a folder for it (e.g. `Icarus Starlink`) and extract the zip's contents into that
+   folder — it's a self-contained, portable build, so nothing else needs to be installed
+   separately (no .NET runtime download required).
+3. Run `IcarusStarlink.App.exe` from that folder. On first launch, open **Settings** and set (or
+   **Auto-detect**) your Icarus game's Content folder — see [Getting
+   started](#faq--troubleshooting) below if anything's unclear.
+
+Windows SmartScreen or your antivirus may flag the download the first time you run it — see
+[Antivirus flagged this download?](#faq--troubleshooting) below for why, and a link to a current
+scan of the release.
+
+## Uninstalling
+
+Run `Uninstall.bat` in the app's own folder. It closes the app if it's running, asks whether to
+keep or wipe your mods/profiles/settings (type `YES` to confirm either way), always removes the
+regenerable folders it created (Logs, Data, Staged_Build, Staged_UE4SS), and then removes its own
+program files — it deliberately leaves the now-empty folder and itself behind, with a closing
+message saying so. Your Icarus game install itself is never touched.
+
 ## What it does
 
 **Library** — import mods as archives (`.zip`/`.rar`/`.7z`/`.EXMODZ`, auto-detected — recognizes an
@@ -131,6 +158,74 @@ regular logs), and an in-app Help page covering every feature above.
   86,000+ real assets) — a real mod would need to ship a genuinely unusual asset for this to ever
   actually trigger. Playing an FMOD `.bank` file would be a real, separate, larger feature.
 
+## What this app touches on your system
+
+A cautious user (or a Nexus moderator) reviewing a tool that edits real save files and updates
+itself deserves a straight answer to "what does this actually do to my computer." In one place,
+gathered from the feature descriptions above:
+
+- **Your Icarus game install folder** — reads/extracts the game's own data, and writes merged
+  `.pak` files into `Content\Paks\mods`. Every write that replaces something is backed up first.
+- **Your save files** — reads and writes them only through the Save editor, always backing up
+  before a write, and refuses to touch a save while the game is running (checked again
+  immediately before the write itself).
+- **Windows Credential Manager** — your Nexus API key and any FTP site passwords you save (Server
+  tab) are stored here, the same OS-level store Windows itself uses, never in a plain text file.
+- **The Windows `nxm://` protocol handler** (`HKEY_CURRENT_USER` only, no admin rights needed) —
+  registered so "Download with Manager" on the Nexus website opens straight into this app.
+- **Network calls this app makes**: the Nexus API (only once you've entered an API key, for
+  browsing/search/downloads); GitHub (this app's own release check on every launch, the community
+  mod catalog, and — only when you click Install/Update in Settings — the UE4SS loader and
+  UnrealPak.exe); and, only if you configure one, your own FTP server on the Server tab. Nothing
+  else. There is no telemetry, analytics, or usage tracking of any kind anywhere in this app.
+- **Self-update** — downloads only from this project's own GitHub Releases
+  (`github.com/MK-HATERS/IcarusStarlink`), verifies the download's SHA-256 against GitHub's own
+  published digest when available, and always asks for confirmation before applying anything; a
+  failed update rolls back automatically rather than leaving a half-updated install.
+- **The app never requests administrator/elevated permissions for anything.**
+
+The startup GitHub/Nexus version checks above are read-only "is a newer version available"
+requests — nothing is ever downloaded or installed without you clicking an explicit confirm
+dialog first.
+
+## FAQ / Troubleshooting
+
+**Where are my backups?** Automatic backups (before a save write, before a mod update, before a
+merge/install) live under this app's own `Backups` folder, next to the exe.
+
+**The app won't start / crashed on launch.** It writes a crash report (the full exception, your
+app/OS version, and recent activity) to the `Logs` folder next to the exe — attach that when
+[reporting a bug](#support--bug-reports).
+
+**A mod won't merge / I'm getting a conflict.** Merge & Install's own conflict picker shows the
+live base-game value alongside each candidate, including a buff/nerf hint — most conflicts are a
+genuine choice between two mods that touch the same thing, not a bug.
+
+**Antivirus flagged this download?** Two features that commonly trip antivirus/SmartScreen
+heuristics on any tool that has them: this is a self-contained .NET publish (the whole .NET
+runtime bundled into one folder, not just the app's own code), and the app self-updates by
+downloading and replacing its own executable — both are legitimate, common patterns, but also
+exactly what a heuristic scanner is trained to be suspicious of. See the current release's own
+description on the [Releases page](https://github.com/MK-HATERS/IcarusStarlink/releases/latest)
+for a VirusTotal scan link.
+
+**How do I get started after installing?** Settings → set (or Auto-detect) your Icarus Content
+folder → Settings → UnrealPak → Install → Settings → Update data folder → then import mods on the
+Library tab. The in-app **Help** page walks through this in more detail and covers every feature.
+
+## Support & bug reports
+
+Found a bug, or something doesn't work the way this README says it should? Please open an issue:
+**<https://github.com/MK-HATERS/IcarusStarlink/issues>** — attaching the diagnostics export
+(Settings → Diagnostics, bundles logs, sanitized settings, and any crash reports — never your API
+keys or tokens) makes it much faster to track down.
+
+## Changelog
+
+Every release's own notes are on the
+**[Releases page](https://github.com/MK-HATERS/IcarusStarlink/releases)** — each one lists what
+changed since the last version.
+
 ## Building
 
 Requires the .NET 10 SDK on Windows (WPF).
@@ -166,6 +261,19 @@ tool for:
   code from that project is used here).
 - **[Nexus Mods](https://www.nexusmods.com/icarus)** — the platform and the real API this app's
   Nexus integration talks to.
+- **[CUE4Parse](https://github.com/FabianFG/CUE4Parse)** — the Unreal Engine asset-parsing library
+  underneath this app's own data extraction, diffing, and asset-preview features. The de facto
+  standard UE asset library in the modding/datamining community; this app builds on it, doesn't
+  fork or modify it.
+- **Every third-party open-source library this app is built on** — see
+  [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md) for the full list with licenses.
+
+## License
+
+Source-available, not open-source: you're free to download, use, and read the source of any
+official release for any purpose — but modifying, repackaging, or redistributing it (including
+forks) requires asking first. See [`LICENSE.md`](LICENSE.md) for the full terms and the reasoning
+behind them.
 
 ## Disclaimer
 
