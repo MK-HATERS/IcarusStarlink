@@ -148,12 +148,21 @@ public sealed partial class MainViewModel : ObservableObject
     /// background named-pipe thread, this one is queued synchronously near the end of OnStartup) —
     /// without this guard, the handoff arriving first would just get silently clobbered back to
     /// Library a moment later.
+    ///
+    /// A real bug found live: a genuinely first-ever launch (IcarusContentPath never set) still
+    /// landed on Library — an empty list, with nothing on screen explaining that Settings needs
+    /// the Content folder configured first. Help's own "Getting started" topic already walks
+    /// through exactly that in the right order (Settings → Content folder → Auto-detect →
+    /// UnrealPak → Update data folder → Library import), so a brand-new user is routed there
+    /// instead this one time — every subsequent launch (IcarusContentPath now set, however it got
+    /// set) goes back to Library as before.
     /// </summary>
     public void SelectDefaultPage()
     {
         if (SelectedNavItem is null)
         {
-            SelectedNavItem = NavItems.First(item => item.Id == "library");
+            var isFirstRun = string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath);
+            SelectedNavItem = NavItems.First(item => item.Id == (isFirstRun ? "help" : "library"));
         }
     }
 
