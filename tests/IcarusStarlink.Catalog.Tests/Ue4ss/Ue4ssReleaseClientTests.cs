@@ -48,6 +48,33 @@ public class Ue4ssReleaseClientTests
         Assert.NotNull(result);
         Assert.Equal("3.0.1", result.Version);
         Assert.Equal("https://github.com/UE4SS-RE/RE-UE4SS/releases/download/v3.0.1/UE4SS_v3.0.1.zip", result.DownloadUrl);
+        Assert.Null(result.Digest); // RealisticReleaseJson's matched asset has no "digest" field
+    }
+
+    [Fact]
+    public async Task GetLatestStableReleaseAsync_AssetHasDigest_MapsItThrough()
+    {
+        // A real bug found live: this app's own self-update verifies its download's SHA-256
+        // against GitHub's own asset digest, but the UE4SS loader download had no equivalent field
+        // wired through at all, so it could never be verified even when GitHub provides one.
+        const string json = """
+            {
+                "tag_name": "v3.0.1",
+                "assets": [
+                    {
+                        "name": "UE4SS_v3.0.1.zip",
+                        "browser_download_url": "https://github.com/UE4SS-RE/RE-UE4SS/releases/download/v3.0.1/UE4SS_v3.0.1.zip",
+                        "digest": "sha256:4b9a4ac59f3c3aa32273260df6cf4bf358d1c46f8415126aa35b6380d0abb8f7"
+                    }
+                ]
+            }
+            """;
+        var client = CreateClient(new Dictionary<string, string> { [ReleaseUrl] = json });
+
+        var result = await client.GetLatestStableReleaseAsync();
+
+        Assert.NotNull(result);
+        Assert.Equal("sha256:4b9a4ac59f3c3aa32273260df6cf4bf358d1c46f8415126aa35b6380d0abb8f7", result.Digest);
     }
 
     [Fact]

@@ -12,6 +12,7 @@ using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog.AppUpdate;
+using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Catalog.Ue4ss;
 using IcarusStarlink.Core.Activity;
@@ -1035,6 +1036,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             var bytes = await _httpClient.GetByteArrayAsync(release.DownloadUrl);
             await File.WriteAllBytesAsync(tempZipPath, bytes);
+
+            // A real bug found live: unlike this app's own self-update (AppUpdateClient), this
+            // download had no integrity check at all — it writes a third-party DLL loader straight
+            // into the game's own Binaries\Win64 folder. Same GitHubAssetIntegrity check, same
+            // "null digest skips rather than fails" tolerance — see its own doc comment.
+            await GitHubAssetIntegrity.VerifySha256Async(release.Digest, tempZipPath);
 
             // A SECOND, LATE check, immediately before the real write below — the first
             // IsGameRunning() check above (before the confirm dialog and the download itself) can go

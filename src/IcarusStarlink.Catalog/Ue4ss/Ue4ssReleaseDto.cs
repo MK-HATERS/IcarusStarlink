@@ -19,4 +19,14 @@ internal sealed class Ue4ssReleaseAssetDto
 
     [JsonPropertyName("browser_download_url")]
     public string BrowserDownloadUrl { get; init; } = "";
+
+    /// <summary>
+    /// Same "sha256:&lt;hex&gt;" digest field AppUpdateAssetDto.Digest reads from this app's own
+    /// releases — GitHub populates it the same way for any repo's release assets, including
+    /// UE4SS-RE/RE-UE4SS's. Left null (not defaulted to "") so GitHubAssetIntegrity can tell "no
+    /// digest in this response" apart from an empty one; either way verification is skipped, not
+    /// treated as a failure — see that class's own doc comment.
+    /// </summary>
+    [JsonPropertyName("digest")]
+    public string? Digest { get; init; }
 }

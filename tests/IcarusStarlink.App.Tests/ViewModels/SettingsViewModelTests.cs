@@ -326,6 +326,27 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_DigestMismatch_AbortsBeforeInstallAndShowsFailedMessage()
+    {
+        // A real bug found live: unlike this app's own self-update (AppUpdateClient), the UE4SS
+        // loader download had no integrity check at all — a corrupted or tampered download would
+        // be handed straight to InstallOrUpdateAsync and written into the game's own
+        // Binaries\Win64 folder with nothing to catch it.
+        var payloadBytes = "zip-bytes"u8.ToArray();
+        using var harness = new Harness(dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes));
+        var wrongDigest = "sha256:" + new string('0', 64);
+        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", wrongDigest);
+        var vm = harness.BuildViewModel();
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+        Assert.Contains("Install failed:", vm.Ue4ssStatusMessage);
+        Assert.Contains("integrity verification", vm.Ue4ssStatusMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vm.IsInstallingUe4ss);
+    }
+
+    [Fact]
     public async Task InstallOrUpdateUe4ssCommand_ServiceThrows_WhenAlreadyInstalled_ShowsUpdateFailedMessage()
     {
         var payloadBytes = new byte[] { 9, 9 };
