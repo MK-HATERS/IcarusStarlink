@@ -90,6 +90,12 @@
          SettingsViewModel's own update-comparison logic, which doesn't understand a "+sha" suffix. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <!-- The app's own UI is English-only (no localization/language switcher) — without this the SDK
+         ships all 13 of its default satellite-resource cultures anyway, each just a *.resources.dll
+         of localized *framework* exception/diagnostic message text for WPF/.NET itself, never seen
+         by a user of an English-only app. Confirmed via a real publish: this alone cuts the
+         self-contained win-x64 release from 492 files down to 336 with zero functional loss. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
 </Project>
