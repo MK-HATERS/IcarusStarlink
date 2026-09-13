@@ -289,6 +289,33 @@ public class GameplayOptionsApplierTests
         Assert.Equal(40, (int)tables["Inventory-D_InventoryInfo.json"]["Container"]!["StartingSlots"]!);
     }
 
+    /// <summary>
+    /// Regression test: a real bug found live — VisionSlot (the equipped-torch slot) has no
+    /// SlotOverrides at all (nothing to reserve with only one position), so it wasn't caught by the
+    /// existing HasSlotOverrides skip. Scaling its StartingSlots from 1 to 2 desynced the game's own
+    /// single-fixed-icon UI for it, and crafting a torch while the one real slot was full silently
+    /// lost the item instead of prompting a swap. Confirmed against the real, live
+    /// Data\Inventory\D_InventoryInfo.json that every StartingSlots=1 row in vanilla data is this
+    /// same shape (a single hardcoded equip point — ammo, saddle, per-limb attachment, single-input
+    /// station fuel/bait, etc.), while every real storage row already starts above 1 (Backpack=24,
+    /// Medicine_Bag=12, Container_Small=5, ...) — see IsSingleFixedEquipSlot's own doc comment.
+    /// </summary>
+    [Fact]
+    public void Apply_SlotsMultiplier_SkipsRowsStartingAtExactlyOneSlot_LikeVisionSlot()
+    {
+        var tables = Table("Inventory-D_InventoryInfo.json", new JsonObject
+        {
+            ["VisionSlot"] = Row("""{"StartingSlots": 1}"""),
+            ["Medicine_Bag"] = Row("""{"StartingSlots": 12}"""),
+        });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SlotsMultiplier = 2 }, tables, new MergeReport());
+
+        var result = tables["Inventory-D_InventoryInfo.json"];
+        Assert.Equal(1, (int)result["VisionSlot"]!["StartingSlots"]!); // untouched — starts at exactly 1 slot
+        Assert.Equal(24, (int)result["Medicine_Bag"]!["StartingSlots"]!); // scaled normally — real multi-item storage
+    }
+
     [Fact]
     public void RequiredCurrentFiles_SlotsEnabled_IncludesInventoryAlterationsAndTalents()
     {

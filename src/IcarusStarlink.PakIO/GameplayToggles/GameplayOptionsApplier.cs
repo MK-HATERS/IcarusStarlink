@@ -141,10 +141,9 @@ public static class GameplayOptionsApplier
         }
         if (options.SlotsMultiplier is > 0 and var slotsMultiplier)
         {
-            // skipRow: HasSlotOverrides — see that method's own doc comment for why (Quickbar's
-            // reserved Utility/Fists slots, Equipment/Space_Equipment/ArmourStand's fully-reserved
-            // layouts all reference absolute positions that a blind scale would corrupt).
-            ScaleExistingNumericField(keyedTablesByFile, InventoryFile, "StartingSlots", slotsMultiplier, minimum: 1, report, "Slots multiplier", skipRow: HasSlotOverrides);
+            // skipRow: HasSlotOverrides (see that method's own doc comment) OR IsSingleFixedEquipSlot
+            // (see that one's own doc comment) — a row can be unsafe to scale for either reason.
+            ScaleExistingNumericField(keyedTablesByFile, InventoryFile, "StartingSlots", slotsMultiplier, minimum: 1, report, "Slots multiplier", skipRow: row => HasSlotOverrides(row) || IsSingleFixedEquipSlot(row));
             ScaleAlterationSlotBonuses(keyedTablesByFile, slotsMultiplier, report);
             ScaleTalentDeployableStorageBonuses(keyedTablesByFile, slotsMultiplier, report);
         }
@@ -320,6 +319,24 @@ public static class GameplayOptionsApplier
     /// scaling every row indiscriminately.
     /// </summary>
     private static bool HasSlotOverrides(JsonObject row) => row["SlotOverrides"] is JsonArray { Count: > 0 };
+
+    /// <summary>
+    /// A real bug found live: VisionSlot (the equipped-torch/light slot, StartingSlots=1) has no
+    /// SlotOverrides — nothing to reserve when there's only one position — but scaling it to 2
+    /// anyway (SlotsMultiplier=2) desynced the game's own single-fixed-icon UI for it, and crafting
+    /// a replacement while the one real slot was already full silently lost the item instead of
+    /// prompting a swap. Confirmed against the real, live Data\Inventory\D_InventoryInfo.json: every
+    /// one of its ~70 StartingSlots=1 rows is this same shape — a single hardcoded equip point tied
+    /// to one specific item category via a tag-restricted SlotTemplate (Weapon_AmmoSlot, Mount_Saddle,
+    /// the per-limb *_Attachment rows, single-input crafting-station fuel/bait slots, etc.) — while
+    /// every real multi-item storage row, tag-restricted or not (Backpack=24, Medicine_Bag=12,
+    /// Container_Small=5, Pouch_Generic=6, ...), already starts above 1. No real "increase slots" mod
+    /// would touch these either — there's no sensible "2 saddles" or "2 torches" to scale toward.
+    /// Reads the row's CURRENT (pre-scale) StartingSlots, same field ScaleExistingNumericField itself
+    /// is about to scale — this predicate is only ever wired to that one call site.
+    /// </summary>
+    private static bool IsSingleFixedEquipSlot(JsonObject row) =>
+        row["StartingSlots"] is JsonValue currentValue && currentValue.TryGetValue<double>(out var current) && current == 1;
 
     /// <summary>
     /// A player's real total slot count for many storage deployables/backpacks isn't just
