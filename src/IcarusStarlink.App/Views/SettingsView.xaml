@@ -171,6 +171,14 @@
 
                         <TextBlock Text="Account" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
                         <StackPanel Visibility="{Binding NexusSignedInAs, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}">
+                            <!-- Real users have reported not knowing where to find this — the API Access
+                                 page shows OAuth application connections first, with the actual key this
+                                 app needs (the "Personal API Key") further down, easy to miss on a page
+                                 that otherwise looks like it's for something else entirely. Spelled out
+                                 step-by-step rather than left to the button/tooltip alone. -->
+                            <TextBlock Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,8">
+                                <Run Text="Click "/><Run Text="Get API key…" FontWeight="SemiBold"/><Run Text=" below, then on that page scroll all the way down to "/><Run Text="Personal API Key" FontWeight="SemiBold"/><Run Text=" (past the OAuth application list near the top — that's a different thing). Click "/><Run Text="request an API key" FontStyle="Italic"/><Run Text=" if you don't have one yet, or copy your existing one, and paste it below."/>
+                            </TextBlock>
                             <DockPanel Margin="0,0,0,8">
                                 <Button Command="{Binding OpenNexusApiKeyPageCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
                                         ToolTip="Opens your Nexus account's API Access page in your browser" AutomationProperties.Name="Get API key">
@@ -181,7 +189,7 @@
                                     </StackPanel>
                                 </Button>
                                 <TextBox Text="{Binding NexusApiKeyInput, UpdateSourceTrigger=PropertyChanged}"
-                                         ToolTip="Paste your Nexus Personal API Key here"/>
+                                         ToolTip="Paste your Nexus Personal API Key here (from the bottom of the API Access page, not an OAuth application key)"/>
                             </DockPanel>
                             <Button Content="Authorize" Command="{Binding AuthorizeNexusCommand}" HorizontalAlignment="Left"
                                     IsEnabled="{Binding CanAuthorizeNexus}"

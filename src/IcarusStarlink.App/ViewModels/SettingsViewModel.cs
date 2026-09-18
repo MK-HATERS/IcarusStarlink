@@ -849,6 +849,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             NexusSignedInAs = user.IsPremium ? $"{user.Name} (Premium)" : user.Name;
             NexusApiKeyInput = "";
             NexusStatusMessage = "Signed in.";
+            WeakReferenceMessenger.Default.Send(new NexusAccountChangedMessage());
         }
         catch (Exception ex)
         {
@@ -869,6 +870,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _credentialStore.Delete(CredentialTargets.NexusApiKey);
         NexusSignedInAs = null;
         NexusStatusMessage = "Signed out.";
+        WeakReferenceMessenger.Default.Send(new NexusAccountChangedMessage());
     }
 
     /// <summary>

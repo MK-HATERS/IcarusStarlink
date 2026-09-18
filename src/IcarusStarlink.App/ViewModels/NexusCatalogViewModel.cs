@@ -137,6 +137,23 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     [ObservableProperty]
     private string? _statusMessage;
 
+    /// <summary>
+    /// null = no saved API key, or the check below hasn't finished/couldn't reach Nexus yet;
+    /// true/false once a saved key has been validated. A real bug found live: Download here builds
+    /// a bare "nxm://icarus/mods/{id}/files/{file}" URL with no key/expires component (see
+    /// FetchAndDownloadAsync's own doc comment) — Nexus only accepts that shape from a Premium
+    /// account, so for a non-Premium account this button can NEVER succeed no matter what, yet
+    /// nothing on this page said so before you clicked it and got a rejection. Drives both a
+    /// visible (non-tooltip) banner and which of Download/Open page gets visual priority.
+    /// </summary>
+    [ObservableProperty]
+    private bool? _isPremium;
+
+    /// <summary>Plain bool for XAML — a nullable-bool binding is awkward to trigger styles/visibility off of directly.</summary>
+    public bool IsKnownNonPremium => IsPremium == false;
+
+    partial void OnIsPremiumChanged(bool? value) => OnPropertyChanged(nameof(IsKnownNonPremium));
+
     public NexusCatalogViewModel(
         INexusApiClient nexusApiClient, ICredentialStore credentialStore, INexusWatchlistStore watchlistStore,
         ILibraryRepository libraryRepository, IPendingDownloadStore pendingDownloadStore, DownloadsViewModel downloads,
@@ -157,11 +174,47 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         // here would silently fire on every import anywhere in the app).
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((NexusCatalogViewModel)recipient).RebuildRows());
 
+        // Settings' own Authorize/Sign out is the only place the saved key changes — re-check
+        // Premium status right then instead of only on next launch, so a user who signs in while
+        // already on this page sees Download/Open page's prominence update immediately.
+        WeakReferenceMessenger.Default.Register<NexusAccountChangedMessage>(this, (recipient, message) =>
+        {
+            _ = ((NexusCatalogViewModel)recipient).RefreshPremiumStatusAsync();
+        });
+
         _searchDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), () => _ = LoadAsync());
 
         // Same fire-and-forget-with-own-try/catch shape DownloadsViewModel's constructor already
         // uses for its catalog fetch — LoadAsync can't leak an unobserved exception.
         _ = LoadAsync();
+        _ = RefreshPremiumStatusAsync();
+    }
+
+    /// <summary>
+    /// Cheap against Nexus's generous rate limit (500/day) — same "once per launch, plus whenever
+    /// SettingsViewModel says the saved key changed" cadence its own InitializeNexusStatusAsync
+    /// uses, not on every page load/search. A network hiccup or an unreachable Nexus leaves
+    /// IsPremium at its previous value (usually null) rather than asserting false — this only ever
+    /// hides the Premium-only warning on uncertainty, never wrongly claims an account isn't Premium.
+    /// </summary>
+    private async Task RefreshPremiumStatusAsync()
+    {
+        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+        if (apiKey is null)
+        {
+            IsPremium = null;
+            return;
+        }
+
+        try
+        {
+            var user = await _nexusApiClient.ValidateKeyAsync(apiKey);
+            IsPremium = user?.IsPremium;
+        }
+        catch (Exception)
+        {
+            // Best-effort — leave IsPremium as whatever it already was.
+        }
     }
 
     partial void OnSelectedKindChanged(string value) => _ = LoadAsync();

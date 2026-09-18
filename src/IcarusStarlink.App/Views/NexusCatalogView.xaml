@@ -15,6 +15,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -70,7 +71,22 @@
                        Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
         </WrapPanel>
 
-        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <!-- Visible, non-tooltip warning — a real bug found live: Download here can never succeed
+             for a non-Premium account (see NexusCatalogViewModel.IsPremium's own doc comment), but
+             nothing said so until AFTER clicking it and getting a rejection. Only shown once a
+             saved key is confirmed non-Premium — stays hidden while signed out or unconfirmed, so
+             it never wrongly implies an account isn't Premium on a network hiccup. -->
+        <Border Grid.Row="3" Margin="0,0,0,10" Padding="12,8" CornerRadius="6" Background="{DynamicResource InfoBrush}"
+                Visibility="{Binding IsKnownNonPremium, Converter={StaticResource BoolToVisibilityConverter}}">
+            <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource WindowBackgroundBrush}" FontSize="12.5">
+                <Run Text="Free Nexus account — " FontWeight="SemiBold"/>
+                <Run Text="Download here only works for Nexus Premium members. Use each mod's "/>
+                <Run Text="Open page" FontWeight="SemiBold"/>
+                <Run Text=" button instead — its own Mod Manager Download works for every account."/>
+            </TextBlock>
+        </Border>
+
+        <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel>
             <ItemsControl ItemsSource="{Binding Mods}">
                 <ItemsControl.ItemsPanel>
@@ -128,11 +144,29 @@
                                     <TextBlock Text="{Binding Mod.Summary}" Style="{StaticResource PageBodyTextStyle}" FontSize="12"
                                                TextWrapping="Wrap" MaxHeight="52" ClipToBounds="True" ToolTip="{Binding Mod.Summary}"/>
                                     <WrapPanel Margin="0,10,0,0">
-                                        <Button Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,4"
+                                        <Button Margin="0,0,8,4"
                                                 Command="{Binding DataContext.DownloadModCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                 CommandParameter="{Binding Mod}"
-                                                ToolTip="Downloads the mod's main file straight into Pending Downloads (needs Nexus Premium — otherwise use Open page's Mod Manager Download)"
                                                 AutomationProperties.Name="Download mod">
+                                            <Button.Style>
+                                                <!-- A real bug found live: Download here can never succeed for a confirmed non-Premium
+                                                     account (see NexusCatalogViewModel.IsPremium's own doc comment) — disabling it instead
+                                                     of leaving it clickable-but-doomed, with the working alternative explained right in the
+                                                     tooltip instead of only after a failed click. -->
+                                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
+                                                    <Setter Property="BorderThickness" Value="0"/>
+                                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                                    <Setter Property="ToolTip" Value="Downloads the mod's main file straight into Pending Downloads — needs a Nexus Premium account"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding DataContext.IsKnownNonPremium, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="True">
+                                                            <Setter Property="IsEnabled" Value="False"/>
+                                                            <Setter Property="ToolTip" Value="Not available on a free account — use Open page instead (its own Mod Manager Download button works for every account)"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
                                             <StackPanel Orientation="Horizontal">
                                                 <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
                                                       StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
@@ -198,8 +232,23 @@
                                         <Button Margin="8,0,8,4"
                                                 Command="{Binding DataContext.OpenModPageCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                 CommandParameter="{Binding Mod}"
-                                                ToolTip="Open the mod's page in your browser — downloads start there via Mod Manager Download"
                                                 AutomationProperties.Name="Open mod page">
+                                            <Button.Style>
+                                                <!-- Promoted to the same look Download normally has, once a confirmed non-Premium
+                                                     account means this is genuinely the one button that will actually work here. -->
+                                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                    <Setter Property="ToolTip" Value="Open the mod's page in your browser — downloads start there via Mod Manager Download"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding DataContext.IsKnownNonPremium, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="True">
+                                                            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                            <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
+                                                            <Setter Property="BorderThickness" Value="0"/>
+                                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                                            <Setter Property="ToolTip" Value="Open the mod's page in your browser — click its Mod Manager Download button there, it works on a free account"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
                                             <StackPanel Orientation="Horizontal">
                                                 <Path Data="{StaticResource IconGlobeMeridian}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
                                                       StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
