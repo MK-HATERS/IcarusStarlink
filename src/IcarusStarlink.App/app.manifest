@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!-- asInvoker (the SDK's own default when no manifest is present at all) — kept explicit here so
+       adding this manifest for longPathAware can't accidentally change that: this app must never
+       require elevation (see the Nexus-readiness audit's own security note — no admin rights
+       needed for anything it does). -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <!-- A real bug found live: a user's self-update failed with an access-denied error against a
+       "\\?\..." extended-length path — one real, known cause is Windows silently refusing long-path
+       file operations unless the process itself declares long-path awareness (separate from, and in
+       addition to, the machine-wide "Enable Win32 long paths" group policy .NET's own managed I/O
+       already tries to use). Costs nothing for users unaffected by this; may fix it outright for
+       users whose install path (plus this app's own longer nested relative paths, e.g. under
+       runtimes\win-x64\native\) pushes past Windows' legacy MAX_PATH limit. -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
+</assembly>

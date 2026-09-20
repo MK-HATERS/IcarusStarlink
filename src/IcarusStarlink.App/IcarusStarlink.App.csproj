@@ -90,6 +90,9 @@
          SettingsViewModel's own update-comparison logic, which doesn't understand a "+sha" suffix. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <!-- See app.manifest's own comment — asInvoker (unchanged) plus longPathAware, for a real
+         access-denied self-update failure found live against a "\\?\..." extended-length path. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- The app's own UI is English-only (no localization/language switcher) — without this the SDK
          ships all 13 of its default satellite-resource cultures anyway, each just a *.resources.dll
          of localized *framework* exception/diagnostic message text for WPF/.NET itself, never seen

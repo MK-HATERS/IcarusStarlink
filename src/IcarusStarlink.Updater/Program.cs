@@ -64,43 +64,40 @@ catch (ArgumentException)
 // period plus UpdateApplier's own per-file retry covers the stragglers.
 Thread.Sleep(500);
 
-try
+bool Relaunch()
 {
-    UpdateApplier.Apply(installDirectory, newFilesDirectory, Log);
+    try
+    {
+        Process.Start(new ProcessStartInfo(relaunchExePath) { WorkingDirectory = installDirectory, UseShellExecute = true });
+        return true;
+    }
+    catch (Exception ex)
+    {
+        Log($"Relaunch failed ({ex.Message}) — start the app manually.");
+        return false;
+    }
 }
-catch (UpdateRollbackIncompleteException ex)
-{
-    Log($"Update FAILED: {ex.Message}");
 
-    // This process runs with CreateNoWindow: true (see SettingsViewModel's own launch of it) — a
-    // normal failed update (rollback fully restored the old install) doesn't need a visible
-    // notification, the app still works fine as the old version. This specific case is different:
-    // the install directory may genuinely be broken, and updater.log is the only other place this
-    // is recorded — a real Win32 message box (not a console window; there is none here) is the
-    // only way for this headless process to make sure the user actually sees it.
+var result = UpdateRunner.Run(installDirectory, newFilesDirectory, Log, Relaunch);
+
+// This process runs with CreateNoWindow: true (see SettingsViewModel's own launch of it) — a real
+// Win32 message box (not a console window; there is none here) is the only way for this headless
+// process to make sure the user actually sees the one outcome that genuinely needs their attention:
+// RollbackIncomplete, where the install directory may still be broken even after a best-effort
+// relaunch attempt. Applied and RolledBack both stay silent by design (no alarming message box for
+// a fully successful update or a self-healing failure) — Run's own relaunch call already covers the
+// real bug this was fixed for (the app used to just close and never come back).
+if (result.Outcome == UpdateRunner.Outcome.RollbackIncomplete)
+{
     NativeMessageBox.Show(
         $"The IcarusStarlink update failed and could not be fully rolled back.\n\n"
-        + $"{ex.Message}\n\n"
-        + $"A backup of the files that were overwritten is kept at:\n{ex.BackupDirectory}\n\n"
+        + $"A backup of the files that were overwritten is kept at:\n{result.BackupDirectory}\n\n"
         + $"Full details are in {logPath}",
         "IcarusStarlink update failed");
-    return 4;
-}
-catch (Exception ex)
-{
-    Log($"Update FAILED: {ex.Message}");
-    return 4;
 }
 
-Log($"Update applied — relaunching '{relaunchExePath}'.");
-try
+return result.Outcome switch
 {
-    Process.Start(new ProcessStartInfo(relaunchExePath) { WorkingDirectory = installDirectory, UseShellExecute = true });
-}
-catch (Exception ex)
-{
-    Log($"Relaunch failed ({ex.Message}) — the update itself is applied; start the app manually.");
-    return 5;
-}
-
-return 0;
+    UpdateRunner.Outcome.Applied => result.Relaunched ? 0 : 5,
+    _ => 4,
+};

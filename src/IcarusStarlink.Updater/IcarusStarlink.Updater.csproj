@@ -5,6 +5,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- See app.manifest's own comment — asInvoker (unchanged) plus longPathAware, for a real
+         access-denied self-update failure found live against a "\\?\..." extended-length path;
+         this is the process that actually does the file copying during a self-update. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
 </Project>
