@@ -371,9 +371,12 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         var row = Assert.Single(result.Contents.Package.Rows);
         Assert.Equal("Crafting-D_ProcessorRecipes.json", row.CurrentFile);
         Assert.DoesNotContain(report.Notes, n => n.Contains("bundled EXMOD data"));
-        // The nested file is neither bundled data nor a diffed table — it's carried through as an
-        // ordinary asset, like any other file this conversion doesn't specifically understand.
-        Assert.Contains(result.Contents.Assets, a => a.RelativePath == "Nested/SomeMod_P.EXMOD");
+        // The nested file is neither bundled data nor a diffed table — but it is NOT carried through
+        // as an asset either (a real audit finding): any .EXMOD anywhere in the written folder makes
+        // ExmodFolder.FindExmodFile throw "more than one .EXMOD", so the converted mod imported fine
+        // and then vanished on the next rescan. It's left out and reported instead.
+        Assert.DoesNotContain(result.Contents.Assets, a => a.RelativePath.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(report.Warnings, w => w.Contains("Nested/SomeMod_P.EXMOD") && w.Contains("couldn't be used"));
     }
 
     public void Dispose()

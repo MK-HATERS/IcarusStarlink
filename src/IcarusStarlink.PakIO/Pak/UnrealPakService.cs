@@ -38,6 +38,7 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
 
         try
         {
+            SweepLeftoverRetiredDirectories(outputDirectory);
             var result = await processRunner.RunAsync(unrealPakExePath, [dataPakPath, "-Extract", tempExtractDirectory], cancellationToken);
             EnsureSuccess(result);
 
@@ -51,11 +52,37 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
             // left over from a previous game version (renamed/removed field, dropped table)
             // sitting alongside this run's fresh extract would silently misrepresent the game's
             // *current* data. The diff above already captured what changed before this happens.
+            //
+            // Swapped by RENAME, never delete-then-move (a real audit finding): a recursive
+            // Directory.Delete that fails partway — one D_*.json held open by another tool, an
+            // antivirus scan — used to leave outputDirectory half-deleted AND the finally below
+            // then deleted the complete new extraction too, so one locked file cost the user both
+            // copies. Renaming the old folder aside is all-or-nothing: it either fully moves or
+            // (an open handle inside) fails before anything is touched, leaving the old data intact.
+            string? retiredDirectory = null;
             if (Directory.Exists(outputDirectory))
             {
-                Directory.Delete(outputDirectory, recursive: true);
+                retiredDirectory = Path.Combine(
+                    Path.GetDirectoryName(Path.GetFullPath(outputDirectory))!, $".DataExtract_old_{Guid.NewGuid():N}");
+                Directory.Move(outputDirectory, retiredDirectory);
             }
-            Directory.Move(tempExtractDirectory, outputDirectory);
+
+            try
+            {
+                Directory.Move(tempExtractDirectory, outputDirectory);
+            }
+            catch when (retiredDirectory is not null && !Directory.Exists(outputDirectory))
+            {
+                // Put the old data back so the slot is never left empty; the new extraction is
+                // cleaned up by the finally below, same as any other failure.
+                Directory.Move(retiredDirectory, outputDirectory);
+                throw;
+            }
+
+            if (retiredDirectory is not null)
+            {
+                TryDeleteRetiredDirectory(retiredDirectory);
+            }
 
             var extractedFileCount = Directory.GetFiles(outputDirectory, "*", SearchOption.AllDirectories).Length;
             return new UnrealPakExtractResult(extractedFileCount, changeReport);
@@ -68,6 +95,38 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
             {
                 Directory.Delete(tempExtractDirectory, recursive: true);
             }
+        }
+    }
+
+    /// <summary>
+    /// Best-effort: the retired folder is the PREVIOUS extraction, already replaced and already
+    /// diffed, so a locked file inside it is never worth failing an otherwise successful update
+    /// over — it's left behind (inert, hidden by its leading dot) and retried by the next run's
+    /// sweep of leftover ".DataExtract_old_*" siblings.
+    /// </summary>
+    private static void TryDeleteRetiredDirectory(string retiredDirectory)
+    {
+        try
+        {
+            Directory.Delete(retiredDirectory, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Left for the next run — see the doc comment.
+        }
+    }
+
+    private static void SweepLeftoverRetiredDirectories(string outputDirectory)
+    {
+        var parent = Path.GetDirectoryName(Path.GetFullPath(outputDirectory));
+        if (parent is null || !Directory.Exists(parent))
+        {
+            return;
+        }
+
+        foreach (var leftover in Directory.GetDirectories(parent, ".DataExtract_old_*"))
+        {
+            TryDeleteRetiredDirectory(leftover);
         }
     }
 
@@ -219,8 +278,10 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
     // `Pak file "<path>" healthy, 1515 files checked.`; a corrupted one reads
     // `Pak file "<path>" corrupted (1 errors out of 1515 files checked.).` — the group captured
     // here is everything after the quoted pak path, which is the part actually worth surfacing.
+    // Stops at '\r': ProcessRunner joins stdout with CRLF, and a plain `.+$` captured the CR (so
+    // the TrimEnd('.') below never fired and a stray CR rode into the rebuild report).
     private static readonly Regex VerifySummaryPattern = new(
-        """^LogPakFile: Display: Pak file "[^"]+" (?<summary>.+)$""", RegexOptions.Compiled | RegexOptions.Multiline);
+        """^LogPakFile: Display: Pak file "[^"]+" (?<summary>[^\r\n]+)\r?$""", RegexOptions.Compiled | RegexOptions.Multiline);
 
     public async Task<PakVerifyResult> VerifyPakAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default)
     {

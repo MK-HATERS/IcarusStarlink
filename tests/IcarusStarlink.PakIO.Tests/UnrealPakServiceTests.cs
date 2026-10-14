@@ -40,6 +40,11 @@ public class UnrealPakServiceTests : IDisposable
             // (the 3rd argument — a temp directory UnrealPakService itself picks, not necessarily
             // the final outputDirectory) — the fake runner never actually shells out, so nothing
             // else would populate it.
+            if (arguments.Count < 3 || arguments[1] != "-Extract")
+            {
+                return Task.FromResult(result);
+            }
+
             var extractDirectory = arguments[2];
             foreach (var (relativePath, content) in filesToCreate)
             {
@@ -128,6 +133,54 @@ public class UnrealPakServiceTests : IDisposable
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.ExtractDataPakAsync(_unrealPakExePath, _contentPath, _outputDirectory, previousUpdateAt: null));
         Assert.Contains("corrupt pak header", exception.Message);
+    }
+
+    /// <summary>
+    /// Audit finding: the old delete-then-move swap could lose BOTH extractions. A recursive delete
+    /// that hit one locked file left the old Data folder half-deleted, and the finally then removed
+    /// the complete new extraction. The rename-based swap must leave the old data fully intact
+    /// when it can't be swapped out.
+    /// </summary>
+    [Fact]
+    public async Task ExtractDataPakAsync_OldExtractionHasALockedFile_OldDataStaysFullyIntact()
+    {
+        Directory.CreateDirectory(_outputDirectory);
+        var keptFile = Path.Combine(_outputDirectory, "Crafting", "D_Keep.json");
+        var lockedFile = Path.Combine(_outputDirectory, "Traits", "D_Locked.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(keptFile)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(lockedFile)!);
+        File.WriteAllText(keptFile, "{}");
+        File.WriteAllText(lockedFile, "{}");
+
+        var runner = Runner(new ProcessRunResult(0, "", ""), ("Crafting/D_New.json", "{}"));
+        var service = new UnrealPakService(runner);
+
+        using (new FileStream(lockedFile, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            await Assert.ThrowsAnyAsync<IOException>(() =>
+                service.ExtractDataPakAsync(_unrealPakExePath, _contentPath, _outputDirectory, previousUpdateAt: null));
+        }
+
+        Assert.True(File.Exists(keptFile), "a file the delete-then-move approach would have removed before hitting the lock");
+        Assert.True(File.Exists(lockedFile));
+        Assert.False(File.Exists(Path.Combine(_outputDirectory, "Crafting", "D_New.json")));
+        Assert.Empty(Directory.GetDirectories(Path.GetDirectoryName(Path.GetFullPath(_outputDirectory))!, ".DataExtract_*"));
+    }
+
+    /// <summary>ProcessRunner joins stdout with CRLF; the summary capture must stop at the '\r' or TrimEnd('.') never fires and a stray CR rides into the rebuild report.</summary>
+    [Fact]
+    public async Task VerifyPakAsync_SummaryCapturedFromCrLfOutput_HasNoTrailingCarriageReturnOrPeriod()
+    {
+        var pakPath = Path.Combine(Path.GetDirectoryName(_outputDirectory)!, "some.pak");
+        Directory.CreateDirectory(Path.GetDirectoryName(pakPath)!);
+        File.WriteAllText(pakPath, "pak");
+        var runner = Runner(new ProcessRunResult(0, "LogPakFile: Display: Pak file \"C:\\x\\some.pak\" healthy, 3 files checked.\r\n", ""));
+        var service = new UnrealPakService(runner);
+
+        var result = await service.VerifyPakAsync(_unrealPakExePath, pakPath);
+
+        Assert.True(result.IsHealthy);
+        Assert.Equal("healthy, 3 files checked", result.Message);
     }
 
     [Fact]

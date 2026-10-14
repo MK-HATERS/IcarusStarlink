@@ -32,7 +32,11 @@ public static class ExmodzArchive
             // it), and without this, "a/b.txt" and "a\b.txt" would land as distinct keys and slip
             // past the duplicate-entry check in ReadEntries below.
             var entries = archive.Entries
-                .Where(e => !e.FullName.EndsWith('/'))
+                // Both separators: PowerShell's Compress-Archive writes directory entries as
+                // "BP\Objects\" (found live, see AnyArchiveExtractor), which the '/'-only check let
+                // through as a zero-byte asset named "BP/Objects/" — and ExmodFolder.Write then threw
+                // trying to write a file at a directory path.
+                .Where(e => !e.FullName.EndsWith('/') && !e.FullName.EndsWith('\\'))
                 .Select(e => new ArchiveEntryHandle(e.FullName.Replace('\\', '/'), e.Length, e.Open))
                 .ToList();
 

@@ -14,7 +14,7 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// </summary>
 public static class GameAssetExtensions
 {
-    private static readonly HashSet<string> RealGameAssetExtensions = new(StringComparer.OrdinalIgnoreCase) { ".uasset", ".uexp", ".ubulk" };
+    private static readonly HashSet<string> RealGameAssetExtensions = new(StringComparer.OrdinalIgnoreCase) { ".uasset", ".uexp", ".ubulk", ".umap", ".uptnl" };
 
     public static bool IsRealGameAsset(string relativePath) => RealGameAssetExtensions.Contains(Path.GetExtension(relativePath));
 }

@@ -62,7 +62,7 @@ public sealed class UnrealPakInstaller(IProcessRunner processRunner, HttpClient 
 
         if (File.Exists(PayloadZipPath))
         {
-            await Task.Run(() => ZipFile.ExtractToDirectory(PayloadZipPath, InstallRoot), cancellationToken);
+            await ExtractPayloadIntoInstallRootAsync(PayloadZipPath, cancellationToken);
         }
         else
         {
@@ -110,11 +110,49 @@ public sealed class UnrealPakInstaller(IProcessRunner processRunner, HttpClient 
                     await response.Content.CopyToAsync(fileStream, cancellationToken);
                 }
 
-                await Task.Run(() => ZipFile.ExtractToDirectory(tempZipPath, InstallRoot), cancellationToken);
+                await ExtractPayloadIntoInstallRootAsync(tempZipPath, cancellationToken);
             }
             finally
             {
                 File.Delete(tempZipPath);
+            }
+        }
+    }
+
+    /// <summary>
+    /// ZipFile.ExtractToDirectory isn't transactional: a corrupt entry halfway through a payload,
+    /// disk-full, or an antivirus lock on one DLL used to leave whatever had already been
+    /// extracted — possibly UnrealPak.exe itself — sitting under InstallRoot, so a later
+    /// VerifyAsync reported a half-installed tool as Ok (or Broken with a baffling message), and
+    /// the raw InvalidDataException surfaced instead of the plain-language errors every other
+    /// failure here produces. Extracting into a sibling scratch folder and renaming it into place
+    /// means InstallRoot either fully appears or never does.
+    /// </summary>
+    private async Task ExtractPayloadIntoInstallRootAsync(string zipPath, CancellationToken cancellationToken)
+    {
+        var partialRoot = $"{InstallRoot}_partial_{Guid.NewGuid():N}";
+        try
+        {
+            await Task.Run(() => ZipFile.ExtractToDirectory(zipPath, partialRoot), cancellationToken);
+            Directory.Move(partialRoot, InstallRoot);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not InvalidOperationException)
+        {
+            throw new InvalidOperationException(
+                $"The UnrealPak payload couldn't be unpacked ({ex.Message}) — it may be a corrupt or incomplete download; try Install again.", ex);
+        }
+        finally
+        {
+            if (Directory.Exists(partialRoot))
+            {
+                try
+                {
+                    Directory.Delete(partialRoot, recursive: true);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Scratch only — nothing reads it, and the next Install attempt uses a fresh name.
+                }
             }
         }
     }

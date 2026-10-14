@@ -122,6 +122,21 @@ public sealed class UnrealPakInstallerTests : IDisposable
         Assert.True(File.Exists(installer.InstalledExePath));
     }
 
+    /// <summary>Audit finding: extraction straight into InstallRoot wasn't transactional — a corrupt payload left a half-extracted tool behind for VerifyAsync to misreport, and surfaced a raw InvalidDataException.</summary>
+    [Fact]
+    public async Task Install_CorruptLocalPayload_ThrowsPlainMessageAndLeavesNothingUnderInstallRoot()
+    {
+        Directory.CreateDirectory(Path.Combine(_appBase, "Tools"));
+        File.WriteAllBytes(Path.Combine(_appBase, "Tools", "UnrealPak.zip"), [0x50, 0x4B, 0x03, 0x04, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        var installer = CreateInstaller();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
+
+        Assert.Contains("couldn't be unpacked", ex.Message);
+        Assert.False(Directory.Exists(Path.Combine(_appBase, "Tools", "UnrealPak")));
+        Assert.Empty(Directory.GetDirectories(Path.Combine(_appBase, "Tools"), "UnrealPak_partial_*"));
+    }
+
     [Fact]
     public async Task Install_MispackagedLocalPayload_SaysSoClearly()
     {

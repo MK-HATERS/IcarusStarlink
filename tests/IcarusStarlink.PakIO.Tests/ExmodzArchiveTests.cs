@@ -142,6 +142,34 @@ public class ExmodzArchiveTests
         Assert.Equal(0, stream.Length);
     }
 
+    /// <summary>Audit finding: Compress-Archive writes directory entries with a trailing backslash; they were read as zero-byte assets and then broke ExmodFolder.Write.</summary>
+    [Fact]
+    public void Read_BackslashTerminatedDirectoryEntries_AreSkippedNotReadAsAssets()
+    {
+        var exmodJson = ExmodJson.Serialize(BuildFixture().Package);
+        using var stream = new MemoryStream();
+        using (var archive = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var exmodEntry = archive.CreateEntry("Extracted Mods\\Faster_Processors.EXMOD");
+            using (var s = exmodEntry.Open())
+            using (var w = new StreamWriter(s))
+            {
+                w.Write(exmodJson);
+            }
+
+            archive.CreateEntry("BP\\Objects\\");
+            var asset = archive.CreateEntry("BP\\Objects\\Thing.uasset");
+            using var assetStream = asset.Open();
+            assetStream.Write([1, 2, 3]);
+        }
+        stream.Position = 0;
+
+        var contents = ExmodzArchive.Read(stream);
+
+        var only = Assert.Single(contents.Assets);
+        Assert.Equal("BP/Objects/Thing.uasset", only.RelativePath);
+    }
+
     [Fact]
     public void Read_ArchiveWithZipSlipEntry_ThrowsFormatExceptionInsteadOfAcceptingIt()
     {

@@ -31,6 +31,21 @@ public class ExmodJsonTests
         }
         """;
 
+    /// <summary>Audit finding: a header scalar of the wrong JSON type (numeric version, boolean Level2, numeric-string variantSort) used to make the whole mod unreadable, contradicting the best-effort-header rule.</summary>
+    [Fact]
+    public void Parse_HeaderScalarsOfTheWrongJsonType_AreCoercedNotRefused()
+    {
+        const string json = """
+            {"name": "N", "author": "A", "version": 1.2, "Level2": true, "variantSort": "3", "description": "D", "fileName": "F"}
+            """;
+
+        var package = ExmodJson.Parse(json);
+
+        Assert.Equal("1.2", package.Version);
+        Assert.Equal("true", package.Level2);
+        Assert.Equal(3, package.VariantSort);
+    }
+
     [Fact]
     public void Parse_RealisticShape_ExtractsAllFields()
     {

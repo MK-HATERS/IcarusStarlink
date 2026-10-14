@@ -268,6 +268,16 @@ public static class ExmodJson
             return null;
         }
 
+        // A scalar of the wrong JSON type is coerced to its text, not refused: tools disagree on
+        // these header fields (a numeric "version": 1.2, a boolean "Level2": true where classic IMM
+        // writes the string "True"), and refusing the whole mod over one of them contradicted the
+        // best-effort-header rule in ParseCore. Objects/arrays still fail below — those are
+        // structural, not a formatting quirk.
+        if (node is JsonValue scalar && !scalar.TryGetValue<string>(out _))
+        {
+            return scalar.ToJsonString();
+        }
+
         try
         {
             return node.GetValue<string>();
@@ -283,6 +293,12 @@ public static class ExmodJson
         if (!obj.TryGetPropertyValue(key, out var node) || node is null)
         {
             return null;
+        }
+
+        // Same leniency as GetString: a numeric string ("variantSort": "1") is accepted as the number.
+        if (node is JsonValue text && text.TryGetValue<string>(out var asText) && int.TryParse(asText, out var parsed))
+        {
+            return parsed;
         }
 
         try

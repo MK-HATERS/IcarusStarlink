@@ -8,6 +8,8 @@ public class GameAssetExtensionsTests
     [InlineData("BP/Building/BP_Wall.uasset")]
     [InlineData("BP/Building/BP_Wall.uexp")]
     [InlineData("BP/Building/BP_Wall.ubulk")]
+    [InlineData("Maps/Custom_Level.umap")]
+    [InlineData("Textures/T_Rock.uptnl")]
     [InlineData("BP/Building/BP_Wall.UASSET")]
     public void IsRealGameAsset_RealUnrealAssetExtension_ReturnsTrue(string relativePath) =>
         Assert.True(GameAssetExtensions.IsRealGameAsset(relativePath));

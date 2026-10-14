@@ -122,6 +122,20 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
                     continue;
                 }
 
+                // A .EXMOD file this conversion did NOT consume (corrupt, ambiguous, or nested somewhere
+                // other than the pak root — see TryReadEmbeddedExmod) must still never ride along as
+                // an asset: both readers (ExmodFolder.FindExmodFile, ExmodzArchive.ReadEntries) treat
+                // ANY .EXMOD file anywhere in a mod folder as "the package", so writing it beside the
+                // real one makes the whole folder "more than one .EXMOD" — the entry imports fine and
+                // then vanishes from the Library on the next rescan, permanently. Reported, not
+                // silently dropped, since the author did put it there.
+                if (relativePath.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase))
+                {
+                    report.AddWarning(
+                        $"'{pakName}' carries a .EXMOD file ('{relativePath}') that couldn't be used as its bundled data — left out of the converted mod rather than carried through as an asset, which would make the mod unreadable.");
+                    continue;
+                }
+
                 assets.Add(new ExmodAssetEntry(relativePath, File.ReadAllBytes(file)));
             }
 
