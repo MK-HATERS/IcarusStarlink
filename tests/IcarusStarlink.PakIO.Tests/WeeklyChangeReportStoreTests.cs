@@ -15,7 +15,16 @@ public class WeeklyChangeReportStoreTests : IDisposable
         currentUpdateAt,
         [new ChangedDataFile("Crafting/D_Fuel.json", IsNewFile: false, IsRemovedFile: false, RemovedRowNames: ["Gone"], FieldChanges: [])]);
 
-    private static readonly DateTimeOffset Now = new(2026, 8, 27, 0, 0, 0, TimeSpan.Zero);
+    // A real bug found live: this used to be a fixed calendar date (2026-08-27). Save's own
+    // RetentionDays pruning compares against the REAL DateTimeOffset.UtcNow, so once enough real
+    // time passed for that fixed date (and especially its own Now.AddDays(-N) offsets below) to
+    // fall outside the retention window, tests relying on them surviving a reopen started failing
+    // on their own, with nothing in this file having changed — confirmed live: by 2026-10-14, both
+    // History_ReturnsNewestFirst and Save_CalledAgain_AccumulatesInHistoryInsteadOfOverwriting had
+    // started failing this exact way. Computed relative to the real current time instead so this
+    // can never go stale again — truncated to the date (midnight UTC) purely for a clean, stable
+    // value within a single test run, not because the time-of-day component matters anywhere here.
+    private static readonly DateTimeOffset Now = DateTimeOffset.UtcNow.Date;
 
     [Fact]
     public void Current_NoFileYet_IsNull()
