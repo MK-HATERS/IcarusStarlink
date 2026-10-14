@@ -1154,7 +1154,7 @@ public sealed partial class SavesViewModel : ObservableObject
         var confirm = _dialogService.Confirm(
             $"Replace this save slot's current files with the backup from {SelectedBackup.TakenAtUtc.LocalDateTime:g}?\n\n"
             + "A pre_restore safety zip of the slot as it is right now is written first, so this is itself undoable.\n\n"
-            + "Note: the slot folder also holds this account's single-player world saves and map data, so they go back to that moment too.",
+            + "Your single-player worlds and map data in the slot are never part of a backup or a restore.",
             "Restore save backup", ThemedConfirmSeverity.Warning);
         if (!(confirm))
         {

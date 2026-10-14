@@ -814,8 +814,40 @@ public sealed partial class LibraryViewModel : ObservableObject
     {
         if (Directory.Exists(path))
         {
-            var entry = _repository.Import(path);
-            _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
+            if (Directory.EnumerateFiles(path, "*.EXMOD", SearchOption.AllDirectories).Any())
+            {
+                var entry = _repository.Import(path);
+                _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
+                return;
+            }
+
+            // No .EXMOD inside — a folder holding a bare .pak or a UE4SS mod gets the same content
+            // sniffing an archive does (an audit finding: it used to fail with "No .EXMOD file
+            // found"). Classified from a COPY: the classifier unpacks any nested archive it finds
+            // into the folder it's given, and that must never be the user's own folder.
+            var tempCopy = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Import_{Guid.NewGuid():N}");
+            try
+            {
+                FolderBackup.CopyDirectory(path, tempCopy);
+                var (folderEntryName, folderFolderName, folderKind, _) = await ExtractedModClassifier.ClassifyAndImport(
+                    tempCopy, path, _repository, _ue4ssModRepository,
+                    _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath);
+                _activityLog.Log(
+                    folderKind == PendingDownloadActivationKind.Library ? $"Imported '{folderEntryName}'." : $"Imported '{folderFolderName}' as a UE4SS mod.",
+                    ActivityEntryKind.Success);
+            }
+            finally
+            {
+                try
+                {
+                    Directory.Delete(tempCopy, recursive: true);
+                }
+                catch (Exception)
+                {
+                    // Best-effort temp cleanup.
+                }
+            }
+
             return;
         }
 
@@ -1348,7 +1380,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var candidates = _itemsByFolderName.Values.Where(i => i.IsOpaquePak && !i.IsMergedPack).ToList();
+        var candidates = AllLibraryItems().Where(i => i.IsOpaquePak && !i.IsMergedPack).ToList();
         if (candidates.Count == 0)
         {
             StatusMessage = "No opaque mods to convert.";
@@ -1430,8 +1462,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// </summary>
     private async Task RefreshConvertedOpaqueModsAsync()
     {
-        var stillOpaque = _itemsByFolderName.Values.Where(i => i.IsOpaquePak && !i.IsMergedPack).ToList();
-        var alreadyConverted = _itemsByFolderName.Values
+        var stillOpaque = AllLibraryItems().Where(i => i.IsOpaquePak && !i.IsMergedPack).ToList();
+        var alreadyConverted = AllLibraryItems()
             .Where(i => i.ConvertedFromPrebuiltPak && !i.IsLocallyEdited && !i.IsOpaquePak)
             .ToList();
 
@@ -1857,7 +1889,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     /// <summary>Deletes every mod in the Library, regardless of any current selection — its own menu item since this is a much larger blast radius than the ordinary per-selection Delete above; DeleteMods' own count-naming confirmation still gates it.</summary>
     [RelayCommand]
-    private void DeleteAll() => DeleteMods([.. _itemsByFolderName.Values]);
+    private void DeleteAll() => DeleteMods([.. AllLibraryItems()]);
 
     private void DeleteMods(IReadOnlyList<LibraryItemViewModel> items)
     {
@@ -2084,7 +2116,11 @@ public sealed partial class LibraryViewModel : ObservableObject
         // the edit to disk after a fresh instance for the same mod (built from the now-stale
         // repository read) has already replaced this one, leaving the visible Notes field stale
         // relative to what's actually on disk.
-        foreach (var staleFolderName in _itemsByFolderName.Keys.Except(seenFolders).ToList())
+        // Evicted only when the mod is GONE from the repository, not merely hidden by the current
+        // search filter (an audit finding): whole-library checks run over AllLibraryItems() below,
+        // and a hidden row must keep its fetched "Update available" badge until the filter clears.
+        var liveFolders = _repository.GetAll().Select(e => e.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var staleFolderName in _itemsByFolderName.Keys.Where(k => !liveFolders.Contains(k)).ToList())
         {
             _itemsByFolderName[staleFolderName].FlushPendingSave();
             _itemsByFolderName.Remove(staleFolderName);
@@ -2125,6 +2161,17 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// keeps its already-loaded Files/Readme state (no redundant disk I/O) and stays the same
     /// object reference SelectedItem points at.
     /// </summary>
+    /// <summary>
+    /// Every mod in the Library, regardless of the current search filter — the set every
+    /// "whole-library" action (Check for updates, Check mods against game data, Convert opaque
+    /// mods, endorsements, Delete all) is documented to operate on. They used to run over the
+    /// visible rows only (an audit finding): "No possibly stale items remain" while filtered to
+    /// "armor" said nothing about the other 40 mods. Rows for hidden mods are created on demand and
+    /// kept (see Reload's eviction rule).
+    /// </summary>
+    private List<LibraryItemViewModel> AllLibraryItems() =>
+        _repository.GetAll().Select(entry => GetOrCreateItem(entry, fullResync: false)).ToList();
+
     private LibraryItemViewModel GetOrCreateItem(LibraryEntry entry, bool fullResync)
     {
         if (_itemsByFolderName.TryGetValue(entry.FolderName, out var existing))
@@ -2198,7 +2245,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var nexusLinkedItems = _itemsByFolderName.Values.Where(i => i.HasNexusLink).ToList();
+        var nexusLinkedItems = AllLibraryItems().Where(i => i.HasNexusLink).ToList();
         if (nexusLinkedItems.Count == 0)
         {
             EndorsementCheckStatusMessage = "No Library mods are linked to a Nexus mod ID yet.";
@@ -2279,7 +2326,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         // Opaque .pak entries have no .EXMOD to diff — same exclusion EnsureDetailsLoaded's own
         // ChangesContent formatting already applies.
-        var candidates = _itemsByFolderName.Values.Where(i => !i.IsOpaquePak).ToList();
+        var candidates = AllLibraryItems().Where(i => !i.IsOpaquePak).ToList();
         if (candidates.Count == 0)
         {
             return;
@@ -2487,10 +2534,10 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var nexusItems = _itemsByFolderName.Values
+        var nexusItems = AllLibraryItems()
             .Where(i => string.Equals(i.Source, "Nexus", StringComparison.OrdinalIgnoreCase) && i.NexusModId is not null)
             .ToList();
-        var databaseItems = _itemsByFolderName.Values
+        var databaseItems = AllLibraryItems()
             .Where(i => string.Equals(i.Source, "Database", StringComparison.OrdinalIgnoreCase))
             .ToList();
         var ue4ssItems = Ue4ssMods.Where(m => m.HasNexusLink).ToList();

@@ -158,7 +158,7 @@ public sealed partial class HelpViewModel : ObservableObject
 
             **Safety first, always:**
 
-            - Every **Save** and every **Restore** takes a full backup of the whole slot automatically before touching anything. Backups are zips in this app's own `Cache\save_backups` — never inside the game's folders.
+            - Every **Save** and every **Restore** takes a backup of the slot's player-data files automatically before touching anything. Backups are zips in this app's own `Cache\save_backups` — never inside the game's folders.
             - **Restore** additionally writes a `pre_restore` zip of the slot as it currently is, so even restoring the wrong backup is undoable.
             - Saving and restoring are **refused while Icarus is running** — the game holds these files and rewrites them on exit, so an edit made mid-session would be lost.
             - A manual **Backup now** before experimenting is still the smart move.

@@ -158,7 +158,15 @@ public sealed class SaveRepositoryTests : IDisposable
     [Fact]
     public void RestoreSlot_WritesPreRestoreZipThenReplacesTheSlot()
     {
+        // A world save in the slot's Prospects subfolder — the editor never touches it, so neither
+        // backup nor restore may include it (an audit finding: the old whole-folder swap rolled
+        // every world back to the backup's moment).
+        var worldPath = Path.Combine(_playerData, SteamId, "Prospects", "Everbark Outpost.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(worldPath)!);
+        File.WriteAllText(worldPath, "world at backup time");
+
         var backupPath = _repository.BackupSlot(SteamId);
+        File.WriteAllText(worldPath, "twenty hours of play later");
 
         // Change the live slot after the backup, plus add a file the backup doesn't have.
         var profile = _repository.LoadProfile(SteamId);
@@ -171,6 +179,13 @@ public sealed class SaveRepositoryTests : IDisposable
         // The slot is exactly the backup again: old value back, newer file gone (replace, not merge).
         Assert.Equal(100, _repository.LoadProfile(SteamId)["MetaResources"]![0]!["Count"]!.GetValue<int>());
         Assert.False(File.Exists(Path.Combine(_playerData, SteamId, "NewerFile.json")));
+
+        // The world save is exactly as it was before the restore, and in neither zip.
+        Assert.Equal("twenty hours of play later", File.ReadAllText(worldPath));
+        using (var backupZip = ZipFile.OpenRead(backupPath))
+        {
+            Assert.DoesNotContain(backupZip.Entries, e => e.FullName.Contains("Prospects"));
+        }
 
         // And the discarded state is itself recoverable from the pre_restore zip.
         Assert.Contains("pre_restore", Path.GetFileName(preRestorePath));

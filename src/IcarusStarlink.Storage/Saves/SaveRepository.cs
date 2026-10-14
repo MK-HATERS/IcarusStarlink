@@ -231,7 +231,7 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         // "{steamId}_*.zip" glob ListBackups/RestoreSlot use, instead of a truncated zip that would
         // otherwise be offered — and later trusted — as a real, complete backup.
         var tempPath = zipPath + ".tmp";
-        ZipFile.CreateFromDirectory(slotFolder, tempPath);
+        ZipTopLevelFiles(slotFolder, tempPath);
         File.Move(tempPath, zipPath);
 
         PruneBackups(steamId);
@@ -305,7 +305,7 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         Directory.CreateDirectory(backupsDirectory);
         var preRestorePath = FolderBackup.MakeUniqueTimestampedPath(backupsDirectory, $"{steamId}_pre_restore", DateTimeOffset.Now, ".zip");
         var preRestoreTempPath = preRestorePath + ".tmp";
-        ZipFile.CreateFromDirectory(slotFolder, preRestoreTempPath);
+        ZipTopLevelFiles(slotFolder, preRestoreTempPath);
         File.Move(preRestoreTempPath, preRestorePath);
 
         // Extracted to a scratch folder FIRST, while the live slot is still fully intact — a
@@ -348,8 +348,30 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         // means there is never a moment where neither the original nor the replacement exists on
         // disk — and if the final swap-in still fails for some reason, the original is renamed
         // back rather than anything being deleted.
-        var oldSlotFolder = Path.Combine(playerDataDirectory, $"{steamId}_restore_old_{Guid.NewGuid():N}");
-        SwapFolderInPlace(slotFolder, scratchFolder, oldSlotFolder);
+        // Replace, not merge — but only the slot's TOP-LEVEL files (the ones this editor actually
+        // writes: Profile.json, Characters.json, Accolades, Bestiary, MetaInventory, Mounts.json,
+        // flags_<id>.dat and the game's own rolling .backup copies). Subfolders are never touched
+        // (an audit finding): the same slot folder holds the account's single-player WORLD saves
+        // (Prospects), map data and loadouts, which the editor never changes, so the old whole-
+        // folder swap silently rolled every world back to the backup's moment. Backups made by
+        // the earlier whole-folder shape still restore correctly — their subfolder entries are
+        // simply ignored. The pre_restore zip above is the safety net for a failure mid-copy.
+        try
+        {
+            foreach (var live in Directory.GetFiles(slotFolder))
+            {
+                File.Delete(live);
+            }
+
+            foreach (var restored in Directory.GetFiles(scratchFolder))
+            {
+                File.Copy(restored, Path.Combine(slotFolder, Path.GetFileName(restored)), overwrite: true);
+            }
+        }
+        finally
+        {
+            Directory.Delete(scratchFolder, recursive: true);
+        }
 
         // Pruning runs LAST, only after backupFilePath has already been fully read — running it
         // right after the pre-restore zip (as this used to) could delete backupFilePath itself
@@ -375,6 +397,21 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
     /// private) so this specific safety property is directly unit-testable without needing to force
     /// a real OS-level file lock, which isn't reliably reproducible in an automated test.
     /// </summary>
+    /// <summary>
+    /// Only the slot's top-level files go into a backup — never Prospects (world saves), MapData,
+    /// Loadout or Mounts icons, none of which the editor touches. Besides keeping Restore from
+    /// rolling worlds back (see RestoreSlot), it stops every Save click from zipping hundreds of
+    /// megabytes of world data on the UI thread, ten retained copies deep.
+    /// </summary>
+    private static void ZipTopLevelFiles(string slotFolder, string zipPath)
+    {
+        using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
+        foreach (var file in Directory.GetFiles(slotFolder))
+        {
+            archive.CreateEntryFromFile(file, Path.GetFileName(file));
+        }
+    }
+
     internal static void SwapFolderInPlace(string destinationFolder, string newContentFolder, string oldFolderPath)
     {
         Directory.Move(destinationFolder, oldFolderPath);

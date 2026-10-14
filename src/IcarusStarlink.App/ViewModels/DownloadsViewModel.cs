@@ -560,8 +560,15 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         try
         {
-            var bytes = await _downloadHttpClient.GetByteArrayAsync(downloadUrl);
-            await File.WriteAllBytesAsync(tempPath, bytes);
+            // Streamed to disk, same as the Nexus path (an audit finding): GetByteArrayAsync buffered
+            // the whole pak in memory AND put the entire transfer under HttpClient's 100 s timeout,
+            // so a large catalog pak on a slow connection failed every time.
+            using (var response = await HttpFileDownloader.GetWithStreamingResponseAsync(_downloadHttpClient, downloadUrl))
+            {
+                response.EnsureSuccessStatusCode();
+                await using var fileStream = File.Create(tempPath);
+                await response.Content.CopyToAsync(fileStream);
+            }
 
             // catalogEntryId is the Database counterpart of the Nexus pipeline's nexusModId — the
             // stable link that keeps the Downloaded badge and update-checking working after a
@@ -743,7 +750,17 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
 
         var trackerKey = $"{nxmUrl.ModId}:{nxmUrl.FileId}";
-        _activeDownloadsTracker.Start(trackerKey, displayName ?? $"Mod #{nxmUrl.ModId}");
+        var trackerDisplayName = displayName ?? $"Mod #{nxmUrl.ModId}";
+
+        // A second handoff for a file already in flight (a double-click on Nexus's download button
+        // is common) used to download it twice and orphan the first copy (an audit finding).
+        if (_activeDownloadsTracker.Current.Any(d => d.Key == trackerKey))
+        {
+            PendingDownloadStatusMessage = $"'{trackerDisplayName}' is already downloading.";
+            return;
+        }
+
+        _activeDownloadsTracker.Start(trackerKey, trackerDisplayName);
         try
         {
             var links = await _nexusApiClient.GetDownloadLinksAsync(

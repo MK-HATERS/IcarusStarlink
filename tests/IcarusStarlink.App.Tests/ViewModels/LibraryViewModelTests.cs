@@ -59,7 +59,8 @@ public sealed class LibraryViewModelTests
     {
         var harness = new TestHarness();
         var folderPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(folderPath);
+        Directory.CreateDirectory(Path.Combine(folderPath, "Extracted Mods"));
+        File.WriteAllText(Path.Combine(folderPath, "Extracted Mods", "ImportedMod.EXMOD"), "{}");
         try
         {
             harness.Repository.ImportHandler = (path, source, nexusId, catalogId) => new LibraryEntry
@@ -76,6 +77,35 @@ public sealed class LibraryViewModelTests
             Assert.Equal(1, vm.ModCount);
             Assert.Contains(vm.RootItems.OfType<LibraryItemViewModel>(), i => i.FolderName == "ImportedMod");
             Assert.Contains("Imported 1 mod", vm.StatusMessage);
+        }
+        finally
+        {
+            Directory.Delete(folderPath, recursive: true);
+        }
+    }
+
+    /// <summary>Audit finding: a dropped FOLDER holding a bare .pak (no .EXMOD) failed with "No .EXMOD file found" instead of getting the same content sniffing an archive gets.</summary>
+    [Fact]
+    public async Task ImportPaths_FolderHoldingABarePak_ImportsThroughThePrebuiltPakImporter()
+    {
+        var harness = new TestHarness();
+        var folderPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folderPath);
+        File.WriteAllBytes(Path.Combine(folderPath, "Cool_P.pak"), [1, 2, 3, 4]);
+        try
+        {
+            harness.PrebuiltPakImporter.Result = new LibraryEntry
+            {
+                FolderName = "Cool_P", Name = "Cool", Author = "Unknown", Version = "1.0", Description = "", FileName = "Cool_P", IsOpaquePak = true,
+            };
+            var vm = harness.Build();
+
+            await vm.ImportPaths([folderPath]);
+
+            Assert.Equal(1, harness.PrebuiltPakImporter.ImportCallCount);
+            Assert.Empty(harness.Repository.ImportCalls);
+            Assert.True(File.Exists(Path.Combine(folderPath, "Cool_P.pak")), "the user's own folder must be left exactly as it was");
+            Assert.Contains(vm.RootItems.OfType<LibraryItemViewModel>(), i => i.FolderName == "Cool_P");
         }
         finally
         {
@@ -187,7 +217,8 @@ public sealed class LibraryViewModelTests
     {
         var harness = new TestHarness();
         var goodFolder = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(goodFolder);
+        Directory.CreateDirectory(Path.Combine(goodFolder, "Extracted Mods"));
+        File.WriteAllText(Path.Combine(goodFolder, "Extracted Mods", "GoodMod.EXMOD"), "{}");
         // Never created on disk at all — falls through to AnyArchiveExtractor, which throws because
         // the file doesn't even exist to sniff a format from.
         var badPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink.Tests.{Guid.NewGuid():N}.zip");
