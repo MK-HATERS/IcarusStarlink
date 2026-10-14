@@ -75,6 +75,32 @@ public class DaedalusCatalogClientTests
         return new DaedalusCatalogClient(new HttpClient(handler));
     }
 
+    /// <summary>Audit finding: an explicit JSON null in name/author NRE'd and took the whole Daedalus catalog down; a null description survived the fetch and NRE'd later in the search filter.</summary>
+    [Fact]
+    public async Task FetchAsync_EntriesWithExplicitNullFields_AreSkippedOrCoalescedNotFatal()
+    {
+        const string modsWithNulls = """
+            [
+              { "id": "a", "name": "Fine Mod", "author": "Someone", "version": null, "compatibility": null, "description": null, "files": { "pak": "https://example.com/fine.pak" } },
+              { "id": "b", "name": null, "author": "Nobody", "version": "1.0", "compatibility": "All", "description": "no name", "files": { "pak": "https://example.com/b.pak" } },
+              { "id": "c", "name": "No Author", "author": null, "version": "1.0", "compatibility": "All", "description": "no author", "files": { "pak": "https://example.com/c.pak" } }
+            ]
+            """;
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/mods.json"] = modsWithNulls,
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/tags.json"] = "[]",
+        });
+        var client = new DaedalusCatalogClient(new HttpClient(handler));
+
+        var entries = await client.FetchAsync();
+
+        var only = Assert.Single(entries);
+        Assert.Equal("Fine Mod", only.Name);
+        Assert.Equal("", only.Description);
+        Assert.Equal("", only.Version);
+    }
+
     [Fact]
     public async Task FetchAsync_ReturnsAllModsFromModsJson()
     {

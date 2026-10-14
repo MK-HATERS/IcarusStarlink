@@ -71,7 +71,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
         var resetAt = EarliestRateLimitReset(response);
         var whenClause = resetAt is { } reset ? $" Try again after {reset.ToLocalTime():t}." : " Try again later.";
-        throw new InvalidOperationException($"Nexus's API rate limit was exceeded.{whenClause}");
+        throw new NexusRateLimitedException($"Nexus's API rate limit was exceeded.{whenClause}");
     }
 
     private static DateTimeOffset? EarliestRateLimitReset(HttpResponseMessage response)
@@ -391,6 +391,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         EnsureNotRateLimited(response);
         response.EnsureSuccessStatusCode();
         var dto = await response.Content.ReadFromJsonAsync<GraphResponseDto>(cancellationToken);
+        EnsureNoGraphErrors(dto);
 
         return [.. (dto?.Data?.Mods?.Nodes ?? []).Select(ToModInfo)];
     }
@@ -426,6 +427,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         EnsureNotRateLimited(response);
         response.EnsureSuccessStatusCode();
         var dto = await response.Content.ReadFromJsonAsync<GraphResponseDto>(cancellationToken);
+        EnsureNoGraphErrors(dto);
 
         var mods = (dto?.Data?.Mods?.Nodes ?? []).Select(ToModInfo).ToList();
         return new NexusModPage(mods, dto?.Data?.Mods?.TotalCount ?? mods.Count);
@@ -469,6 +471,24 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
     {
         [JsonPropertyName("data")]
         public GraphDataDto? Data { get; init; }
+
+        /// <summary>GraphQL reports a bad query / schema change / rejected key as HTTP 200 with this populated and data null — silently read as "no results" before (an audit finding).</summary>
+        [JsonPropertyName("errors")]
+        public List<GraphErrorDto>? Errors { get; init; }
+    }
+
+    private sealed class GraphErrorDto
+    {
+        [JsonPropertyName("message")]
+        public string? Message { get; init; }
+    }
+
+    private static void EnsureNoGraphErrors(GraphResponseDto? dto)
+    {
+        if (dto is { Data: null, Errors: { Count: > 0 } errors })
+        {
+            throw new HttpRequestException($"Nexus rejected the search request: {errors[0].Message ?? "unknown GraphQL error"}");
+        }
     }
 
     private sealed class GraphDataDto

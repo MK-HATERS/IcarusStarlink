@@ -215,11 +215,15 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         return backupPath;
     }
 
-    public string BackupSlot(string steamId)
+    public string BackupSlot(string steamId) => BackupSlotCore(steamId, manual: false);
+
+    public string BackupSlotManually(string steamId) => BackupSlotCore(steamId, manual: true);
+
+    private string BackupSlotCore(string steamId, bool manual)
     {
         var slotFolder = ResolveSlot(steamId);
         Directory.CreateDirectory(backupsDirectory);
-        var zipPath = FolderBackup.MakeUniqueTimestampedPath(backupsDirectory, steamId, DateTimeOffset.Now, ".zip");
+        var zipPath = FolderBackup.MakeUniqueTimestampedPath(backupsDirectory, manual ? $"{steamId}_manual" : steamId, DateTimeOffset.Now, ".zip");
 
         // Written under a temp name first, then renamed into place only once ZipFile has finished
         // writing every entry — an interruption partway through (disk full, a save file the still-
@@ -244,7 +248,9 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
 
     private void PruneBackups(string steamId)
     {
+        // Manual "Backup now" zips are exempt from the cap — see ISaveRepository.BackupSlotManually.
         var backups = Directory.GetFiles(backupsDirectory, $"{steamId}_*.zip")
+            .Where(f => !Path.GetFileName(f).Contains("_manual_", StringComparison.OrdinalIgnoreCase))
             .OrderBy(File.GetLastWriteTimeUtc)
             .ThenBy(f => f, StringComparer.OrdinalIgnoreCase)
             .ToList();

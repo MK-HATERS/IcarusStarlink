@@ -147,8 +147,11 @@ public sealed partial class SavesViewModel : ObservableObject
     private IEnumerable<IEnumerable<IDirtyTrackable>> DirtyTrackedCollections =>
         [Characters, Currencies, AccountFlags, BinaryFlags, WorkshopTalents, Accolades, BestiaryEntries, Mounts];
 
+    /// <summary>Set when LoadSlotAsync threw partway — see its catch. Nothing may be saved from that state.</summary>
+    private bool _loadFailed;
+
     public bool HasUnsavedChanges =>
-        DirtyTrackedCollections.Any(c => c.Any(x => x.IsDirty)) || _metaInventoryDirty || _charactersListDirty || _mountsListDirty;
+        !_loadFailed && (DirtyTrackedCollections.Any(c => c.Any(x => x.IsDirty)) || _metaInventoryDirty || _charactersListDirty || _mountsListDirty);
 
     public SavesViewModel(
         ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames,
@@ -345,6 +348,7 @@ public sealed partial class SavesViewModel : ObservableObject
         _iconLoadGeneration++;
 
         _lastLoadedSlot = SelectedSlot;
+        _loadFailed = false;
 
         if (SelectedSlot is null)
         {
@@ -416,6 +420,12 @@ public sealed partial class SavesViewModel : ObservableObject
         }
         catch (Exception ex)
         {
+            // A load that threw partway left a half-populated but fully SAVEABLE state (an audit
+            // finding): Save rebuilt Profile.json's Talents/UnlockedFlags from the (empty)
+            // collections and wiped the account's research. Nothing from a failed load is writable.
+            _loadFailed = true;
+            _profile = null;
+            _characterNodes = [];
             StatusMessage = $"Couldn't read this save: {ex.Message}";
         }
 
@@ -430,8 +440,7 @@ public sealed partial class SavesViewModel : ObservableObject
         var unlocked = _profile?["UnlockedFlags"] is JsonArray array
             ? array.Select(n => n?.GetValue<int>() ?? -1).Where(i => i >= 0).ToHashSet()
             : [];
-        var count = Math.Max(_gameNames.AccountFlagNames.Count, unlocked.Count > 0 ? unlocked.Max() + 1 : 0);
-        for (var id = 0; id < count; id++)
+        foreach (var id in SaveFlagIds.KnownThenExtra(_gameNames.AccountFlagNames.Count, unlocked))
         {
             AccountFlags.Add(new SaveFlagViewModel(id, _gameNames.AccountFlagName(id), unlocked.Contains(id), NotifyDirtyChanged));
         }
@@ -470,8 +479,7 @@ public sealed partial class SavesViewModel : ObservableObject
         if (_binaryFlagIds is { } unlocked)
         {
             var set = unlocked.ToHashSet();
-            var count = Math.Max(_gameNames.CharacterFlagNames.Count, set.Count > 0 ? set.Max() + 1 : 0);
-            for (var id = 0; id < count; id++)
+            foreach (var id in SaveFlagIds.KnownThenExtra(_gameNames.CharacterFlagNames.Count, set))
             {
                 BinaryFlags.Add(new SaveFlagViewModel(id, _gameNames.CharacterFlagName(id), set.Contains(id), NotifyDirtyChanged));
             }
@@ -1115,7 +1123,7 @@ public sealed partial class SavesViewModel : ObservableObject
 
         try
         {
-            var zipPath = _repository.BackupSlot(SelectedSlot.SteamId);
+            var zipPath = _repository.BackupSlotManually(SelectedSlot.SteamId);
             RefreshBackupsList();
             StatusMessage = $"Backed up to '{Path.GetFileName(zipPath)}'.";
             _activityLog.Log($"Backed up save slot {SelectedSlot.Display}.", ActivityEntryKind.Success);
@@ -1145,7 +1153,8 @@ public sealed partial class SavesViewModel : ObservableObject
         // without a live WPF Dispatcher, same reasoning DeleteCharacter's own confirm relies on.
         var confirm = _dialogService.Confirm(
             $"Replace this save slot's current files with the backup from {SelectedBackup.TakenAtUtc.LocalDateTime:g}?\n\n"
-            + "A pre_restore safety zip of the slot as it is right now is written first, so this is itself undoable.",
+            + "A pre_restore safety zip of the slot as it is right now is written first, so this is itself undoable.\n\n"
+            + "Note: the slot folder also holds this account's single-player world saves and map data, so they go back to that moment too.",
             "Restore save backup", ThemedConfirmSeverity.Warning);
         if (!(confirm))
         {

@@ -290,6 +290,25 @@ public sealed class SaveRepositoryTests : IDisposable
         Assert.Contains(paths[^1], remaining);
     }
 
+    /// <summary>Audit finding: a deliberate "Backup now" was pruned exactly like an automatic Save/Restore backup, so it silently vanished after nine more clicks.</summary>
+    [Fact]
+    public void Backups_ManualBackupNow_IsNeverPrunedByTheAutomaticCap()
+    {
+        var manual = _repository.BackupSlotManually(SteamId);
+        File.SetLastWriteTimeUtc(manual, DateTime.UtcNow.AddMinutes(-30));
+        Assert.Contains("_manual_", Path.GetFileName(manual));
+
+        for (var i = 0; i < 12; i++)
+        {
+            var path = _repository.BackupSlot(SteamId);
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(i - 20));
+        }
+
+        Assert.True(File.Exists(manual));
+        Assert.Equal(10, Directory.GetFiles(_backups, $"{SteamId}_*.zip").Count(f => !f.Contains("_manual_")));
+        Assert.Contains(_repository.ListBackups(SteamId), b => b.FilePath == manual);
+    }
+
     [Fact]
     public void LoadAccolades_NoFile_ReturnsEmptyShapedDefault()
     {

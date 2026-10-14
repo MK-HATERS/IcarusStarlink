@@ -81,6 +81,9 @@ public interface ISaveRepository
     /// <summary>Zips the entire slot folder into this app's own save_backups cache (never inside the game's folders). Returns the zip path.</summary>
     string BackupSlot(string steamId);
 
+    /// <summary>The user's own deliberate "Backup now": named distinctly ("…_manual_…") and never pruned by the automatic Save/Restore backup cap, so the one backup they took on purpose can't silently vanish after nine more clicks (an audit finding).</summary>
+    string BackupSlotManually(string steamId);
+
     IReadOnlyList<SaveBackupInfo> ListBackups(string steamId);
 
     /// <summary>Writes a pre_restore safety zip of the slot as it is RIGHT NOW, then replaces the slot's contents with the chosen backup. Returns the pre_restore zip path.</summary>

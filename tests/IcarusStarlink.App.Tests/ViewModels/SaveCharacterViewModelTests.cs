@@ -43,6 +43,18 @@ public class SaveCharacterViewModelTests
         Assert.True(vm.IsDirty);
     }
 
+    /// <summary>Audit finding: XP was parsed as a long with only a >= 0 check, so a value past int32 (the game's own field type) was written and then wrapped or was discarded in-game.</summary>
+    [Fact]
+    public void ApplyToNode_XpBeyondInt32_KeepsTheOriginalValue()
+    {
+        var (vm, node) = Make(initialXp: 1000);
+        vm.XpText = "3000000000";
+
+        vm.ApplyToNode();
+
+        Assert.Equal(1000, node["XP"]!.GetValue<long>());
+    }
+
     [Fact]
     public void MarkClean_ValidXpText_AdoptedAsBaseline_BecomesClean()
     {

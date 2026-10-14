@@ -109,7 +109,7 @@ public class NexusApiClientTests
             new Dictionary<string, string> { ["https://api.nexusmods.com/v1/games/icarus/mods/290/files/1234/download_link?key=stale&expires=1"] = """{"message":"Key expired"}""" },
             new Dictionary<string, HttpStatusCode> { ["https://api.nexusmods.com/v1/games/icarus/mods/290/files/1234/download_link?key=stale&expires=1"] = HttpStatusCode.Forbidden });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetDownloadLinksAsync("some-key", "icarus", 290, 1234, "stale", 1));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => client.GetDownloadLinksAsync("some-key", "icarus", 290, 1234, "stale", 1));
     }
 
     // Real shape, confirmed against Nexus's own official node-nexus-api client source (IModInfo).
@@ -293,6 +293,22 @@ public class NexusApiClientTests
         Assert.Null(result[1].PictureUrl);
     }
 
+    /// <summary>Audit finding: GraphQL reports a bad query / schema change as HTTP 200 with "errors" and null data, which read as "no results" instead of a failure.</summary>
+    [Fact]
+    public async Task SearchModsAsync_GraphQlErrorsWithNullData_ThrowsInsteadOfReportingNoResults()
+    {
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://api.nexusmods.com/v2/graphql"] = """
+                {"errors":[{"message":"Field 'pictureUrl' doesn't exist on type 'Mod'"}],"data":null}
+                """,
+        });
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => client.SearchModsAsync("some-key", "icarus", "cheat"));
+
+        Assert.Contains("pictureUrl", ex.Message);
+    }
+
     [Fact]
     public async Task SearchModsAsync_NullApiKey_StillWorks()
     {
@@ -345,7 +361,7 @@ public class NexusApiClientTests
             new Dictionary<string, string> { [url] = """{"message":"Invalid API Key"}""" },
             new Dictionary<string, HttpStatusCode> { [url] = HttpStatusCode.Unauthorized });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetModListAsync("wrong-key", "icarus", NexusModList.Trending));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => client.GetModListAsync("wrong-key", "icarus", NexusModList.Trending));
     }
 
     [Fact]
@@ -372,7 +388,9 @@ public class NexusApiClientTests
                 },
             });
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.ValidateKeyAsync("some-key"));
+        // The distinct type matters (an audit finding): a plain InvalidOperationException was
+        // indistinguishable from the download endpoint's "not Premium" rejection in the UI.
+        var ex = await Assert.ThrowsAsync<NexusRateLimitedException>(() => client.ValidateKeyAsync("some-key"));
 
         // The hourly reset is earlier than the daily reset here, so it's the one that should be
         // quoted — matches "whichever budget you're blocked on resets first is when you can retry".
@@ -389,7 +407,7 @@ public class NexusApiClientTests
             new Dictionary<string, string> { [url] = """{"message":"Too Many Requests"}""" },
             new Dictionary<string, HttpStatusCode> { [url] = HttpStatusCode.TooManyRequests });
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.ValidateKeyAsync("some-key"));
+        var ex = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => client.ValidateKeyAsync("some-key"));
 
         Assert.Contains("rate limit", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("later", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -404,6 +422,6 @@ public class NexusApiClientTests
             new Dictionary<string, string> { ["https://api.nexusmods.com/v2/graphql"] = """{"message":"Too Many Requests"}""" },
             new Dictionary<string, HttpStatusCode> { ["https://api.nexusmods.com/v2/graphql"] = HttpStatusCode.TooManyRequests });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SearchModsAsync("some-key", "icarus", "cheat"));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => client.SearchModsAsync("some-key", "icarus", "cheat"));
     }
 }

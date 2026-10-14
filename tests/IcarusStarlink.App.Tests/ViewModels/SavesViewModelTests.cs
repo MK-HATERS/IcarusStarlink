@@ -601,6 +601,12 @@ public sealed class SavesViewModelTests : IDisposable
             return "fake_backup.zip";
         }
 
+        public string BackupSlotManually(string steamId)
+        {
+            BackupSlotCallCount++;
+            return "fake_manual_backup.zip";
+        }
+
         public IReadOnlyList<SaveBackupInfo> ListBackups(string steamId) => Backups;
 
         public string RestoreSlot(string steamId, string backupFilePath)

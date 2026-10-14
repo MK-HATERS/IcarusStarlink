@@ -30,9 +30,10 @@ public sealed partial class SaveCurrencyViewModel : ObservableObject, IDirtyTrac
 
     public void ApplyToNode()
     {
-        if (long.TryParse(CountText, out var count) && count >= 0)
+        // int, not long (an audit finding): the game stores Count as a 32-bit int.
+        if (int.TryParse(CountText, out var count) && count >= 0)
         {
-            _node["Count"] = count;
+            _node["Count"] = (long)count;
         }
     }
 
@@ -44,7 +45,7 @@ public sealed partial class SaveCurrencyViewModel : ObservableObject, IDirtyTrac
     /// </summary>
     public void MarkClean()
     {
-        if (long.TryParse(CountText, out var count) && count >= 0)
+        if (int.TryParse(CountText, out var count) && count >= 0)
         {
             _originalCount = count;
         }

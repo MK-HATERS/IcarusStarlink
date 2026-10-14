@@ -33,6 +33,18 @@ public class SaveCurrencyViewModelTests
         Assert.True(vm.IsDirty);
     }
 
+    /// <summary>Audit finding: a currency Count past int32 (the game's own field type) was written as-is.</summary>
+    [Fact]
+    public void ApplyToNode_CountBeyondInt32_KeepsTheOriginalValue()
+    {
+        var (vm, node) = Make(initialCount: 100);
+        vm.CountText = "99999999999";
+
+        vm.ApplyToNode();
+
+        Assert.Equal(100, node["Count"]!.GetValue<long>());
+    }
+
     [Fact]
     public void MarkClean_ValidCountText_AdoptedAsBaseline_BecomesClean()
     {

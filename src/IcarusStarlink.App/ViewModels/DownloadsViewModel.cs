@@ -303,6 +303,16 @@ public sealed partial class DownloadsViewModel : ObservableObject
             var jimk72Task = CatalogSourceFetch.FetchAsync(_jimk72Client.FetchAsync, "Jimk72", failedSources);
             await Task.WhenAll(daedalusTask, jimk72Task);
 
+            // Both sources down (offline, say) must not replace a good in-memory catalog with an
+            // empty one — CatalogSourceFetch swallows each failure into [], so the "a failed fetch
+            // leaves the catalog unchanged" reasoning only held for the exception path (an audit
+            // finding: Refresh while offline emptied a 600-row table).
+            if (failedSources.Count == 2 && _allCatalogEntries.Count > 0)
+            {
+                CatalogStatusMessage = "Couldn't reach Daedalus or Jimk72 — showing the catalog from the last successful load.";
+                return;
+            }
+
             _allCatalogEntries = [.. daedalusTask.Result, .. jimk72Task.Result];
             // A fresh catalog snapshot invalidates every cached row VM below — bound to grow
             // unboundedly otherwise, since CatalogEntry has value equality and a genuinely changed
@@ -360,7 +370,17 @@ public sealed partial class DownloadsViewModel : ObservableObject
                     .Select(key => key!.Value)
                     .Distinct()
                     .ToList();
-                _repoPushedDates = await _gitHubRepoDateClient.FetchPushedDatesAsync(repoKeys);
+                // Merged over what's already known, not replaced (an audit finding): the client omits
+                // any repo whose lookup failed (GitHub's 60/hour unauthenticated cap bites on a 40-repo
+                // refresh), so a wholesale replace blanked dates a previous refresh had resolved.
+                var fetched = await _gitHubRepoDateClient.FetchPushedDatesAsync(repoKeys);
+                var merged = new Dictionary<(string Owner, string Repo), DateTimeOffset>(_repoPushedDates);
+                foreach (var (key, pushedAt) in fetched)
+                {
+                    merged[key] = pushedAt;
+                }
+
+                _repoPushedDates = merged;
                 ApplyCatalogFilters();
             }
             catch (Exception)
@@ -531,7 +551,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
         downloadUrl = GitHubBlobUrl.ToRawContentUrl(downloadUrl);
 
         var isExmodz = catalogEntry.ExmodzUrl is not null;
-        var tempPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_{Guid.NewGuid():N}{(isExmodz ? ".EXMODZ" : ".pak")}");
+        // A GUID-named temp DIRECTORY holding a file named after the catalog entry (an audit
+        // finding): a .pak that can't be converted is imported as an opaque entry whose folder and
+        // display name derive from the pak's own file name — which was "IcarusStarlink_<guid>".
+        var tempDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"CatalogDownload_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        var tempPath = Path.Combine(tempDirectory, DownloadFileNameSanitizer.Sanitize($"{catalogEntry.Name}{(isExmodz ? ".EXMODZ" : ".pak")}"));
 
         try
         {
@@ -557,7 +582,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         {
             try
             {
-                File.Delete(tempPath);
+                Directory.Delete(tempDirectory, recursive: true);
             }
             catch (Exception)
             {
@@ -665,6 +690,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
             await FetchAndDownloadAsync($"nxm://icarus/mods/{nexusModId}/files/{file.FileId}", displayName);
         }
+        catch (NexusRateLimitedException ex)
+        {
+            PendingDownloadStatusMessage = ex.Message;
+        }
         catch (InvalidOperationException ex)
         {
             // GetModFilesAsync's own rejection — an actually invalid/expired stored key (401/403
@@ -751,9 +780,27 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 _pendingDownloadsDirectory, fileName, nxmUrl.ModId, nxmUrl.FileId,
                 path => _pendingDownloadStore.Entries.Any(e => e.ModId == nxmUrl.ModId && e.FileId == nxmUrl.FileId && e.LocalFilePath == path));
             var localPath = Path.Combine(_pendingDownloadsDirectory, fileName);
-            await using (var fileStream = File.Create(localPath))
+
+            // Streamed to a .part file and renamed into place on completion (an audit finding):
+            // writing straight to the final path truncated an already-complete earlier download of
+            // the same file the moment a re-download started, so a mid-stream failure left a
+            // truncated file that the Pending Downloads row still presented as good.
+            var partPath = $"{localPath}.{Guid.NewGuid():N}.part";
+            try
             {
-                await response.Content.CopyToAsync(fileStream);
+                await using (var fileStream = File.Create(partPath))
+                {
+                    await response.Content.CopyToAsync(fileStream);
+                }
+
+                File.Move(partPath, localPath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(partPath))
+                {
+                    File.Delete(partPath);
+                }
             }
 
             _pendingDownloadStore.Add(new PendingDownloadEntry
@@ -871,10 +918,14 @@ public sealed partial class DownloadsViewModel : ObservableObject
             string activatedFolderName;
             PendingDownloadActivationKind activatedKind;
 
-            if (string.Equals(Path.GetExtension(item.LocalFilePath), ".pak", StringComparison.OrdinalIgnoreCase))
+            // Resolved at use (an audit finding): the stored path is absolute, so moving the app
+            // folder — the "unzip anywhere" portable install — broke every pending entry; the file
+            // name is always under this app's own Pending_Downloads folder.
+            var localFilePath = ResolveLocalFilePath(item);
+            if (string.Equals(Path.GetExtension(localFilePath), ".pak", StringComparison.OrdinalIgnoreCase))
             {
                 var entry = await _prebuiltPakImporter.ImportAsync(
-                    item.LocalFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath, source: "Nexus", nexusModId: item.ModId);
+                    localFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath, source: "Nexus", nexusModId: item.ModId);
                 if (entry.IsOpaquePak || entry.ConvertedFromPrebuiltPak)
                 {
                     // A converted entry's own Name/Author are still just placeholders (the pak's
@@ -899,7 +950,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 // dialog filter or button choice telling us which kind this is, so it has to be
                 // extracted first and classified from its actual content.
                 tempExtractDirectory = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Activate_{Guid.NewGuid():N}");
-                AnyArchiveExtractor.ExtractToDirectory(item.LocalFilePath, tempExtractDirectory);
+                AnyArchiveExtractor.ExtractToDirectory(localFilePath, tempExtractDirectory);
                 (statusMessage, activatedFolderName, activatedKind) =
                     await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, item.ModId);
             }
@@ -1062,6 +1113,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
     }
 
+    private string ResolveLocalFilePath(PendingDownloadItemViewModel item) =>
+        File.Exists(item.LocalFilePath) ? item.LocalFilePath : Path.Combine(_pendingDownloadsDirectory, item.FileName);
+
     [RelayCommand]
     private void DiscardPendingDownload(PendingDownloadItemViewModel? item)
     {
@@ -1072,9 +1126,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         try
         {
-            if (File.Exists(item.LocalFilePath))
+            var localFilePath = ResolveLocalFilePath(item);
+            if (File.Exists(localFilePath))
             {
-                File.Delete(item.LocalFilePath);
+                File.Delete(localFilePath);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

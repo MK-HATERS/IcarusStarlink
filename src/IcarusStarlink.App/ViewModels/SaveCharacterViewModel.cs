@@ -105,8 +105,9 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
 
         // Every flag the game's own table defines, plus any ID the save carries that the table
         // doesn't know (an older/newer game version) — nothing in the save is ever hidden.
-        var count = Math.Max(names.CharacterFlagNames.Count, unlocked.Count > 0 ? unlocked.Max() + 1 : 0);
-        for (var id = 0; id < count; id++)
+        // Every known ID, then each UNKNOWN set ID individually — never a dense 0..max range (an
+        // audit finding: one corrupt/huge ID in a save meant allocating that many rows and dying).
+        foreach (var id in SaveFlagIds.KnownThenExtra(names.CharacterFlagNames.Count, unlocked))
         {
             Flags.Add(new SaveFlagViewModel(id, names.CharacterFlagName(id), unlocked.Contains(id), _onDirtyChanged));
         }
@@ -162,9 +163,11 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
     public void ApplyToNode()
     {
         _node["CharacterName"] = Name;
-        if (long.TryParse(XpText, out var xp) && xp >= 0)
+        // int, not long (an audit finding): the game stores XP as a 32-bit int, so a value past
+        // 2,147,483,647 "saved" fine here and then wrapped or was discarded in-game.
+        if (int.TryParse(XpText, out var xp) && xp >= 0)
         {
-            _node["XP"] = xp;
+            _node["XP"] = (long)xp;
         }
 
         // UnlockedFlags: keep the save's own ordering for flags that stay set, append newly-set
@@ -220,9 +223,9 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         {
             foreach (var field in Cosmetics)
             {
-                if (long.TryParse(field.ValueText, out var hash))
+                if (int.TryParse(field.ValueText, out var hash))
                 {
-                    cosmetic[field.Key] = hash;
+                    cosmetic[field.Key] = (long)hash;
                 }
             }
 
@@ -239,7 +242,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
     public void MarkClean()
     {
         _originalName = Name;
-        if (long.TryParse(XpText, out var xp) && xp >= 0)
+        if (int.TryParse(XpText, out var xp) && xp >= 0)
         {
             _originalXp = xp;
         }

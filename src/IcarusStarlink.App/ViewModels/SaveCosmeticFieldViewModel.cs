@@ -42,7 +42,7 @@ public sealed partial class SaveCosmeticFieldViewModel : ObservableObject, IDirt
     /// </summary>
     public void MarkClean()
     {
-        if (long.TryParse(ValueText, out _))
+        if (int.TryParse(ValueText, out _))
         {
             _originalValueText = ValueText;
         }
