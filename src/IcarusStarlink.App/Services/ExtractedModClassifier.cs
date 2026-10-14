@@ -2,6 +2,7 @@ using System.IO;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Ue4ss;
+using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Import;
 
 namespace IcarusStarlink.App.Services;
@@ -20,6 +21,16 @@ namespace IcarusStarlink.App.Services;
 public static class ExtractedModClassifier
 {
     /// <summary>
+    /// A real Nexus upload confirmed live wraps a single .EXMODZ inside a .zip (the author zipped
+    /// their mod file for upload) — one genuine layer of nesting. Three allows for an author who
+    /// double-wraps, while still bounding the recursion against a hostile archive-in-archive chain
+    /// that would otherwise extract forever (ExmodSizeBudget bounds each layer's size, not the depth).
+    /// </summary>
+    private const int MaxNestedArchiveDepth = 3;
+
+    private static readonly string[] NestedArchiveExtensions = [".exmodz", ".zip", ".rar", ".7z"];
+
+    /// <summary>
     /// source/nexusModId tag the resulting Library entry when known (a Nexus-sourced download); a
     /// plain manual import passes null for both. IsOpaquePak distinguishes the two ways Kind can be
     /// Library — a real EXMOD-shaped mod (false, already carries its own real name/author) vs. a
@@ -29,17 +40,26 @@ public static class ExtractedModClassifier
     /// the common case. Async because a single .pak now goes through IPrebuiltPakImporter, which
     /// genuinely extracts and diffs it before deciding.
     /// </summary>
-    public static async Task<(string EntryName, string FolderName, PendingDownloadActivationKind Kind, bool IsOpaquePak)> ClassifyAndImport(
+    public static Task<(string EntryName, string FolderName, PendingDownloadActivationKind Kind, bool IsOpaquePak)> ClassifyAndImport(
         string extractedDirectory, string originalFileName,
         ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
-        string? source = null, int? nexusModId = null, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame = null)
+        string? source = null, int? nexusModId = null, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame = null) =>
+        ClassifyAndImportCore(
+            extractedDirectory, originalFileName, libraryRepository, ue4ssModRepository, prebuiltPakImporter,
+            dataFolder, unrealPakExePath, source, nexusModId, ue4ssNamesAlreadyInstalledInGame, nestedDepth: 0);
+
+    private static async Task<(string EntryName, string FolderName, PendingDownloadActivationKind Kind, bool IsOpaquePak)> ClassifyAndImportCore(
+        string extractedDirectory, string originalFileName,
+        ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
+        IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
+        string? source, int? nexusModId, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame, int nestedDepth)
     {
         // A manual scan, not a "*.EXMOD" glob — Directory.EnumerateFiles' pattern matching follows
         // the filesystem's own case sensitivity, same reasoning ExmodFolder.FindExmodFile's own
         // comment already gives for why it does the same thing.
-        var hasExmod = Directory.EnumerateFiles(extractedDirectory, "*", SearchOption.AllDirectories)
-            .Any(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase));
+        var allFiles = Directory.GetFiles(extractedDirectory, "*", SearchOption.AllDirectories);
+        var hasExmod = allFiles.Any(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase));
 
         if (hasExmod)
         {
@@ -51,7 +71,7 @@ public static class ExtractedModClassifier
             return (entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, IsOpaquePak: false);
         }
 
-        var pakFiles = Directory.GetFiles(extractedDirectory, "*.pak", SearchOption.AllDirectories);
+        var pakFiles = allFiles.Where(f => f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)).ToArray();
         if (pakFiles.Length == 1)
         {
             var entry = await prebuiltPakImporter.ImportAsync(pakFiles[0], dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId);
@@ -61,6 +81,43 @@ public static class ExtractedModClassifier
         if (pakFiles.Length > 1)
         {
             throw new FormatException($"Contains {pakFiles.Length} .pak files — ambiguous which one to import.");
+        }
+
+        // A real bug found live (a user's own Nexus bug report, confirmed by inspecting the actual
+        // downloaded file): the Nexus upload was a .zip wrapping a single .EXMODZ — the author had
+        // zipped their mod file for upload. After extracting the outer zip, this folder held one
+        // .EXMODZ and nothing else: no .EXMOD, no .pak, nothing Unreal-shaped — so it fell straight
+        // through to the UE4SS catch-all below and was "staged" as a UE4SS mod, uselessly. The
+        // inner archive is the real mod; extract it and classify THAT, exactly as if it had been
+        // the download itself (the manual "Import archive…" path handles a bare .EXMODZ fine, which
+        // is why that route never showed this bug). One nested archive is unambiguous; several
+        // (e.g. an author bundling multiple variants in one upload) is the same genuine ambiguity
+        // the multi-.pak rule above already refuses to guess at.
+        var nestedArchives = allFiles
+            .Where(f => NestedArchiveExtensions.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        if (nestedArchives.Length == 1)
+        {
+            if (nestedDepth >= MaxNestedArchiveDepth)
+            {
+                throw new FormatException($"Archives nested more than {MaxNestedArchiveDepth} levels deep — refusing to keep unpacking.");
+            }
+
+            // Under extractedDirectory on purpose: every caller deletes that whole tree afterward,
+            // so this layer is cleaned up with it. Classifying the nested folder (not the parent)
+            // keeps the now-redundant outer .EXMODZ/.zip file out of what Import copies.
+            var nestedDirectory = Path.Combine(extractedDirectory, $"__nested{nestedDepth}_{Guid.NewGuid():N}");
+            AnyArchiveExtractor.ExtractToDirectory(nestedArchives[0], nestedDirectory);
+            return await ClassifyAndImportCore(
+                nestedDirectory, Path.GetFileName(nestedArchives[0]), libraryRepository, ue4ssModRepository,
+                prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, ue4ssNamesAlreadyInstalledInGame,
+                nestedDepth + 1);
+        }
+
+        if (nestedArchives.Length > 1)
+        {
+            throw new FormatException(
+                $"Contains {nestedArchives.Length} archives inside it — ambiguous which one is the mod. Extract it yourself and import the one you want.");
         }
 
         // A real bug found live: a user reported a downloaded EXMODZ silently landing as a UE4SS
@@ -73,7 +130,7 @@ public static class ExtractedModClassifier
         // no legitimate reason to carry raw .uasset/.uexp content, which UE4SS itself can't do
         // anything with sitting loose in a mod folder — silently "staging" this as a UE4SS mod
         // previously reported success while actually importing something completely inert.
-        var hasOrphanedUnrealAssets = Directory.EnumerateFiles(extractedDirectory, "*", SearchOption.AllDirectories)
+        var hasOrphanedUnrealAssets = allFiles
             .Any(f => f.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".uexp", StringComparison.OrdinalIgnoreCase));
         if (hasOrphanedUnrealAssets)
         {

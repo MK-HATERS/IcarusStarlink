@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Compression;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
@@ -27,13 +28,16 @@ public sealed class ExtractedModClassifierTests : IDisposable
 
     public void Dispose()
     {
-        try
+        foreach (var folder in _scratchFolders.Append(_extractedDir))
         {
-            Directory.Delete(_extractedDir, recursive: true);
-        }
-        catch (Exception)
-        {
-            // Best-effort cleanup only — never the point of these tests.
+            try
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+            catch (Exception)
+            {
+                // Best-effort cleanup only — never the point of these tests.
+            }
         }
     }
 
@@ -267,6 +271,115 @@ public sealed class ExtractedModClassifierTests : IDisposable
 
         Assert.Equal(PendingDownloadActivationKind.Ue4ssMod, kind);
         Assert.Equal(1, ue4ssModRepository.ImportFromFolderCallCount);
+    }
+
+    /// <summary>Zips the given folder's contents into archivePath — a real zip, so the classifier's own AnyArchiveExtractor does real extraction work rather than a fake.</summary>
+    private static void ZipFolderInto(string sourceFolder, string archivePath) => ZipFile.CreateFromDirectory(sourceFolder, archivePath);
+
+    private readonly List<string> _scratchFolders = [];
+
+    /// <summary>A folder OUTSIDE _extractedDir on purpose — anything inside it would be scanned by the classifier itself and skew the result. Cleaned up in Dispose.</summary>
+    private string NewScratchFolder()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", $"scratch_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        _scratchFolders.Add(path);
+        return path;
+    }
+
+    /// <summary>
+    /// Regression test: a real user Nexus bug report, confirmed by inspecting the actual downloaded
+    /// file — the Nexus upload was a .zip wrapping a single .EXMODZ (the author zipped their mod
+    /// file for upload). After the outer extraction the folder held one .EXMODZ and nothing else, so
+    /// the classifier found no .EXMOD/.pak/.uasset and fell straight through to the UE4SS catch-all,
+    /// "staging" a useless UE4SS mod. The inner archive is the real mod and must be unpacked and
+    /// classified as if it had been the download itself.
+    /// </summary>
+    [Fact]
+    public async Task ClassifyAndImport_SingleNestedExmodzArchive_UnpacksItAndImportsAsAnExmodMod()
+    {
+        var innerModFolder = NewScratchFolder();
+        ExmodFolder.Write(innerModFolder, BuildRealExmod());
+        ZipFolderInto(innerModFolder, Path.Combine(_extractedDir, "Ferani_Steadfast_Structures.EXMODZ"));
+        var libraryRepository = new FakeLibraryRepository();
+        var ue4ssModRepository = new FakeUe4ssModRepository();
+
+        var (entryName, _, kind, isOpaquePak) = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Ferani_Steadfast_Structures_EXMODZ-339-1.zip", libraryRepository, ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null);
+
+        Assert.Equal(PendingDownloadActivationKind.Library, kind);
+        Assert.False(isOpaquePak);
+        Assert.Equal("Faster Processors", entryName);
+        Assert.Equal(1, libraryRepository.ImportCallCount);
+        Assert.Equal(0, ue4ssModRepository.ImportFromFolderCallCount);
+        // Imported from the unpacked inner folder (a subfolder of the extraction dir), not the
+        // outer folder — so the now-redundant outer .EXMODZ file itself never ends up in the Library.
+        Assert.NotNull(libraryRepository.LastImportSourcePath);
+        Assert.NotEqual(_extractedDir, libraryRepository.LastImportSourcePath);
+        Assert.StartsWith(_extractedDir, libraryRepository.LastImportSourcePath);
+    }
+
+    [Fact]
+    public async Task ClassifyAndImport_SingleNestedArchiveHoldingALuaMod_StillClassifiesAsUe4ss_NamedAfterTheInnerArchive()
+    {
+        // The nested unpack is format-agnostic — it re-runs the whole classification on what's
+        // inside, so a zipped-up UE4SS mod still lands as UE4SS. Named after the INNER archive
+        // (the mod's own file name), not the outer one, which for a real Nexus download is a
+        // mangled "Name-339-1-1758806700" CDN string nobody would want as a mod folder name.
+        var innerModFolder = NewScratchFolder();
+        Directory.CreateDirectory(Path.Combine(innerModFolder, "Scripts"));
+        File.WriteAllText(Path.Combine(innerModFolder, "Scripts", "main.lua"), "print('hello')");
+        ZipFolderInto(innerModFolder, Path.Combine(_extractedDir, "CoolLuaMod.zip"));
+        var ue4ssModRepository = new FakeUe4ssModRepository { Result = "CoolLuaMod_1" };
+
+        var (_, _, kind, _) = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "CoolLuaMod-123-1-999.zip", new FakeLibraryRepository(), ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null);
+
+        Assert.Equal(PendingDownloadActivationKind.Ue4ssMod, kind);
+        Assert.Equal(1, ue4ssModRepository.ImportFromFolderCallCount);
+        Assert.Equal("CoolLuaMod", ue4ssModRepository.LastFallbackName);
+    }
+
+    [Fact]
+    public async Task ClassifyAndImport_TwoNestedArchives_ThrowsInsteadOfGuessingWhichIsTheMod()
+    {
+        var innerModFolder = NewScratchFolder();
+        ExmodFolder.Write(innerModFolder, BuildRealExmod());
+        ZipFolderInto(innerModFolder, Path.Combine(_extractedDir, "VariantA.EXMODZ"));
+        ZipFolderInto(innerModFolder, Path.Combine(_extractedDir, "VariantB.EXMODZ"));
+        var libraryRepository = new FakeLibraryRepository();
+        var ue4ssModRepository = new FakeUe4ssModRepository();
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Bundle.zip", libraryRepository, ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null));
+
+        Assert.Contains("2 archives", ex.Message);
+        Assert.Equal(0, libraryRepository.ImportCallCount);
+        Assert.Equal(0, ue4ssModRepository.ImportFromFolderCallCount);
+    }
+
+    [Fact]
+    public async Task ClassifyAndImport_ArchivesNestedTooDeep_ThrowsRatherThanUnpackingForever()
+    {
+        // Four layers of archive-in-archive: the classifier unpacks three (its own cap) and refuses
+        // the fourth — a bound against a hostile chain that would otherwise extract without end.
+        var innerModFolder = NewScratchFolder();
+        ExmodFolder.Write(innerModFolder, BuildRealExmod());
+        var current = innerModFolder;
+        for (var layer = 0; layer < 4; layer++)
+        {
+            var wrapper = NewScratchFolder();
+            ZipFolderInto(current, Path.Combine(wrapper, $"Layer{layer}.zip"));
+            current = wrapper;
+        }
+        ZipFolderInto(current, Path.Combine(_extractedDir, "Outer.zip"));
+        var libraryRepository = new FakeLibraryRepository();
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Download.zip", libraryRepository, new FakeUe4ssModRepository(), new FakePrebuiltPakImporter(), "SomeDataFolder", null));
+
+        Assert.Contains("nested more than", ex.Message);
+        Assert.Equal(0, libraryRepository.ImportCallCount);
     }
 
     [Fact]
