@@ -226,6 +226,49 @@ public sealed class ExtractedModClassifierTests : IDisposable
         Assert.Equal("CoolMod", ue4ssModRepository.LastFallbackName);
     }
 
+    /// <summary>
+    /// Regression test: a real user bug report — a downloaded EXMODZ silently landed as a UE4SS mod
+    /// instead. Root cause: the old fallback treated "neither EXMOD-shaped nor a single pak" as
+    /// always meaning "this is a UE4SS mod," even for a folder full of raw Unreal asset files
+    /// (.uasset/.uexp — exactly what a real EXMOD's own BP/ subfolder contains) with no .EXMOD
+    /// manifest alongside them. That shape is a broken/incomplete download or a packaging mistake,
+    /// never a genuine UE4SS mod (UE4SS mods are Lua scripts; loose .uasset/.uexp content is inert
+    /// to it) — silently staging it as UE4SS previously reported success while importing something
+    /// completely non-functional.
+    /// </summary>
+    [Fact]
+    public async Task ClassifyAndImport_UnrealAssetFilesWithNoExmodManifest_ThrowsInsteadOfMisfilingAsUe4ss()
+    {
+        var bpDir = Path.Combine(_extractedDir, "BP", "Objects");
+        Directory.CreateDirectory(bpDir);
+        File.WriteAllBytes(Path.Combine(bpDir, "BP_Something.uasset"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(bpDir, "BP_Something.uexp"), [4, 5, 6]);
+        var ue4ssModRepository = new FakeUe4ssModRepository();
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "SteadfastStructures.EXMODZ", new FakeLibraryRepository(), ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null));
+
+        Assert.Contains(".EXMOD manifest", ex.Message);
+        Assert.Equal(0, ue4ssModRepository.ImportFromFolderCallCount);
+    }
+
+    [Fact]
+    public async Task ClassifyAndImport_PureLuaContentNoUnrealAssets_StillFallsBackToUe4ssModImport()
+    {
+        // Confirms the new .uasset/.uexp check doesn't overreach — a genuine UE4SS mod (plain Lua,
+        // nothing Unreal-asset-shaped) must keep working exactly as before.
+        var scriptsDir = Path.Combine(_extractedDir, "Scripts");
+        Directory.CreateDirectory(scriptsDir);
+        File.WriteAllText(Path.Combine(scriptsDir, "main.lua"), "print('hello')");
+        var ue4ssModRepository = new FakeUe4ssModRepository { Result = "CoolMod_1" };
+
+        var (_, _, kind, _) = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "CoolMod.zip", new FakeLibraryRepository(), ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null);
+
+        Assert.Equal(PendingDownloadActivationKind.Ue4ssMod, kind);
+        Assert.Equal(1, ue4ssModRepository.ImportFromFolderCallCount);
+    }
+
     [Fact]
     public async Task ClassifyAndImport_EmptyExtractedFolder_StillFallsBackToUe4ssModImport()
     {

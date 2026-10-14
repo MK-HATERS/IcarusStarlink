@@ -63,8 +63,29 @@ public static class ExtractedModClassifier
             throw new FormatException($"Contains {pakFiles.Length} .pak files — ambiguous which one to import.");
         }
 
-        // Neither EXMOD-shaped nor a single prebuilt pak — treat as a UE4SS mod, the one kind of
-        // mod this app handles that carries no metadata file of its own to detect it by.
+        // A real bug found live: a user reported a downloaded EXMODZ silently landing as a UE4SS
+        // mod instead. Neither EXMOD-shaped nor a single prebuilt pak genuinely means "treat as
+        // UE4SS" ONLY when the content is actually Lua-script-shaped — but raw Unreal asset files
+        // (.uasset/.uexp — exactly what a real EXMOD's own BP/ subfolder is full of) with no .EXMOD
+        // manifest alongside them is a different, much more likely real-world case: a download
+        // that's missing its manifest (an incomplete/corrupt download, or a mod author's own
+        // packaging mistake), not a genuine UE4SS mod at all. UE4SS mods are Lua scripts; they have
+        // no legitimate reason to carry raw .uasset/.uexp content, which UE4SS itself can't do
+        // anything with sitting loose in a mod folder — silently "staging" this as a UE4SS mod
+        // previously reported success while actually importing something completely inert.
+        var hasOrphanedUnrealAssets = Directory.EnumerateFiles(extractedDirectory, "*", SearchOption.AllDirectories)
+            .Any(f => f.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".uexp", StringComparison.OrdinalIgnoreCase));
+        if (hasOrphanedUnrealAssets)
+        {
+            throw new FormatException(
+                "Contains Unreal asset files (.uasset/.uexp) but no .EXMOD manifest — this looks like an incomplete "
+                + "or corrupted download (or a packaging mistake by the mod author) rather than a real UE4SS mod. "
+                + "Try re-downloading it.");
+        }
+
+        // Neither EXMOD-shaped nor a single prebuilt pak, and nothing here looks like orphaned
+        // Unreal asset content either — treat as a UE4SS mod, the one kind of mod this app handles
+        // that carries no metadata file of its own to detect it by.
         var fallbackName = Path.GetFileNameWithoutExtension(originalFileName);
         var folderName = ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName, ue4ssNamesAlreadyInstalledInGame);
         return (folderName, folderName, PendingDownloadActivationKind.Ue4ssMod, IsOpaquePak: false);
