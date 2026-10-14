@@ -136,8 +136,9 @@ public sealed class ProfileStore : IProfileStore
             return null;
         }
 
-        var candidates = Directory.GetFiles(_backupsDirectory, $"{name}_*.json")
-            .OrderByDescending(File.GetCreationTimeUtc);
+        // Exact timestamped-name match, never a "{name}_*.json" glob (an audit finding: profile
+        // "Main" saw — and could restore from — every backup of "Main_Test"). See FolderBackup.
+        var candidates = FolderBackup.EnumerateFileBackups(_backupsDirectory, name, ".json");
 
         foreach (var candidate in candidates)
         {

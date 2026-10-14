@@ -166,6 +166,26 @@ public class ProfileStoreTests : IDisposable
         Assert.Equal(3, Directory.GetFiles(_backupsDir, "Main_*.json").Length);
     }
 
+    /// <summary>Audit finding: the "{name}_*.json" glob let profile "Main" see, restore from, and prune the backups of "Main_Test".</summary>
+    [Fact]
+    public void Backups_ProfileWhoseNameIsAPrefixOfAnother_NeverSeesTheOthersBackups()
+    {
+        var store = CreateStore();
+        store.Save(new Profile { Name = "Main_Test", MergeQueueFolderNames = ["ModX"] });
+        store.Save(new Profile { Name = "Main_Test", MergeQueueFolderNames = ["ModX2"] });
+
+        Assert.False(store.HasBackup("Main"));
+        Assert.False(store.RestoreLatestBackup("Main"));
+
+        store.Save(new Profile { Name = "Main", MergeQueueFolderNames = ["ModA"] });
+        for (var i = 0; i < 5; i++)
+        {
+            store.Save(new Profile { Name = "Main", MergeQueueFolderNames = [$"ModA{i}"] });
+        }
+
+        Assert.True(store.HasBackup("Main_Test"), "pruning Main's backups must never touch Main_Test's");
+    }
+
     [Fact]
     public void Save_TwoDifferentProfiles_BackupsDoNotCrossContaminate()
     {

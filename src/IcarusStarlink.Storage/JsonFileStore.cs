@@ -21,22 +21,50 @@ internal static class JsonFileStore
     /// transiently-locked (IOException/UnauthorizedAccessException) file degrades to defaults with
     /// a logged warning rather than throwing and blocking whatever owns this store.
     /// </summary>
-    public static T Load<T>(string filePath, Func<T> defaultValue, ILogger logger)
+    public static T Load<T>(string filePath, Func<T> defaultValue, ILogger logger) => Load(filePath, defaultValue, logger, out _);
+
+    /// <summary>
+    /// <paramref name="couldNotRead"/> is true only for a file that EXISTS but couldn't be read
+    /// (locked by a sync client or antivirus, permission denied) even after a few quick retries —
+    /// never for a missing or malformed one. An audit finding: a transient lock at load used to be
+    /// indistinguishable from "no file yet", so the defaults handed back here were then written
+    /// straight over the real file by the next Save (settings.json losing every setting; a mod's
+    /// sidecar losing its Nexus link on a pin toggle). Callers that write back read-modify-write
+    /// style must refuse to save when this is set.
+    /// </summary>
+    public static T Load<T>(string filePath, Func<T> defaultValue, ILogger logger, out bool couldNotRead)
     {
+        couldNotRead = false;
         if (!File.Exists(filePath))
         {
             return defaultValue();
         }
 
-        try
+        const int attempts = 3;
+        for (var attempt = 1; ; attempt++)
         {
-            var json = File.ReadAllText(filePath);
-            return JsonSerializer.Deserialize<T>(json, Options) ?? defaultValue();
-        }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-        {
-            logger.LogWarning(ex, "Failed to load {Path}; falling back to defaults", filePath);
-            return defaultValue();
+            try
+            {
+                var json = File.ReadAllText(filePath);
+                return JsonSerializer.Deserialize<T>(json, Options) ?? defaultValue();
+            }
+            catch (JsonException ex)
+            {
+                logger.LogWarning(ex, "Failed to load {Path}; falling back to defaults", filePath);
+                return defaultValue();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt < attempts)
+                {
+                    Thread.Sleep(100 * attempt);
+                    continue;
+                }
+
+                logger.LogWarning(ex, "Couldn't read {Path} after {Attempts} attempts; using defaults for now and NOT treating the file as absent", filePath, attempts);
+                couldNotRead = true;
+                return defaultValue();
+            }
         }
     }
 

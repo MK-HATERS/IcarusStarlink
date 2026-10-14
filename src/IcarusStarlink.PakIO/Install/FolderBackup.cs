@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace IcarusStarlink.PakIO.Install;
 
 /// <summary>
@@ -80,11 +82,40 @@ public static class FolderBackup
         }
     }
 
+    /// <summary>
+    /// Exactly the backups MakeUniqueTimestampedPath produced for THIS base name — "{name}_yyyyMMdd-HHmmss"
+    /// with an optional "_N" collision suffix — never a prefix glob (an audit finding): "Foo_*" also
+    /// matched every backup of "Foo_2", the very name ModFolders.MakeUnique hands a re-import, so
+    /// Foo's "restore from backup" could overwrite Foo with Foo_2's content, and pruning Foo's
+    /// backups could delete Foo_2's only one. Same for files: profile "Main" vs "Main_Test".
+    /// </summary>
+    public static bool IsTimestampedBackupOf(string candidateLeafName, string baseName, string extension = "") =>
+        Regex.IsMatch(
+            candidateLeafName,
+            $"^{Regex.Escape(baseName)}_\\d{{8}}-\\d{{6}}(_\\d+)?{Regex.Escape(extension)}$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>This base name's folder backups, newest first; empty when the directory doesn't exist.</summary>
+    public static IReadOnlyList<string> EnumerateFolderBackups(string backupDirectory, string name) =>
+        !Directory.Exists(backupDirectory)
+            ? []
+            : Directory.GetDirectories(backupDirectory)
+                .Where(d => IsTimestampedBackupOf(Path.GetFileName(d), name))
+                .OrderByDescending(Directory.GetCreationTimeUtc)
+                .ToList();
+
+    /// <summary>This base name + extension's file backups, newest first; empty when the directory doesn't exist.</summary>
+    public static IReadOnlyList<string> EnumerateFileBackups(string backupDirectory, string baseName, string extension) =>
+        !Directory.Exists(backupDirectory)
+            ? []
+            : Directory.GetFiles(backupDirectory)
+                .Where(f => IsTimestampedBackupOf(Path.GetFileName(f), baseName, extension))
+                .OrderByDescending(File.GetCreationTimeUtc)
+                .ToList();
+
     private static void PruneOldFolderBackups(string backupDirectory, string name)
     {
-        var backups = Directory.GetDirectories(backupDirectory, $"{name}_*")
-            .OrderByDescending(Directory.GetCreationTimeUtc)
-            .ToList();
+        var backups = EnumerateFolderBackups(backupDirectory, name);
 
         foreach (var stale in backups.Skip(MaxBackups))
         {
@@ -94,9 +125,7 @@ public static class FolderBackup
 
     private static void PruneOldFileBackups(string backupDirectory, string baseName, string extension, int maxBackups)
     {
-        var backups = Directory.GetFiles(backupDirectory, $"{baseName}_*{extension}")
-            .OrderByDescending(File.GetCreationTimeUtc)
-            .ToList();
+        var backups = EnumerateFileBackups(backupDirectory, baseName, extension);
 
         foreach (var stale in backups.Skip(maxBackups))
         {

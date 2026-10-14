@@ -869,6 +869,73 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.Throws<DirectoryNotFoundException>(() => repo.LinkToNexus("DoesNotExist", 123));
     }
 
+    /// <summary>
+    /// Audit finding: backups were found with a "{folderName}_*" prefix glob, so mod "Foo" saw every
+    /// backup of "Foo_2" — the exact name ModFolders.MakeUnique gives a re-import — and "restore"
+    /// could overwrite Foo with Foo_2's content, while pruning Foo's backups could delete Foo_2's.
+    /// </summary>
+    [Fact]
+    public void ModBackups_SiblingModWhoseNameIsAPrefix_NeverSeesOrPrunesTheOthersBackups()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var first = repo.Import(_sourceDir).FolderName;
+        var second = repo.Import(_sourceDir).FolderName;
+        Assert.Equal(first + "_2", second);
+
+        repo.BackupMod(second);
+
+        Assert.False(repo.HasModBackup(first));
+        Assert.False(repo.RestoreLatestModBackup(first));
+
+        for (var i = 0; i < 7; i++)
+        {
+            repo.BackupMod(first);
+        }
+
+        Assert.True(repo.HasModBackup(second), "pruning the first mod's backups must never touch the sibling's");
+    }
+
+    /// <summary>Audit finding: a sidecar that merely couldn't be read (locked) came back as defaults, and the pin toggle's read-modify-write then saved those defaults — dropping the mod's Nexus link.</summary>
+    [Fact]
+    public void UpdateMetadata_SidecarLockedRightNow_ThrowsAndLeavesTheSidecarUntouched()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir, source: "Nexus", nexusModId: 339).FolderName;
+        var sidecarPath = Path.Combine(_metaDir, $"{folderName}.json");
+        var before = File.ReadAllText(sidecarPath);
+
+        using (new FileStream(sidecarPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.Throws<IOException>(() => repo.UpdateMetadata(folderName, isPinned: true, isFavorite: false, notes: ""));
+        }
+
+        Assert.Equal(before, File.ReadAllText(sidecarPath));
+        Assert.Equal(339, repo.GetAll().Single(e => e.FolderName == folderName).NexusModId);
+    }
+
+    /// <summary>Audit finding: Nexus enrichment changed the cached entry's name but not the FTS row, so an opaque pak was unsearchable by its displayed name until restart.</summary>
+    [Fact]
+    public void SetNexusMetadata_OpaquePakEntry_IsSearchableByItsNewNameImmediately()
+    {
+        var pakPath = WriteFixturePakFile();
+        using var repo = CreateRepository();
+        try
+        {
+            var entry = repo.ImportPak(pakPath, source: "Nexus");
+
+            repo.SetNexusMetadata(entry.FolderName, "Cool Mod Reborn", "RealAuthor", "A summary.", "2.6");
+
+            Assert.Contains(repo.Search("Reborn"), e => e.FolderName == entry.FolderName);
+            Assert.Contains(repo.Search("RealAuthor"), e => e.FolderName == entry.FolderName);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
     [Fact]
     public void HasModBackup_NoBackupYet_ReturnsFalse()
     {

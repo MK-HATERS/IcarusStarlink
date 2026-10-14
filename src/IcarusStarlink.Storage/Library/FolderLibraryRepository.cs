@@ -195,7 +195,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         // Nexus-enrichment fields), several of which have no home on LibraryEntry at all, so
         // writing a memory-built object would silently erase them on something as routine as a
         // pin toggle — losing a mod's update-checking link.
-        var meta = _metaStore.Load(folderName);
+        var meta = LoadMetaForWrite(folderName);
         meta.IsPinned = isPinned;
         meta.IsFavorite = isFavorite;
         meta.Notes = notes;
@@ -252,11 +252,29 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     /// the matching cached entry, if any, is patched the same way so a full RescanAll isn't needed
     /// for these narrow, single/few-field changes.
     /// </summary>
+    /// <summary>
+    /// The read half of every read-modify-write on a sidecar. A sidecar that exists but can't be
+    /// read right now (sync client, antivirus) must abort the write (an audit finding): saving the
+    /// defaults Load hands back would silently drop the mod's Nexus link / source / catalog ID on
+    /// something as small as a pin toggle. The IOException reaches the UI's existing "Save failed"
+    /// status path.
+    /// </summary>
+    private LibraryMeta LoadMetaForWrite(string folderName)
+    {
+        var meta = _metaStore.Load(folderName, out var couldNotRead);
+        if (couldNotRead)
+        {
+            throw new IOException($"Couldn't read the saved settings for '{folderName}' (the file is locked or unreadable right now) — nothing was changed; try again in a moment.");
+        }
+
+        return meta;
+    }
+
     private void UpdateMeta(string folderName, Action<LibraryMeta> mutateMeta, Action<LibraryEntry>? mutateCachedEntry)
     {
         ResolveFolder(folderName);
 
-        var meta = _metaStore.Load(folderName);
+        var meta = LoadMetaForWrite(folderName);
         mutateMeta(meta);
         _metaStore.Save(folderName, meta);
 
@@ -325,12 +343,12 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             return null;
         }
 
-        return Directory.GetDirectories(_modBackupsDirectory, $"{folderName}_*")
-            .OrderByDescending(Directory.GetCreationTimeUtc)
-            .FirstOrDefault();
+        // Exact timestamped-name match, never a "{folderName}_*" glob — see FolderBackup.IsTimestampedBackupOf.
+        return FolderBackup.EnumerateFolderBackups(_modBackupsDirectory, folderName).FirstOrDefault();
     }
 
-    public void SetNexusMetadata(string folderName, string? name, string? author, string? description, string? version) =>
+    public void SetNexusMetadata(string folderName, string? name, string? author, string? description, string? version)
+    {
         UpdateMeta(folderName,
             meta =>
             {
@@ -356,6 +374,16 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
                     entry.Version = version ?? entry.Version;
                 }
             });
+
+        // The FTS index is a derived view too (an audit finding): the cached entry's displayed
+        // name/author changed above for an opaque/converted pak, but the index row still carried the
+        // pak's file name, so the mod was unsearchable by the name the Library showed until restart.
+        var cached = _cachedEntries.Find(e => e.FolderName == folderName);
+        if (cached is { IsOpaquePak: true } or { ConvertedFromPrebuiltPak: true })
+        {
+            _searchIndex.UpdateHeader(folderName, cached.Name, cached.Author);
+        }
+    }
 
     /// <summary>An opaque .pak entry (LibraryEntry.IsOpaquePak) has no .EXMOD to enumerate assets from — nothing to browse in the Files tab.</summary>
     public IReadOnlyList<string> ListAssetPaths(string folderName) =>

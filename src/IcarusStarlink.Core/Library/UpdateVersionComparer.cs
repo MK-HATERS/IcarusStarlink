@@ -43,7 +43,11 @@ public static partial class UpdateVersionComparer
             return false;
         }
 
-        return NormalizeComponents(leftTrimmed).SequenceEqual(NormalizeComponents(rightTrimmed));
+        // A component too large for a long (timestamp-style versions are common on Nexus) simply
+        // isn't equivalent by number — the exact-text compare above already had its say.
+        var leftComponents = NormalizeComponents(leftTrimmed);
+        var rightComponents = NormalizeComponents(rightTrimmed);
+        return leftComponents is not null && rightComponents is not null && leftComponents.SequenceEqual(rightComponents);
     }
 
     /// <summary>
@@ -77,9 +81,19 @@ public static partial class UpdateVersionComparer
         return !string.IsNullOrWhiteSpace(installedVersion) || !string.IsNullOrWhiteSpace(recordedSourceVersion);
     }
 
-    private static IReadOnlyList<int> NormalizeComponents(string version)
+    private static List<long>? NormalizeComponents(string version)
     {
-        var components = version.TrimStart('v', 'V').Split('.').Select(int.Parse).ToList();
+        var components = new List<long>();
+        foreach (var part in version.TrimStart('v', 'V').Split('.'))
+        {
+            if (!long.TryParse(part, out var component))
+            {
+                return null;
+            }
+
+            components.Add(component);
+        }
+
         while (components.Count > 1 && components[^1] == 0)
         {
             components.RemoveAt(components.Count - 1);

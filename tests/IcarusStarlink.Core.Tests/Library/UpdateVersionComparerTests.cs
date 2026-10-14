@@ -51,6 +51,15 @@ public sealed class ModVersionComparerTests
     public void HasUpdate_NoLatestKnown_IsFalse(string? latest) =>
         Assert.False(UpdateVersionComparer.HasUpdate(latest, "1.0", "1"));
 
+    /// <summary>Audit finding: a timestamp-style component ("1.20261014153000") passed the numeric regex and then overflowed int.Parse, throwing out of a pure comparison.</summary>
+    [Fact]
+    public void AreEquivalent_ComponentTooLargeForAnInteger_NeverThrows()
+    {
+        Assert.True(UpdateVersionComparer.AreEquivalent("1.20261014153000", "1.20261014153000"));
+        Assert.False(UpdateVersionComparer.AreEquivalent("1.99999999999999999999", "1.0"));
+        Assert.True(UpdateVersionComparer.HasUpdate("1.20261014153000", "1.0", null));
+    }
+
     [Fact]
     public void HasUpdate_NothingKnownOnTheInstalledSide_IsFalse() =>
         Assert.False(UpdateVersionComparer.HasUpdate("1.0", installedVersion: "", recordedSourceVersion: null));

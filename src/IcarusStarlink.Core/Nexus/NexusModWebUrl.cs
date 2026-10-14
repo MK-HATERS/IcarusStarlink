@@ -21,8 +21,9 @@ public static partial class NexusModWebUrl
         var match = ModPagePattern().Match(trimmed);
         if (match.Success)
         {
-            modId = int.Parse(match.Groups[1].Value);
-            return true;
+            // TryParse, so an absurdly long id in a pasted URL is "not a mod id" rather than an
+            // OverflowException out of a method named Try… (an audit finding).
+            return int.TryParse(match.Groups[1].Value, out modId) && modId > 0;
         }
 
         return int.TryParse(trimmed, out modId) && modId > 0;

@@ -20,6 +20,10 @@ internal sealed class LibraryMetaStore(string metaDirectory, ILogger logger)
     public LibraryMeta Load(string folderName) =>
         JsonFileStore.Load(GetPath(folderName), () => new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow }, logger);
 
+    /// <summary>Same as Load, but says whether an EXISTING sidecar couldn't be read — the read-modify-write callers (UpdateMeta) must not save defaults over a file that merely couldn't be opened.</summary>
+    public LibraryMeta Load(string folderName, out bool couldNotRead) =>
+        JsonFileStore.Load(GetPath(folderName), () => new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow }, logger, out couldNotRead);
+
     public void Save(string folderName, LibraryMeta meta)
     {
         Directory.CreateDirectory(metaDirectory);

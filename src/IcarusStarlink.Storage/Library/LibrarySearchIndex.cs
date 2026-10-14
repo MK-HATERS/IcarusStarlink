@@ -94,6 +94,16 @@ internal sealed class LibrarySearchIndex : IDisposable
         cmd.ExecuteNonQuery();
     }
 
+    public void UpdateHeader(string folderName, string name, string author)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "UPDATE library_fts SET name = $name, author = $author WHERE folder_name = $folderName;";
+        cmd.Parameters.AddWithValue("$name", name);
+        cmd.Parameters.AddWithValue("$author", author);
+        cmd.Parameters.AddWithValue("$folderName", folderName);
+        cmd.ExecuteNonQuery();
+    }
+
     public void UpdateNotes(string folderName, string notes)
     {
         using var cmd = _connection.CreateCommand();

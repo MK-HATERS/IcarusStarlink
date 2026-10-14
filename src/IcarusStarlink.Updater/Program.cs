@@ -27,8 +27,17 @@ var relaunchExePath = Path.GetFullPath(args[3]);
 // Logged into the install's own Logs folder so a failed update is diagnosable from the same
 // place every other app log already lives.
 var logDirectory = Path.Combine(installDirectory, "Logs");
-Directory.CreateDirectory(logDirectory);
 var logPath = Path.Combine(logDirectory, "updater.log");
+try
+{
+    Directory.CreateDirectory(logDirectory);
+}
+catch (Exception)
+{
+    // A read-only/ACL-denied Logs folder must not kill the updater before it even starts (an audit
+    // finding: that was one more way for "the app closed and never came back") — log to TEMP instead.
+    logPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink-updater.log");
+}
 
 void Log(string message)
 {
@@ -38,9 +47,11 @@ void Log(string message)
     {
         File.AppendAllText(logPath, line + Environment.NewLine);
     }
-    catch (IOException)
+    catch (Exception)
     {
-        // Logging must never be the reason an update fails.
+        // Logging must never be the reason an update fails — any failure here, not just IOException
+        // (UnauthorizedAccessException from a read-only updater.log used to escape mid-copy, trigger
+        // a rollback, and skip the relaunch).
     }
 }
 
@@ -78,7 +89,19 @@ bool Relaunch()
     }
 }
 
-var result = UpdateRunner.Run(installDirectory, newFilesDirectory, Log, Relaunch);
+UpdateRunner.Result result;
+try
+{
+    result = UpdateRunner.Run(installDirectory, newFilesDirectory, Log, Relaunch);
+}
+catch (Exception ex)
+{
+    // UpdateRunner.Run already handles every expected outcome; this is the last line of defense for
+    // anything unexpected, and the one promise that must survive it is "the app comes back".
+    Log($"Updater hit an unexpected error ({ex.Message}) — relaunching the app as it is.");
+    Relaunch();
+    return 1;
+}
 
 // This process runs with CreateNoWindow: true (see SettingsViewModel's own launch of it) — a real
 // Win32 message box (not a console window; there is none here) is the only way for this headless
