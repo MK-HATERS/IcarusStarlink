@@ -24,9 +24,10 @@ below.*
 2. Extract the zip anywhere — it unpacks into a single `IcarusStarlink` folder. It's a
    self-contained, portable build, so nothing else needs to be installed separately (no .NET
    runtime download required).
-3. Run `IcarusStarlink.App.exe` from that folder. On first launch, open **Settings** and set (or
-   **Auto-detect**) your Icarus game's Content folder — see [Getting
-   started](#faq--troubleshooting) below if anything's unclear.
+3. Run `IcarusStarlink.App.exe` from that folder. First launch sets itself up: it finds your
+   Icarus install through Steam (or asks you to browse to it), installs UnrealPak, and offers to
+   extract the game's data. Everything it set lives in **Settings** if you ever need to change
+   it — see [Getting started](#faq--troubleshooting) below if anything's unclear.
 
 Windows SmartScreen or your antivirus may flag the download the first time you run it — see
 [Antivirus flagged this download?](#faq--troubleshooting) below for why, and a link to a current
@@ -209,9 +210,10 @@ exactly what a heuristic scanner is trained to be suspicious of. See the current
 description on the [Releases page](https://github.com/MK-HATERS/IcarusStarlink/releases/latest)
 for a VirusTotal scan link.
 
-**How do I get started after installing?** Settings → set (or Auto-detect) your Icarus Content
-folder → Settings → UnrealPak → Install → Settings → Update data folder → then import mods on the
-Library tab. The in-app **Help** page walks through this in more detail and covers every feature.
+**How do I get started after installing?** Just run it — first launch finds your Icarus install
+through Steam (or asks you to browse to it), installs UnrealPak, and offers to extract the game's
+data. If you skipped any of that, it's all in Settings: Icarus Content folder (Auto-detect or
+Browse) → UnrealPak → Install → Update data folder. Then import mods on the Library tab. The in-app **Help** page walks through this in more detail and covers every feature.
 
 ## Support & bug reports
 

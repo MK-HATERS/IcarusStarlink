@@ -61,4 +61,14 @@ public sealed class AppSettings
     /// install has happened yet this app has ever recorded — nothing to check against.
     /// </summary>
     public DateTimeOffset? LastInstallAtUtc { get; set; }
+
+    /// <summary>
+    /// Set once SettingsViewModel's first-launch setup has had its one-time say — i.e. once the
+    /// game folder and UnrealPak were both in place and the first "Update data folder" extraction
+    /// was offered (taken or declined). Null on a fresh install and for every install that predates
+    /// the flow, so those get the one-time offer on their next launch too. The game-folder and
+    /// UnrealPak steps themselves are NOT gated on this: they re-run on every launch while still
+    /// unset, the way the UnrealPak offer always has.
+    /// </summary>
+    public DateTimeOffset? FirstLaunchSetupCompletedAtUtc { get; set; }
 }

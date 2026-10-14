@@ -5,6 +5,8 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.ViewModels;
@@ -485,8 +487,21 @@ public partial class App : Application
                 // navigation) so its launch checks — the app-update prompt, Nexus key
                 // re-validation, and the UnrealPak first-run verify/locate/install offer —
                 // genuinely run at launch, not whenever the user first happens to open Settings.
-                // Deferred one more dispatcher cycle so the window paints first.
-                Dispatcher.BeginInvoke(() => _host.Services.GetRequiredService<SettingsViewModel>());
+                // Deferred one more dispatcher cycle so the window paints first. A first launch
+                // that had prerequisites to set up lands on the Settings page, so what the setup
+                // flow did (found the game via Steam, installed UnrealPak, is extracting game
+                // data) is visible rather than happening behind the Library page — navigated
+                // from HERE, after construction returns, because the flow runs inside the
+                // constructor and a navigation handled mid-construction would re-resolve this
+                // same singleton re-entrantly.
+                Dispatcher.BeginInvoke(() =>
+                {
+                    var settingsViewModel = _host.Services.GetRequiredService<SettingsViewModel>();
+                    if (settingsViewModel.FirstLaunchSetupNeededAttention)
+                    {
+                        WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("settings"));
+                    }
+                });
 
                 // Handle the case where THIS launch (the first instance) was itself invoked with
                 // an nxm:// argument — e.g. the very first time the OS protocol registration is

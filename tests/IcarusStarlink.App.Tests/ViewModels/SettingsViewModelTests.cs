@@ -497,6 +497,128 @@ public sealed class SettingsViewModelTests
     // comment) without needing to touch any of them from a given test.
     // =====================================================================================
 
+    // =====================================================================================
+    // First-launch setup — RunFirstLaunchSetupAsync (game folder → UnrealPak → first extraction)
+    // =====================================================================================
+
+    [Fact]
+    public async Task FirstLaunch_NoGameFolder_FoundViaSteam_SavesItSilentlyAndFlagsAttention()
+    {
+        using var harness = new Harness();
+        harness.Settings.IcarusContentPath = null;
+        var detected = Path.Combine(harness.TempDir, "Steam", "steamapps", "common", "Icarus", "Icarus", "Content");
+        harness.SteamInstallLocator.ContentPathToReturn = detected;
+
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+
+        Assert.Equal(detected, vm.IcarusContentPath);
+        Assert.Equal(detected, harness.Settings.IcarusContentPath);
+        Assert.Contains("Steam", vm.SavedMessage);
+        Assert.Equal(0, harness.DialogService.ConfirmCallCount);
+        Assert.True(vm.FirstLaunchSetupNeededAttention);
+    }
+
+    [Fact]
+    public async Task FirstLaunch_NoGameFolder_SteamCantFindIt_OffersBrowse_DeclinedLeavesGuidance()
+    {
+        using var harness = new Harness(dialogConfirmResult: false);
+        harness.Settings.IcarusContentPath = null;
+
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+
+        Assert.Equal(1, harness.DialogService.ConfirmCallCount);
+        Assert.Contains("Icarus folder", harness.DialogService.LastConfirmTitle);
+        Assert.Null(vm.IcarusContentPath);
+        Assert.Contains("Auto-detect or Browse", vm.SavedMessage);
+        Assert.True(vm.FirstLaunchSetupNeededAttention);
+    }
+
+    [Fact]
+    public async Task FirstLaunch_EverythingAlreadySet_IsSilent()
+    {
+        using var harness = new Harness();
+        harness.SteamInstallLocator.ContentPathToReturn = @"C:\somewhere\else\Content";
+        var configured = harness.Settings.IcarusContentPath;
+
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+
+        Assert.Equal(configured, vm.IcarusContentPath);
+        Assert.Equal(0, harness.DialogService.ConfirmCallCount);
+        Assert.Equal(0, harness.UnrealPakService.ExtractCallCount);
+        Assert.False(vm.FirstLaunchSetupNeededAttention);
+    }
+
+    [Fact]
+    public async Task FirstLaunch_PrerequisitesSet_DataNeverExtracted_OffersExtraction_AcceptedRunsItOnce()
+    {
+        using var harness = new Harness();
+        harness.Settings.FirstLaunchSetupCompletedAtUtc = null;
+        harness.Settings.LastDataFolderUpdatedAt = null;
+        harness.UnrealPakService.ExtractResultFactory = () => new UnrealPakExtractResult(10, null);
+
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+
+        Assert.Equal(1, harness.DialogService.ConfirmCallCount);
+        Assert.Contains("Extract game data", harness.DialogService.LastConfirmTitle);
+        Assert.Equal(1, harness.UnrealPakService.ExtractCallCount);
+        Assert.NotNull(harness.Settings.LastDataFolderUpdatedAt);
+        Assert.NotNull(harness.Settings.FirstLaunchSetupCompletedAtUtc);
+        Assert.True(vm.FirstLaunchSetupNeededAttention);
+    }
+
+    [Fact]
+    public async Task FirstLaunch_ExtractionDeclined_NeverExtracts_StillMarksSetupCompleted()
+    {
+        using var harness = new Harness(dialogConfirmResult: false);
+        harness.Settings.FirstLaunchSetupCompletedAtUtc = null;
+        harness.Settings.LastDataFolderUpdatedAt = null;
+
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+
+        Assert.Equal(1, harness.DialogService.ConfirmCallCount);
+        Assert.Equal(0, harness.UnrealPakService.ExtractCallCount);
+        Assert.Contains("Update data folder", vm.DataFolderStatusMessage);
+        Assert.NotNull(harness.Settings.FirstLaunchSetupCompletedAtUtc);
+    }
+
+    /// <summary>An install that predates the flow and already extracted its data gets no offer — just marked done so the check stops running.</summary>
+    [Fact]
+    public async Task FirstLaunch_DataAlreadyExtractedBefore_NeverOffers_MarksCompleted()
+    {
+        using var harness = new Harness();
+        harness.Settings.FirstLaunchSetupCompletedAtUtc = null;
+        harness.Settings.LastDataFolderUpdatedAt = DateTimeOffset.UtcNow.AddDays(-3);
+
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+
+        Assert.Equal(0, harness.DialogService.ConfirmCallCount);
+        Assert.Equal(0, harness.UnrealPakService.ExtractCallCount);
+        Assert.NotNull(harness.Settings.FirstLaunchSetupCompletedAtUtc);
+        Assert.False(vm.FirstLaunchSetupNeededAttention);
+    }
+
+    /// <summary>Game folder still missing after step 1 (Steam can't find it, Browse declined) — the extraction offer must wait for a later launch, not fire against nothing, and must NOT be marked completed.</summary>
+    [Fact]
+    public async Task FirstLaunch_GameFolderStillMissing_ExtractionOfferWaitsForALaterLaunch()
+    {
+        using var harness = new Harness(dialogConfirmResult: false);
+        harness.Settings.IcarusContentPath = null;
+        harness.Settings.FirstLaunchSetupCompletedAtUtc = null;
+
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+
+        Assert.Equal(1, harness.DialogService.ConfirmCallCount);
+        Assert.Equal(0, harness.UnrealPakService.ExtractCallCount);
+        Assert.Null(harness.Settings.FirstLaunchSetupCompletedAtUtc);
+    }
+
     private sealed class Harness : IDisposable
     {
         public readonly string TempDir;
@@ -506,6 +628,7 @@ public sealed class SettingsViewModelTests
         public readonly FakeUnrealPakService UnrealPakService = new();
         public readonly FakeWeeklyChangeReportStore WeeklyChangeReportStore = new();
         public readonly FakeUnrealPakInstaller UnrealPakInstaller = new();
+        public readonly FakeSteamInstallLocator SteamInstallLocator = new();
         public readonly FakeUe4ssLoaderInstallService Ue4ssLoaderInstallService = new();
         public readonly FakeUe4ssReleaseClient Ue4ssReleaseClient = new();
         public readonly FakeAppUpdateClient AppUpdateClient = new();
@@ -527,6 +650,10 @@ public sealed class SettingsViewModelTests
 
             Settings.IcarusContentPath = Path.Combine(TempDir, "IcarusContent");
             Settings.UnrealPakExePath = ValidUnrealPakExePath;
+            // Same reasoning: already "completed", so the one-time first-data-extraction offer
+            // (RunFirstLaunchSetupAsync's third step) never fires from the constructor here. The
+            // first-launch tests below set this back to null deliberately.
+            Settings.FirstLaunchSetupCompletedAtUtc = DateTimeOffset.UtcNow;
             SettingsService = new FakeSettingsService(Settings);
             DialogService = new FakeDialogService(dialogConfirmResult);
             GameProcessChecker = gameProcessChecker ?? new FakeGameProcessChecker(false);
@@ -535,7 +662,7 @@ public sealed class SettingsViewModelTests
 
         public SettingsViewModel BuildViewModel() => new(
             SettingsService, UnrealPakService, WeeklyChangeReportStore,
-            new FakeSteamInstallLocator(), new FakeCredentialStore(), new FakeNexusApiClient(),
+            SteamInstallLocator, new FakeCredentialStore(), new FakeNexusApiClient(),
             new FakeNxmProtocolRegistrar(), Ue4ssLoaderInstallService, Ue4ssReleaseClient, AppUpdateClient,
             new HttpClient(_httpHandler), new FakeThemeService(), new FakeCustomSkinStore(),
             BuildImmMigrationService(),
@@ -673,7 +800,9 @@ public sealed class SettingsViewModelTests
 
     private sealed class FakeSteamInstallLocator : ISteamInstallLocator
     {
-        public string? FindIcarusContentPath() => null;
+        public string? ContentPathToReturn { get; set; }
+
+        public string? FindIcarusContentPath() => ContentPathToReturn;
 
         public string? TryGetPersonaName(string steamId64) => null;
     }
