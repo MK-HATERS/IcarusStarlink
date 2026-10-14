@@ -21,9 +21,9 @@ below.*
 
 1. Download the latest release zip from the
    **[Releases page](https://github.com/MK-HATERS/IcarusStarlink/releases/latest)**.
-2. Create a folder for it (e.g. `Icarus Starlink`) and extract the zip's contents into that
-   folder — it's a self-contained, portable build, so nothing else needs to be installed
-   separately (no .NET runtime download required).
+2. Extract the zip anywhere — it unpacks into a single `IcarusStarlink` folder. It's a
+   self-contained, portable build, so nothing else needs to be installed separately (no .NET
+   runtime download required).
 3. Run `IcarusStarlink.App.exe` from that folder. On first launch, open **Settings** and set (or
    **Auto-detect**) your Icarus game's Content folder — see [Getting
    started](#faq--troubleshooting) below if anything's unclear.
