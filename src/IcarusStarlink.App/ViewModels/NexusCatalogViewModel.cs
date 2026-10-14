@@ -360,10 +360,10 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                 : pendingModIds.Contains(mod.ModId) ? "Downloaded"
                 : trackedModIds.Contains(mod.ModId) ? "Tracked"
                 : null;
+            // Same rule as LibraryItemViewModel.HasUpdateAvailable — see UpdateVersionComparer for the
+            // live "1.0" (inside the EXMOD) vs "1" (Nexus page) false positive this replaced.
             var hasUpdate = libraryEntry is not null
-                && !string.IsNullOrEmpty(libraryEntry.Version)
-                && !string.IsNullOrEmpty(mod.Version)
-                && !string.Equals(libraryEntry.Version, mod.Version, StringComparison.OrdinalIgnoreCase);
+                && UpdateVersionComparer.HasUpdate(mod.Version, libraryEntry.Version, libraryEntry.NexusVersion);
             var isTracked = trackedModIds.Contains(mod.ModId);
 
             // Surface a genuinely new update on a tracked mod through the Activity panel instead

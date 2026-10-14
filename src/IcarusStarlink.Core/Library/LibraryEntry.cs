@@ -36,6 +36,9 @@ public sealed class LibraryEntry
     /// <summary>The real Nexus mod ID, set at import time for a Source == "Nexus" entry — needed to look up its current version for update-checking. Null for anything not Nexus-sourced.</summary>
     public int? NexusModId { get; set; }
 
+    /// <summary>The version the SOURCE (Nexus) reported at the moment this copy was downloaded or linked — recorded so update-checking compares like with like (see UpdateVersionComparer.HasUpdate): the author-written Version inside an EXMOD ("1.0") and the Nexus page's own field ("1") are routinely different strings for the same file. Null when never recorded (older imports, enrichment that failed).</summary>
+    public string? NexusVersion { get; set; }
+
     /// <summary>The community catalog's own stable entry ID, set at Download &amp; extract time for a Source == "Database" entry — the Database counterpart of NexusModId, so the Downloaded badge and update-checking survive a Rename the way name-matching can't. Null for older imports and anything not Database-sourced (those fall back to name-matching).</summary>
     public string? CatalogEntryId { get; set; }
 

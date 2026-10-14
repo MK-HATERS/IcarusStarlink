@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Ue4ss;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -53,6 +54,9 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     public bool HasNexusLink => NexusModId is not null;
 
+    /// <summary>Same shape as LibraryItemViewModel.NexusLinkActionLabel — an already-linked row is offered a re-link, not told to link.</summary>
+    public string NexusLinkActionLabel => HasNexusLink ? "Re-link Nexus ID…" : "Link to Nexus ID…";
+
     /// <summary>The version this mod's own file was at when downloaded/linked — compared against LatestVersion to decide HasUpdateAvailable.</summary>
     public string? KnownVersion { get; }
 
@@ -64,9 +68,9 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     // DownloadsViewModel.EnrichUe4ssModFromNexusAsync) — without the IsNullOrEmpty(KnownVersion)
     // guard, a null KnownVersion never equals any real fetched LatestVersion, permanently
     // mislabeling an unenriched mod as having an update available.
+    // Not a plain string compare — see UpdateVersionComparer ("1" vs "1.0" is the same version).
     public bool HasUpdateAvailable =>
-        HasNexusLink && !string.IsNullOrEmpty(LatestVersion) && !string.IsNullOrEmpty(KnownVersion)
-        && !string.Equals(LatestVersion, KnownVersion, StringComparison.OrdinalIgnoreCase);
+        HasNexusLink && !string.IsNullOrEmpty(KnownVersion) && UpdateVersionComparer.HasUpdate(LatestVersion, KnownVersion, null);
 
     partial void OnLatestVersionChanged(string? value) => OnPropertyChanged(nameof(HasUpdateAvailable));
 

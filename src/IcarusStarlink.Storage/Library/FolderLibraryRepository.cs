@@ -339,12 +339,15 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
                 meta.NexusDescription = description;
                 meta.NexusVersion = version;
             },
-            // Only an opaque pak or a converted-from-one entry actually reads these back
+            // Name/author/description: only an opaque pak or a converted-from-one entry reads those back
             // (ToOpaquePakEntry/ToEntry's own ConvertedFromPrebuiltPak branch) — for an ordinary,
             // author-declared EXMOD entry this metadata is saved but never surfaced, so a Nexus
             // lookup can never silently overwrite a real author's own declared name.
             entry =>
             {
+                // Surfaced for EVERY entry kind (LibraryEntry.NexusVersion) — the like-for-like side
+                // of update-checking; only the display fields below stay opaque/converted-only.
+                entry.NexusVersion = version;
                 if (entry is { IsOpaquePak: true } or { ConvertedFromPrebuiltPak: true })
                 {
                     entry.Name = name ?? entry.Name;
@@ -494,6 +497,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         ConvertedFromPrebuiltPak = meta.ConvertedFromPrebuiltPak,
         Source = meta.Source,
         NexusModId = meta.NexusModId,
+        NexusVersion = meta.NexusVersion,
         CatalogEntryId = meta.CatalogEntryId,
         DisplayNameOverride = meta.DisplayNameOverride,
     };
@@ -541,6 +545,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             IsLocallyEdited = meta.IsLocallyEdited,
             Source = meta.Source,
             NexusModId = meta.NexusModId,
+            NexusVersion = meta.NexusVersion,
             CatalogEntryId = meta.CatalogEntryId,
             DisplayNameOverride = meta.DisplayNameOverride,
             MergedPackModNames = meta.MergedPackModNames,

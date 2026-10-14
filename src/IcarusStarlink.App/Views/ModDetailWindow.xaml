@@ -134,7 +134,7 @@
                             CommandParameter="{Binding}"
                             ToolTip="Connect this mod to a real Nexus mod ID for update-checking"
                             AutomationProperties.Name="Link to Nexus ID">
-                        <TextBlock Text="Link to Nexus ID…" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding NexusLinkActionLabel}" VerticalAlignment="Center"/>
                     </Button>
                 </WrapPanel>
 

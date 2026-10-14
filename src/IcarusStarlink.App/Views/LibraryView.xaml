@@ -143,7 +143,7 @@
                         <MenuItem Header="Open on Nexus" Command="{Binding OpenOnNexusCommand}" IsEnabled="{Binding HasNexusLink}"
                                   ToolTip="Open this mod's Nexus page in your browser"
                                   ToolTipService.ShowOnDisabled="True"/>
-                        <MenuItem Header="Link to Nexus ID…"
+                        <MenuItem Header="{Binding NexusLinkActionLabel}"
                                   Command="{Binding PlacementTarget.Tag.LinkToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
                                   ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates"/>
@@ -755,7 +755,7 @@
                                             <!-- Hidden (not just disabled) for a built-in — it ships with the
                                                  loader itself, so there's no standalone Nexus page to explain
                                                  via a disabled-tooltip the way a transient unavailability would. -->
-                                            <MenuItem Header="Link to Nexus ID…"
+                                            <MenuItem Header="{Binding NexusLinkActionLabel}"
                                                       Command="{Binding PlacementTarget.Tag.LinkUe4ssModToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                                       CommandParameter="{Binding}"
                                                       Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"

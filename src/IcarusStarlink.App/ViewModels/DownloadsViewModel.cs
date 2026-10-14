@@ -882,7 +882,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
                     // FolderLibraryRepository.SetNexusMetadata's cached-entry update (and ToEntry's
                     // own NexusName/NexusAuthor fallback, on the next rescan) actually apply to it,
                     // unlike an ordinary EXMOD import.
-                    await EnrichOpaquePakFromNexusAsync(entry.FolderName, item.ModId);
+                    await RecordNexusMetadataAsync(entry.FolderName, item.ModId);
                 }
 
                 WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
@@ -961,17 +961,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
         string statusMessage;
         if (kind == PendingDownloadActivationKind.Library)
         {
-            // Not just the classifier's own isOpaquePak — a successfully converted entry
-            // (IsOpaquePak now false) still needs the same enrichment, its own Name/Author being
-            // placeholders until this runs. Re-fetched rather than threaded through
-            // ClassifyAndImport's own return tuple, which only reports IsOpaquePak (also used for
-            // the unrelated package-icon glyph binding).
-            var needsEnrichment = _libraryRepository.GetAll()
-                .Any(e => e.FolderName == folderName && (e.IsOpaquePak || e.ConvertedFromPrebuiltPak));
-            if (needsEnrichment)
-            {
-                await EnrichOpaquePakFromNexusAsync(folderName, modId);
-            }
+            // For EVERY Library kind, not just an opaque/converted pak (the original gating — a real
+            // bug found live): an ordinary EXMODZ keeps its author-declared Name/Author (the
+            // repository guards those), but still needs the Nexus VERSION recorded, or the update
+            // check compares the author's own "1.0" against Nexus's "1" and shows "Update
+            // available" forever right after activating. See UpdateVersionComparer.
+            await RecordNexusMetadataAsync(folderName, modId);
 
             statusMessage = $"Imported '{entryName}' into your Library.";
             _activityLog.Log($"Activated pending download '{entryName}'.", ActivityEntryKind.Success);
@@ -988,13 +983,17 @@ public sealed partial class DownloadsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// An opaque .pak carries no embedded name/author/description of its own — this looks the mod
-    /// up by the ID the nxm:// download already told us, and records what Nexus knows instead.
-    /// Best-effort only: no signed-in key, a rejected key, or a network hiccup all fall through
-    /// silently, since a missing enrichment shouldn't turn an otherwise-successful import into a
-    /// reported failure — the entry just keeps showing "Unknown" the way it always has.
+    /// Looks the mod up by the ID the nxm:// download already told us and records what Nexus knows
+    /// (name/author/description/version) in the entry's sidecar. For an opaque .pak (no embedded
+    /// metadata of its own) or a converted one, that becomes the displayed name/author; for an
+    /// ordinary EXMODZ only the version is surfaced (as LibraryEntry.NexusVersion, the like-for-like
+    /// side of update-checking) — FolderLibraryRepository.SetNexusMetadata never overwrites a real
+    /// author's own declared name. Best-effort only: no signed-in key, a rejected key, or a network
+    /// hiccup all fall through silently, since a missing enrichment shouldn't turn an otherwise-
+    /// successful import into a reported failure — the entry just keeps showing "Unknown" the way
+    /// it always has.
     /// </summary>
-    private async Task EnrichOpaquePakFromNexusAsync(string folderName, int modId)
+    private async Task RecordNexusMetadataAsync(string folderName, int modId)
     {
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
         if (apiKey is null)
@@ -1017,7 +1016,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Same reasoning as EnrichOpaquePakFromNexusAsync, but for a UE4SS mod: a UE4SS mod carries no
+    /// Same reasoning as RecordNexusMetadataAsync, but for a UE4SS mod: a UE4SS mod carries no
     /// metadata file at all (not even a name/author), so its Nexus mod ID and version are recorded
     /// in the separate Ue4ss_Meta sidecar store instead of LibraryMeta — that's what lets Library's
     /// UE4SS tab show a "Nexus" badge and check for updates.

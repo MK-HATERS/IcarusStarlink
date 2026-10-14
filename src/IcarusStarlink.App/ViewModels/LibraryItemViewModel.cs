@@ -127,6 +127,12 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// <summary>The real Nexus mod ID — only meaningful when Source == "Nexus", needed by LibraryViewModel.CheckForUpdatesAsync to look up this mod's current version.</summary>
     public int? NexusModId { get; private set; }
 
+    /// <summary>What Nexus said the version was when this copy was downloaded/linked (LibraryEntry.NexusVersion) — the like-for-like side of HasUpdateAvailable; null when never recorded.</summary>
+    public string? NexusVersion { get; private set; }
+
+    /// <summary>The Link-to-Nexus button/menu text: an already-linked mod (this one has a Nexus badge and a mod ID) is offered a RE-link, so the action never reads as "this still needs linking" — a real point of confusion reported live on a freshly-activated Nexus download.</summary>
+    public string NexusLinkActionLabel => HasNexusLink ? "Re-link Nexus ID…" : "Link to Nexus ID…";
+
     /// <summary>The community catalog's own stable entry ID — the Database counterpart of NexusModId; keeps update-checking rename-safe for Database-sourced mods.</summary>
     public string? CatalogEntryId { get; private set; }
 
@@ -277,7 +283,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private string? _latestVersion;
 
-    public bool HasUpdateAvailable => HasSource && !string.IsNullOrEmpty(LatestVersion) && !string.Equals(LatestVersion, Version, StringComparison.OrdinalIgnoreCase);
+    // Not a plain string compare — see UpdateVersionComparer for the live "1.0" vs "1" false positive.
+    public bool HasUpdateAvailable => HasSource && UpdateVersionComparer.HasUpdate(LatestVersion, Version, NexusVersion);
 
     partial void OnLatestVersionChanged(string? value) => OnPropertyChanged(nameof(HasUpdateAvailable));
 
@@ -441,6 +448,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         ConvertedFromPrebuiltPak = entry.ConvertedFromPrebuiltPak;
         _source = entry.Source;
         NexusModId = entry.NexusModId;
+        NexusVersion = entry.NexusVersion;
         CatalogEntryId = entry.CatalogEntryId;
         MergedPackModNames = entry.MergedPackModNames;
         MergedPackOptionDescriptions = entry.MergedPackOptionDescriptions;
@@ -483,6 +491,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         Source = entry.Source;
         NexusModId = entry.NexusModId;
         OnPropertyChanged(nameof(HasNexusLink));
+        OnPropertyChanged(nameof(NexusLinkActionLabel));
+        NexusVersion = entry.NexusVersion;
+        OnPropertyChanged(nameof(HasUpdateAvailable));
         CatalogEntryId = entry.CatalogEntryId;
         MergedPackModNames = entry.MergedPackModNames;
         MergedPackOptionDescriptions = entry.MergedPackOptionDescriptions;

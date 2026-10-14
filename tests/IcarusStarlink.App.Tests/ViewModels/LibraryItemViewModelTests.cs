@@ -79,6 +79,61 @@ public sealed class LibraryItemViewModelTests : IDisposable
     }
 
     /// <summary>
+    /// The live report: Ferani's Steadfast Structures, downloaded through the in-app Nexus catalog,
+    /// declares "1.0" inside its EXMOD while the Nexus page says "1" — the old ordinal compare showed
+    /// "Update available: v1" forever, with nothing to update to. NexusVersion null here, exactly
+    /// like an entry activated before activation started recording it.
+    /// </summary>
+    [Fact]
+    public void HasUpdateAvailable_LatestEqualsDeclaredVersionNumerically_IsFalse()
+    {
+        var entry = MakeEntry();
+        entry.Version = "1.0";
+        entry.Source = "Nexus";
+        entry.NexusModId = 339;
+        var item = CreateViewModel(entry: entry);
+
+        item.LatestVersion = "1";
+
+        Assert.False(item.HasUpdateAvailable);
+    }
+
+    /// <summary>
+    /// The recorded Nexus version (what Nexus said at activation) is the like-for-like side even
+    /// when the author's own declared string is something unrelated — and a genuinely newer Nexus
+    /// version still flips the badge on.
+    /// </summary>
+    [Fact]
+    public void HasUpdateAvailable_ComparesAgainstRecordedNexusVersion()
+    {
+        var entry = MakeEntry();
+        entry.Version = "Release 2";
+        entry.Source = "Nexus";
+        entry.NexusModId = 339;
+        entry.NexusVersion = "2";
+        var item = CreateViewModel(entry: entry);
+
+        item.LatestVersion = "2.0";
+        Assert.False(item.HasUpdateAvailable);
+
+        item.LatestVersion = "2.1";
+        Assert.True(item.HasUpdateAvailable);
+    }
+
+    [Fact]
+    public void NexusLinkActionLabel_OffersRelinkOnceLinked()
+    {
+        var unlinked = CreateViewModel(entry: MakeEntry());
+        Assert.Equal("Link to Nexus ID…", unlinked.NexusLinkActionLabel);
+
+        var linkedEntry = MakeEntry();
+        linkedEntry.Source = "Nexus";
+        linkedEntry.NexusModId = 339;
+        var linked = CreateViewModel(entry: linkedEntry);
+        Assert.Equal("Re-link Nexus ID…", linked.NexusLinkActionLabel);
+    }
+
+    /// <summary>
     /// Regression guard: an options-only Rebuild output (empty mod queue, at least one gameplay
     /// option enabled) has an empty/null MergedPackModNames but a populated MergedPackOptionDescriptions
     /// — IsMergedPack must still recognize it as a merged pack (the 📦 glyph, and LibraryViewModel's

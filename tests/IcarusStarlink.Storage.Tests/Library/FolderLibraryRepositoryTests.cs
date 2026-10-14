@@ -609,6 +609,41 @@ public class FolderLibraryRepositoryTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// An ordinary author-declared EXMOD entry keeps its own Name/Author/Version (a Nexus lookup must
+    /// never overwrite a real author's declared fields), but the Nexus VERSION is still surfaced as
+    /// LibraryEntry.NexusVersion — the like-for-like side of update-checking, which used to be
+    /// saved-but-never-read for this entry kind (the live "1.0" vs "1" false "Update available").
+    /// Checked on the cached entry AND after a reopen.
+    /// </summary>
+    [Fact]
+    public void SetNexusMetadata_ExmodEntry_SurfacesNexusVersionWithoutTouchingDeclaredFields()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        string folderName, declaredName, declaredVersion;
+        using (var repo = CreateRepository())
+        {
+            var entry = repo.Import(_sourceDir, source: "Nexus", nexusModId: 339);
+            folderName = entry.FolderName;
+            declaredName = entry.Name;
+            declaredVersion = entry.Version;
+            Assert.Null(entry.NexusVersion);
+
+            repo.SetNexusMetadata(folderName, "Nexus Page Name", "NexusAuthor", "Nexus summary.", "1");
+
+            var cached = repo.GetAll().Single(e => e.FolderName == folderName);
+            Assert.Equal("1", cached.NexusVersion);
+            Assert.Equal(declaredName, cached.Name);
+            Assert.Equal(declaredVersion, cached.Version);
+        }
+
+        using var reopened = CreateRepository();
+        var reloaded = reopened.GetAll().Single(e => e.FolderName == folderName);
+        Assert.Equal("1", reloaded.NexusVersion);
+        Assert.Equal(declaredName, reloaded.Name);
+        Assert.Equal(declaredVersion, reloaded.Version);
+    }
+
     [Fact]
     public void SetNexusMetadata_OpaquePakEntry_OverridesNameAuthorDescription()
     {
