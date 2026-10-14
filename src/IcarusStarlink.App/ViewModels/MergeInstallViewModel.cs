@@ -488,7 +488,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     {
         // A staged pak on disk is all Copy to game needs — independent of whether anything is
         // currently installed in the game folder.
-        CanCopyToGame = File.Exists(_outputPakPath);
+        // Pak AND its manifest — RebuildService writes the manifest only after a verified build, so
+        // a pak without one is a leftover of a failed build, not something to offer for install.
+        CanCopyToGame = File.Exists(_outputPakPath)
+            && File.Exists(Path.Combine(Path.GetDirectoryName(_outputPakPath)!, InstallManifestNames.PakManifest));
 
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
@@ -691,7 +694,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             var newName = ProfileNameInput;
             _profileStore.Rename(oldName, newName);
             ReloadProfileNames();
-            SelectedProfileName = newName;
+            // Backing field, not the property: the property setter's change hook reloads the profile
+            // from disk into the UI, which threw away any queue/option edits not yet saved (an audit
+            // finding) — a rename changes only the name.
+            _selectedProfileName = newName;
+            OnPropertyChanged(nameof(SelectedProfileName));
+            OnPropertyChanged(nameof(CanRestoreProfileBackup));
             ProfileNameInput = "";
             ProfileStatusMessage = $"Renamed '{oldName}' to '{newName}'.";
         }
@@ -807,8 +815,16 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
             var mods = new List<PatchModEntry>();
             var bundledContents = new Dictionary<string, ExmodPackageContents>();
+            // A prebuilt/opaque .pak has no .EXMOD to bundle — ExmodFolder.Read on its folder throws,
+            // which used to fail the whole export (an audit finding). Listed in the status instead.
+            var skippedPaks = Queue.Where(e => e.IsOpaquePak).Select(e => e.Name).ToList();
             foreach (var entry in Queue)
             {
+                if (entry.IsOpaquePak)
+                {
+                    continue;
+                }
+
                 var isInCatalog = catalogKeys.Contains(CatalogKey.Normalize(entry.Name, entry.Author));
                 mods.Add(new PatchModEntry
                 {
@@ -819,6 +835,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 {
                     bundledContents[entry.FolderName] = ExmodFolder.Read(_libraryRepository.GetFolderPath(entry.FolderName));
                 }
+            }
+
+            if (mods.Count == 0)
+            {
+                PatchStatusMessage = "Nothing to export — every queued mod is a prebuilt .pak, and a patch can only carry EXMOD mods.";
+                return;
             }
 
             var extension = bundledContents.Count == 0 ? "json" : "zip";
@@ -844,6 +866,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 ? $"Exported '{profileName}' to '{dialog.FileName}' — {bundledContents.Count} mod(s) bundled, " +
                     $"{mods.Count - bundledContents.Count} referenced from the community catalog."
                 : $"Exported '{profileName}' to '{dialog.FileName}' — every mod is in the community catalog, nothing bundled.";
+            if (skippedPaks.Count > 0)
+            {
+                PatchStatusMessage += $" Not included: {skippedPaks.Count} prebuilt .pak mod(s) ({string.Join(", ", skippedPaks)}) — a patch can only carry EXMOD mods.";
+            }
+
             if (failedSources.Count > 0)
             {
                 // Not a failure — a mod from the unreachable source was conservatively treated as
@@ -1519,7 +1546,31 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             }
 
             CanCopyToGame = true;
-            ImportBuiltPakIntoLibrary();
+
+            // The Library import below sends LibraryChangedMessage, and this VM's own handler for
+            // that message invalidates manual conflict picks — right for an external change (a
+            // queued mod's content moved under the picks), wrong here, where the only change is the
+            // app's own built pack landing in the Library, which no pick refers to. An audit
+            // finding: every successful Rebuild silently discarded the picks, so a second Install
+            // of the same queue resolved last-wins instead of what the user had reviewed. The picks
+            // are carried across the self-sent message. And the import is bookkeeping AFTER a
+            // verified pak exists, so its own failure (a locked ISL-Merged folder, antivirus) is a
+            // warning, never "Rebuild failed" with Install withheld.
+            var picksBeforeImport = _manualPicks;
+            var pickStatusBeforeImport = ConflictStatusMessage;
+            try
+            {
+                ImportBuiltPakIntoLibrary();
+            }
+            catch (Exception ex)
+            {
+                Warnings.Add($"The built pack couldn't be added to your Library ({ex.Message}) — the pak itself is fine and can still be installed.");
+            }
+            finally
+            {
+                _manualPicks = picksBeforeImport;
+                ConflictStatusMessage = pickStatusBeforeImport;
+            }
 
             var pickNote = _manualPicks is { Count: > 0 } picks ? $", {picks.Count} conflict(s) manually resolved" : "";
             _activityLog.Log($"Rebuilt pack with {Queue.Count} mod(s) — {result.PackedFileCount} files packed{pickNote}.", ActivityEntryKind.Success);
@@ -1531,6 +1582,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // UnrealPak failure, or a malformed queued mod should show a status message, not
             // crash the app.
             StatusMessage = $"Rebuild failed: {ex.Message}";
+            // Whatever is (or isn't) at _outputPakPath now is not a build the user asked for — the
+            // standalone Copy to game must not offer it (an audit finding: it installed a stale or
+            // partial pak after a failed rebuild).
+            CanCopyToGame = false;
             return false;
         }
         finally
@@ -1804,11 +1859,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
         catch (Exception)
         {
-            if (version == _conflictCountVersion)
-            {
-                ConflictCount = 0;
-                ConflictingModNamesByMod = new Dictionary<string, IReadOnlyList<string>>();
-            }
+            // Left at its last value on purpose (see the doc comment above): zeroing it here read as
+            // "the conflict is gone" the moment a queued mod's file was briefly locked mid-save.
         }
     }
 
@@ -1987,10 +2039,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
         catch (Exception)
         {
-            if (version == _validationIssueCountVersion)
-            {
-                ValidationIssueCount = 0;
-            }
+            // Left at its last value on purpose — same reasoning as RecomputeConflictCountAsync.
         }
     }
 

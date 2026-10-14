@@ -52,6 +52,45 @@ public class Ue4ssLoaderInstallServiceTests : IDisposable
         Assert.Null(status.InstalledVersion);
     }
 
+    /// <summary>Audit finding: the installer keyed everything on the entry's first path segment, so a release zip with one wrapping folder landed a broken, misplaced install after a full backup, with no error.</summary>
+    [Fact]
+    public async Task InstallOrUpdateAsync_ReleaseZipWithOneWrappingFolder_IsInstalledAsIfFlat()
+    {
+        var zipPath = Path.Combine(_tempDir, $"UE4SS_{Guid.NewGuid():N}.zip");
+        using (var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create))
+        {
+            WriteEntry(archive, "UE4SS_v3.0.2/dwmapi.dll", "wrapped dwmapi bytes");
+            WriteEntry(archive, "UE4SS_v3.0.2/UE4SS.dll", "wrapped UE4SS.dll bytes");
+            WriteEntry(archive, "UE4SS_v3.0.2/UE4SS-settings.ini", "defaults");
+            WriteEntry(archive, "UE4SS_v3.0.2/Mods/mods.txt", "ActorDumperMod : 1");
+        }
+
+        await _service.InstallOrUpdateAsync(_fakeContentPath, zipPath, _backupDirectory);
+
+        Assert.Equal("wrapped dwmapi bytes", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "dwmapi.dll")));
+        Assert.Equal("wrapped UE4SS.dll bytes", await File.ReadAllTextAsync(Path.Combine(LoaderFolder, "UE4SS.dll")));
+        Assert.True(File.Exists(Path.Combine(LoaderFolder, "Mods", "mods.txt")));
+        Assert.False(Directory.Exists(Path.Combine(LoaderFolder, "UE4SS_v3.0.2")));
+    }
+
+    [Fact]
+    public async Task InstallOrUpdateAsync_ArchiveWithoutTheLoaderFiles_IsRefusedBeforeAnythingIsBackedUpOrWritten()
+    {
+        var zipPath = Path.Combine(_tempDir, $"NotUE4SS_{Guid.NewGuid():N}.zip");
+        using (var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create))
+        {
+            WriteEntry(archive, "README.md", "this is some other download");
+            WriteEntry(archive, "Scripts/main.lua", "-- a mod, not the loader");
+        }
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.InstallOrUpdateAsync(_fakeContentPath, zipPath, _backupDirectory));
+
+        Assert.Contains("expected layout", ex.Message);
+        Assert.False(Directory.Exists(_backupDirectory));
+        Assert.False(Directory.Exists(LoaderFolder));
+    }
+
     [Fact]
     public async Task InstallOrUpdateAsync_FreshInstall_PlacesDwmapiAtWin64RootAndEverythingElseUnderNestedFolder()
     {

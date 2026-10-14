@@ -559,6 +559,35 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.False(vm.IsRebuilding);
     }
 
+    /// <summary>
+    /// Audit finding: RebuildAsync's own Library import sends LibraryChangedMessage, and this VM's
+    /// handler for that message wiped the manual conflict picks — so a second Install of the same
+    /// reviewed queue silently resolved last-wins. Picks must survive the self-sent message.
+    /// </summary>
+    [Fact]
+    public async Task RebuildAsync_Success_KeepsTheManualConflictPicksForTheNextRebuild()
+    {
+        var libraryRepository = new FakeLibraryRepository();
+        libraryRepository.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        var rebuildService = new FakeRebuildService
+        {
+            Result = new RebuildResult(
+                MergedFileCount: 1, PackedFileCount: 1, OutputPakPath: "out.pak", ManifestPath: "out.manifest", Warnings: [], Notes: []),
+        };
+        var settingsService = new FakeSettingsService();
+        settingsService.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        var vm = CreateViewModel(libraryRepository: libraryRepository, rebuildService: rebuildService, settingsService: settingsService);
+        vm.Queue.Add(MakeEntry("ModA"));
+        var pick = new Dictionary<(string, string, string), int> { [("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime")] = 0 };
+        vm.ManualPicksForTesting = pick;
+
+        var succeeded = await vm.RebuildAsync();
+
+        Assert.True(succeeded);
+        Assert.Equal(1, libraryRepository.ImportPakCallCount);
+        Assert.Same(pick, vm.ManualPicksForTesting);
+    }
+
     [Fact]
     public async Task RebuildAsync_Success_SurfacesWarningsAndNotes_AndImportsTheBuiltPakIntoLibrary()
     {

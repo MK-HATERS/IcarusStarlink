@@ -41,15 +41,18 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         // field-mergeable. Extracting via UnrealPak is real async process I/O, so it has to happen
         // here, before the synchronous merge computation below.
         var prebuiltPakScratchDirectories = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var prebuiltPakPath in prebuiltPakFilePaths)
-        {
-            var prebuiltScratchDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"PrebuiltPakScratch_{Guid.NewGuid():N}");
-            await unrealPakService.ExtractPakAsync(unrealPakExePath, prebuiltPakPath, prebuiltScratchDirectory, cancellationToken);
-            prebuiltPakScratchDirectories[prebuiltPakPath] = prebuiltScratchDirectory;
-        }
-
         try
         {
+            // Inside the try (an audit finding): with the loop outside it, the 2nd pak's extraction
+            // throwing (a corrupt pak, a non-zero exit) leaked the 1st pak's already-extracted
+            // scratch folder under TEMP forever — the finally below is what guarantees cleanup.
+            foreach (var prebuiltPakPath in prebuiltPakFilePaths)
+            {
+                var prebuiltScratchDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"PrebuiltPakScratch_{Guid.NewGuid():N}");
+                prebuiltPakScratchDirectories[prebuiltPakPath] = prebuiltScratchDirectory;
+                await unrealPakService.ExtractPakAsync(unrealPakExePath, prebuiltPakPath, prebuiltScratchDirectory, cancellationToken);
+            }
+
             // The merge computation (reading every required base-game JSON file, resolving field
             // conflicts, applying gameplay options) is synchronous and, for a large queue, not cheap —
             // offloaded via Task.Run so it doesn't block the calling (UI) thread the way running it
@@ -261,6 +264,15 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         IReadOnlyList<ExmodPackageContents> queuedMods, IReadOnlyList<string> prebuiltPakFilePaths, GameplayOptions gameplayOptions, string unrealPakExePath,
         string outputPakPath, string stagingDirectory, int mergedTableCount, MergeReport report, CancellationToken cancellationToken)
     {
+        // A failed -Create can leave a partial pak at outputPakPath, and the PREVIOUS build's manifest
+        // would still sit beside it — Install reads that pair as "a complete staged build" (an audit
+        // finding: a stale queue installed under a partial pak). Both are cleared first so the slot
+        // holds either a verified pak plus its own manifest, or nothing.
+        var staleManifestPath = Path.Combine(Path.GetDirectoryName(outputPakPath)!, InstallManifestNames.PakManifest);
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPakPath)!);
+        File.Delete(outputPakPath);
+        File.Delete(staleManifestPath);
+
         var stagedRelativePaths = Directory.GetFiles(stagingDirectory, "*", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(stagingDirectory, f).Replace('\\', '/'))
             .ToList();
@@ -447,9 +459,11 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     /// VerifyEveryStagedFileWasActuallyPackedAsync above: that one confirms every staged file is
     /// PRESENT; this one confirms the bytes UnrealPak actually wrote for each one still hash-check
     /// correctly, catching a corruption class presence-checking alone never could (a truncated
-    /// write, a disk error mid-Create). Same "warn, never throw" contract as its sibling — a failed
-    /// verification pass must never make an otherwise-successful Rebuild look like it failed
-    /// outright.
+    /// write, a disk error mid-Create). The VERIFICATION itself failing to run (tool error) is
+    /// still only a warning, same as its sibling — but a pak UnrealPak itself hashes as corrupt is
+    /// not a successful rebuild (an audit finding): the old warn-only shape let the combined
+    /// Rebuild+Install button copy a corrupt pak straight into the game folder. The output is
+    /// deleted and the rebuild fails outright, so nothing downstream can install it.
     /// </summary>
     private async Task VerifyPakIntegrityAsync(string unrealPakExePath, string outputPakPath, MergeReport report, CancellationToken cancellationToken)
     {
@@ -458,10 +472,12 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             var result = await unrealPakService.VerifyPakAsync(unrealPakExePath, outputPakPath, cancellationToken);
             if (!result.IsHealthy)
             {
-                report.AddWarning($"UnrealPak.exe itself reports this pak as corrupted: {result.Message}");
+                File.Delete(outputPakPath);
+                throw new PakIntegrityException(
+                    $"UnrealPak.exe itself reports the built pak as corrupted ({result.Message}) — it was NOT kept or installed. Try Rebuild again; if it repeats, check free disk space and your UnrealPak.exe copy (Settings → Check).");
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not PakIntegrityException)
         {
             report.AddWarning($"Couldn't independently verify the pak's own integrity after building it: {ex.Message}");
         }

@@ -52,7 +52,11 @@ public sealed class InstallService : IInstallService
         var targetPakPath = Path.Combine(modsDirectory, targetPakFileName);
         var backupPakPath = FolderBackup.BackupFile(targetPakPath, backupDirectory);
 
-        File.Copy(stagedPakPath, targetPakPath, overwrite: true);
+        // Via a sibling temp file plus rename, never File.Copy(overwrite) straight onto the live pak
+        // (an audit finding): that truncates the destination first and streams in place, so a copy
+        // that fails midway (disk full, antivirus lock, the game launched mid-copy) left a truncated
+        // ISL-Merged_P.pak in the real game folder. The rename is all-or-nothing.
+        CopyViaTemp(stagedPakPath, targetPakPath);
 
         // Same deterministic sibling path RebuildService.WriteManifest always writes to — derived
         // here rather than cached by the caller, so a manifest from an earlier Rebuild (this
@@ -67,11 +71,35 @@ public sealed class InstallService : IInstallService
             // its "installed mods" record GetInstalledStateAsync reads below) with no way to
             // recover what was previously installed.
             FolderBackup.BackupFile(targetManifestPath, backupDirectory);
-            File.Copy(stagedManifestPath, targetManifestPath, overwrite: true);
+            CopyViaTemp(stagedManifestPath, targetManifestPath);
         }
 
         return new InstallResult(targetPakPath, backupPakPath);
     }, cancellationToken);
+
+    private static void CopyViaTemp(string sourcePath, string destinationPath)
+    {
+        var tempPath = destinationPath + ".tmp";
+        try
+        {
+            File.Copy(sourcePath, tempPath, overwrite: true);
+            File.Move(tempPath, destinationPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Scratch only — the next install overwrites it.
+                }
+            }
+        }
+    }
 
     public Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default) => Task.Run(() =>
     {

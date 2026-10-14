@@ -41,13 +41,31 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
         var dwmapiPath = Ue4ssGamePaths.ResolveDwmapiPath(icarusContentPath);
         var ue4ssBackupDirectory = Path.Combine(backupDirectory, "UE4SS-Loader");
 
+        // Validated BEFORE anything is backed up or written (an audit finding): the loop below keys
+        // its dwmapi.dll placement and its additive-only protection for Mods and UE4SS-settings.ini
+        // on the entry's first path segment, so a release zip with an unexpected layout (a single
+        // wrapping folder — the shape newer UE4SS builds have shipped — or no UE4SS.dll at all)
+        // used to go through the full backup and then land a broken, misplaced install with no
+        // error. A single wrapping folder is stripped (same convention Ue4ssModArchive uses for mod
+        // zips); anything else without the two loader files at its root is refused untouched.
+        using var archive = ZipFile.OpenRead(downloadedZipPath);
+        var wrappingPrefix = FindSingleWrappingFolderPrefix(archive);
+        var rootFileNames = archive.Entries
+            .Select(e => StripWrapper(e.FullName, wrappingPrefix))
+            .Where(name => name is not null && !name.Contains('/'))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!rootFileNames.Contains("UE4SS.dll") || !rootFileNames.Contains("dwmapi.dll"))
+        {
+            throw new InvalidOperationException(
+                "This UE4SS archive doesn't have the expected layout (UE4SS.dll and dwmapi.dll at its root, optionally inside one wrapping folder) — nothing was changed. It may be a different kind of UE4SS download; get the release zip itself.");
+        }
+
         FolderBackup.BackupFolder(loaderFolder, ue4ssBackupDirectory);
         FolderBackup.BackupFile(dwmapiPath, ue4ssBackupDirectory);
 
         Directory.CreateDirectory(win64Folder);
         Directory.CreateDirectory(loaderFolder);
 
-        using var archive = ZipFile.OpenRead(downloadedZipPath);
         var sizeBudget = new ExmodSizeBudget("UE4SS release archive");
 
         foreach (var entry in archive.Entries)
@@ -57,7 +75,7 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
                 continue; // a directory entry, nothing to write
             }
 
-            var relativePath = entry.FullName.Replace('\\', '/');
+            var relativePath = StripWrapper(entry.FullName, wrappingPrefix)!;
             var segments = relativePath.Split('/');
             var isTopLevelDwmapi = segments.Length == 1 && segments[0].Equals("dwmapi.dll", StringComparison.OrdinalIgnoreCase);
             var isUnderMods = segments[0].Equals("Mods", StringComparison.OrdinalIgnoreCase);
@@ -85,6 +103,52 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
             using var fileStream = File.Create(destPath);
             BoundedZipEntryCopy.CopyBounded(entryStream, fileStream, entry.Length, entry.FullName);
         }
+    }
+
+    /// <summary>The single top-level folder every file entry sits under, as "Name/" — or null when files sit at the root (the classic flat layout) or the top level is mixed.</summary>
+    private static string? FindSingleWrappingFolderPrefix(ZipArchive archive)
+    {
+        string? candidate = null;
+        foreach (var entry in archive.Entries)
+        {
+            var normalized = entry.FullName.Replace('\\', '/');
+            if (normalized.EndsWith('/'))
+            {
+                continue;
+            }
+
+            var slash = normalized.IndexOf('/');
+            if (slash <= 0)
+            {
+                return null; // a file at the very root — nothing wraps it
+            }
+
+            var top = normalized[..(slash + 1)];
+            if (candidate is null)
+            {
+                candidate = top;
+            }
+            else if (!string.Equals(candidate, top, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+        }
+
+        return candidate;
+    }
+
+    /// <summary>Normalizes separators and drops the wrapping folder; null for a directory entry.</summary>
+    private static string? StripWrapper(string entryFullName, string? wrappingPrefix)
+    {
+        var normalized = entryFullName.Replace('\\', '/');
+        if (normalized.EndsWith('/'))
+        {
+            return null;
+        }
+
+        return wrappingPrefix is not null && normalized.StartsWith(wrappingPrefix, StringComparison.OrdinalIgnoreCase)
+            ? normalized[wrappingPrefix.Length..]
+            : normalized;
     }
 
     public IReadOnlyList<string> ListUserAddedMods(string icarusContentPath)

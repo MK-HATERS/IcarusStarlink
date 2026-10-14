@@ -1,6 +1,7 @@
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
+using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
 using IcarusStarlink.PakIO.Rebuild;
 
@@ -69,11 +70,18 @@ public class RebuildServiceTests : IDisposable
                 FakeExtractedFilesByPakPath.TryGetValue(pakFilePath, out var files) ? [.. files.Keys] : []);
         public List<string> ExtractedPakPaths { get; } = [];
 
+        public string? PakPathToFailExtracting { get; set; }
+
         public Task<int> ExtractPakAsync(
             string unrealPakExePath, string pakFilePath, string outputDirectory,
             CancellationToken cancellationToken = default, string? filter = null)
         {
             ExtractedPakPaths.Add(pakFilePath);
+            if (string.Equals(pakFilePath, PakPathToFailExtracting, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("UnrealPak.exe exited with code 1 (simulated).");
+            }
+
             // Matches the real UnrealPakService.ExtractPakAsync, which always creates
             // outputDirectory before running the process regardless of how many files the pak
             // actually contains — RebuildService's own prebuilt-pak scratch-extraction step relies
@@ -109,8 +117,15 @@ public class RebuildServiceTests : IDisposable
         /// report every entry WITHOUT that prefix, even though the pak is genuinely complete.</summary>
         public string? SharedPrefixUnrealPakFoldsIntoMountPoint { get; set; }
 
+        public Exception? CreatePakException { get; set; }
+
         public Task<int> CreatePakAsync(string unrealPakExePath, string stagingDirectory, string outputPakPath, CancellationToken cancellationToken = default)
         {
+            if (CreatePakException is { } createFailure)
+            {
+                throw createFailure;
+            }
+
             LastStagingDirectory = stagingDirectory;
             LastOutputPakPath = outputPakPath;
             var files = Directory.GetFiles(stagingDirectory, "*", SearchOption.AllDirectories);
@@ -172,7 +187,7 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RebuildAsync_UnrealPakReportsTheBuiltPakAsCorrupted_WarnsInsteadOfSilentlyInstalling()
+    public async Task RebuildAsync_UnrealPakReportsTheBuiltPakAsCorrupted_FailsAndDeletesItInsteadOfSilentlyInstalling()
     {
         // UnrealPak's own real -Verify integrity check (confirmed live against a real binary, both
         // a healthy pak and a deliberately byte-corrupted copy) is a stronger signal than this
@@ -188,9 +203,60 @@ public class RebuildServiceTests : IDisposable
         };
         var service = new RebuildService(pakService);
 
-        var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+        // Fatal, not a warning (an audit finding): the warn-only shape let the combined
+        // Rebuild+Install button copy the corrupt pak straight into the game folder. The output
+        // is deleted and no manifest is written, so nothing downstream can install it.
+        var ex = await Assert.ThrowsAsync<PakIntegrityException>(() =>
+            service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []));
 
-        Assert.Contains(result.Warnings, w => w.Contains("corrupted") && w.Contains("1 errors out of 1 files checked"));
+        Assert.Contains("1 errors out of 1 files checked", ex.Message);
+        Assert.False(File.Exists(_outputPakPath));
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(_outputPakPath)!, InstallManifestNames.PakManifest)));
+    }
+
+    /// <summary>Audit finding: a failed -Create used to leave the PREVIOUS build's manifest beside a partial pak, which Install then read as a complete staged build.</summary>
+    [Fact]
+    public async Task RebuildAsync_CreateFails_LeavesNeitherAStalePakNorAStaleManifestBehind()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        Directory.CreateDirectory(Path.GetDirectoryName(_outputPakPath)!);
+        File.WriteAllText(_outputPakPath, "last week's pak");
+        var staleManifestPath = Path.Combine(Path.GetDirectoryName(_outputPakPath)!, InstallManifestNames.PakManifest);
+        File.WriteAllText(staleManifestPath, "Includes the following mods:\nLast Week's Mod");
+        var pakService = new FakeUnrealPakService { CreatePakException = new InvalidOperationException("UnrealPak.exe exited with code 1") };
+        var service = new RebuildService(pakService);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []));
+
+        Assert.False(File.Exists(_outputPakPath));
+        Assert.False(File.Exists(staleManifestPath));
+    }
+
+    /// <summary>Audit finding: the prebuilt-pak extraction loop ran outside the try/finally, so the 2nd pak failing leaked the 1st pak's scratch folder in TEMP.</summary>
+    [Fact]
+    public async Task RebuildAsync_SecondPrebuiltPakFailsToExtract_FirstPaksScratchFolderIsStillCleanedUp()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var goodPak = Path.Combine(_dataFolder, "..", "Good_P.pak");
+        var badPak = Path.Combine(_dataFolder, "..", "Bad_P.pak");
+        var marker = $"scratch-marker-{Guid.NewGuid():N}.txt";
+        var pakService = new FakeUnrealPakService { PakPathToFailExtracting = badPak };
+        pakService.FakeExtractedFilesByPakPath[goodPak] = new Dictionary<string, string> { [marker] = "x" };
+        var service = new RebuildService(pakService);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [goodPak, badPak]));
+
+        var scratchRoot = Path.Combine(Path.GetTempPath(), "IcarusStarlink");
+        var leaked = Directory.Exists(scratchRoot)
+            ? Directory.GetDirectories(scratchRoot, "PrebuiltPakScratch_*").Where(d => File.Exists(Path.Combine(d, marker))).ToList()
+            : [];
+        Assert.Empty(leaked);
     }
 
     [Fact]
