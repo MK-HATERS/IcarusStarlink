@@ -243,8 +243,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ = CheckForGameUpdateAsync();
         _ = InitializeNexusStatusAsync();
         _ = CheckUe4ssLatestReleaseAsync();
-        _ = CheckForAppUpdatesOnLaunchAsync();
         FirstLaunchSetupTask = RunFirstLaunchSetupAsync();
+        // After setup, not alongside it (an audit finding): both show modal dialogs, and an
+        // "Update available" accepted mid-setup shut the app down over a running data extraction.
+        _ = CheckForAppUpdatesAfterSetupAsync();
         CheckForGameCrashesSinceLastInstall();
 
         LoadSkinTokens();
@@ -1083,9 +1085,20 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private void RefreshUe4ssStatus()
     {
-        var status = _ue4ssLoaderInstallService.GetStatus(IcarusContentPath!);
-        IsUe4ssInstalled = status.IsInstalled;
-        Ue4ssInstalledVersion = status.InstalledVersion;
+        try
+        {
+            var status = _ue4ssLoaderInstallService.GetStatus(IcarusContentPath!);
+            IsUe4ssInstalled = status.IsInstalled;
+            Ue4ssInstalledVersion = status.InstalledVersion;
+        }
+        catch (Exception)
+        {
+            // A path with no parent (a drive root picked in Browse) makes the game-path resolver
+            // throw; from inside a property-changed hook that took the whole app down (an audit
+            // finding). Not a real install = not installed.
+            IsUe4ssInstalled = false;
+            Ue4ssInstalledVersion = null;
+        }
     }
 
     // Only Browse…/Auto-detect route through this — the constructor assigns the backing field
@@ -1412,10 +1425,37 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        // Shutdown() below would cut a running extraction or UE4SS install off midway (an orphaned
+        // UnrealPak process, a half-written Data folder) — an audit finding.
+        if (IsUpdatingDataFolder || IsInstallingUe4ss || IsUninstallingUe4ss)
+        {
+            AppUpdateStatusMessage = "Wait for the current data extraction / UE4SS change to finish, then click Update again.";
+            return;
+        }
+
         IsInstallingAppUpdate = true;
         try
         {
-            var workDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"AppUpdate_{Guid.NewGuid():N}");
+            // Earlier updates' work folders (zip + full extracted build, ~2x the release size each)
+            // were never cleaned up — by anyone, since the updater runs from one and the app never
+            // looked (an audit finding). Any previous AppUpdate_* folder is finished with by now.
+            var updateWorkRoot = Path.Combine(Path.GetTempPath(), "IcarusStarlink");
+            if (Directory.Exists(updateWorkRoot))
+            {
+                foreach (var stale in Directory.GetDirectories(updateWorkRoot, "AppUpdate_*"))
+                {
+                    try
+                    {
+                        Directory.Delete(stale, recursive: true);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // Best-effort; retried on the next update.
+                    }
+                }
+            }
+
+            var workDirectory = Path.Combine(updateWorkRoot, $"AppUpdate_{Guid.NewGuid():N}");
             Directory.CreateDirectory(workDirectory);
 
             AppUpdateStatusMessage = $"Downloading v{release.Version}…";
@@ -1512,6 +1552,20 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// prompts, via a real Yes/No, matching every other "ask before doing something visible" gate
     /// already established in this app.
     /// </summary>
+    private async Task CheckForAppUpdatesAfterSetupAsync()
+    {
+        try
+        {
+            await FirstLaunchSetupTask;
+        }
+        catch (Exception)
+        {
+            // RunFirstLaunchSetupAsync has its own catch-all; nothing to add here.
+        }
+
+        await CheckForAppUpdatesOnLaunchAsync();
+    }
+
     private async Task CheckForAppUpdatesOnLaunchAsync()
     {
         var release = await _appUpdateClient.GetLatestReleaseAsync();

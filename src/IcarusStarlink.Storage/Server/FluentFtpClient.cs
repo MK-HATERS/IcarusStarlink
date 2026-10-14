@@ -88,11 +88,26 @@ public sealed class FluentFtpClient : CoreIFtpClient
             item.Modified == DateTime.MinValue ? null : new DateTimeOffset(item.Modified)))];
     }
 
-    public async Task UploadFileAsync(string localPath, string remotePath, CancellationToken cancellationToken = default) =>
-        await RequireClient().UploadFile(localPath, remotePath, FtpRemoteExists.Overwrite, createRemoteDir: true, token: cancellationToken);
+    // FluentFTP reports a transfer that failed mid-stream (connection reset) or a missing source
+    // as FtpStatus.Failed — a RETURN VALUE, not an exception. Dropping it meant every caller logged
+    // "Uploaded"/"Installed the merged pak" over a truncated file on a live server (an audit finding).
+    public async Task UploadFileAsync(string localPath, string remotePath, CancellationToken cancellationToken = default)
+    {
+        var status = await RequireClient().UploadFile(localPath, remotePath, FtpRemoteExists.Overwrite, createRemoteDir: true, token: cancellationToken);
+        if (status != FtpStatus.Success)
+        {
+            throw new IOException($"Upload of '{remotePath}' did not complete ({status}) — the server may hold a partial file; try again.");
+        }
+    }
 
-    public async Task DownloadFileAsync(string remotePath, string localPath, CancellationToken cancellationToken = default) =>
-        await RequireClient().DownloadFile(localPath, remotePath, FtpLocalExists.Overwrite, token: cancellationToken);
+    public async Task DownloadFileAsync(string remotePath, string localPath, CancellationToken cancellationToken = default)
+    {
+        var status = await RequireClient().DownloadFile(localPath, remotePath, FtpLocalExists.Overwrite, token: cancellationToken);
+        if (status != FtpStatus.Success)
+        {
+            throw new IOException($"Download of '{remotePath}' did not complete ({status}) — try again.");
+        }
+    }
 
     public async Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default)
     {
@@ -113,8 +128,20 @@ public sealed class FluentFtpClient : CoreIFtpClient
             {
                 var directory = remotePath[..lastSlash];
                 var fileName = remotePath[(lastSlash + 1)..];
-                await client.SetWorkingDirectory(string.IsNullOrEmpty(directory) ? "/" : directory, cancellationToken);
-                await client.DeleteFile(fileName, cancellationToken);
+                // The CWD is session state: every later RELATIVE path this app sends (its default
+                // Icarus/Content/Paks/mods paths have no leading slash) resolves against it, so
+                // leaving it changed made the very next pak upload land in a nested wrong folder
+                // while the status said "Installed" (an audit finding). Restored no matter what.
+                var previousWorkingDirectory = await client.GetWorkingDirectory(cancellationToken);
+                try
+                {
+                    await client.SetWorkingDirectory(string.IsNullOrEmpty(directory) ? "/" : directory, cancellationToken);
+                    await client.DeleteFile(fileName, cancellationToken);
+                }
+                finally
+                {
+                    await client.SetWorkingDirectory(previousWorkingDirectory, cancellationToken);
+                }
             }
             else
             {

@@ -92,11 +92,11 @@ public partial class App : Application
         var singleInstanceService = new SingleInstanceService();
         if (!singleInstanceService.IsFirstInstance)
         {
+            // A plain second launch (no nxm:// argument) asks the running instance to come to the
+            // front instead of exiting silently (an audit finding: a minimized first instance plus a
+            // Start-menu click looked like "the app won't start").
             var handoffUrl = e.Args.FirstOrDefault(arg => arg.StartsWith("nxm://", StringComparison.OrdinalIgnoreCase));
-            if (handoffUrl is not null)
-            {
-                SingleInstanceService.SendToRunningInstance(handoffUrl);
-            }
+            SingleInstanceService.SendToRunningInstance(handoffUrl ?? SingleInstanceService.ActivateMessage);
 
             singleInstanceService.Dispose();
             Shutdown();
@@ -115,7 +115,17 @@ public partial class App : Application
         // actually assigned — HandleNxmUrl's own null check below is what covers a real nxm:// pipe
         // message that happens to land in that narrow window (silently dropped, same as if the
         // pipe server itself hadn't started yet).
-        singleInstanceService.StartListening(nxmUrl => Dispatcher.BeginInvoke(() => HandleNxmUrl(nxmUrl)));
+        singleInstanceService.StartListening(message => Dispatcher.BeginInvoke(() =>
+        {
+            if (message == SingleInstanceService.ActivateMessage)
+            {
+                BringMainWindowToFront();
+            }
+            else
+            {
+                HandleNxmUrl(message);
+            }
+        }));
 
         var appDataDirectory = AppContext.BaseDirectory;
         var logsDirectory = _logsDirectory;
@@ -571,6 +581,21 @@ public partial class App : Application
     /// as an argument-evaluation exception, before CrashReportWriter.Write was ever even called.
     /// </summary>
     private IActivityLog? TryGetActivityLog() => SafeServiceResolver.TryGetService<IActivityLog>(_host?.Services);
+
+    private void BringMainWindowToFront()
+    {
+        if (MainWindow is null)
+        {
+            return;
+        }
+
+        if (MainWindow.WindowState == WindowState.Minimized)
+        {
+            MainWindow.WindowState = WindowState.Normal;
+        }
+
+        MainWindow.Activate();
+    }
 
     private void HandleNxmUrl(string nxmUrl)
     {

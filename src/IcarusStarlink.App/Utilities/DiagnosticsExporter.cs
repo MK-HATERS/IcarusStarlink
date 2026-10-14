@@ -97,7 +97,20 @@ public static class DiagnosticsExporter
 
     private static string RedactSettings(string json)
     {
-        if (JsonNode.Parse(json) is not JsonObject settingsObject)
+        JsonNode? parsed;
+        try
+        {
+            parsed = JsonNode.Parse(json);
+        }
+        catch (JsonException)
+        {
+            // A corrupt settings.json is exactly the thing worth shipping in a diagnostics zip — it
+            // used to abort the whole export instead (an audit finding). Nothing in it is secret
+            // (see the class doc), so the raw text goes in as-is.
+            return json;
+        }
+
+        if (parsed is not JsonObject settingsObject)
         {
             return json;
         }

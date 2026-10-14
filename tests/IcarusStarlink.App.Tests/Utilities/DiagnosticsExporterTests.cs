@@ -42,6 +42,20 @@ public class DiagnosticsExporterTests : IDisposable
         Assert.Contains(archive.Entries, e => e.FullName == "Logs/icarusstarlink-20260102.log");
     }
 
+    /// <summary>Audit finding: a corrupt settings.json — exactly what a diagnostics zip exists to capture — threw out of the redaction step and aborted the whole export.</summary>
+    [Fact]
+    public void Export_SettingsJsonIsNotValidJson_StillExportsItVerbatim()
+    {
+        File.WriteAllText(_settingsFilePath, "{ this is not valid json");
+
+        DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath);
+
+        using var archive = ZipFile.OpenRead(_outputZipPath);
+        var entry = Assert.Single(archive.Entries, e => e.FullName == "settings.json");
+        using var reader = new StreamReader(entry.Open());
+        Assert.Equal("{ this is not valid json", reader.ReadToEnd());
+    }
+
     [Fact]
     public void Export_IncludesSettingsJsonWithNonSensitiveFieldsIntact()
     {

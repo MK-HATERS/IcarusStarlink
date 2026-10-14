@@ -16,6 +16,9 @@ public sealed class SingleInstanceService : IDisposable
     private const string MutexName = "IcarusStarlink-SingleInstance";
     private const string PipeName = "IcarusStarlink-NxmHandoff";
 
+    /// <summary>Sent by a second launch that carries no nxm:// link — the running instance just brings its window to the front.</summary>
+    public const string ActivateMessage = "activate";
+
     private readonly Mutex _mutex;
     private CancellationTokenSource? _listenerCts;
 
@@ -59,7 +62,18 @@ public sealed class SingleInstanceService : IDisposable
                 catch (Exception) when (!token.IsCancellationRequested)
                 {
                     // A single connection's own transient failure shouldn't kill the whole
-                    // listener loop for every future launch — just go around and wait again.
+                    // listener loop for every future launch — just go around and wait again. With
+                    // a short back-off: a PERSISTENT failure (the pipe name already owned by another
+                    // Windows user's session of this app on the same PC) used to spin this loop at
+                    // 100% of a core for the app's whole lifetime (an audit finding).
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(1), token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Shutting down — the while condition ends the loop.
+                    }
                 }
             }
         }, token);

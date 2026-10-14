@@ -233,6 +233,32 @@ public sealed class ServerViewModelTests
         Assert.True(siteStore.GetAll().Single(s => s.Id == site.Id).SupportsDelete);
     }
 
+    /// <summary>
+    /// Audit finding: RememberDeleteCapability wrote _connectedSite (the object captured at
+    /// Connect) back to the store wholesale, so a field edited and saved AFTER connecting was
+    /// silently reverted to its pre-connect value the moment a delete taught SupportsDelete.
+    /// </summary>
+    [Fact]
+    public async Task RememberDeleteCapability_AfterAnEditSavedSinceConnect_KeepsThatEdit()
+    {
+        var site = MakeSite(Guid.NewGuid());
+        var siteStore = new FakeFtpSiteStore([site]);
+        var vm = CreateViewModel(siteStore, new DeletingFtpClient());
+        vm.SelectedSite = vm.Sites.Single();
+        vm.PasswordInput = "irrelevant-password";
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        vm.RemotePathInput = "/edited/after/connect";
+        vm.SaveSiteCommand.Execute(null);
+
+        vm.SelectedRemoteEntry = new FtpEntry("some-file.txt", false, 10, null);
+        await vm.DeleteRemoteCommand.ExecuteAsync(null);
+
+        var stored = siteStore.GetAll().Single(s => s.Id == site.Id);
+        Assert.True(stored.SupportsDelete);
+        Assert.Equal("/edited/after/connect", stored.RemotePath);
+    }
+
     private sealed class FakeFtpSiteStore(IEnumerable<FtpSiteProfile> sites) : IFtpSiteStore
     {
         private readonly List<FtpSiteProfile> _sites = sites.ToList();

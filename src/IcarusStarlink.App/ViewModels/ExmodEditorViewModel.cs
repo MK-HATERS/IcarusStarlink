@@ -231,6 +231,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
+        if (IsReservedFieldName(MassEditFieldName))
+        {
+            MassEditStatusMessage = "'Name' is each item's own identity, not a field.";
+            return;
+        }
+
         JsonNode? parsedValue;
         try
         {
@@ -297,6 +303,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         PushUndoSnapshot();
         row.FileItems.Add(new ExmodFileItem { Name = newName, Fields = clonedFields });
+        RefreshBaseDiff();
 
         var newEditorItem = new EditorItemViewModel(row.CurrentFile, newName);
         Items.Add(newEditorItem);
@@ -779,6 +786,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         StatusMessage = "Undid last action.";
     }
 
+    /// <summary>"Name" is the row-identity key in EXMOD JSON (see ReservedFieldNames in PakIO) — an item carrying a field by that name can't be serialized, and every structural command snapshots by serializing, so it has to be refused at entry rather than crash the next click.</summary>
+    private static bool IsReservedFieldName(string fieldName) => string.Equals(fieldName.Trim(), "Name", StringComparison.Ordinal);
+
     private void RefreshBaseDiff()
     {
         var report = new MergeReport();
@@ -869,6 +879,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
+        if (IsReservedFieldName(NewFieldName))
+        {
+            StatusMessage = "'Name' is the item's own identity, not a field — rename the item instead.";
+            return;
+        }
+
         var item = FindItem(SelectedItem.CurrentFile, SelectedItem.ItemName)!;
         if (item.Fields.ContainsKey(NewFieldName))
         {
@@ -889,6 +905,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         PushUndoSnapshot();
         item.Fields[NewFieldName] = parsedValue;
+        // The amber "differs from base" highlight is keyed on a diff recomputed whenever Rows change
+        // shape — a freshly added field had no entry and so never highlighted (an audit finding).
+        RefreshBaseDiff();
         var baseValue = LookupOrFallback(_baseValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
         var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
         Fields.Add(new EditorFieldViewModel(NewFieldName, item.Fields, baseValue, originalValue));
@@ -925,18 +944,20 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         // "Traits/D_Fuel.json" typed by a user -> "Traits-D_Fuel.json" as stored.
         var currentFile = NewItemCurrentFile.Trim().Replace('/', '-').Replace('\\', '-');
 
-        PushUndoSnapshot();
+        // Validated BEFORE the undo snapshot (an audit finding): a refused add used to leave a no-op
+        // snapshot on the stack, so the user's next Undo "undid" nothing.
         var row = _package.Rows.FirstOrDefault(r => r.CurrentFile == currentFile);
+        if (row is not null && row.FileItems.Any(i => i.Name == NewItemName))
+        {
+            StatusMessage = $"'{NewItemName}' already exists in '{currentFile}'.";
+            return;
+        }
+
+        PushUndoSnapshot();
         if (row is null)
         {
             row = new ExmodFileRow { CurrentFile = currentFile };
             _package.Rows.Add(row);
-        }
-
-        if (row.FileItems.Any(i => i.Name == NewItemName))
-        {
-            StatusMessage = $"'{NewItemName}' already exists in '{currentFile}'.";
-            return;
         }
 
         row.FileItems.Add(new ExmodFileItem { Name = NewItemName });

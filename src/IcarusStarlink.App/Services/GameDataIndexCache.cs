@@ -52,6 +52,14 @@ public sealed class GameDataIndexCache
     {
         lock (_lock)
         {
+            // A build that faulted (a file locked mid-extraction, say) is retried on the next call
+            // rather than cached as a permanent failure until the next successful "Update data
+            // folder" (an audit finding).
+            if (_indexesTask is { IsFaulted: true })
+            {
+                _indexesTask = null;
+            }
+
             return _indexesTask ??= Task.Run(() => BuildIndexes(dataFolder));
         }
     }
@@ -73,8 +81,10 @@ public sealed class GameDataIndexCache
             {
                 parsed = JsonNode.Parse(File.ReadAllText(filePath));
             }
-            catch (JsonException)
+            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
             {
+                // Not DataTable-shaped, or unreadable right now — skipped, not an error (the doc
+                // comment's own contract; the read failures used to fault the whole build).
                 continue;
             }
 
