@@ -84,6 +84,26 @@ public sealed class LibraryItemViewModelTests : IDisposable
     /// "Update available: v1" forever, with nothing to update to. NexusVersion null here, exactly
     /// like an entry activated before activation started recording it.
     /// </summary>
+    /// <summary>
+    /// Audit finding: a LibraryChangedMessage from an unrelated import arriving inside the 500 ms
+    /// notes-save debounce made Update() revert the Notes box to the on-disk text, and the still-
+    /// pending save then wrote that stale text back over what the user had typed.
+    /// </summary>
+    [Fact]
+    public void Update_WhileANotesSaveIsStillPending_DoesNotRevertTheTypedNotes()
+    {
+        var entry = MakeEntry();
+        entry.Notes = "on disk";
+        var item = CreateViewModel(entry: entry);
+
+        item.Notes = "being typed right now";
+        var refreshed = MakeEntry();
+        refreshed.Notes = "on disk";
+        item.Update(refreshed);
+
+        Assert.Equal("being typed right now", item.Notes);
+    }
+
     [Fact]
     public void HasUpdateAvailable_LatestEqualsDeclaredVersionNumerically_IsFalse()
     {

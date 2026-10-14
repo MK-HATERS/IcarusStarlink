@@ -520,7 +520,11 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             OnPropertyChanged(nameof(IsFavorite));
         }
 
-        if (_notes != entry.Notes)
+        // Never over text the user is mid-typing (an audit finding): a LibraryChangedMessage from
+        // an unrelated import/update arriving inside the 500 ms notes-save debounce used to revert
+        // the box to the on-disk text, and the still-pending save then wrote that stale text back.
+        // The pending save is the newer truth; it lands on its own.
+        if (_notes != entry.Notes && !_notesSaveDebounceTimer.IsRunning)
         {
             _notes = entry.Notes;
             OnPropertyChanged(nameof(Notes));
@@ -1040,6 +1044,10 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             // same folder from scratch, paid on every single mod selection.
             var files = _repository.ListFolderFiles(FolderName);
 
+            // Cleared, not appended (an audit finding): NotifyRepairedFromDisk and a retry after a
+            // transient failure both re-enter here with the previous list still populated, which
+            // doubled every row in the Files tab.
+            AssetPaths.Clear();
             foreach (var path in _repository.ListAssetPaths(FolderName, files))
             {
                 AssetPaths.Add(path);

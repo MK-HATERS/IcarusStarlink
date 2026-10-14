@@ -1083,10 +1083,6 @@ public sealed partial class LibraryViewModel : ObservableObject
                 // that failure would lose the working old copy.
                 _repository.BackupMod(folderName);
                 _repository.Delete(folderName);
-                // Only actually matters when the swap below goes the isExmodz route (no fresh
-                // PrebuiltPakImporter.ImportAsync -> sourceStore.Save for this folder name to
-                // overwrite it) — otherwise harmless, since Save below replaces it anyway.
-                _prebuiltPakSourceStore.Delete(folderName);
 
                 try
                 {
@@ -1095,6 +1091,14 @@ public sealed partial class LibraryViewModel : ObservableObject
                         : await _prebuiltPakImporter.ImportAsync(
                             tempPath, _dataFolder, _settingsService.Current.UnrealPakExePath,
                             source: "Database", catalogEntryId: catalogEntry.Id, name: catalogEntry.Name, author: catalogEntry.Author);
+
+                    // The saved source pak is only dropped once the new copy is in (an audit finding:
+                    // deleting it up front meant a FAILED update restored the old mod but left it with
+                    // no source pak to ever re-derive from). The pak route's own Save already overwrote it.
+                    if (isExmodz)
+                    {
+                        _prebuiltPakSourceStore.Delete(folderName);
+                    }
                     if (isPinned || isFavorite || !string.IsNullOrEmpty(notes))
                     {
                         _repository.UpdateMetadata(imported.FolderName, isPinned, isFavorite, notes);
@@ -1253,6 +1257,12 @@ public sealed partial class LibraryViewModel : ObservableObject
             {
                 _activityLog.Log($"Converted '{item.Name}' from a prebuilt pak into an editable mod.", ActivityEntryKind.Success);
             }
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary the whole-library sweep already has (an audit finding: without it a
+            // locked .pak sent the exception to the crash-report handler and the click did nothing).
+            StatusMessage = $"Couldn't convert '{item.Name}': {ex.Message}";
         }
         finally
         {
@@ -1453,10 +1463,14 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
         }
 
+        // Same open-editor guard CheckModsAgainstCurrentDataAsync uses (an audit finding): rewriting
+        // a folder under an open editor window means its next Save writes the stale in-memory
+        // package back over the fresh diff — and marks it locally edited, so it's never refreshed again.
+        var foldersWithOpenEditors = _openEditorCountByFolder.Where(kv => kv.Value > 0).Select(kv => kv.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var item in alreadyConverted)
         {
             var sourcePakPath = _prebuiltPakSourceStore.TryGetPath(item.FolderName);
-            if (sourcePakPath is null || !_foldersCurrentlyConvertingToExmod.Add(item.FolderName))
+            if (sourcePakPath is null || foldersWithOpenEditors.Contains(item.FolderName) || !_foldersCurrentlyConvertingToExmod.Add(item.FolderName))
             {
                 continue;
             }
@@ -1472,6 +1486,14 @@ public sealed partial class LibraryViewModel : ObservableObject
                 }
 
                 var folder = _repository.GetFolderPath(item.FolderName);
+
+                // The converter derives FileName from the SOURCE pak's file name, and the source store
+                // keeps that pak as "{folderName}.pak" — so for a collision-suffixed folder
+                // ("CoolMod_P_2" holding "CoolMod_P.EXMOD") the re-conversion wrote a SECOND .EXMOD
+                // beside the original, and the mod vanished from the Library as "more than one
+                // .EXMOD" on the next rescan (an audit finding). Keep the existing package's own name.
+                converted.Contents.Package.FileName = ExmodFolder.ReadPackageOnly(folder).FileName;
+
                 _repository.BackupMod(item.FolderName);
                 try
                 {
@@ -2501,7 +2523,12 @@ public sealed partial class LibraryViewModel : ObservableObject
                     // there's no live-installed version string to read the way a Library EXMOD/pak
                     // entry has, but the check itself (fetch, compare, count) is identical.
                     updatedCount += await ApplyNexusVersionsAsync(nexusItems, apiKey, i => i.NexusModId!.Value, (i, v) => i.LatestVersion = v, i => i.HasUpdateAvailable);
-                    updatedCount += await ApplyNexusVersionsAsync(ue4ssItems, apiKey, r => r.NexusModId!.Value, (r, v) => r.LatestVersion = v, r => r.HasUpdateAvailable);
+                    // Resolved against the LIVE row by name at apply time: a reload of the UE4SS list while
+                    // the Nexus lookups were in flight replaces every row, and stamping the version onto
+                    // the captured (now orphaned) instance left no badge until the next manual check.
+                    updatedCount += await ApplyNexusVersionsAsync(ue4ssItems, apiKey, r => r.NexusModId!.Value,
+                        (r, v) => (Ue4ssMods.FirstOrDefault(m => m.Name == r.Name) ?? r).LatestVersion = v,
+                        r => (Ue4ssMods.FirstOrDefault(m => m.Name == r.Name) ?? r).HasUpdateAvailable);
                 }
             }
 
