@@ -2,18 +2,32 @@ namespace IcarusStarlink.Updater;
 
 /// <summary>
 /// The updater's core: copies every file from the extracted new build over the install directory.
-/// Deliberately NEVER deletes anything — user data (Extracted_Mods, Profiles, Library_Meta,
-/// Cache, Pending_Downloads, Backups, settings.json, custom_skin.json, Logs, …) is safe by
-/// construction rather than by a preserve-list that would go stale every time the app grows a new
-/// data folder. The cost is that a file the new version no longer ships lingers on disk — inert
-/// for a .NET app (unreferenced assemblies are never loaded), and a fair trade against ever
-/// deleting a user's mods by omission.
+/// Deliberately NEVER deletes user data — Extracted_Mods, Profiles, Library_Meta, Cache,
+/// Pending_Downloads, Backups, settings.json, custom_skin.json, Logs, … are safe by construction
+/// rather than by a preserve-list that would go stale every time the app grows a new data folder:
+/// nothing inside any subfolder is ever touched, and at the install root only files matching
+/// StaleRootFilePatterns (unambiguously the app's own program files — the exact set Uninstall.bat
+/// already treats as app-owned) are removed, and only once the new build has fully landed. That
+/// exception exists for the single-file packaging change (see IcarusStarlink.App.csproj): an
+/// install upgrading from the old 336-file layout would otherwise keep ~320 dead runtime DLLs
+/// forever — inert, but exactly the clutter that change was asked for to get rid of.
 /// </summary>
 public static class UpdateApplier
 {
     private const string AppExeName = "IcarusStarlink.App.exe";
     private const int CopyAttempts = 5;
     private const int CopyRetryDelayMs = 500;
+
+    /// <summary>
+    /// Root-level file shapes the app itself ships and nothing else ever puts there — a stale one
+    /// (present in the install root, absent from the new build's root) is a leftover of a previous
+    /// version's layout. createdump.exe is the one .exe among them: the old self-contained runtime's
+    /// own crash-dump helper. Never a broader "*.exe" — the app's and updater's own exes are
+    /// overwritten by the copy loop, and anything else is not ours to remove. The old layout's
+    /// runtimes\ folder (per-RID native assets) is the one subfolder treated the same way, by exact
+    /// name, since Uninstall.bat already lists it as regenerable app output.
+    /// </summary>
+    private static readonly string[] StaleRootFilePatterns = ["*.dll", "*.pdb", "*.xml", "*.deps.json", "*.runtimeconfig.json", "createdump.exe"];
 
     /// <summary>
     /// Returns the number of files copied. Throws when newFilesDirectory doesn't look like an app
@@ -68,6 +82,7 @@ public static class UpdateApplier
             }
 
             log($"Copied {copied} file(s) from '{newFilesDirectory}' into '{installDirectory}'.");
+            RemoveStaleRootFiles(installDirectory, newFilesDirectory, log);
             TryDeleteBackupDirectory(backupDirectory, log);
             return copied;
         }
@@ -129,6 +144,61 @@ public static class UpdateApplier
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Runs only after every file of the new build has landed, so a failure partway through the
+    /// copy loop (which rolls back) never reaches this — the install is already a complete,
+    /// working new version by the time anything gets removed. Best-effort per file: a stale file
+    /// that can't be deleted (locked by antivirus mid-scan, say) is logged and left, never turned
+    /// into a failed update, since it's inert either way. See StaleRootFilePatterns for exactly
+    /// what qualifies and why the class doc comment's never-delete-user-data promise still holds.
+    /// </summary>
+    private static void RemoveStaleRootFiles(string installDirectory, string newFilesDirectory, Action<string> log)
+    {
+        var shippedRootFiles = new HashSet<string>(
+            Directory.GetFiles(newFilesDirectory).Select(f => Path.GetFileName(f)), StringComparer.OrdinalIgnoreCase);
+        var removed = 0;
+        foreach (var pattern in StaleRootFilePatterns)
+        {
+            foreach (var stalePath in Directory.GetFiles(installDirectory, pattern, SearchOption.TopDirectoryOnly))
+            {
+                if (shippedRootFiles.Contains(Path.GetFileName(stalePath)))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    TryClearReadOnly(stalePath);
+                    File.Delete(stalePath);
+                    removed++;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    log($"Couldn't remove stale '{Path.GetFileName(stalePath)}' ({ex.Message}) — leaving it; it's inert.");
+                }
+            }
+        }
+
+        var staleRuntimesDirectory = Path.Combine(installDirectory, "runtimes");
+        if (Directory.Exists(staleRuntimesDirectory) && !Directory.Exists(Path.Combine(newFilesDirectory, "runtimes")))
+        {
+            try
+            {
+                Directory.Delete(staleRuntimesDirectory, recursive: true);
+                removed++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                log($"Couldn't remove the stale runtimes\\ folder ({ex.Message}) — leaving it; it's inert.");
+            }
+        }
+
+        if (removed > 0)
+        {
+            log($"Removed {removed} stale file(s)/folder(s) from a previous version's layout that the new build no longer ships.");
+        }
     }
 
     /// <summary>Best-effort cleanup only — a stray backup folder left in TEMP is a nuisance, never worth surfacing as the update's own result.</summary>

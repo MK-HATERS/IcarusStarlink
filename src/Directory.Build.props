@@ -1,0 +1,12 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- Symbols embedded into each assembly instead of shipped as loose .pdb files — the published
+         app is a single-file bundle (see IcarusStarlink.App.csproj), and the six .pdb files were
+         the only remaining loose managed artifacts beside it. Embedded symbols keep crash reports
+         just as diagnosable (same SourceLink mapping to the public repo) with nothing extra on
+         disk. Applies to every src/ project; tests/ and tools/ are outside this file's reach. -->
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+</Project>

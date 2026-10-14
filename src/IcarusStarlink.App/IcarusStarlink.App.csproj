@@ -36,25 +36,49 @@
     <Copy SourceFiles="@(_UpdaterFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
-  <!-- `dotnet publish` — $(OutDir) above still only reflects the intermediate BUILD output, not
-       wherever Publish actually ends up (its own default location, or a `-o` override); MSBuild
-       property-sniffing $(PublishDir) here doesn't work either, since it carries a non-empty default
-       value even when Publish never runs at all. The one correct, SDK-documented way to add extra
-       loose files to a publish output is to feed them into the same @(ResolvedFileToPublish) item
-       list the SDK's own publish pipeline copies from — this hook (BeforeTargets on the pipeline's
-       own list-building target) lets the SDK itself resolve the real destination correctly.
+  <!-- `dotnet publish` — the Updater has to ship as its OWN self-contained single-file exe, for a
+       real bug confirmed live against the shipped v1.4.9 zip: the Updater was published
+       self-contained (its runtimeconfig lists includedFrameworks), but "Update now" stages just its
+       four files into TEMP with none of the runtime beside them, so the apphost died at startup
+       ("hostpolicy.dll ... not found. Failed to run as a self-contained app") before a single line
+       of its own code ran — no updater.log, the app had already closed, nothing relaunched. In-app
+       self-update had never worked in any self-contained release (it only ever worked on a
+       framework-dependent dev build with .NET installed). A single-file self-contained Updater
+       carries its runtime inside the one exe, so staging that one file into TEMP is enough.
 
-       Only the managed .dll is added here, deliberately — the SDK's own publish pipeline already
-       auto-includes the Updater ProjectReference's own apphost .exe/.runtimeconfig.json/.deps.json
-       on its own (confirmed live: adding all four here throws NETSDK1152, "found multiple publish
-       output files with the same relative path", against those three). The managed .dll is the one
-       file that auto-inclusion does NOT cover — exactly the file the real v1.4.0 release shipped
-       without (see this file's own top comment on this target group). -->
-  <Target Name="AddUpdaterDllToPublishOutput" BeforeTargets="ComputeResolvedFilesToPublishList" AfterTargets="Build">
+       Hooked AfterTargets on the publish pipeline's own list-building target (publish-only; never
+       runs on a plain build) — AFTER, not before, because that target is what adds the
+       ProjectReference's own outputs, so a hook running before it has nothing to remove yet
+       (confirmed live: a BeforeTargets version failed with NETSDK1152, the SDK's apphost copy and
+       this one colliding on the same relative path). Publishes the Updater project into this
+       project's own obj\ via the MSBuild task, drops whatever Updater files the SDK auto-included
+       (matched on RelativePath — the publish destination — not Filename: the SDK's apphost item is
+       literally named apphost.exe on disk and only becomes IcarusStarlink.Updater.exe on output;
+       and with PublishSingleFile on below, its .dll would otherwise be swallowed into THIS app's
+       bundle, also confirmed in a trial publish), then adds the single-file exe with
+       ExcludeFromSingleFile so it stays a separate, runnable file beside the app. -->
+  <PropertyGroup>
+    <_UpdaterPublishDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\updater-publish\</_UpdaterPublishDir>
+  </PropertyGroup>
+  <PropertyGroup>
+    <!-- Trimming has to be known at RESTORE time (the ILLink pack is a restore-time dependency) —
+         a plain Publish with PublishTrimmed=true against the Updater's ordinary restore silently
+         published it untrimmed (confirmed live: 70 MB, the full runtime). So: a dedicated Restore
+         with the exact same property set first, under a fresh restore session id so MSBuild
+         doesn't hand back the cached untrimmed evaluation, then the Publish. -->
+    <_UpdaterPublishProperties>Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=true;PublishSingleFile=true;PublishTrimmed=true;PublishDir=$(_UpdaterPublishDir);_IsPublishing=true</_UpdaterPublishProperties>
+  </PropertyGroup>
+  <Target Name="PublishSingleFileUpdater" AfterTargets="ComputeResolvedFilesToPublishList">
+    <MSBuild Projects="..\IcarusStarlink.Updater\IcarusStarlink.Updater.csproj" Targets="Restore"
+             Properties="$(_UpdaterPublishProperties);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())" />
+    <MSBuild Projects="..\IcarusStarlink.Updater\IcarusStarlink.Updater.csproj" Targets="Publish"
+             Properties="$(_UpdaterPublishProperties)" />
     <ItemGroup>
-      <ResolvedFileToPublish Include="$(_UpdaterOutputDir)IcarusStarlink.Updater.dll">
-        <RelativePath>IcarusStarlink.Updater.dll</RelativePath>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="$([System.String]::new('%(RelativePath)').StartsWith('IcarusStarlink.Updater'))" />
+      <ResolvedFileToPublish Include="$(_UpdaterPublishDir)IcarusStarlink.Updater.exe">
+        <RelativePath>IcarusStarlink.Updater.exe</RelativePath>
         <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
       </ResolvedFileToPublish>
     </ItemGroup>
   </Target>
@@ -99,6 +123,14 @@
          by a user of an English-only app. Confirmed via a real publish: this alone cuts the
          self-contained win-x64 release from 492 files down to 336 with zero functional loss. -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Publish-only (a plain `dotnet build` is unaffected): bundles every managed assembly and the
+         self-contained runtime into IcarusStarlink.App.exe. Per user request after seeing the
+         release zip — 336 loose files at the root, down to the handful of native libraries WPF,
+         SkiaSharp and SQLite genuinely need beside the exe (deliberately NOT
+         IncludeNativeLibrariesForSelfExtract: that extracts them to a temp folder on first run, a
+         known antivirus false-positive trigger on top of what a single-file bundle already is).
+         Trimming is NOT enabled here — WPF doesn't support it; only the Updater is trimmed. -->
+    <PublishSingleFile>true</PublishSingleFile>
   </PropertyGroup>
 
 </Project>

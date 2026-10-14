@@ -156,4 +156,66 @@ public sealed class UpdateApplierTests : IDisposable
             Assert.True(Directory.Exists(ex.BackupDirectory));
         }
     }
+
+    /// <summary>
+    /// The single-file packaging change: an install upgrading from the old 336-file layout keeps
+    /// ~320 dead runtime DLLs, its old Updater companions, createdump.exe and the runtimes\ folder
+    /// unless the updater removes them — root-level app-owned files only, the exact shapes
+    /// Uninstall.bat already treats as the app's. Native libraries the NEW build still ships
+    /// (libSkiaSharp.dll here) must survive, and user data is never touched.
+    /// </summary>
+    [Fact]
+    public void Apply_RemovesStaleRootProgramFilesTheNewBuildNoLongerShips_ButNeverUserData()
+    {
+        WriteInstall("IcarusStarlink.App.exe", "old exe");
+        WriteInstall("coreclr.dll", "old runtime");
+        WriteInstall("libSkiaSharp.dll", "old skia");
+        WriteInstall("IcarusStarlink.App.pdb", "old pdb");
+        WriteInstall("IcarusStarlink.App.deps.json", "old deps");
+        WriteInstall("IcarusStarlink.Updater.runtimeconfig.json", "old updater cfg");
+        WriteInstall("createdump.exe", "old createdump");
+        WriteInstall("runtimes/win-x64/native/e_sqlite3.dll", "old native");
+        WriteInstall("settings.json", "{\"user\":\"data\"}");
+        WriteInstall("Uninstall.bat", "@echo off");
+        WriteInstall("Extracted_Mods/MyMod/MyMod.EXMOD", "mod content");
+        WriteInstall("Extracted_Mods/MyMod/Some.dll", "a mod's own dll, inside a subfolder");
+        WriteNew("IcarusStarlink.App.exe", "new single-file exe");
+        WriteNew("IcarusStarlink.Updater.exe", "new single-file updater");
+        WriteNew("libSkiaSharp.dll", "new skia");
+
+        UpdateApplier.Apply(_installDirectory, _newFilesDirectory, _ => { });
+
+        Assert.False(File.Exists(Path.Combine(_installDirectory, "coreclr.dll")));
+        Assert.False(File.Exists(Path.Combine(_installDirectory, "IcarusStarlink.App.pdb")));
+        Assert.False(File.Exists(Path.Combine(_installDirectory, "IcarusStarlink.App.deps.json")));
+        Assert.False(File.Exists(Path.Combine(_installDirectory, "IcarusStarlink.Updater.runtimeconfig.json")));
+        Assert.False(File.Exists(Path.Combine(_installDirectory, "createdump.exe")));
+        Assert.False(Directory.Exists(Path.Combine(_installDirectory, "runtimes")));
+        Assert.Equal("new skia", File.ReadAllText(Path.Combine(_installDirectory, "libSkiaSharp.dll")));
+        Assert.Equal("new single-file updater", File.ReadAllText(Path.Combine(_installDirectory, "IcarusStarlink.Updater.exe")));
+        Assert.Equal("{\"user\":\"data\"}", File.ReadAllText(Path.Combine(_installDirectory, "settings.json")));
+        Assert.Equal("@echo off", File.ReadAllText(Path.Combine(_installDirectory, "Uninstall.bat")));
+        Assert.Equal("mod content", File.ReadAllText(Path.Combine(_installDirectory, "Extracted_Mods", "MyMod", "MyMod.EXMOD")));
+        Assert.Equal("a mod's own dll, inside a subfolder", File.ReadAllText(Path.Combine(_installDirectory, "Extracted_Mods", "MyMod", "Some.dll")));
+    }
+
+    [Fact]
+    public void Apply_CopyFailsPartway_NeverRemovesAnyStaleFile()
+    {
+        // Cleanup is strictly post-success: a rolled-back update must leave even the stale files
+        // alone, since the old version is what the user is left running.
+        WriteInstall("IcarusStarlink.App.exe", "old exe");
+        WriteInstall("coreclr.dll", "old runtime");
+        WriteInstall("LockedFile.dll", "old locked");
+        WriteNew("IcarusStarlink.App.exe", "new exe");
+        WriteNew("LockedFile.dll", "new locked");
+
+        var lockedPath = Path.Combine(_installDirectory, "LockedFile.dll");
+        using (new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.Throws<IOException>(() => UpdateApplier.Apply(_installDirectory, _newFilesDirectory, _ => { }));
+        }
+
+        Assert.Equal("old runtime", File.ReadAllText(Path.Combine(_installDirectory, "coreclr.dll")));
+    }
 }

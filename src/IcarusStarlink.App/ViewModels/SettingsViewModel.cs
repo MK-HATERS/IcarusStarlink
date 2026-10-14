@@ -1318,21 +1318,30 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
 
             // The updater must run from OUTSIDE the install folder or it couldn't replace its own
-            // files: stage its four files into the temp work folder and launch from there.
+            // files: stage it into the temp work folder and launch from there. In a published
+            // release the Updater is a single self-contained exe (see IcarusStarlink.App.csproj's
+            // PublishSingleFileUpdater target for the real bug that forced that: staging the old
+            // four-file self-contained layout without its runtime couldn't even start), so only
+            // the .exe is required. A plain dev build still has the framework-dependent four-file
+            // shape, so its three companions are staged too whenever they happen to be present.
             var installDirectory = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
             var updaterStaging = Path.Combine(workDirectory, "updater");
             Directory.CreateDirectory(updaterStaging);
-            string[] updaterFiles = ["IcarusStarlink.Updater.exe", "IcarusStarlink.Updater.dll", "IcarusStarlink.Updater.runtimeconfig.json", "IcarusStarlink.Updater.deps.json"];
-            foreach (var fileName in updaterFiles)
+            var updaterExeSource = Path.Combine(installDirectory, "IcarusStarlink.Updater.exe");
+            if (!File.Exists(updaterExeSource))
             {
-                var source = Path.Combine(installDirectory, fileName);
-                if (!File.Exists(source))
-                {
-                    AppUpdateStatusMessage = $"Couldn't stage the updater — {fileName} is missing next to the app.";
-                    return;
-                }
+                AppUpdateStatusMessage = "Couldn't stage the updater — IcarusStarlink.Updater.exe is missing next to the app.";
+                return;
+            }
 
-                File.Copy(source, Path.Combine(updaterStaging, fileName));
+            File.Copy(updaterExeSource, Path.Combine(updaterStaging, "IcarusStarlink.Updater.exe"));
+            foreach (var companion in new[] { "IcarusStarlink.Updater.dll", "IcarusStarlink.Updater.runtimeconfig.json", "IcarusStarlink.Updater.deps.json" })
+            {
+                var source = Path.Combine(installDirectory, companion);
+                if (File.Exists(source))
+                {
+                    File.Copy(source, Path.Combine(updaterStaging, companion));
+                }
             }
 
             var appExePath = Path.Combine(installDirectory, "IcarusStarlink.App.exe");
