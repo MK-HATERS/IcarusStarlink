@@ -598,12 +598,19 @@ public sealed partial class DownloadsViewModel : ObservableObject
         downloadUrl = GitHubBlobUrl.ToRawContentUrl(downloadUrl);
 
         var isExmodz = catalogEntry.ExmodzUrl is not null;
-        // A GUID-named temp DIRECTORY holding a file named after the catalog entry (an audit
-        // finding): a .pak that can't be converted is imported as an opaque entry whose folder and
-        // display name derive from the pak's own file name — which was "IcarusStarlink_<guid>".
-        var tempDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"CatalogDownload_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDirectory);
-        var tempPath = Path.Combine(tempDirectory, DownloadFileNameSanitizer.Sanitize($"{catalogEntry.Name}{(isExmodz ? ".EXMODZ" : ".pak")}"));
+        // The file lands under Pending_Downloads and is recorded like a Nexus download, so the
+        // Downloads page is the one place every archive lives (Reinstall / Discard work the same)
+        // — the way a mod organizer keeps its downloads, per direct user feedback. The file is
+        // named after the catalog entry: a .pak that can't be converted is imported as an opaque
+        // entry whose name derives from the pak's own file name (an audit finding).
+        Directory.CreateDirectory(_pendingDownloadsDirectory);
+        var fileId = PendingDownloadEntry.CatalogFileId(catalogEntry.Id);
+        var fileName = DownloadFileNameSanitizer.Sanitize($"{catalogEntry.Name}{(isExmodz ? ".EXMODZ" : ".pak")}");
+        fileName = DownloadFileNameSanitizer.ResolveUniqueFileName(
+            _pendingDownloadsDirectory, fileName, 0, fileId,
+            path => _pendingDownloadStore.Entries.Any(e => e.ModId == 0 && e.FileId == fileId && e.LocalFilePath == path));
+        var localPath = Path.Combine(_pendingDownloadsDirectory, fileName);
+        var partPath = $"{localPath}.{Guid.NewGuid():N}.part";
 
         try
         {
@@ -613,20 +620,42 @@ public sealed partial class DownloadsViewModel : ObservableObject
             using (var response = await HttpFileDownloader.GetWithStreamingResponseAsync(_downloadHttpClient, downloadUrl))
             {
                 response.EnsureSuccessStatusCode();
-                await using var fileStream = File.Create(tempPath);
+                await using var fileStream = File.Create(partPath);
                 await response.Content.CopyToAsync(fileStream);
             }
+
+            File.Move(partPath, localPath, overwrite: true);
 
             // catalogEntryId is the Database counterpart of the Nexus pipeline's nexusModId — the
             // stable link that keeps the Downloaded badge and update-checking working after a
             // Rename, which name-matching alone can't survive.
-            var imported = isExmodz
-                ? _libraryRepository.Import(tempPath, source: "Database", catalogEntryId: catalogEntry.Id)
-                : await _prebuiltPakImporter.ImportAsync(
-                    tempPath, _dataFolder, _settingsService.Current.UnrealPakExePath,
-                    source: "Database", catalogEntryId: catalogEntry.Id, name: catalogEntry.Name, author: catalogEntry.Author);
-            _activityLog.Log($"Downloaded and imported '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
-            return (true, $"Downloaded and imported '{imported.Name}'.");
+            _pendingDownloadStore.Add(new PendingDownloadEntry
+            {
+                ModId = 0,
+                FileId = fileId,
+                FileName = fileName,
+                LocalFilePath = localPath,
+                DownloadedAtUtc = DateTimeOffset.UtcNow,
+                Source = PendingDownloadEntry.DatabaseSource,
+                CatalogEntryId = catalogEntry.Id,
+                DisplayName = catalogEntry.Name,
+            });
+            ReloadPendingDownloads();
+
+            var justDownloaded = PendingDownloads.FirstOrDefault(p => p.ModId == 0 && p.FileId == fileId);
+            if (justDownloaded is null)
+            {
+                return (false, $"'{catalogEntry.Name}' downloaded but couldn't be recorded.");
+            }
+
+            await ActivatePendingDownloadAsync(justDownloaded);
+            if (!justDownloaded.IsInstalled)
+            {
+                return (false, PendingDownloadStatusMessage ?? $"'{catalogEntry.Name}' downloaded but didn't import — see the Downloads page.");
+            }
+
+            _activityLog.Log($"Downloaded and imported '{catalogEntry.Name}' from the catalog.", ActivityEntryKind.Success);
+            return (true, $"Downloaded and imported '{catalogEntry.Name}'.");
         }
         catch (Exception ex)
         {
@@ -636,7 +665,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
         {
             try
             {
-                Directory.Delete(tempDirectory, recursive: true);
+                if (File.Exists(partPath))
+                {
+                    File.Delete(partPath);
+                }
             }
             catch (Exception)
             {
@@ -978,20 +1010,30 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 // untouched — from the user's own perspective, clicking "Update" on their existing
                 // mod silently did nothing to it at all (a real bug found live: "I download the
                 // update but it's not updating the mod I clicked update on").
-                // EVERY entry linked to this Nexus mod, not just the first — a bundle lands as several.
-                foreach (var existingLibraryEntry in _libraryRepository.GetAll().Where(e => e.NexusModId == item.ModId).ToList())
+                // EVERY entry linked to this same source identity (Nexus mod ID, or catalog entry
+                // ID for an IMM Database download), not just the first.
+                var existingLibraryEntries = item.IsCatalog
+                    ? _libraryRepository.GetAll().Where(e => string.Equals(e.CatalogEntryId, item.CatalogEntryId, StringComparison.OrdinalIgnoreCase)).ToList()
+                    : _libraryRepository.GetAll().Where(e => e.NexusModId == item.ModId).ToList();
+                foreach (var existingLibraryEntry in existingLibraryEntries)
                 {
                     _libraryRepository.Delete(existingLibraryEntry.FolderName);
                 }
 
-                foreach (var existingUe4ssFolderName in _ue4ssModRepository.GetAll()
-                    .Where(folderName => _ue4ssModMetaStore.Load(folderName).NexusModId == item.ModId).ToList())
+                if (!item.IsCatalog)
                 {
-                    ownUe4ssNames.Add(existingUe4ssFolderName);
-                    _ue4ssModRepository.Delete(existingUe4ssFolderName);
-                    _ue4ssModMetaStore.Delete(existingUe4ssFolderName);
+                    foreach (var existingUe4ssFolderName in _ue4ssModRepository.GetAll()
+                        .Where(folderName => _ue4ssModMetaStore.Load(folderName).NexusModId == item.ModId).ToList())
+                    {
+                        ownUe4ssNames.Add(existingUe4ssFolderName);
+                        _ue4ssModRepository.Delete(existingUe4ssFolderName);
+                        _ue4ssModMetaStore.Delete(existingUe4ssFolderName);
+                    }
                 }
             }
+
+            var source = item.IsCatalog ? PendingDownloadEntry.DatabaseSource : PendingDownloadEntry.NexusSource;
+            int? nexusModId = item.IsCatalog ? null : item.ModId;
 
             string statusMessage;
             IReadOnlyList<PendingDownloadActivatedItem> activatedItems;
@@ -1004,8 +1046,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
             if (string.Equals(Path.GetExtension(localFilePath), ".pak", StringComparison.OrdinalIgnoreCase))
             {
                 var entry = await _prebuiltPakImporter.ImportAsync(
-                    localFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath, source: "Nexus", nexusModId: item.ModId);
-                if (entry.IsOpaquePak || entry.ConvertedFromPrebuiltPak)
+                    localFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath, source: source, nexusModId: nexusModId,
+                    catalogEntryId: item.CatalogEntryId, name: item.IsCatalog ? item.DisplayName : null);
+                if (nexusModId is { } && (entry.IsOpaquePak || entry.ConvertedFromPrebuiltPak))
                 {
                     // A converted entry's own Name/Author are still just placeholders (the pak's
                     // filename, "Unknown") — ConvertedFromPrebuiltPak is what lets
@@ -1030,7 +1073,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 tempExtractDirectory = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Activate_{Guid.NewGuid():N}");
                 AnyArchiveExtractor.ExtractToDirectory(localFilePath, tempExtractDirectory);
                 (statusMessage, activatedItems, requirements) =
-                    await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, item.ModId, ownUe4ssNames);
+                    await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, source, nexusModId, item.CatalogEntryId, ownUe4ssNames);
             }
 
             _pendingDownloadStore.SetActivation(item.ModId, item.FileId, activatedItems, requirements);
@@ -1077,7 +1120,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// (Library's UE4SS tab has its own reload path, never wired to this pipeline before this).
     /// </summary>
     private async Task<(string StatusMessage, IReadOnlyList<PendingDownloadActivatedItem> Items, IReadOnlyList<string> Requirements)> ClassifyAndImportExtractedModAsync(
-        string extractedDirectory, string originalFileName, int modId, IReadOnlySet<string>? ownUe4ssNamesToReuse = null)
+        string extractedDirectory, string originalFileName, string source, int? nexusModId, string? catalogEntryId, IReadOnlySet<string>? ownUe4ssNamesToReuse = null)
     {
         // Only meaningful if the game path is actually configured — with nothing to check against,
         // this degrades to the same "no collision avoidance" behavior importing already had. This
@@ -1092,12 +1135,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         var classified = await ExtractedModClassifier.ClassifyAndImport(
             extractedDirectory, originalFileName, _libraryRepository, _ue4ssModRepository,
-            _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, source: "Nexus", nexusModId: modId,
-            ue4ssNamesAlreadyInstalledInGame: installedUe4ssNames);
+            _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, source: source, nexusModId: nexusModId,
+            ue4ssNamesAlreadyInstalledInGame: installedUe4ssNames, catalogEntryId: catalogEntryId);
 
         var landed = new List<string>();
-        var libraryPartCount = classified.Items.Count(i => i.Kind == PendingDownloadActivationKind.Library);
-        var downloadDisplayName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName));
         foreach (var produced in classified.Items)
         {
             if (produced.Kind == PendingDownloadActivationKind.Library)
@@ -1107,17 +1148,22 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 // repository guards those), but still needs the Nexus VERSION recorded, or the update
                 // check compares the author's own "1.0" against Nexus's "1" and shows "Update
                 // available" forever right after activating. See UpdateVersionComparer.
-                // Several paks from ONE download are told apart by a part label (a real report:
-                // WirelessPower's icon and model paks both became a row named "Wireless Power").
-                var partLabel = libraryPartCount > 1 ? ModPartLabel.FromPakName(produced.FolderName, downloadDisplayName) : null;
-                await RecordNexusMetadataAsync(produced.FolderName, modId, partLabel);
+                if (nexusModId is { } libraryModId)
+                {
+                    await RecordNexusMetadataAsync(produced.FolderName, libraryModId);
+                }
+
                 var entryName = _libraryRepository.GetAll().FirstOrDefault(e => e.FolderName == produced.FolderName)?.Name ?? produced.FolderName;
                 landed.Add($"'{entryName}' (Library)");
                 _activityLog.Log($"Activated pending download '{entryName}'.", ActivityEntryKind.Success);
             }
             else
             {
-                await EnrichUe4ssModFromNexusAsync(produced.FolderName, modId);
+                if (nexusModId is { } ue4ssModId)
+                {
+                    await EnrichUe4ssModFromNexusAsync(produced.FolderName, ue4ssModId);
+                }
+
                 landed.Add($"'{produced.FolderName}' (UE4SS mod — enable it on the UE4SS tab, then Apply)");
                 _activityLog.Log($"Activated pending download '{produced.FolderName}' as a UE4SS mod.", ActivityEntryKind.Success);
             }
@@ -1195,7 +1241,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// successful import into a reported failure — the entry just keeps showing "Unknown" the way
     /// it always has.
     /// </summary>
-    private async Task RecordNexusMetadataAsync(string folderName, int modId, string? partLabel = null)
+    private async Task RecordNexusMetadataAsync(string folderName, int modId)
     {
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
         if (apiKey is null)
@@ -1208,10 +1254,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
             var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
             if (info is not null)
             {
-                // A bundle's parts get "Wireless Power — Model" / "Wireless Power — Icon", never
-                // three rows all called "Wireless Power" (see ModPartLabel).
-                var name = string.IsNullOrEmpty(partLabel) ? info.Name : $"{info.Name} — {partLabel}";
-                _libraryRepository.SetNexusMetadata(folderName, name, info.Author, info.Summary, info.Version);
+                _libraryRepository.SetNexusMetadata(folderName, info.Name, info.Author, info.Summary, info.Version);
             }
         }
         catch (Exception)

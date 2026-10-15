@@ -71,13 +71,17 @@ public sealed class DownloadsViewModelTests : IDisposable
 
         public FakeDialogService? Dialogs { get; set; }
 
+        /// <summary>What any HTTP download returns — a catalog download test hands it the archive bytes.</summary>
+        public byte[]? HttpResponseBytes { get; set; }
+
         public DownloadsViewModel Build()
         {
             var settings = new FakeSettingsService();
+            var httpClient = HttpResponseBytes is null ? new HttpClient() : new HttpClient(new FixedBytesHandler(HttpResponseBytes));
             return new DownloadsViewModel(
                 new FakeCatalogClient(), new FakeCatalogClient(), new FakeGitHubRepoDateClient(),
                 Library, Ue4ss, Ue4ssMeta, settings, NexusApi, new FakeCredentialStore(), PendingStore,
-                new HttpClient(), new PerformanceTracker(settings, Path.Combine(PendingDownloadsDirectory, "..", "Perf")),
+                httpClient, new PerformanceTracker(settings, Path.Combine(PendingDownloadsDirectory, "..", "Perf")),
                 ActivityLog, new ActiveDownloadsTracker(), PendingDownloadsDirectory, PakImporter, Path.Combine(PendingDownloadsDirectory, "..", "Data"),
                 dialogService: Dialogs);
         }
@@ -123,13 +127,14 @@ public sealed class DownloadsViewModelTests : IDisposable
 
         Assert.Contains("WirelessPower", harness.Ue4ss.GetAll());
         Assert.True(File.Exists(Path.Combine(harness.Ue4ss.GetFolderPath("WirelessPower"), "Scripts", "main.lua")));
-        Assert.Equal(2, harness.PakImporter.ImportedPaks.Count);
+        Assert.Empty(harness.PakImporter.ImportedPaks);
+        Assert.Equal(2, Assert.Single(harness.Library.GetAll()).PakFileNames.Count);
         Assert.Equal(361, harness.Ue4ssMeta.Load("WirelessPower").NexusModId);
 
         var stored = harness.PendingStore.Entries.Single();
-        Assert.Equal(3, stored.ActivatedItems.Count);
+        Assert.Equal(2, stored.ActivatedItems.Count);
         Assert.Contains(stored.ActivatedItems, i => i.Kind == PendingDownloadActivationKind.Ue4ssMod && i.FolderName == "WirelessPower");
-        Assert.Equal(2, stored.ActivatedItems.Count(i => i.Kind == PendingDownloadActivationKind.Library));
+        Assert.Equal(1, stored.ActivatedItems.Count(i => i.Kind == PendingDownloadActivationKind.Library));
         Assert.Contains(stored.Requirements, r => r.StartsWith("ArcFission Library"));
 
         Assert.Contains("NOT installed", vm.PendingDownloadStatusMessage);
@@ -139,7 +144,7 @@ public sealed class DownloadsViewModelTests : IDisposable
 
     /// <summary>The real report: both of WirelessPower's paks were renamed to the Nexus title, so the Library showed three rows called "Wireless Power" and the user read the extras as a dependency fetched behind their back.</summary>
     [Fact]
-    public async Task Activate_GameFolderBundle_NamesEachPakPartAfterWhatItIsNotJustTheNexusTitle()
+    public async Task Activate_GameFolderBundle_LandsAsOneLibraryModHoldingBothPaks()
     {
         var harness = new Harness(_root);
         var vm = harness.Build();
@@ -147,9 +152,12 @@ public sealed class DownloadsViewModelTests : IDisposable
 
         await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
 
-        var names = harness.Library.GetAll().Select(e => e.Name).OrderBy(n => n).ToList();
-        Assert.Equal(["Nexus Mod 361 — Icon", "Nexus Mod 361 — Model"], names);
-        Assert.Equal("UE4SS mod + 2 paks", item.PartsSummary);
+        var entry = Assert.Single(harness.Library.GetAll());
+        Assert.Equal("Nexus Mod 361", entry.Name);
+        Assert.Equal("WirelessPower", entry.FolderName);
+        Assert.Equal(["ZZ_WirelessPower_Icon_P.pak", "ZZ_WirelessPower_Model_P.pak"], entry.PakFileNames);
+        Assert.True(File.Exists(Path.Combine(harness.Library.GetFolderPath("WirelessPower"), "ZZ_WirelessPower_Model_P.pak")));
+        Assert.Equal("Library mod + UE4SS mod", item.PartsSummary);
     }
 
     /// <summary>A mod organizer resolves a dependency at download time with a question. Yes runs the normal download pipeline for the match Nexus search returned.</summary>
@@ -320,6 +328,84 @@ public sealed class DownloadsViewModelTests : IDisposable
         Assert.True(item.IsInstalled);
     }
 
+    /// <summary>An IMM Database download lands on the Downloads page like a Nexus one (recorded under Pending_Downloads, source "Database") and is imported as one mod linked to its catalog entry.</summary>
+    [Fact]
+    public async Task CatalogDownload_LandsOnTheDownloadsPageAndImportsAsOneModLinkedToTheCatalogEntry()
+    {
+        var exmodJson = """{"name":"Steadfast","author":"Ferani","version":"1.0","description":"D","fileName":"Ferani_Steadfast_Structures","Rows":[]}""";
+        byte[] exmodz;
+        using (var stream = new MemoryStream())
+        {
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                WriteEntry(archive, "Extracted Mods/Ferani_Steadfast_Structures.EXMOD", exmodJson);
+            }
+
+            exmodz = stream.ToArray();
+        }
+
+        var harness = new Harness(_root) { HttpResponseBytes = exmodz };
+        var vm = harness.Build();
+        var catalogEntry = new CatalogEntry(
+            CatalogSource.Daedalus, "daedalus:steadfast", "Steadfast Structures", "Ferani", "1.0", "D", "", null, null, null,
+            PakUrl: null, ExmodzUrl: "https://github.com/ferani/mods/blob/main/Steadfast.EXMODZ", Categories: []);
+        vm.SelectedCatalogEntry = new CatalogEntryViewModel(catalogEntry, null, null);
+
+        await vm.DownloadAndExtractCommand.ExecuteAsync(null);
+
+        var stored = Assert.Single(harness.PendingStore.Entries);
+        Assert.Equal(PendingDownloadEntry.DatabaseSource, stored.Source);
+        Assert.Equal("daedalus:steadfast", stored.CatalogEntryId);
+        Assert.Equal(0, stored.ModId);
+        Assert.True(File.Exists(stored.LocalFilePath));
+        Assert.StartsWith(harness.PendingDownloadsDirectory, stored.LocalFilePath);
+
+        var item = Assert.Single(vm.PendingDownloads);
+        Assert.Equal("Database", item.Source);
+        Assert.Equal("Steadfast Structures", item.DisplayName);
+        Assert.True(item.IsInstalled);
+        Assert.Equal("Reinstall", item.ActionLabel);
+
+        var library = Assert.Single(harness.Library.GetAll());
+        Assert.Equal("Steadfast", library.Name);
+        Assert.Equal("Database", library.Source);
+        Assert.Equal("daedalus:steadfast", library.CatalogEntryId);
+        Assert.Null(library.NexusModId);
+        Assert.Contains("Downloaded and imported 'Steadfast Structures'", vm.CatalogStatusMessage);
+    }
+
+    /// <summary>Reinstalling a catalog download replaces the existing copy linked to the same catalog entry rather than adding a "_2" twin.</summary>
+    [Fact]
+    public async Task CatalogDownload_ReinstallReplacesTheExistingCopyInsteadOfDoublingIt()
+    {
+        var exmodJson = """{"name":"Steadfast","author":"Ferani","version":"1.0","description":"D","fileName":"Ferani_Steadfast_Structures","Rows":[]}""";
+        byte[] exmodz;
+        using (var stream = new MemoryStream())
+        {
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                WriteEntry(archive, "Extracted Mods/Ferani_Steadfast_Structures.EXMOD", exmodJson);
+            }
+
+            exmodz = stream.ToArray();
+        }
+
+        var harness = new Harness(_root) { HttpResponseBytes = exmodz };
+        var vm = harness.Build();
+        var catalogEntry = new CatalogEntry(
+            CatalogSource.Daedalus, "daedalus:steadfast", "Steadfast Structures", "Ferani", "1.0", "D", "", null, null, null,
+            PakUrl: null, ExmodzUrl: "https://example.com/Steadfast.EXMODZ", Categories: []);
+        vm.SelectedCatalogEntry = new CatalogEntryViewModel(catalogEntry, null, null);
+        await vm.DownloadAndExtractCommand.ExecuteAsync(null);
+        var item = Assert.Single(vm.PendingDownloads);
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        Assert.Single(harness.Library.GetAll());
+        Assert.Single(harness.PendingStore.Entries);
+        Assert.True(item.IsInstalled);
+    }
+
     [Fact]
     public void PendingList_HidesFullyInstalledDownloadsUnlessAsked()
     {
@@ -384,6 +470,17 @@ public sealed class DownloadsViewModelTests : IDisposable
         public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetChangelogsAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<NexusEndorsement>> GetEndorsementsAsync(string apiKey, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<NexusEndorsementStatus> SetEndorsementAsync(string apiKey, string gameDomain, int modId, string modVersion, bool endorse, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class FixedBytesHandler(byte[] bytes) : HttpMessageHandler
+    {
+        public List<string> RequestedUrls { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestedUrls.Add(request.RequestUri!.ToString());
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
+        }
     }
 
     private sealed class FakeDialogService(bool confirmResult) : IDialogService
