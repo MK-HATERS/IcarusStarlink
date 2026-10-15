@@ -41,6 +41,22 @@ public interface IUe4ssModRepository
 
     string GetFolderPath(string folderName);
 
+    /// <summary>
+    /// Stores the asset .pak files a UE4SS mod shipped with (WirelessPower: an icon pak and a model
+    /// pak under Icarus\Content\Paks\mods) as part of that mod. They live beside staging, not inside
+    /// the mod's own folder (which moves into the game's Mods folder on enable, where paks don't
+    /// belong), and Merge &amp; Install folds them into the merged pak whenever the mod is enabled.
+    /// Replaces any paks previously attached to this mod. One download is one mod: a Lua mod never
+    /// becomes a Library entry just because it also carries paks.
+    /// </summary>
+    void AttachPaks(string folderName, IReadOnlyList<string> pakFilePaths);
+
+    /// <summary>Full paths of the paks attached to this mod, in name order; empty when it has none.</summary>
+    IReadOnlyList<string> ListAttachedPaks(string folderName);
+
+    /// <summary>Removes this mod's attached paks (a no-op when it has none). Delete(folderName) does NOT do this, since a mod enabled in the game has no staged folder yet still owns its paks.</summary>
+    void DeleteAttachedPaks(string folderName);
+
     /// <summary>Bare mod folder names currently present in the real game's own UE4SS Mods folder — see Ue4ssGamePaths.ResolveModsFolder for how a caller derives gameModsFolderPath. Empty if the folder doesn't exist yet (UE4SS not installed, or the Icarus Content path isn't set).</summary>
     IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath);
 

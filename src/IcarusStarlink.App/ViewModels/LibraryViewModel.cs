@@ -565,7 +565,8 @@ public sealed partial class LibraryViewModel : ObservableObject
                 var isBuiltIn = _ue4ssLoaderInstallService.IsFrameworkOwned(_settingsService.Current.IcarusContentPath!, state.Name);
                 var row = new Ue4ssModRowViewModel(
                     state.Name, state.IsEnabled, isBuiltIn, meta.NexusModId, meta.NexusVersion,
-                    meta.MinUe4ssVersion, installedLoaderVersion, RecomputeHasPendingUe4ssChanges, meta.NexusName);
+                    meta.MinUe4ssVersion, installedLoaderVersion, RecomputeHasPendingUe4ssChanges, meta.NexusName,
+                    attachedPakCount: _ue4ssModRepository.ListAttachedPaks(state.Name).Count);
                 if (previousByName.TryGetValue(state.Name, out var previous))
                 {
                     if (previous.IsDirty)
@@ -608,17 +609,11 @@ public sealed partial class LibraryViewModel : ObservableObject
     private sealed record ModPackage(int NexusModId, string DisplayName, IReadOnlyList<string> LibraryFolderNames, IReadOnlyList<string> Ue4ssFolderNames)
     {
         public int PartCount => LibraryFolderNames.Count + Ue4ssFolderNames.Count;
-
-        /// <summary>On the Library row: the mod also has a Lua half living on the UE4SS tab.</summary>
-        public string LibraryLabel => Ue4ssFolderNames.Count == 1 ? "includes a Lua mod on the UE4SS tab" : $"includes {Ue4ssFolderNames.Count} Lua mods on the UE4SS tab";
-
-        /// <summary>On the UE4SS row: this Lua mod is one half of a Library mod.</summary>
-        public string Ue4ssLabel => $"Lua part of '{DisplayName}' — see the Mods tab";
     }
 
     private IReadOnlyDictionary<int, ModPackage> _packagesByNexusModId = new Dictionary<int, ModPackage>();
 
-    /// <summary>Groups every Library entry and staged UE4SS mod by Nexus mod ID; only groups with two or more parts count. Also stamps PackageLabel onto every visible row (null for a stand-alone mod).</summary>
+    /// <summary>Groups every Library entry and staged UE4SS mod by Nexus mod ID; only groups with two or more parts count. </summary>
     private Dictionary<int, ModPackage> BuildPackages()
     {
         var libraryByNexusId = _repository.GetAll()
@@ -659,16 +654,9 @@ public sealed partial class LibraryViewModel : ObservableObject
             packages[id] = new ModPackage(id, displayName, [.. libraryEntries.Select(e => e.FolderName)], [.. ue4ss.Select(u => u.Folder)]);
         }
 
-        foreach (var item in AllLibraryItems())
-        {
-            item.PackageLabel = item.NexusModId is { } id && packages.TryGetValue(id, out var package) && package.Ue4ssFolderNames.Count > 0 ? package.LibraryLabel : null;
-        }
-
-        foreach (var row in Ue4ssMods)
-        {
-            row.PackageLabel = row.NexusModId is { } id && packages.TryGetValue(id, out var package) && package.LibraryFolderNames.Count > 0 ? package.Ue4ssLabel : null;
-        }
-
+        // No "part of" / "includes" labels on rows, per the user's call: one download is one row on
+        // one tab (a Lua mod's paks are attached to it — see IUe4ssModRepository.AttachPaks). The
+        // grouping is kept only so a leftover split pair from an older version is still deleted whole.
         return packages;
     }
 
@@ -713,6 +701,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 _ue4ssModRepository.Delete(folderName);
             }
 
+            _ue4ssModRepository.DeleteAttachedPaks(folderName);
             _ue4ssModMetaStore.Delete(folderName);
             return null;
         }

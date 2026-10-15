@@ -8,10 +8,52 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
 {
     private readonly string _stagedDirectory;
 
+    /// <summary>Sibling of staging ("Ue4ss_Paks" next to "Staged_UE4SS"): one subfolder per mod name holding its attached paks. Never moved by enable/disable.</summary>
+    private readonly string _attachedPaksDirectory;
+
     public Ue4ssModRepository(string stagedDirectory)
     {
         _stagedDirectory = stagedDirectory;
         Directory.CreateDirectory(stagedDirectory);
+        var parent = Path.GetDirectoryName(stagedDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) ?? stagedDirectory;
+        _attachedPaksDirectory = Path.Combine(parent, "Ue4ss_Paks");
+    }
+
+    public void AttachPaks(string folderName, IReadOnlyList<string> pakFilePaths)
+    {
+        // Resolve validates the name (a real staged mod, no path tricks) before anything is written.
+        ResolveFolder(folderName);
+        var target = Path.Combine(_attachedPaksDirectory, folderName);
+        if (Directory.Exists(target))
+        {
+            Directory.Delete(target, recursive: true);
+        }
+
+        Directory.CreateDirectory(target);
+        foreach (var pakFilePath in pakFilePaths)
+        {
+            File.Copy(pakFilePath, Path.Combine(target, Path.GetFileName(pakFilePath)));
+        }
+    }
+
+    public IReadOnlyList<string> ListAttachedPaks(string folderName)
+    {
+        var folder = Path.Combine(_attachedPaksDirectory, folderName);
+        if (string.IsNullOrWhiteSpace(folderName) || folderName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || !Directory.Exists(folder))
+        {
+            return [];
+        }
+
+        return [.. Directory.GetFiles(folder, "*.pak").OrderBy(p => p, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    public void DeleteAttachedPaks(string folderName)
+    {
+        var folder = Path.Combine(_attachedPaksDirectory, folderName);
+        if (!string.IsNullOrWhiteSpace(folderName) && folderName.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && Directory.Exists(folder))
+        {
+            Directory.Delete(folder, recursive: true);
+        }
     }
 
     public IReadOnlyList<string> GetAll() =>

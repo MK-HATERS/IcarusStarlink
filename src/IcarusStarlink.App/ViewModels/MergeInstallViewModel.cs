@@ -20,6 +20,7 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Patches;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO;
 using IcarusStarlink.PakIO.Compare;
@@ -357,12 +358,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
         IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
         ISettingsService settingsService, IPakCompareService pakCompareService, PerformanceTracker performanceTracker, IActivityLog activityLog,
-        string dataFolder, string outputPakPath, string backupDirectory, IMessenger? messenger = null, IGameProcessChecker? gameProcessChecker = null)
+        string dataFolder, string outputPakPath, string backupDirectory, IMessenger? messenger = null, IGameProcessChecker? gameProcessChecker = null,
+        IUe4ssModRepository? ue4ssModRepository = null)
     {
         // Injectable so tests can give each view model its own messenger — the shared Default one
         // made this class's tests interfere with each other under the parallel runner.
         _messenger = messenger ?? WeakReferenceMessenger.Default;
         _gameProcessChecker = gameProcessChecker;
+        _ue4ssModRepository = ue4ssModRepository;
         _libraryRepository = libraryRepository;
         _rebuildService = rebuildService;
         _installService = installService;
@@ -1541,7 +1544,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             var result = await _rebuildService.RebuildAsync(
                 packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath, prebuiltPakFilePaths, _manualPicks, progress);
 
-            var prebuiltNote = prebuiltPakFilePaths.Count > 0 ? $", {prebuiltPakFilePaths.Count} prebuilt pak(s) folded in" : "";
+            var ue4ssPakMods = EnabledUe4ssModAttachedPaks();
+            var ue4ssNote = ue4ssPakMods.Count > 0 ? $" (including the paks of enabled UE4SS mod(s) {string.Join(", ", ue4ssPakMods.Select(m => m.ModName))})" : "";
+            var prebuiltNote = prebuiltPakFilePaths.Count > 0 ? $", {prebuiltPakFilePaths.Count} prebuilt pak(s) folded in{ue4ssNote}" : "";
             StatusMessage = $"Built '{result.OutputPakPath}' — {result.PackedFileCount} files packed, "
                 + $"{result.MergedFileCount} data table(s) merged{prebuiltNote}.";
             foreach (var warning in result.Warnings)
@@ -1680,10 +1685,39 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 })
                 .ToList();
 
+            // The asset paks of every ENABLED UE4SS mod come along automatically — the user never
+            // queues them; enabling the mod on the UE4SS tab is the whole decision. See
+            // IUe4ssModRepository.AttachPaks.
+            prebuiltPakFilePaths.AddRange(EnabledUe4ssModAttachedPaks().SelectMany(m => m.PakPaths));
+
             return (packages, prebuiltPakFilePaths);
         });
 
         return (exmodEntries, packages, prebuiltPakFilePaths);
+    }
+
+    private readonly IUe4ssModRepository? _ue4ssModRepository;
+
+    /// <summary>Each enabled UE4SS mod (its folder is in the game's Mods folder) that has attached paks, with those paks' paths. Empty when no repository/Content path is configured.</summary>
+    internal IReadOnlyList<(string ModName, IReadOnlyList<string> PakPaths)> EnabledUe4ssModAttachedPaks()
+    {
+        var contentPath = _settingsService.Current.IcarusContentPath;
+        if (_ue4ssModRepository is null || string.IsNullOrWhiteSpace(contentPath))
+        {
+            return [];
+        }
+
+        try
+        {
+            return _ue4ssModRepository.ListInstalledInGame(Ue4ssGamePaths.ResolveModsFolder(contentPath))
+                .Select(name => (ModName: name, PakPaths: _ue4ssModRepository.ListAttachedPaks(name)))
+                .Where(m => m.PakPaths.Count > 0)
+                .ToList();
+        }
+        catch (Exception)
+        {
+            return [];
+        }
     }
 
     /// <summary>

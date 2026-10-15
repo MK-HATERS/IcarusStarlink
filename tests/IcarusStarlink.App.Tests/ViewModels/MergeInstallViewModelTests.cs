@@ -13,6 +13,8 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Patches;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Ue4ss;
+using IcarusStarlink.Storage.Ue4ss;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.Container;
@@ -86,7 +88,8 @@ public sealed class MergeInstallViewModelTests : IDisposable
         FakeInstallService? installService = null,
         FakeProfileStore? profileStore = null,
         FakeSettingsService? settingsService = null,
-        bool gameRunning = false)
+        bool gameRunning = false,
+        IUe4ssModRepository? ue4ssModRepository = null)
     {
         settingsService ??= new FakeSettingsService();
 
@@ -120,7 +123,8 @@ public sealed class MergeInstallViewModelTests : IDisposable
             outputPakPath,
             Path.Combine(_tempRoot, "Backups"),
             _messenger,
-            new FakeGameProcessChecker(gameRunning));
+            new FakeGameProcessChecker(gameRunning),
+            ue4ssModRepository: ue4ssModRepository);
     }
 
     private sealed class FakeGameProcessChecker(bool running) : IGameProcessChecker
@@ -594,6 +598,72 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Equal(0, installService.InstallCallCount);
         Assert.Contains("Rebuild failed", vm.StatusMessage);
         Assert.False(vm.IsRebuilding);
+    }
+
+    /// <summary>A UE4SS mod that shipped asset paks (WirelessPower) has them attached to it, not queued as a Library mod — Merge &amp; Install folds them in on its own whenever the mod is enabled in the game.</summary>
+    [Fact]
+    public async Task RebuildAsync_EnabledUe4ssModWithAttachedPaks_FoldsThosePaksInWithoutQueueingAnything()
+    {
+        var contentPath = Path.Combine(_tempRoot, "Game", "Icarus", "Content");
+        var gameModsFolder = Path.Combine(_tempRoot, "Game", "Icarus", "Binaries", "Win64", "ue4ss", "Mods");
+        Directory.CreateDirectory(Path.Combine(gameModsFolder, "WirelessPower"));
+        Directory.CreateDirectory(Path.Combine(gameModsFolder, "OtherLuaMod"));
+        var ue4ss = new Ue4ssModRepository(Path.Combine(_tempRoot, "Staged_UE4SS"));
+        var sourcePaks = Path.Combine(_tempRoot, "SourcePaks");
+        Directory.CreateDirectory(sourcePaks);
+        File.WriteAllBytes(Path.Combine(sourcePaks, "ZZ_WirelessPower_Icon_P.pak"), [1]);
+        File.WriteAllBytes(Path.Combine(sourcePaks, "ZZ_WirelessPower_Model_P.pak"), [2]);
+        // Attach while staged (the download pipeline's order), then "enable" by moving into the game.
+        Directory.CreateDirectory(Path.Combine(_tempRoot, "Staged_UE4SS", "WirelessPower"));
+        ue4ss.AttachPaks("WirelessPower", [Path.Combine(sourcePaks, "ZZ_WirelessPower_Icon_P.pak"), Path.Combine(sourcePaks, "ZZ_WirelessPower_Model_P.pak")]);
+        ue4ss.Delete("WirelessPower");
+
+        var libraryRepository = new FakeLibraryRepository();
+        libraryRepository.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        var rebuildService = new FakeRebuildService
+        {
+            Result = new RebuildResult(MergedFileCount: 1, PackedFileCount: 3, OutputPakPath: "out.pak", ManifestPath: "out.manifest", Warnings: [], Notes: []),
+        };
+        var settingsService = new FakeSettingsService();
+        settingsService.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        settingsService.Current.IcarusContentPath = contentPath;
+        var vm = CreateViewModel(libraryRepository: libraryRepository, rebuildService: rebuildService, settingsService: settingsService, ue4ssModRepository: ue4ss);
+        vm.Queue.Add(MakeEntry("ModA"));
+
+        var succeeded = await vm.RebuildAsync();
+
+        Assert.True(succeeded);
+        Assert.Equal(["ZZ_WirelessPower_Icon_P.pak", "ZZ_WirelessPower_Model_P.pak"], rebuildService.LastPrebuiltPakFilePaths!.Select(Path.GetFileName).ToList());
+        Assert.Contains("enabled UE4SS mod(s) WirelessPower", vm.StatusMessage);
+    }
+
+    /// <summary>A disabled (staged) UE4SS mod's paks stay out of the merge — enabling the mod is the decision.</summary>
+    [Fact]
+    public async Task RebuildAsync_DisabledUe4ssModWithAttachedPaks_LeavesThosePaksOut()
+    {
+        var contentPath = Path.Combine(_tempRoot, "Game", "Icarus", "Content");
+        Directory.CreateDirectory(Path.Combine(_tempRoot, "Game", "Icarus", "Binaries", "Win64", "ue4ss", "Mods"));
+        var ue4ss = new Ue4ssModRepository(Path.Combine(_tempRoot, "Staged_UE4SS"));
+        Directory.CreateDirectory(Path.Combine(_tempRoot, "Staged_UE4SS", "WirelessPower"));
+        var pak = Path.Combine(_tempRoot, "ZZ_WirelessPower_Model_P.pak");
+        File.WriteAllBytes(pak, [2]);
+        ue4ss.AttachPaks("WirelessPower", [pak]);
+
+        var libraryRepository = new FakeLibraryRepository();
+        libraryRepository.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        var rebuildService = new FakeRebuildService
+        {
+            Result = new RebuildResult(MergedFileCount: 1, PackedFileCount: 1, OutputPakPath: "out.pak", ManifestPath: "out.manifest", Warnings: [], Notes: []),
+        };
+        var settingsService = new FakeSettingsService();
+        settingsService.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        settingsService.Current.IcarusContentPath = contentPath;
+        var vm = CreateViewModel(libraryRepository: libraryRepository, rebuildService: rebuildService, settingsService: settingsService, ue4ssModRepository: ue4ss);
+        vm.Queue.Add(MakeEntry("ModA"));
+
+        await vm.RebuildAsync();
+
+        Assert.Empty(rebuildService.LastPrebuiltPakFilePaths!);
     }
 
     /// <summary>One download that shipped two paks is ONE opaque Library entry (ILibraryRepository.ImportPaks) — the rebuild must fold in every pak in its folder, not just the first.</summary>

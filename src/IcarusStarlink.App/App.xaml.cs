@@ -331,7 +331,8 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
             Path.Combine(appDataDirectory, "Backups"),
             messenger: null,
-            gameProcessChecker: sp.GetRequiredService<IGameProcessChecker>()));
+            gameProcessChecker: sp.GetRequiredService<IGameProcessChecker>(),
+            ue4ssModRepository: sp.GetRequiredService<IUe4ssModRepository>()));
         builder.Services.AddSingleton(sp => new DownloadsViewModel(
             sp.GetRequiredService<IDaedalusCatalogClient>(),
             sp.GetRequiredService<IJimk72CatalogClient>(),

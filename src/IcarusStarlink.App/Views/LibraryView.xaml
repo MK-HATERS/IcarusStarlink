@@ -206,7 +206,7 @@
                      rendered a bare " — " suffix even with no VariantLabel at all until this was
                      fixed. -->
                 <TextBlock Grid.Column="2" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
-                    <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/><Run Text="{Binding PackageLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11"/>
+                    <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                 </TextBlock>
 
                 <TextBlock Grid.Column="3" Text="{Binding Author}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
@@ -743,9 +743,9 @@
                                         <TextBlock Text="{Binding Name}"/>
                                         <TextBlock Text="{Binding NexusSummary}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                                    Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                        <TextBlock Text="{Binding PackageLabel}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                                   Visibility="{Binding IsPartOfPackage, Converter={StaticResource BoolToVisibilityConverter}}"
-                                                   ToolTip="This Lua mod and the listed Library paks came from one Nexus download — deleting any of them removes all of them"/>
+                                        <TextBlock Text="{Binding AttachedPaksSummary}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                   Visibility="{Binding HasAttachedPaks, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                   ToolTip="This mod shipped asset paks (models, icons) alongside its Lua scripts. They are stored with the mod and folded into the merged pak on every Merge &amp; Install while the mod is enabled."/>
                                     </StackPanel>
                                     <!-- Declared MinUe4ssVersion exceeds the installed loader's own
                                          version (Ue4ssVersionComparer.Compare == BelowMinimum) — same

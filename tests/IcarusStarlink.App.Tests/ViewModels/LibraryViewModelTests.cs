@@ -310,8 +310,6 @@ public sealed class LibraryViewModelTests
         harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
         var vm = harness.Build();
         var mod = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
-        Assert.Equal("includes a Lua mod on the UE4SS tab", mod.PackageLabel);
-        Assert.Null(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Unrelated").PackageLabel);
 
         vm.DeleteItemCommand.Execute(mod);
 
@@ -1419,6 +1417,9 @@ public sealed class LibraryViewModelTests
 
     private sealed class FakeUe4ssModRepository : IUe4ssModRepository
     {
+        public void AttachPaks(string folderName, IReadOnlyList<string> pakFilePaths) => throw new NotSupportedException("Not exercised by these tests.");
+        public IReadOnlyList<string> ListAttachedPaks(string folderName) => [];
+        public void DeleteAttachedPaks(string folderName) { }
         public string Result { get; set; } = "SomeMod_1";
         public int ImportFromFolderCallCount { get; private set; }
         public string? LastSourceFolder { get; private set; }
