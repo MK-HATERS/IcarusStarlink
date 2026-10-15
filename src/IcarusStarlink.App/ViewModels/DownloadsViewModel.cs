@@ -53,6 +53,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private readonly string _dataFolder;
     private readonly DebounceTimer _searchDebounceTimer;
 
+    /// <summary>Null in tests and headless use — then a missing requirement is only reported, never offered for download.</summary>
+    private readonly IDialogService? _dialogService;
+
     private IReadOnlyList<CatalogEntry> _allCatalogEntries = [];
 
     // Reused across ApplyCatalogFilters calls so a search keystroke or a checkbox toggle doesn't
@@ -174,9 +177,11 @@ public sealed partial class DownloadsViewModel : ObservableObject
         IActivityLog activityLog,
         IActiveDownloadsTracker activeDownloadsTracker,
         string pendingDownloadsDirectory, IPrebuiltPakImporter prebuiltPakImporter, string dataFolder,
-        ICatalogSnapshotStore? catalogSnapshotStore = null)
+        ICatalogSnapshotStore? catalogSnapshotStore = null,
+        IDialogService? dialogService = null)
     {
         _catalogSnapshotStore = catalogSnapshotStore;
+        _dialogService = dialogService;
         _prebuiltPakImporter = prebuiltPakImporter;
         _dataFolder = dataFolder;
         _daedalusClient = daedalusClient;
@@ -1032,6 +1037,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
             item.SetActivated(activatedItems, requirements);
             RefreshVisiblePendingDownloads();
             PendingDownloadStatusMessage = statusMessage;
+
+            // A mod organizer resolves a dependency at download time, with a question — not a
+            // warning buried in a status line after the fact.
+            await OfferMissingRequirementsAsync(item);
         }
         catch (Exception ex)
         {
@@ -1087,6 +1096,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
             ue4ssNamesAlreadyInstalledInGame: installedUe4ssNames);
 
         var landed = new List<string>();
+        var libraryPartCount = classified.Items.Count(i => i.Kind == PendingDownloadActivationKind.Library);
+        var downloadDisplayName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName));
         foreach (var produced in classified.Items)
         {
             if (produced.Kind == PendingDownloadActivationKind.Library)
@@ -1096,7 +1107,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 // repository guards those), but still needs the Nexus VERSION recorded, or the update
                 // check compares the author's own "1.0" against Nexus's "1" and shows "Update
                 // available" forever right after activating. See UpdateVersionComparer.
-                await RecordNexusMetadataAsync(produced.FolderName, modId);
+                // Several paks from ONE download are told apart by a part label (a real report:
+                // WirelessPower's icon and model paks both became a row named "Wireless Power").
+                var partLabel = libraryPartCount > 1 ? ModPartLabel.FromPakName(produced.FolderName, downloadDisplayName) : null;
+                await RecordNexusMetadataAsync(produced.FolderName, modId, partLabel);
                 var entryName = _libraryRepository.GetAll().FirstOrDefault(e => e.FolderName == produced.FolderName)?.Name ?? produced.FolderName;
                 landed.Add($"'{entryName}' (Library)");
                 _activityLog.Log($"Activated pending download '{entryName}'.", ActivityEntryKind.Success);
@@ -1181,7 +1195,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// successful import into a reported failure — the entry just keeps showing "Unknown" the way
     /// it always has.
     /// </summary>
-    private async Task RecordNexusMetadataAsync(string folderName, int modId)
+    private async Task RecordNexusMetadataAsync(string folderName, int modId, string? partLabel = null)
     {
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
         if (apiKey is null)
@@ -1194,7 +1208,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
             var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
             if (info is not null)
             {
-                _libraryRepository.SetNexusMetadata(folderName, info.Name, info.Author, info.Summary, info.Version);
+                // A bundle's parts get "Wireless Power — Model" / "Wireless Power — Icon", never
+                // three rows all called "Wireless Power" (see ModPartLabel).
+                var name = string.IsNullOrEmpty(partLabel) ? info.Name : $"{info.Name} — {partLabel}";
+                _libraryRepository.SetNexusMetadata(folderName, name, info.Author, info.Summary, info.Version);
             }
         }
         catch (Exception)
@@ -1256,19 +1273,94 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// the Nexus page searching for it by name. The first missing one is searched; the rest are
     /// named in the status line so the user knows there are more.
     /// </summary>
-    [RelayCommand]
-    private void FindRequirementOnNexus(PendingDownloadItemViewModel? item)
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task GetRequirementAsync(PendingDownloadItemViewModel? item)
     {
         if (item is null || item.MissingRequirementNames.Count == 0)
         {
             return;
         }
 
-        var missing = item.MissingRequirementNames;
-        WeakReferenceMessenger.Default.Send(new SearchNexusMessage(missing[0]));
-        PendingDownloadStatusMessage = missing.Count == 1
-            ? $"Searching Nexus for '{missing[0]}'."
-            : $"Searching Nexus for '{missing[0]}' — this download also needs: {string.Join(", ", missing.Skip(1))}.";
+        if (!await OfferMissingRequirementsAsync(item))
+        {
+            // No dialog service, or nothing could be resolved: fall back to a Nexus search by name.
+            var missing = item.MissingRequirementNames;
+            WeakReferenceMessenger.Default.Send(new SearchNexusMessage(missing[0]));
+            PendingDownloadStatusMessage = missing.Count == 1
+                ? $"Searching Nexus for '{missing[0]}'."
+                : $"Searching Nexus for '{missing[0]}' — this download also needs: {string.Join(", ", missing.Skip(1))}.";
+        }
+    }
+
+    /// <summary>
+    /// For every README requirement nothing installed satisfies: look it up on Nexus by name and
+    /// ask "'Wireless Power' needs ArcFission Library 1.2.0 or newer. Download 'ArcFission Library'
+    /// now?" — Yes runs the normal download-and-activate pipeline for it. Returns true when at least
+    /// one requirement was offered (downloaded or declined), false when nothing could be offered at
+    /// all (no dialog service, no API key, or no Nexus match for any name) so the caller can fall
+    /// back to a plain search. Never throws: a Nexus hiccup just means no offer for that name.
+    /// </summary>
+    private async Task<bool> OfferMissingRequirementsAsync(PendingDownloadItemViewModel item)
+    {
+        if (_dialogService is null)
+        {
+            return false;
+        }
+
+        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+        if (apiKey is null)
+        {
+            return false;
+        }
+
+        var offered = false;
+        foreach (var requirementName in item.MissingRequirementNames.ToList())
+        {
+            NexusModInfo? match;
+            try
+            {
+                var results = await _nexusApiClient.SearchModsAsync(apiKey, "icarus", requirementName);
+                match = PickRequirementMatch(results, requirementName);
+            }
+            catch (Exception)
+            {
+                match = null;
+            }
+
+            if (match is null)
+            {
+                continue;
+            }
+
+            offered = true;
+            var requirementLine = item.Requirements.FirstOrDefault(r => string.Equals(ModReadmeRequirements.ExtractName(r), requirementName, StringComparison.OrdinalIgnoreCase)) ?? requirementName;
+            var download = _dialogService.Confirm(
+                $"'{item.DisplayName}' needs {requirementLine}, which isn't installed.\n\nDownload '{match.Name}' (Nexus mod #{match.ModId}) now?",
+                "Missing requirement", ThemedConfirmSeverity.Question);
+            if (!download)
+            {
+                PendingDownloadStatusMessage = $"Skipped '{match.Name}' — '{item.DisplayName}' won't work until it's installed.";
+                continue;
+            }
+
+            await ResolvePrimaryFileAndFetchAsync(match.ModId, match.Name);
+        }
+
+        return offered;
+    }
+
+    /// <summary>Exact name first, then a name that contains (or is contained by) the requirement — the first such hit in Nexus's own relevance order; null when nothing is close enough to offer without asking the user to look.</summary>
+    internal static NexusModInfo? PickRequirementMatch(IReadOnlyList<NexusModInfo> results, string requirementName)
+    {
+        static string Norm(string s) => new([.. s.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant)]);
+        var wanted = Norm(requirementName);
+        if (wanted.Length == 0)
+        {
+            return null;
+        }
+
+        return results.FirstOrDefault(r => Norm(r.Name) == wanted)
+            ?? results.FirstOrDefault(r => Norm(r.Name).Contains(wanted, StringComparison.Ordinal) || wanted.Contains(Norm(r.Name), StringComparison.Ordinal));
     }
 
     private string ResolveLocalFilePath(PendingDownloadItemViewModel item) =>

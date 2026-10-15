@@ -1,8 +1,10 @@
 using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.GitHub;
@@ -67,6 +69,8 @@ public sealed class DownloadsViewModelTests : IDisposable
             Directory.CreateDirectory(PendingDownloadsDirectory);
         }
 
+        public FakeDialogService? Dialogs { get; set; }
+
         public DownloadsViewModel Build()
         {
             var settings = new FakeSettingsService();
@@ -74,7 +78,8 @@ public sealed class DownloadsViewModelTests : IDisposable
                 new FakeCatalogClient(), new FakeCatalogClient(), new FakeGitHubRepoDateClient(),
                 Library, Ue4ss, Ue4ssMeta, settings, NexusApi, new FakeCredentialStore(), PendingStore,
                 new HttpClient(), new PerformanceTracker(settings, Path.Combine(PendingDownloadsDirectory, "..", "Perf")),
-                ActivityLog, new ActiveDownloadsTracker(), PendingDownloadsDirectory, PakImporter, Path.Combine(PendingDownloadsDirectory, "..", "Data"));
+                ActivityLog, new ActiveDownloadsTracker(), PendingDownloadsDirectory, PakImporter, Path.Combine(PendingDownloadsDirectory, "..", "Data"),
+                dialogService: Dialogs);
         }
 
         /// <summary>A downloaded file as the real nxm:// pipeline leaves it: on disk under Pending_Downloads and recorded in the store, never activated.</summary>
@@ -130,6 +135,115 @@ public sealed class DownloadsViewModelTests : IDisposable
         Assert.Contains("NOT installed", vm.PendingDownloadStatusMessage);
         Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("ArcFission Library"));
         Assert.Contains("Needs:", item.RequirementsSummary);
+    }
+
+    /// <summary>The real report: both of WirelessPower's paks were renamed to the Nexus title, so the Library showed three rows called "Wireless Power" and the user read the extras as a dependency fetched behind their back.</summary>
+    [Fact]
+    public async Task Activate_GameFolderBundle_NamesEachPakPartAfterWhatItIsNotJustTheNexusTitle()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        var item = harness.AddDownload("WirelessPower 1.0.0 361 1 2026-10-12T13-49Z UAfrx4UUt.zip", WriteWirelessPowerLayout);
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        var names = harness.Library.GetAll().Select(e => e.Name).OrderBy(n => n).ToList();
+        Assert.Equal(["Nexus Mod 361 — Icon", "Nexus Mod 361 — Model"], names);
+        Assert.Equal("UE4SS mod + 2 paks", item.PartsSummary);
+    }
+
+    /// <summary>A mod organizer resolves a dependency at download time with a question. Yes runs the normal download pipeline for the match Nexus search returned.</summary>
+    [Fact]
+    public async Task Activate_WithAMissingRequirement_OffersToDownloadItAndYesStartsThatDownload()
+    {
+        var harness = new Harness(_root) { Dialogs = new FakeDialogService(confirmResult: true) };
+        harness.NexusApi.SearchResults.Add(new NexusModInfo(999, "ArcFission Tools", "someone", "", "1", null));
+        harness.NexusApi.SearchResults.Add(new NexusModInfo(356, "ArcFission Library", "someone", "", "1.2.2", null));
+        var vm = harness.Build();
+        var item = harness.AddDownload("WirelessPower.zip", WriteWirelessPowerLayout);
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        var question = Assert.Single(harness.Dialogs.ConfirmMessages);
+        Assert.Contains("needs ArcFission Library 1.2.0 or newer", question);
+        Assert.Contains("Download 'ArcFission Library' (Nexus mod #356)", question);
+        Assert.Equal(["ArcFission Library"], harness.NexusApi.SearchQueries);
+        Assert.Equal([356], harness.NexusApi.GetModFilesCalls);
+    }
+
+    [Fact]
+    public async Task Activate_WithAMissingRequirement_DeclinedDownloadsNothingAndSaysSo()
+    {
+        var harness = new Harness(_root) { Dialogs = new FakeDialogService(confirmResult: false) };
+        harness.NexusApi.SearchResults.Add(new NexusModInfo(356, "ArcFission Library", "someone", "", "1.2.2", null));
+        var vm = harness.Build();
+        var item = harness.AddDownload("WirelessPower.zip", WriteWirelessPowerLayout);
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        Assert.Single(harness.Dialogs.ConfirmMessages);
+        Assert.Empty(harness.NexusApi.GetModFilesCalls);
+        Assert.Contains("Skipped 'ArcFission Library'", vm.PendingDownloadStatusMessage);
+        Assert.True(item.CanGetRequirement, "the row keeps its Get button so the user can come back to it");
+    }
+
+    /// <summary>No match at all on Nexus: nothing is asked, and the row's own Get button is the fallback (which searches by name).</summary>
+    [Fact]
+    public async Task Activate_WithAMissingRequirementNexusDoesNotKnow_AsksNothing()
+    {
+        var harness = new Harness(_root) { Dialogs = new FakeDialogService(confirmResult: true) };
+        harness.NexusApi.SearchResults.Add(new NexusModInfo(5, "Something Unrelated", "someone", "", "1", null));
+        var vm = harness.Build();
+        var item = harness.AddDownload("WirelessPower.zip", WriteWirelessPowerLayout);
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        Assert.Empty(harness.Dialogs.ConfirmMessages);
+        Assert.Empty(harness.NexusApi.GetModFilesCalls);
+        Assert.Equal("Get 'ArcFission Library'", item.GetRequirementLabel);
+    }
+
+    /// <summary>The "find ArcFission to delete it too" misreading: once the download's parts are gone from the Library, the row says "Removed from Library" and offers Reinstall — not a dependency fetch.</summary>
+    [Fact]
+    public async Task AfterItsPartsAreDeleted_TheRowOffersReinstallNotTheMissingRequirement()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        var item = harness.AddDownload("WirelessPower.zip", WriteWirelessPowerLayout);
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+        Assert.True(item.CanGetRequirement);
+
+        foreach (var entry in harness.Library.GetAll().ToList())
+        {
+            harness.Library.Delete(entry.FolderName);
+        }
+
+        harness.Ue4ss.Delete("WirelessPower");
+        item.Refresh();
+
+        Assert.True(item.WasDeleted);
+        Assert.Equal("Removed from Library", item.StateLabel);
+        Assert.Equal("Reinstall", item.ActionLabel);
+        Assert.False(item.CanGetRequirement);
+    }
+
+    [Theory]
+    [InlineData("ArcFission Library", "ArcFission Library", 356)]
+    [InlineData("arcfission library", "ArcFission Library", 356)]
+    [InlineData("ArcFission", "ArcFission Tools", 999)]
+    [InlineData("Nothing Like It", null, 0)]
+    public void PickRequirementMatch_PrefersAnExactNameThenAContainingOne(string requirement, string? expectedName, int expectedId)
+    {
+        IReadOnlyList<NexusModInfo> results =
+        [
+            new NexusModInfo(999, "ArcFission Tools", "a", "", "1", null),
+            new NexusModInfo(356, "ArcFission Library", "a", "", "1", null),
+        ];
+
+        var match = DownloadsViewModel.PickRequirementMatch(results, requirement);
+
+        Assert.Equal(expectedName, match?.Name);
+        Assert.Equal(expectedId, match?.ModId ?? 0);
     }
 
     [Fact]
@@ -249,12 +363,41 @@ public sealed class DownloadsViewModelTests : IDisposable
         public Task<NexusModInfo?> GetModInfoAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
             Task.FromResult<NexusModInfo?>(new NexusModInfo(modId, $"Nexus Mod {modId}", "author", "summary", "1", null));
         public Task<IReadOnlyList<NexusModInfo>> GetModListAsync(string apiKey, string gameDomain, NexusModList list, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<NexusModFile>> GetModFilesAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        /// <summary>What SearchModsAsync returns for any query; the dependency offer picks from these.</summary>
+        public List<NexusModInfo> SearchResults { get; } = [];
+        public List<string> SearchQueries { get; } = [];
+        /// <summary>Mod IDs whose files were asked for — the dependency offer's "Yes" lands here (the download itself needs a real CDN, so it stops right after).</summary>
+        public List<int> GetModFilesCalls { get; } = [];
+
+        public Task<IReadOnlyList<NexusModFile>> GetModFilesAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
+        {
+            GetModFilesCalls.Add(modId);
+            return Task.FromResult<IReadOnlyList<NexusModFile>>([new NexusModFile(1, $"mod{modId}.zip", "Main", "1", "MAIN", IsPrimary: true)]);
+        }
+
+        public Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default)
+        {
+            SearchQueries.Add(searchText);
+            return Task.FromResult<IReadOnlyList<NexusModInfo>>([.. SearchResults]);
+        }
         public Task<NexusModPage> ListAllModsAsync(string? apiKey, string gameDomain, int offset, int count, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetChangelogsAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<NexusEndorsement>> GetEndorsementsAsync(string apiKey, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<NexusEndorsementStatus> SetEndorsementAsync(string apiKey, string gameDomain, int modId, string modVersion, bool endorse, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class FakeDialogService(bool confirmResult) : IDialogService
+    {
+        public List<string> ConfirmMessages { get; } = [];
+
+        public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
+        {
+            ConfirmMessages.Add(message);
+            return confirmResult;
+        }
+
+        public RenamePromptResult PromptRename(string currentName, string description = "", string? resetValue = null, string resetLabel = "", string resetTooltip = "", string title = "", string fieldLabel = "") =>
+            throw new NotSupportedException("Not exercised by these tests.");
     }
 
     private sealed class FakeCredentialStore : ICredentialStore

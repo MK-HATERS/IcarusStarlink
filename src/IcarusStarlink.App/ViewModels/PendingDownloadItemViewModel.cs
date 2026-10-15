@@ -58,7 +58,8 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
 
     public bool WasDeleted => ActivatedItems.Count > 0 && !ActivatedItems.All(StillPresent);
 
-    public string ActionLabel => IsInstalled ? "Reinstall" : "Activate";
+    /// <summary>"Reinstall" for anything that has been installed before (still there, or removed since) — "Activate" only for a download never imported.</summary>
+    public string ActionLabel => ActivatedItems.Count > 0 ? "Reinstall" : "Activate";
 
     /// <summary>"Needs: ArcFission Library 1.2.0 or newer; UE4SS (experimental build)" — the README's own requirement lines, for the row.</summary>
     public string? RequirementsSummary => Requirements.Count == 0 ? null : $"Needs: {string.Join("; ", Requirements)}";
@@ -84,12 +85,45 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
 
     public bool HasMissingRequirements => MissingRequirementNames.Count > 0;
 
-    public string FindOnNexusLabel => MissingRequirementNames.Count switch
+    /// <summary>The "Get X" button only makes sense for a download that is (still) installed — offering to fetch a dependency for a mod the user just deleted read as "find X to delete it too" in a real report.</summary>
+    public bool CanGetRequirement => HasMissingRequirements && !WasDeleted;
+
+    public string GetRequirementLabel => MissingRequirementNames.Count switch
     {
         0 => "",
-        1 => $"Find \"{MissingRequirementNames[0]}\" on Nexus",
-        _ => $"Find \"{MissingRequirementNames[0]}\" on Nexus (+{MissingRequirementNames.Count - 1} more)",
+        1 => $"Get '{MissingRequirementNames[0]}'",
+        _ => $"Get '{MissingRequirementNames[0]}' (+{MissingRequirementNames.Count - 1} more)",
     };
+
+    /// <summary>"UE4SS mod + 2 paks", "1 mod", "" — what this download turned into, in plain words.</summary>
+    public string PartsSummary
+    {
+        get
+        {
+            if (ActivatedItems.Count == 0)
+            {
+                return "";
+            }
+
+            var lua = ActivatedItems.Count(i => i.Kind == PendingDownloadActivationKind.Ue4ssMod);
+            var paks = ActivatedItems.Count(i => i.Kind == PendingDownloadActivationKind.Library);
+            var parts = new List<string>();
+            if (lua > 0)
+            {
+                parts.Add(lua == 1 ? "UE4SS mod" : $"{lua} UE4SS mods");
+            }
+
+            if (paks > 0)
+            {
+                parts.Add(lua == 0 && paks == 1 ? "1 mod" : paks == 1 ? "1 pak" : $"{paks} paks");
+            }
+
+            return string.Join(" + ", parts);
+        }
+    }
+
+    /// <summary>Installed / Removed from Library / Not installed — one phrase for the row, no inference needed.</summary>
+    public string StateLabel => IsInstalled ? "Installed" : WasDeleted ? "Removed from Library" : "Not installed";
 
     public void SetActivated(IReadOnlyList<PendingDownloadActivatedItem> items, IReadOnlyList<string> requirements)
     {
@@ -116,7 +150,10 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
         OnPropertyChanged(nameof(RequirementsSummary));
         OnPropertyChanged(nameof(MissingRequirementNames));
         OnPropertyChanged(nameof(HasMissingRequirements));
-        OnPropertyChanged(nameof(FindOnNexusLabel));
+        OnPropertyChanged(nameof(CanGetRequirement));
+        OnPropertyChanged(nameof(GetRequirementLabel));
+        OnPropertyChanged(nameof(PartsSummary));
+        OnPropertyChanged(nameof(StateLabel));
     }
 
     partial void OnActivatedFolderNameChanged(string? value) => Refresh();

@@ -350,7 +350,8 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Pending_Downloads"),
             sp.GetRequiredService<IPrebuiltPakImporter>(),
             Path.Combine(appDataDirectory, "Data"),
-            new JsonCatalogSnapshotStore(Path.Combine(appDataDirectory, "Cache", "catalog_snapshot.json"))));
+            new JsonCatalogSnapshotStore(Path.Combine(appDataDirectory, "Cache", "catalog_snapshot.json")),
+            sp.GetRequiredService<IDialogService>()));
         builder.Services.AddSingleton<NexusCatalogViewModel>();
         builder.Services.AddSingleton<ISaveRepository>(sp =>
             new SaveRepository(
