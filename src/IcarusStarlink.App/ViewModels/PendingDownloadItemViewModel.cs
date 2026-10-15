@@ -24,8 +24,17 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     public string LocalFilePath { get; }
     public DateTimeOffset DownloadedAtUtc { get; }
 
-    /// <summary>The upload's own name, without Nexus's id/timestamp/hash tail or the extension — what a person recognizes the file as.</summary>
-    public string DisplayName => NexusDownloadFileName.StripNexusSuffix(System.IO.Path.GetFileNameWithoutExtension(FileName));
+    /// <summary>The mod's name as its source listed it (a catalog entry's Name), else the upload's own file name without Nexus's id/timestamp/hash tail or the extension — what a person recognizes the file as.</summary>
+    public string DisplayName => _displayName ?? NexusDownloadFileName.StripNexusSuffix(System.IO.Path.GetFileNameWithoutExtension(FileName));
+
+    private readonly string? _displayName;
+
+    /// <summary>"Nexus" or "Database" — the Downloads page's Source column.</summary>
+    public string Source { get; }
+
+    public string? CatalogEntryId { get; }
+
+    public bool IsCatalog { get; }
 
     [ObservableProperty]
     private string? _activatedFolderName;
@@ -48,6 +57,10 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
         FileName = entry.FileName;
         LocalFilePath = entry.LocalFilePath;
         DownloadedAtUtc = entry.DownloadedAtUtc;
+        _displayName = entry.DisplayName;
+        IsCatalog = entry.IsCatalog;
+        Source = IsCatalog ? PendingDownloadEntry.DatabaseSource : PendingDownloadEntry.NexusSource;
+        CatalogEntryId = entry.CatalogEntryId;
         _activatedFolderName = entry.ActivatedFolderName;
         _activatedKind = entry.ActivatedKind;
         _activatedItems = entry.AllActivatedItems;
@@ -106,16 +119,16 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
             }
 
             var lua = ActivatedItems.Count(i => i.Kind == PendingDownloadActivationKind.Ue4ssMod);
-            var paks = ActivatedItems.Count(i => i.Kind == PendingDownloadActivationKind.Library);
+            var library = ActivatedItems.Count(i => i.Kind == PendingDownloadActivationKind.Library);
             var parts = new List<string>();
+            if (library > 0)
+            {
+                parts.Add(library == 1 ? "Library mod" : $"{library} Library mods");
+            }
+
             if (lua > 0)
             {
                 parts.Add(lua == 1 ? "UE4SS mod" : $"{lua} UE4SS mods");
-            }
-
-            if (paks > 0)
-            {
-                parts.Add(lua == 0 && paks == 1 ? "1 mod" : paks == 1 ? "1 pak" : $"{paks} paks");
             }
 
             return string.Join(" + ", parts);

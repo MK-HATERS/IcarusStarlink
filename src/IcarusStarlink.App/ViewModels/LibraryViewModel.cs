@@ -608,7 +608,12 @@ public sealed partial class LibraryViewModel : ObservableObject
     private sealed record ModPackage(int NexusModId, string DisplayName, IReadOnlyList<string> LibraryFolderNames, IReadOnlyList<string> Ue4ssFolderNames)
     {
         public int PartCount => LibraryFolderNames.Count + Ue4ssFolderNames.Count;
-        public string Label => $"Part of '{DisplayName}' ({PartCount} parts)";
+
+        /// <summary>On the Library row: the mod also has a Lua half living on the UE4SS tab.</summary>
+        public string LibraryLabel => Ue4ssFolderNames.Count == 1 ? "includes a Lua mod on the UE4SS tab" : $"includes {Ue4ssFolderNames.Count} Lua mods on the UE4SS tab";
+
+        /// <summary>On the UE4SS row: this Lua mod is one half of a Library mod.</summary>
+        public string Ue4ssLabel => $"Lua part of '{DisplayName}' — see the Mods tab";
     }
 
     private IReadOnlyDictionary<int, ModPackage> _packagesByNexusModId = new Dictionary<int, ModPackage>();
@@ -656,12 +661,12 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         foreach (var item in AllLibraryItems())
         {
-            item.PackageLabel = item.NexusModId is { } id && packages.TryGetValue(id, out var package) ? package.Label : null;
+            item.PackageLabel = item.NexusModId is { } id && packages.TryGetValue(id, out var package) && package.Ue4ssFolderNames.Count > 0 ? package.LibraryLabel : null;
         }
 
         foreach (var row in Ue4ssMods)
         {
-            row.PackageLabel = row.NexusModId is { } id && packages.TryGetValue(id, out var package) ? package.Label : null;
+            row.PackageLabel = row.NexusModId is { } id && packages.TryGetValue(id, out var package) && package.LibraryFolderNames.Count > 0 ? package.Ue4ssLabel : null;
         }
 
         return packages;
@@ -1525,6 +1530,11 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// </summary>
     private async Task<(bool Converted, string Message)> TryConvertOneToExmodAsync(LibraryItemViewModel item)
     {
+        if (item.IsPakBundle)
+        {
+            return (false, $"'{item.Name}' is a bundle of {item.PakCount} paks (one download) — it stays as paks; every one of them is folded into the merge as-is.");
+        }
+
         var folder = _repository.GetFolderPath(item.FolderName);
         var pakFilePath = Directory.GetFiles(folder, "*.pak", SearchOption.AllDirectories).FirstOrDefault();
         if (pakFilePath is null)
@@ -1595,7 +1605,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var candidates = AllLibraryItems().Where(i => i.IsOpaquePak && !i.IsMergedPack).ToList();
+        var candidates = AllLibraryItems().Where(i => i.IsOpaquePak && !i.IsMergedPack && !i.IsPakBundle).ToList();
         if (candidates.Count == 0)
         {
             StatusMessage = "No opaque mods to convert.";
@@ -1677,7 +1687,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// </summary>
     private async Task RefreshConvertedOpaqueModsAsync()
     {
-        var stillOpaque = AllLibraryItems().Where(i => i.IsOpaquePak && !i.IsMergedPack).ToList();
+        var stillOpaque = AllLibraryItems().Where(i => i.IsOpaquePak && !i.IsMergedPack && !i.IsPakBundle).ToList();
         var alreadyConverted = AllLibraryItems()
             .Where(i => i.ConvertedFromPrebuiltPak && !i.IsLocallyEdited && !i.IsOpaquePak)
             .ToList();

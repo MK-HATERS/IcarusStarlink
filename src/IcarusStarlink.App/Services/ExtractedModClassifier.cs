@@ -57,16 +57,17 @@ public static class ExtractedModClassifier
         string extractedDirectory, string originalFileName,
         ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
-        string? source = null, int? nexusModId = null, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame = null) =>
+        string? source = null, int? nexusModId = null, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame = null,
+        string? catalogEntryId = null) =>
         ClassifyAndImportCore(
             extractedDirectory, originalFileName, libraryRepository, ue4ssModRepository, prebuiltPakImporter,
-            dataFolder, unrealPakExePath, source, nexusModId, ue4ssNamesAlreadyInstalledInGame, nestedDepth: 0);
+            dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, ue4ssNamesAlreadyInstalledInGame, nestedDepth: 0);
 
     private static async Task<ClassifiedImport> ClassifyAndImportCore(
         string extractedDirectory, string originalFileName,
         ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
-        string? source, int? nexusModId, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame, int nestedDepth)
+        string? source, int? nexusModId, string? catalogEntryId, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame, int nestedDepth)
     {
         // A manual scan, not a "*.EXMOD" glob — Directory.EnumerateFiles' pattern matching follows
         // the filesystem's own case sensitivity, same reasoning ExmodFolder.FindExmodFile's own
@@ -91,21 +92,19 @@ public static class ExtractedModClassifier
             // asset path, a size-budget violation) propagate up as-is — this genuinely IS
             // EXMOD-shaped content, so a failure here is a real problem, not a signal to try a
             // different format.
-            var entry = libraryRepository.Import(extractedDirectory, source: source, nexusModId: nexusModId);
+            var entry = libraryRepository.Import(extractedDirectory, source: source, nexusModId: nexusModId, catalogEntryId: catalogEntryId);
             return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, isOpaquePak: false, requirements, warnings);
         }
 
-        var pakFiles = allFiles.Where(f => f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var pakFiles = allFiles.Where(f => f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToArray();
+        var downloadName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName));
 
         // The game-folder layout (a real shape found live, see the class doc): every UE4SS mod
         // folder under a "…\ue4ss\Mods\" directory is staged under ITS OWN name (not the download's
-        // file name), and every pak that sits under a "…\Paks\…" directory is imported — all of
-        // them, since a bundle that ships two paks (an icon pak and a model pak) needs both, which
-        // is a different situation from two loose paks of unknown relationship (still refused as
-        // ambiguous below).
+        // file name), and the paks become the Library half of the same mod.
         var ue4ssModFolders = FindGameLayoutUe4ssModFolders(extractedDirectory);
         var layoutPaks = pakFiles.Where(IsUnderPaksFolder).ToArray();
-        if (ue4ssModFolders.Count > 0 || layoutPaks.Length > 1)
+        if (ue4ssModFolders.Count > 0)
         {
             var items = new List<PendingDownloadActivatedItem>();
             var names = new List<string>();
@@ -117,9 +116,13 @@ public static class ExtractedModClassifier
                 names.Add(folderName);
             }
 
-            foreach (var pak in layoutPaks.Length > 0 ? layoutPaks : pakFiles)
+            var bundlePaks = layoutPaks.Length > 0 ? layoutPaks : pakFiles;
+            if (bundlePaks.Length > 0)
             {
-                var entry = await prebuiltPakImporter.ImportAsync(pak, dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId);
+                // The mod's own name, not the first pak's: a single UE4SS folder names the whole
+                // download (WirelessPower); otherwise the upload's own file name does.
+                var modName = ue4ssModFolders.Count == 1 ? Path.GetFileName(ue4ssModFolders[0]) : downloadName;
+                var entry = await ImportPakSetAsync(bundlePaks, modName, libraryRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId);
                 items.Add(new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library));
                 names.Add(entry.Name);
                 anyOpaque |= entry.IsOpaquePak;
@@ -129,17 +132,14 @@ public static class ExtractedModClassifier
             return new ClassifiedImport(names[0], primary.FolderName, primary.Kind, anyOpaque, items, requirements, warnings);
         }
 
-        if (pakFiles.Length == 1)
+        // One download = one mod, however many paks it ships (an icon pak and a model pak, a
+        // "_P" pair, variants an author bundled): all of them land in ONE Library entry named
+        // after the download. This used to refuse two loose paks as "ambiguous"; a real user
+        // hit exactly that on a Nexus download and had no way forward inside the app.
+        if (pakFiles.Length >= 1)
         {
-            var entry = await prebuiltPakImporter.ImportAsync(pakFiles[0], dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId);
+            var entry = await ImportPakSetAsync(pakFiles, downloadName, libraryRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId);
             return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, entry.IsOpaquePak, requirements, warnings);
-        }
-
-        if (pakFiles.Length > 1)
-        {
-            throw new FormatException(
-                $"Contains {pakFiles.Length} .pak files with no game-folder layout to say they belong together — ambiguous which one to import. "
-                + "Extract it yourself and import the one you want (or both, one at a time).");
         }
 
         // A real bug found live (a user's own Nexus bug report, confirmed by inspecting the actual
@@ -169,7 +169,7 @@ public static class ExtractedModClassifier
             AnyArchiveExtractor.ExtractToDirectory(nestedArchives[0], nestedDirectory);
             var nested = await ClassifyAndImportCore(
                 nestedDirectory, Path.GetFileName(nestedArchives[0]), libraryRepository, ue4ssModRepository,
-                prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, ue4ssNamesAlreadyInstalledInGame,
+                prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, ue4ssNamesAlreadyInstalledInGame,
                 nestedDepth + 1);
             var merged = nested.Requirements.Count > 0 || requirements.Count == 0 ? nested : nested with { Requirements = requirements };
             return warnings.Count == 0 ? merged : merged with { Warnings = [.. warnings, .. merged.Warnings] };
@@ -208,6 +208,33 @@ public static class ExtractedModClassifier
         var fallbackName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName));
         var stagedName = ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName, ue4ssNamesAlreadyInstalledInGame);
         return Single(stagedName, stagedName, PendingDownloadActivationKind.Ue4ssMod, isOpaquePak: false, requirements, warnings);
+    }
+
+    /// <summary>
+    /// A single pak goes through IPrebuiltPakImporter (which converts it into an editable EXMOD
+    /// when it can). Several paks become one opaque entry holding all of them — conversion merges
+    /// one pak's data diff into one EXMOD, and a bundle's paks are almost always assets (models,
+    /// icons) with nothing to diff anyway. Each pak still gets the engine-version lint the
+    /// importer applies.
+    /// </summary>
+    private static async Task<LibraryEntry> ImportPakSetAsync(
+        IReadOnlyList<string> pakFiles, string modName, ILibraryRepository libraryRepository, IPrebuiltPakImporter prebuiltPakImporter,
+        string dataFolder, string? unrealPakExePath, string? source, int? nexusModId, string? catalogEntryId)
+    {
+        if (pakFiles.Count == 1)
+        {
+            return await prebuiltPakImporter.ImportAsync(pakFiles[0], dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId, catalogEntryId: catalogEntryId);
+        }
+
+        foreach (var pak in pakFiles)
+        {
+            if (ModLints.CheckPakVersion(pak) is { } wrongVersion)
+            {
+                throw new FormatException(wrongVersion);
+            }
+        }
+
+        return libraryRepository.ImportPaks(pakFiles, modName, source, nexusModId, catalogEntryId);
     }
 
     private static ClassifiedImport Single(string entryName, string folderName, PendingDownloadActivationKind kind, bool isOpaquePak, IReadOnlyList<string> requirements, IReadOnlyList<string> warnings) =>

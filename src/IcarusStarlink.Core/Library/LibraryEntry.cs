@@ -25,6 +25,14 @@ public sealed class LibraryEntry
     /// </summary>
     public bool IsOpaquePak { get; set; }
 
+    /// <summary>
+    /// For an opaque entry: every .pak file in its folder (file names with extension, in name
+    /// order). One download that ships several paks (WirelessPower: an icon pak and a model pak) is
+    /// ONE mod holding them all — see ILibraryRepository.ImportPaks — and every one of them is
+    /// folded into the merge. Empty for an EXMOD-based entry.
+    /// </summary>
+    public IReadOnlyList<string> PakFileNames { get; set; } = [];
+
     public bool IsPinned { get; set; }
     public bool IsFavorite { get; set; }
     public string Notes { get; set; } = "";

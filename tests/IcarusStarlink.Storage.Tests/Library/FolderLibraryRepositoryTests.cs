@@ -375,6 +375,37 @@ public class FolderLibraryRepositoryTests : IDisposable
         }
     }
 
+    /// <summary>One download that ships several paks is ONE opaque mod named after the download, holding every pak — never a row per pak.</summary>
+    [Fact]
+    public void ImportPaks_SeveralPaksFromOneDownload_BecomeOneEntryNamedAfterTheDownload()
+    {
+        var iconPak = WriteFixturePakFile("ZZ_WirelessPower_Icon_P");
+        var modelPak = Path.Combine(Path.GetDirectoryName(iconPak)!, "ZZ_WirelessPower_Model_P.pak");
+        File.WriteAllBytes(modelPak, [9, 9, 9, 9, 9]);
+        using var repo = CreateRepository();
+
+        try
+        {
+            var entry = repo.ImportPaks([modelPak, iconPak], "WirelessPower", source: "Nexus", nexusModId: 361);
+
+            Assert.Equal("WirelessPower", entry.Name);
+            Assert.Equal("WirelessPower", entry.FolderName);
+            Assert.True(entry.IsOpaquePak);
+            Assert.Equal(["ZZ_WirelessPower_Icon_P.pak", "ZZ_WirelessPower_Model_P.pak"], entry.PakFileNames);
+            Assert.Equal(361, entry.NexusModId);
+            Assert.Contains("2 paks", entry.Description);
+
+            repo.Refresh();
+            var rescanned = Assert.Single(repo.GetAll());
+            Assert.Equal("WirelessPower", rescanned.Name);
+            Assert.Equal(2, rescanned.PakFileNames.Count);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(iconPak)!, recursive: true);
+        }
+    }
+
     [Fact]
     public void ImportPak_SiblingMergeManifestPresent_RecordsMergedPackModNames()
     {

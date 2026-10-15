@@ -101,10 +101,44 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         _metaStore.Save(folderName, meta);
 
         // Surgical, same as Import(): only this one entry is new.
-        var entry = ToOpaquePakEntry(folderName, targetPakPath, meta);
+        var entry = ToOpaquePakEntry(folderName, [targetPakPath], meta);
         _cachedEntries.Add(entry);
         _searchIndex.Insert(entry, entry.Name);
 
+        return entry;
+    }
+
+    public LibraryEntry ImportPaks(IReadOnlyList<string> pakFilePaths, string name, string? source = null, int? nexusModId = null, string? catalogEntryId = null)
+    {
+        if (pakFilePaths.Count == 0)
+        {
+            throw new ArgumentException("At least one .pak file is needed.", nameof(pakFilePaths));
+        }
+
+        // Same sanitizing as ImportPak — the name is the download's own (a UE4SS folder name or an
+        // upload's file name), never something this app chose.
+        var baseName = SanitizeFolderNameCandidate(name);
+        var folderName = MakeUniqueFolderName(baseName);
+        var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
+        Directory.CreateDirectory(targetFolder);
+
+        var targetPaths = new List<string>();
+        foreach (var pakFilePath in pakFilePaths)
+        {
+            var targetPakPath = Path.Combine(targetFolder, Path.GetFileName(pakFilePath));
+            File.Copy(pakFilePath, targetPakPath);
+            targetPaths.Add(targetPakPath);
+        }
+
+        var meta = new LibraryMeta
+        {
+            ImportedAtUtc = DateTimeOffset.UtcNow, Source = source, NexusModId = nexusModId, CatalogEntryId = catalogEntryId,
+        };
+        _metaStore.Save(folderName, meta);
+
+        var entry = ToOpaquePakEntry(folderName, [.. targetPaths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase)], meta);
+        _cachedEntries.Add(entry);
+        _searchIndex.Insert(entry, entry.Name);
         return entry;
     }
 
@@ -435,7 +469,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
                 // to be an EXMOD mod) the actual package read — ReadPackageOnly's own single-arg
                 // overload would otherwise re-walk the exact same folder a second time.
                 var files = Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).ToList();
-                var (hasExmod, pakPath) = ClassifyModFolder(files);
+                var (hasExmod, pakPaths) = ClassifyModFolder(files);
 
                 if (hasExmod)
                 {
@@ -444,8 +478,12 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
                 }
                 else
                 {
-                    var resolvedPakPath = pakPath ?? throw new FormatException($"No .EXMOD or .pak file found under '{folder}'.");
-                    var entry = ToOpaquePakEntry(folderName, resolvedPakPath, meta);
+                    if (pakPaths.Count == 0)
+                    {
+                        throw new FormatException($"No .EXMOD or .pak file found under '{folder}'.");
+                    }
+
+                    var entry = ToOpaquePakEntry(folderName, pakPaths, meta);
                     scanned.Add((entry, entry.Name));
                 }
             }
@@ -471,7 +509,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     public IReadOnlyList<string> UnreadableFolders { get; private set; } = [];
 
     /// <summary>Convenience overload for a single-folder classification with no precomputed list (ListAssetPaths, ReadReadme) — walks the folder itself, then delegates.</summary>
-    private static (bool HasExmod, string? PakPath) ClassifyModFolder(string folder) =>
+    private static (bool HasExmod, IReadOnlyList<string> PakPaths) ClassifyModFolder(string folder) =>
         ClassifyModFolder(Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).ToList());
 
     /// <summary>
@@ -483,23 +521,24 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     /// walk and whatever it does with the result — the same TOCTOU caveat ExmodFolder's own
     /// SnapshotFiles callers already accept (see its class doc comment).
     /// </summary>
-    private static (bool HasExmod, string? PakPath) ClassifyModFolder(IReadOnlyList<string> files)
+    private static (bool HasExmod, IReadOnlyList<string> PakPaths) ClassifyModFolder(IReadOnlyList<string> files)
     {
         var hasExmod = false;
-        string? pakPath = null;
+        var pakPaths = new List<string>();
         foreach (var filePath in files)
         {
             if (filePath.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase))
             {
                 hasExmod = true;
             }
-            else if (pakPath is null && filePath.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
+            else if (filePath.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
             {
-                pakPath = filePath;
+                pakPaths.Add(filePath);
             }
         }
 
-        return (hasExmod, pakPath);
+        pakPaths.Sort(StringComparer.OrdinalIgnoreCase);
+        return (hasExmod, pakPaths);
     }
 
     private static LibraryEntry ToEntry(string folderName, ExmodPackage package, LibraryMeta meta) => new()
@@ -530,10 +569,13 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         DisplayNameOverride = meta.DisplayNameOverride,
     };
 
-    private static LibraryEntry ToOpaquePakEntry(string folderName, string pakFilePath, LibraryMeta meta)
+    private static LibraryEntry ToOpaquePakEntry(string folderName, IReadOnlyList<string> pakFilePaths, LibraryMeta meta)
     {
-        var sizeMb = new FileInfo(pakFilePath).Length / 1_000_000.0;
-        var displayName = Path.GetFileNameWithoutExtension(pakFilePath);
+        var pakFilePath = pakFilePaths[0];
+        var sizeMb = pakFilePaths.Sum(p => new FileInfo(p).Length) / 1_000_000.0;
+        // Several paks from one download: the folder (named after the download itself by ImportPaks)
+        // is the mod's name, not whichever pak happens to sort first.
+        var displayName = pakFilePaths.Count > 1 ? folderName : Path.GetFileNameWithoutExtension(pakFilePath);
         // A bare .pak carries no embedded metadata of its own — meta.Nexus* (set via
         // SetNexusMetadata, right after a Nexus-sourced Activate looks the mod up by ID) is the
         // only real source of a name/author/description/version better than "Unknown"/blank/a
@@ -556,7 +598,9 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             : meta.MergedPackOptionDescriptions is { Count: > 0 } optionDescriptions
                 ? $"IcarusStarlink's own merged pack — built from gameplay options only (no mods queued): {string.Join(", ", optionDescriptions)}."
                 : meta.NexusDescription
-                    ?? $"Imported prebuilt .pak package ({sizeMb:N1} MB) — no EXMOD data, so no readme or editing. Its internal files can still be listed below.";
+                    ?? (pakFilePaths.Count > 1
+                        ? $"Imported prebuilt .pak bundle — {pakFilePaths.Count} paks ({sizeMb:N1} MB total): {string.Join(", ", pakFilePaths.Select(Path.GetFileName))}. No EXMOD data, so no readme or editing; every pak is folded into the merge."
+                        : $"Imported prebuilt .pak package ({sizeMb:N1} MB) — no EXMOD data, so no readme or editing. Its internal files can still be listed below.");
         return new LibraryEntry
         {
             FolderName = folderName,
@@ -564,8 +608,9 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             Author = meta.MergedPackProfileName ?? meta.NexusAuthor ?? "Unknown",
             Version = meta.NexusVersion ?? "",
             Description = description,
-            FileName = displayName,
+            FileName = Path.GetFileNameWithoutExtension(pakFilePath),
             IsOpaquePak = true,
+            PakFileNames = [.. pakFilePaths.Select(p => Path.GetFileName(p)!)],
             IsPinned = meta.IsPinned,
             IsFavorite = meta.IsFavorite,
             Notes = meta.Notes,

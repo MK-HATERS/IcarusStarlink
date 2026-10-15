@@ -523,6 +523,8 @@ public sealed class LibraryItemViewModelTests : IDisposable
         public LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null) =>
             throw new NotSupportedException("Not exercised by these tests.");
 
+        public LibraryEntry ImportPaks(IReadOnlyList<string> pakFilePaths, string name, string? source = null, int? nexusModId = null, string? catalogEntryId = null) => throw new NotSupportedException("Not exercised by these tests.");
+
         public LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null, string? mergedPackProfileName = null) =>
             throw new NotSupportedException("Not exercised by these tests.");
 

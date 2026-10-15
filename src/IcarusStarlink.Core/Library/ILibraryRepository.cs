@@ -17,6 +17,14 @@ public interface ILibraryRepository
     LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null, string? mergedPackProfileName = null);
 
     /// <summary>
+    /// Imports SEVERAL prebuilt .pak files from one download as ONE opaque library entry named
+    /// <paramref name="name"/> (the folder holds every pak — LibraryEntry.PakFileNames). A mod that
+    /// ships an icon pak and a model pak is one mod, not two rows; this is how every download
+    /// becomes exactly one Library mod the way an EXMODZ does.
+    /// </summary>
+    LibraryEntry ImportPaks(IReadOnlyList<string> pakFilePaths, string name, string? source = null, int? nexusModId = null, string? catalogEntryId = null);
+
+    /// <summary>
     /// Records real name/author/description/version fetched from the Nexus API for an opaque .pak
     /// entry (which has no embedded metadata of its own to show) — overrides what the detail pane
     /// shows in place of the synthesized "Unknown"/generic description, and gives update-checking

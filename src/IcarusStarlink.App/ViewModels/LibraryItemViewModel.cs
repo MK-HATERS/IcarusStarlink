@@ -57,6 +57,11 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private string? _packageLabel;
 
+    /// <summary>How many .pak files an opaque entry holds (LibraryEntry.PakFileNames) — 0 for an EXMOD mod. A bundle (2+) is one mod that is never converted into an EXMOD.</summary>
+    public int PakCount { get; }
+
+    public bool IsPakBundle => PakCount > 1;
+
     private static readonly HashSet<string> ImageExtensions =
         new(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".bmp", ".gif" };
 
@@ -448,6 +453,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         _description = entry.Description;
         _variantLabel = entry.Variant;
         _isOpaquePak = entry.IsOpaquePak;
+        PakCount = entry.IsOpaquePak ? Math.Max(1, entry.PakFileNames.Count) : 0;
         _isLocallyEdited = entry.IsLocallyEdited;
         ConvertedFromPrebuiltPak = entry.ConvertedFromPrebuiltPak;
         _source = entry.Source;

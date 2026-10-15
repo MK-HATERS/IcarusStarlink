@@ -596,6 +596,31 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.False(vm.IsRebuilding);
     }
 
+    /// <summary>One download that shipped two paks is ONE opaque Library entry (ILibraryRepository.ImportPaks) — the rebuild must fold in every pak in its folder, not just the first.</summary>
+    [Fact]
+    public async Task RebuildAsync_OpaqueEntryHoldingTwoPaks_FoldsInBothPaks()
+    {
+        var libraryRepository = new FakeLibraryRepository();
+        var bundleFolder = CreateOpaquePakFolder("WirelessPower");
+        File.WriteAllBytes(Path.Combine(bundleFolder, "ZZ_WirelessPower_Model_P.pak"), [5, 6, 7, 8]);
+        libraryRepository.FolderPaths["WirelessPower"] = bundleFolder;
+        var rebuildService = new FakeRebuildService
+        {
+            Result = new RebuildResult(
+                MergedFileCount: 0, PackedFileCount: 2, OutputPakPath: "out.pak", ManifestPath: "out.manifest", Warnings: [], Notes: []),
+        };
+        var settingsService = new FakeSettingsService();
+        settingsService.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        var vm = CreateViewModel(libraryRepository: libraryRepository, rebuildService: rebuildService, settingsService: settingsService);
+        vm.Queue.Add(MakeEntry("WirelessPower", isOpaquePak: true));
+
+        var succeeded = await vm.RebuildAsync();
+
+        Assert.True(succeeded);
+        Assert.NotNull(rebuildService.LastPrebuiltPakFilePaths);
+        Assert.Equal(["Prebuilt.pak", "ZZ_WirelessPower_Model_P.pak"], rebuildService.LastPrebuiltPakFilePaths!.Select(Path.GetFileName).ToList());
+    }
+
     /// <summary>
     /// Audit finding: RebuildAsync's own Library import sends LibraryChangedMessage, and this VM's
     /// handler for that message wiped the manual conflict picks — so a second Install of the same
@@ -675,6 +700,8 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null) =>
             throw new NotSupportedException("Not exercised by these tests.");
 
+        public LibraryEntry ImportPaks(IReadOnlyList<string> pakFilePaths, string name, string? source = null, int? nexusModId = null, string? catalogEntryId = null) => throw new NotSupportedException("Not exercised by these tests.");
+
         public LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null, string? mergedPackProfileName = null)
         {
             ImportPakCallCount++;
@@ -738,6 +765,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
     {
         public int RebuildCallCount { get; private set; }
         public IReadOnlyList<ExmodPackageContents>? LastQueuedMods { get; private set; }
+        public IReadOnlyList<string>? LastPrebuiltPakFilePaths { get; private set; }
         public RebuildResult Result { get; set; } = new(0, 0, "out.pak", "out.manifest", [], []);
         public Exception? ExceptionToThrow { get; set; }
         public Func<IEnumerable<string>, string, MergeReport, IReadOnlyDictionary<string, JsonObject>>? ReadKeyedBaseTablesHandler { get; set; }
@@ -750,6 +778,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         {
             RebuildCallCount++;
             LastQueuedMods = queuedMods;
+            LastPrebuiltPakFilePaths = prebuiltPakFilePaths;
             if (ExceptionToThrow is not null)
             {
                 throw ExceptionToThrow;

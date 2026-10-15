@@ -296,30 +296,33 @@ public sealed class LibraryViewModelTests
     }
 
     /// <summary>
-    /// One Nexus download that landed as several Library rows (WirelessPower's icon and model
-    /// paks share Nexus mod ID 361) is deleted whole, with one confirmation that names every part —
-    /// half a bundle is a broken bundle, and nothing else tells the user the rows belong together.
+    /// One Nexus download that landed as a Library mod (its paks) PLUS a Lua mod on the UE4SS tab
+    /// (WirelessPower; both carry Nexus mod ID 361) is deleted whole, with one confirmation that
+    /// names both halves — half a mod is a broken mod, and the UE4SS tab's own Delete routes here too.
     /// </summary>
     [Fact]
-    public void DeleteItemCommand_OnOnePartOfANexusBundle_DeletesEveryPartAndNamesThemInTheConfirmation()
+    public void DeleteItemCommand_OnAModWithALuaHalf_DeletesBothHalvesAndNamesThemInTheConfirmation()
     {
         var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
-        harness.AddMod("ZZ_WirelessPower_Icon_P", name: "Wireless Power — Icon", source: "Nexus", nexusModId: 361, isOpaquePak: true);
-        harness.AddMod("ZZ_WirelessPower_Model_P", name: "Wireless Power — Model", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
         harness.AddMod("Unrelated", source: "Nexus", nexusModId: 999);
+        harness.Ue4ssModRepository.Staged.Add("WirelessPower");
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
         var vm = harness.Build();
-        var icon = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ZZ_WirelessPower_Icon_P");
-        Assert.Equal("Part of 'Wireless Power' (2 parts)", icon.PackageLabel);
+        var mod = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
+        Assert.Equal("includes a Lua mod on the UE4SS tab", mod.PackageLabel);
         Assert.Null(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Unrelated").PackageLabel);
 
-        vm.DeleteItemCommand.Execute(icon);
+        vm.DeleteItemCommand.Execute(mod);
 
         var question = Assert.Single(harness.DialogService.ConfirmMessages);
         Assert.Contains("Delete 'Wireless Power' and all 2 of its parts?", question);
-        Assert.Contains("Wireless Power — Icon", question);
-        Assert.Contains("Wireless Power — Model", question);
-        Assert.Equal(["ZZ_WirelessPower_Icon_P", "ZZ_WirelessPower_Model_P"], harness.Repository.DeleteCalls.OrderBy(n => n).ToList());
+        Assert.Contains("Wireless Power (Library)", question);
+        Assert.Contains("WirelessPower (UE4SS mod)", question);
+        Assert.Equal(["WirelessPower"], harness.Repository.DeleteCalls);
+        Assert.Equal(["WirelessPower"], harness.Ue4ssModRepository.DeleteCalls);
         Assert.Equal(1, vm.ModCount);
+        Assert.Contains("Deleted 'Wireless Power' (2 parts)", vm.StatusMessage);
         Assert.Contains("Run Merge & Install", vm.StatusMessage);
     }
 
@@ -1226,6 +1229,8 @@ public sealed class LibraryViewModelTests
             return entry;
         }
 
+        public LibraryEntry ImportPaks(IReadOnlyList<string> pakFilePaths, string name, string? source = null, int? nexusModId = null, string? catalogEntryId = null) => throw new NotSupportedException("Not exercised by these tests.");
+
         public LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null, string? mergedPackProfileName = null) =>
             throw new NotSupportedException("Not exercised by these tests — LibraryViewModel goes through IPrebuiltPakImporter, not this directly.");
 
@@ -1427,9 +1432,19 @@ public sealed class LibraryViewModelTests
             return Result;
         }
 
-        public IReadOnlyList<string> GetAll() => [];
+        /// <summary>What GetAll reports as staged — seed it for a test that needs a Lua mod to exist.</summary>
+        public List<string> Staged { get; } = [];
+        public List<string> DeleteCalls { get; } = [];
+
+        public IReadOnlyList<string> GetAll() => [.. Staged];
         public string Import(string zipFilePath, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
-        public void Delete(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
+
+        public void Delete(string folderName)
+        {
+            DeleteCalls.Add(folderName);
+            Staged.RemoveAll(n => string.Equals(n, folderName, StringComparison.OrdinalIgnoreCase));
+        }
+
         public string GetFolderPath(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
         public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) => throw new NotSupportedException("Not exercised by these tests.");
         public string AdoptFromGame(string gameModsFolderPath, string folderName, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
@@ -1445,8 +1460,10 @@ public sealed class LibraryViewModelTests
 
     private sealed class FakeUe4ssModMetaStore : IUe4ssModMetaStore
     {
-        public IReadOnlyList<string> ListFolderNames() => [];
-        public Ue4ssModMeta Load(string folderName) => new();
+        public Dictionary<string, Ue4ssModMeta> Metas { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public IReadOnlyList<string> ListFolderNames() => [.. Metas.Keys];
+        public Ue4ssModMeta Load(string folderName) => Metas.GetValueOrDefault(folderName) ?? new();
         public void Save(string folderName, Ue4ssModMeta meta) { }
         public void Delete(string folderName) { }
     }

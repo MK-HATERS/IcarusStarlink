@@ -1392,15 +1392,17 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // Path.GetFileNameWithoutExtension of its resolved .pak file, not its (possibly Nexus-
             // enriched) display Name — the comparison below is a literal string match against what
             // the real manifest on disk says, so opaque entries need that same derivation here.
-            var currentList = Queue.Select(entry =>
+            // An opaque entry can hold several paks (a bundle) — the manifest lists each one, so
+            // the comparison expands the entry the same way.
+            var currentList = Queue.SelectMany(entry =>
             {
                 if (!entry.IsOpaquePak)
                 {
-                    return entry.Name;
+                    return [entry.Name];
                 }
 
-                var pakPath = Directory.GetFiles(_libraryRepository.GetFolderPath(entry.FolderName), "*.pak").FirstOrDefault();
-                return pakPath is not null ? Path.GetFileNameWithoutExtension(pakPath) : entry.Name;
+                var pakPaths = Directory.GetFiles(_libraryRepository.GetFolderPath(entry.FolderName), "*.pak").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+                return pakPaths.Count > 0 ? pakPaths.Select(Path.GetFileNameWithoutExtension).Select(n => n!) : [entry.Name];
             }).ToList();
             var comparison = InstalledVsListComparer.Compare(installed.ModNames, currentList);
 
@@ -1664,13 +1666,18 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 .Select(GetOrReadPackage)
                 .ToList();
 
-            // Each opaque pak folder holds exactly one .pak file (ImportPak's own write path) — a
-            // folder whose .pak vanished since being queued (Library entry deleted/moved) is
-            // silently skipped rather than failing the whole rebuild.
+            // An opaque pak folder holds one .pak (ImportPak) or several (ImportPaks — one download
+            // that shipped a bundle); every one of them is folded in. A folder whose paks vanished
+            // since being queued (Library entry deleted/moved) is silently skipped rather than
+            // failing the whole rebuild.
             var prebuiltPakFilePaths = prebuiltEntries
-                .Select(entry => Directory.GetFiles(_libraryRepository.GetFolderPath(entry.FolderName), "*.pak").FirstOrDefault())
-                .Where(path => path is not null)
-                .Select(path => path!)
+                .SelectMany(entry =>
+                {
+                    var folder = _libraryRepository.GetFolderPath(entry.FolderName);
+                    return Directory.Exists(folder)
+                        ? Directory.GetFiles(folder, "*.pak").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList()
+                        : new List<string>();
+                })
                 .ToList();
 
             return (packages, prebuiltPakFilePaths);

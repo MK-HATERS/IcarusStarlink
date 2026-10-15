@@ -75,17 +75,23 @@ public sealed class ExtractedModClassifierTests : IDisposable
             "WirelessPower\n\nREQUIREMENTS\n- UE4SS (experimental build): https://x\n- ArcFission Library 1.2.0 or newer (separate download)\n\nINSTALL\n1. etc");
         var ue4ssModRepository = new FakeUe4ssModRepository { Result = "WirelessPower" };
         var prebuiltPakImporter = new FakePrebuiltPakImporter();
+        var library = new FakeLibraryRepository();
 
         var result = await ExtractedModClassifier.ClassifyAndImport(
-            _extractedDir, "WirelessPower 1.0.0 361 1 2026-10-12T13-49Z UAfrx4UUt.zip", new FakeLibraryRepository(), ue4ssModRepository, prebuiltPakImporter, "SomeDataFolder", null);
+            _extractedDir, "WirelessPower 1.0.0 361 1 2026-10-12T13-49Z UAfrx4UUt.zip", library, ue4ssModRepository, prebuiltPakImporter, "SomeDataFolder", null);
 
+        // One download = one mod: the Lua half is staged under its own name, and BOTH paks land in
+        // ONE Library entry named after it — never a row per pak.
         Assert.Equal(PendingDownloadActivationKind.Ue4ssMod, result.Kind);
-        Assert.Equal(3, result.Items.Count);
+        Assert.Equal(2, result.Items.Count);
         Assert.Equal(1, ue4ssModRepository.ImportFromFolderCallCount);
         Assert.EndsWith("WirelessPower", ue4ssModRepository.LastSourceFolder);
         Assert.Equal("WirelessPower", ue4ssModRepository.LastFallbackName);
-        Assert.Equal(2, prebuiltPakImporter.ImportCallCount);
-        Assert.Equal(2, result.Items.Count(i => i.Kind == PendingDownloadActivationKind.Library));
+        Assert.Equal(0, prebuiltPakImporter.ImportCallCount);
+        var pakSet = Assert.Single(library.ImportPaksCalls);
+        Assert.Equal("WirelessPower", pakSet.Name);
+        Assert.Equal(["ZZ_WirelessPower_Icon_P.pak", "ZZ_WirelessPower_Model_P.pak"], pakSet.PakFilePaths.Select(Path.GetFileName).ToList());
+        Assert.Equal(1, result.Items.Count(i => i.Kind == PendingDownloadActivationKind.Library));
         Assert.Equal(2, result.Requirements.Count);
         Assert.Contains(result.Requirements, r => r.StartsWith("ArcFission Library"));
     }
@@ -249,18 +255,24 @@ public sealed class ExtractedModClassifierTests : IDisposable
         Assert.False(isOpaquePak);
     }
 
+    /// <summary>One download = one mod: two loose paks become ONE opaque entry named after the download (this used to be refused as "ambiguous", which left a real user stuck).</summary>
     [Fact]
-    public async Task ClassifyAndImport_MultiplePaksNoExmod_ThrowsInsteadOfGuessingWhichOneToImport()
+    public async Task ClassifyAndImport_MultiplePaksNoExmod_LandsAsOneLibraryModHoldingBothPaks()
     {
         File.WriteAllBytes(Path.Combine(_extractedDir, "First.pak"), [1]);
         File.WriteAllBytes(Path.Combine(_extractedDir, "Second.pak"), [2]);
         var prebuiltPakImporter = new FakePrebuiltPakImporter();
+        var library = new FakeLibraryRepository();
 
-        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
-            _extractedDir, "Ambiguous.zip", new FakeLibraryRepository(), new FakeUe4ssModRepository(), prebuiltPakImporter, "SomeDataFolder", null));
+        var result = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Cool Mod 1.2 412 7 2026-10-12T13-49Z abc.zip", library, new FakeUe4ssModRepository(), prebuiltPakImporter, "SomeDataFolder", null);
 
-        Assert.Contains("2", ex.Message);
+        var call = Assert.Single(library.ImportPaksCalls);
+        Assert.Equal("Cool Mod 1.2", call.Name);
+        Assert.Equal(["First.pak", "Second.pak"], call.PakFilePaths.Select(Path.GetFileName).ToList());
         Assert.Equal(0, prebuiltPakImporter.ImportCallCount);
+        Assert.Single(result.Items);
+        Assert.Equal(PendingDownloadActivationKind.Library, result.Kind);
     }
 
     [Fact]
@@ -517,6 +529,12 @@ public sealed class ExtractedModClassifierTests : IDisposable
         public IReadOnlyList<LibraryEntry> GetAll() => throw new NotSupportedException("Not exercised by these tests.");
         public IReadOnlyList<string> UnreadableFolders => [];
         public IReadOnlyList<LibraryEntry> Search(string query) => throw new NotSupportedException("Not exercised by these tests.");
+        public List<(IReadOnlyList<string> PakFilePaths, string Name, string? Source, int? NexusModId)> ImportPaksCalls { get; } = [];
+        public LibraryEntry ImportPaks(IReadOnlyList<string> pakFilePaths, string name, string? source = null, int? nexusModId = null, string? catalogEntryId = null)
+        {
+            ImportPaksCalls.Add((pakFilePaths, name, source, nexusModId));
+            return new LibraryEntry { FolderName = name, Name = name, Author = "Unknown", Version = "", Description = "", FileName = name, IsOpaquePak = true, PakFileNames = [.. pakFilePaths.Select(Path.GetFileName)!] };
+        }
         public LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null, string? mergedPackProfileName = null) =>
             throw new NotSupportedException("Not exercised by these tests — ExtractedModClassifier goes through IPrebuiltPakImporter, not this directly.");
         public void SetNexusMetadata(string folderName, string? name, string? author, string? description, string? version) =>
