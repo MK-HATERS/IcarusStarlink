@@ -1543,6 +1543,7 @@ public sealed class LibraryViewModelTests
         public void Add(PendingDownloadEntry entry) => EntriesList.Add(entry);
         public void Remove(int modId, int fileId) => EntriesList.RemoveAll(e => e.ModId == modId && e.FileId == fileId);
         public void SetActivation(int modId, int fileId, string? folderName, PendingDownloadActivationKind? kind) { }
+        public void SetActivation(int modId, int fileId, IReadOnlyList<PendingDownloadActivatedItem> items, IReadOnlyList<string> requirements) { }
     }
 
     private sealed class FakeModVersionComparer : IModVersionComparer

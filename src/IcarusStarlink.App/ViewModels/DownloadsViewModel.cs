@@ -787,7 +787,11 @@ public sealed partial class DownloadsViewModel : ObservableObject
             // failing that, the download URL's own path) — neither is trustworthy: a rooted or
             // "../"-laden value would otherwise let Path.Combine below write anywhere the app
             // process can write.
-            fileName = DownloadFileNameSanitizer.Sanitize(fileName);
+            // Nexus's "<name> <modId> <fileId> <timestamp> <hash>" tail dropped from the saved name
+            // (a real complaint: it rode into staged mod names). The (ModId, FileId) pair below is
+            // what keeps same-named files apart, not the hash.
+            fileName = DownloadFileNameSanitizer.Sanitize(
+                NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(fileName)) + Path.GetExtension(fileName));
 
             Directory.CreateDirectory(_pendingDownloadsDirectory);
             // See DownloadFileNameSanitizer.ResolveUniqueFileName's own doc comment: disambiguates
@@ -889,19 +893,30 @@ public sealed partial class DownloadsViewModel : ObservableObject
         string? tempExtractDirectory = null;
         try
         {
-            if (item.IsInstalled && item.ActivatedFolderName is { } existingFolderName)
+            // The UE4SS folder names this download owned before this Reinstall — they may still be
+            // INSTALLED in the game's Mods folder (an audit of a real report: the first activation
+            // had been applied into the game, so re-staging saw the name "in use" and landed as a
+            // "_2" copy, doubling the mod in the UE4SS tab). Re-staging under the same name is the
+            // whole point of a reinstall; the UE4SS tab's Apply then updates the game copy.
+            var ownUe4ssNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (item.IsInstalled)
             {
-                if (item.ActivatedKind == PendingDownloadActivationKind.Library)
+                foreach (var activated in item.ActivatedItems)
                 {
-                    _libraryRepository.Delete(existingFolderName);
-                }
-                else if (item.ActivatedKind == PendingDownloadActivationKind.Ue4ssMod)
-                {
-                    _ue4ssModRepository.Delete(existingFolderName);
-                    // Without this, a Reinstall's own Nexus-link sidecar (Ue4ss_Meta/{folder}.json)
-                    // is orphaned on disk — never cleaned up, and a stale link if a different,
-                    // unrelated mod later happens to land under the same folder name.
-                    _ue4ssModMetaStore.Delete(existingFolderName);
+                    if (activated.Kind == PendingDownloadActivationKind.Library)
+                    {
+                        _libraryRepository.Delete(activated.FolderName);
+                    }
+                    else if (activated.Kind == PendingDownloadActivationKind.Ue4ssMod)
+                    {
+                        ownUe4ssNames.Add(activated.FolderName);
+                        _ue4ssModRepository.Delete(activated.FolderName);
+                        // Without this, a Reinstall's own Nexus-link sidecar (Ue4ss_Meta/{folder}.json)
+                        // is orphaned on disk — never cleaned up, and a stale link if a different,
+                        // unrelated mod later happens to land under the same folder name.
+                        _ue4ssModMetaStore.Delete(activated.FolderName);
+                    }
                 }
             }
             else
@@ -916,24 +931,24 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 // untouched — from the user's own perspective, clicking "Update" on their existing
                 // mod silently did nothing to it at all (a real bug found live: "I download the
                 // update but it's not updating the mod I clicked update on").
-                var existingLibraryEntry = _libraryRepository.GetAll().FirstOrDefault(e => e.NexusModId == item.ModId);
-                if (existingLibraryEntry is not null)
+                // EVERY entry linked to this Nexus mod, not just the first — a bundle lands as several.
+                foreach (var existingLibraryEntry in _libraryRepository.GetAll().Where(e => e.NexusModId == item.ModId).ToList())
                 {
                     _libraryRepository.Delete(existingLibraryEntry.FolderName);
                 }
 
-                var existingUe4ssFolderName = _ue4ssModRepository.GetAll()
-                    .FirstOrDefault(folderName => _ue4ssModMetaStore.Load(folderName).NexusModId == item.ModId);
-                if (existingUe4ssFolderName is not null)
+                foreach (var existingUe4ssFolderName in _ue4ssModRepository.GetAll()
+                    .Where(folderName => _ue4ssModMetaStore.Load(folderName).NexusModId == item.ModId).ToList())
                 {
+                    ownUe4ssNames.Add(existingUe4ssFolderName);
                     _ue4ssModRepository.Delete(existingUe4ssFolderName);
                     _ue4ssModMetaStore.Delete(existingUe4ssFolderName);
                 }
             }
 
             string statusMessage;
-            string activatedFolderName;
-            PendingDownloadActivationKind activatedKind;
+            IReadOnlyList<PendingDownloadActivatedItem> activatedItems;
+            IReadOnlyList<string> requirements = [];
 
             // Resolved at use (an audit finding): the stored path is absolute, so moving the app
             // folder — the "unzip anywhere" portable install — broke every pending entry; the file
@@ -955,8 +970,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
                 WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
                 statusMessage = $"Imported '{entry.Name}' into your Library.";
-                activatedFolderName = entry.FolderName;
-                activatedKind = PendingDownloadActivationKind.Library;
+                activatedItems = [new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library)];
                 _activityLog.Log($"Activated pending download '{entry.Name}'.", ActivityEntryKind.Success);
             }
             else
@@ -968,13 +982,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 // extracted first and classified from its actual content.
                 tempExtractDirectory = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Activate_{Guid.NewGuid():N}");
                 AnyArchiveExtractor.ExtractToDirectory(localFilePath, tempExtractDirectory);
-                (statusMessage, activatedFolderName, activatedKind) =
-                    await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, item.ModId);
+                (statusMessage, activatedItems, requirements) =
+                    await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, item.ModId, ownUe4ssNames);
             }
 
-            _pendingDownloadStore.SetActivation(item.ModId, item.FileId, activatedFolderName, activatedKind);
-            item.ActivatedFolderName = activatedFolderName;
-            item.ActivatedKind = activatedKind;
+            _pendingDownloadStore.SetActivation(item.ModId, item.FileId, activatedItems, requirements);
+            item.SetActivated(activatedItems, requirements);
             PendingDownloadStatusMessage = statusMessage;
         }
         catch (Exception ex)
@@ -1011,43 +1024,98 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// and every kind fires the same reload/activity-log side effects a manual import doesn't need
     /// (Library's UE4SS tab has its own reload path, never wired to this pipeline before this).
     /// </summary>
-    private async Task<(string StatusMessage, string FolderName, PendingDownloadActivationKind Kind)> ClassifyAndImportExtractedModAsync(
-        string extractedDirectory, string originalFileName, int modId)
+    private async Task<(string StatusMessage, IReadOnlyList<PendingDownloadActivatedItem> Items, IReadOnlyList<string> Requirements)> ClassifyAndImportExtractedModAsync(
+        string extractedDirectory, string originalFileName, int modId, IReadOnlySet<string>? ownUe4ssNamesToReuse = null)
     {
         // Only meaningful if the game path is actually configured — with nothing to check against,
-        // this degrades to the same "no collision avoidance" behavior importing already had.
+        // this degrades to the same "no collision avoidance" behavior importing already had. This
+        // download's OWN previously-staged names are allowed back (a reinstall must land under the
+        // same name even while the game folder still holds the earlier copy).
         var icarusContentPath = _settingsService.Current.IcarusContentPath;
         var installedUe4ssNames = !string.IsNullOrWhiteSpace(icarusContentPath)
             ? _ue4ssModRepository.ListInstalledInGame(Ue4ssGamePaths.ResolveModsFolder(icarusContentPath))
+                .Where(name => ownUe4ssNamesToReuse is null || !ownUe4ssNamesToReuse.Contains(name))
+                .ToList()
             : null;
 
-        var (entryName, folderName, kind, _) = await ExtractedModClassifier.ClassifyAndImport(
+        var classified = await ExtractedModClassifier.ClassifyAndImport(
             extractedDirectory, originalFileName, _libraryRepository, _ue4ssModRepository,
             _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, source: "Nexus", nexusModId: modId,
             ue4ssNamesAlreadyInstalledInGame: installedUe4ssNames);
 
-        string statusMessage;
-        if (kind == PendingDownloadActivationKind.Library)
+        var landed = new List<string>();
+        foreach (var produced in classified.Items)
         {
-            // For EVERY Library kind, not just an opaque/converted pak (the original gating — a real
-            // bug found live): an ordinary EXMODZ keeps its author-declared Name/Author (the
-            // repository guards those), but still needs the Nexus VERSION recorded, or the update
-            // check compares the author's own "1.0" against Nexus's "1" and shows "Update
-            // available" forever right after activating. See UpdateVersionComparer.
-            await RecordNexusMetadataAsync(folderName, modId);
+            if (produced.Kind == PendingDownloadActivationKind.Library)
+            {
+                // For EVERY Library kind, not just an opaque/converted pak (the original gating — a real
+                // bug found live): an ordinary EXMODZ keeps its author-declared Name/Author (the
+                // repository guards those), but still needs the Nexus VERSION recorded, or the update
+                // check compares the author's own "1.0" against Nexus's "1" and shows "Update
+                // available" forever right after activating. See UpdateVersionComparer.
+                await RecordNexusMetadataAsync(produced.FolderName, modId);
+                var entryName = _libraryRepository.GetAll().FirstOrDefault(e => e.FolderName == produced.FolderName)?.Name ?? produced.FolderName;
+                landed.Add($"'{entryName}' (Library)");
+                _activityLog.Log($"Activated pending download '{entryName}'.", ActivityEntryKind.Success);
+            }
+            else
+            {
+                await EnrichUe4ssModFromNexusAsync(produced.FolderName, modId);
+                landed.Add($"'{produced.FolderName}' (UE4SS mod — enable it on the UE4SS tab, then Apply)");
+                _activityLog.Log($"Activated pending download '{produced.FolderName}' as a UE4SS mod.", ActivityEntryKind.Success);
+            }
+        }
 
-            statusMessage = $"Imported '{entryName}' into your Library.";
-            _activityLog.Log($"Activated pending download '{entryName}'.", ActivityEntryKind.Success);
-        }
-        else
-        {
-            await EnrichUe4ssModFromNexusAsync(folderName, modId);
-            statusMessage = $"Staged '{folderName}' as a UE4SS mod — enable it from Library's UE4SS tab, then click Apply.";
-            _activityLog.Log($"Activated pending download '{folderName}' as a UE4SS mod.", ActivityEntryKind.Success);
-        }
+        var statusMessage = landed.Count == 1
+            ? $"Activated {landed[0]}."
+            : $"Activated {landed.Count} parts: {string.Join(", ", landed)}.";
+        statusMessage += DescribeRequirements(classified.Requirements);
 
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-        return (statusMessage, folderName, kind);
+        return (statusMessage, classified.Items, classified.Requirements);
+    }
+
+    /// <summary>
+    /// " Needs: ArcFission Library 1.2.0 or newer — not installed (search Nexus for it); UE4SS — loader."
+    /// A best-effort match of each README requirement against what's staged/installed (see
+    /// ModReadmeRequirements) — the user's actual complaint was not being told which OTHER
+    /// download a mod depended on. Logged as a warning too, so it survives leaving the page.
+    /// </summary>
+    private string DescribeRequirements(IReadOnlyList<string> requirements)
+    {
+        if (requirements.Count == 0)
+        {
+            return "";
+        }
+
+        var installedNames = _ue4ssModRepository.GetAll().Concat(_libraryRepository.GetAll().Select(e => e.Name)).ToList();
+        var parts = new List<string>();
+        var missing = new List<string>();
+        foreach (var requirement in requirements)
+        {
+            if (ModReadmeRequirements.IsLoaderRequirement(requirement))
+            {
+                parts.Add($"{requirement} (the UE4SS loader — Settings → UE4SS)");
+            }
+            else if (ModReadmeRequirements.IsSatisfiedBy(requirement, installedNames))
+            {
+                parts.Add($"{requirement} ✓");
+            }
+            else
+            {
+                parts.Add($"{requirement} — NOT installed");
+                missing.Add(ModReadmeRequirements.ExtractName(requirement));
+            }
+        }
+
+        if (missing.Count > 0)
+        {
+            _activityLog.Log(
+                $"This mod needs other downloads you don't have yet: {string.Join(", ", missing)} — find them on the Nexus tab.",
+                ActivityEntryKind.Warning);
+        }
+
+        return $" Needs: {string.Join("; ", parts)}.";
     }
 
     /// <summary>

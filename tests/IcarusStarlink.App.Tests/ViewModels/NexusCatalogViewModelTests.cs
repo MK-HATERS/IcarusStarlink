@@ -225,6 +225,8 @@ public class NexusCatalogViewModelTests
         public void Remove(int modId, int fileId) => throw new NotSupportedException("Not exercised by these tests.");
         public void SetActivation(int modId, int fileId, string? folderName, PendingDownloadActivationKind? kind) =>
             throw new NotSupportedException("Not exercised by these tests.");
+        public void SetActivation(int modId, int fileId, IReadOnlyList<PendingDownloadActivatedItem> items, IReadOnlyList<string> requirements) =>
+            throw new NotSupportedException("Not exercised by these tests.");
     }
 
     private sealed class FakeNexusWatchlistStore : INexusWatchlistStore

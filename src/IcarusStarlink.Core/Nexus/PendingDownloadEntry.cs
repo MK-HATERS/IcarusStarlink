@@ -29,4 +29,16 @@ public sealed class PendingDownloadEntry
 
     /// <summary>Set together with ActivatedFolderName; null exactly when ActivatedFolderName is null.</summary>
     public PendingDownloadActivationKind? ActivatedKind { get; set; }
+
+    /// <summary>Everything this activation produced (see PendingDownloadActivatedItem) — ActivatedFolderName/Kind above stay as the "primary" item for older records and simple consumers.</summary>
+    public List<PendingDownloadActivatedItem> ActivatedItems { get; set; } = [];
+
+    /// <summary>Requirement lines parsed from the download's own README at activation (see ModReadmeRequirements); empty when it has none.</summary>
+    public List<string> Requirements { get; set; } = [];
+
+    /// <summary>The activated items, falling back to the single legacy pair for records written before ActivatedItems existed.</summary>
+    public IReadOnlyList<PendingDownloadActivatedItem> AllActivatedItems =>
+        ActivatedItems.Count > 0
+            ? ActivatedItems
+            : ActivatedFolderName is not null && ActivatedKind is { } kind ? [new PendingDownloadActivatedItem(ActivatedFolderName, kind)] : [];
 }

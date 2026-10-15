@@ -54,6 +54,57 @@ public sealed class ExtractedModClassifierTests : IDisposable
             """),
         []);
 
+    /// <summary>
+    /// The real shape two live Nexus downloads had (ArcFissionLibrary, WirelessPower): the zip
+    /// mirrors the game folder. The UE4SS mod must be staged under ITS OWN folder name (not the
+    /// download's file name), BOTH paks under Content\Paks must be imported (they belong
+    /// together — the old "2 .pak files — ambiguous" refusal was wrong here), and the README's
+    /// REQUIREMENTS section must come back so the user is told what else to download.
+    /// </summary>
+    [Fact]
+    public async Task ClassifyAndImport_GameFolderLayoutBundle_StagesTheUe4ssModByNameAndImportsEveryPak()
+    {
+        var scripts = Path.Combine(_extractedDir, "Icarus", "Binaries", "Win64", "ue4ss", "Mods", "WirelessPower", "Scripts");
+        Directory.CreateDirectory(scripts);
+        File.WriteAllText(Path.Combine(scripts, "main.lua"), "print('hi')");
+        var paks = Path.Combine(_extractedDir, "Icarus", "Content", "Paks", "mods");
+        Directory.CreateDirectory(paks);
+        File.WriteAllBytes(Path.Combine(paks, "ZZ_WirelessPower_Icon_P.pak"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(paks, "ZZ_WirelessPower_Model_P.pak"), [4, 5, 6]);
+        File.WriteAllText(Path.Combine(_extractedDir, "README_WirelessPower.txt"),
+            "WirelessPower\n\nREQUIREMENTS\n- UE4SS (experimental build): https://x\n- ArcFission Library 1.2.0 or newer (separate download)\n\nINSTALL\n1. etc");
+        var ue4ssModRepository = new FakeUe4ssModRepository { Result = "WirelessPower" };
+        var prebuiltPakImporter = new FakePrebuiltPakImporter();
+
+        var result = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "WirelessPower 1.0.0 361 1 2026-10-12T13-49Z UAfrx4UUt.zip", new FakeLibraryRepository(), ue4ssModRepository, prebuiltPakImporter, "SomeDataFolder", null);
+
+        Assert.Equal(PendingDownloadActivationKind.Ue4ssMod, result.Kind);
+        Assert.Equal(3, result.Items.Count);
+        Assert.Equal(1, ue4ssModRepository.ImportFromFolderCallCount);
+        Assert.EndsWith("WirelessPower", ue4ssModRepository.LastSourceFolder);
+        Assert.Equal("WirelessPower", ue4ssModRepository.LastFallbackName);
+        Assert.Equal(2, prebuiltPakImporter.ImportCallCount);
+        Assert.Equal(2, result.Items.Count(i => i.Kind == PendingDownloadActivationKind.Library));
+        Assert.Equal(2, result.Requirements.Count);
+        Assert.Contains(result.Requirements, r => r.StartsWith("ArcFission Library"));
+    }
+
+    /// <summary>A plain UE4SS zip (scripts at the root) still falls back to the file name — minus Nexus's id/timestamp/hash tail, which used to become the mod's name.</summary>
+    [Fact]
+    public async Task ClassifyAndImport_PlainUe4ssFolder_FallbackNameDropsTheNexusSuffix()
+    {
+        Directory.CreateDirectory(Path.Combine(_extractedDir, "Scripts"));
+        File.WriteAllText(Path.Combine(_extractedDir, "Scripts", "main.lua"), "print('hi')");
+        var ue4ssModRepository = new FakeUe4ssModRepository();
+
+        var (_, _, kind, _) = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "ArcFissionLibrary V1.2.2 356 3 2026-10-12T13-50Z b0gYfPbb2.zip", new FakeLibraryRepository(), ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null);
+
+        Assert.Equal(PendingDownloadActivationKind.Ue4ssMod, kind);
+        Assert.Equal("ArcFissionLibrary V1.2.2", ue4ssModRepository.LastFallbackName);
+    }
+
     [Fact]
     public async Task ClassifyAndImport_FolderContainsAnExmodFile_ImportsThroughLibraryRepositoryAsAnExmodMod()
     {

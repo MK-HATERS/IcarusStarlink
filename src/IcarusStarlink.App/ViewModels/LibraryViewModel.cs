@@ -1050,8 +1050,10 @@ public sealed partial class LibraryViewModel : ObservableObject
             // "unclaimed" and worth pointing the user at instead of Nexus.
             var hasUnclaimedDownload = item.NexusModId is { } nexusModId && _pendingDownloadStore.Entries
                 .Where(e => e.ModId == nexusModId)
-                .Any(e => e.ActivatedFolderName is null
-                    || !_repository.GetAll().Any(le => string.Equals(le.FolderName, e.ActivatedFolderName, StringComparison.OrdinalIgnoreCase)));
+                .Any(e => e.AllActivatedItems.Count == 0
+                    || e.AllActivatedItems.Any(activated => activated.Kind == PendingDownloadActivationKind.Library
+                        ? !_repository.GetAll().Any(le => string.Equals(le.FolderName, activated.FolderName, StringComparison.OrdinalIgnoreCase))
+                        : !_ue4ssModRepository.GetAll().Any(f => string.Equals(f, activated.FolderName, StringComparison.OrdinalIgnoreCase))));
             if (hasUnclaimedDownload)
             {
                 StatusMessage = "A downloaded file for this mod is already in this page's own Mods tab — Activate/Reinstall it there (or re-download from Nexus if it's older than the update).";

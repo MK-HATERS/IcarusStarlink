@@ -146,6 +146,21 @@ public class Ue4ssModRepositoryTests : IDisposable
         Assert.True(File.Exists(Path.Combine(repo.GetFolderPath("NearbyCrafting"), "Scripts", "main.lua")));
     }
 
+    /// <summary>A mod folder whose only entry is its own Scripts\ subfolder IS the mod — stripping Scripts as a "wrapper" named the mod "Scripts" (a real classifier-path case).</summary>
+    [Fact]
+    public void ImportFromFolder_OnlyAScriptsSubfolder_IsNotTreatedAsAWrappingFolder()
+    {
+        var extracted = Path.Combine(_dir, "Extracted2");
+        Directory.CreateDirectory(Path.Combine(extracted, "Scripts"));
+        File.WriteAllText(Path.Combine(extracted, "Scripts", "main.lua"), "-- lua");
+
+        var repo = CreateRepository();
+        var folderName = repo.ImportFromFolder(extracted, "WirelessPower");
+
+        Assert.Equal("WirelessPower", folderName);
+        Assert.True(File.Exists(Path.Combine(repo.GetFolderPath("WirelessPower"), "Scripts", "main.lua")));
+    }
+
     [Fact]
     public void ImportFromFolder_LooseFilesAtRoot_UsesFallbackNameSinceThereIsNoWrappingFolder()
     {

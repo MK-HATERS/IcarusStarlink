@@ -8,39 +8,50 @@ using IcarusStarlink.PakIO.Import;
 namespace IcarusStarlink.App.Services;
 
 /// <summary>
+/// What ClassifyAndImport produced. A single download can land as SEVERAL things (see
+/// PendingDownloadActivatedItem) — Items lists every one of them, EntryName/FolderName/Kind describe
+/// the primary one for simple consumers, and the four-way Deconstruct keeps the original callers'
+/// `var (name, folder, kind, isOpaquePak) = …` shape working.
+/// </summary>
+public sealed record ClassifiedImport(
+    string EntryName,
+    string FolderName,
+    PendingDownloadActivationKind Kind,
+    bool IsOpaquePak,
+    IReadOnlyList<PendingDownloadActivatedItem> Items,
+    IReadOnlyList<string> Requirements)
+{
+    public void Deconstruct(out string entryName, out string folderName, out PendingDownloadActivationKind kind, out bool isOpaquePak)
+    {
+        entryName = EntryName;
+        folderName = FolderName;
+        kind = Kind;
+        isOpaquePak = IsOpaquePak;
+    }
+}
+
+/// <summary>
 /// Figures out what an already-extracted archive actually is and imports it the right way: an
 /// EXMOD-shaped mod (ExmodFolder.Read searches the whole tree for a .EXMOD file, wherever it's
-/// nested), a prebuilt .pak with no EXMOD wrapper, or — the catch-all, since a UE4SS mod carries no
-/// metadata file of its own to detect it by — a UE4SS mod folder. Extracted from
-/// DownloadsViewModel.ClassifyAndImportExtractedModAsync (that method's own original home, still its
-/// caller for a Nexus-sourced download) so LibraryViewModel's own manual "Import archive…" can reuse
-/// the identical detection instead of a second copy — a mod author might ship a zip, rar, or 7z
-/// through either path, and neither the file extension nor a dialog's own filter choice can tell
-/// what's actually inside ahead of time.
+/// nested), a prebuilt .pak with no EXMOD wrapper, a "game-folder layout" bundle (the zip mirrors
+/// the Icarus install: Icarus\Binaries\Win64\ue4ss\Mods\&lt;Mod&gt;\ plus Icarus\Content\Paks\mods\*.pak
+/// — the shape real Nexus UE4SS mods ship in, confirmed live against ArcFissionLibrary and
+/// WirelessPower), or — the catch-all, since a UE4SS mod carries no metadata file of its own to
+/// detect it by — a UE4SS mod folder. Extracted from DownloadsViewModel.ClassifyAndImportExtractedModAsync
+/// (that method's own original home, still its caller for a Nexus-sourced download) so
+/// LibraryViewModel's own manual "Import archive…" can reuse the identical detection instead of a
+/// second copy — a mod author might ship a zip, rar, or 7z through either path, and neither the
+/// file extension nor a dialog's own filter choice can tell what's actually inside ahead of time.
+/// Also reads any README it finds for a REQUIREMENTS section (ModReadmeRequirements), so the
+/// caller can tell the user which OTHER downloads the mod needs.
 /// </summary>
 public static class ExtractedModClassifier
 {
-    /// <summary>
-    /// A real Nexus upload confirmed live wraps a single .EXMODZ inside a .zip (the author zipped
-    /// their mod file for upload) — one genuine layer of nesting. Three allows for an author who
-    /// double-wraps, while still bounding the recursion against a hostile archive-in-archive chain
-    /// that would otherwise extract forever (ExmodSizeBudget bounds each layer's size, not the depth).
-    /// </summary>
     private const int MaxNestedArchiveDepth = 3;
 
     private static readonly string[] NestedArchiveExtensions = [".exmodz", ".zip", ".rar", ".7z"];
 
-    /// <summary>
-    /// source/nexusModId tag the resulting Library entry when known (a Nexus-sourced download); a
-    /// plain manual import passes null for both. IsOpaquePak distinguishes the two ways Kind can be
-    /// Library — a real EXMOD-shaped mod (false, already carries its own real name/author) vs. a
-    /// bare .pak that stayed opaque because IPrebuiltPakImporter couldn't convert it (true) — since
-    /// only the latter is worth a caller enriching with a Nexus mod-info lookup; overwriting an
-    /// EXMOD's own declared name with Nexus's title would be a real, unwanted behavior change for
-    /// the common case. Async because a single .pak now goes through IPrebuiltPakImporter, which
-    /// genuinely extracts and diffs it before deciding.
-    /// </summary>
-    public static Task<(string EntryName, string FolderName, PendingDownloadActivationKind Kind, bool IsOpaquePak)> ClassifyAndImport(
+    public static Task<ClassifiedImport> ClassifyAndImport(
         string extractedDirectory, string originalFileName,
         ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
@@ -49,7 +60,7 @@ public static class ExtractedModClassifier
             extractedDirectory, originalFileName, libraryRepository, ue4ssModRepository, prebuiltPakImporter,
             dataFolder, unrealPakExePath, source, nexusModId, ue4ssNamesAlreadyInstalledInGame, nestedDepth: 0);
 
-    private static async Task<(string EntryName, string FolderName, PendingDownloadActivationKind Kind, bool IsOpaquePak)> ClassifyAndImportCore(
+    private static async Task<ClassifiedImport> ClassifyAndImportCore(
         string extractedDirectory, string originalFileName,
         ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
@@ -59,6 +70,7 @@ public static class ExtractedModClassifier
         // the filesystem's own case sensitivity, same reasoning ExmodFolder.FindExmodFile's own
         // comment already gives for why it does the same thing.
         var allFiles = Directory.GetFiles(extractedDirectory, "*", SearchOption.AllDirectories);
+        var requirements = ReadRequirements(allFiles);
         var hasExmod = allFiles.Any(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase));
 
         if (hasExmod)
@@ -68,19 +80,54 @@ public static class ExtractedModClassifier
             // EXMOD-shaped content, so a failure here is a real problem, not a signal to try a
             // different format.
             var entry = libraryRepository.Import(extractedDirectory, source: source, nexusModId: nexusModId);
-            return (entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, IsOpaquePak: false);
+            return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, isOpaquePak: false, requirements);
         }
 
         var pakFiles = allFiles.Where(f => f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)).ToArray();
+
+        // The game-folder layout (a real shape found live, see the class doc): every UE4SS mod
+        // folder under a "…\ue4ss\Mods\" directory is staged under ITS OWN name (not the download's
+        // file name), and every pak that sits under a "…\Paks\…" directory is imported — all of
+        // them, since a bundle that ships two paks (an icon pak and a model pak) needs both, which
+        // is a different situation from two loose paks of unknown relationship (still refused as
+        // ambiguous below).
+        var ue4ssModFolders = FindGameLayoutUe4ssModFolders(extractedDirectory);
+        var layoutPaks = pakFiles.Where(IsUnderPaksFolder).ToArray();
+        if (ue4ssModFolders.Count > 0 || layoutPaks.Length > 1)
+        {
+            var items = new List<PendingDownloadActivatedItem>();
+            var names = new List<string>();
+            var anyOpaque = false;
+            foreach (var modFolder in ue4ssModFolders)
+            {
+                var folderName = ue4ssModRepository.ImportFromFolder(modFolder, Path.GetFileName(modFolder), ue4ssNamesAlreadyInstalledInGame);
+                items.Add(new PendingDownloadActivatedItem(folderName, PendingDownloadActivationKind.Ue4ssMod));
+                names.Add(folderName);
+            }
+
+            foreach (var pak in layoutPaks.Length > 0 ? layoutPaks : pakFiles)
+            {
+                var entry = await prebuiltPakImporter.ImportAsync(pak, dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId);
+                items.Add(new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library));
+                names.Add(entry.Name);
+                anyOpaque |= entry.IsOpaquePak;
+            }
+
+            var primary = items[0];
+            return new ClassifiedImport(names[0], primary.FolderName, primary.Kind, anyOpaque, items, requirements);
+        }
+
         if (pakFiles.Length == 1)
         {
             var entry = await prebuiltPakImporter.ImportAsync(pakFiles[0], dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId);
-            return (entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, entry.IsOpaquePak);
+            return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, entry.IsOpaquePak, requirements);
         }
 
         if (pakFiles.Length > 1)
         {
-            throw new FormatException($"Contains {pakFiles.Length} .pak files — ambiguous which one to import.");
+            throw new FormatException(
+                $"Contains {pakFiles.Length} .pak files with no game-folder layout to say they belong together — ambiguous which one to import. "
+                + "Extract it yourself and import the one you want (or both, one at a time).");
         }
 
         // A real bug found live (a user's own Nexus bug report, confirmed by inspecting the actual
@@ -108,10 +155,11 @@ public static class ExtractedModClassifier
             // keeps the now-redundant outer .EXMODZ/.zip file out of what Import copies.
             var nestedDirectory = Path.Combine(extractedDirectory, $"__nested{nestedDepth}_{Guid.NewGuid():N}");
             AnyArchiveExtractor.ExtractToDirectory(nestedArchives[0], nestedDirectory);
-            return await ClassifyAndImportCore(
+            var nested = await ClassifyAndImportCore(
                 nestedDirectory, Path.GetFileName(nestedArchives[0]), libraryRepository, ue4ssModRepository,
                 prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, ue4ssNamesAlreadyInstalledInGame,
                 nestedDepth + 1);
+            return nested.Requirements.Count > 0 || requirements.Count == 0 ? nested : nested with { Requirements = requirements };
         }
 
         if (nestedArchives.Length > 1)
@@ -142,9 +190,68 @@ public static class ExtractedModClassifier
 
         // Neither EXMOD-shaped nor a single prebuilt pak, and nothing here looks like orphaned
         // Unreal asset content either — treat as a UE4SS mod, the one kind of mod this app handles
-        // that carries no metadata file of its own to detect it by.
-        var fallbackName = Path.GetFileNameWithoutExtension(originalFileName);
-        var folderName = ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName, ue4ssNamesAlreadyInstalledInGame);
-        return (folderName, folderName, PendingDownloadActivationKind.Ue4ssMod, IsOpaquePak: false);
+        // that carries no metadata file of its own to detect it by. Named after the upload, not
+        // the full Nexus file name with its id/timestamp/hash tail (a real complaint).
+        var fallbackName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName));
+        var stagedName = ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName, ue4ssNamesAlreadyInstalledInGame);
+        return Single(stagedName, stagedName, PendingDownloadActivationKind.Ue4ssMod, isOpaquePak: false, requirements);
+    }
+
+    private static ClassifiedImport Single(string entryName, string folderName, PendingDownloadActivationKind kind, bool isOpaquePak, IReadOnlyList<string> requirements) =>
+        new(entryName, folderName, kind, isOpaquePak, [new PendingDownloadActivatedItem(folderName, kind)], requirements);
+
+    /// <summary>Every "&lt;anything&gt;\ue4ss\Mods\&lt;Mod&gt;" folder that actually contains files — the UE4SS install layout.</summary>
+    private static List<string> FindGameLayoutUe4ssModFolders(string root)
+    {
+        var result = new List<string>();
+        foreach (var modsFolder in Directory.GetDirectories(root, "Mods", SearchOption.AllDirectories))
+        {
+            var parent = Path.GetFileName(Path.GetDirectoryName(modsFolder) ?? "");
+            if (!parent.Equals("ue4ss", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            foreach (var modFolder in Directory.GetDirectories(modsFolder))
+            {
+                if (Directory.EnumerateFiles(modFolder, "*", SearchOption.AllDirectories).Any())
+                {
+                    result.Add(modFolder);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static bool IsUnderPaksFolder(string pakPath) =>
+        (Path.GetDirectoryName(pakPath) ?? "")
+            .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Any(segment => segment.Equals("Paks", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The first README (txt/md, shallowest first) that carries a REQUIREMENTS section wins.</summary>
+    private static IReadOnlyList<string> ReadRequirements(string[] allFiles)
+    {
+        var readmes = allFiles
+            .Where(f => Path.GetFileName(f).StartsWith("README", StringComparison.OrdinalIgnoreCase)
+                && (f.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".md", StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(f => f.Count(c => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar));
+        foreach (var readme in readmes)
+        {
+            try
+            {
+                var found = ModReadmeRequirements.Parse(File.ReadAllText(readme));
+                if (found.Count > 0)
+                {
+                    return found;
+                }
+            }
+            catch (IOException)
+            {
+                // Best-effort — a README that can't be read just contributes nothing.
+            }
+        }
+
+        return [];
     }
 }

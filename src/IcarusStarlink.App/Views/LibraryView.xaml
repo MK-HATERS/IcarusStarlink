@@ -510,8 +510,9 @@
                         <TextBlock Text="Downloads needing attention" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
                         <DataGrid ItemsSource="{Binding Downloads.PendingDownloads}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="150">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="3*"/>
+                                <DataGridTextColumn Header="File" Binding="{Binding DisplayName}" Width="3*"/>
                                 <DataGridTextColumn Header="Mod ID" Binding="{Binding ModId}" Width="80"/>
+                                <DataGridTextColumn Header="Needs" Binding="{Binding RequirementsSummary}" Width="2*"/>
                                 <DataGridTextColumn Header="Downloaded" Binding="{Binding DownloadedAtUtc, StringFormat='{}{0:g}'}" Width="140"/>
                                 <DataGridTemplateColumn Header="" Width="320">
                                     <DataGridTemplateColumn.CellTemplate>

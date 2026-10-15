@@ -65,7 +65,17 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
     private static string? FindSingleWrappingFolder(string sourceFolder)
     {
         var entries = Directory.GetFileSystemEntries(sourceFolder);
-        return entries.Length == 1 && Directory.Exists(entries[0]) ? entries[0] : null;
+        if (entries.Length != 1 || !Directory.Exists(entries[0]))
+        {
+            return null;
+        }
+
+        // A mod whose folder holds ONLY its Scripts (or dlls) subfolder is already the mod — that
+        // subfolder is the UE4SS layout, not a wrapper, and stripping it named the mod "Scripts".
+        var name = Path.GetFileName(entries[0]);
+        return name.Equals("Scripts", StringComparison.OrdinalIgnoreCase) || name.Equals("dlls", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : entries[0];
     }
 
     private string MakeUniqueFolderName(string name, IReadOnlyCollection<string>? additionalNamesToAvoid = null) =>
