@@ -173,8 +173,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
         PerformanceTracker performanceTracker,
         IActivityLog activityLog,
         IActiveDownloadsTracker activeDownloadsTracker,
-        string pendingDownloadsDirectory, IPrebuiltPakImporter prebuiltPakImporter, string dataFolder)
+        string pendingDownloadsDirectory, IPrebuiltPakImporter prebuiltPakImporter, string dataFolder,
+        ICatalogSnapshotStore? catalogSnapshotStore = null)
     {
+        _catalogSnapshotStore = catalogSnapshotStore;
         _prebuiltPakImporter = prebuiltPakImporter;
         _dataFolder = dataFolder;
         _daedalusClient = daedalusClient;
@@ -209,7 +211,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         // handle every failure" shape a WPF event handler already has to use for async work —
         // RefreshCatalogAsync has its own top-level try/catch, so nothing here can produce an
         // unobserved exception.
-        _ = RefreshCatalogAsync();
+        _ = LoadCatalogAsync();
 
         // This ViewModel Sends LibraryChangedMessage itself (after a download/extract, an
         // Activate, or an import) but, until now, never Registered to receive it — so the IMM
@@ -279,10 +281,72 @@ public sealed partial class DownloadsViewModel : ObservableObject
     {
         if (_allCatalogEntries.Count == 0)
         {
-            await RefreshCatalogAsync();
+            await LoadCatalogAsync();
         }
 
         return _allCatalogEntries;
+    }
+
+    /// <summary>How old a snapshot may be and still answer the automatic load; Refresh always goes to the network.</summary>
+    private static readonly TimeSpan CatalogSnapshotMaxAge = TimeSpan.FromHours(6);
+
+    private readonly ICatalogSnapshotStore? _catalogSnapshotStore;
+
+    /// <summary>
+    /// The automatic load (constructor, first GetOrFetchCatalogAsync): a fresh-enough on-disk
+    /// snapshot answers it instantly with no network — both catalogs and the ~40 GitHub repo dates
+    /// used to be re-fetched on every launch, which is also what kept tripping GitHub's 60/hour cap.
+    /// The Refresh button is wired to RefreshCatalogAsync directly, so it always fetches.
+    /// </summary>
+    private async Task LoadCatalogAsync()
+    {
+        var snapshot = _catalogSnapshotStore?.TryLoad();
+        if (snapshot is not null && snapshot.Entries.Count > 0 && DateTimeOffset.UtcNow - snapshot.FetchedAtUtc < CatalogSnapshotMaxAge)
+        {
+            ApplyFetchedCatalog(snapshot.Entries);
+            _repoPushedDates = snapshot.RepoDates.ToDictionary(d => (d.Owner, d.Repo), d => d.PushedAtUtc);
+            var age = DateTimeOffset.UtcNow - snapshot.FetchedAtUtc;
+            var ageText = age.TotalMinutes < 1 ? "just now" : age.TotalHours < 1 ? $"{(int)age.TotalMinutes} min ago" : $"{(int)age.TotalHours} h ago";
+            CatalogStatusMessage = $"Loaded {_allCatalogEntries.Count} mods (cached {ageText}) — Refresh fetches the latest.";
+            ApplyCatalogFilters();
+            return;
+        }
+
+        await RefreshCatalogAsync();
+    }
+
+    /// <summary>
+    /// Everything that has to happen when a new set of entries becomes THE catalog: the row cache
+    /// (bound to grow unboundedly otherwise — CatalogEntry has value equality, so a changed entry
+    /// would just add another key), and the author/category pickers. Clearing/rebuilding those
+    /// disrupts the ComboBoxes' own SelectedItem tracking (WPF can reset a bound SelectedItem to
+    /// null mid-rebuild), so the prior selection is captured and restored (or falls back to
+    /// "All…") — a null SelectedAuthor once made the filter match nothing: "0 shown / 624 in catalog".
+    /// </summary>
+    private void ApplyFetchedCatalog(IReadOnlyList<CatalogEntry> entries)
+    {
+        _allCatalogEntries = [.. entries];
+        _catalogRowCache.Clear();
+
+        var previousAuthor = SelectedAuthor;
+        var previousCategory = SelectedCategory;
+
+        AvailableAuthors.Clear();
+        AvailableAuthors.Add(AllAuthors);
+        foreach (var author in _allCatalogEntries.Select(e => e.Author).Distinct().OrderBy(a => a, StringComparer.OrdinalIgnoreCase))
+        {
+            AvailableAuthors.Add(author);
+        }
+
+        AvailableCategories.Clear();
+        AvailableCategories.Add(AllCategories);
+        foreach (var category in _allCatalogEntries.SelectMany(e => e.Categories).Distinct().OrderBy(c => c, StringComparer.OrdinalIgnoreCase))
+        {
+            AvailableCategories.Add(category);
+        }
+
+        SelectedAuthor = AvailableAuthors.Contains(previousAuthor) ? previousAuthor : AllAuthors;
+        SelectedCategory = AvailableCategories.Contains(previousCategory) ? previousCategory : AllCategories;
     }
 
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
@@ -313,38 +377,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 return;
             }
 
-            _allCatalogEntries = [.. daedalusTask.Result, .. jimk72Task.Result];
-            // A fresh catalog snapshot invalidates every cached row VM below — bound to grow
-            // unboundedly otherwise, since CatalogEntry has value equality and a genuinely changed
-            // entry (a new version, say) would just add another cache key rather than replace one.
-            _catalogRowCache.Clear();
-
-            // Clearing/rebuilding these disrupts the ComboBoxes' own SelectedItem tracking (WPF
-            // can reset a bound SelectedItem to null mid-rebuild) — capture the prior selection
-            // and explicitly restore it (or fall back to "All...") afterward, rather than leaving
-            // SelectedAuthor/SelectedCategory wherever the rebuild happened to drop them. Without
-            // this, a null SelectedAuthor made ApplyCatalogFilters' `e.Author == SelectedAuthor`
-            // match nothing at all — the very first live run of this page showed "0 shown / 624
-            // in catalog" because of exactly this.
-            var previousAuthor = SelectedAuthor;
-            var previousCategory = SelectedCategory;
-
-            AvailableAuthors.Clear();
-            AvailableAuthors.Add(AllAuthors);
-            foreach (var author in _allCatalogEntries.Select(e => e.Author).Distinct().OrderBy(a => a, StringComparer.OrdinalIgnoreCase))
-            {
-                AvailableAuthors.Add(author);
-            }
-
-            AvailableCategories.Clear();
-            AvailableCategories.Add(AllCategories);
-            foreach (var category in _allCatalogEntries.SelectMany(e => e.Categories).Distinct().OrderBy(c => c, StringComparer.OrdinalIgnoreCase))
-            {
-                AvailableCategories.Add(category);
-            }
-
-            SelectedAuthor = AvailableAuthors.Contains(previousAuthor) ? previousAuthor : AllAuthors;
-            SelectedCategory = AvailableCategories.Contains(previousCategory) ? previousCategory : AllCategories;
+            ApplyFetchedCatalog([.. daedalusTask.Result, .. jimk72Task.Result]);
 
             CatalogStatusMessage = failedSources.Count > 0
                 ? $"Loaded {_allCatalogEntries.Count} mods — {string.Join(" and ", failedSources)} unavailable, try Refresh again."
@@ -390,6 +423,15 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 // refresh, possibly still empty) rather than blanking known-good dates because
                 // this particular refresh's GitHub lookup failed outright (offline, GitHub API
                 // down, rate-limited). The core catalog above is entirely unaffected either way.
+            }
+
+            // Only a fully successful fetch is worth caching — a half catalog would answer the
+            // next launch's automatic load with the missing source silently absent.
+            if (failedSources.Count == 0)
+            {
+                _catalogSnapshotStore?.Save(new CatalogSnapshot(
+                    DateTimeOffset.UtcNow, _allCatalogEntries,
+                    [.. _repoPushedDates.Select(kv => new RepoPushedDate(kv.Key.Owner, kv.Key.Repo, kv.Value))]));
             }
         }
         catch (Exception ex)
@@ -988,6 +1030,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
             _pendingDownloadStore.SetActivation(item.ModId, item.FileId, activatedItems, requirements);
             item.SetActivated(activatedItems, requirements);
+            RefreshVisiblePendingDownloads();
             PendingDownloadStatusMessage = statusMessage;
         }
         catch (Exception ex)
@@ -1189,6 +1232,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
             if (info is not null)
             {
                 meta.NexusVersion = info.Version;
+                meta.NexusName = info.Name;
                 _ue4ssModMetaStore.Save(folderName, meta);
             }
         }
@@ -1240,5 +1284,37 @@ public sealed partial class DownloadsViewModel : ObservableObject
         {
             PendingDownloads.Add(new PendingDownloadItemViewModel(entry, _libraryRepository, _ue4ssModRepository));
         }
+
+        RefreshVisiblePendingDownloads();
+    }
+
+    /// <summary>
+    /// What the "Downloads needing attention" list actually shows: by default only downloads that
+    /// still need something (never activated, or a part since deleted) — a fully installed one sat
+    /// in a list named "needing attention" forever (a real polish complaint). Show installed
+    /// brings the history back.
+    /// </summary>
+    public ObservableCollection<PendingDownloadItemViewModel> VisiblePendingDownloads { get; } = [];
+
+    [ObservableProperty]
+    private bool _showInstalledDownloads;
+
+    partial void OnShowInstalledDownloadsChanged(bool value) => RefreshVisiblePendingDownloads();
+
+    public int InstalledDownloadCount => PendingDownloads.Count(p => p.IsInstalled);
+
+    public void RefreshVisiblePendingDownloads()
+    {
+        VisiblePendingDownloads.Clear();
+        foreach (var item in PendingDownloads)
+        {
+            item.Refresh();
+            if (ShowInstalledDownloads || !item.IsInstalled)
+            {
+                VisiblePendingDownloads.Add(item);
+            }
+        }
+
+        OnPropertyChanged(nameof(InstalledDownloadCount));
     }
 }

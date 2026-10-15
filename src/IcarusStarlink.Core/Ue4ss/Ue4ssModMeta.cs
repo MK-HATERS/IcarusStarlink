@@ -6,6 +6,9 @@ public sealed class Ue4ssModMeta
     public int? NexusModId { get; set; }
     public string? NexusVersion { get; set; }
 
+    /// <summary>The mod page's own title, recorded at the same Nexus lookup as NexusVersion — the UE4SS tab shows it under the folder name so a staged mod reads as the thing the user downloaded, not just a folder.</summary>
+    public string? NexusName { get; set; }
+
     /// <summary>
     /// The minimum UE4SS loader version this mod needs, as the user typed it (e.g. "3.0.1") — set
     /// via the UE4SS tab's own "Set minimum UE4SS version…" prompt. This can only ever be manual: a

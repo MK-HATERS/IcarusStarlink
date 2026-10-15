@@ -27,7 +27,7 @@ public static class UpdateApplier
     /// runtimes\ folder (per-RID native assets) is the one subfolder treated the same way, by exact
     /// name, since Uninstall.bat already lists it as regenerable app output.
     /// </summary>
-    private static readonly string[] StaleRootFilePatterns = ["*.dll", "*.pdb", "*.xml", "*.deps.json", "*.runtimeconfig.json", "createdump.exe"];
+    public static readonly string[] StaleRootFilePatterns = ["*.dll", "*.pdb", "*.xml", "*.deps.json", "*.runtimeconfig.json", "createdump.exe"];
 
     /// <summary>
     /// Returns the number of files copied. Throws when newFilesDirectory doesn't look like an app

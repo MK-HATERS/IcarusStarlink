@@ -565,7 +565,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 var isBuiltIn = _ue4ssLoaderInstallService.IsFrameworkOwned(_settingsService.Current.IcarusContentPath!, state.Name);
                 var row = new Ue4ssModRowViewModel(
                     state.Name, state.IsEnabled, isBuiltIn, meta.NexusModId, meta.NexusVersion,
-                    meta.MinUe4ssVersion, installedLoaderVersion, RecomputeHasPendingUe4ssChanges);
+                    meta.MinUe4ssVersion, installedLoaderVersion, RecomputeHasPendingUe4ssChanges, meta.NexusName);
                 if (previousByName.TryGetValue(state.Name, out var previous))
                 {
                     if (previous.IsDirty)
@@ -664,6 +664,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                     if (info is not null)
                     {
                         meta.NexusVersion = info.Version;
+                        meta.NexusName = info.Name;
                         _ue4ssModMetaStore.Save(item.Name, meta);
                     }
                 }

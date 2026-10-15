@@ -75,6 +75,10 @@ public sealed class MergeInstallViewModelTests : IDisposable
         }
     }
 
+    // One messenger per test class instance — the shared WeakReferenceMessenger.Default made these
+    // tests interfere with each other (and with every other test class) under the parallel runner.
+    private readonly IMessenger _messenger = new WeakReferenceMessenger();
+
     private MergeInstallViewModel CreateViewModel(
         FakeLibraryRepository? libraryRepository = null,
         FakeRebuildService? rebuildService = null,
@@ -112,7 +116,8 @@ public sealed class MergeInstallViewModelTests : IDisposable
             // so ValidationIssueCount is driven ONLY by whatever ExmodReferenceChecker finds.
             Path.Combine(_tempRoot, "NoRealGameData"),
             outputPakPath,
-            Path.Combine(_tempRoot, "Backups"));
+            Path.Combine(_tempRoot, "Backups"),
+            _messenger);
     }
 
     private static LibraryEntry MakeEntry(string folderName, bool isOpaquePak = false) => new()
@@ -282,7 +287,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var pick = new Dictionary<(string, string, string), int> { [("File.json", "Item", "Field")] = 0 };
         vm.ManualPicksForTesting = pick;
 
-        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        _messenger.Send(new LibraryChangedMessage());
 
         Assert.Null(vm.ManualPicksForTesting);
     }
@@ -294,7 +299,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var pick = new Dictionary<(string, string, string), int> { [("File.json", "Item", "Field")] = 0 };
         vm.ManualPicksForTesting = pick;
 
-        WeakReferenceMessenger.Default.Send(new WeeklyChangeReportUpdatedMessage());
+        _messenger.Send(new WeeklyChangeReportUpdatedMessage());
 
         Assert.Null(vm.ManualPicksForTesting);
     }

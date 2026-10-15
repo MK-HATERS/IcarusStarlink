@@ -789,6 +789,33 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
         }
 
+        // Same one-time moment: every Nexus website download depends on this app being the nxm://
+        // handler, and the switch was buried in Settings → Nexus (a real complaint about setup).
+        if (!_nxmProtocolRegistrar.IsRegisteredToThisApp())
+        {
+            FirstLaunchSetupNeededAttention = true;
+            var register = _dialogService.Confirm(
+                "Make IcarusStarlink handle Nexus \"Mod Manager Download\" links?\n\n"
+                + "This registers the app as your nxm:// handler (a per-user Windows setting, no admin needed) so clicking Download on a Nexus mod page sends the file straight here. "
+                + "You can change it any time in Settings → Nexus.",
+                "Nexus download links", ThemedConfirmSeverity.Question);
+            if (register)
+            {
+                // The registrar directly — the Settings-page command above this one asks its own
+                // confirmation, and this offer already was the confirmation.
+                try
+                {
+                    _nxmProtocolRegistrar.Register();
+                    IsNxmProtocolRegisteredToThisApp = _nxmProtocolRegistrar.IsRegisteredToThisApp();
+                    NxmProtocolStatusMessage = "Registered — Nexus \"Mod Manager Download\" buttons now open IcarusStarlink.";
+                }
+                catch (Exception ex)
+                {
+                    NxmProtocolStatusMessage = $"Registration failed: {ex.Message} — try again from Settings → Nexus.";
+                }
+            }
+        }
+
         _settingsService.Current.FirstLaunchSetupCompletedAtUtc = DateTimeOffset.UtcNow;
         _settingsService.Save();
     }

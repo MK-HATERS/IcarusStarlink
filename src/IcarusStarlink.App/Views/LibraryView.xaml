@@ -507,8 +507,13 @@
                                 </Style.Triggers>
                             </Style>
                         </StackPanel.Style>
-                        <TextBlock Text="Downloads needing attention" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
-                        <DataGrid ItemsSource="{Binding Downloads.PendingDownloads}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="150">
+                        <DockPanel Margin="0,0,0,6">
+                            <CheckBox DockPanel.Dock="Right" IsChecked="{Binding Downloads.ShowInstalledDownloads}" VerticalAlignment="Center"
+                                      Content="{Binding Downloads.InstalledDownloadCount, StringFormat='Show installed ({0})'}"
+                                      ToolTip="Fully installed downloads are hidden by default — tick to see them (Reinstall lives there)"/>
+                            <TextBlock Text="Downloads needing attention" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <DataGrid ItemsSource="{Binding Downloads.VisiblePendingDownloads}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="150">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="File" Binding="{Binding DisplayName}" Width="3*"/>
                                 <DataGridTextColumn Header="Mod ID" Binding="{Binding ModId}" Width="80"/>
@@ -756,6 +761,9 @@
                                             <!-- Hidden (not just disabled) for a built-in — it ships with the
                                                  loader itself, so there's no standalone Nexus page to explain
                                                  via a disabled-tooltip the way a transient unavailability would. -->
+                                            <MenuItem Header="Open on Nexus" Command="{Binding OpenOnNexusCommand}" IsEnabled="{Binding HasNexusLink}"
+                                                      Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                      ToolTip="Open this mod's Nexus page in your browser"/>
                                             <MenuItem Header="{Binding NexusLinkActionLabel}"
                                                       Command="{Binding PlacementTarget.Tag.LinkUe4ssModToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                                       CommandParameter="{Binding}"
@@ -774,7 +782,11 @@
                                     <CheckBox IsChecked="{Binding IsEnabled}" VerticalAlignment="Center" Margin="0,0,8,0"
                                               ToolTip="Checked = enabled (in the real game Mods folder). Nothing moves until you click Apply below."
                                               AutomationProperties.Name="{Binding Name, StringFormat='Enable {0}'}"/>
-                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Width="260"/>
+                                    <StackPanel VerticalAlignment="Center" Width="260">
+                                        <TextBlock Text="{Binding Name}"/>
+                                        <TextBlock Text="{Binding NexusSummary}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                   Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    </StackPanel>
                                     <!-- Declared MinUe4ssVersion exceeds the installed loader's own
                                          version (Ue4ssVersionComparer.Compare == BelowMinimum) — same
                                          per-row Path+ToolTip warning convention as Merge & Install's

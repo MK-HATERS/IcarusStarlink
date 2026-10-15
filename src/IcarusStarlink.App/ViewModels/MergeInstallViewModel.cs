@@ -347,12 +347,17 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private string? _comparisonStatusMessage;
 
+    private readonly IMessenger _messenger;
+
     public MergeInstallViewModel(
         ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
         IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
         ISettingsService settingsService, IPakCompareService pakCompareService, PerformanceTracker performanceTracker, IActivityLog activityLog,
-        string dataFolder, string outputPakPath, string backupDirectory)
+        string dataFolder, string outputPakPath, string backupDirectory, IMessenger? messenger = null)
     {
+        // Injectable so tests can give each view model its own messenger — the shared Default one
+        // made this class's tests interfere with each other under the parallel runner.
+        _messenger = messenger ?? WeakReferenceMessenger.Default;
         _libraryRepository = libraryRepository;
         _rebuildService = rebuildService;
         _installService = installService;
@@ -422,7 +427,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // and after this page's own install/remove actions.
         // The message parameter needs a real name: naming it "_" would make it shadow the discard,
         // so "_ = task" inside would try assigning the Task to the message parameter itself.
-        WeakReferenceMessenger.Default.Register<SettingsSavedMessage>(this, (recipient, message) =>
+        _messenger.Register<SettingsSavedMessage>(this, (recipient, message) =>
         {
             _ = ((MergeInstallViewModel)recipient).RefreshHasExistingInstallAsync();
         });
@@ -439,7 +444,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // and there is no way to detect that from the index alone. Same reasoning already applied
         // to Queue.CollectionChanged/InvalidateManualPicks above; this was the one other place a
         // pick's own meaning can silently change out from under it.
-        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) =>
+        _messenger.Register<LibraryChangedMessage>(this, (recipient, _) =>
         {
             var viewModel = (MergeInstallViewModel)recipient;
             viewModel.InvalidatePackageCache();
@@ -453,7 +458,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // candidate list (which now starts from the FRESH base data this message signals) at
         // Rebuild time, and a pick stored as a plain index has no way to detect that its own
         // meaning may have shifted underneath it.
-        WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) =>
+        _messenger.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) =>
         {
             var viewModel = (MergeInstallViewModel)recipient;
             lock (viewModel._packageCacheLock)
@@ -993,7 +998,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             }
 
             _profileStore.Save(new Profile { Name = contents.Manifest.ProfileName, MergeQueueFolderNames = resolvedFolderNames, Options = contents.Manifest.Options });
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            _messenger.Send(new LibraryChangedMessage());
             ReloadProfileNames();
             // Triggers OnSelectedProfileNameChanged, which populates Queue from the just-saved
             // profile and reports its own "N mod(s) no longer in your Library" count — reused as-is
@@ -1623,7 +1628,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // mirrors that same effective name rather than the UI-facing selection, which could still
         // read null at this exact point.
         _libraryRepository.ImportPak(_outputPakPath, mergedPackProfileName: SelectedProfileName ?? "Default");
-        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        _messenger.Send(new LibraryChangedMessage());
     }
 
     /// <summary>

@@ -11,6 +11,7 @@ using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Catalog.AppUpdate;
+using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Jimk72;
@@ -346,7 +347,8 @@ public partial class App : Application
             sp.GetRequiredService<IActiveDownloadsTracker>(),
             Path.Combine(appDataDirectory, "Pending_Downloads"),
             sp.GetRequiredService<IPrebuiltPakImporter>(),
-            Path.Combine(appDataDirectory, "Data")));
+            Path.Combine(appDataDirectory, "Data"),
+            new JsonCatalogSnapshotStore(Path.Combine(appDataDirectory, "Cache", "catalog_snapshot.json"))));
         builder.Services.AddSingleton<NexusCatalogViewModel>();
         builder.Services.AddSingleton<ISaveRepository>(sp =>
             new SaveRepository(

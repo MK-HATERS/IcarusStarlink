@@ -1,5 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Ue4ss;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -27,9 +30,10 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     public Ue4ssModRowViewModel(
         string name, bool realIsEnabled, bool isBuiltIn, int? nexusModId, string? knownVersion,
-        string? minUe4ssVersion, string? installedLoaderVersion, Action onDirtyChanged)
+        string? minUe4ssVersion, string? installedLoaderVersion, Action onDirtyChanged, string? nexusName = null)
     {
         Name = name;
+        NexusName = nexusName;
         RealIsEnabled = realIsEnabled;
         _isEnabled = realIsEnabled;
         IsBuiltIn = isBuiltIn;
@@ -53,6 +57,34 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     public int? NexusModId { get; }
 
     public bool HasNexusLink => NexusModId is not null;
+
+    /// <summary>The Nexus mod page's title (Ue4ssModMeta.NexusName); null until a Nexus lookup has recorded it.</summary>
+    public string? NexusName { get; }
+
+    /// <summary>"Nexus: ArcFission Library · v1" — the line under the folder name that says what this staged mod actually is; null for an unlinked mod.</summary>
+    public string? NexusSummary
+    {
+        get
+        {
+            if (!HasNexusLink)
+            {
+                return null;
+            }
+
+            var name = NexusName is null ? $"Nexus mod #{NexusModId}" : $"Nexus: {NexusName}";
+            return KnownVersion is null ? name : $"{name} · v{KnownVersion}";
+        }
+    }
+
+    /// <summary>The same "Open on Nexus" the Mods tab offers — a staged UE4SS mod has a page too.</summary>
+    [RelayCommand(CanExecute = nameof(HasNexusLink))]
+    private void OpenOnNexus()
+    {
+        if (NexusModId is { } modId)
+        {
+            UrlOpener.TryOpen(NexusModWebUrl.For(modId));
+        }
+    }
 
     /// <summary>Same shape as LibraryItemViewModel.NexusLinkActionLabel — an already-linked row is offered a re-link, not told to link.</summary>
     public string NexusLinkActionLabel => HasNexusLink ? "Re-link Nexus ID…" : "Link to Nexus ID…";

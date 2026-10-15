@@ -588,6 +588,23 @@ public sealed class SettingsViewModelTests
 
     /// <summary>An install that predates the flow and already extracted its data gets no offer — just marked done so the check stops running.</summary>
     [Fact]
+    public async Task FirstLaunch_NxmHandlerNotRegistered_OffersToRegister_AcceptedRegisters()
+    {
+        using var harness = new Harness();
+        harness.Settings.FirstLaunchSetupCompletedAtUtc = null;
+        harness.Settings.LastDataFolderUpdatedAt = DateTimeOffset.UtcNow.AddDays(-1);
+        harness.NxmProtocolRegistrar.Registered = false;
+
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+
+        Assert.Equal(1, harness.DialogService.ConfirmCallCount);
+        Assert.Contains("Nexus download links", harness.DialogService.LastConfirmTitle);
+        Assert.Equal(1, harness.NxmProtocolRegistrar.RegisterCallCount);
+        Assert.NotNull(harness.Settings.FirstLaunchSetupCompletedAtUtc);
+    }
+
+    [Fact]
     public async Task FirstLaunch_DataAlreadyExtractedBefore_NeverOffers_MarksCompleted()
     {
         using var harness = new Harness();
@@ -629,6 +646,9 @@ public sealed class SettingsViewModelTests
         public readonly FakeWeeklyChangeReportStore WeeklyChangeReportStore = new();
         public readonly FakeUnrealPakInstaller UnrealPakInstaller = new();
         public readonly FakeSteamInstallLocator SteamInstallLocator = new();
+        // Registered by default so the one-time first-launch nxm:// offer never fires from the
+        // constructor here; the dedicated test below sets Registered = false.
+        public readonly FakeNxmProtocolRegistrar NxmProtocolRegistrar = new() { Registered = true };
         public readonly FakeUe4ssLoaderInstallService Ue4ssLoaderInstallService = new();
         public readonly FakeUe4ssReleaseClient Ue4ssReleaseClient = new();
         public readonly FakeAppUpdateClient AppUpdateClient = new();
@@ -663,7 +683,7 @@ public sealed class SettingsViewModelTests
         public SettingsViewModel BuildViewModel() => new(
             SettingsService, UnrealPakService, WeeklyChangeReportStore,
             SteamInstallLocator, new FakeCredentialStore(), new FakeNexusApiClient(),
-            new FakeNxmProtocolRegistrar(), Ue4ssLoaderInstallService, Ue4ssReleaseClient, AppUpdateClient,
+            NxmProtocolRegistrar, Ue4ssLoaderInstallService, Ue4ssReleaseClient, AppUpdateClient,
             new HttpClient(_httpHandler), new FakeThemeService(), new FakeCustomSkinStore(),
             BuildImmMigrationService(),
             () => throw new InvalidOperationException("MergeInstallViewModel factory not exercised by these tests"),
@@ -855,10 +875,15 @@ public sealed class SettingsViewModelTests
 
     private sealed class FakeNxmProtocolRegistrar : INxmProtocolRegistrar
     {
-        public bool IsRegisteredToThisApp() => false;
+        public bool Registered { get; set; }
+        public int RegisterCallCount { get; private set; }
+
+        public bool IsRegisteredToThisApp() => Registered;
 
         public void Register()
         {
+            RegisterCallCount++;
+            Registered = true;
         }
 
         public void Unregister()
