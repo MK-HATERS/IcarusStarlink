@@ -16,6 +16,9 @@
         <DataTemplate DataType="{x:Type vm:NexusCatalogViewModel}">
             <views:NexusCatalogView/>
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:DownloadsViewModel}">
+            <views:DownloadsView/>
+        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:SavesViewModel}">
             <views:SavesView/>
         </DataTemplate>
@@ -141,6 +144,10 @@
                                 <DataTrigger Binding="{Binding Id}" Value="nexus">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconGlobeMeridian}"/>
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#E08A3C"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Id}" Value="downloads">
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconDownload}"/>
+                                    <Setter TargetName="NavIcon" Property="Stroke" Value="#D9B44A"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="library">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconBook}"/>

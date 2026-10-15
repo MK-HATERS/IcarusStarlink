@@ -206,7 +206,7 @@
                      rendered a bare " — " suffix even with no VariantLabel at all until this was
                      fixed. -->
                 <TextBlock Grid.Column="2" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
-                    <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/><Run Text="{Binding PackageLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11"/>
                 </TextBlock>
 
                 <TextBlock Grid.Column="3" Text="{Binding Author}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
@@ -496,75 +496,12 @@
                         </Button>
                     </StackPanel>
 
-                    <!-- Only shown when something genuinely needs attention — a successful download
-                         already auto-imports and just becomes a normal row above, so the common case
-                         is this section not appearing at all. -->
-                    <StackPanel Grid.Row="2" Margin="0,0,0,10">
-                        <StackPanel.Style>
-                            <Style TargetType="StackPanel">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Downloads.PendingDownloads.Count}" Value="0">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </StackPanel.Style>
-                        <DockPanel Margin="0,0,0,6">
-                            <CheckBox DockPanel.Dock="Right" IsChecked="{Binding Downloads.ShowInstalledDownloads}" VerticalAlignment="Center"
-                                      Content="{Binding Downloads.InstalledDownloadCount, StringFormat='Show installed ({0})'}"
-                                      ToolTip="Fully installed downloads are hidden by default — tick to see them (Reinstall lives there)"/>
-                            <TextBlock Text="Downloads needing attention" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center"/>
-                        </DockPanel>
-                        <DataGrid ItemsSource="{Binding Downloads.VisiblePendingDownloads}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="150">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="File" Binding="{Binding DisplayName}" Width="3*"/>
-                                <DataGridTextColumn Header="Mod ID" Binding="{Binding ModId}" Width="80"/>
-                                <DataGridTextColumn Header="Needs" Binding="{Binding RequirementsSummary}" Width="2*"/>
-                                <DataGridTextColumn Header="Downloaded" Binding="{Binding DownloadedAtUtc, StringFormat='{}{0:g}'}" Width="140"/>
-                                <DataGridTemplateColumn Header="" Width="320">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="Deleted from Library — click to reinstall" VerticalAlignment="Center" Margin="0,0,8,0"
-                                                           Foreground="{DynamicResource DangerBrush}" FontSize="11" TextWrapping="Wrap" MaxWidth="130"
-                                                           Visibility="{Binding WasDeleted, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                                <Button Margin="4,2"
-                                                        Command="{Binding DataContext.Downloads.ActivatePendingDownloadCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                        CommandParameter="{Binding}"
-                                                        ToolTip="Import this file into your Library — Reinstall replaces what's currently there"
-                                                        AutomationProperties.Name="{Binding ActionLabel}">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
-                                                        <TextBlock Text="{Binding ActionLabel}" VerticalAlignment="Center"/>
-                                                    </StackPanel>
-                                                </Button>
-                                                <Button Margin="4,2"
-                                                        Command="{Binding DataContext.Downloads.FindRequirementOnNexusCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                        CommandParameter="{Binding}"
-                                                        Visibility="{Binding HasMissingRequirements, Converter={StaticResource BoolToVisibilityConverter}}"
-                                                        ToolTip="{Binding RequirementsSummary}"
-                                                        AutomationProperties.Name="Find requirement on Nexus">
-                                                    <TextBlock Text="{Binding FindOnNexusLabel}" VerticalAlignment="Center"/>
-                                                </Button>
-                                                <Button Margin="4,2"
-                                                        Command="{Binding DataContext.Downloads.DiscardPendingDownloadCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                        CommandParameter="{Binding}"
-                                                        ToolTip="Delete the downloaded file and remove it from this list"
-                                                        AutomationProperties.Name="Discard">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
-                                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
-                                                        <TextBlock Text="Discard" VerticalAlignment="Center"/>
-                                                    </StackPanel>
-                                                </Button>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                            </DataGrid.Columns>
-                        </DataGrid>
-                    </StackPanel>
+                    <!-- Row 2 used to hold "Downloads needing attention" — a grid of pending Nexus
+                         downloads wedged between the toolbar and the mod list. That lives on its own
+                         Downloads page now (DownloadsView), where a mod organizer keeps it. -->
+                    <TextBlock Grid.Row="2" Margin="0,0,0,10" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Text="{Binding Downloads.PendingDownloadStatusMessage}" TextWrapping="Wrap"
+                               Visibility="{Binding Downloads.PendingDownloadStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
                     <StackPanel Grid.Row="3" Margin="0,0,0,12">
                         <TextBlock Text="Search your library" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
@@ -753,8 +690,8 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Horizontal">
-                        <TextBlock Text="Enable/disable UE4SS mods, then click Apply. Enabling moves a mod into the game's real Mods folder; disabling moves it back out here, ready to re-enable later."
-                                   Style="{StaticResource PageBodyTextStyle}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="440"/>
+                        <TextBlock Text="Tick a mod to enable it, untick to disable, then click Apply. Enabled mods sit in the game's own Mods folder and are live the next time Icarus starts; disabled ones wait in this app's staging. Right-click a mod for Open folder, Delete, and Nexus actions."
+                                   Style="{StaticResource PageBodyTextStyle}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="520"/>
                         <Button Content="Import…" Command="{Binding ImportUe4ssModCommand}" Margin="12,0,0,0"
                                 ToolTip="Stage a UE4SS mod from a downloaded zip — lands here disabled, ready to enable and Apply"/>
                         <Button Content="Refresh" Command="{Binding ReloadInstalledUe4ssModsCommand}" Margin="8,0,0,0"/>
@@ -787,6 +724,16 @@
                                                       CommandParameter="{Binding}"
                                                       Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
                                                       ToolTip="Declare the minimum UE4SS loader version this mod needs, so this app can warn you if your installed loader is older"/>
+                                            <Separator/>
+                                            <MenuItem Header="Open folder"
+                                                      Command="{Binding PlacementTarget.Tag.OpenUe4ssModFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}"
+                                                      ToolTip="Opens this mod's folder — in the game's Mods folder when enabled, in this app's staging when disabled"/>
+                                            <MenuItem Header="Delete"
+                                                      Command="{Binding PlacementTarget.Tag.DeleteUe4ssModCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}"
+                                                      Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                      ToolTip="Removes this mod from the game's Mods folder (backed up first) and from staging — asks first; a mod that came with Library paks is removed together with them"/>
                                         </ContextMenu>
                                     </StackPanel.ContextMenu>
                                     <CheckBox IsChecked="{Binding IsEnabled}" VerticalAlignment="Center" Margin="0,0,8,0"
@@ -796,6 +743,9 @@
                                         <TextBlock Text="{Binding Name}"/>
                                         <TextBlock Text="{Binding NexusSummary}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                                    Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        <TextBlock Text="{Binding PackageLabel}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                   Visibility="{Binding IsPartOfPackage, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                   ToolTip="This Lua mod and the listed Library paks came from one Nexus download — deleting any of them removes all of them"/>
                                     </StackPanel>
                                     <!-- Declared MinUe4ssVersion exceeds the installed loader's own
                                          version (Ue4ssVersionComparer.Compare == BelowMinimum) — same

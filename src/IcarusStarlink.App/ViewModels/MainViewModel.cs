@@ -59,6 +59,10 @@ public sealed partial class MainViewModel : ObservableObject
             // Its own top-level item rather than a Downloads sub-tab, per explicit user request
             // (Phase 8.3).
             new NavItem("nexus", "Nexus", typeof(NexusCatalogViewModel)),
+            // What was downloaded and what became of it — its own page, like every mod organizer.
+            // It used to be a grid wedged into the Library page between the toolbar and the mod
+            // list ("Downloads needing attention"), which is where a real user lost track of it.
+            new NavItem("downloads", "Downloads", typeof(DownloadsViewModel)),
             new NavItem("library", "Library", typeof(LibraryViewModel)),
             new NavItem("merge", "Merge & Install", typeof(MergeInstallViewModel)),
             new NavItem("weekly-changes", "Weekly Changes", typeof(WeeklyChangesViewModel)),
