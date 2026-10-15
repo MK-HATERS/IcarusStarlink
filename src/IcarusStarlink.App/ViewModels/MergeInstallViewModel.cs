@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Converters;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog;
@@ -349,15 +350,19 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     private readonly IMessenger _messenger;
 
+    /// <summary>Null only in tests that don't care; the app always wires the real checker — see InstallAsync.</summary>
+    private readonly IGameProcessChecker? _gameProcessChecker;
+
     public MergeInstallViewModel(
         ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
         IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
         ISettingsService settingsService, IPakCompareService pakCompareService, PerformanceTracker performanceTracker, IActivityLog activityLog,
-        string dataFolder, string outputPakPath, string backupDirectory, IMessenger? messenger = null)
+        string dataFolder, string outputPakPath, string backupDirectory, IMessenger? messenger = null, IGameProcessChecker? gameProcessChecker = null)
     {
         // Injectable so tests can give each view model its own messenger — the shared Default one
         // made this class's tests interfere with each other under the parallel runner.
         _messenger = messenger ?? WeakReferenceMessenger.Default;
+        _gameProcessChecker = gameProcessChecker;
         _libraryRepository = libraryRepository;
         _rebuildService = rebuildService;
         _installService = installService;
@@ -2098,6 +2103,19 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// failure still covers the spec's own "Copy built pack to game" retry case (the rebuild step
     /// just re-produces the same staged pak before this re-copies it).
     /// </summary>
+    private bool IsGameRunning()
+    {
+        try
+        {
+            return _gameProcessChecker?.IsRunning() == true;
+        }
+        catch (Exception)
+        {
+            // A process query failing must never block an install on its own.
+            return false;
+        }
+    }
+
     private async Task InstallAsync()
     {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
@@ -2109,6 +2127,16 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         if (!File.Exists(_outputPakPath))
         {
             InstallStatusMessage = "Nothing staged yet — click Rebuild first.";
+            return;
+        }
+
+        // The same guard the saves editor and the UE4SS tab already have, and the one place it was
+        // missing: Icarus holds its Paks folder open while running, so a pak copied under it is the
+        // one way a user can leave their game with a half-replaced mod pack. Checked here and again
+        // right before the copy, since the confirm dialog gives the game time to start.
+        if (IsGameRunning())
+        {
+            InstallStatusMessage = "Icarus is running — close it before installing, or the game keeps loading the old pack and the copy can fail halfway.";
             return;
         }
 
@@ -2142,6 +2170,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             "Install to Icarus", ThemedConfirmSeverity.Question);
         if (!(confirmResult))
         {
+            return;
+        }
+
+        if (IsGameRunning())
+        {
+            InstallStatusMessage = "Icarus started while the confirmation was open — close it, then Install again.";
             return;
         }
 

@@ -4,6 +4,7 @@ using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Import;
+using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.App.Services;
 
@@ -19,7 +20,8 @@ public sealed record ClassifiedImport(
     PendingDownloadActivationKind Kind,
     bool IsOpaquePak,
     IReadOnlyList<PendingDownloadActivatedItem> Items,
-    IReadOnlyList<string> Requirements)
+    IReadOnlyList<string> Requirements,
+    IReadOnlyList<string> Warnings)
 {
     public void Deconstruct(out string entryName, out string folderName, out PendingDownloadActivationKind kind, out bool isOpaquePak)
     {
@@ -71,6 +73,16 @@ public static class ExtractedModClassifier
         // comment already gives for why it does the same thing.
         var allFiles = Directory.GetFiles(extractedDirectory, "*", SearchOption.AllDirectories);
         var requirements = ReadRequirements(allFiles);
+
+        // Lints (see ModLints): an IoStore download can't be used by anything this app does, so
+        // it's refused here with the reason; a split .uasset/.uexp pair is reported but the rest
+        // of the mod still imports.
+        if (ModLints.CheckForIoStoreContainers(allFiles) is { } ioStore)
+        {
+            throw new FormatException(ioStore);
+        }
+
+        var warnings = ModLints.CheckSplitAssetPairs(allFiles);
         var hasExmod = allFiles.Any(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase));
 
         if (hasExmod)
@@ -80,7 +92,7 @@ public static class ExtractedModClassifier
             // EXMOD-shaped content, so a failure here is a real problem, not a signal to try a
             // different format.
             var entry = libraryRepository.Import(extractedDirectory, source: source, nexusModId: nexusModId);
-            return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, isOpaquePak: false, requirements);
+            return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, isOpaquePak: false, requirements, warnings);
         }
 
         var pakFiles = allFiles.Where(f => f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)).ToArray();
@@ -114,13 +126,13 @@ public static class ExtractedModClassifier
             }
 
             var primary = items[0];
-            return new ClassifiedImport(names[0], primary.FolderName, primary.Kind, anyOpaque, items, requirements);
+            return new ClassifiedImport(names[0], primary.FolderName, primary.Kind, anyOpaque, items, requirements, warnings);
         }
 
         if (pakFiles.Length == 1)
         {
             var entry = await prebuiltPakImporter.ImportAsync(pakFiles[0], dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId);
-            return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, entry.IsOpaquePak, requirements);
+            return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, entry.IsOpaquePak, requirements, warnings);
         }
 
         if (pakFiles.Length > 1)
@@ -159,7 +171,8 @@ public static class ExtractedModClassifier
                 nestedDirectory, Path.GetFileName(nestedArchives[0]), libraryRepository, ue4ssModRepository,
                 prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, ue4ssNamesAlreadyInstalledInGame,
                 nestedDepth + 1);
-            return nested.Requirements.Count > 0 || requirements.Count == 0 ? nested : nested with { Requirements = requirements };
+            var merged = nested.Requirements.Count > 0 || requirements.Count == 0 ? nested : nested with { Requirements = requirements };
+            return warnings.Count == 0 ? merged : merged with { Warnings = [.. warnings, .. merged.Warnings] };
         }
 
         if (nestedArchives.Length > 1)
@@ -194,11 +207,11 @@ public static class ExtractedModClassifier
         // the full Nexus file name with its id/timestamp/hash tail (a real complaint).
         var fallbackName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName));
         var stagedName = ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName, ue4ssNamesAlreadyInstalledInGame);
-        return Single(stagedName, stagedName, PendingDownloadActivationKind.Ue4ssMod, isOpaquePak: false, requirements);
+        return Single(stagedName, stagedName, PendingDownloadActivationKind.Ue4ssMod, isOpaquePak: false, requirements, warnings);
     }
 
-    private static ClassifiedImport Single(string entryName, string folderName, PendingDownloadActivationKind kind, bool isOpaquePak, IReadOnlyList<string> requirements) =>
-        new(entryName, folderName, kind, isOpaquePak, [new PendingDownloadActivatedItem(folderName, kind)], requirements);
+    private static ClassifiedImport Single(string entryName, string folderName, PendingDownloadActivationKind kind, bool isOpaquePak, IReadOnlyList<string> requirements, IReadOnlyList<string> warnings) =>
+        new(entryName, folderName, kind, isOpaquePak, [new PendingDownloadActivatedItem(folderName, kind)], requirements, warnings);
 
     /// <summary>Every "&lt;anything&gt;\ue4ss\Mods\&lt;Mod&gt;" folder that actually contains files — the UE4SS install layout.</summary>
     private static List<string> FindGameLayoutUe4ssModFolders(string root)

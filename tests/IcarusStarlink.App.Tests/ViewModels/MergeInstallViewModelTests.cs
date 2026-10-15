@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
@@ -84,7 +85,8 @@ public sealed class MergeInstallViewModelTests : IDisposable
         FakeRebuildService? rebuildService = null,
         FakeInstallService? installService = null,
         FakeProfileStore? profileStore = null,
-        FakeSettingsService? settingsService = null)
+        FakeSettingsService? settingsService = null,
+        bool gameRunning = false)
     {
         settingsService ??= new FakeSettingsService();
 
@@ -117,7 +119,13 @@ public sealed class MergeInstallViewModelTests : IDisposable
             Path.Combine(_tempRoot, "NoRealGameData"),
             outputPakPath,
             Path.Combine(_tempRoot, "Backups"),
-            _messenger);
+            _messenger,
+            new FakeGameProcessChecker(gameRunning));
+    }
+
+    private sealed class FakeGameProcessChecker(bool running) : IGameProcessChecker
+    {
+        public bool IsRunning() => running;
     }
 
     private static LibraryEntry MakeEntry(string folderName, bool isOpaquePak = false) => new()
@@ -476,6 +484,30 @@ public sealed class MergeInstallViewModelTests : IDisposable
     // ---------------------------------------------------------------------------------------
     // 4. RebuildAndInstallAsync's own top-level orchestration
     // ---------------------------------------------------------------------------------------
+
+    /// <summary>The one install path that had no game-running guard: Icarus holds its Paks folder open, so a pak copied under it can leave a half-replaced pack.</summary>
+    [Fact]
+    public async Task RebuildAndInstall_IcarusIsRunning_RebuildsButRefusesToInstall()
+    {
+        var libraryRepository = new FakeLibraryRepository();
+        libraryRepository.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        var rebuildService = new FakeRebuildService
+        {
+            Result = new RebuildResult(MergedFileCount: 1, PackedFileCount: 1, OutputPakPath: "out.pak", ManifestPath: "out.manifest", Warnings: [], Notes: []),
+        };
+        var installService = new FakeInstallService();
+        var settingsService = new FakeSettingsService();
+        settingsService.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        settingsService.Current.IcarusContentPath = Path.Combine(_tempRoot, "FakeContent");
+        var vm = CreateViewModel(libraryRepository: libraryRepository, rebuildService: rebuildService, installService: installService, settingsService: settingsService, gameRunning: true);
+        vm.Queue.Add(MakeEntry("ModA"));
+
+        await vm.RebuildAndInstallCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, rebuildService.RebuildCallCount);
+        Assert.Equal(0, installService.InstallCallCount);
+        Assert.Contains("Icarus is running", vm.InstallStatusMessage);
+    }
 
     [Fact]
     public async Task RebuildAndInstall_EmptyQueueNoGameplayOptions_NeitherRebuildNorInstallEverRuns()

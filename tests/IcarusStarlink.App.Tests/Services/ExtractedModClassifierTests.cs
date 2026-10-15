@@ -106,6 +106,32 @@ public sealed class ExtractedModClassifierTests : IDisposable
     }
 
     [Fact]
+    public async Task ClassifyAndImport_IoStoreContainerInside_IsRefusedWithTheReason()
+    {
+        File.WriteAllBytes(Path.Combine(_extractedDir, "pakchunk99-Windows.utoc"), [1]);
+        File.WriteAllBytes(Path.Combine(_extractedDir, "pakchunk99-Windows.ucas"), [1]);
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Some.zip", new FakeLibraryRepository(), new FakeUe4ssModRepository(), new FakePrebuiltPakImporter(), "SomeDataFolder", null));
+
+        Assert.Contains("IoStore", ex.Message);
+    }
+
+    [Fact]
+    public async Task ClassifyAndImport_SplitAssetPair_StillImportsButWarns()
+    {
+        ExmodFolder.Write(_extractedDir, BuildRealExmod());
+        Directory.CreateDirectory(Path.Combine(_extractedDir, "BP"));
+        File.WriteAllBytes(Path.Combine(_extractedDir, "BP", "Lonely.uasset"), [1]);
+
+        var result = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Some.zip", new FakeLibraryRepository(), new FakeUe4ssModRepository(), new FakePrebuiltPakImporter(), "SomeDataFolder", null);
+
+        Assert.Equal(PendingDownloadActivationKind.Library, result.Kind);
+        Assert.Contains(result.Warnings, w => w.Contains("Lonely.uasset"));
+    }
+
+    [Fact]
     public async Task ClassifyAndImport_FolderContainsAnExmodFile_ImportsThroughLibraryRepositoryAsAnExmodMod()
     {
         ExmodFolder.Write(_extractedDir, BuildRealExmod());

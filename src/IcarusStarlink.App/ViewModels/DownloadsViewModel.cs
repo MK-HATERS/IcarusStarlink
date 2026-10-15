@@ -1113,6 +1113,15 @@ public sealed partial class DownloadsViewModel : ObservableObject
             ? $"Activated {landed[0]}."
             : $"Activated {landed.Count} parts: {string.Join(", ", landed)}.";
         statusMessage += DescribeRequirements(classified.Requirements);
+        foreach (var warning in classified.Warnings)
+        {
+            _activityLog.Log($"{originalFileName}: {warning}", ActivityEntryKind.Warning);
+        }
+
+        if (classified.Warnings.Count > 0)
+        {
+            statusMessage += $" Warning: {classified.Warnings[0]}" + (classified.Warnings.Count > 1 ? $" (+{classified.Warnings.Count - 1} more in the Activity panel)" : "");
+        }
 
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         return (statusMessage, classified.Items, classified.Requirements);
@@ -1240,6 +1249,26 @@ public sealed partial class DownloadsViewModel : ObservableObject
         {
             // Best-effort — see the doc comment above. The ID link above already succeeded regardless.
         }
+    }
+
+    /// <summary>
+    /// The follow-through on a README requirement the activation flagged as NOT installed: jump to
+    /// the Nexus page searching for it by name. The first missing one is searched; the rest are
+    /// named in the status line so the user knows there are more.
+    /// </summary>
+    [RelayCommand]
+    private void FindRequirementOnNexus(PendingDownloadItemViewModel? item)
+    {
+        if (item is null || item.MissingRequirementNames.Count == 0)
+        {
+            return;
+        }
+
+        var missing = item.MissingRequirementNames;
+        WeakReferenceMessenger.Default.Send(new SearchNexusMessage(missing[0]));
+        PendingDownloadStatusMessage = missing.Count == 1
+            ? $"Searching Nexus for '{missing[0]}'."
+            : $"Searching Nexus for '{missing[0]}' — this download also needs: {string.Join(", ", missing.Skip(1))}.";
     }
 
     private string ResolveLocalFilePath(PendingDownloadItemViewModel item) =>

@@ -811,6 +811,15 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// every multi-select import path below, so "what kind of thing is this path" is decided in
     /// exactly one place.
     /// </summary>
+    /// <summary>Lint findings from an import (ModLints via the classifier) — each one a real "this part of the mod is broken" note the user should see, kept in the Activity panel so it survives the next status line.</summary>
+    private void LogImportWarnings(string path, IReadOnlyList<string> warnings)
+    {
+        foreach (var warning in warnings)
+        {
+            _activityLog.Log($"{Path.GetFileName(path)}: {warning}", ActivityEntryKind.Warning);
+        }
+    }
+
     private async Task ImportOnePath(string path)
     {
         if (Directory.Exists(path))
@@ -830,12 +839,14 @@ public sealed partial class LibraryViewModel : ObservableObject
             try
             {
                 FolderBackup.CopyDirectory(path, tempCopy);
-                var (folderEntryName, folderFolderName, folderKind, _) = await ExtractedModClassifier.ClassifyAndImport(
+                var folderResult = await ExtractedModClassifier.ClassifyAndImport(
                     tempCopy, path, _repository, _ue4ssModRepository,
                     _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath);
+                var (folderEntryName, folderFolderName, folderKind, _) = folderResult;
                 _activityLog.Log(
                     folderKind == PendingDownloadActivationKind.Library ? $"Imported '{folderEntryName}'." : $"Imported '{folderFolderName}' as a UE4SS mod.",
                     ActivityEntryKind.Success);
+                LogImportWarnings(path, folderResult.Warnings);
             }
             finally
             {
@@ -863,12 +874,14 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             AnyArchiveExtractor.ExtractToDirectory(path, tempExtractDirectory);
-            var (entryName, folderName, kind, _) = await ExtractedModClassifier.ClassifyAndImport(
+            var archiveResult = await ExtractedModClassifier.ClassifyAndImport(
                 tempExtractDirectory, path, _repository, _ue4ssModRepository,
                 _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath);
+            var (entryName, folderName, kind, _) = archiveResult;
             _activityLog.Log(
                 kind == PendingDownloadActivationKind.Library ? $"Imported '{entryName}'." : $"Imported '{folderName}' as a UE4SS mod.",
                 ActivityEntryKind.Success);
+            LogImportWarnings(path, archiveResult.Warnings);
         }
         finally
         {
@@ -1588,6 +1601,52 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         Downloads.CatalogSearchText = item.Name;
         SelectedTabIndex = 2;
+    }
+
+    /// <summary>
+    /// One action over the update list the last check produced. Database-sourced mods update in
+    /// place (the same delete-then-reimport GetUpdateAsync does), one after another. Nexus-sourced
+    /// ones can't be fetched by this app without a file ID, so instead of opening a browser tab per
+    /// mod the Nexus page is shown with its "Updates only" filter on — every outdated mod's own
+    /// Download button is right there.
+    /// </summary>
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task UpdateAllAsync()
+    {
+        var outdated = AllLibraryItems().Where(i => i.HasUpdateAvailable).ToList();
+        if (outdated.Count == 0)
+        {
+            StatusMessage = "Nothing to update — run Check for updates first, or everything is already current.";
+            return;
+        }
+
+        var databaseItems = outdated.Where(i => string.Equals(i.Source, "Database", StringComparison.OrdinalIgnoreCase)).ToList();
+        var nexusItems = outdated.Where(i => string.Equals(i.Source, "Nexus", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var updated = 0;
+        foreach (var item in databaseItems)
+        {
+            await GetUpdateAsync(item);
+            if (!item.HasUpdateAvailable)
+            {
+                updated++;
+            }
+        }
+
+        if (nexusItems.Count > 0)
+        {
+            var nexus = _nexusCatalogViewModel();
+            nexus.SearchText = "";
+            nexus.UpdatesOnly = true;
+            WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("nexus"));
+        }
+
+        StatusMessage = (databaseItems.Count, nexusItems.Count) switch
+        {
+            (> 0, 0) => $"Updated {updated} of {databaseItems.Count} catalog mod(s).",
+            (0, > 0) => $"{nexusItems.Count} Nexus mod(s) have updates — the Nexus page is showing just those; use each one's Download button.",
+            _ => $"Updated {updated} of {databaseItems.Count} catalog mod(s); {nexusItems.Count} Nexus mod(s) are listed on the Nexus page for download.",
+        };
     }
 
     /// <summary>The spec's "Nexus search from a library row" — searches Nexus for this mod by name, for a mod that has no Nexus link yet.</summary>
