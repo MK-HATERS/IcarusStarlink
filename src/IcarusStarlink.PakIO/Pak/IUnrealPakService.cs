@@ -86,6 +86,14 @@ public interface IUnrealPakService
     /// throw for — only a missing exe/pak file, or UnrealPak itself failing to run at all, throws.
     /// </summary>
     Task<PakVerifyResult> VerifyPakAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The pak's own mount point as UnrealPak -List reports it ("../../../Icarus/Content/Mods/X/"), or
+    /// null when it can't be read. Default implementation returns null so test fakes keep compiling
+    /// — see PakMountPoints for why RebuildService needs this.
+    /// </summary>
+    Task<string?> TryGetMountPointAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default) =>
+        Task.FromResult<string?>(null);
 }
 
 public sealed record UnrealPakExtractResult(int ExtractedFileCount, WeeklyChangeReport? ChangeReport);

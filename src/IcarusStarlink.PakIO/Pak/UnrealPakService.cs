@@ -157,7 +157,7 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
     // real, already-installed IMM_Merged_Mod_P.pak via `-List`) — a pak whose files aren't
     // reachable under this mount point won't actually be found by the game at runtime, even
     // though the pak itself would build and extract just fine.
-    private const string GameContentMountPoint = "../../../Icarus/Content/";
+    private const string GameContentMountPoint = PakMountPoints.GameContent;
 
     /// <summary>
     /// Packs everything under stagingDirectory into one pak at outputPakPath. Built and verified
@@ -219,6 +219,28 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
     // summary lines ("291 files (...)", "Unreal pak executed in ...") don't have a quote right
     // after "Display: " so this pattern naturally skips them without special-casing.
     private static readonly Regex ListEntryPattern = new("""^LogPakFile: Display: "(?<path>[^"]+)" offset:""", RegexOptions.Compiled);
+
+    private static readonly Regex MountPointPattern = new(@"Mount point (?<mount>S+)", RegexOptions.Compiled);
+
+    public async Task<string?> TryGetMountPointAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default)
+    {
+        ValidateUnrealPakExePath(unrealPakExePath);
+        if (!File.Exists(pakFilePath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var result = await processRunner.RunAsync(unrealPakExePath, [pakFilePath, "-List"], cancellationToken);
+            var match = MountPointPattern.Match(result.StandardOutput);
+            return match.Success ? match.Groups["mount"].Value.Trim() : null;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
 
     public async Task<IReadOnlyList<string>> ListPakContentsAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default)
     {

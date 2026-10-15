@@ -72,6 +72,11 @@ public class RebuildServiceTests : IDisposable
 
         public string? PakPathToFailExtracting { get; set; }
 
+        public Dictionary<string, string> MountPointsByPakPath { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task<string?> TryGetMountPointAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult(MountPointsByPakPath.GetValueOrDefault(pakFilePath));
+
         public Task<int> ExtractPakAsync(
             string unrealPakExePath, string pakFilePath, string outputDirectory,
             CancellationToken cancellationToken = default, string? filter = null)
@@ -257,6 +262,48 @@ public class RebuildServiceTests : IDisposable
             ? Directory.GetDirectories(scratchRoot, "PrebuiltPakScratch_*").Where(d => File.Exists(Path.Combine(d, marker))).ToList()
             : [];
         Assert.Empty(leaked);
+    }
+
+    /// <summary>
+    /// The WirelessPower bug: its model pak mounts at Content/Mods/WirelessPower/, UnrealPak extracts
+    /// it FLAT, and the merged pak mounted the flat files at the content root — /Game/B_Body instead
+    /// of /Game/Mods/WirelessPower/B_Body — so the mod's models never loaded. The fold must restage
+    /// each prebuilt pak's files under the subfolder its own mount point names.
+    /// </summary>
+    [Fact]
+    public async Task RebuildAsync_PrebuiltPakWithADeeperMountPoint_IsFoldedInUnderThatSubfolder()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var modelPak = Path.Combine(_dataFolder, "..", "ZZ_WirelessPower_Model_P.pak");
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFilesByPakPath[modelPak] = new() { ["B_Body.uasset"] = "a", ["B_Body.uexp"] = "b" };
+        pakService.MountPointsByPakPath[modelPak] = "../../../Icarus/Content/Mods/WirelessPower/";
+        var service = new RebuildService(pakService);
+
+        await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [modelPak]);
+
+        Assert.Contains("Mods/WirelessPower/B_Body.uasset", pakService.StagedRelativePathsAtCallTime);
+        Assert.Contains("Mods/WirelessPower/B_Body.uexp", pakService.StagedRelativePathsAtCallTime);
+        Assert.DoesNotContain("B_Body.uasset", pakService.StagedRelativePathsAtCallTime);
+    }
+
+    [Fact]
+    public async Task RebuildAsync_PrebuiltPakMountedAtTheContentRoot_IsFoldedInAtTheRootAsBefore()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var pak = Path.Combine(_dataFolder, "..", "Plain_P.pak");
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFilesByPakPath[pak] = new() { ["BP/Thing.uasset"] = "a" };
+        pakService.MountPointsByPakPath[pak] = "../../../Icarus/Content/";
+        var service = new RebuildService(pakService);
+
+        await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [pak]);
+
+        Assert.Contains("BP/Thing.uasset", pakService.StagedRelativePathsAtCallTime);
     }
 
     [Fact]

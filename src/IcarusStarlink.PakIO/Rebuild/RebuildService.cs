@@ -46,11 +46,28 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             // Inside the try (an audit finding): with the loop outside it, the 2nd pak's extraction
             // throwing (a corrupt pak, a non-zero exit) leaked the 1st pak's already-extracted
             // scratch folder under TEMP forever — the finally below is what guarantees cleanup.
+            var prebuiltPakMountPrefixes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var prebuiltPakPath in prebuiltPakFilePaths)
             {
                 var prebuiltScratchDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"PrebuiltPakScratch_{Guid.NewGuid():N}");
                 prebuiltPakScratchDirectories[prebuiltPakPath] = prebuiltScratchDirectory;
                 await unrealPakService.ExtractPakAsync(unrealPakExePath, prebuiltPakPath, prebuiltScratchDirectory, cancellationToken);
+
+                // UnrealPak -Extract writes a pak's files flat relative to ITS mount point, which can
+                // sit below the content root (found live: WirelessPower's model pak mounts at
+                // Content/Mods/WirelessPower/). Folding those files in at the staging root — the old
+                // behavior — mounted them at /Game/<file> in the merged pak, so the mod's models
+                // never loaded. The prefix restages them where the original pak had them; see
+                // PakMountPoints.
+                var mountPoint = await unrealPakService.TryGetMountPointAsync(unrealPakExePath, prebuiltPakPath, cancellationToken);
+                if (PakMountPoints.IsOutsideGameContent(mountPoint))
+                {
+                    report.AddWarning(
+                        $"Prebuilt pak '{Path.GetFileName(prebuiltPakPath)}' mounts outside the game's Content folder ('{mountPoint}') — "
+                        + "the merged pak can't reproduce that, so its files are folded in at the content root and may not load.");
+                }
+
+                prebuiltPakMountPrefixes[prebuiltPakPath] = PakMountPoints.RelativePrefixUnderGameContent(mountPoint);
             }
 
             // The merge computation (reading every required base-game JSON file, resolving field
@@ -82,7 +99,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                     progress?.Report(new RebuildStageProgress("Folding in prebuilt paks…", 50));
                 }
 
-                FoldInUnmergedPrebuiltPakFiles(prebuiltPakFilePaths, prebuiltPakScratchDirectories, prebuiltPakDiffedPaths, stagingDirectory, report);
+                FoldInUnmergedPrebuiltPakFiles(prebuiltPakFilePaths, prebuiltPakScratchDirectories, prebuiltPakDiffedPaths, prebuiltPakMountPrefixes, stagingDirectory, report);
 
                 progress?.Report(new RebuildStageProgress("Packing…", 75));
                 var result = await PackAndVerifyAsync(
@@ -214,7 +231,8 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     /// </summary>
     private static void FoldInUnmergedPrebuiltPakFiles(
         IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyDictionary<string, string> prebuiltPakScratchDirectories,
-        IReadOnlyDictionary<string, IReadOnlySet<string>> prebuiltPakDiffedPaths, string stagingDirectory, MergeReport report)
+        IReadOnlyDictionary<string, IReadOnlySet<string>> prebuiltPakDiffedPaths, IReadOnlyDictionary<string, string> prebuiltPakMountPrefixes,
+        string stagingDirectory, MergeReport report)
     {
         // Scanned once, up front — previously rebuilt from scratch on every single iteration of the
         // loop below (a real cost for a queue with several prebuilt paks attached). Updated
@@ -232,14 +250,19 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
             var prebuiltScratchDirectory = prebuiltPakScratchDirectories[prebuiltPakPath];
             var diffedPaths = prebuiltPakDiffedPaths[prebuiltPakPath];
+            var mountPrefix = prebuiltPakMountPrefixes.GetValueOrDefault(prebuiltPakPath, "");
 
             foreach (var sourceFile in Directory.GetFiles(prebuiltScratchDirectory, "*", SearchOption.AllDirectories))
             {
-                var relativePath = Path.GetRelativePath(prebuiltScratchDirectory, sourceFile).Replace('\\', '/');
-                if (diffedPaths.Contains(relativePath))
+                var scratchRelativePath = Path.GetRelativePath(prebuiltScratchDirectory, sourceFile).Replace('\\', '/');
+                if (diffedPaths.Contains(scratchRelativePath))
                 {
                     continue;
                 }
+
+                // Where this file sits under the game's Content root once its pak's own mount point
+                // is honored (see the extraction loop in RebuildAsync).
+                var relativePath = mountPrefix + scratchRelativePath;
 
                 // Add's own return value doubles as the collision check — false means this exact
                 // relative path was already staged (by a queued mod's own merge/asset output, or an
