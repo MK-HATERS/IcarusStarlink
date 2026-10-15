@@ -63,6 +63,34 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     /// <summary>"Needs: ArcFission Library 1.2.0 or newer; UE4SS (experimental build)" — the README's own requirement lines, for the row.</summary>
     public string? RequirementsSummary => Requirements.Count == 0 ? null : $"Needs: {string.Join("; ", Requirements)}";
 
+    /// <summary>The requirement NAMES (see ModReadmeRequirements.ExtractName) nothing staged or in the Library satisfies right now — the loader itself excluded. Drives the row's "Find on Nexus".</summary>
+    public IReadOnlyList<string> MissingRequirementNames
+    {
+        get
+        {
+            if (Requirements.Count == 0)
+            {
+                return [];
+            }
+
+            var installed = _ue4ssModRepository.GetAll().Concat(_libraryRepository.GetAll().Select(e => e.Name)).ToList();
+            return Requirements
+                .Where(r => !ModReadmeRequirements.IsLoaderRequirement(r) && !ModReadmeRequirements.IsSatisfiedBy(r, installed))
+                .Select(ModReadmeRequirements.ExtractName)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    public bool HasMissingRequirements => MissingRequirementNames.Count > 0;
+
+    public string FindOnNexusLabel => MissingRequirementNames.Count switch
+    {
+        0 => "",
+        1 => $"Find \"{MissingRequirementNames[0]}\" on Nexus",
+        _ => $"Find \"{MissingRequirementNames[0]}\" on Nexus (+{MissingRequirementNames.Count - 1} more)",
+    };
+
     public void SetActivated(IReadOnlyList<PendingDownloadActivatedItem> items, IReadOnlyList<string> requirements)
     {
         ActivatedItems = items;
@@ -86,6 +114,9 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
         OnPropertyChanged(nameof(WasDeleted));
         OnPropertyChanged(nameof(ActionLabel));
         OnPropertyChanged(nameof(RequirementsSummary));
+        OnPropertyChanged(nameof(MissingRequirementNames));
+        OnPropertyChanged(nameof(HasMissingRequirements));
+        OnPropertyChanged(nameof(FindOnNexusLabel));
     }
 
     partial void OnActivatedFolderNameChanged(string? value) => Refresh();

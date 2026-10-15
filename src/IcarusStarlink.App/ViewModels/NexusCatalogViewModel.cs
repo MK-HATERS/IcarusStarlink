@@ -174,6 +174,14 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         // here would silently fire on every import anywhere in the app).
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((NexusCatalogViewModel)recipient).RebuildRows());
 
+        // "Find on Nexus" from the pending-downloads list (a README requirement the activation
+        // found missing): search here, then the shell shows this page.
+        WeakReferenceMessenger.Default.Register<SearchNexusMessage>(this, (recipient, message) =>
+        {
+            ((NexusCatalogViewModel)recipient).SearchText = message.SearchText;
+            WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("nexus"));
+        });
+
         // Settings' own Authorize/Sign out is the only place the saved key changes — re-check
         // Premium status right then instead of only on next launch, so a user who signs in while
         // already on this page sees Download/Open page's prominence update immediately.
