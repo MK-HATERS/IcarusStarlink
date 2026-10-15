@@ -580,6 +580,16 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
             RecomputeHasPendingUe4ssChanges();
 
+            // A sidecar whose mod folder is gone (deleted by hand, renamed) is dead weight that can
+            // attach a stale Nexus link to an unrelated mod landing under the same name later —
+            // found live as two orphaned "ArcFissionLibrary … _2.json" files.
+            var liveNames = new HashSet<string>(states.Select(s => s.Name), StringComparer.OrdinalIgnoreCase);
+            foreach (var stale in _ue4ssModMetaStore.ListFolderNames().Where(n => !liveNames.Contains(n)).ToList())
+            {
+                _ue4ssModMetaStore.Delete(stale);
+            }
+
+            _packagesByNexusModId = BuildPackages();
             Ue4ssStatusMessage = states.Count == 0 ? "No UE4SS mods found." : null;
         }
         catch (Exception ex)
@@ -589,6 +599,195 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     private void RecomputeHasPendingUe4ssChanges() => HasPendingUe4ssChanges = Ue4ssMods.Any(m => m.IsDirty);
+
+    /// <summary>
+    /// One Nexus download that landed as several things — a Lua mod plus its asset paks (WirelessPower)
+    /// — is one "package": every part carries the same Nexus mod ID (LibraryEntry.NexusModId,
+    /// Ue4ssModMeta.NexusModId). Most Nexus mods are a single part and never form one.
+    /// </summary>
+    private sealed record ModPackage(int NexusModId, string DisplayName, IReadOnlyList<string> LibraryFolderNames, IReadOnlyList<string> Ue4ssFolderNames)
+    {
+        public int PartCount => LibraryFolderNames.Count + Ue4ssFolderNames.Count;
+        public string Label => $"Part of '{DisplayName}' ({PartCount} parts)";
+    }
+
+    private IReadOnlyDictionary<int, ModPackage> _packagesByNexusModId = new Dictionary<int, ModPackage>();
+
+    /// <summary>Groups every Library entry and staged UE4SS mod by Nexus mod ID; only groups with two or more parts count. Also stamps PackageLabel onto every visible row (null for a stand-alone mod).</summary>
+    private Dictionary<int, ModPackage> BuildPackages()
+    {
+        var libraryByNexusId = _repository.GetAll()
+            .Where(e => e.NexusModId is not null)
+            .GroupBy(e => e.NexusModId!.Value)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var ue4ssByNexusId = new Dictionary<int, List<(string Folder, string? NexusName)>>();
+        foreach (var folderName in SafeStagedUe4ssNames())
+        {
+            var meta = _ue4ssModMetaStore.Load(folderName);
+            if (meta.NexusModId is { } id)
+            {
+                if (!ue4ssByNexusId.TryGetValue(id, out var list))
+                {
+                    ue4ssByNexusId[id] = list = [];
+                }
+
+                list.Add((folderName, meta.NexusName));
+            }
+        }
+
+        var packages = new Dictionary<int, ModPackage>();
+        foreach (var id in libraryByNexusId.Keys.Union(ue4ssByNexusId.Keys))
+        {
+            var libraryEntries = libraryByNexusId.GetValueOrDefault(id) ?? [];
+            var ue4ss = ue4ssByNexusId.GetValueOrDefault(id) ?? [];
+            if (libraryEntries.Count + ue4ss.Count < 2)
+            {
+                continue;
+            }
+
+            // The Nexus title: the UE4SS sidecar records it verbatim; a Library part's name is
+            // "<title> — <part>" (see DownloadsViewModel.RecordNexusMetadataAsync), so cut at the dash.
+            var displayName = ue4ss.Select(u => u.NexusName).FirstOrDefault(n => !string.IsNullOrWhiteSpace(n))
+                ?? libraryEntries.Select(e => e.Name.Split(" — ")[0]).FirstOrDefault()
+                ?? $"Nexus mod #{id}";
+            packages[id] = new ModPackage(id, displayName, [.. libraryEntries.Select(e => e.FolderName)], [.. ue4ss.Select(u => u.Folder)]);
+        }
+
+        foreach (var item in AllLibraryItems())
+        {
+            item.PackageLabel = item.NexusModId is { } id && packages.TryGetValue(id, out var package) ? package.Label : null;
+        }
+
+        foreach (var row in Ue4ssMods)
+        {
+            row.PackageLabel = row.NexusModId is { } id && packages.TryGetValue(id, out var package) ? package.Label : null;
+        }
+
+        return packages;
+    }
+
+    /// <summary>Staged UE4SS names, or none when staging can't be read — package grouping must never break the Library reload.</summary>
+    private IReadOnlyList<string> SafeStagedUe4ssNames()
+    {
+        try
+        {
+            return _ue4ssModRepository.GetAll();
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Removes one UE4SS mod completely: out of the game's Mods folder if it's enabled there (backed
+    /// up first, through the same Apply path the Disable checkbox uses), then out of staging, then
+    /// its Nexus sidecar. Returns a failure reason or null.
+    /// </summary>
+    private string? DeleteUe4ssModCore(string folderName)
+    {
+        try
+        {
+            var contentPath = _settingsService.Current.IcarusContentPath;
+            if (!string.IsNullOrWhiteSpace(contentPath))
+            {
+                var modsFolder = Ue4ssGamePaths.ResolveModsFolder(contentPath);
+                if (_ue4ssModRepository.ListInstalledInGame(modsFolder).Contains(folderName, StringComparer.OrdinalIgnoreCase))
+                {
+                    var failures = _ue4ssModStateService.Apply(modsFolder, new Dictionary<string, bool> { [folderName] = false }, _backupDirectory);
+                    if (failures.Count > 0)
+                    {
+                        return failures[0].Reason;
+                    }
+                }
+            }
+
+            if (_ue4ssModRepository.GetAll().Contains(folderName, StringComparer.OrdinalIgnoreCase))
+            {
+                _ue4ssModRepository.Delete(folderName);
+            }
+
+            _ue4ssModMetaStore.Delete(folderName);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+    }
+
+    /// <summary>The UE4SS tab's own Delete — the verb that was missing entirely (a real report: "I can't delete UE4SS mods inside ISL"). A package member is deleted together with its Library paks via DeleteMods, so one confirmation names every part.</summary>
+    [RelayCommand]
+    private void DeleteUe4ssMod(Ue4ssModRowViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        if (item.IsBuiltIn)
+        {
+            Ue4ssStatusMessage = $"'{item.Name}' ships with the UE4SS loader itself — untick it and Apply to disable it instead.";
+            return;
+        }
+
+        if (item.NexusModId is { } id && _packagesByNexusModId.TryGetValue(id, out var package) && package.LibraryFolderNames.Count > 0)
+        {
+            var libraryParts = AllLibraryItems().Where(i => package.LibraryFolderNames.Contains(i.FolderName, StringComparer.OrdinalIgnoreCase)).ToList();
+            if (libraryParts.Count > 0)
+            {
+                DeleteMods(libraryParts);
+                return;
+            }
+        }
+
+        var confirm = _dialogService.Confirm(
+            item.RealIsEnabled
+                ? $"Delete '{item.Name}'?\n\nIt is removed from the game's Mods folder (a backup is kept under Backups\\UE4SS) and from this app's staging. Re-download it to get it back."
+                : $"Delete '{item.Name}'?\n\nIts staged folder is removed from disk. Re-download it to get it back.",
+            "Delete UE4SS mod", ThemedConfirmSeverity.Warning);
+        if (!confirm)
+        {
+            return;
+        }
+
+        var failure = DeleteUe4ssModCore(item.Name);
+        ReloadInstalledUe4ssMods();
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        Ue4ssStatusMessage = failure is null ? $"Deleted '{item.Name}'." : $"Couldn't delete '{item.Name}': {failure}";
+        _activityLog.Log(failure is null ? $"Deleted UE4SS mod '{item.Name}'." : $"Couldn't delete UE4SS mod '{item.Name}': {failure}",
+            failure is null ? ActivityEntryKind.Info : ActivityEntryKind.Warning);
+    }
+
+    /// <summary>Where this mod's files actually are right now — the game's Mods folder when enabled, this app's staging when not.</summary>
+    [RelayCommand]
+    private void OpenUe4ssModFolder(Ue4ssModRowViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var contentPath = _settingsService.Current.IcarusContentPath;
+            var path = item.RealIsEnabled && !string.IsNullOrWhiteSpace(contentPath)
+                ? Path.Combine(Ue4ssGamePaths.ResolveModsFolder(contentPath), item.Name)
+                : _ue4ssModRepository.GetFolderPath(item.Name);
+            if (!Directory.Exists(path))
+            {
+                Ue4ssStatusMessage = $"'{item.Name}' has no folder at {path}.";
+                return;
+            }
+
+            UrlOpener.TryOpen(path);
+        }
+        catch (Exception ex)
+        {
+            Ue4ssStatusMessage = $"Couldn't open the folder: {ex.Message}";
+        }
+    }
 
     /// <summary>
     /// Moves every dirty row to match its toggled state — enabling copies staging→game, disabling
@@ -1960,16 +2159,52 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
+        // A package (one Nexus download that landed as a Lua mod plus asset paks) is deleted whole:
+        // the selection is widened to every sibling part, and the UE4SS parts come out too.
+        // Half a WirelessPower is a broken WirelessPower, and the user has no way to know which
+        // three rows belong together otherwise.
+        var selectedFolders = new HashSet<string>(items.Select(i => i.FolderName), StringComparer.OrdinalIgnoreCase);
+        var packages = items
+            .Where(i => i.NexusModId is not null)
+            .Select(i => _packagesByNexusModId.GetValueOrDefault(i.NexusModId!.Value))
+            .Where(p => p is not null)
+            .Select(p => p!)
+            .DistinctBy(p => p.NexusModId)
+            .ToList();
+        var siblingItems = AllLibraryItems()
+            .Where(i => !selectedFolders.Contains(i.FolderName) && packages.Any(p => p.LibraryFolderNames.Contains(i.FolderName, StringComparer.OrdinalIgnoreCase)))
+            .ToList();
+        var ue4ssParts = packages.SelectMany(p => p.Ue4ssFolderNames).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (siblingItems.Count > 0)
+        {
+            items = [.. items, .. siblingItems];
+        }
+
         // Deleting removes each mod's real folder from disk and can't be undone from here — and a
         // right-click menu is far easier to hit by accident than a dedicated button, so this always
         // asks first, matching how every other irreversible action in this app behaves. Names the
         // real count rather than a generic "these mods" so a fat-fingered bulk selection is obvious
         // before it's too late to back out.
-        var confirm = _dialogService.Confirm(
-            items.Count == 1
-                ? $"Delete '{items[0].Name}' from your Library?\n\nIts folder is removed from disk. This can't be undone (unless you made a backup first)."
-                : $"Delete {items.Count} mods from your Library?\n\nTheir folders are removed from disk. This can't be undone (unless you made a backup first).",
-            "Delete mod(s)", ThemedConfirmSeverity.Warning);
+        string message;
+        if (packages.Count == 1 && items.Count + ue4ssParts.Count == packages[0].PartCount)
+        {
+            var package = packages[0];
+            var partLines = items.Select(i => $"  • {i.Name} (Library)")
+                .Concat(ue4ssParts.Select(n => $"  • {n} (UE4SS mod)"));
+            message = $"Delete '{package.DisplayName}' and all {package.PartCount} of its parts?\n\n{string.Join("\n", partLines)}\n\nThe folders are removed from disk; an enabled UE4SS part is taken out of the game's Mods folder (backed up first). Run Merge & Install afterwards to drop the paks from the game. This can't be undone (unless you made a backup first).";
+        }
+        else
+        {
+            message = items.Count == 1
+                ? $"Delete '{items[0].Name}' from your Library?\n\nIts folder is removed from disk. Run Merge & Install afterwards to drop it from the game. This can't be undone (unless you made a backup first)."
+                : $"Delete {items.Count} mods from your Library?\n\nTheir folders are removed from disk. Run Merge & Install afterwards to drop them from the game. This can't be undone (unless you made a backup first).";
+            if (ue4ssParts.Count > 0)
+            {
+                message += $"\n\nThese came with UE4SS mods from the same download, which are removed too: {string.Join(", ", ue4ssParts)}.";
+            }
+        }
+
+        var confirm = _dialogService.Confirm(message, "Delete mod(s)", ThemedConfirmSeverity.Warning);
         if (!(confirm))
         {
             return;
@@ -1977,6 +2212,19 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         var deletedCount = 0;
         var failures = new List<string>();
+        foreach (var ue4ssPart in ue4ssParts)
+        {
+            var failure = DeleteUe4ssModCore(ue4ssPart);
+            if (failure is null)
+            {
+                _activityLog.Log($"Deleted UE4SS mod '{ue4ssPart}' (part of the same download).", ActivityEntryKind.Info);
+            }
+            else
+            {
+                failures.Add($"{ue4ssPart}: {failure}");
+            }
+        }
+
         foreach (var item in items)
         {
             var name = item.Name;
@@ -2018,13 +2266,20 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         ClearBulkSelection();
+        var nextStep = deletedCount > 0 ? " Run Merge & Install to remove it from the game." : "";
         StatusMessage = failures.Count switch
         {
-            0 when deletedCount == 1 => $"Deleted '{items[0].Name}'.",
-            0 => $"Deleted {deletedCount} mod(s).",
+            0 when deletedCount == 1 && ue4ssParts.Count == 0 => $"Deleted '{items[0].Name}'.{nextStep}",
+            0 when packages.Count == 1 && ue4ssParts.Count > 0 => $"Deleted '{packages[0].DisplayName}' ({deletedCount + ue4ssParts.Count} parts).{nextStep}",
+            0 => $"Deleted {deletedCount} mod(s).{nextStep}",
             _ => $"Deleted {deletedCount} of {items.Count} — {string.Join("; ", failures)}",
         };
         Reload();
+        if (ue4ssParts.Count > 0)
+        {
+            ReloadInstalledUe4ssMods();
+        }
+
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
     }
 
@@ -2127,6 +2382,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         ModCount = groups.Sum(g => g.Entries.Count);
         GroupCount = groups.Count(g => g.IsFamily);
+        _packagesByNexusModId = BuildPackages();
 
         // A folder that's visibly on disk but unreadable (corrupt EXMOD, locked file) was only
         // ever explained in the log file — surfaced here so "why isn't my mod showing?" has an

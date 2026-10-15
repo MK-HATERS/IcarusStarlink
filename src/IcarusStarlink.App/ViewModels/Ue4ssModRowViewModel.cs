@@ -48,6 +48,14 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     public bool RealIsEnabled { get; }
 
+    /// <summary>"Part of 'Wireless Power' (3 parts)" when this Lua mod came from the same Nexus download as one or more Library paks — set by LibraryViewModel after a reload; null for a stand-alone mod.</summary>
+    [ObservableProperty]
+    private string? _packageLabel;
+
+    public bool IsPartOfPackage => !string.IsNullOrEmpty(PackageLabel);
+
+    partial void OnPackageLabelChanged(string? value) => OnPropertyChanged(nameof(IsPartOfPackage));
+
     /// <summary>Whether this is one of UE4SS's own bundled mods (or its shared\ infrastructure folder) rather than something the user installed themselves — see IUe4ssLoaderInstallService.IsFrameworkOwned. Drives the "Default" badge, and whether Link to Nexus even makes sense to offer at all (a framework mod has no standalone Nexus page of its own).</summary>
     public bool IsBuiltIn { get; }
 

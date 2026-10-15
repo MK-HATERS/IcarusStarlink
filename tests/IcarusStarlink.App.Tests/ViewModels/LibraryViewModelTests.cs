@@ -295,6 +295,34 @@ public sealed class LibraryViewModelTests
         Assert.Equal(1, vm.ModCount);
     }
 
+    /// <summary>
+    /// One Nexus download that landed as several Library rows (WirelessPower's icon and model
+    /// paks share Nexus mod ID 361) is deleted whole, with one confirmation that names every part —
+    /// half a bundle is a broken bundle, and nothing else tells the user the rows belong together.
+    /// </summary>
+    [Fact]
+    public void DeleteItemCommand_OnOnePartOfANexusBundle_DeletesEveryPartAndNamesThemInTheConfirmation()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("ZZ_WirelessPower_Icon_P", name: "Wireless Power — Icon", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.AddMod("ZZ_WirelessPower_Model_P", name: "Wireless Power — Model", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.AddMod("Unrelated", source: "Nexus", nexusModId: 999);
+        var vm = harness.Build();
+        var icon = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ZZ_WirelessPower_Icon_P");
+        Assert.Equal("Part of 'Wireless Power' (2 parts)", icon.PackageLabel);
+        Assert.Null(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Unrelated").PackageLabel);
+
+        vm.DeleteItemCommand.Execute(icon);
+
+        var question = Assert.Single(harness.DialogService.ConfirmMessages);
+        Assert.Contains("Delete 'Wireless Power' and all 2 of its parts?", question);
+        Assert.Contains("Wireless Power — Icon", question);
+        Assert.Contains("Wireless Power — Model", question);
+        Assert.Equal(["ZZ_WirelessPower_Icon_P", "ZZ_WirelessPower_Model_P"], harness.Repository.DeleteCalls.OrderBy(n => n).ToList());
+        Assert.Equal(1, vm.ModCount);
+        Assert.Contains("Run Merge & Install", vm.StatusMessage);
+    }
+
     [Fact]
     public void DeleteItemCommand_WithAnActiveBulkSelection_DeletesEveryBulkSelectedItemInsteadOfJustTheClickedRow()
     {
@@ -1417,6 +1445,7 @@ public sealed class LibraryViewModelTests
 
     private sealed class FakeUe4ssModMetaStore : IUe4ssModMetaStore
     {
+        public IReadOnlyList<string> ListFolderNames() => [];
         public Ue4ssModMeta Load(string folderName) => new();
         public void Save(string folderName, Ue4ssModMeta meta) { }
         public void Delete(string folderName) { }

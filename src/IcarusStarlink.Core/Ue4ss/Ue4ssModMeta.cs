@@ -28,4 +28,7 @@ public interface IUe4ssModMetaStore
     void Save(string folderName, Ue4ssModMeta meta);
 
     void Delete(string folderName);
+
+    /// <summary>Every folder name that has a sidecar on disk — used to purge sidecars whose mod folder is long gone (deleted by hand, or renamed), so a stale Nexus link can never attach itself to an unrelated mod that later lands under the same name.</summary>
+    IReadOnlyList<string> ListFolderNames();
 }

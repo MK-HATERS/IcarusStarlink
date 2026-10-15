@@ -24,5 +24,10 @@ public sealed class Ue4ssModMetaStore(string metaDirectory, ILogger<Ue4ssModMeta
         }
     }
 
+    public IReadOnlyList<string> ListFolderNames() =>
+        Directory.Exists(metaDirectory)
+            ? [.. Directory.GetFiles(metaDirectory, "*.json").Select(Path.GetFileNameWithoutExtension).Where(n => n is not null).Select(n => n!)]
+            : [];
+
     private string GetPath(string folderName) => Path.Combine(metaDirectory, $"{folderName}.json");
 }

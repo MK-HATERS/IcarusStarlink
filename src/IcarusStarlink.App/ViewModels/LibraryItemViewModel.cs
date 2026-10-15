@@ -53,6 +53,10 @@ public sealed record MaterialParamsDisplay(
 
 public sealed partial class LibraryItemViewModel : ObservableObject
 {
+    /// <summary>"Part of 'Wireless Power' (3 parts)" when this entry came from the same Nexus download as other Library entries or a UE4SS mod — set by LibraryViewModel after every reload; null for a stand-alone mod.</summary>
+    [ObservableProperty]
+    private string? _packageLabel;
+
     private static readonly HashSet<string> ImageExtensions =
         new(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".bmp", ".gif" };
 

@@ -272,6 +272,7 @@ public class NexusCatalogViewModelTests
 
     private sealed class FakeUe4ssModMetaStore : IUe4ssModMetaStore
     {
+        public IReadOnlyList<string> ListFolderNames() => [];
         public Ue4ssModMeta Load(string folderName) => new();
         public void Save(string folderName, Ue4ssModMeta meta) => throw new NotSupportedException("Not exercised by these tests.");
         public void Delete(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
