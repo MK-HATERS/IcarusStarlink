@@ -80,19 +80,18 @@ public sealed class ExtractedModClassifierTests : IDisposable
         var result = await ExtractedModClassifier.ClassifyAndImport(
             _extractedDir, "WirelessPower 1.0.0 361 1 2026-10-12T13-49Z UAfrx4UUt.zip", library, ue4ssModRepository, prebuiltPakImporter, "SomeDataFolder", null);
 
-        // One download = one mod on one tab: a download with a Lua mod IS a UE4SS mod; its paks are
-        // attached to that mod (folded in by Merge & Install while enabled), never a Library row.
+        // One download = one mod: the Lua half is staged under its own name, and BOTH paks land in
+        // ONE Library entry named after it — never a row per pak.
         Assert.Equal(PendingDownloadActivationKind.Ue4ssMod, result.Kind);
-        var only = Assert.Single(result.Items);
-        Assert.Equal("WirelessPower", only.FolderName);
+        Assert.Equal(2, result.Items.Count);
         Assert.Equal(1, ue4ssModRepository.ImportFromFolderCallCount);
         Assert.EndsWith("WirelessPower", ue4ssModRepository.LastSourceFolder);
         Assert.Equal("WirelessPower", ue4ssModRepository.LastFallbackName);
         Assert.Equal(0, prebuiltPakImporter.ImportCallCount);
-        Assert.Empty(library.ImportPaksCalls);
-        var attached = Assert.Single(ue4ssModRepository.AttachPaksCalls);
-        Assert.Equal("WirelessPower", attached.FolderName);
-        Assert.Equal(["ZZ_WirelessPower_Icon_P.pak", "ZZ_WirelessPower_Model_P.pak"], attached.PakFilePaths.Select(Path.GetFileName).ToList());
+        var pakSet = Assert.Single(library.ImportPaksCalls);
+        Assert.Equal("WirelessPower", pakSet.Name);
+        Assert.Equal(["ZZ_WirelessPower_Icon_P.pak", "ZZ_WirelessPower_Model_P.pak"], pakSet.PakFilePaths.Select(Path.GetFileName).ToList());
+        Assert.Equal(1, result.Items.Count(i => i.Kind == PendingDownloadActivationKind.Library));
         Assert.Equal(2, result.Requirements.Count);
         Assert.Contains(result.Requirements, r => r.StartsWith("ArcFission Library"));
     }
@@ -568,10 +567,6 @@ public sealed class ExtractedModClassifierTests : IDisposable
 
     private sealed class FakeUe4ssModRepository : IUe4ssModRepository
     {
-        public List<(string FolderName, IReadOnlyList<string> PakFilePaths)> AttachPaksCalls { get; } = [];
-        public void AttachPaks(string folderName, IReadOnlyList<string> pakFilePaths) => AttachPaksCalls.Add((folderName, pakFilePaths));
-        public IReadOnlyList<string> ListAttachedPaks(string folderName) => [];
-        public void DeleteAttachedPaks(string folderName) { }
         public string Result { get; set; } = "SomeMod_1";
         public int ImportFromFolderCallCount { get; private set; }
         public string? LastSourceFolder { get; private set; }

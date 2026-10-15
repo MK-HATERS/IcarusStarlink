@@ -128,15 +128,13 @@ public sealed class DownloadsViewModelTests : IDisposable
         Assert.Contains("WirelessPower", harness.Ue4ss.GetAll());
         Assert.True(File.Exists(Path.Combine(harness.Ue4ss.GetFolderPath("WirelessPower"), "Scripts", "main.lua")));
         Assert.Empty(harness.PakImporter.ImportedPaks);
-        // One download = one mod on one tab: a Lua mod's paks are attached to it, never a Library row.
-        Assert.Empty(harness.Library.GetAll());
-        Assert.Equal(2, harness.Ue4ss.ListAttachedPaks("WirelessPower").Count);
+        Assert.Equal(2, Assert.Single(harness.Library.GetAll()).PakFileNames.Count);
         Assert.Equal(361, harness.Ue4ssMeta.Load("WirelessPower").NexusModId);
 
         var stored = harness.PendingStore.Entries.Single();
-        var only = Assert.Single(stored.ActivatedItems);
-        Assert.Equal(PendingDownloadActivationKind.Ue4ssMod, only.Kind);
-        Assert.Equal("WirelessPower", only.FolderName);
+        Assert.Equal(2, stored.ActivatedItems.Count);
+        Assert.Contains(stored.ActivatedItems, i => i.Kind == PendingDownloadActivationKind.Ue4ssMod && i.FolderName == "WirelessPower");
+        Assert.Equal(1, stored.ActivatedItems.Count(i => i.Kind == PendingDownloadActivationKind.Library));
         Assert.Contains(stored.Requirements, r => r.StartsWith("ArcFission Library"));
 
         Assert.Contains("NOT installed", vm.PendingDownloadStatusMessage);
@@ -146,7 +144,7 @@ public sealed class DownloadsViewModelTests : IDisposable
 
     /// <summary>The real report: both of WirelessPower's paks were renamed to the Nexus title, so the Library showed three rows called "Wireless Power" and the user read the extras as a dependency fetched behind their back.</summary>
     [Fact]
-    public async Task Activate_GameFolderBundle_IsOneUe4ssModWithItsPaksAttached()
+    public async Task Activate_GameFolderBundle_LandsAsOneLibraryModHoldingBothPaks()
     {
         var harness = new Harness(_root);
         var vm = harness.Build();
@@ -154,17 +152,12 @@ public sealed class DownloadsViewModelTests : IDisposable
 
         await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
 
-        var paks = harness.Ue4ss.ListAttachedPaks("WirelessPower");
-        Assert.Equal(["ZZ_WirelessPower_Icon_P.pak", "ZZ_WirelessPower_Model_P.pak"], paks.Select(Path.GetFileName).ToList());
-        Assert.All(paks, p => Assert.True(File.Exists(p)));
-        Assert.Empty(harness.Library.GetAll());
-        Assert.Equal("UE4SS mod", item.PartsSummary);
-        Assert.Equal("Nexus Mod 361", harness.Ue4ssMeta.Load("WirelessPower").NexusName);
-
-        // Reinstall replaces the attached paks too — no stale pak survives from the earlier copy.
-        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
-        Assert.Equal(2, harness.Ue4ss.ListAttachedPaks("WirelessPower").Count);
-        Assert.Equal(["WirelessPower"], harness.Ue4ss.GetAll());
+        var entry = Assert.Single(harness.Library.GetAll());
+        Assert.Equal("Nexus Mod 361", entry.Name);
+        Assert.Equal("WirelessPower", entry.FolderName);
+        Assert.Equal(["ZZ_WirelessPower_Icon_P.pak", "ZZ_WirelessPower_Model_P.pak"], entry.PakFileNames);
+        Assert.True(File.Exists(Path.Combine(harness.Library.GetFolderPath("WirelessPower"), "ZZ_WirelessPower_Model_P.pak")));
+        Assert.Equal("Library mod + UE4SS mod", item.PartsSummary);
     }
 
     /// <summary>A mod organizer resolves a dependency at download time with a question. Yes runs the normal download pipeline for the match Nexus search returned.</summary>

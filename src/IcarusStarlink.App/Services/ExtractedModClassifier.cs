@@ -106,33 +106,30 @@ public static class ExtractedModClassifier
         var layoutPaks = pakFiles.Where(IsUnderPaksFolder).ToArray();
         if (ue4ssModFolders.Count > 0)
         {
-            // A download with a Lua mod IS a UE4SS mod — one row on the UE4SS tab, named after
-            // itself. Any paks it ships (asset paks: models, icons) are attached to that mod, not
-            // turned into a Library entry: Merge & Install folds them in while the mod is enabled.
-            // One download is one mod, on the tab that matches what it is.
             var items = new List<PendingDownloadActivatedItem>();
+            var names = new List<string>();
+            var anyOpaque = false;
             foreach (var modFolder in ue4ssModFolders)
             {
                 var folderName = ue4ssModRepository.ImportFromFolder(modFolder, Path.GetFileName(modFolder), ue4ssNamesAlreadyInstalledInGame);
                 items.Add(new PendingDownloadActivatedItem(folderName, PendingDownloadActivationKind.Ue4ssMod));
+                names.Add(folderName);
             }
 
-            var attachedPaks = layoutPaks.Length > 0 ? layoutPaks : pakFiles;
-            if (attachedPaks.Length > 0)
+            var bundlePaks = layoutPaks.Length > 0 ? layoutPaks : pakFiles;
+            if (bundlePaks.Length > 0)
             {
-                foreach (var pak in attachedPaks)
-                {
-                    if (ModLints.CheckPakVersion(pak) is { } wrongVersion)
-                    {
-                        throw new FormatException(wrongVersion);
-                    }
-                }
-
-                ue4ssModRepository.AttachPaks(items[0].FolderName, attachedPaks);
+                // The mod's own name, not the first pak's: a single UE4SS folder names the whole
+                // download (WirelessPower); otherwise the upload's own file name does.
+                var modName = ue4ssModFolders.Count == 1 ? Path.GetFileName(ue4ssModFolders[0]) : downloadName;
+                var entry = await ImportPakSetAsync(bundlePaks, modName, libraryRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId);
+                items.Add(new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library));
+                names.Add(entry.Name);
+                anyOpaque |= entry.IsOpaquePak;
             }
 
             var primary = items[0];
-            return new ClassifiedImport(primary.FolderName, primary.FolderName, primary.Kind, false, items, requirements, warnings);
+            return new ClassifiedImport(names[0], primary.FolderName, primary.Kind, anyOpaque, items, requirements, warnings);
         }
 
         // One download = one mod, however many paks it ships (an icon pak and a model pak, a

@@ -30,11 +30,10 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     public Ue4ssModRowViewModel(
         string name, bool realIsEnabled, bool isBuiltIn, int? nexusModId, string? knownVersion,
-        string? minUe4ssVersion, string? installedLoaderVersion, Action onDirtyChanged, string? nexusName = null, int attachedPakCount = 0)
+        string? minUe4ssVersion, string? installedLoaderVersion, Action onDirtyChanged, string? nexusName = null)
     {
         Name = name;
         NexusName = nexusName;
-        AttachedPakCount = attachedPakCount;
         RealIsEnabled = realIsEnabled;
         _isEnabled = realIsEnabled;
         IsBuiltIn = isBuiltIn;
@@ -49,18 +48,13 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     public bool RealIsEnabled { get; }
 
-    /// <summary>How many asset paks this mod shipped with (IUe4ssModRepository.AttachPaks) — folded into the merged pak by Merge &amp; Install while the mod is enabled.</summary>
-    public int AttachedPakCount { get; }
+    /// <summary>"Part of 'Wireless Power' (3 parts)" when this Lua mod came from the same Nexus download as one or more Library paks — set by LibraryViewModel after a reload; null for a stand-alone mod.</summary>
+    [ObservableProperty]
+    private string? _packageLabel;
 
-    public bool HasAttachedPaks => AttachedPakCount > 0;
+    public bool IsPartOfPackage => !string.IsNullOrEmpty(PackageLabel);
 
-    /// <summary>"Ships 2 asset paks — folded in by Merge & Install while enabled": the one line that tells the user the paks exist and when they reach the game.</summary>
-    public string AttachedPaksSummary => AttachedPakCount switch
-    {
-        0 => "",
-        1 => RealIsEnabled ? "Ships 1 asset pak — run Merge & Install to put it in the game" : "Ships 1 asset pak — enable + Apply, then Merge & Install",
-        _ => RealIsEnabled ? $"Ships {AttachedPakCount} asset paks — run Merge & Install to put them in the game" : $"Ships {AttachedPakCount} asset paks — enable + Apply, then Merge & Install",
-    };
+    partial void OnPackageLabelChanged(string? value) => OnPropertyChanged(nameof(IsPartOfPackage));
 
     /// <summary>Whether this is one of UE4SS's own bundled mods (or its shared\ infrastructure folder) rather than something the user installed themselves — see IUe4ssLoaderInstallService.IsFrameworkOwned. Drives the "Default" badge, and whether Link to Nexus even makes sense to offer at all (a framework mod has no standalone Nexus page of its own).</summary>
     public bool IsBuiltIn { get; }

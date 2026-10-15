@@ -53,6 +53,10 @@ public sealed record MaterialParamsDisplay(
 
 public sealed partial class LibraryItemViewModel : ObservableObject
 {
+    /// <summary>"Part of 'Wireless Power' (3 parts)" when this entry came from the same Nexus download as other Library entries or a UE4SS mod — set by LibraryViewModel after every reload; null for a stand-alone mod.</summary>
+    [ObservableProperty]
+    private string? _packageLabel;
+
     /// <summary>How many .pak files an opaque entry holds (LibraryEntry.PakFileNames) — 0 for an EXMOD mod. A bundle (2+) is one mod that is never converted into an EXMOD.</summary>
     public int PakCount { get; }
 

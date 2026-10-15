@@ -259,9 +259,6 @@ public class NexusCatalogViewModelTests
 
     private sealed class FakeUe4ssModRepository : IUe4ssModRepository
     {
-        public void AttachPaks(string folderName, IReadOnlyList<string> pakFilePaths) => throw new NotSupportedException("Not exercised by these tests.");
-        public IReadOnlyList<string> ListAttachedPaks(string folderName) => [];
-        public void DeleteAttachedPaks(string folderName) { }
         public IReadOnlyList<string> GetAll() => [];
         public string Import(string zipFilePath, IReadOnlyCollection<string>? namesAlreadyInUse = null) =>
             throw new NotSupportedException("Not exercised by these tests.");

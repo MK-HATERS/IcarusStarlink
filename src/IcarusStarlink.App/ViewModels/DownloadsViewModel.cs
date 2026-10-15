@@ -990,7 +990,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
                     else if (activated.Kind == PendingDownloadActivationKind.Ue4ssMod)
                     {
                         ownUe4ssNames.Add(activated.FolderName);
-                        _ue4ssModRepository.DeleteAttachedPaks(activated.FolderName);
                         _ue4ssModRepository.Delete(activated.FolderName);
                         // Without this, a Reinstall's own Nexus-link sidecar (Ue4ss_Meta/{folder}.json)
                         // is orphaned on disk — never cleaned up, and a stale link if a different,
@@ -1027,7 +1026,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
                         .Where(folderName => _ue4ssModMetaStore.Load(folderName).NexusModId == item.ModId).ToList())
                     {
                         ownUe4ssNames.Add(existingUe4ssFolderName);
-                        _ue4ssModRepository.DeleteAttachedPaks(existingUe4ssFolderName);
                         _ue4ssModRepository.Delete(existingUe4ssFolderName);
                         _ue4ssModMetaStore.Delete(existingUe4ssFolderName);
                     }

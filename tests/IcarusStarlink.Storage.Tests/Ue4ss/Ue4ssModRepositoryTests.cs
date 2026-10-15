@@ -30,44 +30,6 @@ public class Ue4ssModRepositoryTests : IDisposable
         return zipPath;
     }
 
-    /// <summary>A UE4SS mod's asset paks live beside staging (never inside the mod folder, which moves into the game on enable) and survive the mod being enabled.</summary>
-    [Fact]
-    public void AttachPaks_StoresThePaksWithTheModAndTheySurviveEnable()
-    {
-        var repo = CreateRepository();
-        Directory.CreateDirectory(Path.Combine(_stagedDir, "WirelessPower", "Scripts"));
-        var source = Path.Combine(_dir, "paks");
-        Directory.CreateDirectory(source);
-        File.WriteAllBytes(Path.Combine(source, "ZZ_WirelessPower_Model_P.pak"), [1, 2]);
-        File.WriteAllBytes(Path.Combine(source, "ZZ_WirelessPower_Icon_P.pak"), [3]);
-
-        repo.AttachPaks("WirelessPower", [Path.Combine(source, "ZZ_WirelessPower_Model_P.pak"), Path.Combine(source, "ZZ_WirelessPower_Icon_P.pak")]);
-
-        var attached = repo.ListAttachedPaks("WirelessPower");
-        Assert.Equal(["ZZ_WirelessPower_Icon_P.pak", "ZZ_WirelessPower_Model_P.pak"], attached.Select(Path.GetFileName).ToList());
-        Assert.All(attached, p => Assert.StartsWith(Path.Combine(_dir, "Ue4ss_Paks"), p));
-        Assert.Empty(Directory.GetFiles(Path.Combine(_stagedDir, "WirelessPower"), "*.pak", SearchOption.AllDirectories));
-
-        // "Enable": the staged folder goes away; the paks stay attached to the name.
-        repo.Delete("WirelessPower");
-        Assert.Equal(2, repo.ListAttachedPaks("WirelessPower").Count);
-
-        repo.DeleteAttachedPaks("WirelessPower");
-        Assert.Empty(repo.ListAttachedPaks("WirelessPower"));
-        Assert.Empty(repo.ListAttachedPaks("NeverHadAny"));
-    }
-
-    [Fact]
-    public void AttachPaks_UnknownMod_Throws()
-    {
-        var repo = CreateRepository();
-        var pak = Path.Combine(_dir, "x.pak");
-        Directory.CreateDirectory(_dir);
-        File.WriteAllBytes(pak, [1]);
-
-        Assert.ThrowsAny<Exception>(() => repo.AttachPaks("NotStaged", [pak]));
-    }
-
     [Fact]
     public void GetAll_NoModsStagedYet_IsEmpty()
     {
