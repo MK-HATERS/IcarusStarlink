@@ -194,6 +194,7 @@ public sealed class EditorPlainFieldsTests : IDisposable
 
         Assert.Equal("editor", navigated);
         Assert.Equal("Envirosuit_Larkwell_Alpha", page.SelectedItem?.Name);
+        Assert.Equal(_library.GetAll().Single().FolderName, page.SelectedTarget?.FolderName); // this mod's values, saved back into it
         GC.KeepAlive(page);
     }
 
@@ -248,6 +249,105 @@ public sealed class EditorPlainFieldsTests : IDisposable
         Field(editor, "Weight").ValueText = "100"; // back to the game's
 
         Assert.Equal(1, row.ChangeCount);
+    }
+
+    /// <summary>A review finding: closing the editor threw typed changes away without a word.</summary>
+    [Fact]
+    public void Closing_WithUnsavedChanges_AsksSaveDontSaveOrCancel()
+    {
+        var editor = OpenMod();
+        Assert.False(editor.HasUnsavedChanges);
+        Assert.True(editor.ConfirmClose());
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
+        Field(editor, "Weight").ValueText = "75";
+        Assert.True(editor.HasUnsavedChanges);
+        string? asked = null;
+
+        editor.AskSaveOnClose = message => { asked = message; return null; };
+        Assert.False(editor.ConfirmClose()); // Cancel: stays open
+        Assert.Contains("Cheat", asked);
+        editor.AskSaveOnClose = _ => false;
+        Assert.True(editor.ConfirmClose()); // Don't save
+        editor.AskSaveOnClose = _ => true;
+        Assert.True(editor.ConfirmClose()); // Save
+
+        Assert.False(editor.HasUnsavedChanges);
+        var saved = ExmodFolder.Read(_library.GetFolderPath(_library.GetAll().Single().FolderName)).Package;
+        Assert.Equal(75, saved.Rows.Single(r => r.CurrentFile == "Traits-D_Itemable.json").FileItems.Single().Fields["Weight"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Save_WhenTheModsFolderIsGone_SaysSo_InsteadOfMakingAnOrphanFolder()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
+        Field(editor, "Weight").ValueText = "75";
+        var folder = _library.GetFolderPath(_library.GetAll().Single().FolderName);
+        Directory.Delete(folder, recursive: true);
+
+        editor.SaveCommand.Execute(null);
+
+        Assert.StartsWith("Not saved: this mod's folder is gone", editor.StatusMessage);
+        Assert.False(Directory.Exists(folder));
+        editor.AskSaveOnClose = _ => true;
+        Assert.False(editor.ConfirmClose()); // the save didn't happen: stays open with the reason showing
+    }
+
+    /// <summary>A review finding: Undo restored the snapshot from before the last structural action, wiping values typed since.</summary>
+    [Fact]
+    public void Undo_TakesBackTypingFirst_ThenTheActionBeforeIt()
+    {
+        var editor = OpenMod();
+        editor.UndoCommand.Execute(null);
+        Assert.Equal("Nothing to undo.", editor.StatusMessage);
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
+        editor.NewFieldName = "MaxStack";
+        editor.NewFieldValue = "5";
+        editor.AddFieldCommand.Execute(null);
+        Field(editor, "Weight").ValueText = "7";
+        Field(editor, "Weight").ValueText = "75";
+
+        editor.UndoCommand.Execute(null);
+
+        Assert.Equal("50", Field(editor, "Weight").ValueText);
+        Assert.Contains(editor.Fields, f => f.FieldName == "MaxStack");
+
+        editor.UndoCommand.Execute(null);
+
+        Assert.DoesNotContain(editor.Fields, f => f.FieldName == "MaxStack");
+        Assert.False(editor.CanUndo);
+    }
+
+    [Fact]
+    public void RemoveField_UpdatesTheChangeBadge()
+    {
+        var editor = OpenMod();
+        var row = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
+        editor.SelectedItem = row;
+
+        editor.RemoveFieldCommand.Execute(Field(editor, "Weight"));
+
+        Assert.Equal(1, row.ChangeCount);
+    }
+
+    /// <summary>A review finding: typing in the filter box lost the selection and emptied the Fields pane.</summary>
+    [Fact]
+    public void Filtering_KeepsTheSelectedItem_WhileItStillShows()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
+
+        editor.FilterText = "Item_Lark";
+        editor.ApplyFilter();
+
+        Assert.Equal("Item_Larkwell", editor.SelectedItem?.ItemName);
+        Assert.Contains(editor.SelectedItem!, editor.Items);
+        Assert.Contains(editor.Fields, f => f.FieldName == "Weight");
+
+        editor.FilterText = "Undersuit_Larkwell";
+        editor.ApplyFilter();
+
+        Assert.Null(editor.SelectedItem);
     }
 
     /// <summary>A review finding: the Editor page saving into a mod open here was silently overwritten by this window's next Save.</summary>

@@ -15,7 +15,8 @@ public enum ThemedConfirmSeverity { Question, Warning, Information }
 /// </summary>
 public partial class ThemedConfirmDialog : Window
 {
-    private bool _result;
+    /// <summary>true = Yes, false = No, null = closed or Cancel.</summary>
+    private bool? _result;
 
     private ThemedConfirmDialog(Window? owner, string message, string title, ThemedConfirmSeverity severity)
     {
@@ -52,6 +53,20 @@ public partial class ThemedConfirmDialog : Window
     {
         var dialog = new ThemedConfirmDialog(owner, message, title, severity);
         dialog.ShowDialog();
+        return dialog._result == true;
+    }
+
+    /// <summary>
+    /// Three answers (the mod editor's "Save / Don't save / Cancel" on close): true = the first
+    /// button, false = the second, null = Cancel, Escape or the window's ✕.
+    /// </summary>
+    public static bool? ShowWithCancel(Window? owner, string message, string title, ThemedConfirmSeverity severity, string yesText, string noText)
+    {
+        var dialog = new ThemedConfirmDialog(owner, message, title, severity);
+        dialog.YesButton.Content = yesText;
+        dialog.NoButton.Content = noText;
+        dialog.CancelButton.Visibility = Visibility.Visible;
+        dialog.ShowDialog();
         return dialog._result;
     }
 
@@ -61,7 +76,13 @@ public partial class ThemedConfirmDialog : Window
         Close();
     }
 
-    private void No_Click(object sender, RoutedEventArgs e) => Close();
+    private void No_Click(object sender, RoutedEventArgs e)
+    {
+        _result = false;
+        Close();
+    }
+
+    private void Cancel_Click(object sender, RoutedEventArgs e) => Close();
 
     protected override void OnKeyDown(KeyEventArgs e)
     {

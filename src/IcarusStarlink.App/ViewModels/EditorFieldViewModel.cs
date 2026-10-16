@@ -107,6 +107,9 @@ public sealed partial class EditorFieldViewModel : ObservableObject
 
     public bool HasPicker => Picker is not null;
 
+    /// <summary>Called just before a new value is written into the item (the editor's undo snapshot).</summary>
+    internal Action? BeforeWrite { get; set; }
+
     [ObservableProperty]
     private string _valueText;
 
@@ -248,6 +251,11 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             if (Kind == EditorFieldKind.Number && (parsed is null || !ScaleRules.TryReadNumber(parsed, out var number) || !double.IsFinite(number)))
             {
                 throw new FormatException("needs a number");
+            }
+
+            if (!_fields.TryGetValue(FieldName, out var previous) || !JsonNode.DeepEquals(previous, parsed))
+            {
+                BeforeWrite?.Invoke();
             }
 
             _fields[FieldName] = parsed;
