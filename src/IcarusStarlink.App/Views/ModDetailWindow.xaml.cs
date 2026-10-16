@@ -24,6 +24,7 @@ public partial class ModDetailWindow : Window
     {
         LibraryViewModel = libraryViewModel;
         InitializeComponent();
+        Utilities.WindowSizeMemory.Remember(this, "mod-details");
         ShowItem(item);
         Closed += (_, _) =>
         {

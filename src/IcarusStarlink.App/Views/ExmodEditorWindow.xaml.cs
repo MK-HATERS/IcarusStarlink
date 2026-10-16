@@ -12,6 +12,7 @@ public partial class ExmodEditorWindow : Window
     public ExmodEditorWindow(ExmodEditorViewModel viewModel)
     {
         InitializeComponent();
+        Utilities.WindowSizeMemory.Remember(this, "mod-editor");
         DataContext = viewModel;
 
         // The list is grouped by the part of the game each row changes ("Armour", "Recipes").

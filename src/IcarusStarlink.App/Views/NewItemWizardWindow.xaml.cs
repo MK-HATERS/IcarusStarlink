@@ -10,6 +10,7 @@ public partial class NewItemWizardWindow : Window
     public NewItemWizardWindow(NewItemWizardViewModel viewModel)
     {
         InitializeComponent();
+        Utilities.WindowSizeMemory.Remember(this, "new-item-wizard");
         _viewModel = viewModel;
         DataContext = viewModel;
     }

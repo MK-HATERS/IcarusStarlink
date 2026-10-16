@@ -38,7 +38,7 @@ public sealed partial class ExmodEditorViewModel
     {
         if (!Directory.Exists(_dataFolder) || GameTables.CurrentFileFor("D_ItemsStatic") is null)
         {
-            StatusMessage = "No game data found. Run Update data folder in Settings first.";
+            StatusMessage = "No game data found. Run Refresh game data in Settings first.";
             return;
         }
 
@@ -66,7 +66,7 @@ public sealed partial class ExmodEditorViewModel
     {
         if (!Directory.Exists(_dataFolder))
         {
-            StatusMessage = "No game data found. Run Update data folder in Settings first.";
+            StatusMessage = "No game data found. Run Refresh game data in Settings first.";
             return;
         }
 

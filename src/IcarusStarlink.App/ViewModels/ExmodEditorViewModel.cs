@@ -96,12 +96,19 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// </summary>
     private Dictionary<(string CurrentFile, string ItemName, string FieldName), JsonNode?> _originalValuesByKey = [];
 
-    public string WindowTitle => $"Edit — {_package.Name}";
+    public string WindowTitle => $"Mod editor — {_package.Name}";
 
     /// <summary>When this window last read or wrote the mod's .EXMOD (see Save).</summary>
     private DateTime _savedStamp;
 
     private bool _overwriteOutsideChanges;
+
+    /// <summary>Saved at least once in this window: "Turn on & go to Merge & Install" is offered.</summary>
+    [ObservableProperty]
+    private bool _hasSaved;
+
+    [RelayCommand]
+    private void TurnOnAndGoToMerge() => WeakReferenceMessenger.Default.Send(new TurnOnModMessage(_folderName));
 
     private DateTime ExmodStamp()
     {
@@ -439,7 +446,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         if (gameItemIndex.Count == 0)
         {
-            StatusMessage = "No game data found — run Update data folder in Settings first.";
+            StatusMessage = "No game data found — run Refresh game data in Settings first.";
             return;
         }
 
@@ -477,7 +484,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         if (keyed[picked.ItemName] is not JsonObject fields)
         {
-            StatusMessage = $"'{picked.ItemName}' isn't in '{picked.RealPath}' anymore — the index may be stale; reopen the editor after an Update data folder run.";
+            StatusMessage = $"'{picked.ItemName}' isn't in '{picked.RealPath}' anymore — the index may be stale; reopen the mod editor after a Refresh game data.";
             return;
         }
 
@@ -529,7 +536,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         if (gameSearchIndex.Count == 0)
         {
-            StatusMessage = "No game data found — run Update data folder in Settings first.";
+            StatusMessage = "No game data found — run Refresh game data in Settings first.";
             return;
         }
 
@@ -1088,6 +1095,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             ExmodFolder.Write(_repository.GetFolderPath(_folderName), new ExmodPackageContents(writePackage, []));
             _savedStamp = ExmodStamp();
             _overwriteOutsideChanges = false;
+            HasSaved = true;
             _repository.MarkLocallyEdited(_folderName);
 
             // What just got written is now this mod's own "original" going forward — refreshing

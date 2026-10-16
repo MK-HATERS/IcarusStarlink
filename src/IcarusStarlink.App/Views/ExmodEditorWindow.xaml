@@ -86,8 +86,8 @@
                 <Button Content="New item from a game item…" Command="{Binding NewItemFromGameCommand}" Margin="0,0,8,4"
                         Style="{StaticResource PrimaryButtonStyle}"
                         ToolTip="Make a brand-new item that starts as a copy of a game item: its own name, icon and stats, and a recipe or workshop purchase so players can get it"/>
-                <Button Content="Change a game row…" Command="{Binding AddItemFromGameCommand}" Margin="0,0,8,4"
-                        ToolTip="Pick any row of the game's data and copy its complete current values into this mod, to change the game's own item (not make a new one). Edit just the fields you want changed."/>
+                <Button Content="Change a game item (Editor page) →" Command="{Binding GoToGameEditorCommand}" Margin="0,0,8,4"
+                        ToolTip="The Editor page is the easy way to change the game's own items (weight, armour, buffs, recipes) and save them into this mod or a new one"/>
                 <Button Content="Search game data…" Command="{Binding SearchGameDataCommand}" Margin="0,0,8,4"
                         ToolTip="Find any item by name, and everywhere its name is referenced inside other items' JSON — e.g. every recipe that consumes it"/>
                 <Button Content="Check references" Command="{Binding CheckReferencesCommand}" Margin="0,0,8,4"
@@ -95,6 +95,7 @@
                 <Button x:Name="MoreButton" Content="More ▾" Click="MoreButton_Click" Margin="0,0,8,4" ToolTip="Duplicate, open the original file, insert a file, merge another mod, open the folder">
                     <Button.ContextMenu>
                         <ContextMenu>
+                            <MenuItem Header="Copy a game row into this mod…" Command="{Binding AddItemFromGameCommand}" ToolTip="The raw way to change a game item: copy any row of the game's data, with all its values, then edit the fields you want"/>
                             <MenuItem Header="Duplicate (Ctrl+D)" Command="{Binding DuplicateItemCommand}" ToolTip="Clone the selected item's fields under a new name"/>
                             <MenuItem Header="Open original file" Command="{Binding OpenOriginalFileCommand}" ToolTip="Open the real, unmodified base game data file for the selected item"/>
                             <MenuItem Header="Insert file at location…" Command="{Binding InsertFileAtLocationCommand}" ToolTip="Add one of the game's own real data files to this mod, with no items yet"/>
@@ -380,8 +381,11 @@
             <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">
                 <Button Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
                         ToolTip="Writes every change so far to this mod's .EXMOD file — from any view (Fields, File JSON, Full EXMOD JSON, Scale rules): they all edit the same mod"/>
+                <Button Content="Turn on &amp; go to Merge &amp; Install" Command="{Binding TurnOnAndGoToMergeCommand}" Margin="8,0,0,0"
+                        Visibility="{Binding HasSaved, Converter={StaticResource BoolToVisibilityConverter}}"
+                        ToolTip="Ticks this mod ON (adds it to the merge queue) and opens Merge &amp; Install, where Install puts it in the game"/>
                 <Button Content="Undo (Ctrl+Z)" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" Margin="8,0,0,0"
-                        ToolTip="Reverts the last Add/Remove field, Add item, Duplicate, mass edit, or raw-JSON Apply — not per-keystroke typing"
+                        ToolTip="Reverts the last Add/Remove field, Add item, Duplicate, mass edit, or raw-JSON Apply — not per-keystroke typing. Greyed out: nothing to undo yet."
                         ToolTipService.ShowOnDisabled="True"/>
                 <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{DynamicResource SecondaryForegroundBrush}"/>

@@ -37,6 +37,9 @@ public sealed class AppSettings
     /// <summary>Null until the first real close, same as the four bounds above — MainWindow treats null as "never chosen yet" and defaults to Maximized, rather than always defaulting an unmaximized bool to false on a fresh install.</summary>
     public bool? WindowMaximized { get; set; }
 
+    /// <summary>Last size of the other windows (mod editor, mod details, wizard…), by window name.</summary>
+    public Dictionary<string, SavedWindowSize> WindowSizes { get; set; } = [];
+
     /// <summary>
     /// Folder names always merged into every rebuild — the "standard/minimum" baseline list
     /// (classic IMM's own "create a standard list and then always merge that list with your
@@ -74,4 +77,12 @@ public sealed class AppSettings
     /// unset, the way the UnrealPak offer always has.
     /// </summary>
     public DateTimeOffset? FirstLaunchSetupCompletedAtUtc { get; set; }
+}
+
+/// <summary>A window's last size, restored the next time it opens.</summary>
+public sealed class SavedWindowSize
+{
+    public double Width { get; set; }
+    public double Height { get; set; }
+    public bool Maximized { get; set; }
 }

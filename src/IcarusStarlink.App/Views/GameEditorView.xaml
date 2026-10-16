@@ -180,6 +180,9 @@
                         </StackPanel>
                         <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" Margin="0,8,0,0" FontSize="12"
                                    Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <Button Content="Turn on &amp; go to Merge &amp; Install" Command="{Binding TurnOnSavedModCommand}" Margin="0,8,0,0" HorizontalAlignment="Left"
+                                Visibility="{Binding HasSavedMod, Converter={StaticResource BoolToVisibilityConverter}}"
+                                ToolTip="Ticks the saved mod ON (adds it to the merge queue) and opens Merge &amp; Install, where Install puts it in the game"/>
                     </StackPanel>
 
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">

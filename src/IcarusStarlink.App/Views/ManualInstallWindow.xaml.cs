@@ -30,6 +30,7 @@ public partial class ManualInstallWindow : Window
     public ManualInstallWindow(string root, string modName, string reason, IEnumerable<ManualInstallItem> suggestions)
     {
         InitializeComponent();
+        Utilities.WindowSizeMemory.Remember(this, "manual-install");
         _root = root;
         _modName = modName;
         _plan = new ObservableCollection<ManualInstallItem>(suggestions);

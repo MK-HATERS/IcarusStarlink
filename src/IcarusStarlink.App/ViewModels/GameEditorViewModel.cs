@@ -263,6 +263,22 @@ public sealed partial class GameEditorViewModel : ObservableObject
     [ObservableProperty]
     private string? _statusMessage;
 
+    /// <summary>The mod just saved into, for "Turn on & go to Merge & Install".</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSavedMod))]
+    private string? _savedModFolder;
+
+    public bool HasSavedMod => SavedModFolder is not null;
+
+    [RelayCommand]
+    private void TurnOnSavedMod()
+    {
+        if (SavedModFolder is { } folder)
+        {
+            WeakReferenceMessenger.Default.Send(new TurnOnModMessage(folder));
+        }
+    }
+
     /// <summary>Lazily: the page may never be opened in a session.</summary>
     private GameTableIndex? Game
     {
@@ -291,7 +307,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
         if (Game is not { } game)
         {
-            NoDataMessage = "No game data yet. Run Update data folder in Settings first; the Editor reads the game's items from it.";
+            NoDataMessage = "No game data yet. Run Refresh game data in Settings first; the Editor reads the game's items from it.";
             return;
         }
 
@@ -449,7 +465,8 @@ public sealed partial class GameEditorViewModel : ObservableObject
             var name = _repository.GetAll().FirstOrDefault(e => e.FolderName == folder)?.Name ?? folder;
             RefreshTargets(selectFolder: folder);
             LoadItem();
-            StatusMessage = $"Saved {lines.Count} change(s) to '{name}'. Tick it in Library and Merge & Install to use it in game.";
+            StatusMessage = $"Saved {lines.Count} change(s) to '{name}'. To use it in game: Turn on & go to Merge & Install, then Install.";
+            SavedModFolder = folder;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException or System.Text.Json.JsonException)
         {

@@ -112,11 +112,11 @@
                     <Button Margin="0,0,8,4"
                             Command="{Binding LibraryViewModel.EditItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                             CommandParameter="{Binding}"
-                            ToolTip="Open this mod's Item fields in the EXMOD editor" AutomationProperties.Name="Edit selected mod">
+                            ToolTip="Open this mod in the mod editor" AutomationProperties.Name="Edit selected mod">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                            <TextBlock Text="Edit…" VerticalAlignment="Center"/>
+                            <TextBlock Text="Open in mod editor" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                     <Button Margin="0,0,8,4"
@@ -157,7 +157,7 @@
 
         <TabControl Grid.Row="2" Margin="0,12,0,0">
             <TabItem Header="Changes"
-                     ToolTip="What this mod actually changes — read-only. For editing, see the EXMOD editor.">
+                     ToolTip="What this mod actually changes — read-only. To change it, open it in the mod editor.">
                 <DockPanel Margin="0,8,0,0">
                     <!-- In a few lines first ("D_Itemable · MaxStack ×10 on 1337 rows"), then every change. -->
                     <Border DockPanel.Dock="Top" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"

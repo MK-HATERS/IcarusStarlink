@@ -148,6 +148,19 @@ public sealed partial class ExmodEditorViewModel
         return JsonNode.DeepEquals(value, game) ? 0 : 1;
     }
 
+    /// <summary>The Editor page, for changing the game's own items the easy way.</summary>
+    [RelayCommand]
+    private void GoToGameEditor()
+    {
+        WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("editor"));
+        if (SelectedItem?.GameItem is { } gameItem)
+        {
+            WeakReferenceMessenger.Default.Send(new OpenGameItemMessage(gameItem));
+        }
+
+        Application.Current?.MainWindow?.Activate();
+    }
+
     private static string Spaced(string name) =>
         System.Text.RegularExpressions.Regex.Replace(name, "(?<=[a-z0-9])(?=[A-Z])", " ").Replace('_', ' ');
 }
