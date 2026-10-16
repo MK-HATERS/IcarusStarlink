@@ -1184,8 +1184,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
                 // memory (a real mod's .uasset/.ubulk content can be many MB) purely to reach the
                 // .EXMOD's own JSON, which is the only thing the Changes text is built from.
                 var package = ExmodFolder.ReadPackageOnly(_repository.GetFolderPath(FolderName), files);
-                ChangesContent = ExmodChangesFormatter.Format(package);
-                _ = LoadChangesSummaryAsync(package);
+                ChangesContent = ExmodChangesFormatter.Format(package, AssetPaths);
+                _ = LoadChangesSummaryAsync(package, ExmodChangesFormatter.ReplacedGameFiles(AssetPaths));
             }
             else
             {
@@ -1212,7 +1212,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// Compares the mod with current game data off the UI thread (a big mod touches tables of
     /// several MB) and boils the result down to a few readable lines.
     /// </summary>
-    private async Task LoadChangesSummaryAsync(PakIO.Exmod.ExmodPackage package)
+    private async Task LoadChangesSummaryAsync(PakIO.Exmod.ExmodPackage package, IReadOnlyList<string> replacedGameFiles)
     {
         if (DataFolder is not { } dataFolder || !Directory.Exists(dataFolder))
         {
@@ -1227,7 +1227,12 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         try
         {
             var lines = await Task.Run(() => PakIO.Exmod.ModChangeSummarizer.SummarizePackage(package, dataFolder));
-            summary = lines.Count == 0 ? "Nothing differs from current game data." : string.Join(Environment.NewLine, lines);
+            var replaced = ExmodChangesFormatter.ReplacedGameFiles(replacedGameFiles) is { Count: > 0 } files
+                ? $"Replaces {(files.Count == 1 ? "1 game file" : $"{files.Count} game files")}: {string.Join(", ", files.Take(3))}{(files.Count > 3 ? ", …" : "")}"
+                : null;
+            summary = lines.Count == 0
+                ? (replaced is null ? "Nothing differs from current game data." : $"No data-table changes. {replaced}.")
+                : string.Join(Environment.NewLine, replaced is null ? lines : [.. lines, replaced]);
         }
         catch (Exception ex)
         {

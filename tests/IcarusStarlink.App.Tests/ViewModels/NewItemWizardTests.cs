@@ -219,15 +219,41 @@ public sealed class NewItemWizardTests : IDisposable
         var editor = Open(entry.FolderName);
         editor.ShowWizardOverride = wizard =>
         {
+            wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Envirosuit");
             wizard.DisplayName = "Dragon Suit";
             return wizard.TryCreate();
         };
         editor.StartNewItemWizard(null); // something to undo
+        Assert.True(editor.CanUndo);
         editor.AddScaleRuleCommand.Execute(null);
         editor.ScaleRuleRows[^1].Label = "My unapplied rule";
 
         editor.UndoCommand.Execute(null);
 
         Assert.Contains(editor.ScaleRuleRows, r => r.Label == "My unapplied rule");
+    }
+
+    /// <summary>A real report: a blueprint-only mod opened to blank panes and read as a broken editor.</summary>
+    [Fact]
+    public void Editor_ABlueprintOnlyMod_SaysWhatItIsInsteadOfShowingNothing()
+    {
+        var entry = _library.CreateBlankMod("Steadfast", "Me", ModTemplate.Blank);
+        var blueprint = Path.Combine(_library.GetFolderPath(entry.FolderName), "BP", "Building", "BP_Building_Base.uasset");
+        Directory.CreateDirectory(Path.GetDirectoryName(blueprint)!);
+        File.WriteAllText(blueprint, "asset");
+
+        var editor = Open(entry.FolderName);
+
+        Assert.Contains("no data-table changes", editor.NoDataRowsMessage);
+        Assert.Contains("BP/Building/BP_Building_Base", editor.NoDataRowsMessage);
+
+        editor.ShowWizardOverride = wizard =>
+        {
+            wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Envirosuit");
+            wizard.DisplayName = "Dragon Suit";
+            return wizard.TryCreate();
+        };
+        editor.StartNewItemWizard(null);
+        Assert.Null(editor.NoDataRowsMessage);
     }
 }

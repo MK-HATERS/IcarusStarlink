@@ -98,6 +98,18 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
     public string WindowTitle => $"Edit — {_package.Name}";
 
+    private readonly IReadOnlyList<string> _replacedGameFiles;
+
+    /// <summary>
+    /// Shown instead of blank panes when the mod has no data rows yet: a new mod, or a blueprint-only
+    /// mod (Ferani's Steadfast Structures replaces BP_Building_Base and has nothing else) — a real
+    /// report read the empty editor as broken.
+    /// </summary>
+    public string? NoDataRowsMessage => _package.Rows.Any(r => r.FileItems.Count > 0) ? null
+        : (ExmodChangesFormatter.DescribeReplacedGameFiles(_replacedGameFiles) is { } replaced
+            ? $"This mod has no data-table changes. {replaced}\n\nYou can still add data changes to it: New item from a game item…, Change a game row…, or Scale rules."
+            : "This mod has no data-table changes yet. Add some with New item from a game item…, Change a game row…, or Scale rules.");
+
     public ObservableCollection<EditorItemViewModel> Items { get; } = [];
 
     public ObservableCollection<EditorFieldViewModel> Fields { get; } = [];
@@ -182,6 +194,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _dataFolder = dataFolder;
         _gameDataIndexCache = gameDataIndexCache;
         _package = ExmodFolder.Read(repository.GetFolderPath(folderName)).Package;
+        _replacedGameFiles = ExmodChangesFormatter.ReplacedGameFiles(repository.ListAssetPaths(folderName));
         _filterDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), ReloadItems);
 
         RefreshBaseDiff();
@@ -1063,6 +1076,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
     private void ReloadItems()
     {
+        OnPropertyChanged(nameof(NoDataRowsMessage));
         Items.Clear();
         foreach (var row in _package.Rows.OrderBy(r => r.CurrentFile, StringComparer.OrdinalIgnoreCase))
         {

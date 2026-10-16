@@ -125,4 +125,21 @@ public class ExmodChangesFormatterTests
         Assert.True(spearIndex < knifeIndex);
         Assert.True(knifeIndex < secondFileIndex);
     }
+
+    /// <summary>Ferani's Steadfast Structures: only the EndOfMod marker and a replaced building blueprint. It used to read as an empty mod with a stray "EndOfMod" line.</summary>
+    [Fact]
+    public void Format_BlueprintOnlyMod_NamesTheReplacedGameFile_AndSkipsEndOfMod()
+    {
+        var package = new ExmodPackage
+        {
+            Name = "Ferani_Steadfast_Structures", Author = "Ferani", Version = "1.0", Description = "", FileName = "Ferani_Steadfast_Structures",
+            Rows = [new ExmodFileRow { CurrentFile = "EndOfMod" }],
+        };
+
+        var result = ExmodChangesFormatter.Format(package, ["BP/Building/BP_Building_Base.uasset", "BP\\Building\\BP_Building_Base.uexp", "readme.txt"]);
+
+        Assert.DoesNotContain("EndOfMod", result);
+        Assert.Contains("doesn't change any data table fields", result);
+        Assert.Contains("replacing 1 game file with its own: BP/Building/BP_Building_Base.", result);
+    }
 }

@@ -191,6 +191,10 @@
 
             <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
                     Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
+                <Grid>
+                <TextBlock Text="{Binding NoDataRowsMessage}" TextWrapping="Wrap" Margin="16" MaxWidth="560" HorizontalAlignment="Left" VerticalAlignment="Top"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}"
+                           Visibility="{Binding NoDataRowsMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                 <ScrollViewer x:Name="ItemFieldsScrollViewer" VerticalScrollBarVisibility="Auto">
                     <ItemsControl ItemsSource="{Binding Fields}" Margin="8">
                         <ItemsControl.ItemTemplate>
@@ -240,6 +244,7 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </ScrollViewer>
+                </Grid>
             </Border>
 
             <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
