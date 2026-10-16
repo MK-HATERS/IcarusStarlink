@@ -21,11 +21,24 @@ public static class ServerModFiles
     }
 
     /// <summary>Copies a merged pak (and its sibling ISL-Merged.txt manifest, when present) into the server's mods folder, replacing an older copy of the same file.</summary>
+    /// <summary>The merged pak's earlier file name(s) (see PakIO's InstallManifestNames; Core can't reference PakIO).</summary>
+    public static IReadOnlyList<string> LegacyMergedPakFileNames { get; } = ["ISL-Merged_P.pak"];
+
     public static void InstallPak(string sourcePakPath, string installFolder, string? manifestFileName)
     {
         var target = DedicatedServerLayout.PakModsFolder(installFolder);
         Directory.CreateDirectory(target);
         File.Copy(sourcePakPath, Path.Combine(target, Path.GetFileName(sourcePakPath)), overwrite: true);
+
+        // This app's merged pak under its earlier name: replaced by the one just copied.
+        foreach (var legacy in LegacyMergedPakFileNames.Where(n => !string.Equals(n, Path.GetFileName(sourcePakPath), StringComparison.OrdinalIgnoreCase)))
+        {
+            var old = Path.Combine(target, legacy);
+            if (File.Exists(old))
+            {
+                File.Delete(old);
+            }
+        }
         if (manifestFileName is not null)
         {
             var manifest = Path.Combine(Path.GetDirectoryName(sourcePakPath)!, manifestFileName);

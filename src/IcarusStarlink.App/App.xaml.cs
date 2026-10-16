@@ -338,7 +338,7 @@ public partial class App : Application
             sp.GetRequiredService<PerformanceTracker>(),
             sp.GetRequiredService<IActivityLog>(),
             Path.Combine(appDataDirectory, "Data"),
-            Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
+            Path.Combine(appDataDirectory, "Staged_Build", IcarusStarlink.PakIO.InstallManifestNames.MergedPakFileName),
             Path.Combine(appDataDirectory, "Backups"),
             messenger: null,
             gameProcessChecker: sp.GetRequiredService<IGameProcessChecker>()));
@@ -409,7 +409,7 @@ public partial class App : Application
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUe4ssModRepository>(),
             sp.GetRequiredService<IDialogService>(),
-            Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
+            Path.Combine(appDataDirectory, "Staged_Build", IcarusStarlink.PakIO.InstallManifestNames.MergedPakFileName),
             sp.GetRequiredService<LocalServerViewModel>()));
         builder.Services.AddSingleton<IDedicatedServerProfileStore>(sp =>
             new DedicatedServerProfileStore(appDataDirectory, sp.GetRequiredService<ILogger<DedicatedServerProfileStore>>()));
@@ -423,7 +423,7 @@ public partial class App : Application
             sp.GetRequiredService<IActivityLog>(),
             sp.GetRequiredService<ISteamCmdService>(),
             sp.GetRequiredService<ISettingsService>(),
-            Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
+            Path.Combine(appDataDirectory, "Staged_Build", IcarusStarlink.PakIO.InstallManifestNames.MergedPakFileName),
             Path.Combine(appDataDirectory, "Backups"),
             firewall: sp.GetRequiredService<IFirewallService>())
         {

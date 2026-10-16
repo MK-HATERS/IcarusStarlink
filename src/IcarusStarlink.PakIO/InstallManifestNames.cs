@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace IcarusStarlink.PakIO;
 
 /// <summary>
@@ -15,4 +17,43 @@ public static class InstallManifestNames
 {
     /// <summary>"ISL-" (IcarusStarlink) rather than classic IMM's own "IMM_Merged_Mod" naming, so the two tools' output can't collide if a user ever has both installed side by side. Sits alongside the pak in Content\Paks\mods.</summary>
     public const string PakManifest = "ISL-Merged.txt";
+
+    /// <summary>
+    /// The merged pak's file name. The game ranks a mods-folder pak named "…_&lt;n&gt;_P.pak" by n
+    /// (Unreal's patch-chunk order: a higher number loads later and wins), so 9999 puts this app's
+    /// one merge above any other pak there, notably ArcFission Library's own
+    /// ZZ_ArcFission_Data_&lt;n&gt;_P.pak, whose rows are folded into the merge instead. Under the old
+    /// name (no number) that pak outranked the merge and put the game's values back on every table
+    /// it copies.
+    /// </summary>
+    public const string MergedPakFileName = "ISL-Merged_9999_P.pak";
+
+    /// <summary>The merged pak's earlier name(s), cleared wherever the merged pak is installed.</summary>
+    public static readonly IReadOnlyList<string> LegacyMergedPakFileNames = ["ISL-Merged_P.pak"];
+
+    private static readonly Regex ArcFissionDataPak = new(@"^ZZ_ArcFission_Data_(\d+)_P\.pak$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// ArcFission Library (a UE4SS script library ArcFission mods like WirelessPower need) writes
+    /// this pak itself at game start, from the game's own data plus its mods' rows. It belongs to
+    /// that library: Install leaves it alone (deleting it only makes the library write it again),
+    /// and its rows are merged in, so the merge outranking it loses nothing.
+    /// </summary>
+    public static bool IsArcFissionDataPak(string fileName) => ArcFissionDataPak.IsMatch(fileName);
+
+    /// <summary>The newest ArcFission data pak in a mods folder (the highest number is the one the game uses), or null.</summary>
+    public static string? NewestArcFissionDataPak(string modsFolder)
+    {
+        if (!Directory.Exists(modsFolder))
+        {
+            return null;
+        }
+
+        return Directory.EnumerateFiles(modsFolder, "*.pak")
+            .Select(path => (Path: path, Match: ArcFissionDataPak.Match(Path.GetFileName(path))))
+            .Where(p => p.Match.Success)
+            .OrderByDescending(p => long.TryParse(p.Match.Groups[1].Value, out var n) ? n : 0)
+            .Select(p => p.Path)
+            .FirstOrDefault();
+    }
 }

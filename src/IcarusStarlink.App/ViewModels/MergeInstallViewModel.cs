@@ -1452,6 +1452,23 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<string> _lastInstalledModNames = [];
 
+    /// <summary>
+    /// ArcFission Library's newest data pak in the game's mods folder, if any: written by the game
+    /// at start from the game's data plus its mods' rows (WirelessPower…). Merged in at each build.
+    /// </summary>
+    internal string? ArcFissionDataPakPath() =>
+        _settingsService.Current.IcarusContentPath is { Length: > 0 } content
+            ? InstallManifestNames.NewestArcFissionDataPak(Path.Combine(content, "Paks", "mods"))
+            : null;
+
+    /// <summary>
+    /// ArcFission Library rebuilt its data since the installed merge (an ArcFission mod added or
+    /// updated, or a game update): its newest pak isn't one the merge was built from, so its new
+    /// rows aren't in the game until the next Merge &amp; Install.
+    /// </summary>
+    [ObservableProperty]
+    private bool _arcFissionNeedsMerge;
+
     public async Task RefreshInstalledModNamesAsync()
     {
         var contentPath = _settingsService.Current.IcarusContentPath;
@@ -1464,6 +1481,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         try
         {
             var installed = await _installService.GetInstalledStateAsync(contentPath);
+            ArcFissionNeedsMerge = ArcFissionDataPakPath() is { } arcFission
+                && !installed.ModNames.Contains(Path.GetFileNameWithoutExtension(arcFission), StringComparer.OrdinalIgnoreCase);
             LastInstalledModNames = installed.ModNames;
         }
         catch (Exception)
@@ -1744,6 +1763,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             using var perfScope = _performanceTracker.Track("Rebuild");
             var (_, packages, prebuiltPakFilePaths) = await LoadQueuedPackagesAsync();
+            if (ArcFissionDataPakPath() is { } arcFission)
+            {
+                // Its rows go into the merge (which outranks its pak), first so a queued mod wins a clash.
+                prebuiltPakFilePaths.Insert(0, arcFission);
+            }
 
             // Progress<T>'s own callback marshals back through the SynchronizationContext captured
             // at construction time — safe to update these bound properties directly from it since
@@ -1840,6 +1864,16 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// </summary>
     private void ImportBuiltPakIntoLibrary()
     {
+        // The built pack under the merged pak's earlier name is replaced too.
+        foreach (var legacy in InstallManifestNames.LegacyMergedPakFileNames.Select(Path.GetFileNameWithoutExtension))
+        {
+            if (_libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, legacy, StringComparison.OrdinalIgnoreCase)) is { IsOpaquePak: true } old
+                && old.MergedPackModNames is not null)
+            {
+                _libraryRepository.Delete(old.FolderName);
+            }
+        }
+
         var builtFolderName = Path.GetFileNameWithoutExtension(_outputPakPath);
         var existing = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, builtFolderName, StringComparison.OrdinalIgnoreCase));
         if (existing is not null)

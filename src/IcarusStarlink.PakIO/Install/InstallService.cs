@@ -45,6 +45,13 @@ public sealed class InstallService : IInstallService
                 continue; // handled by the backup-and-overwrite below, not stale content to clear
             }
 
+            // ArcFission Library's own data pak: its rows are in the merge, which outranks it, and
+            // deleting it only makes the library write it again (and ask for a restart).
+            if (InstallManifestNames.IsArcFissionDataPak(existingFileName))
+            {
+                continue;
+            }
+
             FolderBackup.BackupFile(existingFile, backupDirectory);
             File.Delete(existingFile);
         }

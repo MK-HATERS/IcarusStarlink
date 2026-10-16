@@ -785,8 +785,9 @@ public sealed partial class ServerViewModel : ObservableObject
         IsBusy = true;
         try
         {
+            // ArcFission Library's own data pak stays: the server's library writes it again anyway.
             var existing = (await _connectedClient.ListDirectoryAsync(RemoteModsPath))
-                .Where(e => !e.IsDirectory)
+                .Where(e => !e.IsDirectory && !IcarusStarlink.PakIO.InstallManifestNames.IsArcFissionDataPak(e.Name))
                 .ToList();
 
             var toUpload = new List<string> { Path.GetFileName(_outputPakPath) };

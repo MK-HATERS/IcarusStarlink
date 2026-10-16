@@ -898,8 +898,10 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         var pendingLua = Ue4ssMods.Count(m => m.IsDirty);
         InGameNotTickedCount = inGameNotTicked;
-        HasPendingPakChanges = pendingPak > 0;
-        HasPendingChanges = pendingPak > 0 || pendingLua > 0;
+        // ArcFission Library rebuilt its data since the merge: its new rows need a Merge & Install.
+        var arcFission = mergeInstall?.ArcFissionNeedsMerge == true;
+        HasPendingPakChanges = pendingPak > 0 || arcFission;
+        HasPendingChanges = HasPendingPakChanges || pendingLua > 0;
         var parts = new List<string>();
         if (pendingLua > 0)
         {
@@ -911,9 +913,14 @@ public sealed partial class LibraryViewModel : ObservableObject
             parts.Add(pendingPak == 1 ? "1 pak mod" : $"{pendingPak} pak mods");
         }
 
+        if (arcFission)
+        {
+            parts.Add("ArcFission's data (WirelessPower and other ArcFission mods) changed since the last merge");
+        }
+
         PendingChangesSummary = parts.Count == 0
             ? ""
-            : $"{pendingLua + pendingPak} change(s) not in the game yet: {string.Join(" and ", parts)}";
+            : $"Not in the game yet: {string.Join(" and ", parts)}";
 
         // A ticked Lua mod (on its own, or the Lua half of a pak mod) with no UE4SS in the game can't run.
         ShowUe4ssLoaderMissing = !IsUe4ssLoaderInstalled
