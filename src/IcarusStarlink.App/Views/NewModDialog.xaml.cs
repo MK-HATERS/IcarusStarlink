@@ -30,6 +30,7 @@ public partial class NewModDialog : Window
             : BuildingPieceRadio.IsChecked == true ? ModTemplate.BuildingPiece
             : ElectricGeneratorRadio.IsChecked == true ? ModTemplate.ElectricGenerator
             : WaterPumpRadio.IsChecked == true ? ModTemplate.WaterPump
+            : QualityOfLifeRadio.IsChecked == true ? ModTemplate.QualityOfLife
             : ModTemplate.Blank;
         DialogResult = true;
     }

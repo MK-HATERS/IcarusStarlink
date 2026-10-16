@@ -27,4 +27,11 @@ public sealed class ExmodPackage
     public int? VariantSort { get; set; }
 
     public List<ExmodFileRow> Rows { get; set; } = [];
+
+    /// <summary>
+    /// Starlink's own "scale a field across a table" rules (see ScaleRules) that produced some of
+    /// Rows, kept so the rows can be rebuilt from current game data. Written as an extra
+    /// "starlinkScaleRules" key only when there are any; other tools ignore keys they don't know.
+    /// </summary>
+    public List<ScaleRule> ScaleRules { get; set; } = [];
 }

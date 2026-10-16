@@ -130,6 +130,16 @@
                         </MultiBinding>
                     </Button.Tag>
                 </Button>
+                <Button Content="Scale rules" Style="{StaticResource ThemeButtonStyle}"
+                        Command="{Binding SetViewModeCommand}" CommandParameter="ScaleRules"
+                        ToolTip="Change one field across a whole game table — e.g. every item's Weight ×0.5 — and rebuild it from current game data after an update">
+                    <Button.Tag>
+                        <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
+                            <Binding Path="ViewMode"/>
+                            <Binding Source="{x:Static vm:ExmodEditorViewMode.ScaleRules}"/>
+                        </MultiBinding>
+                    </Button.Tag>
+                </Button>
                 <Button Content="⧉ Pop out" Command="{Binding PopOutCurrentViewCommand}" Margin="16,0,0,0"
                         ToolTip="Open whichever view is showing now in its own window, so you can keep it open alongside another view — both edit the same mod"/>
             </StackPanel>
@@ -221,6 +231,72 @@
                          ToolTip="The whole mod's .EXMOD as raw JSON. Edit freely, then click Apply full EXMOD JSON below to update the mod — nothing here is saved until you do."/>
             </Border>
 
+            <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
+                    Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ScaleRules}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="10">
+                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"
+                                   Text="Each rule changes one field across a whole game table, like every item's Weight ×0.5. Apply writes the rows into this mod from current game data. After a game update, click Apply again to catch up."/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"
+                                   Text="Multiply by: a number below 1 lowers the value (0.5 = half), above 1 raises it (2 = double), 1 leaves it as is, 0 removes it. Set to: every row gets exactly that number."/>
+                        <TextBlock Text="No rules yet. Click Add rule." Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"
+                                   Visibility="{Binding HasNoScaleRules, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <ItemsControl ItemsSource="{Binding ScaleRuleRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,0,0,8">
+                                        <StackPanel>
+                                            <DockPanel>
+                                                <Button DockPanel.Dock="Right" Content="✕" Padding="6,2" ToolTip="Remove this rule (Apply then takes its values back out of the mod)"
+                                                        Command="{Binding DataContext.RemoveScaleRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"/>
+                                                <CheckBox DockPanel.Dock="Left" IsChecked="{Binding Enabled}" VerticalAlignment="Center" ToolTip="On / off"
+                                                          AutomationProperties.Name="Rule on"/>
+                                                <TextBox Text="{Binding Label, UpdateSourceTrigger=PropertyChanged}" Margin="8,0,8,0" FontWeight="SemiBold"
+                                                         ToolTip="What this rule is for, in your words" AutomationProperties.Name="Rule name"/>
+                                            </DockPanel>
+                                            <WrapPanel Margin="0,6,0,0">
+                                                <StackPanel Margin="0,0,8,4">
+                                                    <TextBlock Text="Table" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                    <ComboBox ItemsSource="{Binding Tables}" Text="{Binding CurrentFile, UpdateSourceTrigger=LostFocus}" IsEditable="True" Width="250"
+                                                              ToolTip="The game table, e.g. Traits-D_Itemable.json (items' weight and stack size)"/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,8,4">
+                                                    <TextBlock Text="Field" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                    <ComboBox ItemsSource="{Binding FieldOptions}" Text="{Binding Field, UpdateSourceTrigger=LostFocus}" IsEditable="True" Width="250"
+                                                              ToolTip="A number field in that table. Name.* means every stat in it (ArmourStats.*); Name[].Field means that field in every list entry (Inputs[].Count)."/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,8,4">
+                                                    <TextBlock Text="Change" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                    <ComboBox ItemsSource="{Binding OperationOptions}" SelectedIndex="{Binding OperationIndex}" Width="110"/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,8,4">
+                                                    <TextBlock Text="Value" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                    <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" Width="80"
+                                                             ToolTip="Multiply by: 0.5 halves, 2 doubles, 0 removes. Set to: the exact number."/>
+                                                </StackPanel>
+                                            </WrapPanel>
+                                            <WrapPanel>
+                                                <StackPanel Margin="0,0,8,4">
+                                                    <TextBlock Text="Only rows whose name contains (blank = all)" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                    <TextBox Text="{Binding RowFilter, UpdateSourceTrigger=PropertyChanged}" Width="250"
+                                                             ToolTip="Several words separated by commas match any of them, e.g. Storage, Crate, Cupboard"/>
+                                                </StackPanel>
+                                                <CheckBox Content="Also rows using the table's default value" IsChecked="{Binding IncludeInherited}" VerticalAlignment="Bottom" Margin="0,0,8,6"
+                                                          ToolTip="Off for stack sizes: items that inherit a stack of 1 are tools, weapons and armour, and scaling them would make them stack."/>
+                                                <Button Content="Preview" Command="{Binding RefreshPreviewCommand}" VerticalAlignment="Bottom" Margin="0,0,0,4" Padding="8,1"/>
+                                            </WrapPanel>
+                                            <TextBlock Text="{Binding PreviewText}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                       Visibility="{Binding PreviewText, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0"
                         Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
                 <Grid Width="160">
@@ -251,6 +327,17 @@
                         ToolTip="Re-parse this box and replace the whole mod's contents"/>
                 <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
+                        Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ScaleRules}">
+                <Button Content="Add rule" Command="{Binding AddScaleRuleCommand}"/>
+                <Button Content="Preview all" Command="{Binding PreviewScaleRulesCommand}" Margin="8,0,0,0"
+                        ToolTip="Shows what each rule would change, without changing the mod"/>
+                <Button Content="Apply rules" Command="{Binding ApplyScaleRulesCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"
+                        ToolTip="Writes every rule's rows into this mod from current game data (undoable). Also how the mod catches up after a game update."/>
+                <TextBlock Text="{Binding ScaleStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="420"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}"/>
             </StackPanel>
 
             <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">

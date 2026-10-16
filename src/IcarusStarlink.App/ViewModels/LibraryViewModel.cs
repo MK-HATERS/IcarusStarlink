@@ -1385,7 +1385,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 FolderBackup.CopyDirectory(path, tempCopy);
                 var folderResult = await ExtractedModClassifier.ClassifyAndImport(
                     tempCopy, path, _repository, _ue4ssModRepository,
-                    _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath);
+                    _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, chooseArchive: Downloads.ChooseArchive);
                 var (folderEntryName, folderFolderName, folderKind, _) = folderResult;
                 _activityLog.Log(
                     folderKind == PendingDownloadActivationKind.Library ? $"Imported '{folderEntryName}'." : $"Imported '{folderFolderName}' as a UE4SS mod.",
@@ -1420,7 +1420,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             AnyArchiveExtractor.ExtractToDirectory(path, tempExtractDirectory);
             var archiveResult = await ExtractedModClassifier.ClassifyAndImport(
                 tempExtractDirectory, path, _repository, _ue4ssModRepository,
-                _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath);
+                _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, chooseArchive: Downloads.ChooseArchive);
             var (entryName, folderName, kind, _) = archiveResult;
             _activityLog.Log(
                 kind == PendingDownloadActivationKind.Library ? $"Imported '{entryName}'." : $"Imported '{folderName}' as a UE4SS mod.",
@@ -2121,7 +2121,44 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
         }
 
-        if (convertedCount > 0 || refreshedCount > 0)
+        // 3. Mods built from scale rules (the editor's Scale rules view, the Quality of life
+        // template) rebuild their rule rows from the new game data — the whole point of keeping
+        // rules instead of frozen copies. Rules own only their own fields, so hand edits stay; a mod
+        // open in the editor is left for its own Apply/Save, same guard as above.
+        var rulesRefreshedCount = 0;
+        foreach (var item in AllLibraryItems().Where(i => !i.IsOpaquePak && !foldersWithOpenEditors.Contains(i.FolderName)))
+        {
+            try
+            {
+                var folder = _repository.GetFolderPath(item.FolderName);
+                var package = ExmodFolder.Read(folder).Package;
+                if (package.ScaleRules.Count == 0)
+                {
+                    continue;
+                }
+
+                var before = ExmodJson.Serialize(package, indented: false);
+                ScaleRules.ApplyToPackage(package, package.ScaleRules, _dataFolder, new MergeReport());
+                if (ExmodJson.Serialize(package, indented: false) == before)
+                {
+                    continue;
+                }
+
+                ExmodFolder.Write(folder, new ExmodPackageContents(package, []));
+                rulesRefreshedCount++;
+            }
+            catch (Exception ex)
+            {
+                _activityLog.Log($"Couldn't rebuild '{item.Name}' from its scale rules after updating game data: {ex.Message}", ActivityEntryKind.Warning);
+            }
+        }
+
+        if (rulesRefreshedCount > 0)
+        {
+            _repository.Refresh();
+        }
+
+        if (convertedCount > 0 || refreshedCount > 0 || rulesRefreshedCount > 0)
         {
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             var parts = new List<string>();
@@ -2133,6 +2170,11 @@ public sealed partial class LibraryViewModel : ObservableObject
             if (refreshedCount > 0)
             {
                 parts.Add($"refreshed {refreshedCount} mod(s) against the updated game data");
+            }
+
+            if (rulesRefreshedCount > 0)
+            {
+                parts.Add($"rebuilt {rulesRefreshedCount} mod(s) from their scale rules");
             }
 
             _activityLog.Log($"After updating game data: {string.Join(", ", parts)}.", ActivityEntryKind.Success);
@@ -2900,6 +2942,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             _downloadHttpClient, _thumbnailCacheDirectory, _pakPreviewCacheDirectory, Downloads.GetOrFetchCatalogAsync,
             status => StatusMessage = status, () => Reload());
         created.EnabledToggled += OnItemEnabledToggled;
+        created.DataFolder = _dataFolder;
         _itemsByFolderName[entry.FolderName] = created;
         return created;
     }

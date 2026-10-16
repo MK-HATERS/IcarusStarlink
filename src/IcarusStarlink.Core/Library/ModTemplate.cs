@@ -20,4 +20,12 @@ public enum ModTemplate
     BuildingPiece,
     ElectricGenerator,
     WaterPump,
+
+    /// <summary>
+    /// Not an item: a set of "scale a field across a table" rules (ScaleRules) for the common
+    /// quality-of-life changes — stack sizes, weight, crafting/taming/growth time, spoil and buff
+    /// time, storage — each with its own on/off and factor, modeled on what real QoL mods change
+    /// (Deyvid's All-in-One, Nexus 317). The rows are built from the user's own game data.
+    /// </summary>
+    QualityOfLife,
 }

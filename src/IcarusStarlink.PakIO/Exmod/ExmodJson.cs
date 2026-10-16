@@ -94,6 +94,8 @@ public static class ExmodJson
             VariantSort = GetInt(root, "variantSort"),
         };
 
+        package.ScaleRules = ParseScaleRules(root[ScaleRulesKey]);
+
         if (root["Rows"] is JsonArray rowsArray)
         {
             foreach (var rowNode in rowsArray)
@@ -154,6 +156,46 @@ public static class ExmodJson
         return row;
     }
 
+    private const string ScaleRulesKey = "starlinkScaleRules";
+
+    /// <summary>Lenient on purpose: a rule this version can't read is skipped, never a reason to refuse the whole mod.</summary>
+    private static List<ScaleRule> ParseScaleRules(JsonNode? node)
+    {
+        var rules = new List<ScaleRule>();
+        if (node is not JsonArray array)
+        {
+            return rules;
+        }
+
+        foreach (var entry in array.OfType<JsonObject>())
+        {
+            try
+            {
+                var rule = new ScaleRule
+                {
+                    Enabled = entry["enabled"]?.GetValue<bool>() ?? true,
+                    Label = entry["label"]?.GetValue<string>() ?? "",
+                    CurrentFile = entry["currentFile"]?.GetValue<string>() ?? "",
+                    Field = entry["field"]?.GetValue<string>() ?? "",
+                    Operation = Enum.TryParse<ScaleOperation>(entry["operation"]?.GetValue<string>(), ignoreCase: true, out var op) ? op : ScaleOperation.Multiply,
+                    Value = entry["value"]?.GetValue<double>() ?? 1,
+                    RowFilter = entry["rowFilter"]?.GetValue<string>(),
+                    IncludeInherited = entry["includeInherited"]?.GetValue<bool>() ?? true,
+                };
+                if (rule.CurrentFile.Length > 0 && rule.Field.Length > 0)
+                {
+                    rules.Add(rule);
+                }
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or FormatException)
+            {
+                // Wrong value type in a hand-edited rule — skip that one rule.
+            }
+        }
+
+        return rules;
+    }
+
     public static JsonObject ToJsonObject(ExmodPackage package)
     {
         var root = new JsonObject
@@ -202,6 +244,22 @@ public static class ExmodJson
         }
 
         root["Rows"] = rowsArray;
+
+        if (package.ScaleRules.Count > 0)
+        {
+            root[ScaleRulesKey] = new JsonArray([.. package.ScaleRules.Select(r => (JsonNode)new JsonObject
+            {
+                ["enabled"] = r.Enabled,
+                ["label"] = r.Label,
+                ["currentFile"] = r.CurrentFile,
+                ["field"] = r.Field,
+                ["operation"] = r.Operation.ToString(),
+                ["value"] = r.Value,
+                ["rowFilter"] = r.RowFilter,
+                ["includeInherited"] = r.IncludeInherited,
+            })]);
+        }
+
         return root;
     }
 

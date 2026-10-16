@@ -34,6 +34,9 @@ public enum ExmodEditorViewMode
     ItemFields,
     FileJson,
     FullExmodJson,
+
+    /// <summary>"Scale a field across a table" rules (ExmodEditorViewModel.Scale.cs).</summary>
+    ScaleRules,
 }
 
 /// <summary>
@@ -185,7 +188,25 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         SnapshotOriginalValues();
         ReloadItems();
         SelectedItem = Items.FirstOrDefault();
+        LoadScaleRules();
+
+        // A mod that has rules but no rows yet (fresh from the Quality of life template): build its
+        // rows from this PC's game data right away and open on the rules, so the user starts from
+        // a working mod. Nothing is saved until they Save.
+        if (_package.ScaleRules.Count > 0 && !_package.Rows.Any(r => r.FileItems.Count > 0))
+        {
+            ViewMode = ExmodEditorViewMode.ScaleRules;
+            if (ApplyScaleRulesCore())
+            {
+                _undoSnapshots.Clear();
+                OnPropertyChanged(nameof(CanUndo));
+                ScaleStatusMessage = $"{ScaleStatusMessage} Turn rules on or off and change the numbers, then Apply rules again.";
+            }
+        }
     }
+
+    /// <summary>The extracted game data the Scale rules read.</summary>
+    internal string DataFolderForScale => _dataFolder;
 
     partial void OnSelectedItemChanged(EditorItemViewModel? value)
     {
@@ -628,6 +649,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [RelayCommand]
     private void PopOutCurrentView()
     {
+        if (ViewMode == ExmodEditorViewMode.ScaleRules)
+        {
+            StatusMessage = "Scale rules stay in this window — pop out Item fields or a JSON view to watch the rows they write.";
+            return;
+        }
+
         var existing = _openPaneWindows.FirstOrDefault(w => w.FixedViewMode == ViewMode);
         if (existing is not null)
         {
@@ -744,6 +771,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _package.Variant = parsed.Variant;
         _package.VariantSort = parsed.VariantSort;
         _package.Rows = parsed.Rows;
+        _package.ScaleRules = parsed.ScaleRules;
+        LoadScaleRules();
 
         RefreshBaseDiff();
         ReloadItems();
@@ -975,6 +1004,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [RelayCommand]
     private void Save()
     {
+        if (!ApplyPendingScaleRules())
+        {
+            StatusMessage = $"Not saved — a scale rule needs fixing: {ScaleStatusMessage}";
+            return;
+        }
+
         try
         {
             // Writes a STRIPPED copy — never mutates the live _package/its item.Fields in place, so

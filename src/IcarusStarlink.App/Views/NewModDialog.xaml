@@ -24,6 +24,9 @@
         -->
         <RadioButton x:Name="BlankRadio" GroupName="Template" IsChecked="True" Margin="0,6,0,0"
                      Content="Blank — no fields yet, build it up by hand"/>
+        <RadioButton x:Name="QualityOfLifeRadio" GroupName="Template" Margin="0,6,0,0"
+                     Content="Quality of life — stack sizes, weight, crafting and growth time…"
+                     ToolTip="Not an item: a set of rules like 'Stack sizes ×4' and 'Item weight halved', each with its own on/off and number, built from your own game data. Change them in the editor's Scale rules view."/>
         <RadioButton x:Name="CraftableRadio" GroupName="Template" Margin="0,6,0,0"
                      Content="Craftable / deployable item"
                      ToolTip="A complete placeable/craftable item skeleton (recipe, mesh, icon, all reusing a real vanilla campfire's own assets as placeholders) — the same official template classic IMM itself ships."/>

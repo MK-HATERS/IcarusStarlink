@@ -20,6 +20,20 @@ public static class ModTemplateContent
     {
         var fileName = name.Replace(' ', '_');
 
+        if (template == ModTemplate.QualityOfLife)
+        {
+            return new ExmodPackage
+            {
+                Name = name,
+                Author = author,
+                Version = "1.0",
+                Description = "Quality-of-life tweaks. Turn rules on or off and change their numbers in the editor's Scale rules view, then Apply.",
+                FileName = fileName,
+                Rows = [new ExmodFileRow { CurrentFile = "EndOfMod" }],
+                ScaleRules = QualityOfLifeRules(),
+            };
+        }
+
         if (template == ModTemplate.Blank)
         {
             return new ExmodPackage { Name = name, Author = author, Version = "1.0", Description = "", FileName = fileName, Rows = [] };
@@ -42,6 +56,36 @@ public static class ModTemplateContent
         package.FileName = fileName;
         return package;
     }
+
+    /// <summary>
+    /// The Quality of life template's rules. Every table and field path is one a real QoL mod
+    /// changes (checked against Deyvid's All-in-One, Nexus 317, and current game data). The
+    /// factors are gentler than that mod's; the less universal ones start off.
+    /// </summary>
+    public static List<ScaleRule> QualityOfLifeRules() =>
+    [
+        Qol("Stack sizes ×4", "Traits-D_Itemable.json", "MaxStack", 4, includeInherited: false),
+        Qol("Item weight halved", "Traits-D_Itemable.json", "Weight", 0.5),
+        Qol("Crafting time halved", "Crafting-D_ProcessorRecipes.json", "RequiredMillijoules", 0.5),
+        Qol("Taming time halved", "AI-D_Tames.json", "TameDurationInSeconds", 0.5),
+        Qol("Crop growth time halved", "Farming-D_FarmingGrowthStates.json", "TimeToNextState", 0.5),
+        Qol("Food spoils half as fast", "Traits-D_Decayable.json", "SpoilTime", 2),
+        Qol("Food buffs last twice as long", "Traits-D_Consumable.json", "Modifier.ModifierLifetime", 2),
+        // Storage only — the same kinds of inventory the real mod doubles; not the quickbar, backpack, processors or fuel slots.
+        Qol("Storage container slots ×2", "Inventory-D_InventoryInfo.json", "StartingSlots", 2,
+            filter: "Storage, Container, Crate, Cupboard, IceBox, Refrigerator, Freeze, Trough, Pouch, Tackle, Silo, Rack, Sack, Bag, Cabinet, DropShip, ArmourStand, Prospect"),
+        Qol("Backpack slots ×2", "Traits-D_Equippable.json", "GrantedStats.(Value=\"BaseBackpackSlots_+\")", 2),
+        Qol("You get hungry 25% slower", "Stats-D_CharacterStartingStats.json", "StatsGranted.(Value=\"BaseFoodConsumptionPerHour_+\")", 0.75, enabled: false),
+        Qol("You get thirsty 25% slower", "Stats-D_CharacterStartingStats.json", "StatsGranted.(Value=\"BaseWaterConsumptionPerHour_+\")", 0.75, enabled: false),
+        Qol("Mining ore deposits faster", "World-D_OreDeposit.json", "MiningTimeSeconds", 0.5, enabled: false),
+        Qol("Workshop replication costs -30%", "MetaWorkshop-D_WorkshopItems.json", "ReplicationCost[].Amount", 0.7, enabled: false),
+        Qol("Workshop research costs -30%", "MetaWorkshop-D_WorkshopItems.json", "ResearchCost[].Amount", 0.7, enabled: false),
+        Qol("Mission rewards ×1.5", "Factions-D_FactionMissions.json", "CurrencyRewarded[].Amount", 1.5, enabled: false),
+        Qol("Armour stats ×1.25", "Traits-D_Armour.json", "ArmourStats.*", 1.25, enabled: false),
+    ];
+
+    private static ScaleRule Qol(string label, string file, string field, double value, bool enabled = true, bool includeInherited = true, string? filter = null) =>
+        new() { Label = label, CurrentFile = file, Field = field, Value = value, Enabled = enabled, IncludeInherited = includeInherited, RowFilter = filter };
 
     /// <summary>RowNames/cross-references throughout both templates are plain identifiers with no
     /// spaces or punctuation — stripping anything that isn't a letter/digit/underscore keeps the
