@@ -62,13 +62,17 @@
                         ToolTip="Copy another Library mod's own items into this one — an item already here is left alone"/>
                 <Button Content="Search game data…" Command="{Binding SearchGameDataCommand}" Margin="0,0,8,4"
                         ToolTip="Find any item by name, and everywhere its name is referenced inside other items' JSON — e.g. every recipe that consumes it"/>
+                <Button Content="Check references" Command="{Binding CheckReferencesCommand}" Margin="0,0,8,4"
+                        ToolTip="Finds links to rows that exist neither in the game nor in this mod (a typo, or a row a game update renamed), and item rows nothing uses. Also runs on Save."/>
             </WrapPanel>
 
             <StackPanel Grid.Row="4" Margin="0,8,0,0">
                 <TextBlock Text="Add item" Style="{StaticResource FieldLabelStyle}"/>
-                <Button Content="Add item from game data…" Command="{Binding AddItemFromGameCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"
+                <Button Content="New item from a game item…" Command="{Binding NewItemFromGameCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"
                         Style="{StaticResource PrimaryButtonStyle}"
-                        ToolTip="Pick any real in-game item and copy its complete current values into this mod as a starting point — then edit just the fields you want changed"/>
+                        ToolTip="Make a brand-new item that starts as a copy of a game item: its own name, icon and stats, and a recipe or workshop purchase so players can get it"/>
+                <Button Content="Change a game row…" Command="{Binding AddItemFromGameCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"
+                        ToolTip="Pick any row of the game's data and copy its complete current values into this mod, to change the game's own item (not make a new one). Edit just the fields you want changed."/>
                 <Grid Margin="0,4,0,0">
                     <TextBox Text="{Binding NewItemCurrentFile, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Real game data file path, e.g. Traits/D_Fuel.json"/>
@@ -144,7 +148,31 @@
                         ToolTip="Open whichever view is showing now in its own window, so you can keep it open alongside another view — both edit the same mod"/>
             </StackPanel>
 
-            <Border Grid.Row="1" Background="{DynamicResource AccentBrush}" CornerRadius="4" Margin="0,8,0,0" Padding="8"
+            <StackPanel Grid.Row="1">
+            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0" Padding="8"
+                    Background="{DynamicResource CardBackgroundBrush}"
+                    Visibility="{Binding ShowReferenceProblems, Converter={StaticResource BoolToVisibilityConverter}}">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top">
+                        <Button DockPanel.Dock="Right" Content="✕" Padding="6,2" Command="{Binding HideReferenceProblemsCommand}" ToolTip="Hide"/>
+                        <TextBlock Text="{Binding ReferenceSummary}" TextWrapping="Wrap" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <ScrollViewer MaxHeight="140" Margin="0,6,0,0" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding ReferenceProblems}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button HorizontalContentAlignment="Left" HorizontalAlignment="Stretch" Margin="0,0,0,3" Padding="6,2"
+                                            Command="{Binding DataContext.GoToReferenceProblemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}" ToolTip="Go to this row">
+                                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12"/>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+            <Border Background="{DynamicResource AccentBrush}" CornerRadius="4" Margin="0,8,0,0" Padding="8"
                     Visibility="{Binding IsMassEditActive, Converter={StaticResource BoolToVisibilityConverter}}">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Foreground="{DynamicResource AccentForegroundBrush}" VerticalAlignment="Center" FontWeight="SemiBold">
@@ -159,6 +187,7 @@
                                VerticalAlignment="Center" Margin="12,0,0,0"/>
                 </StackPanel>
             </Border>
+            </StackPanel>
 
             <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
                     Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">

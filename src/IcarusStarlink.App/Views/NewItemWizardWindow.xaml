@@ -1,0 +1,145 @@
+<Window x:Class="IcarusStarlink.App.Views.NewItemWizardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
+        mc:Ignorable="d" d:DataContext="{d:DesignInstance vm:NewItemWizardViewModel}"
+        Title="New item from a game item" Height="720" Width="980" MinHeight="520" MinWidth="760"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Grid Margin="20">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="320"/>
+            <ColumnDefinition Width="20"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 1. The game item to start from -->
+        <Grid Grid.Column="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <TextBlock Text="1. Start from" Style="{StaticResource SectionHeaderStyle}"/>
+            <TextBlock Grid.Row="1" TextWrapping="Wrap" Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,8"
+                       Text="Pick the game item closest to what you want. The new item starts as a copy of it: same model, sounds and behaviour."/>
+            <Grid Grid.Row="2" Margin="0,0,0,6">
+                <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search items"/>
+                <TextBlock Text="Search, e.g. Envirosuit, Bread, Module…" Style="{StaticResource PlaceholderTextStyle}"
+                           Visibility="{Binding FilterText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+            </Grid>
+            <ListBox Grid.Row="3" ItemsSource="{Binding FilteredItems}" SelectedItem="{Binding SelectedSource}" DisplayMemberPath="Display"/>
+        </Grid>
+
+        <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- 2. Name -->
+                <TextBlock Text="2. Name it" Style="{StaticResource SectionHeaderStyle}"/>
+                <TextBlock Text="{Binding SourceSummary}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,4,0,0"
+                           Visibility="{Binding SourceSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
+                <WrapPanel Margin="0,6,0,0">
+                    <StackPanel Margin="0,0,12,6" Width="230">
+                        <TextBlock Text="Name in game" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBox Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0" ToolTip="What players see, e.g. Dragon Suit"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,0,12,6" Width="230">
+                        <TextBlock Text="Item id" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBox Text="{Binding NewName, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0" FontFamily="Consolas"
+                                 ToolTip="The row name used in every table. Letters, digits and underscores; must not match a game item. Filled in from the name until you change it."/>
+                    </StackPanel>
+                </WrapPanel>
+                <TextBlock Text="Description (blank keeps the original's)" Style="{StaticResource FieldLabelStyle}"/>
+                <TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,12" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="44"/>
+
+                <!-- 3. What becomes its own -->
+                <TextBlock Text="3. What it gets its own copy of" Style="{StaticResource SectionHeaderStyle}"
+                           Visibility="{Binding HasSource, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,4,0,6"
+                           Visibility="{Binding HasSource, Converter={StaticResource BoolToVisibilityConverter}}"
+                           Text="Ticked: the new item gets its own copy, so you can change it without touching the original. Unticked: it shares the game's row, and changing that would change the original too."/>
+                <ItemsControl ItemsSource="{Binding Links}" Margin="0,0,0,6">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <DockPanel Margin="0,2">
+                                <CheckBox IsChecked="{Binding OwnCopy}" VerticalAlignment="Top" Margin="0,2,8,0" AutomationProperties.Name="{Binding Field}"/>
+                                <StackPanel>
+                                    <TextBlock>
+                                        <Run Text="{Binding Field, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="  "/><Run Text="{Binding Target, Mode=OneWay}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontFamily="Consolas" FontSize="11.5"/>
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding Hint}" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <CheckBox Content="Its own buff too (the effect it gives when eaten or used)" IsChecked="{Binding CopyBuff}" Margin="0,0,0,12"
+                          Visibility="{Binding HasBuff, Converter={StaticResource BoolToVisibilityConverter}}"
+                          ToolTip="Copies the buff (a D_ModifierStates row: its stat bonuses and duration) under the item's name, so you can change what it does. Needs Consumable ticked above."/>
+
+                <!-- 4. How players get it -->
+                <TextBlock Text="4. How players get it" Style="{StaticResource SectionHeaderStyle}" Margin="0,4,0,0"/>
+                <StackPanel Margin="0,6,0,0">
+                    <RadioButton GroupName="Obtain" Content="Just the item for now (spawn it, or wire it up later)" IsChecked="{Binding IsJustItem}"/>
+                    <RadioButton GroupName="Obtain" Content="Crafting recipe at a bench" Margin="0,4,0,0" IsChecked="{Binding IsRecipe}"/>
+                    <RadioButton GroupName="Obtain" Content="Orbital workshop purchase" Margin="0,4,0,0" IsChecked="{Binding IsWorkshop}"/>
+                </StackPanel>
+
+                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,8,0,0"
+                        Visibility="{Binding IsRecipe, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <StackPanel>
+                        <TextBlock Text="Bench" Style="{StaticResource FieldLabelStyle}"/>
+                        <ComboBox ItemsSource="{Binding Benches}" Text="{Binding SelectedBench, UpdateSourceTrigger=LostFocus}" IsEditable="True" Width="260" HorizontalAlignment="Left" Margin="0,4,0,6"
+                                  ToolTip="Where it's crafted. Character = from the inventory, no bench."/>
+                        <CheckBox Content="Unlock it with the original's blueprint (otherwise it's known from the start)" IsChecked="{Binding UnlockWithSource}"
+                                  Visibility="{Binding CanUnlockWithSource, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,6,0,0"
+                                   Text="The recipe starts with the original's ingredients (or 1 Fiber if it had none). Change them in the editor afterwards: Crafting-D_ProcessorRecipes › Inputs."/>
+                    </StackPanel>
+                </Border>
+
+                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,8,0,0"
+                        Visibility="{Binding IsWorkshop, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <StackPanel>
+                        <RadioButton GroupName="Tab" Content="In an existing workshop tab" IsChecked="{Binding UseExistingTree}"/>
+                        <ComboBox ItemsSource="{Binding WorkshopTrees}" SelectedItem="{Binding SelectedTree}" Width="260" HorizontalAlignment="Left" Margin="20,4,0,6"
+                                  IsEnabled="{Binding UseExistingTree}"/>
+                        <RadioButton GroupName="Tab" Content="In a new tab of this mod's own" IsChecked="{Binding UseNewTab}"/>
+                        <Grid Width="260" HorizontalAlignment="Left" Margin="20,4,0,6" IsEnabled="{Binding UseNewTab}">
+                            <TextBox Text="{Binding NewTabName, UpdateSourceTrigger=PropertyChanged}" ToolTip="The tab's title in the workshop"/>
+                            <TextBlock Text="Tab name (blank = the item's name)" Style="{StaticResource PlaceholderTextStyle}"
+                                       Visibility="{Binding NewTabName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
+                        <WrapPanel Margin="0,4,0,0">
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock Text="Research cost (credits)" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBox Text="{Binding ResearchCreditsText, UpdateSourceTrigger=PropertyChanged}" Width="120" HorizontalAlignment="Left" Margin="0,4,0,0"/>
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="Replication cost (credits)" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBox Text="{Binding ReplicationCreditsText, UpdateSourceTrigger=PropertyChanged}" Width="120" HorizontalAlignment="Left" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </WrapPanel>
+                        <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,6,0,0"
+                                   Text="Research is paid once to unlock it; replication is paid for each copy you take down. Lower numbers make it cheaper, higher make it dearer; 0 makes it free."/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <DockPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,14,0,0">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0"/>
+                <Button Content="Add to mod" Click="Create_Click" Style="{StaticResource PrimaryButtonStyle}"/>
+            </StackPanel>
+            <TextBlock Text="{Binding Error}" Foreground="#E05555" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"/>
+        </DockPanel>
+    </Grid>
+</Window>

@@ -31,6 +31,11 @@ public partial class NewModDialog : Window
             : ElectricGeneratorRadio.IsChecked == true ? ModTemplate.ElectricGenerator
             : WaterPumpRadio.IsChecked == true ? ModTemplate.WaterPump
             : QualityOfLifeRadio.IsChecked == true ? ModTemplate.QualityOfLife
+            : EnvirosuitRadio.IsChecked == true ? ModTemplate.Envirosuit
+            : ModuleRadio.IsChecked == true ? ModTemplate.EnvirosuitModule
+            : ConsumableBuffRadio.IsChecked == true ? ModTemplate.ConsumableWithBuff
+            : WorkshopItemRadio.IsChecked == true ? ModTemplate.WorkshopItem
+            : MapIconRadio.IsChecked == true ? ModTemplate.MapIcon
             : ModTemplate.Blank;
         DialogResult = true;
     }

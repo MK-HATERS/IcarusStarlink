@@ -1626,7 +1626,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             _activityLog.Log($"Created new mod '{entry.Name}'.", ActivityEntryKind.Success);
-            OpenEditor(entry.FolderName);
+            OpenEditor(entry.FolderName, startWizard: ModTemplateContent.ItemPresetFor(dialog.SelectedTemplate));
         }
         catch (Exception ex)
         {
@@ -2539,7 +2539,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// editor's existing amber base-diff highlighting is what the user sees first, not an unrelated
     /// row.
     /// </param>
-    private void OpenEditor(string folderName, (string CurrentFile, string ItemName)? preSelect = null)
+    /// <param name="startWizard">An item template's preset: the new-item wizard opens over the editor straight away.</param>
+    private void OpenEditor(string folderName, (string CurrentFile, string ItemName)? preSelect = null, NewItemPreset? startWizard = null)
     {
         var editorViewModel = _editorFactory(folderName);
         if (preSelect is { } target)
@@ -2566,6 +2567,11 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
         };
         window.Show();
+        if (startWizard is not null)
+        {
+            // After the editor has drawn, so the wizard opens over it.
+            window.Dispatcher.BeginInvoke(() => editorViewModel.StartNewItemWizard(startWizard), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
     }
 
     /// <summary>Test-only seam — see AssemblyInfo.cs's own InternalsVisibleTo grant. OpenEditor itself constructs a real ExmodEditorWindow, which (like every other real Window in this app) can't run in a unit test host — this lets a test mark a folder as "has an open editor" the same way OpenEditor's own bookkeeping does, without needing a real window.</summary>

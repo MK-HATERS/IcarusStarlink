@@ -1037,6 +1037,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             StatusMessage = strippedFieldCount > 0
                 ? $"Saved — removed {strippedFieldCount} field(s) that matched base game data."
                 : "Saved.";
+
+            // Saved either way; a link to a row that doesn't exist is worth knowing about now, not in game.
+            if (Directory.Exists(_dataFolder) && RunReferenceCheck(showWhenClean: false) is > 0 and var problems)
+            {
+                StatusMessage += $" {problems} reference problem(s), listed above.";
+            }
         }
         catch (Exception ex)
         {
