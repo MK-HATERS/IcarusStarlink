@@ -106,6 +106,38 @@ public sealed class SteamCmdService(HttpClient httpClient, Core.Settings.ISettin
                     StandardOutputEncoding = Encoding.UTF8,
                 },
             };
+            // SteamCMD holds back its output when it isn't writing to a real console — a real run
+            // showed nothing on stdout for minutes while its own logs\console_log.txt was printing
+            // "Update state (0x61) downloading, progress: 40.08 …" every two seconds. So the log file
+            // is followed live too, and a line already seen from one source isn't repeated from the other.
+            var consoleLog = new LogTailer(Path.Combine(Path.GetDirectoryName(exe)!, "logs", "console_log.txt"));
+            consoleLog.SeekToEnd();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var gate = new object();
+            void Forward(string line)
+            {
+                var text = SteamCmd.StripLogTimestamp(line).Trim();
+                if (text.Length == 0)
+                {
+                    return;
+                }
+
+                lock (gate)
+                {
+                    if (!seen.Add(text))
+                    {
+                        return;
+                    }
+
+                    if (seen.Count > 2000)
+                    {
+                        seen.Clear();
+                    }
+                }
+
+                onLine(text);
+            }
+
             process.Start();
             using var registration = cancellationToken.Register(() =>
             {
@@ -118,10 +150,43 @@ public sealed class SteamCmdService(HttpClient httpClient, Core.Settings.ISettin
                 }
             });
 
-            var stdout = PumpAsync(process.StandardOutput, onLine);
-            var stderr = PumpAsync(process.StandardError, onLine);
-            await process.WaitForExitAsync(cancellationToken);
-            await Task.WhenAll(stdout, stderr);
+            using var stopFollowing = new CancellationTokenSource();
+            var follow = Task.Run(async () =>
+            {
+                while (!stopFollowing.IsCancellationRequested)
+                {
+                    foreach (var line in consoleLog.Poll())
+                    {
+                        Forward(line);
+                    }
+
+                    try
+                    {
+                        await Task.Delay(1000, stopFollowing.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                }
+            });
+
+            var stdout = PumpAsync(process.StandardOutput, Forward);
+            var stderr = PumpAsync(process.StandardError, Forward);
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken);
+                await Task.WhenAll(stdout, stderr);
+            }
+            finally
+            {
+                stopFollowing.Cancel();
+                await follow;
+                foreach (var line in consoleLog.Poll())
+                {
+                    Forward(line);
+                }
+            }
+
             return process.ExitCode;
         }
         finally

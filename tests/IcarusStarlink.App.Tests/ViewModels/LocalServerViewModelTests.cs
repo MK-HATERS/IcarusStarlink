@@ -297,6 +297,24 @@ public sealed class LocalServerViewModelTests : IDisposable
         Assert.Contains("before-update", backup.Name);
     }
 
+    /// <summary>The user's first install: no server in the list yet, so no Log tab — the SteamCMD box itself must show the output and keep it after the run until dismissed.</summary>
+    [Fact]
+    public async Task InstallNewServer_ShowsSteamCmdOutputInItsOwnBoxWithNoServerListed()
+    {
+        SteamCmd.CreateServerOnInstall = true;
+        var (vm, _, _, _) = Build(pick: Path.Combine(_root, "NewServer"));
+        Assert.False(vm.ShowSteamCmdPanel);
+
+        await vm.InstallNewServerCommand.ExecuteAsync(null);
+
+        Assert.True(vm.ShowSteamCmdPanel);
+        Assert.Contains(vm.SteamCmdOutput, l => l.Contains("progress: 50.00"));
+        Assert.True(vm.IsSteamCmdIdle);
+
+        vm.DismissSteamCmdOutputCommand.Execute(null);
+        Assert.False(vm.ShowSteamCmdPanel);
+    }
+
     // ---- Which SteamCMD ----
 
     /// <summary>No SteamCMD yet: installing a server first asks to put Starlink's copy in its own folder, then carries on.</summary>

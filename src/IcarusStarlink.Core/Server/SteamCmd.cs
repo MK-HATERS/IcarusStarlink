@@ -44,6 +44,10 @@ public static partial class SteamCmd
         return match.Success ? match.Groups["phase"].Value.Trim() : null;
     }
 
+    /// <summary>"[2026-10-15 20:17:26]  Update state …" (SteamCMD's own logs\console_log.txt) → "Update state …"; any other line unchanged.</summary>
+    public static string StripLogTimestamp(string line) =>
+        line.Length > 22 && line[0] == '[' && line[20] == ']' && char.IsDigit(line[1]) ? line[21..] : line;
+
     public static bool IsSuccessLine(string line) =>
         line.Contains($"Success! App '{DedicatedServerDefaults.SteamAppId}'", StringComparison.OrdinalIgnoreCase);
 

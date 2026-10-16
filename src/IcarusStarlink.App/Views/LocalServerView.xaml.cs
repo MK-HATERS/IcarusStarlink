@@ -19,12 +19,22 @@ public partial class LocalServerView : UserControl
         if (_viewModel is not null)
         {
             _viewModel.LogAppended -= ScrollLogToEnd;
+            _viewModel.SteamCmdOutputAppended -= ScrollSteamCmdToEnd;
         }
 
         _viewModel = e.NewValue as LocalServerViewModel;
         if (_viewModel is not null)
         {
             _viewModel.LogAppended += ScrollLogToEnd;
+            _viewModel.SteamCmdOutputAppended += ScrollSteamCmdToEnd;
+        }
+    }
+
+    private void ScrollSteamCmdToEnd(object? sender, EventArgs e)
+    {
+        if (SteamCmdOutputList.Items.Count > 0)
+        {
+            SteamCmdOutputList.ScrollIntoView(SteamCmdOutputList.Items[^1]);
         }
     }
 

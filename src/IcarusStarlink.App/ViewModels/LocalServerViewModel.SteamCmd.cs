@@ -143,6 +143,7 @@ public sealed partial class LocalServerViewModel
 
     private async Task<bool> InstallOwnSteamCmdCoreAsync()
     {
+        StartSteamCmdOutput();
         IsSteamCmdBusy = true;
         SteamCmdProgress = 0;
         SteamCmdStatus = "Downloading SteamCMD…";
@@ -354,8 +355,37 @@ public sealed partial class LocalServerViewModel
         RefreshBackups();
     }
 
+    /// <summary>SteamCMD's output for the current (or last) run, shown in the SteamCMD box itself — the Log tab only exists once a server is in the list, which it isn't during a first install.</summary>
+    public System.Collections.ObjectModel.ObservableCollection<string> SteamCmdOutput { get; } = [];
+
+    /// <summary>The SteamCMD box shows while SteamCMD runs, and afterwards until dismissed so the result can be read.</summary>
+    public bool ShowSteamCmdPanel => IsSteamCmdBusy || SteamCmdOutput.Count > 0;
+
+    /// <summary>Computed inverse of IsSteamCmdBusy (this project binds inverses as properties, not converter parameters).</summary>
+    public bool IsSteamCmdIdle => !IsSteamCmdBusy;
+
+    partial void OnIsSteamCmdBusyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowSteamCmdPanel));
+        OnPropertyChanged(nameof(IsSteamCmdIdle));
+    }
+
+    [RelayCommand]
+    private void DismissSteamCmdOutput()
+    {
+        SteamCmdOutput.Clear();
+        OnPropertyChanged(nameof(ShowSteamCmdPanel));
+    }
+
+    private void StartSteamCmdOutput()
+    {
+        SteamCmdOutput.Clear();
+        OnPropertyChanged(nameof(ShowSteamCmdPanel));
+    }
+
     private async Task<SteamCmdResultView> RunSteamCmdAsync(Func<Task<Services.SteamCmdResult>> run)
     {
+        StartSteamCmdOutput();
         IsSteamCmdBusy = true;
         SteamCmdProgress = 0;
         SteamCmdStatus = "Starting SteamCMD…";
@@ -375,6 +405,9 @@ public sealed partial class LocalServerViewModel
         }
     }
 
+    /// <summary>The view scrolls the SteamCMD box to its newest line.</summary>
+    public event EventHandler? SteamCmdOutputAppended;
+
     private sealed record SteamCmdResultView(bool Success, string Message);
 
     /// <summary>SteamCMD output: progress lines drive the bar; every line also goes into the log panel, tagged.</summary>
@@ -392,6 +425,22 @@ public sealed partial class LocalServerViewModel
                 SteamCmdStatus = line.Trim();
             }
 
+            // A progress line replaces the previous one instead of stacking hundreds of them.
+            if (SteamCmd.ParseProgressPercent(line) is not null && SteamCmdOutput.Count > 0 && SteamCmd.ParseProgressPercent(SteamCmdOutput[^1]) is not null)
+            {
+                SteamCmdOutput[^1] = line.Trim();
+            }
+            else
+            {
+                SteamCmdOutput.Add(line.Trim());
+                while (SteamCmdOutput.Count > 300)
+                {
+                    SteamCmdOutput.RemoveAt(0);
+                }
+            }
+
+            OnPropertyChanged(nameof(ShowSteamCmdPanel));
+            SteamCmdOutputAppended?.Invoke(this, EventArgs.Empty);
             AppendLog(["[SteamCMD] " + line]);
         }
 

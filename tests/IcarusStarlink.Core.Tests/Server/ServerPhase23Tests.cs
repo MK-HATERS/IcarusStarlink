@@ -36,6 +36,17 @@ public sealed class ServerPhase23Tests : IDisposable
         Assert.Equal(phase, SteamCmd.ParseProgressPhase(line));
     }
 
+    /// <summary>SteamCMD's own logs\console_log.txt (a real line) — the source of progress when its stdout is held back.</summary>
+    [Fact]
+    public void ConsoleLogLines_LoseTheirTimestampAndStillParse()
+    {
+        var text = SteamCmd.StripLogTimestamp("[2026-10-15 20:17:40]  Update state (0x61) downloading, progress: 40.08 (4191739133 / 10457140040)");
+
+        Assert.Equal(40.08, SteamCmd.ParseProgressPercent(text));
+        Assert.StartsWith("Update state", text.Trim());
+        Assert.Equal("Loading Steam API...OK", SteamCmd.StripLogTimestamp("Loading Steam API...OK"));
+    }
+
     [Fact]
     public void SuccessAndErrorLines_AreRecognised()
     {
