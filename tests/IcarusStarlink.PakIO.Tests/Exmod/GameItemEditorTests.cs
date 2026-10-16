@@ -183,7 +183,8 @@ public sealed class GameItemEditorTests : IDisposable
     [Theory]
     [InlineData("(Value=\"BaseOxygenSlots_+\")", "Oxygen slots")]
     [InlineData("BaseColdResistance_%", "Cold resistance %")]
-    [InlineData("BaseMovementSpeed_+%", "Movement speed %")]
+    [InlineData("BaseMovementSpeed_+%", "Movement speed +%")]
+    [InlineData("BaseMovementSpeed_+", "Movement speed")]
     [InlineData("MaximumHealth_+", "Maximum health")]
     public void StatLabels_ReadPlainly(string stat, string expected) => Assert.Equal(expected, GameItemEditor.StatLabel(stat));
 

@@ -84,10 +84,10 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
 {
     private readonly Action _changed;
 
-    public GameItemSectionViewModel(EditableSection section, IReadOnlyList<string> statNames, Action changed)
+    public GameItemSectionViewModel(EditableSection section, IReadOnlyList<StatChoice> stats, Action changed)
     {
         Section = section;
-        StatNames = statNames;
+        _stats = stats;
         _changed = changed;
         foreach (var field in section.Fields)
         {
@@ -124,24 +124,51 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
 
     public bool CanAddStat => Section.StatGroups.Count > 0;
 
-    public IReadOnlyList<string> StatNames { get; }
+    private readonly IReadOnlyList<StatChoice> _stats;
+
+    /// <summary>What the user typed to find a stat: "cold", "movement", "health"…</summary>
+    [ObservableProperty]
+    private string _statSearch = "";
+
+    /// <summary>Stats matching the search (by plain name or game name), at most 40.</summary>
+    public ObservableCollection<StatChoice> MatchingStats { get; } = [];
+
+    public bool HasMatchingStats => MatchingStats.Count > 0;
 
     [ObservableProperty]
-    private string _newStatName = "";
+    [NotifyPropertyChangedFor(nameof(SelectedStatText))]
+    private StatChoice? _selectedStat;
+
+    public string SelectedStatText => SelectedStat is { } s ? $"{s.Label}  ·  {s.Kind}" : "Nothing picked yet: search, then click a stat.";
 
     [ObservableProperty]
     private string? _statError;
 
+    partial void OnStatSearchChanged(string value)
+    {
+        MatchingStats.Clear();
+        var words = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length > 0)
+        {
+            foreach (var stat in _stats.Where(s => words.All(w => s.Label.Contains(w, StringComparison.OrdinalIgnoreCase) || s.Name.Contains(w, StringComparison.OrdinalIgnoreCase))).Take(40))
+            {
+                MatchingStats.Add(stat);
+            }
+        }
+
+        OnPropertyChanged(nameof(HasMatchingStats));
+    }
+
     [RelayCommand]
     private void AddStat()
     {
-        var name = NewStatName.Trim();
-        if (name.Length == 0)
+        if (SelectedStat is not { } stat)
         {
-            StatError = "Pick or type a stat, e.g. BaseColdResistance_%.";
+            StatError = "Search for a stat (e.g. cold, movement, health) and click one first.";
             return;
         }
 
+        var name = stat.Name;
         var key = GameItemEditor.StatKeyFor(name);
         var group = Section.StatGroups[0];
         if (Fields.Any(f => f.Field.Path.Top == group && f.Field.Path.Steps.Count == 1 && (string)f.Field.Path.Steps[0] == key))
@@ -150,10 +177,10 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
             return;
         }
 
-        var label = GameItemEditor.StatLabel(name);
-        Add(new GameItemFieldViewModel(new EditableField(new EditPath(group, [key]), label, $"Added by you. Higher = more {label.ToLowerInvariant()}.", EditableKind.Number, null, null, false)) { ValueText = "0" });
+        Add(new GameItemFieldViewModel(new EditableField(new EditPath(group, [key]), stat.Label, $"Added by you: a {stat.Kind}. Higher = more, lower = less; 0 = no bonus.", EditableKind.Number, null, null, false)) { ValueText = "0" });
         StatError = null;
-        NewStatName = "";
+        SelectedStat = null;
+        StatSearch = "";
         _changed();
     }
 
@@ -188,7 +215,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
     private readonly string _dataFolder;
     private GameTableIndex? _game;
     private IReadOnlyList<ItemChoice> _allItems = [];
-    private IReadOnlyList<string>? _statNames;
+    private IReadOnlyList<StatChoice>? _statNames;
     private bool _refreshingFilter;
 
     public GameEditorViewModel(ILibraryRepository repository, string dataFolder)
@@ -408,7 +435,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
         ItemTitle = view.DisplayName is { Length: > 0 } d ? $"{d}  ({item.Name})" : item.Name;
         KeptAsGames = view.KeptAsGames.Count == 0 ? null : "Kept as the game's (models, sounds, how it's picked up and used): " + string.Join("; ", view.KeptAsGames) + ".";
-        _statNames ??= StatNamesFrom(game);
+        _statNames ??= GameItemEditor.StatChoices(game);
         foreach (var section in view.Sections)
         {
             Sections.Add(new GameItemSectionViewModel(section, _statNames, UpdatePending));
@@ -497,9 +524,4 @@ public sealed partial class GameEditorViewModel : ObservableObject
             _refreshingFilter = false;
         }
     }
-
-    private static IReadOnlyList<string> StatNamesFrom(GameTableIndex game) =>
-        game.CurrentFileFor("D_Stats") is { } stats
-            ? [.. (game.Rows(stats) ?? []).Select(kv => kv.Key).Where(n => n.StartsWith("Base", StringComparison.Ordinal)).OrderBy(n => n, StringComparer.OrdinalIgnoreCase)]
-            : [];
 }

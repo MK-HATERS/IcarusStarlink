@@ -29,6 +29,12 @@ public sealed record EditableSection(
     public string Table => GameTableIndex.TableNameOf(CurrentFile);
 }
 
+/// <summary>A stat for the picker: "BaseMovementSpeed_+%" shown as "Movement speed +%", a percent bonus.</summary>
+public sealed record StatChoice(string Name, string Label, string Kind)
+{
+    public string Display => $"{Label}  ·  {Kind}";
+}
+
 public sealed record GameItemView(string ItemName, string? DisplayName, IReadOnlyList<EditableSection> Sections, IReadOnlyList<string> KeptAsGames);
 
 /// <summary>A value to write (null = back to the game's).</summary>
@@ -194,11 +200,15 @@ public static partial class GameItemEditor
         return lines;
     }
 
-    /// <summary>"BaseOxygenSlots_+" / "(Value=\"BaseColdResistance_%\")" → "Oxygen slots" / "Cold resistance %".</summary>
+    /// <summary>
+    /// "BaseOxygenSlots_+" → "Oxygen slots"; "BaseMovementSpeed_+%" → "Movement speed +%"; "BaseColdResistance_%" → "Cold resistance %".
+    /// The game has both a flat and a percent version of many stats (BaseMovementSpeed_+ and _+%),
+    /// so the suffix keeps them apart.
+    /// </summary>
     public static string StatLabel(string stat)
     {
         var name = StatKey().Match(stat) is { Success: true } m ? m.Groups["stat"].Value : stat;
-        var suffix = name.EndsWith("_+%", StringComparison.Ordinal) || name.EndsWith("_%", StringComparison.Ordinal) ? " %" : "";
+        var suffix = name.EndsWith("_+%", StringComparison.Ordinal) ? " +%" : name.EndsWith("_%", StringComparison.Ordinal) ? " %" : "";
         name = name.TrimEnd('+', '%', '_');
         if (name.StartsWith("Base", StringComparison.Ordinal) && name.Length > 4 && char.IsUpper(name[4]))
         {
@@ -207,6 +217,21 @@ public static partial class GameItemEditor
 
         return Humanize(name) + suffix;
     }
+
+    /// <summary>What kind of number a stat is, in words, for the stat picker.</summary>
+    public static string StatKind(string statName) =>
+        statName.EndsWith("_+%", StringComparison.Ordinal) ? "percent bonus (10 = +10%)"
+        : statName.EndsWith("_%", StringComparison.Ordinal) ? "percent (10 = 10%)"
+        : "flat amount (10 = +10)";
+
+    /// <summary>The stats an item can grant (the game's "Base…" stats), for the stat picker.</summary>
+    public static IReadOnlyList<StatChoice> StatChoices(GameTableIndex game) =>
+        game.CurrentFileFor("D_Stats") is { } stats
+            ? [.. (game.Rows(stats) ?? []).Select(kv => kv.Key)
+                .Where(n => n.StartsWith("Base", StringComparison.Ordinal))
+                .Select(n => new StatChoice(n, StatLabel(n), StatKind(n)))
+                .OrderBy(c => c.Label, StringComparer.OrdinalIgnoreCase)]
+            : [];
 
     /// <summary>The key a stat has in a stats object: "BaseColdResistance_%" → "(Value=\"BaseColdResistance_%\")".</summary>
     public static string StatKeyFor(string statName) => StatKey().IsMatch(statName) ? statName : $"(Value=\"{statName}\")";
@@ -315,9 +340,11 @@ public static partial class GameItemEditor
             : null;
 
     private static string StatDescription(string label) =>
-        label.EndsWith(" %", StringComparison.Ordinal)
-            ? $"Percent. Higher = more {label[..^2].ToLowerInvariant()}, lower = less; 0 = no bonus."
-            : $"Higher = more {label.ToLowerInvariant()}, lower = less; 0 = no bonus.";
+        label.EndsWith(" +%", StringComparison.Ordinal)
+            ? $"Percent bonus (10 = +10%). Higher = more {label[..^3].ToLowerInvariant()}, lower = less; 0 = no bonus."
+            : label.EndsWith(" %", StringComparison.Ordinal)
+                ? $"Percent (10 = 10%). Higher = more {label[..^2].ToLowerInvariant()}, lower = less; 0 = none."
+                : $"Flat amount. Higher = more {label.ToLowerInvariant()}, lower = less; 0 = no bonus.";
 
     /// <summary>The row as the game has it with the mod's fields on top; the mod's own row when the game has none (an own copy); null when neither has it.</summary>
     private static JsonObject? Effective(GameTableIndex game, ExmodPackage? mod, string file, string rowName)

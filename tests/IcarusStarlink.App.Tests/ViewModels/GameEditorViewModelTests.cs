@@ -21,8 +21,8 @@ public sealed class GameEditorViewModelTests : IDisposable
     {
         _library = new FolderLibraryRepository(Path.Combine(_root, "Extracted_Mods"), Path.Combine(_root, "Library_Meta"), Path.Combine(_root, "Backups"), NullLogger<FolderLibraryRepository>.Instance);
         Write("Items/D_ItemsStatic.json", """
-            {"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"},"Decayable":{"RowName":"None","DataTableName":"D_Decayable"}},"Rows":[
-              {"Name":"Envirosuit","Itemable":{"RowName":"Item_Envirosuit"},"Decayable":{"RowName":"Decay_General"}},
+            {"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"},"Decayable":{"RowName":"None","DataTableName":"D_Decayable"},"Armour":{"RowName":"None","DataTableName":"D_Armour"}},"Rows":[
+              {"Name":"Envirosuit","Itemable":{"RowName":"Item_Envirosuit"},"Decayable":{"RowName":"Decay_General"},"Armour":{"RowName":"IO_Undersuit"}},
               {"Name":"Stone","Itemable":{"RowName":"Item_Stone"},"Decayable":{"RowName":"Decay_General"}}
             ]}
             """);
@@ -32,6 +32,8 @@ public sealed class GameEditorViewModelTests : IDisposable
               {"Name":"Item_Stone","Weight":10}
             ]}
             """);
+        Write("Traits/D_Armour.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"IO_Undersuit","ArmourStats":{"(Value=\"BaseOxygenSlots_+\")":1}}]}""");
+        Write("Stats/D_Stats.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"BaseMovementSpeed_+"},{"Name":"BaseMovementSpeed_+%"},{"Name":"BaseColdResistance_%"},{"Name":"MovementSpeed_+"}]}""");
         Write("Traits/D_Decayable.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Decay_General","DecayTime":300}]}""");
     }
 
@@ -165,5 +167,28 @@ public sealed class GameEditorViewModelTests : IDisposable
 
         Assert.Contains("Needs a number", vm.StatusMessage);
         Assert.Empty(_library.GetAll());
+    }
+
+    /// <summary>A real report: the stat list showed "movement speed" twice (it's a flat and a percent stat) and had no search.</summary>
+    [Fact]
+    public void AddingAStat_SearchesByPlainName_AndTellsFlatFromPercent()
+    {
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        var armour = vm.Sections.Single(s => s.Section.Key == "Armour");
+
+        armour.StatSearch = "movement";
+
+        Assert.Equal(["Movement speed  ·  flat amount (10 = +10)", "Movement speed +%  ·  percent bonus (10 = +10%)"], armour.MatchingStats.Select(s => s.Display));
+        armour.SelectedStat = armour.MatchingStats[1];
+        Assert.StartsWith("Movement speed +%", armour.SelectedStatText);
+
+        armour.AddStatCommand.Execute(null);
+
+        var added = armour.Fields.Single(f => f.Label == "Movement speed +%");
+        Assert.Equal("0", added.ValueText);
+        Assert.Equal("", armour.StatSearch);
+        Assert.Null(armour.SelectedStat);
+        Assert.Equal(1, vm.PendingCount);
     }
 }
