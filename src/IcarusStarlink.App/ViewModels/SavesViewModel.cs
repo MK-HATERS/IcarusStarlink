@@ -152,12 +152,16 @@ public sealed partial class SavesViewModel : ObservableObject
     /// <summary>Set when LoadSlotAsync threw partway — see its catch. Nothing may be saved from that state.</summary>
     private bool _loadFailed;
 
+    /// <summary>The Worlds tab: the slot's saved worlds and their custom settings.</summary>
+    public WorldSettingsViewModel WorldSettings { get; }
+
     public bool HasUnsavedChanges =>
         !_loadFailed && (DirtyTrackedCollections.Any(c => c.Any(x => x.IsDirty)) || _metaInventoryDirty || _charactersListDirty || _mountsListDirty);
 
     public SavesViewModel(
         ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames,
-        IDialogService dialogService, IGameProcessChecker gameProcessChecker, IBaseGameIconDecoder baseGameIconDecoder)
+        IDialogService dialogService, IGameProcessChecker gameProcessChecker, IBaseGameIconDecoder baseGameIconDecoder,
+        string? worldBackupFolder = null)
     {
         _repository = repository;
         _activityLog = activityLog;
@@ -166,6 +170,11 @@ public sealed partial class SavesViewModel : ObservableObject
         _gameProcessChecker = gameProcessChecker;
         _baseGameIconDecoder = baseGameIconDecoder;
         _talentSearchDebounceTimer = new Utilities.DebounceTimer(TimeSpan.FromMilliseconds(250), RefreshTalentFilter);
+        WorldSettings = new WorldSettingsViewModel(
+            () => SelectedSlot is { } slot ? Path.Combine(slot.FolderPath, "Prospects") : null,
+            () => gameNames.DataFolder,
+            () => gameProcessChecker.IsRunning() ? "Close Icarus first: it rewrites its worlds when it exits, which would undo this." : null,
+            worldBackupFolder ?? Path.Combine(Path.GetTempPath(), "IcarusStarlink", "WorldBackups"));
 
         // Refresh game data re-extracts the tables every name here comes from.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((SavesViewModel)recipient).OnGameDataRefreshed());
@@ -180,6 +189,7 @@ public sealed partial class SavesViewModel : ObservableObject
     private void OnGameDataRefreshed()
     {
         _gameNames.Invalidate();
+        WorldSettings.InvalidateDefinitions();
         if (SelectedSlot is null)
         {
             return;
@@ -377,6 +387,7 @@ public sealed partial class SavesViewModel : ObservableObject
 
         _lastLoadedSlot = SelectedSlot;
         _loadFailed = false;
+        WorldSettings.Reload();
 
         if (SelectedSlot is null)
         {

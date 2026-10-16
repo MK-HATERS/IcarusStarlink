@@ -63,6 +63,11 @@ public sealed partial class LocalServerViewModel : ObservableObject
         _activityLog = activityLog;
         _pickFolder = pickFolder ?? PickFolderWithDialog;
         _pickSteamCmdExe = pickSteamCmdExe ?? PickSteamCmdWithDialog;
+        WorldSettings = new WorldSettingsViewModel(
+            () => SelectedProfile is { } p ? DedicatedServerLayout.ProspectsFolder(p.InstallFolder, p.SavedDirSuffix) : null,
+            () => DataFolder,
+            () => IsRunning ? "Stop the server first: it rewrites its worlds when it shuts down, which would undo this." : null,
+            Path.Combine(_backupsRoot, "WorldSettings"));
 
         foreach (var profile in store.GetAll())
         {
@@ -157,6 +162,9 @@ public sealed partial class LocalServerViewModel : ObservableObject
     [ObservableProperty] private string? _lastProspectName;
 
     public ObservableCollection<string> Prospects { get; } = [];
+
+    /// <summary>The World settings tab: each saved world's custom settings.</summary>
+    public WorldSettingsViewModel WorldSettings { get; }
 
     /// <summary>The ini key every guide warns about: empty means anyone who types /AdminLogin becomes admin.</summary>
     public bool AdminPasswordIsEmpty => string.IsNullOrWhiteSpace(AdminPassword);
@@ -529,6 +537,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
             Prospects.Add(name);
         }
 
+        WorldSettings.Reload();
         OnPropertyChanged(nameof(InstallFolder));
         OnPropertyChanged(nameof(SettingsIniPath));
         OnPropertyChanged(nameof(CommandLinePreview));
@@ -553,6 +562,9 @@ public sealed partial class LocalServerViewModel : ObservableObject
                     Prospects.Add(name);
                 }
             }
+
+            // The server just wrote its worlds: show what they hold now.
+            WorldSettings.Reload();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

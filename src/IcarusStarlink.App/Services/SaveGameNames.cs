@@ -14,6 +14,9 @@ namespace IcarusStarlink.App.Services;
 /// </summary>
 public sealed class SaveGameNames(string dataFolder)
 {
+    /// <summary>The extracted game data these names come from.</summary>
+    public string DataFolder => dataFolder;
+
     private IReadOnlyList<string>? _characterFlagNames;
     private IReadOnlyList<string>? _accountFlagNames;
     private IReadOnlyDictionary<string, TalentInfo>? _talents;

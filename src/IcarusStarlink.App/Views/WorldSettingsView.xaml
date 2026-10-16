@@ -1,0 +1,75 @@
+<UserControl x:Class="IcarusStarlink.App.Views.WorldSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- A slot's (or server's) saved worlds and their custom settings. DataContext: WorldSettingsViewModel. -->
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="280"/>
+            <ColumnDefinition Width="16"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <DockPanel Grid.Column="0">
+            <TextBlock DockPanel.Dock="Top" Text="WORLDS" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+            <TextBlock DockPanel.Dock="Top" Text="{Binding EmptyText}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,4,0,0"
+                       Visibility="{Binding HasNoWorlds, Converter={StaticResource BoolToVisibilityConverter}}"/>
+            <ListBox ItemsSource="{Binding Worlds}" SelectedItem="{Binding SelectedWorld}" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                     Visibility="{Binding HasWorlds, Converter={StaticResource BoolToVisibilityConverter}}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,3">
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+
+        <DockPanel Grid.Column="2" Visibility="{Binding SelectedWorld, Converter={StaticResource NullToVisibilityConverter}}">
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                <TextBlock Text="{Binding SelectedWorld.Name}" FontSize="16" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding SelectedWorld.Detail}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,4,0,0"
+                           Text="The world's own custom settings, the same ones the game shows when you create a world. Difficulty and Hardcore can't change after a world is made. Saving backs the world up first; the game (or server) must be closed, since it rewrites its saves when it exits."/>
+            </StackPanel>
+            <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" LastChildFill="False">
+                <Button DockPanel.Dock="Left" Content="Save world settings" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                        IsEnabled="{Binding HasChanges}" ToolTip="Backs the world up, then writes these settings into it. Greyed out: nothing changed." ToolTipService.ShowOnDisabled="True"/>
+                <Button DockPanel.Dock="Left" Content="Undo changes" Command="{Binding RevertCommand}" Margin="8,0,0,0" IsEnabled="{Binding HasChanges}"/>
+                <TextBlock DockPanel.Dock="Left" Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="460"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+            </DockPanel>
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Rows}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                        <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding Description}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                        <TextBlock Text="{Binding Note}" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}"
+                                                   Visibility="{Binding HasNote, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" IsEnabled="{Binding IsEditable}">
+                                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding BoolValue}" AutomationProperties.Name="{Binding Label}"
+                                                  Visibility="{Binding IsBool, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        <TextBox Text="{Binding ValueText, UpdateSourceTrigger=LostFocus}" Width="80" AutomationProperties.Name="{Binding Label}"
+                                                 Visibility="{Binding IsNumber, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        <ComboBox ItemsSource="{Binding Options}" SelectedIndex="{Binding Value}" MinWidth="160" AutomationProperties.Name="{Binding Label}"
+                                                  Visibility="{Binding IsDropDown, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </DockPanel>
+    </Grid>
+</UserControl>

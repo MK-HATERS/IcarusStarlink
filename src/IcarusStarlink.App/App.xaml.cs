@@ -380,7 +380,14 @@ public partial class App : Application
                 sp.GetRequiredService<ISteamInstallLocator>()));
         builder.Services.AddSingleton(new SaveGameNames(Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton<IGameProcessChecker, GameProcessChecker>();
-        builder.Services.AddSingleton<SavesViewModel>();
+        builder.Services.AddSingleton(sp => new SavesViewModel(
+            sp.GetRequiredService<ISaveRepository>(),
+            sp.GetRequiredService<IActivityLog>(),
+            sp.GetRequiredService<SaveGameNames>(),
+            sp.GetRequiredService<IDialogService>(),
+            sp.GetRequiredService<IGameProcessChecker>(),
+            sp.GetRequiredService<IBaseGameIconDecoder>(),
+            Path.Combine(appDataDirectory, "Cache", "save_backups", "Worlds")));
         builder.Services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUnrealPakService>(),

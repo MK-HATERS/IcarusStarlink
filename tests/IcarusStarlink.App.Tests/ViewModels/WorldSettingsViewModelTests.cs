@@ -1,0 +1,112 @@
+using System.IO;
+using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.PakIO.Worlds;
+
+namespace IcarusStarlink.App.Tests.ViewModels;
+
+public sealed class WorldSettingsViewModelTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "WorldSettingsVmTests_" + Guid.NewGuid().ToString("N"));
+    private string? _blocked;
+
+    public WorldSettingsViewModelTests()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "Prospects"));
+        Directory.CreateDirectory(Path.Combine(_root, "Data", "Stats"));
+        File.WriteAllText(Path.Combine(_root, "Data", "Stats", "D_CustomGameStats.json"), """
+            {
+              "Defaults": { "StatType": "Bool", "StatChangeability": "Anytime", "DefaultValue": 0 },
+              "Rows": [
+                { "Name": "Arachnophobia", "DisplayName": "Arachnophobia Mode" },
+                { "Name": "GreatHuntEffects", "DefaultValue": 1 },
+                { "Name": "StartingLevel", "StatType": "Int", "MinIntValue": 1, "MaxIntValue": 50, "DefaultValue": 1, "StatChangeability": "OnProspectCreation" }
+              ]
+            }
+            """);
+        File.WriteAllText(Path.Combine(_root, "Prospects", "World.json"),
+            "{\r\n\t\"ProspectInfo\":\r\n\t{\r\n\t\t\"ProspectID\": \"World\",\r\n\t\t\"Difficulty\": \"Hard\",\r\n\t\t\"CustomSettings\": [\r\n\t\t\t{\r\n\t\t\t\t\"SettingRowName\": \"Arachnophobia\",\r\n\t\t\t\t\"SettingValue\": 0\r\n\t\t\t}\r\n\t\t]\r\n\t},\r\n\t\"ProspectBlob\": {}\r\n}");
+    }
+
+    public void Dispose() => Directory.Delete(_root, recursive: true);
+
+    private WorldSettingsViewModel Create(string? prospects = "use")
+    {
+        var vm = new WorldSettingsViewModel(
+            () => prospects is null ? null : Path.Combine(_root, "Prospects"),
+            () => Path.Combine(_root, "Data"),
+            () => _blocked,
+            Path.Combine(_root, "Backups"));
+        vm.Reload();
+        return vm;
+    }
+
+    [Fact]
+    public void Reload_ListsWorlds_AndRowsWithDefaultsForSettingsTheSaveLacks()
+    {
+        var vm = Create();
+
+        Assert.Equal("World", Assert.Single(vm.Worlds).Name);
+        Assert.Equal(3, vm.Rows.Count);
+        var hunt = vm.Rows.Single(r => r.Definition.Name == "GreatHuntEffects");
+        Assert.True(hunt.BoolValue);
+        Assert.False(hunt.IsListedInSave);
+        Assert.False(vm.Rows.Single(r => r.Definition.Name == "StartingLevel").IsEditable);
+        Assert.False(vm.HasChanges);
+    }
+
+    [Fact]
+    public void NoSlot_ShowsNothing()
+    {
+        var vm = Create(prospects: null);
+
+        Assert.True(vm.HasNoWorlds);
+        Assert.Empty(vm.Rows);
+        Assert.Contains("Pick a save slot", vm.EmptyText);
+    }
+
+    [Fact]
+    public void Save_WritesTheChange_AndUndoGoesBack()
+    {
+        var vm = Create();
+        var arachno = vm.Rows.Single(r => r.Definition.Name == "Arachnophobia");
+        arachno.BoolValue = true;
+        Assert.True(vm.HasChanges);
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.False(vm.HasChanges);
+        Assert.Equal(1, WorldSave.Load(Path.Combine(_root, "Prospects", "World.json"))!.Settings["Arachnophobia"]);
+        Assert.Single(Directory.GetFiles(Path.Combine(_root, "Backups")));
+
+        vm.Rows.Single(r => r.Definition.Name == "Arachnophobia").BoolValue = false;
+        vm.RevertCommand.Execute(null);
+        Assert.True(vm.Rows.Single(r => r.Definition.Name == "Arachnophobia").BoolValue);
+    }
+
+    [Fact]
+    public void Save_WhileTheGameRuns_IsRefused()
+    {
+        var vm = Create();
+        vm.Rows.Single(r => r.Definition.Name == "Arachnophobia").BoolValue = true;
+        _blocked = "Close Icarus first.";
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal("Close Icarus first.", vm.StatusMessage);
+        Assert.Equal(0, WorldSave.Load(Path.Combine(_root, "Prospects", "World.json"))!.Settings["Arachnophobia"]);
+        Assert.True(vm.HasChanges);
+        Assert.False(Directory.Exists(Path.Combine(_root, "Backups")));
+    }
+
+    [Fact]
+    public void NumberSetting_IsKeptInTheGamesRange()
+    {
+        var row = new WorldSettingRowViewModel(
+            new WorldSettingDefinition("StartingLevel", "Starting level", "", "Misc", "Int", 1, 1, 50, true, []), null);
+
+        row.ValueText = "99";
+        Assert.Equal(50, row.Value);
+        row.ValueText = "nonsense";
+        Assert.Equal(50, row.Value);
+    }
+}
