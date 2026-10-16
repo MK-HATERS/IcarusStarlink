@@ -67,6 +67,14 @@ public sealed class GameplayOptions
 
     public bool RemoveWeight { get; set; }
 
+    /// <summary>
+    /// Percent (0-100) to make every item lighter by — 25/50/75% are what a real community QoL mod
+    /// offers (Deyvid's All-in-One, Nexus 317), where Remove Weight was all-or-nothing. 100 means
+    /// weightless, the same as RemoveWeight (which older saved profiles still use). Items that
+    /// weigh nothing already stay weightless; nothing else drops below 1. Null or &lt;= 0 = unchanged.
+    /// </summary>
+    public double? WeightReductionPercent { get; set; }
+
     public bool UnlimitedAmmo { get; set; }
 
     public bool DisableTemperatures { get; set; }
@@ -99,7 +107,7 @@ public sealed class GameplayOptions
 
     /// <summary>Same idea for Category-2 ("broadcast to every row," GameplayOptionsApplier's own compounding final pass) — matches GameplayOptionsApplier.RequiredCurrentFiles' own condition list exactly.</summary>
     public bool HasCategory2Active =>
-        StacksMultiplier is > 0 || SlotsMultiplier is > 0 || RemoveWeight || CraftCost != CraftCostReduction.Off
+        StacksMultiplier is > 0 || SlotsMultiplier is > 0 || RemoveWeight || WeightReductionPercent is > 0 || CraftCost != CraftCostReduction.Off
         || SpeedCraftingReductionPercent is > 0 || UnlimitedAmmo || TamingSpeedReductionPercent is > 0;
 
     /// <summary>
@@ -134,7 +142,8 @@ public sealed class GameplayOptions
         if (SlotsMultiplier is > 0 and var slots) parts.Add($"Slots x{slots:0.##}");
         if (SpeedCraftingReductionPercent is > 0 and var speedCrafting) parts.Add($"Speed Crafting {speedCrafting:0.##}%");
         if (TamingSpeedReductionPercent is > 0 and var tamingSpeed) parts.Add($"Faster Taming {tamingSpeed:0.##}%");
-        if (RemoveWeight) parts.Add("Remove Weight");
+        if (RemoveWeight || WeightReductionPercent >= 100) parts.Add("Remove Weight");
+        else if (WeightReductionPercent is > 0 and var lighter) parts.Add($"Lighter Items {lighter:0.##}%");
         if (UnlimitedAmmo) parts.Add("Unlimited Ammo");
         if (DisableTemperatures) parts.Add("Disable Temperatures");
         if (RemoveLevelCap) parts.Add("Remove Level Cap");

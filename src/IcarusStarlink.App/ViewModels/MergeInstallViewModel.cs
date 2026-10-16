@@ -260,7 +260,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     private int _tamingSpeedPercent;
 
     [ObservableProperty]
-    private bool _removeWeight;
+    private int _weightReductionPercent;
 
     [ObservableProperty]
     private bool _unlimitedAmmo;
@@ -304,7 +304,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         if (SlotsMultiplierLevel != MultiplierLevel.Off) parts.Add($"Slots {ShortLabel(SlotsMultiplierLevel)}");
         if (SpeedCraftingPercent > 0) parts.Add($"Speed Crafting {SpeedCraftingPercent}%");
         if (TamingSpeedPercent > 0) parts.Add($"Faster Taming {TamingSpeedPercent}%");
-        if (RemoveWeight) parts.Add("Remove Weight");
+        if (WeightReductionPercent >= 100) parts.Add("Remove Weight");
+        else if (WeightReductionPercent > 0) parts.Add($"Lighter Items {WeightReductionPercent}%");
         if (UnlimitedAmmo) parts.Add("Unlimited Ammo");
         if (DisableTemperatures) parts.Add("Disable Temperatures");
         if (RemoveLevelCap) parts.Add("Remove Level Cap");
@@ -331,7 +332,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     partial void OnSlotsMultiplierLevelChanged(MultiplierLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnSpeedCraftingPercentChanged(int value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnTamingSpeedPercentChanged(int value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
-    partial void OnRemoveWeightChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnWeightReductionPercentChanged(int value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnUnlimitedAmmoChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
 
     private void InvalidateManualPicks()
@@ -539,7 +540,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         SlotsMultiplier = SlotsMultiplierLevel.ToMultiplier(),
         SpeedCraftingReductionPercent = SpeedCraftingPercent > 0 ? SpeedCraftingPercent : null,
         TamingSpeedReductionPercent = TamingSpeedPercent > 0 ? TamingSpeedPercent : null,
-        RemoveWeight = RemoveWeight,
+        RemoveWeight = WeightReductionPercent >= 100,
+        WeightReductionPercent = WeightReductionPercent is > 0 and < 100 ? WeightReductionPercent : null,
         UnlimitedAmmo = UnlimitedAmmo,
         DisableTemperatures = DisableTemperatures,
         RemoveLevelCap = RemoveLevelCap,
@@ -555,7 +557,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         SlotsMultiplierLevel = MultiplierLevelExtensions.FromMultiplier(options.SlotsMultiplier);
         SpeedCraftingPercent = options.SpeedCraftingReductionPercent is { } percent ? (int)Math.Round(percent) : 0;
         TamingSpeedPercent = options.TamingSpeedReductionPercent is { } tamingPercent ? (int)Math.Round(tamingPercent) : 0;
-        RemoveWeight = options.RemoveWeight;
+        // Older profiles saved Remove Weight as on/off — that's 100% on the slider.
+        WeightReductionPercent = options.RemoveWeight ? 100 : options.WeightReductionPercent is { } lighter ? (int)Math.Round(Math.Clamp(lighter, 0, 100)) : 0;
         UnlimitedAmmo = options.UnlimitedAmmo;
         DisableTemperatures = options.DisableTemperatures;
         RemoveLevelCap = options.RemoveLevelCap;

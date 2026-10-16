@@ -161,6 +161,41 @@ public class GameplayOptionsApplierTests
         Assert.Equal(1, (int)tables["Traits-D_Itemable.json"]["Item_X"]!["MaxStack"]!);
     }
 
+    /// <summary>Lighter Items: a percentage instead of all-or-nothing (25/50/75% are what a real QoL mod offers). Weightless items stay weightless; nothing else drops to zero.</summary>
+    [Fact]
+    public void Apply_WeightReductionPercent_ScalesWeight_AndKeepsWeightlessItemsWeightless()
+    {
+        var tables = new Dictionary<string, JsonObject>
+        {
+            ["Traits-D_Itemable.json"] = new()
+            {
+                ["Item_Stone"] = Row("""{"Weight": 300}"""),
+                ["Item_Feather"] = Row("""{"Weight": 1}"""),
+                ["Item_Weightless"] = Row("""{"Weight": 0}"""),
+            },
+        };
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { WeightReductionPercent = 75 }, tables, new MergeReport());
+
+        Assert.Equal(75, (int)tables["Traits-D_Itemable.json"]["Item_Stone"]!["Weight"]!);
+        Assert.Equal(1, (int)tables["Traits-D_Itemable.json"]["Item_Feather"]!["Weight"]!);
+        Assert.Equal(0, (int)tables["Traits-D_Itemable.json"]["Item_Weightless"]!["Weight"]!);
+        Assert.Contains("Traits-D_Itemable.json", GameplayOptionsApplier.RequiredCurrentFiles(new GameplayOptions { WeightReductionPercent = 50 }));
+    }
+
+    [Fact]
+    public void Apply_WeightReductionPercentOf100_IsWeightless()
+    {
+        var tables = new Dictionary<string, JsonObject> { ["Traits-D_Itemable.json"] = new() { ["Item_Stone"] = Row("""{"Weight": 300}""") } };
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { WeightReductionPercent = 100 }, tables, new MergeReport());
+
+        Assert.Equal(0, (int)tables["Traits-D_Itemable.json"]["Item_Stone"]!["Weight"]!);
+        Assert.Equal(["Remove Weight"], new GameplayOptions { WeightReductionPercent = 100 }.DescribeActiveOptions());
+        Assert.Equal(["Lighter Items 50%"], new GameplayOptions { WeightReductionPercent = 50 }.DescribeActiveOptions());
+        Assert.True(new GameplayOptions { WeightReductionPercent = 50 }.IsAnyActive);
+    }
+
     [Fact]
     public void Apply_RemoveWeight_ZeroesOnlyRowsWithAnExplicitWeight()
     {

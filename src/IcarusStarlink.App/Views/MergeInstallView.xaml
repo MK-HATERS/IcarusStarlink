@@ -436,6 +436,8 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                    <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Text="Higher = bigger stacks (3x fits three times as many in one slot). Off = normal stack sizes."/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Slots multiplier" FontSize="12"/>
@@ -452,11 +454,13 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                    <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Text="Higher = more slots in backpacks and containers (2x doubles them). Off = normal slot counts."/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Speed Crafting" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="e.g. 50% = halve crafting time, skipping recipes with a Water/Milk/Biofuel resource input or output. 0 = unchanged.">
+                                ToolTip="e.g. 50% = halve every recipe's crafting time (RequiredMillijoules), including ones that only inherit it from the table's defaults. 0 = unchanged.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                         <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -466,6 +470,8 @@
                     <Slider Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
                             Value="{Binding SpeedCraftingPercent}" Margin="0,4,0,0"
                             ToolTip="Drag or click to set — 0 means unchanged"/>
+                    <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Text="Lower = closer to normal crafting time (0% = unchanged). Higher = faster crafting (50% = half the time)."/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Faster Taming" FontSize="12"/>
@@ -480,14 +486,28 @@
                     <Slider Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
                             Value="{Binding TamingSpeedPercent}" Margin="0,4,0,0"
                             ToolTip="Drag or click to set — 0 means unchanged"/>
+                    <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Text="Lower = closer to normal taming time (0% = unchanged). Higher = faster taming (50% = half the time)."/>
 
                     <Border Style="{StaticResource SectionDividerStyle}" Margin="0,16,0,10"/>
                     <TextBlock Text="OTHER TOGGLES" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource FaintForegroundBrush}"/>
 
                     <!-- Phase 10: genuine on/off toggles for these three, replacing plain checkboxes. -->
-                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding RemoveWeight}" Margin="0,8,0,0"
-                              Content="Remove Weight"
-                              ToolTip="Zeroes out every item's own weight override — everything becomes weightless to carry"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
+                        <TextBlock Text="Lighter Items" FontSize="12"/>
+                        <Border Style="{StaticResource InfoHintTouchTargetStyle}"
+                                ToolTip="e.g. 50% = every item weighs half as much (Traits-D_Itemable.json's Weight). 100% = weightless, the old Remove Weight. 0 = unchanged.">
+                            <Path Style="{StaticResource InfoHintIconStyle}"/>
+                        </Border>
+                        <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                            <Run Text="{Binding WeightReductionPercent, Mode=OneWay}"/><Run Text="%"/>
+                        </TextBlock>
+                    </StackPanel>
+                    <Slider Minimum="0" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True"
+                            Value="{Binding WeightReductionPercent}" Margin="0,4,0,0"
+                            ToolTip="Drag or click to set — 0 means unchanged, 100 means weightless"/>
+                    <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Text="Lower = closer to normal weight (0% = unchanged). Higher = lighter items (50% = half the weight, 100% = weightless)."/>
                     <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding UnlimitedAmmo}" Margin="0,12,0,0"
                               Content="Unlimited Ammo"
                               ToolTip="Weapons stop consuming ammo on fire, but still need at least 1 round in the magazine"/>

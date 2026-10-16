@@ -85,7 +85,7 @@ public static class GameplayOptionsApplier
     {
         var files = new HashSet<string>();
 
-        if (options.StacksMultiplier is > 0 || options.RemoveWeight)
+        if (options.StacksMultiplier is > 0 || options.RemoveWeight || options.WeightReductionPercent is > 0)
         {
             files.Add(ItemableFile);
         }
@@ -135,9 +135,16 @@ public static class GameplayOptionsApplier
         {
             ScaleStacksMultiplier(keyedTablesByFile, originals, stacksMultiplier, report);
         }
-        if (options.RemoveWeight)
+        if (options.RemoveWeight || options.WeightReductionPercent >= 100)
         {
             ZeroExistingField(keyedTablesByFile, ItemableFile, "Weight", report, "Remove Weight");
+        }
+        else if (options.WeightReductionPercent is > 0 and var lighterPercent)
+        {
+            // Same rows Remove Weight touches (an explicit Weight). Already-weightless items stay
+            // weightless — the helper's minimum of 1 would otherwise give them weight.
+            ScaleExistingNumericField(keyedTablesByFile, ItemableFile, "Weight", 1 - lighterPercent / 100.0, minimum: 1, report, "Lighter Items",
+                skipRow: row => row["Weight"] is JsonValue weight && weight.TryGetValue<double>(out var w) && w <= 0);
         }
         if (options.SlotsMultiplier is > 0 and var slotsMultiplier)
         {
