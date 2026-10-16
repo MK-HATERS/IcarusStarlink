@@ -34,6 +34,7 @@
                    Foreground="{DynamicResource ForegroundBrush}" FontSize="13" Margin="0,0,0,20"/>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="CancelButton" Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0" MinWidth="72" Visibility="Collapsed"/>
             <Button x:Name="NoButton" Content="No" Click="No_Click" Margin="0,0,8,0" MinWidth="72"/>
             <Button x:Name="YesButton" Content="Yes" Click="Yes_Click" Style="{StaticResource PrimaryButtonStyle}" MinWidth="72"/>
         </StackPanel>

@@ -182,7 +182,7 @@ public sealed partial class ExmodEditorViewModel
         }
 
         WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("editor"));
-        WeakReferenceMessenger.Default.Send(new OpenGameItemMessage(gameItem));
+        WeakReferenceMessenger.Default.Send(new OpenGameItemMessage(gameItem, _folderName));
         Application.Current?.MainWindow?.Activate();
     }
 
@@ -205,7 +205,7 @@ public sealed partial class ExmodEditorViewModel
         WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("editor"));
         if (SelectedItem?.GameItem is { } gameItem)
         {
-            WeakReferenceMessenger.Default.Send(new OpenGameItemMessage(gameItem));
+            WeakReferenceMessenger.Default.Send(new OpenGameItemMessage(gameItem, _folderName));
         }
 
         Application.Current?.MainWindow?.Activate();

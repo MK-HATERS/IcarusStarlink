@@ -64,10 +64,11 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
     /// <summary>
     /// Snapshots taken before each discrete structural action (Add/Remove field, Add item,
-    /// Duplicate, mass edit, a raw-JSON Apply) — deliberately NOT per-keystroke: EditorFieldViewModel
-    /// writes a per-field value straight into the live package on every keystroke with no commit
-    /// event to hook, and snapshotting that granularly would make Undo revert one character at a
-    /// time instead of one meaningful action. Each entry is a full serialized copy (via the same
+    /// Duplicate, mass edit, a raw-JSON Apply), and before the first write to a field after
+    /// anything else happened (see SnapshotBeforeFieldEdit) — deliberately NOT per-keystroke:
+    /// snapshotting that granularly would make Undo revert one character at a time instead of one
+    /// meaningful change. Without the field snapshots, Undo of a structural action restored a
+    /// package from before it and silently wiped every value typed since. Each entry is a full serialized copy (via the same
     /// ExmodJson round-trip Full EXMOD JSON already uses), not a shallow reference — JsonNode/
     /// ExmodPackage are mutable reference types, so anything less would let a later edit silently
     /// corrupt an already-pushed snapshot. Capped so an extended editing session can't grow this
@@ -75,6 +76,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// </summary>
     private readonly List<string> _undoSnapshots = [];
     private const int MaxUndoDepth = 20;
+
+    /// <summary>The field typed into since the last snapshot: more typing there needs no new one.</summary>
+    private (string CurrentFile, string ItemName, string FieldName)? _lastEditedField;
+
+    /// <summary>The package as it is on disk (when opened, or last saved), for HasUnsavedChanges.</summary>
+    private string _savedJson;
 
     /// <summary>
     /// Recomputed whenever Rows changes shape (construction, or a raw-JSON Apply) — not on every
@@ -212,9 +219,10 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _dataFolder = dataFolder;
         _gameDataIndexCache = gameDataIndexCache;
         _package = ExmodFolder.Read(repository.GetFolderPath(folderName)).Package;
+        _savedJson = ExmodJson.Serialize(_package);
         _replacedGameFiles = ExmodChangesFormatter.ReplacedGameFiles(repository.ListAssetPaths(folderName));
         _savedStamp = ExmodStamp();
-        _filterDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), ReloadItems);
+        _filterDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), ApplyFilter);
 
         RefreshBaseDiff();
         SnapshotOriginalValues();
@@ -826,6 +834,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
     private void PushUndoSnapshot()
     {
+        _lastEditedField = null;
         _undoSnapshots.Add(ExmodJson.ToJsonObject(_package).ToJsonString());
         if (_undoSnapshots.Count > MaxUndoDepth)
         {
@@ -837,7 +846,24 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
     public bool CanUndo => _undoSnapshots.Count > 0;
 
-    /// <summary>Reverts the last discrete structural action (see _undoSnapshots' own doc comment for exactly what counts) — does not itself push a "redo" point, matching classic IMM's own plain single-direction Undo button.</summary>
+    /// <summary>
+    /// Called by a field row just before it writes a new value: the first write to a field after
+    /// anything else (another field, a structural action, an Undo) snapshots first, so Undo takes
+    /// back that field's typing as one change and never the typing along with an earlier action.
+    /// </summary>
+    private void SnapshotBeforeFieldEdit(string currentFile, string itemName, string fieldName)
+    {
+        var key = (currentFile, itemName, fieldName);
+        if (_lastEditedField == key)
+        {
+            return;
+        }
+
+        PushUndoSnapshot();
+        _lastEditedField = key;
+    }
+
+    /// <summary>Reverts the last change (see _undoSnapshots' own doc comment for exactly what counts) — does not itself push a "redo" point, matching classic IMM's own plain single-direction Undo button.</summary>
     [RelayCommand]
     private void Undo()
     {
@@ -849,6 +875,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         var snapshotJson = _undoSnapshots[^1];
         _undoSnapshots.RemoveAt(_undoSnapshots.Count - 1);
+        _lastEditedField = null;
         OnPropertyChanged(nameof(CanUndo));
 
         var snapshot = ExmodJson.Parse(snapshotJson);
@@ -904,6 +931,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// <summary>Adds a field row; its edits keep the list's change badge for the row up to date.</summary>
     private void AddFieldRow(EditorFieldViewModel field, EditorItemViewModel owner)
     {
+        field.BeforeWrite = () => SnapshotBeforeFieldEdit(owner.CurrentFile, owner.ItemName, field.FieldName);
         field.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(EditorFieldViewModel.ValueText))
@@ -1019,6 +1047,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         PushUndoSnapshot();
         item.Fields.Remove(field.FieldName);
         Fields.Remove(field);
+        Recount(SelectedItem);
     }
 
     [RelayCommand]
@@ -1062,9 +1091,62 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         StatusMessage = null;
     }
 
+    /// <summary>True when the mod differs from what's on disk (typed values, structural edits, or Scale rules not applied yet).</summary>
+    public bool HasUnsavedChanges => _scaleRulesDirty || ExmodJson.Serialize(_package) != _savedJson;
+
+    /// <summary>Asks what to do with unsaved changes on close: true = Save, false = Don't save, null = Cancel. Tests swap in an answer.</summary>
+    internal Func<string, bool?> AskSaveOnClose { get; set; } = message => ThemedConfirmDialog.ShowWithCancel(
+        Application.Current?.Windows.OfType<ExmodEditorWindow>().FirstOrDefault(w => w.IsActive) ?? Application.Current?.MainWindow,
+        message, "Unsaved changes", ThemedConfirmSeverity.Question, "Save", "Don't save");
+
+    /// <summary>
+    /// Called as the window closes: true when it may close. Unsaved changes ask Save / Don't save /
+    /// Cancel; a Save that doesn't go through (a rule to fix, the mod changed elsewhere, its folder
+    /// gone) keeps the window open with the reason showing.
+    /// </summary>
+    public bool ConfirmClose()
+    {
+        if (!HasUnsavedChanges)
+        {
+            return true;
+        }
+
+        switch (AskSaveOnClose($"You have changes to '{_package.Name}' that aren't saved. Save them before closing?"))
+        {
+            case null:
+                return false;
+            case false:
+                return true;
+            default:
+                Save();
+                return !HasUnsavedChanges;
+        }
+    }
+
+    /// <summary>False once the mod was deleted (or moved) in Library; the repository throws for a folder it no longer knows.</summary>
+    private bool ModFolderExists()
+    {
+        try
+        {
+            return Directory.Exists(_repository.GetFolderPath(_folderName));
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return false;
+        }
+    }
+
     [RelayCommand]
     private void Save()
     {
+        // Deleted (or moved) in Library while open here: writing would make an orphan folder that
+        // Library doesn't list, so the work would look saved but be nowhere to be found.
+        if (!ModFolderExists())
+        {
+            StatusMessage = "Not saved: this mod's folder is gone (deleted or moved in Library?). To keep your work, copy it from the Full EXMOD JSON view into a new mod.";
+            return;
+        }
+
         // The Editor page (or anything else) may have saved into this mod since it was opened here:
         // overwriting that silently would lose it. The first Save says so; a second one overwrites.
         if (ExmodStamp() != _savedStamp && !_overwriteOutsideChanges)
@@ -1096,6 +1178,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             writePackage.Rows = strippedRows;
             ExmodFolder.Write(_repository.GetFolderPath(_folderName), new ExmodPackageContents(writePackage, []));
             _savedStamp = ExmodStamp();
+            _savedJson = ExmodJson.Serialize(_package);
             _overwriteOutsideChanges = false;
             HasSaved = true;
             _repository.MarkLocallyEdited(_folderName);
@@ -1122,6 +1205,14 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         {
             StatusMessage += $" {problems} reference problem(s), listed above.";
         }
+    }
+
+    /// <summary>The filter box (debounced): rebuilds the list and keeps the selected item if it still shows.</summary>
+    internal void ApplyFilter()
+    {
+        var previous = SelectedItem;
+        ReloadItems();
+        SelectedItem = previous is null ? null : Items.FirstOrDefault(i => i.CurrentFile == previous.CurrentFile && i.ItemName == previous.ItemName);
     }
 
     private ExmodFileItem? FindItem(string currentFile, string itemName) =>

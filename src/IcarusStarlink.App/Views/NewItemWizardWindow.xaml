@@ -69,7 +69,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <DockPanel Margin="0,2">
-                                <CheckBox IsChecked="{Binding OwnCopy}" VerticalAlignment="Top" Margin="0,2,8,0" AutomationProperties.Name="{Binding Field}"/>
+                                <CheckBox IsChecked="{Binding OwnCopy}" IsEnabled="{Binding CanChange}" VerticalAlignment="Top" Margin="0,2,8,0" AutomationProperties.Name="{Binding Field}"/>
                                 <StackPanel>
                                     <TextBlock>
                                         <Run Text="{Binding Field, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="  "/><Run Text="{Binding Target, Mode=OneWay}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontFamily="Consolas" FontSize="11.5"/>
@@ -82,7 +82,7 @@
                 </ItemsControl>
                 <CheckBox Content="Its own buff too (the effect it gives when eaten or used)" IsChecked="{Binding CopyBuff}" Margin="0,0,0,12"
                           Visibility="{Binding HasBuff, Converter={StaticResource BoolToVisibilityConverter}}"
-                          ToolTip="Copies the buff (its stat bonuses and how long it lasts) under the item's name, so you can change what it does. Needs Consumable ticked above."/>
+                          ToolTip="Copies the buff (its stat bonuses and how long it lasts) under the item's name, so you can change what it does. Ticking it ticks Consumable above too."/>
 
                 <!-- 4. How players get it -->
                 <TextBlock Text="4. How players get it" Style="{StaticResource SectionHeaderStyle}" Margin="0,4,0,0"/>

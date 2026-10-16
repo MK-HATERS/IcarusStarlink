@@ -16,7 +16,7 @@ public sealed partial class ItemLinkChoiceViewModel(ItemLink link) : ObservableO
     /// <summary>What this link is for, in words — so the choice doesn't need modding knowledge.</summary>
     public string Hint => Link.Field switch
     {
-        "Itemable" => "Name, description, icon, weight and stack size. Almost always your own.",
+        "Itemable" => "Name, description, icon, weight and stack size. Always its own: it holds the name you typed.",
         "Meshable" => "The 3D model. Keep the game's unless you ship your own model.",
         "Armour" => "Armour stats and the suit/armour model.",
         "Consumable" => "What eating or using it does, and its buff.",
@@ -29,8 +29,19 @@ public sealed partial class ItemLinkChoiceViewModel(ItemLink link) : ObservableO
         _ => "Shared behaviour. Usually keep the game's.",
     };
 
+    /// <summary>False for Itemable: it holds the new item's name and description, so it is always the item's own.</summary>
+    public bool CanChange => Link.Field != "Itemable";
+
     [ObservableProperty]
-    private bool _ownCopy = link.SuggestOwnCopy;
+    private bool _ownCopy = link.SuggestOwnCopy || link.Field == "Itemable";
+
+    partial void OnOwnCopyChanged(bool value)
+    {
+        if (!value && !CanChange)
+        {
+            OwnCopy = true;
+        }
+    }
 }
 
 /// <summary>
@@ -171,6 +182,15 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
 
     partial void OnFilterTextChanged(string value) => RefreshFilter();
 
+    /// <summary>Its own buff needs its own Consumable copy (the buff is set there), so ticking one ticks the other.</summary>
+    partial void OnCopyBuffChanged(bool value)
+    {
+        if (value && Links.FirstOrDefault(l => l.Field == "Consumable") is { OwnCopy: false } consumable)
+        {
+            consumable.OwnCopy = true;
+        }
+    }
+
     partial void OnDisplayNameChanged(string value)
     {
         if (!_idEdited)
@@ -202,7 +222,25 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
         Links.Clear();
         foreach (var link in _source?.Links ?? [])
         {
-            Links.Add(new ItemLinkChoiceViewModel(link));
+            var choice = new ItemLinkChoiceViewModel(link);
+            if (link.Field == "Consumable")
+            {
+                // The buff is set on the Consumable row: sharing the game's row means no buff of its own.
+                choice.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(ItemLinkChoiceViewModel.OwnCopy) && !choice.OwnCopy)
+                    {
+                        CopyBuff = false;
+                    }
+                };
+            }
+
+            Links.Add(choice);
+        }
+
+        if (_source?.BuffName is not null)
+        {
+            OnCopyBuffChanged(CopyBuff); // "its own buff" ticked brings its own Consumable along
         }
 
         if (_source is null)

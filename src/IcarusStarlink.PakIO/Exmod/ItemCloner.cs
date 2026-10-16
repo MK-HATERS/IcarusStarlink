@@ -40,7 +40,7 @@ public sealed class ItemCloneRequest
     public required string DisplayName { get; init; }
     public string? Description { get; init; }
 
-    /// <summary>D_ItemsStatic link fields that get the new item's own copy of the linked row; the rest keep pointing at the game's.</summary>
+    /// <summary>D_ItemsStatic link fields that get the new item's own copy of the linked row; the rest keep pointing at the game's. Itemable is always copied (it holds the new name).</summary>
     public IReadOnlySet<string> OwnCopyFields { get; init; } = new HashSet<string>();
 
     /// <summary>A consumable with its own Consumable copy: also give it its own buff (D_ModifierStates row), named after the item.</summary>
@@ -194,9 +194,19 @@ public static partial class ItemCloner
             list.Add(item);
         }
 
+        // Itemable is always the item's own: it holds the name and description typed for it, which
+        // would otherwise be silently dropped (the item would show the original's name in game).
+        var ownCopyFields = new HashSet<string>(request.OwnCopyFields) { "Itemable" };
+
+        // The buff is set on the Consumable row, so its own buff needs its own Consumable too.
+        if (request.CopyBuff && source.BuffName is not null && source.Links.Any(l => l.Field == "Consumable") && !ownCopyFields.Contains("Consumable"))
+        {
+            throw new ArgumentException("Its own buff needs its own Consumable copy too (the buff is set on that row): tick Consumable, or untick the buff.");
+        }
+
         // The item's own copies of the trait rows it customises.
         var staticRow = (JsonObject)game.Row(ItemsStatic, source.ItemName)!.DeepClone();
-        foreach (var link in source.Links.Where(l => request.OwnCopyFields.Contains(l.Field)))
+        foreach (var link in source.Links.Where(l => ownCopyFields.Contains(l.Field)))
         {
             var copyName = UniqueName(game, existingMod, link.CurrentFile, CopyName(link, source.ItemName, newName));
             var copy = (JsonObject)game.Row(link.CurrentFile, link.RowName)!.DeepClone();
