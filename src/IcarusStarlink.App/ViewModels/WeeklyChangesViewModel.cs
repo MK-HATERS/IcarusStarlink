@@ -57,10 +57,13 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
 
     partial void OnSelectedReportChanged(WeeklyChangeReportSummary? value) => ShowReport(value?.Report);
 
+    /// <summary>
+    /// Always lands on the newest report (History is newest first). This only re-runs because a
+    /// refresh just saved a new report, which is the one the user wants to see — re-selecting the
+    /// report picked before kept showing the old one as if nothing had changed.
+    /// </summary>
     private void ReloadHistory()
     {
-        var previouslySelected = SelectedReport?.Report.CurrentUpdateAt;
-
         ReportHistory.Clear();
         foreach (var report in _store.History)
         {
@@ -70,9 +73,7 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
         // Re-selecting (rather than just calling ShowReport directly) keeps SelectedReport and the
         // ComboBox's own binding in sync — a plain ShowReport call here would leave the ComboBox
         // showing the previous selection's text even though the underlying list just changed.
-        SelectedReport = previouslySelected is { } at
-            ? ReportHistory.FirstOrDefault(r => r.Report.CurrentUpdateAt == at) ?? ReportHistory.FirstOrDefault()
-            : ReportHistory.FirstOrDefault();
+        SelectedReport = ReportHistory.FirstOrDefault();
 
         if (ReportHistory.Count == 0)
         {

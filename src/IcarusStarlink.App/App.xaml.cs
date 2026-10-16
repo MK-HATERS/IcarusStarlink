@@ -425,10 +425,8 @@ public partial class App : Application
             sp.GetRequiredService<ISettingsService>(),
             Path.Combine(appDataDirectory, "Staged_Build", IcarusStarlink.PakIO.InstallManifestNames.MergedPakFileName),
             Path.Combine(appDataDirectory, "Backups"),
-            firewall: sp.GetRequiredService<IFirewallService>())
-        {
-            DataFolder = Path.Combine(appDataDirectory, "Data"),
-        });
+            firewall: sp.GetRequiredService<IFirewallService>(),
+            dataFolder: Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton<IFirewallService, FirewallService>();
         builder.Services.AddSingleton<HelpViewModel>();
 
@@ -663,14 +661,12 @@ public partial class App : Application
             MainWindow.Activate();
         }
 
-        // The pending-downloads / Fetch pipeline lives on Library's own Mods tab now — land there
-        // (tab index 0) instead of the removed standalone Downloads page.
+        // Pending downloads (and what became of each one) live on the Downloads page — land there
+        // so the user sees this download arrive.
         var mainViewModel = _host.Services.GetRequiredService<MainViewModel>();
-        mainViewModel.SelectedNavItem = mainViewModel.NavItems.First(item => item.Id == "library");
+        mainViewModel.SelectedNavItem = mainViewModel.NavItems.First(item => item.Id == "downloads");
 
-        var libraryViewModel = _host.Services.GetRequiredService<LibraryViewModel>();
-        libraryViewModel.SelectedTabIndex = 0;
-        _ = libraryViewModel.Downloads.FetchAndDownloadAsync(nxmUrl);
+        _ = _host.Services.GetRequiredService<DownloadsViewModel>().FetchAndDownloadAsync(nxmUrl);
     }
 
     protected override void OnExit(ExitEventArgs e)

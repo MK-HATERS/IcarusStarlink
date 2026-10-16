@@ -5,6 +5,8 @@ using System.Windows;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
@@ -164,7 +166,32 @@ public sealed partial class SavesViewModel : ObservableObject
         _gameProcessChecker = gameProcessChecker;
         _baseGameIconDecoder = baseGameIconDecoder;
         _talentSearchDebounceTimer = new Utilities.DebounceTimer(TimeSpan.FromMilliseconds(250), RefreshTalentFilter);
+
+        // Refresh game data re-extracts the tables every name here comes from.
+        WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((SavesViewModel)recipient).OnGameDataRefreshed());
+
         RefreshSlots();
+    }
+
+    /// <summary>
+    /// Drops the cached names and reloads the current slot so they show. Unsaved edits are never
+    /// thrown away for this — the new names then appear on the next slot load instead.
+    /// </summary>
+    private void OnGameDataRefreshed()
+    {
+        _gameNames.Invalidate();
+        if (SelectedSlot is null)
+        {
+            return;
+        }
+
+        if (HasUnsavedChanges)
+        {
+            StatusMessage = "Game data was refreshed — save or switch slots to see the updated names.";
+            return;
+        }
+
+        _pendingSlotLoad = LoadSlotAsync();
     }
 
     // --- Flags (character flags on the selected character; account flags on the profile;
@@ -326,6 +353,7 @@ public sealed partial class SavesViewModel : ObservableObject
         Currencies.Clear();
         Backups.Clear();
         BinaryFlags.Clear();
+        AccountFlags.Clear();
         Accolades.Clear();
         BestiaryEntries.Clear();
         MetaInventoryItems.Clear();
@@ -353,6 +381,7 @@ public sealed partial class SavesViewModel : ObservableObject
         if (SelectedSlot is null)
         {
             LastBackupDisplay = null;
+            RefreshFlagFilter();
             return;
         }
 
@@ -429,6 +458,9 @@ public sealed partial class SavesViewModel : ObservableObject
             StatusMessage = $"Couldn't read this save: {ex.Message}";
         }
 
+        // SelectedCharacter's change handler refreshes these, but a slot with no characters
+        // leaves it null (unchanged), so the account and binary flags kept the previous slot's.
+        RefreshFlagFilter();
         OnPropertyChanged(nameof(HasUnsavedChanges));
     }
 

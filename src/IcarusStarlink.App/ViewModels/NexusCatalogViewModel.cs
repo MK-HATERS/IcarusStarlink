@@ -174,13 +174,9 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         // here would silently fire on every import anywhere in the app).
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((NexusCatalogViewModel)recipient).RebuildRows());
 
-        // "Find on Nexus" from the pending-downloads list (a README requirement the activation
-        // found missing): search here, then the shell shows this page.
-        WeakReferenceMessenger.Default.Register<SearchNexusMessage>(this, (recipient, message) =>
-        {
-            ((NexusCatalogViewModel)recipient).SearchText = message.SearchText;
-            WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("nexus"));
-        });
+        // "Find on Nexus" (SearchNexusMessage) is handled by MainViewModel, not here: this VM is
+        // only built the first time the Database page opens, so a handler here missed the search
+        // whenever that page hadn't been opened yet this session.
 
         // Settings' own Authorize/Sign out is the only place the saved key changes — re-check
         // Premium status right then instead of only on next launch, so a user who signs in while
@@ -254,6 +250,9 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         // unauthenticated — confirmed live); only the curated v1 lists genuinely require one.
         if (apiKey is null && !isSearch && !isAll)
         {
+            // This load just superseded any one still in flight, whose finally then skips
+            // clearing IsLoading because it's stale — so clear it here, or "Loading…" sticks.
+            IsLoading = false;
             Mods.Clear();
             StatusMessage = "Sign in with your Nexus API key in Settings to use this list — All and search work without one.";
             return;

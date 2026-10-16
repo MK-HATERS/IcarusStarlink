@@ -5,6 +5,8 @@ using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
@@ -44,8 +46,12 @@ public sealed partial class LocalServerViewModel : ObservableObject
         IDedicatedServerProfileStore store, IDedicatedServerProcessService processes, IDialogService dialogService,
         IActivityLog activityLog, ISteamCmdService? steamCmd = null, Core.Settings.ISettingsService? settings = null,
         string? mergedPakPath = null, string? backupsRoot = null, Func<string, string?>? pickFolder = null, Func<string?>? pickSteamCmdExe = null, bool startTimer = true,
-        IFirewallService? firewall = null)
+        IFirewallService? firewall = null, string? dataFolder = null)
     {
+        // Set before SelectedProfile below: selecting a profile loads its CreateProspect, which
+        // reads (and caches) ProspectChoices from this folder. As an init property it arrived
+        // too late, so the dropdown only ever held "Don't create one".
+        DataFolder = dataFolder;
         _firewall = firewall;
         _steamCmd = steamCmd;
         _settings = settings;
@@ -64,6 +70,12 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
 
         SelectedProfile = Profiles.FirstOrDefault();
+
+        // Refresh game data re-extracts D_ProspectList — rebuild the prospect choices from it.
+        WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((LocalServerViewModel)recipient).ReloadProspectChoices());
+
+        // A new merged pak was built — "Install my merged pak" and its summary follow it.
+        WeakReferenceMessenger.Default.Register<MergedPakBuiltMessage>(this, (recipient, _) => ((LocalServerViewModel)recipient).RefreshMergedPak());
 
         if (startTimer && Application.Current is not null)
         {
@@ -443,7 +455,13 @@ public sealed partial class LocalServerViewModel : ObservableObject
             var found = _processes.FindRunning(profile);
             if (found?.ProcessId != Running?.ProcessId)
             {
+                var startedOrStopped = (found is null) != (Running is null);
                 Running = found;
+                if (startedOrStopped)
+                {
+                    // The server writes its worlds and LastProspectName as it runs and on exit.
+                    RefreshProspectList(profile);
+                }
             }
             else
             {
@@ -515,6 +533,31 @@ public sealed partial class LocalServerViewModel : ObservableObject
         OnPropertyChanged(nameof(SettingsIniPath));
         OnPropertyChanged(nameof(CommandLinePreview));
         OnPropertyChanged(nameof(LogPath));
+    }
+
+    /// <summary>
+    /// Re-reads the saved worlds and LastProspectName without reloading the rest of the form (which
+    /// would throw away unsaved edits). Used when the server starts or stops.
+    /// </summary>
+    private void RefreshProspectList(DedicatedServerProfile p)
+    {
+        try
+        {
+            LastProspectName = ServerSettingsIni.Load(DedicatedServerLayout.SettingsIniPath(p.InstallFolder, p.SavedDirSuffix)).Read().LastProspectName;
+            var names = DedicatedServerLayout.ListProspects(p.InstallFolder, p.SavedDirSuffix).ToList();
+            if (!names.SequenceEqual(Prospects))
+            {
+                Prospects.Clear();
+                foreach (var name in names)
+                {
+                    Prospects.Add(name);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The server may still hold the files — the next start/stop tries again.
+        }
     }
 
     /// <summary>Validates the form; on success writes the profile and the ini. Returns false (with ValidationMessage set) when anything is out of range.</summary>

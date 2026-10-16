@@ -29,8 +29,8 @@ public sealed partial class LocalServerViewModel
     private IReadOnlyList<ProspectChoice>? _prospectChoices;
     private bool _syncingProspect;
 
-    /// <summary>The extracted game data (for the prospect list); set by the app.</summary>
-    public string? DataFolder { get; init; }
+    /// <summary>The extracted game data (for the prospect list); passed in by the app.</summary>
+    public string? DataFolder { get; }
 
     public IReadOnlyList<ProspectDifficulty> ProspectDifficulties { get; } =
         [new(1, "Easy"), new(2, "Medium"), new(3, "Hard"), new(4, "Extreme")];
@@ -105,6 +105,19 @@ public sealed partial class LocalServerViewModel
         NewProspectHardcore = parts.Length > 2 && bool.TryParse(parts[2], out var hardcore) && hardcore;
         NewProspectName = parts.Length > 3 ? string.Join(' ', parts[3..]) : "";
         _syncingProspect = false;
+    }
+
+    /// <summary>
+    /// Game data was refreshed: rebuild the choices from the new D_ProspectList and re-read the
+    /// current setting against them (a type that was "not in your game data" may be now).
+    /// </summary>
+    private void ReloadProspectChoices()
+    {
+        _prospectChoices = null;
+        OnPropertyChanged(nameof(ProspectChoices));
+        OnPropertyChanged(nameof(HasProspectChoices));
+        OnPropertyChanged(nameof(HasNoProspectChoices));
+        OnCreateProspectChanged(CreateProspect);
     }
 
     private List<ProspectChoice> LoadProspectChoices()

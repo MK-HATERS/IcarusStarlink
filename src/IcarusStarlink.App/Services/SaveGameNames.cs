@@ -45,6 +45,23 @@ public sealed class SaveGameNames(string dataFolder)
     /// <summary>D_Mounts's own "Icon" field per row (a raw "/Game/…/T_Talent_Base_Xxx.T_Talent_Base_Xxx" texture reference, the same self-named-asset shape D_Itemable's own Icon/D_BestiaryData's own Image use), keyed by RowName — what a saved mount's own MountType resolves to for its thumbnail. A separate lazy load from MountTypeRowNames above (a second pass over the same small file) rather than folding into it, since that one's callers only ever wanted plain row names and a picker never needed icons.</summary>
     public IReadOnlyDictionary<string, string> MountTypeIcons => _mountTypeIcons ??= LoadMountTypeIcons();
 
+    /// <summary>
+    /// Forgets every table read so far, so the next lookup reads the data folder again. Called
+    /// after Refresh game data — without it, names (or the empty lists from before the data was
+    /// first extracted) stayed cached until the app restarted.
+    /// </summary>
+    public void Invalidate()
+    {
+        _characterFlagNames = null;
+        _accountFlagNames = null;
+        _talents = null;
+        _accolades = null;
+        _bestiaryCreatures = null;
+        _items = null;
+        _mountTypeRowNames = null;
+        _mountTypeIcons = null;
+    }
+
     public string CharacterFlagName(int id) => id >= 0 && id < CharacterFlagNames.Count ? CharacterFlagNames[id] : $"Flag {id}";
 
     public string AccountFlagName(int id) => id >= 0 && id < AccountFlagNames.Count ? AccountFlagNames[id] : $"Flag {id}";

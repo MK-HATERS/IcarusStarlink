@@ -59,15 +59,25 @@ public sealed partial class LocalServerViewModel
 
     public bool HasMergedPak => _mergedPakPath is not null && File.Exists(_mergedPakPath);
 
+    /// <summary>
+    /// Re-checks the merged pak Merge &amp; Install builds. Called when the Server page is shown and
+    /// after a build (MergedPakBuiltMessage), not only on profile select — otherwise "Install my
+    /// merged pak" stayed disabled after the first build until the app restarted.
+    /// </summary>
+    public void RefreshMergedPak()
+    {
+        OnPropertyChanged(nameof(HasMergedPak));
+        MergedPakSummary = HasMergedPak
+            ? $"Your merged pak: {Path.GetFileName(_mergedPakPath)} — built {File.GetLastWriteTime(_mergedPakPath!):g}"
+            : "No merged pak yet — build one on the Merge & Install page first.";
+    }
+
     private void RefreshMods()
     {
         ServerPaks.Clear();
         ServerUe4ssMods.Clear();
         GameUe4ssMods.Clear();
-        OnPropertyChanged(nameof(HasMergedPak));
-        MergedPakSummary = HasMergedPak
-            ? $"Your merged pak: {Path.GetFileName(_mergedPakPath)} — built {File.GetLastWriteTime(_mergedPakPath!):g}"
-            : "No merged pak yet — build one on the Merge & Install page first.";
+        RefreshMergedPak();
         if (SelectedProfile is not { } p)
         {
             return;
@@ -135,8 +145,10 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        // Older names of the merged pak are replaced by InstallPak, so they aren't "left alone".
         var others = ServerModFiles.ListPaks(p.InstallFolder)
             .Where(f => !string.Equals(f.FileName, Path.GetFileName(_mergedPakPath), StringComparison.OrdinalIgnoreCase))
+            .Where(f => !ServerModFiles.LegacyMergedPakFileNames.Contains(f.FileName, StringComparer.OrdinalIgnoreCase))
             .Select(f => f.FileName)
             .ToList();
         var otherNote = others.Count == 0

@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json.Nodes;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.App.Views;
@@ -26,6 +28,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// and RestoreBackupAsync testable at all here — see SavesViewModel's own updated doc comments at
 /// those two call sites.
 /// </summary>
+[Collection(MessengerCollection.Name)]
 public sealed class SavesViewModelTests : IDisposable
 {
     private const string SteamId = "76561198000000001";
@@ -141,6 +144,38 @@ public sealed class SavesViewModelTests : IDisposable
     {
         ["ItemStaticData"] = new JsonObject { ["RowName"] = itemStaticRowName },
     };
+
+    /// <summary>
+    /// Two real bugs at once: names stayed cached (empty, here) after Refresh game data, and a slot
+    /// with no characters never refreshed the shown account flags, since SelectedCharacter stays null.
+    /// </summary>
+    [Fact]
+    public async Task GameDataRefreshed_ReloadsTheSlotWithTheNewNames_EvenWithNoCharacters()
+    {
+        var dataFolder = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_GameData", Guid.NewGuid().ToString("N"));
+        _tempFoldersToCleanUp.Add(dataFolder);
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 0) };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(dataFolder));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            Assert.Empty(vm.FilteredAccountFlags);
+
+            Directory.CreateDirectory(Path.Combine(dataFolder, "Flags"));
+            File.WriteAllText(Path.Combine(dataFolder, "Flags", "D_AccountFlags.json"), """
+                { "Rows": [ { "Name": "Flag_A" }, { "Name": "Flag_B" } ] }
+                """);
+            WeakReferenceMessenger.Default.Send(new WeeklyChangeReportUpdatedMessage());
+            await vm.WaitForPendingSlotLoadAsync();
+
+            Assert.Empty(vm.Characters);
+            Assert.Equal(["Flag_A", "Flag_B"], vm.FilteredAccountFlags.Select(f => f.Name));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
 
     [Fact]
     public async Task DuplicateCharacterCommand_ProducesADistinctEntryWithAFreshChrSlot()

@@ -101,6 +101,34 @@ public sealed partial class MainViewModel : ObservableObject
             {
                 viewModel.SelectedNavItem = target;
             }
+
+            // Pick the Database tab here, after the page is resolved: the first time it's opened,
+            // DatabaseViewModel is only built during this very send, so its own handler registers
+            // too late to hear it and "Find in Database" landed on the Nexus tab.
+            if (viewModel.CurrentPage is DatabaseViewModel database)
+            {
+                if (message.NavItemId == "nexus")
+                {
+                    database.SelectedTab = DatabaseViewModel.NexusTab;
+                }
+                else if (message.NavItemId == "imm-database")
+                {
+                    database.SelectedTab = DatabaseViewModel.ImmDatabaseTab;
+                }
+            }
+        });
+
+        // "Find on Nexus" from the Downloads page. Handled here, not on NexusCatalogViewModel,
+        // which is only built the first time the Database page opens — before that nobody heard it.
+        WeakReferenceMessenger.Default.Register<SearchNexusMessage>(this, (recipient, message) =>
+        {
+            var viewModel = (MainViewModel)recipient;
+            if (viewModel._serviceProvider.GetService(typeof(NexusCatalogViewModel)) is NexusCatalogViewModel nexus)
+            {
+                nexus.SearchText = message.SearchText;
+            }
+
+            WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("nexus"));
         });
 
         // "Turn on and go to Merge & Install" after a save: the shell owns both the page and the queue's VM.
@@ -210,6 +238,12 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         CurrentPage = _serviceProvider.GetRequiredService(value.ViewModelType);
+
+        // The merged pak may have been (re)built since the Server page was last shown.
+        if (CurrentPage is ServerViewModel { Local: { } localServer })
+        {
+            localServer.RefreshMergedPak();
+        }
     }
 
     [RelayCommand]

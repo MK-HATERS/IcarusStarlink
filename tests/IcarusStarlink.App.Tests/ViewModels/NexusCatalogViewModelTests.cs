@@ -136,6 +136,25 @@ public class NexusCatalogViewModelTests
         Assert.False(vm.IsKnownNonPremium);
     }
 
+    /// <summary>
+    /// A real bug: switching to a curated list with no API key superseded the load in flight and
+    /// returned early, and the superseded load's finally skips clearing IsLoading — "Loading…"
+    /// stuck forever.
+    /// </summary>
+    [Fact]
+    public void CuratedListWithoutAKey_WhileAllIsStillLoading_ClearsIsLoading()
+    {
+        var harness = new Harness();
+        harness.NexusApiClient.AllModsPage = new TaskCompletionSource<NexusModPage>().Task;
+        var vm = harness.Build();
+        Assert.True(vm.IsLoading);
+
+        vm.SelectedKind = "Trending";
+
+        Assert.False(vm.IsLoading);
+        Assert.Contains("API key", vm.StatusMessage);
+    }
+
     private sealed class FakeNexusApiClient : INexusApiClient
     {
         public NexusUserInfo? UserToReturn { get; set; }
@@ -157,8 +176,11 @@ public class NexusCatalogViewModelTests
             throw new NotSupportedException("Not exercised by these tests.");
         public Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
+        /// <summary>When set, what the All list's fetch returns (a never-finished task keeps a load in flight).</summary>
+        public Task<NexusModPage>? AllModsPage { get; set; }
+
         public Task<NexusModPage> ListAllModsAsync(string? apiKey, string gameDomain, int offset, int count, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException("Not exercised by these tests — this VM's own construction-time load is expected to fail internally and is caught by its own try/catch.");
+            AllModsPage ?? throw new NotSupportedException("Not exercised by these tests — this VM's own construction-time load is expected to fail internally and is caught by its own try/catch.");
         public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetChangelogsAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
         public Task<IReadOnlyList<NexusEndorsement>> GetEndorsementsAsync(string apiKey, CancellationToken cancellationToken = default) =>
