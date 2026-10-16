@@ -1149,7 +1149,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         var classified = await ExtractedModClassifier.ClassifyAndImport(
             extractedDirectory, originalFileName, _libraryRepository, _ue4ssModRepository,
             _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, source: source, nexusModId: nexusModId,
-            ue4ssNamesAlreadyInstalledInGame: installedUe4ssNames, catalogEntryId: catalogEntryId);
+            ue4ssNamesAlreadyInstalledInGame: installedUe4ssNames, catalogEntryId: catalogEntryId, chooseArchive: ChooseArchive);
 
         var landed = new List<string>();
         foreach (var produced in classified.Items)
@@ -1325,6 +1325,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
     }
+
+    /// <summary>Asks which of several alternative archives in one download to install (tests swap in a fake).</summary>
+    internal Func<string, IReadOnlyList<ArchiveChoice>, int?> ChooseArchive { get; set; } = Views.ChooseArchiveDialog.Ask;
 
     private async Task RecordNexusMetadataAsync(string folderName, int modId)
     {

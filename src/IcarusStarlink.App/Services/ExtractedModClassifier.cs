@@ -8,6 +8,9 @@ using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.App.Services;
 
+/// <summary>One of several archives inside a download, as offered to the user: its file name and, when it holds an EXMOD, that mod's own name, version and description.</summary>
+public sealed record ArchiveChoice(string FileName, string Title, string? Detail);
+
 /// <summary>
 /// What ClassifyAndImport produced. A single download can land as SEVERAL things (see
 /// PendingDownloadActivatedItem) — Items lists every one of them, EntryName/FolderName/Kind describe
@@ -58,16 +61,17 @@ public static class ExtractedModClassifier
         ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
         string? source = null, int? nexusModId = null, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame = null,
-        string? catalogEntryId = null) =>
+        string? catalogEntryId = null, Func<string, IReadOnlyList<ArchiveChoice>, int?>? chooseArchive = null) =>
         ClassifyAndImportCore(
             extractedDirectory, originalFileName, libraryRepository, ue4ssModRepository, prebuiltPakImporter,
-            dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, ue4ssNamesAlreadyInstalledInGame, nestedDepth: 0);
+            dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, ue4ssNamesAlreadyInstalledInGame, nestedDepth: 0, chooseArchive);
 
     private static async Task<ClassifiedImport> ClassifyAndImportCore(
         string extractedDirectory, string originalFileName,
         ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
-        string? source, int? nexusModId, string? catalogEntryId, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame, int nestedDepth)
+        string? source, int? nexusModId, string? catalogEntryId, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame, int nestedDepth,
+        Func<string, IReadOnlyList<ArchiveChoice>, int?>? chooseArchive)
     {
         // A manual scan, not a "*.EXMOD" glob — Directory.EnumerateFiles' pattern matching follows
         // the filesystem's own case sensitivity, same reasoning ExmodFolder.FindExmodFile's own
@@ -155,30 +159,64 @@ public static class ExtractedModClassifier
         var nestedArchives = allFiles
             .Where(f => NestedArchiveExtensions.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
             .ToArray();
-        if (nestedArchives.Length == 1)
+        //
+        // Several archives are usually ALTERNATIVES the author offers side by side — a real Nexus
+        // download (Minimap V1.0.5) ships Minimap.EXMODZ and Minimap_PTBR.EXMODZ, the same mod in
+        // English and Brazilian Portuguese, and its readme says "add ONE of the files". So the user
+        // is asked which one, by each archive's own mod name; with nobody to ask, it's still refused.
+        // The same download also carries a loose "UE4SS Mods\MiniMapa" script folder next to them —
+        // the Lua half of the mod — which is staged too, under its own name, instead of being lost.
+        if (nestedArchives.Length >= 1)
         {
             if (nestedDepth >= MaxNestedArchiveDepth)
             {
                 throw new FormatException($"Archives nested more than {MaxNestedArchiveDepth} levels deep — refusing to keep unpacking.");
             }
 
+            var chosen = nestedArchives[0];
+            if (nestedArchives.Length > 1)
+            {
+                if (chooseArchive is null)
+                {
+                    throw new FormatException(
+                        $"Contains {nestedArchives.Length} archives inside it — ambiguous which one is the mod. Extract it yourself and import the one you want.");
+                }
+
+                var choices = nestedArchives.Select(DescribeArchive).ToList();
+                var pick = chooseArchive(downloadName, choices);
+                if (pick is not { } index || index < 0 || index >= nestedArchives.Length)
+                {
+                    throw new FormatException("Import cancelled — no version was chosen. Activate it again to choose.");
+                }
+
+                chosen = nestedArchives[index];
+            }
+
+            // Found BEFORE the chosen archive is unpacked (it unpacks under this same folder).
+            var looseUe4ssFolders = FindLooseUe4ssModFolders(extractedDirectory);
+
             // Under extractedDirectory on purpose: every caller deletes that whole tree afterward,
             // so this layer is cleaned up with it. Classifying the nested folder (not the parent)
             // keeps the now-redundant outer .EXMODZ/.zip file out of what Import copies.
             var nestedDirectory = Path.Combine(extractedDirectory, $"__nested{nestedDepth}_{Guid.NewGuid():N}");
-            AnyArchiveExtractor.ExtractToDirectory(nestedArchives[0], nestedDirectory);
+            AnyArchiveExtractor.ExtractToDirectory(chosen, nestedDirectory);
             var nested = await ClassifyAndImportCore(
-                nestedDirectory, Path.GetFileName(nestedArchives[0]), libraryRepository, ue4ssModRepository,
+                nestedDirectory, Path.GetFileName(chosen), libraryRepository, ue4ssModRepository,
                 prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, ue4ssNamesAlreadyInstalledInGame,
-                nestedDepth + 1);
+                nestedDepth + 1, chooseArchive);
+
+            if (looseUe4ssFolders.Count > 0)
+            {
+                var ue4ssItems = looseUe4ssFolders
+                    .Select(folder => new PendingDownloadActivatedItem(
+                        ue4ssModRepository.ImportFromFolder(folder, Path.GetFileName(folder), ue4ssNamesAlreadyInstalledInGame),
+                        PendingDownloadActivationKind.Ue4ssMod))
+                    .ToList();
+                nested = nested with { Items = [.. nested.Items, .. ue4ssItems] };
+            }
+
             var merged = nested.Requirements.Count > 0 || requirements.Count == 0 ? nested : nested with { Requirements = requirements };
             return warnings.Count == 0 ? merged : merged with { Warnings = [.. warnings, .. merged.Warnings] };
-        }
-
-        if (nestedArchives.Length > 1)
-        {
-            throw new FormatException(
-                $"Contains {nestedArchives.Length} archives inside it — ambiguous which one is the mod. Extract it yourself and import the one you want.");
         }
 
         // A real bug found live: a user reported a downloaded EXMODZ silently landing as a UE4SS
@@ -239,6 +277,65 @@ public static class ExtractedModClassifier
 
     private static ClassifiedImport Single(string entryName, string folderName, PendingDownloadActivationKind kind, bool isOpaquePak, IReadOnlyList<string> requirements, IReadOnlyList<string> warnings) =>
         new(entryName, folderName, kind, isOpaquePak, [new PendingDownloadActivatedItem(folderName, kind)], requirements, warnings);
+
+    /// <summary>
+    /// UE4SS mod folders sitting loose in a download ("UE4SS Mods\MiniMapa\Scripts\main.lua"): any
+    /// folder below the root holding a Scripts folder with Lua in it. The root itself never counts
+    /// (a plain UE4SS-only download is handled by the catch-all), nor a folder inside another one.
+    /// </summary>
+    private static List<string> FindLooseUe4ssModFolders(string root)
+    {
+        var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
+        var candidates = Directory.GetDirectories(root, "Scripts", SearchOption.AllDirectories)
+            .Where(scripts => Directory.EnumerateFiles(scripts, "*.lua", SearchOption.AllDirectories).Any())
+            .Select(scripts => Path.GetFullPath(Path.GetDirectoryName(scripts)!).TrimEnd(Path.DirectorySeparatorChar))
+            .Where(folder => !string.Equals(folder, rootFull, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(folder => folder.Length)
+            .ToList();
+        var result = new List<string>();
+        foreach (var folder in candidates)
+        {
+            if (!result.Any(kept => folder.StartsWith(kept + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            {
+                result.Add(folder);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>How an inner archive is shown in the "which one?" choice: its EXMOD's own name, version and description when it has one, else just its file name.</summary>
+    private static ArchiveChoice DescribeArchive(string archivePath)
+    {
+        var fileName = Path.GetFileName(archivePath);
+        var peek = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"Peek_{Guid.NewGuid():N}");
+        try
+        {
+            AnyArchiveExtractor.ExtractToDirectory(archivePath, peek);
+            var package = ExmodFolder.Read(peek).Package;
+            var detail = string.Join(" · ", new[] { string.IsNullOrWhiteSpace(package.Version) ? null : $"v{package.Version}", package.Description }
+                .Where(part => !string.IsNullOrWhiteSpace(part)));
+            return new ArchiveChoice(fileName, $"{package.Name} ({fileName})", detail.Length > 0 ? detail : null);
+        }
+        catch (Exception)
+        {
+            return new ArchiveChoice(fileName, fileName, null);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(peek))
+                {
+                    Directory.Delete(peek, recursive: true);
+                }
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
 
     /// <summary>Every "&lt;anything&gt;\ue4ss\Mods\&lt;Mod&gt;" folder that actually contains files — the UE4SS install layout.</summary>
     private static List<string> FindGameLayoutUe4ssModFolders(string root)

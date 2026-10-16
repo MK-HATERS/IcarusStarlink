@@ -447,6 +447,71 @@ public sealed class ExtractedModClassifierTests : IDisposable
         Assert.Equal(0, ue4ssModRepository.ImportFromFolderCallCount);
     }
 
+    /// <summary>
+    /// The real "Minimap V1.0.5" Nexus download: two .EXMODZ files that are the SAME mod in English
+    /// and Brazilian Portuguese ("add ONE of these", says its readme), plus a loose
+    /// "UE4SS Mods/MiniMapa" script folder. The user picks one; the scripts come along as a UE4SS mod.
+    /// </summary>
+    private void BuildMinimapDownload()
+    {
+        foreach (var (file, name) in new[] { ("Minimap", "Minimap & Map Icons"), ("Minimap_PTBR", "Minimapa e Icones do Mapa") })
+        {
+            var folder = NewScratchFolder();
+            var contents = BuildRealExmod();
+            contents.Package.Name = name;
+            contents.Package.FileName = file;
+            ExmodFolder.Write(folder, contents);
+            Directory.CreateDirectory(Path.Combine(_extractedDir, "Icarus Mod Manager"));
+            ZipFolderInto(folder, Path.Combine(_extractedDir, "Icarus Mod Manager", file + ".EXMODZ"));
+        }
+
+        var scripts = Path.Combine(_extractedDir, "UE4SS Mods", "MiniMapa", "Scripts");
+        Directory.CreateDirectory(scripts);
+        File.WriteAllText(Path.Combine(scripts, "main.lua"), "-- minimap");
+        File.WriteAllText(Path.Combine(_extractedDir, "UE4SS Mods", "MiniMapa", "enabled.txt"), "");
+        File.WriteAllText(Path.Combine(_extractedDir, "README_EN.txt"), "Add ONE of the files.");
+    }
+
+    [Fact]
+    public async Task ClassifyAndImport_AlternativeArchives_AsksWhichOne_AndBringsTheLooseUe4ssScriptsAlong()
+    {
+        BuildMinimapDownload();
+        var libraryRepository = new FakeLibraryRepository();
+        var ue4ssModRepository = new FakeUe4ssModRepository { Result = "MiniMapa" };
+        IReadOnlyList<ArchiveChoice>? offered = null;
+
+        var result = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Minimap V1.0.5.zip", libraryRepository, ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null,
+            source: "Nexus", nexusModId: 380,
+            chooseArchive: (modName, choices) => { offered = choices; return choices.ToList().FindIndex(c => c.Title.Contains("Minimapa")); });
+
+        Assert.NotNull(offered);
+        Assert.Equal(2, offered.Count);
+        Assert.Contains(offered, c => c.Title.StartsWith("Minimap & Map Icons", StringComparison.Ordinal));
+        Assert.Equal(1, libraryRepository.ImportCallCount);
+        Assert.Equal("Minimapa e Icones do Mapa", ExmodFolder.Read(libraryRepository.LastImportSourcePath!).Package.Name);
+        Assert.Equal(1, ue4ssModRepository.ImportFromFolderCallCount);
+        Assert.Equal("MiniMapa", ue4ssModRepository.LastFallbackName);
+        Assert.EndsWith(Path.Combine("UE4SS Mods", "MiniMapa"), ue4ssModRepository.LastSourceFolder);
+        Assert.Equal([PendingDownloadActivationKind.Library, PendingDownloadActivationKind.Ue4ssMod], result.Items.Select(i => i.Kind));
+    }
+
+    [Fact]
+    public async Task ClassifyAndImport_AlternativeArchives_CancelledChoice_ImportsNothing()
+    {
+        BuildMinimapDownload();
+        var libraryRepository = new FakeLibraryRepository();
+        var ue4ssModRepository = new FakeUe4ssModRepository();
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Minimap V1.0.5.zip", libraryRepository, ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null,
+            chooseArchive: (_, _) => null));
+
+        Assert.Contains("cancelled", ex.Message);
+        Assert.Equal(0, libraryRepository.ImportCallCount);
+        Assert.Equal(0, ue4ssModRepository.ImportFromFolderCallCount);
+    }
+
     [Fact]
     public async Task ClassifyAndImport_ArchivesNestedTooDeep_ThrowsRatherThanUnpackingForever()
     {
