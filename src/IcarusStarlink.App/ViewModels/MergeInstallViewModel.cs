@@ -1849,6 +1849,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             });
 
             var picks = await ResolveWinnerPicksAsync();
+            // Advanced log: exactly what this build was made from.
+            Serilog.Log.Debug("Merge & Install build: queue (lowest priority first) {Queue}; prebuilt paks {Paks}; ArcFission/low-priority {Low}; {Picks} conflict pick(s) {PickList}; options {Options}",
+                string.Join(" > ", Queue.Select(e => e.Name)), prebuiltPakFilePaths.Select(Path.GetFileName), lowPriorityPaks.Select(Path.GetFileName),
+                picks?.Count ?? 0, picks?.Select(p => $"{p.Key.CurrentFile}/{p.Key.ItemName}.{p.Key.FieldName}=#{p.Value}"), ActiveOptionsSummary);
             var result = await _rebuildService.RebuildAsync(
                 packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath, prebuiltPakFilePaths, picks, progress,
                 lowPriorityPrebuiltPakFilePaths: lowPriorityPaks);

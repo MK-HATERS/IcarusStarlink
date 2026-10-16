@@ -237,6 +237,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         _icarusContentPath = settingsService.Current.IcarusContentPath;
         _unrealPakExePath = settingsService.Current.UnrealPakExePath;
         _performanceTrackingEnabled = settingsService.Current.PerformanceTrackingEnabled;
+        _advancedLogging = settingsService.Current.AdvancedLogging;
+        // When Advanced switches itself back after its 24 hours, the switch shows it.
+        LogDetail.SwitchedBackToBasic += () =>
+        {
+            _advancedLogging = false;
+            OnPropertyChanged(nameof(AdvancedLogging));
+        };
         _isNxmProtocolRegisteredToThisApp = nxmProtocolRegistrar.IsRegisteredToThisApp();
 
         if (!string.IsNullOrWhiteSpace(IcarusContentPath))
@@ -1415,6 +1422,35 @@ public sealed partial class SettingsViewModel : ObservableObject
     // --- Diagnostics & safety (Phase 9) ---
     [ObservableProperty]
     private bool _performanceTrackingEnabled;
+
+    /// <summary>Settings › Diagnostics › Advanced log: debug detail and web requests in the log file too.</summary>
+    [ObservableProperty]
+    private bool _advancedLogging;
+
+    /// <summary>Takes effect at once, no restart; saved straight away like Performance tracking.</summary>
+    partial void OnAdvancedLoggingChanged(bool value)
+    {
+        _settingsService.Current.AdvancedLogging = value;
+        _settingsService.Current.AdvancedLoggingUntilUtc = value ? DateTimeOffset.UtcNow + LogDetail.AdvancedFor : null;
+        _settingsService.Save();
+        LogDetail.ApplyFromSettings(_settingsService);
+        DiagnosticsStatusMessage = value
+            ? $"Advanced log on until {(DateTimeOffset.Now + LogDetail.AdvancedFor):g}, then it goes back to Basic by itself."
+            : "Basic log: what you did and what happened.";
+    }
+
+    [RelayCommand]
+    private void OpenLogFolder()
+    {
+        try
+        {
+            LogDetail.OpenFolder();
+        }
+        catch (Exception ex)
+        {
+            DiagnosticsStatusMessage = $"Couldn't open the log folder: {ex.Message}";
+        }
+    }
 
     [ObservableProperty]
     private string? _diagnosticsStatusMessage;

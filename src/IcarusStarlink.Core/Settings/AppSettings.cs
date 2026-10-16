@@ -10,6 +10,12 @@ public sealed class AppSettings
     public string ThemeName { get; set; } = "Icarus";
     public bool PerformanceTrackingEnabled { get; set; }
 
+    /// <summary>Settings › Diagnostics › Advanced log: the log file also records debug detail and web requests.</summary>
+    public bool AdvancedLogging { get; set; }
+
+    /// <summary>When the Advanced log switches itself back to Basic (24 hours after it was turned on), so it can't bloat the logs.</summary>
+    public DateTimeOffset? AdvancedLoggingUntilUtc { get; set; }
+
     // Recorded on every successful "Update data folder" run — lets a later run detect the game's
     // data.pak has changed since then (LastDataPakHash) without re-extracting anything, and gives
     // DataFolderChangeTracker the "previous" timestamp a WeeklyChangeReport needs. Null until the

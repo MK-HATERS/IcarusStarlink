@@ -316,8 +316,10 @@
                                    Visibility="{Binding AppUpdateStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
                         <TextBlock Text="Diagnostics &amp; safety" Style="{StaticResource FieldLabelStyle}"/>
-                        <TextBlock Text="If you run into a bug, export a diagnostics zip (logs + sanitized settings, never API keys or tokens) to attach to your report."
-                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10"/>
+                        <TextBlock Text="Starlink always keeps a basic log of what you did and what happened (at most 5 MB a file, the newest 14 files). If you run into a bug, export a diagnostics zip (logs + sanitized settings, never API keys or tokens) to attach to your report."
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap"/>
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Advanced log" IsChecked="{Binding AdvancedLogging}" Margin="0,0,0,10"
+                                  ToolTip="Off (Basic): the log records what you did and what happened: imports, merges, installs, fixes, warnings and errors. On (Advanced): also every detail, such as each fix made to a mod, the merge order and conflict picks, and every web request. Turn it on to chase a bug: it switches itself back to Basic after 24 hours. Takes effect at once. Either way each file stops at 5 MB and only the newest 14 are kept, so the logs never bloat."/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Performance tracking" IsChecked="{Binding PerformanceTrackingEnabled}" Margin="0,0,0,10"
                                   ToolTip="Off by default. When on, logs how long Rebuild/Install/catalog-refresh take to a separate app.perf log file — useful if something feels slow and you want to show real numbers in a bug report."/>
                         <StackPanel Orientation="Horizontal">
@@ -328,6 +330,8 @@
                                     <TextBlock Text="Export diagnostics zip…" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
+                            <Button Content="Open log folder" Command="{Binding OpenLogFolderCommand}" Margin="8,0,0,0"
+                                    ToolTip="Opens the folder with the log files (icarusstarlink-date.log)"/>
                             <TextBlock Text="{Binding DiagnosticsStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                         </StackPanel>

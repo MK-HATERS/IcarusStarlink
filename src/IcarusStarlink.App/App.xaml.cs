@@ -135,12 +135,20 @@ public partial class App : Application
         var logsDirectory = _logsDirectory;
         Directory.CreateDirectory(logsDirectory);
 
+        // Basic or Advanced (Settings › Diagnostics), switchable while running: see LogDetail.
+        LogDetail.LogsDirectory = logsDirectory;
         Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Information()
+            .MinimumLevel.ControlledBy(LogDetail.AppLevel)
+            .MinimumLevel.Override("System.Net.Http", LogDetail.NoiseLevel)
+            .MinimumLevel.Override("Microsoft", LogDetail.NoiseLevel)
             .WriteTo.File(
                 Path.Combine(logsDirectory, "icarusstarlink-.log"),
                 rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 14)
+                // Never bloats: a day's file stops at 5 MB and rolls to the next, and only the
+                // newest 14 files are kept (about 70 MB at most, far less in Basic).
+                fileSizeLimitBytes: LogDetail.MaxFileBytes,
+                rollOnFileSizeLimit: true,
+                retainedFileCountLimit: LogDetail.MaxFiles)
             .CreateLogger();
 
         // Shown immediately, before the DI host builds — the actual expensive startup work
@@ -487,6 +495,7 @@ public partial class App : Application
             _host = builder.Build();
             _host.Start();
             Settings = _host.Services.GetRequiredService<ISettingsService>();
+            LogDetail.ApplyFromSettings(Settings);
 
             var logger = _host.Services.GetRequiredService<ILogger<App>>();
             var appVersion = Assembly.GetExecutingAssembly()

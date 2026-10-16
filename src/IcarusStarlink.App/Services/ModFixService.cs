@@ -184,6 +184,11 @@ public sealed class ModFixService(
         var folderPath = repository.GetFolderPath(folderName);
         var package = ExmodFolder.ReadPackageOnly(folderPath);
         var applied = ModHealthChecker.Apply(package, changing);
+        // Advanced log: each change made to the mod.
+        foreach (var (issue, fix) in changing)
+        {
+            Serilog.Log.Debug("Fix '{Mod}': {Kind} {File}/{Row}.{Field} -> {Fix}", folderName, issue.Kind, issue.CurrentFile, issue.ItemName, issue.FieldName ?? "(row)", fix);
+        }
         if (applied == 0)
         {
             return 0;
