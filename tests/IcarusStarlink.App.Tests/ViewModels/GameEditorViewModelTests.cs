@@ -1,4 +1,6 @@
 using System.IO;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO.Container;
@@ -248,6 +250,73 @@ public sealed class GameEditorViewModelTests : IDisposable
 
         Weight(vm).ValueText = "2.5";
         Assert.Equal("Needs a whole number here, like 50.", Weight(vm).Error);
+    }
+
+    /// <summary>A review finding: every Library change rebuilt the targets and reloaded the item, dropping a stat added here and not saved yet.</summary>
+    [Fact]
+    public void AnAddedStat_SurvivesALibraryChange()
+    {
+        _library.CreateBlankMod("Mine", "Me");
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        var armour = vm.Sections.Single(s => s.Section.Key == "Armour");
+        armour.Picker.StatSearch = "cold";
+        armour.Picker.SelectedStat = armour.Picker.MatchingStats.Single();
+        armour.Picker.AddStatCommand.Execute(null);
+        armour.Fields.Single(f => f.Label == "Cold resistance %").ValueText = "15";
+        // What WPF's ComboBox does when its items are cleared under the selection.
+        vm.Targets.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+            {
+                vm.SelectedTarget = null;
+            }
+        };
+
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+
+        Assert.Equal("15", vm.Sections.Single(s => s.Section.Key == "Armour").Fields.Single(f => f.Label == "Cold resistance %").ValueText);
+        Assert.Equal(1, vm.PendingCount);
+        Assert.True(vm.IsNewTarget);
+    }
+
+    /// <summary>A review finding: ↺ on a stat the target mod adds emptied the box ("Needs a number") and blocked saving; it now takes the stat out.</summary>
+    [Fact]
+    public void UseGameValue_OnAStatTheModAdds_TakesItOut()
+    {
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        var vm = Open();
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        var armour = vm.Sections.Single(s => s.Section.Key == "Armour");
+        armour.Picker.StatSearch = "cold";
+        armour.Picker.SelectedStat = armour.Picker.MatchingStats.Single();
+        armour.Picker.AddStatCommand.Execute(null);
+        armour.Fields.Single(f => f.Label == "Cold resistance %").ValueText = "15";
+        vm.SaveCommand.Execute(null);
+        Assert.Contains("ColdResistance", ExmodJson.Serialize(Read(_library, mine.FolderName)));
+
+        var cold = vm.Sections.Single(s => s.Section.Key == "Armour").Fields.Single(f => f.Label == "Cold resistance %");
+        cold.UseGameValueCommand.Execute(null);
+
+        Assert.Null(cold.Error);
+        Assert.Equal(1, vm.PendingCount);
+        vm.SaveCommand.Execute(null);
+        Assert.StartsWith("Saved", vm.StatusMessage);
+        Assert.DoesNotContain("ColdResistance", ExmodJson.Serialize(Read(_library, mine.FolderName)));
+    }
+
+    /// <summary>A review finding: "Open in Editor" from a mod kept the page's own target, so it showed (and saved) the game's values.</summary>
+    [Fact]
+    public void OpenFromAMod_MakesThatModTheTarget()
+    {
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        var vm = Open();
+
+        WeakReferenceMessenger.Default.Send(new OpenGameItemMessage("Envirosuit", mine.FolderName));
+
+        Assert.Equal("Envirosuit", vm.SelectedItem?.Name);
+        Assert.Equal(mine.FolderName, vm.SelectedTarget?.FolderName);
     }
 
     /// <summary>A mod imported from a file is someone else's even after editing it here: never a save target.</summary>

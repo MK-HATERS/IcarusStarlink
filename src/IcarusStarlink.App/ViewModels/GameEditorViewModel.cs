@@ -53,12 +53,19 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     /// <summary>Typed here and not saved yet.</summary>
     public bool IsPending => ValueText.Trim() != _startText && Error is null;
 
+    /// <summary>A value the game doesn't have (a stat the mod adds), emptied by ↺: it comes out of the mod again.</summary>
+    private bool IsRemoved => Field.GameValue is null && ValueText.Trim().Length == 0;
+
     public string? Error =>
-        Field.Kind != EditableKind.Number ? null
+        Field.Kind != EditableKind.Number || IsRemoved ? null
         : !double.TryParse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) || !double.IsFinite(n) ? "Needs a number, like 50 or 0.5."
         : _wholeNumber && n != Math.Floor(n) ? "Needs a whole number here, like 50."
         : null;
 
+    /// <summary>
+    /// ↺: back to the game's value. For a value the game doesn't have, that means taking it out:
+    /// one added here just goes; one the target mod adds is emptied, and saving removes it.
+    /// </summary>
     [RelayCommand]
     private void UseGameValue()
     {
@@ -71,10 +78,10 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
         ValueText = _gameText;
     }
 
-    /// <summary>The value to write: null means "the game's again".</summary>
+    /// <summary>The value to write: null means "the game's again" (for a value the game doesn't have: none at all).</summary>
     public JsonNode? NewValue()
     {
-        if (ValueText.Trim() == _gameText && Field.GameValue is not null)
+        if ((ValueText.Trim() == _gameText && Field.GameValue is not null) || IsRemoved)
         {
             return null;
         }
@@ -209,7 +216,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
         // Game data changes under the page when Settings' Update data folder runs.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).ResetGameData());
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).RefreshTargets());
-        WeakReferenceMessenger.Default.Register<OpenGameItemMessage>(this, (recipient, message) => ((GameEditorViewModel)recipient).Open(message.ItemName));
+        WeakReferenceMessenger.Default.Register<OpenGameItemMessage>(this, (recipient, message) => ((GameEditorViewModel)recipient).Open(message.ItemName, message.TargetFolder));
         RefreshTargets();
     }
 
@@ -316,14 +323,29 @@ public sealed partial class GameEditorViewModel : ObservableObject
         RefreshFilter();
     }
 
-    /// <summary>Shows one game item (from the mod editor's "Open in Editor").</summary>
-    public void Open(string itemName)
+    /// <summary>
+    /// Shows one game item (from the mod editor's "Open in Editor"). With the mod it came from, and
+    /// that's one of the user's own mods, that mod becomes the save target, so the values shown are
+    /// the mod's and saving goes back into it (not the game's values into whatever was picked before).
+    /// </summary>
+    public void Open(string itemName, string? targetFolder = null)
     {
         EnsureLoaded();
-        if (_allItems.FirstOrDefault(i => string.Equals(i.Name, itemName, StringComparison.OrdinalIgnoreCase)) is { } item)
+        if (_allItems.FirstOrDefault(i => string.Equals(i.Name, itemName, StringComparison.OrdinalIgnoreCase)) is not { } item)
         {
-            SelectedItem = item;
-            RefreshFilter(); // the list shows 400 items; make sure this one is in it
+            return;
+        }
+
+        SelectedItem = item;
+        RefreshFilter(); // the list shows 400 items; make sure this one is in it
+        if (SelectedItem != item)
+        {
+            return; // kept the item being edited (typed changes not thrown away)
+        }
+
+        if (targetFolder is not null && Targets.FirstOrDefault(t => t.FolderName == targetFolder) is { } target)
+        {
+            SelectedTarget = target;
         }
     }
 
@@ -352,7 +374,18 @@ public sealed partial class GameEditorViewModel : ObservableObject
         LoadItem();
     }
 
+    /// <summary>Set while the target list is rebuilt: the list empties under the selection, which isn't a new pick.</summary>
+    private bool _refreshingTargets;
+
     partial void OnSelectedTargetChanged(EditorSaveTarget? value)
+    {
+        if (!_refreshingTargets)
+        {
+            ReloadForTarget();
+        }
+    }
+
+    private void ReloadForTarget()
     {
         // The values shown are the game's with the target mod's changes on top; typed changes come
         // along to the newly chosen mod instead of being lost or applied to values not on screen.
@@ -539,18 +572,41 @@ public sealed partial class GameEditorViewModel : ObservableObject
               + (pending.Count > 8 ? $"\n…and {pending.Count - 8} more" : "");
     }
 
+    /// <summary>
+    /// Rebuilds the "save into" list (on every Library change). The shown item is reloaded only when
+    /// the target really changed (or nothing is typed): a reload keeps only typed values that exist
+    /// afterwards, so a stat added here and not saved yet was lost whenever anything in Library changed.
+    /// </summary>
     private void RefreshTargets(string? selectFolder = null)
     {
-        var keep = selectFolder ?? SelectedTarget?.FolderName;
-        var wasNew = selectFolder is null && SelectedTarget?.IsNew == true;
-        Targets.Clear();
-        Targets.Add(new EditorSaveTarget(null, "A new mod"));
-        foreach (var entry in _repository.GetAll().Where(e => e.IsOwnMod).OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+        var before = SelectedTarget;
+        var keep = selectFolder ?? before?.FolderName;
+        var wasNew = selectFolder is null && before?.IsNew == true;
+        _refreshingTargets = true;
+        try
         {
-            Targets.Add(new EditorSaveTarget(entry.FolderName, entry.Name));
+            Targets.Clear();
+            Targets.Add(new EditorSaveTarget(null, "A new mod"));
+            foreach (var entry in _repository.GetAll().Where(e => e.IsOwnMod).OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                Targets.Add(new EditorSaveTarget(entry.FolderName, entry.Name));
+            }
+
+            SelectedTarget = (wasNew ? null : Targets.FirstOrDefault(t => t.FolderName == keep)) ?? Targets[0];
+        }
+        finally
+        {
+            _refreshingTargets = false;
         }
 
-        SelectedTarget = (wasNew ? null : Targets.FirstOrDefault(t => t.FolderName == keep)) ?? Targets[0];
+        if (before is null || SelectedTarget?.FolderName != before.FolderName)
+        {
+            ReloadForTarget();
+        }
+        else if (PendingCount == 0 && Sections.Count > 0)
+        {
+            LoadItem(); // nothing typed to lose: show the target mod as it is now
+        }
     }
 
     private void ResetGameData()
