@@ -15,8 +15,8 @@ public sealed partial class HelpViewModel : ObservableObject
 
             - Open **Settings** and set your Icarus **Content folder** (…\Icarus\Icarus\Content). Click **Auto-detect** first — it reads your real Steam library and usually finds it without you browsing manually.
             - Set **UnrealPak.exe** — on first launch the app offers to install the bundled copy next to itself (one click), or Browse… to one you already have (classic IMM ships one under its own UnrealPak folder). The bundle is UnrealPak **4.27**, the same UE4 version Icarus is built on — deliberately not "the latest": newer UE5 builds write pak formats Icarus's engine can't load. **Check** in Settings verifies your copy actually runs; **Reinstall bundled copy** repairs a broken one.
-            - Click **Update data folder**. This extracts the game's current mod-relevant data so merge/edit has something real to work against — re-run it whenever the game updates.
-            - Go to **Library** and import a mod (EXMODZ, a folder, or a .pak), or browse its **IMM Database** tab for one.
+            - Click **Refresh game data**. This extracts the game's current mod-relevant data so merge/edit has something real to work against — re-run it whenever the game updates.
+            - Go to **Library** and import a mod (EXMODZ, a folder, or a .pak), or find one on the **Database** page (Nexus and the IMM Database).
             """),
 
         new("Library", """
@@ -30,12 +30,12 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Import ▾**: **Import archive…** (a `.zip`/`.rar`/`.7z`/`.EXMODZ`; it looks inside and works out whether it's an EXMOD mod, a bare `.pak`, a UE4SS mod or a mix), **Import folder…**, **Import .pak…**, **Import UE4SS mod…** (lands unticked: tick it, then **Apply UE4SS changes**). A prebuilt pak is converted into a real, editable EXMOD whenever UnrealPak.exe is set up and the game data is extracted.
             - If a download holds several alternatives of one mod (different sizes or presets), you're asked which one to install, since the author meant you to pick one. If Starlink can't work out how to install something, the **Install manually** window opens (see "When an install goes wrong").
             - Importing also checks how the mod was packed and warns in the Activity panel (the bell) about: leftover build files (a `.git` folder, editor session files), files outside the game's Content folder, data tables older than your game (missing rows the game has since added), and tables shipped without a single change.
-            - **New mod…** creates a mod from a starting point (blank, Quality of life, a new item, or a classic IMM template; see "Making your own mods") and opens it in the editor.
-            - **Check ▾**: **Check for updates**, **Update all**, **Check mods against game data** (see "Making your own mods"), **Check endorsements**, **Convert opaque mods…**.
-            - Right-click a mod: **Rename…**, **Convert to EXMOD…**, **Create mod backup** / **Restore latest backup**, **See what changed vs previous version…**, **Find in Database**, **Search Nexus for this**, **Open on Nexus**, **Link to Nexus ID…**, **Endorse** / **Abstain**, **Delete**. Right-click a UE4SS row for **Open folder**, **Set minimum UE4SS version…** and the Nexus link items.
+            - **New mod…** creates a mod from a starting point (blank, Quality of life, a new item, or a classic IMM template; see "Making your own mods") and opens it in the mod editor.
+            - **Check ▾**: **Check for updates**, **Update all**, **Check mods against game data** (see "Making your own mods"), **Check endorsements**, **Make prebuilt paks editable…**.
+            - Right-click a mod: **Rename…**, **Convert to EXMOD…**, **Create mod backup** / **Restore latest backup**, **See what changed vs previous version…**, **Find in Database**, **Search Nexus for this**, **Open on Nexus**, **Link to Nexus ID…**, **Endorse** / **Don't endorse (stop asking)**, **Delete**. Right-click a UE4SS row for **Open folder**, **Set minimum UE4SS version…** and the Nexus link items.
             - Double-click a mod for its details. The **Changes** tab starts with **IN SHORT**: a few lines like "D_Itemable · MaxStack ×10 on 1337 rows", worked out against your current game data, before the full list.
-            - Pin/Favorite/Notes are yours to organize with; none of them affect merging. ✎ means you edited it in the editor; a warning badge means "Check mods against game data" flagged something (click it to open the flagged row).
-            - The **IMM Database** tab is the community catalog: search, filter, and **Download & extract**.
+            - Pin/Favorite/Notes are yours to organize with; none of them affect merging. ✎ means you changed it in the mod editor; a warning badge means "Check mods against game data" flagged something (click it to open the flagged row).
+            - A greyed-out button or menu item still shows its tooltip, which says why it's greyed out.
             """),
 
         new("Editor", """
@@ -53,7 +53,7 @@ public sealed partial class HelpViewModel : ObservableObject
 
             - **Save to:** **A new mod** (give it a name), or one of **your own mods**: ones made in Starlink. Mods from Nexus or the IMM Database aren't listed, since an update would replace your changes and they aren't yours.
             - Only the values you changed go into the mod. Putting a value back to the game's takes it out again.
-            - Then tick the mod in **Library** and **Merge & Install** as usual. Open it in the mod editor to see exactly what it holds.
+            - After saving, **Turn on & go to Merge & Install** ticks the mod and takes you there (or tick it in **Library** yourself). Open it in the mod editor to see exactly what it holds.
             """),
         new("When an install goes wrong", """
             # When an install goes wrong
@@ -70,9 +70,9 @@ public sealed partial class HelpViewModel : ObservableObject
 
             Builds one merged pak from every ticked mod, then installs it into the game.
 
-            - Tick mods' **ON** box in **Library** (or right-click → **Add to merge queue**). Order matters: later mods win when two change the same thing, unless you pick otherwise in **Review conflicts**. **Suggest order** proposes one; **Validate mods** checks the queue against your game data and each other before you build (a renamed field, a recipe pointing at a missing item, two mods overwriting the same file).
+            - Tick mods' **ON** box in **Library** (or right-click → **Add to merge queue**). Order matters: later mods win when two change the same thing, unless you pick otherwise in **Review conflicts**. **More ▾ › Suggest order** proposes one; **Validate mods** checks the queue against your game data and each other before you build (a renamed field, a recipe pointing at a missing item, two mods overwriting the same file).
             - **Install** rebuilds and installs in one click. It always asks first (it's what writes into your real `Content\Paks\mods`) and backs up the pak already there (last 5 kept). It reads **Update install** once something of this app's is installed.
-            - **Profiles** save a whole queue plus merge options under a name: **Save profile**, **Restore profile backup** (every save backs up the one before), **Set baseline** (mods every profile always includes). **Import & migrate** holds **Export patch…** / **Import patch…**, to share a setup with a friend or a server.
+            - **Profiles** save a whole queue plus merge options under a name: **Save profile**, and **Profile ▾** for **New…**, **Rename…**, **Restore profile backup** (every save backs up the one before) and **Delete**. **More ▾ › Set baseline** picks mods every profile always includes. **Import & migrate** holds **Export patch…** / **Import patch…**, to share a setup with a friend or a server.
             - **Merge options** apply game-wide changes after your mods, even with nothing queued:
             - **Player boosts**: Speed Boost, Player Boost, XP Boost (L1 +200%, L2 +500%, L3 +1000%).
             - **Crafting & economy**: Craft Cost (fewer ingredients; Free = creative mode), **Stacks multiplier** (higher = bigger stacks), **Slots multiplier** (higher = more backpack and container slots), **Speed Crafting** and **Faster Taming** (0% = unchanged, higher = faster, 50% = half the time).
@@ -98,9 +98,9 @@ public sealed partial class HelpViewModel : ObservableObject
 
             What actually changed in the game's own data the last time it updated — a real, row-by-row diff, not a changelog someone wrote by hand.
 
-            Every time you click **Update data folder** (Settings), this app keeps a record of what it just extracted. Run it once before a game update and again after, and this page compares the two: which files changed, which items/fields were added, removed, or edited, old value beside new. Genuinely useful for figuring out why a mod that used to work suddenly doesn't (see "if a game update breaks your mod" under "Making your own mods").
+            Every time you click **Refresh game data** (Settings), this app keeps a record of what it just extracted. Run it once before a game update and again after, and this page compares the two: which files changed, which items/fields were added, removed, or edited, old value beside new. Genuinely useful for figuring out why a mod that used to work suddenly doesn't (see "if a game update breaks your mod" under "Making your own mods").
 
-            Nothing to click here beyond browsing — pick a file on the left to see its own changes on the right. If you see "No changes tracked yet," you only have one extraction on record; run **Update data folder** again after the next game update to get a real comparison.
+            Nothing to click here beyond browsing — pick a file on the left to see its own changes on the right. If you see "No changes tracked yet," you only have one extraction on record; run **Refresh game data** again after the next game update to get a real comparison.
             """),
 
         new("UE4SS mods", """
@@ -138,7 +138,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - Every mod on that list is copied straight out of IMM's own folder into your Library — offline, instantly, and at exactly the versions you were already running.
             - Each mod is matched against the community database and, failing that, searched for on Nexus, so update checks work from day one. Mods that can't be identified still work fine; they just won't check for updates until you right-click → **Link to Nexus ID…**.
             - Your merge list is rebuilt in **Merge & Install** in the same order, so you can click **Install** immediately.
-            - Anything that couldn't be found is listed by name rather than silently dropped — get those from Library's **IMM Database** tab, then run the migration again.
+            - Anything that couldn't be found is listed by name rather than silently dropped — get those from the **Database** page's **IMM Database** tab, then run the migration again.
 
             Classic IMM's own files are only ever read. Your existing classic-IMM pak is backed up before this app replaces it.
 
@@ -165,10 +165,14 @@ public sealed partial class HelpViewModel : ObservableObject
             **Compare paks…** on Merge & Install unpacks any two `.pak` files and diffs their contents: game data is compared value by value (formatting differences don't count), everything else byte for byte. Useful for confirming a rebuilt pack matches one from another tool, or for seeing what a prebuilt pak actually contains. Both paks are only read — extraction happens in a temp folder that's cleaned up afterwards.
             """),
 
-        new("Nexus", """
-            # Nexus
+        new("Database", """
+            # Database
 
-            A native list of Icarus mods on Nexus, driven by the API key you save once in **Settings** — there's no embedded web browser and no second sign-in. **All** shows the whole catalog, most-endorsed first (works even without a key — click **Load more** for further pages); **Trending / Latest / Updated** are Nexus's own curated lists (need a signed-in key); the search box switches to live results, covering every Icarus mod on Nexus.
+            Everywhere to find mods, in two tabs. **Library** holds the mods you have; this page is for getting more.
+
+            **IMM Database** is the community catalog: search, filter by type and game week, and **Download & extract**. The **Installed** and **Works with** columns show your copy's version and the game week the mod was made for. **Find in Database** (right-click a Library mod) opens this tab already searched.
+
+            **Nexus** is a native list of Icarus mods on Nexus, driven by the API key you save once in **Settings** — there's no embedded web browser and no second sign-in. **All** shows the whole catalog, most-endorsed first (works even without a key — click **Load more** for further pages); **Trending / Latest / Updated** are Nexus's own curated lists (need a signed-in key); the search box switches to live results, covering every Icarus mod on Nexus.
 
             Because the list is ours rather than a web page, each mod shows what YOUR machine already knows about it: **In Library**, **Downloaded**, **Tracked**, and an **Update** badge — a precise comparison between the live Nexus version and your own Library copy's version, not a guess. Three toggles filter the list: **Hide ones you have**, **Updates only**, and **Tracked**.
 
@@ -209,6 +213,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Start**, **Stop**, **Restart**, **Check for update**, **Update**.
             - **Overview**: players, world, uptime, memory, last backup; automation (restart if it crashes, a daily restart, update on restart, start with Starlink) and Windows firewall rules.
             - **Log** (follow, hide noise, events), **Settings** (name, password, ports, world, lobby, Steam branch; **Save settings**).
+            - **Create a prospect on start**: pick the world from the game's own list (open worlds, outposts, missions), a difficulty, Hardcore, and a world name (an outpost needs one). Set it back to **Don't create one** after the first start, or every restart makes a fresh world. Without extracted game data it's a text box taking the server's own "[ProspectType] [Difficulty 1-4] [Hardcore True/False] [SaveName]".
             - **Mods**: **Install my merged pak** puts your Merge & Install pak on the server; **Install UE4SS from my game** and tick which UE4SS mods to copy over.
             - **Worlds & backups** (**Back up now**, **Restore selected**) and **Admins & bans** (Steam64 ids, one per line).
 
@@ -240,7 +245,7 @@ public sealed partial class HelpViewModel : ObservableObject
             **Changing the game's own items**
 
             - The **Editor** page (left menu) is the easy way: pick an item, change its numbers, save. See its own Help topic.
-            - **Change a game row…** (in the mod editor) copies any row of the game's data into your mod with all its current values. Change just the fields you want.
+            - In the mod editor, **More ▾ › Copy a game row into this mod…** is the raw way: it copies any row of the game's data into your mod with all its current values, to change just the fields you want. **Change a game item (Editor page) →** takes you to the easy way.
             - The mod editor's **Fields** view shows each row in plain words: the list on the left is grouped by part (Armour, Recipes…) with in-game names and how many values differ from the game; a number is one box with what lower and higher do; game text (names, descriptions) is plain text; a stats list is one row per stat, with ✕, **Put back** and **Add a stat**. An orange border marks a value that differs from the game's. Lists and links still show as JSON, and **File JSON** / **Full EXMOD JSON** show everything raw.
             - A mod's stats list replaces the game's whole list, so a game stat the mod leaves out is gone in game; the Fields view marks those in red with **Put back**.
             - **Open in Editor** shows the selected row's item on the Editor page, with all its other parts. Rarer tools (Duplicate, Open original file, Insert file, Merge another mod, Open folder) are under **More ▾**.
@@ -256,7 +261,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Name it**: the name players see, and a description (blank keeps the original's); the item id (its row name in every table) follows the name until you change it.
             - **What it gets its own copy of**: each table the item links to (name and icon, armour stats, what eating it does…). Ticked = its own copy, renamed and re-linked, safe to change. Unticked = it shares the game's row, and changing that row would change the original too. Food and medicine can also get **their own buff**.
             - **How players get it**: just the item; a **crafting recipe** at a bench you pick (starting from the original's ingredients, unlocked with the original's blueprint or known from the start); or an **orbital workshop purchase**, in an existing tab or a new tab of your mod's own, with research and replication costs in credits (research is paid once, replication per copy; lower is cheaper, 0 is free).
-            - Everything lands in the editor as normal rows to fine-tune, and Undo takes it all back out.
+            - Everything lands in the mod editor as normal rows to fine-tune, and Undo takes it all back out.
 
             **Scale rules**
 
@@ -267,7 +272,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Only rows whose name contains** limits a rule (several words, comma separated, match any). **Also rows using the table's default value** is off for stack sizes, so tools and weapons don't start stacking.
             - **Preview** / **Preview all** show what a rule would change without changing the mod. **Apply rules** writes the rows from your current game data (undoable); Save also applies a rule you changed but didn't apply.
             - Rules only touch the game's own rows: items your mod adds itself are left as you made them.
-            - After a game update, **Update data folder** (Settings) rebuilds every rule mod from the new data by itself (a mod open in the editor waits for its own Apply).
+            - After a game update, **Refresh game data** (Settings) rebuilds every rule mod from the new data by itself (a mod open in the mod editor waits for its own Apply).
             - A Quality of life mod builds its rows the first time it opens. Its rules include ones you can turn on, among them **Cave sickness chance set to 5%** (25% in the game).
 
             **Check references**
@@ -293,7 +298,7 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Keyboard shortcuts", """
             # Keyboard shortcuts
 
-            Inside the EXMOD editor window:
+            Inside the mod editor window:
 
             - **Ctrl+S** — save
             - **Ctrl+F** — focus the item filter box
@@ -312,7 +317,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Install** (the one action that writes into your real game folder) always asks for confirmation, and always backs up whatever pak is already there first (last 5 kept).
             - The **UE4SS loader install/update/uninstall**, the **nxm:// protocol registration**, and **Update now** (this app updating itself) all work the same way — each touches something more sensitive than a normal mod folder, so each asks first too.
             - Every Rebuild independently re-reads the pak it just built and confirms every file it staged for packing is actually retrievable from it — not just trusting how many files it handed to UnrealPak.exe. If UnrealPak itself ever silently dropped something, this is what would catch it, and it shows up as a warning under Build & install rather than a quietly incomplete pak.
-            - Profiles back themselves up on every Save, the same as mods — **Restore backup** in Merge & Install undoes a bad one.
+            - Profiles back themselves up on every Save, the same as mods — **Profile ▾ › Restore profile backup** in Merge & Install undoes a bad one.
             - Your library is just the **Extracted_Mods** folder plus a small per-mod notes/pin sidecar — nothing about it is locked into a database only this app can read. If you ever stop using this app, your mods are still just files.
             - If the app ever hits an unexpected error — on the UI thread, during background startup, or inside an async action like Rebuild/Install/FTP/downloads/save-editing — it writes a crash report (the full exception, your app/OS version, and what you'd been doing right before it) to the **Logs** folder automatically, instead of the app previously either hard-crashing with nothing recorded or silently freezing with no trace at all.
             - If something goes wrong, **Export diagnostics zip…** (Settings) is the fastest way to get logs into a bug report.

@@ -618,12 +618,27 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     }
 
     /// <summary>Captures whatever's currently in the queue under a new profile name — lets a user build a queue first, then decide to save it, rather than New always starting empty.</summary>
+    /// <summary>Asks for a profile name (title, starting text) → the name, or null when cancelled. Tests swap in an answer.</summary>
+    internal Func<string, string, string?> PromptForProfileName { get; set; } = (title, current) =>
+    {
+        var dialog = new Views.RenameModDialog(current, "A name for this saved set of queued mods and merge options.", title: title, fieldLabel: "Profile name")
+        {
+            Owner = Application.Current?.MainWindow,
+        };
+        return dialog.ShowDialog() == true ? dialog.NewDisplayName : null;
+    };
+
     [RelayCommand]
     private void NewProfile()
     {
+        if (string.IsNullOrWhiteSpace(ProfileNameInput) && PromptForProfileName("New profile", "") is { } typed)
+        {
+            ProfileNameInput = typed.Trim();
+        }
+
         if (string.IsNullOrWhiteSpace(ProfileNameInput))
         {
-            ProfileStatusMessage = "Type a profile name first.";
+            ProfileStatusMessage = "Give the profile a name.";
             return;
         }
 
@@ -690,9 +705,15 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(ProfileNameInput))
+        if (string.IsNullOrWhiteSpace(ProfileNameInput) && PromptForProfileName("Rename profile", oldName) is { } typed)
         {
-            ProfileStatusMessage = "Type the new name first.";
+            ProfileNameInput = typed.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(ProfileNameInput) || string.Equals(ProfileNameInput, oldName, StringComparison.Ordinal))
+        {
+            ProfileNameInput = "";
+            ProfileStatusMessage = "Give the profile a new name.";
             return;
         }
 

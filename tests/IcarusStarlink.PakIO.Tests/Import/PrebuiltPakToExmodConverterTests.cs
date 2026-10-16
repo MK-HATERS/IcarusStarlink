@@ -106,7 +106,7 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         var result = await converter.TryConvertAsync(_pakFilePath, emptyDataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
 
         Assert.Null(result);
-        Assert.Contains(report.Warnings, w => w.Contains("Update data folder"));
+        Assert.Contains(report.Warnings, w => w.Contains("Refresh game data"));
     }
 
     [Fact]

@@ -20,26 +20,23 @@
         <DockPanel Grid.Row="1" Margin="0,16,0,0" LastChildFill="True">
             <TextBlock DockPanel.Dock="Left" Text="Profile:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
             <ComboBox DockPanel.Dock="Left" Width="160" ItemsSource="{Binding ProfileNames}" SelectedItem="{Binding SelectedProfileName}" Margin="0,0,12,0"/>
-            <Button DockPanel.Dock="Right" Content="Delete profile" Command="{Binding DeleteProfileCommand}" Margin="8,0,0,0"
-                    ToolTip="Deletes this saved queue+options preset — never touches any mod in your Library"/>
-            <Button DockPanel.Dock="Right" Content="Restore profile backup" Command="{Binding RestoreProfileBackupCommand}" IsEnabled="{Binding CanRestoreProfileBackup}"
-                    Margin="8,0,0,0" ToolTip="Replaces this profile with its own most recent backup — every save keeps a backup of the version before it"
-                    ToolTipService.ShowOnDisabled="True"/>
-            <Button DockPanel.Dock="Right" Content="Rename profile" Command="{Binding RenameProfileCommand}" Margin="8,0,0,0"/>
-            <Button DockPanel.Dock="Right" Content="Save profile" Command="{Binding SaveProfileCommand}" Margin="8,0,0,0"/>
-            <Button DockPanel.Dock="Right" Command="{Binding NewProfileCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0" AutomationProperties.Name="New profile">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource IconPlus}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
-                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                    <TextBlock Text="New profile" VerticalAlignment="Center"/>
-                </StackPanel>
+            <Button DockPanel.Dock="Left" Content="Save profile" Command="{Binding SaveProfileCommand}" Margin="0,0,8,0"
+                    ToolTip="Saves the queue and merge options under this profile (the previous version is kept as a backup)"/>
+            <Button DockPanel.Dock="Left" x:Name="ProfileMenuButton" Content="Profile ▾" Click="DropdownButton_Click" Margin="0,0,8,0"
+                    ToolTip="New, rename, restore a backup, delete">
+                <Button.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="New profile…" Command="{Binding NewProfileCommand}" ToolTip="Saves the current queue and options as a new profile"/>
+                        <MenuItem Header="Rename profile…" Command="{Binding RenameProfileCommand}"/>
+                        <MenuItem Header="Restore profile backup" Command="{Binding RestoreProfileBackupCommand}" IsEnabled="{Binding CanRestoreProfileBackup}"
+                                  ToolTip="Replaces this profile with its own most recent backup — every save keeps a backup of the version before it (greyed out: no backup yet)"
+                                  ToolTipService.ShowOnDisabled="True"/>
+                        <Separator/>
+                        <MenuItem Header="Delete profile" Command="{Binding DeleteProfileCommand}" ToolTip="Deletes this saved queue+options preset — never touches any mod in your Library"/>
+                    </ContextMenu>
+                </Button.ContextMenu>
             </Button>
-            <Grid Margin="0,0,8,0">
-                <TextBox Text="{Binding ProfileNameInput, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="Name to use for New or Rename"/>
-                <TextBlock Text="Profile name (for New or Rename)" Style="{StaticResource PlaceholderTextStyle}"
-                           Visibility="{Binding ProfileNameInput, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-            </Grid>
+            <Border/>
         </DockPanel>
         <TextBlock Grid.Row="2" Text="{Binding ProfileStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0"/>
 
@@ -233,10 +230,16 @@
                         </StackPanel>
                     </Button>
                     <Button Content="Clear" Command="{Binding ClearQueueCommand}" Margin="0,0,8,0"/>
-                    <Button Content="Set baseline" Command="{Binding SetBaselineCommand}" Margin="0,0,10,0"
-                            ToolTip="Saves the current queue as your baseline — these mods are auto-added (lowest priority) to every profile's queue from now on. Click with an empty queue to clear the baseline."/>
-                    <Button Content="Suggest order" Command="{Binding SuggestQueueOrderCommand}" Margin="0,0,10,0"
-                            ToolTip="Proposes reordering the queue so mods making fewer real edits (vs. current game data) sit later and win conflicts, instead of losing to a bigger mod that happens to touch the same field. Shows the new order and asks before changing anything — applying it also saves it to the selected profile, so it survives a restart."/>
+                    <Button Content="More ▾" Click="DropdownButton_Click" Margin="0,0,10,0" ToolTip="Suggest an order, set a baseline">
+                        <Button.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Suggest order" Command="{Binding SuggestQueueOrderCommand}"
+                                          ToolTip="Proposes reordering the queue so mods making fewer real edits sit later and win conflicts. Shows the new order and asks before changing anything."/>
+                                <MenuItem Header="Set baseline" Command="{Binding SetBaselineCommand}"
+                                          ToolTip="Saves the current queue as your baseline — these mods are auto-added (lowest priority) to every profile's queue from now on. With an empty queue it clears the baseline."/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
 
                     <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Margin="0,4,10,4"/>
 

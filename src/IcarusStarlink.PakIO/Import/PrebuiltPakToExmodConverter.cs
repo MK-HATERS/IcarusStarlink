@@ -112,7 +112,7 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
                 if (!Directory.Exists(dataFolder) || !Directory.EnumerateFiles(dataFolder, "*.json", SearchOption.AllDirectories).Any())
                 {
                     report.AddWarning(
-                        $"Couldn't convert '{pakName}' into an editable mod — run \"Update data folder\" in Settings first. Imported as a prebuilt pak instead.");
+                        $"Couldn't convert '{pakName}' into an editable mod — run \"Refresh game data\" in Settings first. Imported as a prebuilt pak instead.");
                     return null;
                 }
 

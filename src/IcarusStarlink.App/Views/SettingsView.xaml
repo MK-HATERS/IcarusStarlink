@@ -83,10 +83,10 @@
                         <!-- Collapsed by default (redesign-round-2 pilot) — a routine "set it and
                              forget it" action for most users, re-opened only when Icarus actually
                              updates. -->
-                        <Expander IsExpanded="False" AutomationProperties.Name="Update data folder">
+                        <Expander IsExpanded="False" AutomationProperties.Name="Refresh game data">
                             <Expander.Header>
                                 <DockPanel LastChildFill="False">
-                                    <TextBlock DockPanel.Dock="Left" Text="Update data folder" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock DockPanel.Dock="Left" Text="Refresh game data (after every Icarus update)" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
                                     <TextBlock DockPanel.Dock="Left" Text="{Binding DataFolderSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                                 </DockPanel>
                             </Expander.Header>
@@ -94,10 +94,10 @@
                                 <TextBlock Text="Extracts the game's current DataTable JSON (Content\Data\data.pak) so merge/edit works against up-to-date data. Re-run this after a game update."
                                            Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10"/>
                                 <StackPanel Orientation="Horizontal">
-                                    <Button Command="{Binding UpdateDataFolderCommand}" AutomationProperties.Name="Run update data folder">
+                                    <Button Command="{Binding UpdateDataFolderCommand}" AutomationProperties.Name="Refresh game data">
                                         <StackPanel Orientation="Horizontal">
                                             <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
-                                            <TextBlock Text="Update data folder" VerticalAlignment="Center"/>
+                                            <TextBlock Text="Refresh game data" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Button>
                                     <TextBlock Text="{Binding DataFolderStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"

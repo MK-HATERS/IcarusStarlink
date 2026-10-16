@@ -791,7 +791,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             var extract = _dialogService.Confirm(
                 "One last step: extract the game's data now?\n\n"
                 + "This pulls the current mod-relevant data out of Icarus (takes a minute or so) — merging, installing, editing and checking mods all work against it. "
-                + "Choose No to do it later with Update data folder in Settings; re-run that whenever the game updates.",
+                + "Choose No to do it later with Refresh game data in Settings; re-run that whenever the game updates.",
                 "Extract game data", ThemedConfirmSeverity.Question);
             if (extract)
             {
@@ -799,7 +799,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
             else
             {
-                DataFolderStatusMessage = "Not extracted yet — click Update data folder whenever you're ready (and after each game update).";
+                DataFolderStatusMessage = "Not extracted yet — click Refresh game data whenever you're ready (and after each game update).";
             }
         }
 
@@ -979,7 +979,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         var currentHash = await _unrealPakService.TryGetDataPakHashAsync(IcarusContentPath);
         if (currentHash is not null && currentHash != lastKnownHash)
         {
-            GameDataOutdatedMessage = "Icarus has been updated since your last data refresh — click Update data folder to see what changed.";
+            GameDataOutdatedMessage = "Icarus has been updated since your last data refresh — click Refresh game data to see what changed.";
         }
     }
 

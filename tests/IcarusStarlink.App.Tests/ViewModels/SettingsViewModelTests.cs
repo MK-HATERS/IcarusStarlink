@@ -650,7 +650,7 @@ public sealed class SettingsViewModelTests
 
         Assert.Equal(1, harness.DialogService.ConfirmCallCount);
         Assert.Equal(0, harness.UnrealPakService.ExtractCallCount);
-        Assert.Contains("Update data folder", vm.DataFolderStatusMessage);
+        Assert.Contains("Refresh game data", vm.DataFolderStatusMessage);
         Assert.NotNull(harness.Settings.FirstLaunchSetupCompletedAtUtc);
     }
 

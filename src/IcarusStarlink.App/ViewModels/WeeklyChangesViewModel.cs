@@ -91,7 +91,7 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
 
         if (report is null)
         {
-            SummaryMessage = "No changes tracked yet — run Update data folder at least twice, once now and again after a game update, to see what changed between them.";
+            SummaryMessage = "No changes tracked yet — run Refresh game data at least twice, once now and again after a game update, to see what changed between them.";
             SelectedFile = null;
             return;
         }

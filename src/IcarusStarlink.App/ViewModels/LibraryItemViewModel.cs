@@ -293,7 +293,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     public string EndorsementStatusDisplay => EndorsementStatus switch
     {
         NexusEndorsementStatus.Endorsed => "Endorsed",
-        NexusEndorsementStatus.Abstained => "Abstained",
+        NexusEndorsementStatus.Abstained => "Not endorsing",
         NexusEndorsementStatus.Undecided => "Not endorsed yet",
         _ => "",
     };
@@ -1216,7 +1216,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     {
         if (DataFolder is not { } dataFolder || !Directory.Exists(dataFolder))
         {
-            ChangesSummary = "Run \"Update data folder\" in Settings to see a summary of what this mod changes.";
+            ChangesSummary = "Run \"Refresh game data\" in Settings to see a summary of what this mod changes.";
             return;
         }
 

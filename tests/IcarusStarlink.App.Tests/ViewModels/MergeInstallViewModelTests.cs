@@ -206,6 +206,29 @@ public sealed class MergeInstallViewModelTests : IDisposable
     // 1. Queue mutation -> debounced conflict/validation recompute
     // ---------------------------------------------------------------------------------------
 
+    /// <summary>With the name box gone, New profile… and Rename profile… ask for the name; cancelling changes nothing.</summary>
+    [Fact]
+    public void NewAndRenameProfile_AskForTheName()
+    {
+        var store = new FakeProfileStore();
+        var vm = CreateViewModel(profileStore: store);
+        var answer = (string?)"Coop run";
+        vm.PromptForProfileName = (_, _) => answer;
+
+        vm.NewProfileCommand.Execute(null);
+        Assert.Contains("Coop run", store.ProfileNames);
+        Assert.Equal("Coop run", vm.SelectedProfileName);
+
+        answer = null;
+        vm.RenameProfileCommand.Execute(null);
+        Assert.Contains("Coop run", store.ProfileNames);
+
+        answer = "Solo run";
+        vm.RenameProfileCommand.Execute(null);
+        Assert.Contains("Solo run", store.ProfileNames);
+        Assert.DoesNotContain("Coop run", store.ProfileNames);
+    }
+
     [Fact]
     public void AddingToQueue_RestartsTheDebounceTimer_RatherThanRecomputingInline()
     {
@@ -827,7 +850,13 @@ public sealed class MergeInstallViewModelTests : IDisposable
 
         public void Delete(string name) => _profiles.Remove(name);
 
-        public void Rename(string oldName, string newName) => throw new NotSupportedException("Not exercised by these tests.");
+        public void Rename(string oldName, string newName)
+        {
+            var profile = _profiles[oldName];
+            _profiles.Remove(oldName);
+            profile.Name = newName;
+            _profiles[newName] = profile;
+        }
 
         public bool HasBackup(string name) => false;
 

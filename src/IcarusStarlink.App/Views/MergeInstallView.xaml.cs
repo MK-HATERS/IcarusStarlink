@@ -16,6 +16,18 @@ public partial class MergeInstallView : UserControl
         InitializeComponent();
     }
 
+    /// <summary>A "▾" button opens its menu on a plain click (a context menu otherwise needs a right-click).</summary>
+    private void DropdownButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { ContextMenu: { } menu } button)
+        {
+            menu.DataContext = DataContext;
+            menu.PlacementTarget = button;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
+        }
+    }
+
     private void QueueList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) =>
         _queueDragStartPoint = e.GetPosition(null);
 

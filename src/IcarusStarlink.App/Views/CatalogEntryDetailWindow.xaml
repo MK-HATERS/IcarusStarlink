@@ -83,6 +83,7 @@
             <Button Command="{Binding Downloads.DownloadAndExtractCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                     Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,0,8"
                     IsEnabled="{Binding HasDownloadableFile}"
+                    ToolTip="Downloads this mod and adds it to your Library. Greyed out: the database has no download link for it — use its page instead." ToolTipService.ShowOnDisabled="True"
                     AutomationProperties.Name="Download and extract">
                 <StackPanel Orientation="Horizontal">
                     <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
