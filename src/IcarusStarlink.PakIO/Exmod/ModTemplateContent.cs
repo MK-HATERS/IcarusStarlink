@@ -34,7 +34,16 @@ public static class ModTemplateContent
             };
         }
 
-        if (template == ModTemplate.Blank)
+        if (template == ModTemplate.MapIcon)
+        {
+            var mapIcon = ExmodJson.Parse(MapIconTemplate.Replace("TempName", SanitizeIdentifier(name)).Replace("TempLabel", name.Replace("\\", "").Replace("\"", "")));
+            mapIcon.Name = name;
+            mapIcon.Author = author;
+            mapIcon.FileName = fileName;
+            return mapIcon;
+        }
+
+        if (template == ModTemplate.Blank || ItemPresetFor(template) is not null)
         {
             return new ExmodPackage { Name = name, Author = author, Version = "1.0", Description = "", FileName = fileName, Rows = [] };
         }
@@ -56,6 +65,20 @@ public static class ModTemplateContent
         package.FileName = fileName;
         return package;
     }
+
+    /// <summary>
+    /// What the new-item wizard starts with for an item template — the game item to start from (the
+    /// user can pick another), how it's obtained, and where. Each source is a real item of that kind
+    /// and each tree a real workshop tab (checked against current game data).
+    /// </summary>
+    public static NewItemPreset? ItemPresetFor(ModTemplate template) => template switch
+    {
+        ModTemplate.Envirosuit => new NewItemPreset("Envirosuit", ObtainMethod.Workshop, WorkshopTree: "Workshop_Envirosuits"),
+        ModTemplate.EnvirosuitModule => new NewItemPreset("Meta_Module_Movement", ObtainMethod.Workshop, WorkshopTree: "Workshop_Modules"),
+        ModTemplate.ConsumableWithBuff => new NewItemPreset("Food_Bread", ObtainMethod.Recipe, CopyBuff: true),
+        ModTemplate.WorkshopItem => new NewItemPreset(null, ObtainMethod.Workshop),
+        _ => null,
+    };
 
     /// <summary>
     /// The Quality of life template's rules. Every table and field path is one a real QoL mod
@@ -82,10 +105,16 @@ public static class ModTemplateContent
         Qol("Workshop research costs -30%", "MetaWorkshop-D_WorkshopItems.json", "ResearchCost[].Amount", 0.7, enabled: false),
         Qol("Mission rewards ×1.5", "Factions-D_FactionMissions.json", "CurrencyRewarded[].Amount", 1.5, enabled: false),
         Qol("Armour stats ×1.25", "Traits-D_Armour.json", "ArmourStats.*", 1.25, enabled: false),
+        // Cave sickness is the Pneumonia roll in D_AfflictionChance's Underground_Escalation row (25% in the game) — what NoCaveSickness changes.
+        Qol("Cave sickness chance set to 5%", "Modifiers-D_AfflictionChance.json", "ChanceInPercent", 5, enabled: false, filter: "Underground_Escalation", set: true),
     ];
 
-    private static ScaleRule Qol(string label, string file, string field, double value, bool enabled = true, bool includeInherited = true, string? filter = null) =>
-        new() { Label = label, CurrentFile = file, Field = field, Value = value, Enabled = enabled, IncludeInherited = includeInherited, RowFilter = filter };
+    private static ScaleRule Qol(string label, string file, string field, double value, bool enabled = true, bool includeInherited = true, string? filter = null, bool set = false) =>
+        new()
+        {
+            Label = label, CurrentFile = file, Field = field, Value = value, Enabled = enabled, IncludeInherited = includeInherited, RowFilter = filter,
+            Operation = set ? ScaleOperation.Set : ScaleOperation.Multiply,
+        };
 
     /// <summary>RowNames/cross-references throughout both templates are plain identifiers with no
     /// spaces or punctuation — stripping anything that isn't a letter/digit/underscore keeps the
@@ -95,9 +124,43 @@ public static class ModTemplateContent
     private static string SanitizeIdentifier(string name)
     {
         var chars = name.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray();
-        var sanitized = new string(chars).Trim('_');
+        var sanitized = System.Text.RegularExpressions.Regex.Replace(new string(chars), "_{2,}", "_").Trim('_');
         return sanitized.Length > 0 ? sanitized : "NewItem";
     }
+
+    // Modeled on the Teleporters mod's own map icon (Nexus), with the game's radar widget and
+    // waypoint icon. Nothing in the data tables shows a map icon by itself — a mod's blueprint or
+    // Lua script looks it up by this row name.
+    private const string MapIconTemplate = """
+        {
+            "name": "Map icon",
+            "author": "",
+            "version": "1.0",
+            "description": "A map and compass marker. Shown by a blueprint or Lua mod that looks it up by its row name, TempName.",
+            "fileName": "Map_Icon",
+            "readmeURL": "",
+            "imageURL": "",
+            "Rows": [
+                {
+                    "CurrentFile": "UI-D_MapIcons.json",
+                    "File_Items": [
+                        {
+                            "Name": "TempName",
+                            "WidgetClass": "/Game/BP/Objects/World/Items/Deployables/Radar/UMG_RadarIcon.UMG_RadarIcon_C",
+                            "MapIcon": "Texture2D'/Game/Assets/2DArt/UI/Icons/MapIcons/Icon_Map_Waypoint.Icon_Map_Waypoint'",
+                            "Color": { "R": 86, "G": 222, "B": 206, "A": 255 },
+                            "ZOrder": 10,
+                            "BrushSize": { "X": 26, "Y": 26 },
+                            "UpdateOnTick": false,
+                            "bShowNameOnHover": true,
+                            "HoverName": "NSLOCTEXT(\"D_MapIcons\", \"TempName-HoverName\", \"TempLabel\")",
+                            "bDisplayOnCompass": true
+                        }
+                    ]
+                }
+            ]
+        }
+        """;
 
     // Verbatim from https://github.com/Jimk72/Icarus_Software/raw/main/Blank_Craftable_Item.EXMODZ
     // (its own "Extracted Mods/Blank_Craftable_Item.EXMOD" entry) — a Campfire-based deployable
