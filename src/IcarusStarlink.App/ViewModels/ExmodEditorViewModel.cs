@@ -98,6 +98,17 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
     public string WindowTitle => $"Edit — {_package.Name}";
 
+    /// <summary>When this window last read or wrote the mod's .EXMOD (see Save).</summary>
+    private DateTime _savedStamp;
+
+    private bool _overwriteOutsideChanges;
+
+    private DateTime ExmodStamp()
+    {
+        var path = Path.Combine(_repository.GetFolderPath(_folderName), "Extracted Mods", $"{_package.FileName}.EXMOD");
+        return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : default;
+    }
+
     private readonly IReadOnlyList<string> _replacedGameFiles;
 
     /// <summary>
@@ -195,6 +206,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _gameDataIndexCache = gameDataIndexCache;
         _package = ExmodFolder.Read(repository.GetFolderPath(folderName)).Package;
         _replacedGameFiles = ExmodChangesFormatter.ReplacedGameFiles(repository.ListAssetPaths(folderName));
+        _savedStamp = ExmodStamp();
         _filterDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), ReloadItems);
 
         RefreshBaseDiff();
@@ -304,6 +316,11 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         RefreshBaseDiff();
         PopulateFieldsForSelection();
+        foreach (var row in _selectedItemsForMassEdit)
+        {
+            Recount(row);
+        }
+
         MassEditStatusMessage = $"Set '{MassEditFieldName}' on {count} item(s).";
     }
 
@@ -867,12 +884,26 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
+        var selected = SelectedItem;
         foreach (var fieldName in item.Fields.Keys.ToList())
         {
-            var baseValue = LookupOrFallback(_baseValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, fieldName, item);
-            var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, fieldName, item);
-            Fields.Add(new EditorFieldViewModel(fieldName, item.Fields, baseValue, originalValue, StatChoicesForFields()));
+            var baseValue = BaseValueFor(selected.CurrentFile, selected.ItemName, fieldName, item);
+            var originalValue = LookupOrFallback(_originalValuesByKey, selected.CurrentFile, selected.ItemName, fieldName, item);
+            AddFieldRow(new EditorFieldViewModel(fieldName, item.Fields, baseValue, originalValue, StatChoicesForFields()), selected);
         }
+    }
+
+    /// <summary>Adds a field row; its edits keep the list's change badge for the row up to date.</summary>
+    private void AddFieldRow(EditorFieldViewModel field, EditorItemViewModel owner)
+    {
+        field.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(EditorFieldViewModel.ValueText))
+            {
+                Recount(owner);
+            }
+        };
+        Fields.Add(field);
     }
 
     /// <summary>A field genuinely not found in the given lookup (never diffed against base, or didn't exist at the last snapshot) falls back to "same as current" — no highlight, matching the established convention for both _baseValuesByKey and _originalValuesByKey.</summary>
@@ -957,9 +988,10 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         // The amber "differs from base" highlight is keyed on a diff recomputed whenever Rows change
         // shape — a freshly added field had no entry and so never highlighted (an audit finding).
         RefreshBaseDiff();
-        var baseValue = LookupOrFallback(_baseValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
+        var baseValue = BaseValueFor(SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
         var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
-        Fields.Add(new EditorFieldViewModel(NewFieldName, item.Fields, baseValue, originalValue, StatChoicesForFields()));
+        AddFieldRow(new EditorFieldViewModel(NewFieldName, item.Fields, baseValue, originalValue, StatChoicesForFields()), SelectedItem);
+        Recount(SelectedItem);
 
         NewFieldName = "";
         NewFieldValue = "";
@@ -1024,6 +1056,15 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [RelayCommand]
     private void Save()
     {
+        // The Editor page (or anything else) may have saved into this mod since it was opened here:
+        // overwriting that silently would lose it. The first Save says so; a second one overwrites.
+        if (ExmodStamp() != _savedStamp && !_overwriteOutsideChanges)
+        {
+            _overwriteOutsideChanges = true;
+            StatusMessage = "Not saved: this mod was changed somewhere else (the Editor page?) since you opened it here. Save again to overwrite those changes, or close this window and reopen the mod to keep them.";
+            return;
+        }
+
         if (!ApplyPendingScaleRules())
         {
             StatusMessage = $"Not saved — a scale rule needs fixing: {ScaleStatusMessage}";
@@ -1045,6 +1086,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             var writePackage = ExmodJson.Parse(ExmodJson.Serialize(_package));
             writePackage.Rows = strippedRows;
             ExmodFolder.Write(_repository.GetFolderPath(_folderName), new ExmodPackageContents(writePackage, []));
+            _savedStamp = ExmodStamp();
+            _overwriteOutsideChanges = false;
             _repository.MarkLocallyEdited(_folderName);
 
             // What just got written is now this mod's own "original" going forward — refreshing
@@ -1082,7 +1125,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         {
             foreach (var item in row.FileItems.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase))
             {
-                var candidate = MakeItem(row.CurrentFile, item.Name);
+                var candidate = MakeItem(row.CurrentFile, item.Name, item);
                 if (string.IsNullOrWhiteSpace(FilterText) || candidate.SearchText.Contains(FilterText, StringComparison.OrdinalIgnoreCase))
                 {
                     Items.Add(candidate);

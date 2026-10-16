@@ -191,4 +191,75 @@ public sealed class GameEditorViewModelTests : IDisposable
         Assert.Null(armour.Picker.SelectedStat);
         Assert.Equal(1, vm.PendingCount);
     }
+
+    private static GameItemFieldViewModel Weight(GameEditorViewModel vm) => vm.Sections.Single(s => s.Section.Key == "Itemable").Fields.Single(f => f.Label == "Weight");
+
+    /// <summary>A review finding: clicking another item threw away everything typed, without a word.</summary>
+    [Fact]
+    public void SwitchingItem_WithTypedChanges_AsksFirst_AndStaysWhenTheAnswerIsNo()
+    {
+        var vm = Open();
+        var asked = 0;
+        vm.ConfirmDiscard = _ => { asked++; return false; };
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        Weight(vm).ValueText = "50";
+
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Stone");
+
+        Assert.Equal(1, asked);
+        Assert.Equal("Envirosuit", vm.SelectedItem?.Name);
+        Assert.Equal("50", Weight(vm).ValueText);
+
+        vm.ConfirmDiscard = _ => true;
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Stone");
+        Assert.Equal("10", Weight(vm).ValueText);
+    }
+
+    /// <summary>A review finding: changing "Save to" with typed changes showed one mod's values and saved into another.</summary>
+    [Fact]
+    public void ChangingWhereToSave_KeepsTheTypedChanges()
+    {
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        Weight(vm).ValueText = "50";
+
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
+
+        Assert.Equal("50", Weight(vm).ValueText);
+        Assert.Equal(1, vm.PendingCount);
+    }
+
+    [Fact]
+    public void AnAddedStat_CanBeTakenOutAgain_AndWholeNumbersStayWhole()
+    {
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        var armour = vm.Sections.Single(s => s.Section.Key == "Armour");
+        armour.Picker.StatSearch = "cold";
+        armour.Picker.SelectedStat = armour.Picker.MatchingStats.Single();
+        armour.Picker.AddStatCommand.Execute(null);
+        var cold = armour.Fields.Single(f => f.Label == "Cold resistance %");
+
+        cold.UseGameValueCommand.Execute(null);
+
+        Assert.DoesNotContain(cold, armour.Fields);
+        Assert.Equal(0, vm.PendingCount);
+
+        Weight(vm).ValueText = "2.5";
+        Assert.Equal("Needs a whole number here, like 50.", Weight(vm).Error);
+    }
+
+    /// <summary>A mod imported from a file is someone else's even after editing it here: never a save target.</summary>
+    [Fact]
+    public void AnImportedModEditedHere_IsNotOffered()
+    {
+        var source = Path.Combine(_root, "_friend");
+        ExmodFolder.Write(source, new ExmodPackageContents(
+            new ExmodPackage { Name = "Friend's mod", Author = "Friend", Version = "1", Description = "", FileName = "Friends_Mod", Rows = [new ExmodFileRow { CurrentFile = "EndOfMod" }] }, []));
+        var imported = _library.Import(source);
+        _library.MarkLocallyEdited(imported.FolderName);
+
+        Assert.Equal(["A new mod"], Open().Targets.Select(t => t.Display));
+    }
 }

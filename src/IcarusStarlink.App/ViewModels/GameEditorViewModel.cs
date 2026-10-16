@@ -18,13 +18,20 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     private readonly string _startText;
     private readonly string _gameText;
 
+    private readonly bool _wholeNumber;
+
     public GameItemFieldViewModel(EditableField field)
     {
         Field = field;
         _gameText = Display(field.GameValue);
         _startText = Display(field.CurrentValue ?? field.GameValue);
         _valueText = _startText;
+        // A stack size or slot count is a whole number in the game; 2.5 would be read as 2 or rejected.
+        _wholeNumber = (field.GameValue ?? field.CurrentValue) is JsonValue v && ScaleRules.TryReadNumber(v, out var n) && n == Math.Floor(n) && !v.ToJsonString().Contains('.');
     }
+
+    /// <summary>Set by the card for a value the user added (a stat): "back to the game's" takes it out again.</summary>
+    internal Action<GameItemFieldViewModel>? RemoveAdded { get; set; }
 
     public EditableField Field { get; }
 
@@ -46,12 +53,23 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     /// <summary>Typed here and not saved yet.</summary>
     public bool IsPending => ValueText.Trim() != _startText && Error is null;
 
-    public string? Error => Field.Kind == EditableKind.Number && !double.TryParse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out _)
-        ? "Needs a number, like 50 or 0.5."
+    public string? Error =>
+        Field.Kind != EditableKind.Number ? null
+        : !double.TryParse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) || !double.IsFinite(n) ? "Needs a number, like 50 or 0.5."
+        : _wholeNumber && n != Math.Floor(n) ? "Needs a whole number here, like 50."
         : null;
 
     [RelayCommand]
-    private void UseGameValue() => ValueText = _gameText;
+    private void UseGameValue()
+    {
+        if (Field.GameValue is null && RemoveAdded is { } remove)
+        {
+            remove(this);
+            return;
+        }
+
+        ValueText = _gameText;
+    }
 
     /// <summary>The value to write: null means "the game's again".</summary>
     public JsonNode? NewValue()
@@ -136,7 +154,15 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
             return "That stat is already here.";
         }
 
-        Add(new GameItemFieldViewModel(new EditableField(new EditPath(group, [key]), stat.Label, $"Added by you: a {stat.Kind}. Higher = more, lower = less; 0 = no bonus.", EditableKind.Number, null, null, false)) { ValueText = "0" });
+        Add(new GameItemFieldViewModel(new EditableField(new EditPath(group, [key]), stat.Label, $"Added by you: a {stat.Kind}. Higher = more, lower = less; 0 = no bonus. ↺ takes it out again.", EditableKind.Number, null, null, false))
+        {
+            ValueText = "0",
+            RemoveAdded = field =>
+            {
+                Fields.Remove(field);
+                _changed();
+            },
+        });
         _changed();
         return null;
     }
@@ -172,7 +198,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
     private readonly string _dataFolder;
     private GameTableIndex? _game;
     private IReadOnlyList<ItemChoice> _allItems = [];
-    private IReadOnlyList<StatChoice>? _statNames;
+    private IReadOnlyList<StatChoice>? _statChoices;
     private bool _refreshingFilter;
 
     public GameEditorViewModel(ILibraryRepository repository, string dataFolder)
@@ -287,25 +313,70 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
     partial void OnFilterTextChanged(string value) => RefreshFilter();
 
+    /// <summary>Asks before typed changes are thrown away (switching item, Discard). Tests swap in an answer.</summary>
+    internal Func<string, bool> ConfirmDiscard { get; set; } = message =>
+        Views.ThemedConfirmDialog.Show(System.Windows.Application.Current?.MainWindow, message, "Unsaved changes", Views.ThemedConfirmSeverity.Warning);
+
+    /// <summary>The item whose cards are showing (SelectedItem can move ahead of it while asking).</summary>
+    private ItemChoice? _shownItem;
+
     partial void OnSelectedItemChanged(ItemChoice? value)
     {
-        if (!_refreshingFilter)
+        if (_refreshingFilter || value == _shownItem)
         {
-            LoadItem();
+            return;
         }
+
+        if (PendingCount > 0 && !ConfirmDiscard($"You changed {PendingCount} value(s) of {ItemTitle} and haven't saved them. Throw them away?"))
+        {
+            SelectedItem = _shownItem; // stay on the item being edited
+            return;
+        }
+
+        LoadItem();
     }
 
     partial void OnSelectedTargetChanged(EditorSaveTarget? value)
     {
-        // The values shown are the game's with the target mod's changes on top.
-        if (PendingCount == 0)
+        // The values shown are the game's with the target mod's changes on top; typed changes come
+        // along to the newly chosen mod instead of being lost or applied to values not on screen.
+        var typed = Sections.SelectMany(s => s.Fields.Where(f => f.IsPending).Select(f => (Section: s.Section.Key, Path: f.Field.Path.Key, f.ValueText))).ToList();
+        var ownCopy = Sections.ToDictionary(s => s.Section.Key, s => s.OwnCopy);
+        LoadItem();
+        var carried = 0;
+        foreach (var (section, path, text) in typed)
         {
-            LoadItem();
+            if (Sections.FirstOrDefault(s => s.Section.Key == section)?.Fields.FirstOrDefault(f => f.Field.Path.Key == path) is { } field)
+            {
+                field.ValueText = text;
+                carried++;
+            }
+        }
+
+        foreach (var section in Sections)
+        {
+            if (ownCopy.TryGetValue(section.Section.Key, out var own))
+            {
+                section.OwnCopy = own;
+            }
+        }
+
+        if (carried < typed.Count)
+        {
+            StatusMessage = $"{typed.Count - carried} typed change(s) don't apply to that mod's version of this item and were dropped.";
         }
     }
 
     [RelayCommand]
-    private void DiscardChanges() => LoadItem();
+    private void DiscardChanges()
+    {
+        if (PendingCount > 0 && !ConfirmDiscard($"Throw away the {PendingCount} change(s) you typed?"))
+        {
+            return;
+        }
+
+        LoadItem();
+    }
 
     [RelayCommand]
     private void Save()
@@ -338,7 +409,10 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
         try
         {
+            var ownCopies = Sections.Where(s => s.IsShared && s.OwnCopy).Select(s => s.Section.Key).ToHashSet();
             string folder;
+            ExmodPackage package;
+            IReadOnlyList<string> lines;
             if (target.IsNew)
             {
                 if (string.IsNullOrWhiteSpace(NewModName) || string.IsNullOrWhiteSpace(NewModAuthor))
@@ -347,6 +421,9 @@ public sealed partial class GameEditorViewModel : ObservableObject
                     return;
                 }
 
+                // Built in memory first: if the changes can't be applied, no empty mod is left in Library.
+                package = ModTemplateContent.Create(ModTemplate.Blank, NewModName.Trim(), NewModAuthor.Trim());
+                lines = GameItemEditor.Apply(game, package, item.Name, changes, ownCopies);
                 folder = _repository.CreateBlankMod(NewModName.Trim(), NewModAuthor.Trim()).FolderName;
             }
             else
@@ -360,12 +437,11 @@ public sealed partial class GameEditorViewModel : ObservableObject
                 }
 
                 folder = target.FolderName!;
+                package = ExmodFolder.ReadPackageOnly(_repository.GetFolderPath(folder), _repository.ListFolderFiles(folder));
+                lines = GameItemEditor.Apply(game, package, item.Name, changes, ownCopies);
             }
 
             var path = _repository.GetFolderPath(folder);
-            var package = ExmodFolder.ReadPackageOnly(path, _repository.ListFolderFiles(folder));
-            var ownCopies = Sections.Where(s => s.IsShared && s.OwnCopy).Select(s => s.Section.Key).ToHashSet();
-            var lines = GameItemEditor.Apply(game, package, item.Name, changes, ownCopies);
             ExmodFolder.Write(path, new ExmodPackageContents(package, []));
             _repository.MarkLocallyEdited(folder);
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
@@ -383,6 +459,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
     private void LoadItem()
     {
+        _shownItem = SelectedItem;
         Sections.Clear();
         ItemTitle = null;
         KeptAsGames = null;
@@ -404,10 +481,10 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
         ItemTitle = view.DisplayName is { Length: > 0 } d ? $"{d}  ({item.Name})" : item.Name;
         KeptAsGames = view.KeptAsGames.Count == 0 ? null : "Kept as the game's (models, sounds, how it's picked up and used): " + string.Join("; ", view.KeptAsGames) + ".";
-        _statNames ??= GameItemEditor.StatChoices(game);
+        _statChoices ??= GameItemEditor.StatChoices(game);
         foreach (var section in view.Sections)
         {
-            Sections.Add(new GameItemSectionViewModel(section, _statNames, UpdatePending));
+            Sections.Add(new GameItemSectionViewModel(section, _statChoices, UpdatePending));
         }
 
         UpdatePending();
@@ -463,7 +540,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
     {
         _game = null;
         _allItems = [];
-        _statNames = null;
+        _statChoices = null;
         EnsureLoaded();
         LoadItem();
     }

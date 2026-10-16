@@ -196,4 +196,73 @@ public sealed class EditorPlainFieldsTests : IDisposable
         Assert.Equal("Envirosuit_Larkwell_Alpha", page.SelectedItem?.Name);
         GC.KeepAlive(page);
     }
+
+    /// <summary>A review finding: the game value came from a cache of differing fields, so after an edit and reselect "game:" showed the mod's own value.</summary>
+    [Fact]
+    public void TheGameValue_StaysTheGames_AfterEditingAndReselecting()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
+        Field(editor, "Weight").ValueText = "75";
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Undersuit_Larkwell_Alpha");
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
+
+        Assert.Equal("game: 100", Field(editor, "Weight").BasePlainText);
+        Assert.True(Field(editor, "Weight").IsChanged);
+    }
+
+    /// <summary>A review finding: a stat box being typed into (not a number yet) was saved as 0 when another stat changed.</summary>
+    [Fact]
+    public void AStatBeingTyped_KeepsItsLastGoodValue_WhenAnotherStatChanges()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Undersuit_Larkwell_Alpha");
+        var stats = Field(editor, "ArmourStats");
+
+        stats.Stats.Single(s => s.Label == "Cold resistance %").ValueText = "";
+        stats.Stats.Single(s => s.Label == "Backpack slots").ValueText = "80";
+
+        Assert.Equal(15, JsonNode.Parse(stats.ValueText)!["(Value=\"BaseColdResistance_%\")"]!.GetValue<long>());
+    }
+
+    /// <summary>A review finding: emptying a number box wrote null, taking the field out of the mod without a word.</summary>
+    [Fact]
+    public void EmptyingANumberBox_IsAnError_NotARemoval()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
+
+        Field(editor, "Weight").ValueText = "";
+
+        Assert.Equal("Needs a number, like 50 or 0.5.", Field(editor, "Weight").ParseError);
+    }
+
+    [Fact]
+    public void TheChangeBadge_FollowsEdits()
+    {
+        var editor = OpenMod();
+        var row = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
+        Assert.Equal(2, row.ChangeCount); // name and weight
+        editor.SelectedItem = row;
+
+        Field(editor, "Weight").ValueText = "100"; // back to the game's
+
+        Assert.Equal(1, row.ChangeCount);
+    }
+
+    /// <summary>A review finding: the Editor page saving into a mod open here was silently overwritten by this window's next Save.</summary>
+    [Fact]
+    public void Save_WhenTheModChangedElsewhere_WarnsFirst_ThenOverwritesOnASecondSave()
+    {
+        var editor = OpenMod();
+        var folder = _library.GetAll().Single().FolderName;
+        var exmod = Directory.GetFiles(_library.GetFolderPath(folder), "*.EXMOD", SearchOption.AllDirectories).Single();
+        File.SetLastWriteTimeUtc(exmod, DateTime.UtcNow.AddMinutes(5)); // saved by someone else
+
+        editor.SaveCommand.Execute(null);
+        Assert.StartsWith("Not saved", editor.StatusMessage);
+
+        editor.SaveCommand.Execute(null);
+        Assert.StartsWith("Saved", editor.StatusMessage);
+    }
 }

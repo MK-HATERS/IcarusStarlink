@@ -157,7 +157,8 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         try
         {
             var parsed = string.IsNullOrWhiteSpace(value) ? null : JsonNode.Parse(value);
-            if (Kind == EditorFieldKind.Number && parsed is not null && !ScaleRules.TryReadNumber(parsed, out _))
+            // An empty number box would write null, which takes the field out of the mod without a word.
+            if (Kind == EditorFieldKind.Number && (parsed is null || !ScaleRules.TryReadNumber(parsed, out var number) || !double.IsFinite(number)))
             {
                 throw new FormatException("needs a number");
             }
@@ -187,9 +188,8 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         var obj = new JsonObject();
         foreach (var stat in Stats.Where(s => !s.IsDropped))
         {
-            obj[stat.Key] = stat.NumberValue() is { } n
-                ? (n == Math.Floor(n) && Math.Abs(n) < int.MaxValue ? JsonValue.Create((long)n) : JsonValue.Create(n))
-                : JsonValue.Create(0);
+            // A row being typed into (not a number yet) keeps its last good value, never 0.
+            obj[stat.Key] = stat.LastGoodValue?.DeepClone();
         }
 
         ValueText = obj.ToJsonString(DisplayOptions);
@@ -235,7 +235,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     }
 
     private string? CurrentString() =>
-        (_fields.TryGetValue(FieldName, out var v) ? v : _baseValue) is JsonValue jv && jv.TryGetValue<string>(out var s) ? s : null;
+        ((_fields.TryGetValue(FieldName, out var v) ? v : null) ?? _baseValue) is JsonValue jv && jv.TryGetValue<string>(out var s) ? s : null;
 
     private static EditorFieldKind KindOf(string field, JsonNode? value) => value switch
     {
@@ -287,7 +287,11 @@ public sealed partial class StatEntryViewModel : ObservableObject
         Label = GameItemEditor.StatLabel(key);
         Hint = GameItemEditor.StatHint(StatName);
         _valueText = EditorFieldViewModel.Plain(value ?? gameValue);
+        LastGoodValue = (value ?? gameValue)?.DeepClone();
     }
+
+    /// <summary>What the row writes: its last valid number (the original value until one is typed).</summary>
+    internal JsonNode? LastGoodValue { get; private set; }
 
     public string Key { get; }
 
@@ -313,20 +317,21 @@ public sealed partial class StatEntryViewModel : ObservableObject
 
     public bool IsKept => !IsDropped;
 
-    public bool IsChanged => !IsDropped && (_gameValue is null || ValueText.Trim() != EditorFieldViewModel.Plain(_gameValue));
+    public bool IsChanged => !IsDropped && (_gameValue is null || !ScaleRules.TryReadNumber(_gameValue, out var game) || NumberValue() != game);
 
     public string? Error => NumberValue() is null ? "Needs a number, like 15 or -50." : null;
 
     partial void OnValueTextChanged(string value)
     {
-        if (Error is null)
+        if (NumberValue() is { } n)
         {
+            LastGoodValue = n == Math.Floor(n) && Math.Abs(n) < int.MaxValue ? JsonValue.Create((long)n) : JsonValue.Create(n);
             _owner.StatsChanged();
         }
     }
 
     internal double? NumberValue() =>
-        double.TryParse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : null;
+        double.TryParse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) && double.IsFinite(n) ? n : null;
 
     [RelayCommand]
     private void Remove()
@@ -349,7 +354,8 @@ public sealed partial class StatEntryViewModel : ObservableObject
         IsDropped = false;
         if (_gameValue is not null && NumberValue() is null)
         {
-            ValueText = EditorFieldViewModel.Plain(_gameValue);
+            ValueText = EditorFieldViewModel.Plain(_gameValue); // rebuilds the field itself
+            return;
         }
 
         _owner.StatsChanged();

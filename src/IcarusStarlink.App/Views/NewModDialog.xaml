@@ -42,7 +42,7 @@
                      ToolTip="Opens the new-item wizard: pick any game item to start from; it's sold in a new orbital-workshop tab of this mod's own."/>
         <RadioButton x:Name="MapIconRadio" GroupName="Template" Margin="0,6,0,0"
                      Content="Map icon — for a blueprint or Lua mod"
-                     ToolTip="A map and compass marker row (D_MapIcons). Nothing shows it by itself: your mod's blueprint or Lua script looks it up by its row name, the way the Teleporters mod does."/>
+                     ToolTip="A map and compass marker. Nothing shows it by itself: your mod's blueprint or Lua script looks it up by its row name, the way the Teleporters mod does."/>
 
         <TextBlock Text="Classic IMM templates" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,12,0,0"/>
         <RadioButton x:Name="CraftableRadio" GroupName="Template" Margin="0,6,0,0"
@@ -61,7 +61,7 @@
                      Content="Water pump"
                      ToolTip="A craftable deployable that produces water for a resource network (recipe, generator/resource traits) reusing the real vanilla machining-kit mesh — its own Blueprint is left as a placeholder for your own custom art, the same as classic IMM's own template."/>
 
-        <TextBlock x:Name="ErrorText" Foreground="#E05555" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap" Visibility="Collapsed"/>
+        <TextBlock x:Name="ErrorText" Foreground="{DynamicResource DangerBrush}" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap" Visibility="Collapsed"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0"/>

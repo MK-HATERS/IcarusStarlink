@@ -599,7 +599,7 @@
                          styled as the headline "get a mod" action, a second, unrelated primary
                          button read as arbitrary. -->
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
-                        <Button Command="{Binding RefreshCommand}" Margin="0,0,10,0" ToolTip="Re-scan Extracted_Mods from disk" AutomationProperties.Name="Refresh">
+                        <Button Command="{Binding RefreshCommand}" Margin="0,0,10,0" ToolTip="Reload the mod list from disk" AutomationProperties.Name="Refresh">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
                                 <TextBlock Text="Refresh" VerticalAlignment="Center"/>
@@ -608,7 +608,7 @@
 
                         <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Margin="0,4,10,4"/>
 
-                        <Button Command="{Binding NewModCommand}" Margin="0,0,8,0" ToolTip="Create a blank EXMOD (name + author) and open it in the editor" AutomationProperties.Name="New mod">
+                        <Button Command="{Binding NewModCommand}" Margin="0,0,8,0" ToolTip="Make a new mod: new items (from a game item), quality-of-life rules, or a blank one. To change the game's own items, use the Editor page." AutomationProperties.Name="New mod">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconPlus}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                       StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -1005,7 +1005,8 @@
 
                     <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="Game week:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                        <TextBox Text="{Binding Downloads.GameWeek, UpdateSourceTrigger=PropertyChanged}" Width="60" Margin="0,0,12,0"/>
+                        <TextBox Text="{Binding Downloads.GameWeek, UpdateSourceTrigger=PropertyChanged}" Width="60" Margin="0,0,12,0"
+                                 ToolTip="The Icarus game week to compare mods against. Higher = only mods made for newer weeks count as current; lower = older mods count too."/>
                         <CheckBox Content="Hide older weeks" IsChecked="{Binding Downloads.HideOlderWeeks}" VerticalAlignment="Center" Margin="0,0,16,0"/>
                         <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12">
                             <Run Text="{Binding Downloads.CatalogShownCount, Mode=OneWay}"/><Run Text=" shown / "/><Run Text="{Binding Downloads.CatalogTotalCount, Mode=OneWay}"/><Run Text=" in catalog"/>

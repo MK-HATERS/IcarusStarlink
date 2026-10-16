@@ -23,7 +23,7 @@
             <Button DockPanel.Dock="Right" Content="Delete profile" Command="{Binding DeleteProfileCommand}" Margin="8,0,0,0"
                     ToolTip="Deletes this saved queue+options preset — never touches any mod in your Library"/>
             <Button DockPanel.Dock="Right" Content="Restore profile backup" Command="{Binding RestoreProfileBackupCommand}" IsEnabled="{Binding CanRestoreProfileBackup}"
-                    Margin="8,0,0,0" ToolTip="Replaces this profile with its own most recent backup — ProfileStore.Save always backs up whatever was there before overwriting it"
+                    Margin="8,0,0,0" ToolTip="Replaces this profile with its own most recent backup — every save keeps a backup of the version before it"
                     ToolTipService.ShowOnDisabled="True"/>
             <Button DockPanel.Dock="Right" Content="Rename profile" Command="{Binding RenameProfileCommand}" Margin="8,0,0,0"/>
             <Button DockPanel.Dock="Right" Content="Save profile" Command="{Binding SaveProfileCommand}" Margin="8,0,0,0"/>
@@ -370,6 +370,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                    <TextBlock Text="Higher level = faster walking, crouching and sprinting. Off = normal speed." FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,2,0,0"/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Player Boost" FontSize="12"/>
@@ -386,6 +387,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                    <TextBlock Text="Higher level = tougher: more health, stamina and carry weight, and you need less food, water and oxygen. Off = normal." FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,2,0,0"/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="XP Boost" FontSize="12"/>
@@ -402,6 +404,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                    <TextBlock Text="Higher level = more XP from everything (L1 +200%, L2 +500%, L3 +1000%). Off = normal XP." FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,2,0,0"/>
 
                     <Border Style="{StaticResource SectionDividerStyle}" Margin="0,16,0,10"/>
                     <TextBlock Text="CRAFTING &amp; ECONOMY" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource FaintForegroundBrush}"/>
@@ -420,6 +423,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                    <TextBlock Text="Higher = recipes need fewer ingredients; Free = no ingredients at all (creative mode). Off = normal costs." FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,2,0,0"/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Stacks multiplier" FontSize="12"/>
@@ -460,7 +464,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Speed Crafting" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="e.g. 50% = halve every recipe's crafting time (RequiredMillijoules), including ones that only inherit it from the table's defaults. 0 = unchanged.">
+                                ToolTip="e.g. 50% = halve every recipe's crafting time, including recipes that use the game's default time. 0 = unchanged.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                         <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -476,7 +480,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Faster Taming" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="e.g. 50% = halve every creature's taming time (AI-D_Tames.json's own TameDurationInSeconds). 0 = unchanged.">
+                                ToolTip="e.g. 50% = halve every creature's taming time. 0 = unchanged.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                         <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -496,7 +500,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Lighter Items" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="e.g. 50% = every item weighs half as much (Traits-D_Itemable.json's Weight). 100% = weightless, the old Remove Weight. 0 = unchanged.">
+                                ToolTip="e.g. 50% = every item weighs half as much. 100% = weightless, the old Remove Weight. 0 = unchanged.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                         <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">

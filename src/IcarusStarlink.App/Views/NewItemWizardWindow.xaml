@@ -82,7 +82,7 @@
                 </ItemsControl>
                 <CheckBox Content="Its own buff too (the effect it gives when eaten or used)" IsChecked="{Binding CopyBuff}" Margin="0,0,0,12"
                           Visibility="{Binding HasBuff, Converter={StaticResource BoolToVisibilityConverter}}"
-                          ToolTip="Copies the buff (a D_ModifierStates row: its stat bonuses and duration) under the item's name, so you can change what it does. Needs Consumable ticked above."/>
+                          ToolTip="Copies the buff (its stat bonuses and how long it lasts) under the item's name, so you can change what it does. Needs Consumable ticked above."/>
 
                 <!-- 4. How players get it -->
                 <TextBlock Text="4. How players get it" Style="{StaticResource SectionHeaderStyle}" Margin="0,4,0,0"/>
@@ -101,7 +101,7 @@
                         <CheckBox Content="Unlock it with the original's blueprint (otherwise it's known from the start)" IsChecked="{Binding UnlockWithSource}"
                                   Visibility="{Binding CanUnlockWithSource, Converter={StaticResource BoolToVisibilityConverter}}"/>
                         <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,6,0,0"
-                                   Text="The recipe starts with the original's ingredients (or 1 Fiber if it had none). Change them in the editor afterwards: Crafting-D_ProcessorRecipes › Inputs."/>
+                                   Text="The recipe starts with the original's ingredients (or 1 Fiber if it had none). Change them afterwards in the mod editor, under the recipe's ingredients."/>
                     </StackPanel>
                 </Border>
 
@@ -139,7 +139,7 @@
                 <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0"/>
                 <Button Content="Add to mod" Click="Create_Click" Style="{StaticResource PrimaryButtonStyle}"/>
             </StackPanel>
-            <TextBlock Text="{Binding Error}" Foreground="#E05555" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            <TextBlock Text="{Binding Error}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"/>
         </DockPanel>
     </Grid>
 </Window>

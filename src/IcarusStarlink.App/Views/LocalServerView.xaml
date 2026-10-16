@@ -444,7 +444,8 @@
                                 <TextBox Text="{Binding SteamServerName, UpdateSourceTrigger=PropertyChanged}" MaxLength="64" Margin="0,2,0,8"
                                          ToolTip="Sent as -SteamServerName — the ini's SessionName key does nothing, per the official docs"/>
                                 <TextBlock Text="Max players (1-8, blank = game default)" FontSize="12"/>
-                                <TextBox Text="{Binding MaxPlayersText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,8"/>
+                                <TextBox Text="{Binding MaxPlayersText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,2"/>
+                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Higher = more people can play at once; lower = a smaller group."/>
                                 <TextBlock Text="Join password (blank = anyone can join)" FontSize="12"/>
                                 <TextBox Text="{Binding JoinPassword, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
                                 <TextBlock Text="Admin password" FontSize="12"/>
@@ -497,7 +498,8 @@
                                 <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"
                                            Text="Format: type, difficulty 1-4, hardcore True/False, save name. Clear it after the first start or every restart makes a fresh world."/>
                                 <TextBlock Text="Autosave every (minutes, blank = game default)" FontSize="12"/>
-                                <TextBox Text="{Binding GameSaveFrequencyText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,8"/>
+                                <TextBox Text="{Binding GameSaveFrequencyText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,2"/>
+                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Lower = saves more often, so less is lost if the server crashes; higher = fewer saves (slightly less load)."/>
                                 <CheckBox Content="Save on exit" IsChecked="{Binding SaveGameOnExit}" IsThreeState="True" Margin="0,0,0,4"/>
                                 <CheckBox Content="Fiber foliage regrows over time" IsChecked="{Binding FiberFoliageRespawn}" IsThreeState="True" Margin="0,0,0,4"/>
                                 <CheckBox Content="Mined large stones respawn" IsChecked="{Binding LargeStonesRespawn}" IsThreeState="True" Margin="0,0,0,4"/>
@@ -506,9 +508,11 @@
                             <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,8,0,0">
                                 <TextBlock Text="LOBBY" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
                                 <TextBlock Text="Return to lobby if nobody joins for (seconds, -1 = never)" FontSize="12"/>
-                                <TextBox Text="{Binding ShutdownIfNotJoinedForText, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" Margin="0,2,0,8"/>
+                                <TextBox Text="{Binding ShutdownIfNotJoinedForText, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" Margin="0,2,0,2"/>
+                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Lower = an unused world closes sooner (frees the server); higher = it waits longer for someone to join."/>
                                 <TextBlock Text="Return to lobby after the last player leaves (seconds, -1 = never)" FontSize="12"/>
-                                <TextBox Text="{Binding ShutdownIfEmptyForText, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" Margin="0,2,0,8"/>
+                                <TextBox Text="{Binding ShutdownIfEmptyForText, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" Margin="0,2,0,2"/>
+                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Lower = the world closes sooner after everyone leaves; higher = it stays up longer for people to come back."/>
                                 <CheckBox Content="Players who aren't admins can create or load prospects" IsChecked="{Binding AllowNonAdminsToLaunchProspects}" IsThreeState="True" Margin="0,0,0,4"/>
                                 <CheckBox Content="Players who aren't admins can delete prospects" IsChecked="{Binding AllowNonAdminsToDeleteProspects}" IsThreeState="True" Margin="0,0,0,4"/>
                                 <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,4,0,0"

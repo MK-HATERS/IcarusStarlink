@@ -1137,7 +1137,7 @@
 
                     <!-- Game text and plain text -->
                     <StackPanel Visibility="{Binding IsTextKind, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBox Text="{Binding PlainText, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AcceptsReturn="False" AutomationProperties.Name="{Binding Label}">
+                        <TextBox Text="{Binding PlainText, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AcceptsReturn="True" AutomationProperties.Name="{Binding Label}">
                             <TextBox.Style>
                                 <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
                                     <Style.Triggers>

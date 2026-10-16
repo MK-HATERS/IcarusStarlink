@@ -38,28 +38,67 @@ public sealed partial class ExmodEditorViewModel
     };
 
     /// <summary>A list row with its group, in-game name and change count.</summary>
-    private EditorItemViewModel MakeItem(string currentFile, string rowName)
+    private EditorItemViewModel MakeItem(string currentFile, string rowName, ExmodFileItem? item = null)
     {
         var table = GameTableIndex.TableNameOf(currentFile);
         var names = ItemNames();
         var gameItem = names?.ItemFor(currentFile, rowName);
         var title = (gameItem is null ? null : names!.DisplayName(gameItem)) ?? rowName;
-        var item = FindItem(currentFile, rowName);
-        var changes = item?.Fields.Sum(kv => ChangedValues(kv.Key, kv.Value, _baseValuesByKey.TryGetValue((currentFile, rowName, kv.Key), out var baseValue) ? baseValue : null)) ?? 0;
+        item ??= FindItem(currentFile, rowName);
+        var isNew = HasGameTable(currentFile) && !GameTables.HasRow(currentFile, rowName);
         return new EditorItemViewModel(currentFile, rowName)
         {
             Group = GroupNames.TryGetValue(table, out var g) ? g : (table.StartsWith("D_", StringComparison.Ordinal) ? Spaced(table[2..]) : table),
             Title = title,
             GameItem = gameItem,
-            ChangeCount = changes,
+            IsNewRow = isNew,
+            ChangeCount = isNew || item is null ? 0 : CountChanges(currentFile, rowName, item),
         };
     }
+
+    /// <summary>Values the row changes compared with the game's own row.</summary>
+    private int CountChanges(string currentFile, string rowName, ExmodFileItem item) =>
+        item.Fields.Sum(kv => ChangedValues(kv.Key, kv.Value, BaseValueFor(currentFile, rowName, kv.Key, item)));
+
+    /// <summary>Refreshes one list row's badge after its fields changed.</summary>
+    private void Recount(EditorItemViewModel row)
+    {
+        if (!row.IsNewRow && FindItem(row.CurrentFile, row.ItemName) is { } item)
+        {
+            row.ChangeCount = CountChanges(row.CurrentFile, row.ItemName, item);
+        }
+    }
+
+    /// <summary>
+    /// The game's own value for a field: read from the game's row (a field the row leaves out has
+    /// the table's default). Not from the diff cache, which only holds fields that differ — so an
+    /// unchanged field there looked "changed" and an edited one lost its game value on reselect.
+    /// Without the table (no game data), the old diff-or-current fallback.
+    /// </summary>
+    private JsonNode? BaseValueFor(string currentFile, string rowName, string field, ExmodFileItem item)
+    {
+        if (!HasGameTable(currentFile))
+        {
+            return _baseValuesByKey.TryGetValue((currentFile, rowName, field), out var cached) ? cached : item.Fields.GetValueOrDefault(field);
+        }
+
+        return GameTables.Row(currentFile, rowName) is { } row ? row[field] ?? GameTables.Defaults(currentFile)?[field] : null;
+    }
+
+    private bool HasGameTable(string currentFile) =>
+        !_gameDataMissing && !string.Equals(currentFile, "EndOfMod", StringComparison.OrdinalIgnoreCase) && Directory.Exists(_dataFolder) && GameTables.Rows(currentFile) is not null;
 
     /// <summary>The game's stats for "Add a stat" on stats fields; null without game data.</summary>
     private IReadOnlyList<StatChoice>? StatChoicesForFields()
     {
-        if (_statChoices is null && !_gameDataMissing && Directory.Exists(_dataFolder))
+        if (_statChoices is null && !_gameDataMissing)
         {
+            if (!Directory.Exists(_dataFolder))
+            {
+                _gameDataMissing = true;
+                return null;
+            }
+
             _statChoices = GameItemEditor.StatChoices(GameTables);
         }
 

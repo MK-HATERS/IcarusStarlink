@@ -198,14 +198,16 @@
                                 <TextBlock Text="{Binding SelectedCharacter.XpDisplay}" VerticalAlignment="Center" Margin="10,0,0,0"
                                            Foreground="{DynamicResource SecondaryForegroundBrush}" FontFamily="Consolas" FontSize="12"/>
                             </StackPanel>
-                            <TextBlock Text="Raw experience points — the game derives level from this (its own level curve lives in a compiled asset, so a level slider would be a guess; the number is the honest control)."
+                            <TextBlock Text="Experience points. Higher = a higher level (the level it gives is shown to the right); lower = a lower level."
                                        Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
                             <TextBlock Margin="0,0,0,14" FontSize="12.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
                                 <Run Text="Slot "/><Run Text="{Binding SelectedCharacter.ChrSlot, Mode=OneWay}"/><Run Text=" · Location: "/><Run Text="{Binding SelectedCharacter.Location, Mode=OneWay}"/>
                             </TextBlock>
 
-                            <TextBlock Text="Profile currencies" Style="{StaticResource FieldLabelStyle}" Margin="0,4,0,4"/>
+                            <TextBlock Text="Profile currencies" Style="{StaticResource FieldLabelStyle}" Margin="0,4,0,0"/>
+                            <TextBlock Text="How much of each you have. Higher = more to spend in the workshop and on talents; 0 = none." FontSize="11.5" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,2,0,4"/>
                             <ItemsControl ItemsSource="{Binding Currencies}" MaxWidth="560">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
@@ -379,7 +381,8 @@
                             <DataTemplate>
                                 <DockPanel Margin="2">
                                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBox Text="{Binding PointsText, UpdateSourceTrigger=PropertyChanged}" Width="70" FontFamily="Consolas" TextAlignment="Right"/>
+                                        <TextBox Text="{Binding PointsText, UpdateSourceTrigger=PropertyChanged}" Width="70" FontFamily="Consolas" TextAlignment="Right"
+                                                 ToolTip="Field guide points for this creature. Higher = more of its entry unlocked; the number after the slash completes it."/>
                                         <TextBlock Text="{Binding PointsRequired, StringFormat=' / {0}'}" VerticalAlignment="Center" Margin="4,0,0,0"
                                                    Foreground="{DynamicResource SecondaryForegroundBrush}" FontFamily="Consolas" FontSize="12"/>
                                         <Button Content="Set max" Command="{Binding SetMaxCommand}" Padding="8,2" Margin="8,0,0,0"
@@ -548,7 +551,7 @@
                                     <TextBox DockPanel.Dock="Left" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
                                              Width="150" Margin="0,0,10,0" ToolTip="This mount's name"/>
 
-                                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="0,0,10,0" ToolTip="This mount's level">
+                                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="0,0,10,0" ToolTip="This mount's level. Higher = a stronger, more experienced mount; lower = closer to newly tamed.">
                                         <TextBlock Text="Lv" VerticalAlignment="Center" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,4,0"/>
                                         <TextBox Text="{Binding LevelText, UpdateSourceTrigger=PropertyChanged}" Width="50" FontFamily="Consolas" TextAlignment="Right"/>
                                     </StackPanel>
