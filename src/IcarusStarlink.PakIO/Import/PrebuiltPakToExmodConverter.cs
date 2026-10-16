@@ -171,6 +171,24 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
                 Rows = rows,
             };
 
+            // A prebuilt pak ships whole tables from the game version it was built for, so beside
+            // the author's changes its diff "changes" every row the game has updated since (tags
+            // added, fields added). Those only put old data back: the sure ones are left out here,
+            // every time it is converted (including the re-conversion after each game data refresh).
+            if (embedded is null)
+            {
+                var health = ModHealthChecker.Check(package, dataFolder);
+                var oldCopies = ModHealthChecker.Apply(package, health.Issues
+                    .Where(i => i.IsSure && i.Kind is ModIssueKind.OldCopy or ModIssueKind.SameAsGame)
+                    .Select(i => (i, i.DefaultFix))
+                    .ToList());
+                if (oldCopies > 0)
+                {
+                    report.AddWarning(
+                        $"'{pakName}' was made for an older game version: {oldCopies} value(s) it copied from that version were left out, so the game's current ones stay. Check ▾ › Check mods against game data lists anything still worth a look.");
+                }
+            }
+
             return new PrebuiltPakConversionResult(new ExmodPackageContents(package, assets), HasAuthorDeclaredMetadata: embedded is not null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

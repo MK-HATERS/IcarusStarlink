@@ -1,0 +1,189 @@
+using System.Text.Json.Nodes;
+using IcarusStarlink.Diffing;
+using IcarusStarlink.PakIO.Exmod;
+
+namespace IcarusStarlink.PakIO.Tests.Exmod;
+
+/// <summary>Sorting a mod's differences from the game into old copies, mixed lists and the author's own changes.</summary>
+public sealed class ModHealthCheckerTests : IDisposable
+{
+    private const string Items = "Items-D_ItemsStatic.json";
+    private const string Recipes = "Crafting-D_ProcessorRecipes.json";
+    private readonly string _data = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+
+    public ModHealthCheckerTests()
+    {
+        var rows = new JsonArray
+        {
+            new JsonObject { ["Name"] = "Wood_Floor", ["Manual_Tags"] = Tags("Building.Wood", "Audio.Shelter", "FieldGuide.Building.Floors"), ["Weight"] = 100 },
+            new JsonObject { ["Name"] = "Cheese", ["Manual_Tags"] = Tags("Item.Food.Cooked"), ["Weight"] = 50 },
+            new JsonObject { ["Name"] = "Bread", ["Weight"] = 20, ["Decayable"] = new JsonObject { ["RowName"] = "Decay_Food" } },
+        };
+        for (var i = 0; i < 30; i++)
+        {
+            rows.Add(new JsonObject { ["Name"] = $"Copied_{i}", ["Manual_Tags"] = Tags("A", "B"), ["Weight"] = 10 });
+        }
+
+        Write("Items/D_ItemsStatic.json", rows);
+        Write("Crafting/D_ProcessorRecipes.json", new JsonArray
+        {
+            new JsonObject
+            {
+                ["Name"] = "Bread_Recipe",
+                ["RequiredMillijoules"] = 2000,
+                ["Inputs"] = new JsonArray { Input("Flour", 2) },
+                ["RecipeSets"] = new JsonArray { Link("Kitchen_Bench") },
+            },
+        });
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_data))
+        {
+            Directory.Delete(_data, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ATagListMissingWhatTheGameAddedSince_IsASureOldCopy_AndTheFixLeavesTheGamesValue()
+    {
+        var package = Mod((Items, "Wood_Floor", "Manual_Tags", Tags("Building.Wood", "Audio.Shelter")), (Items, "Wood_Floor", "Weight", 5));
+
+        var report = ModHealthChecker.Check(package, _data);
+
+        var issue = Assert.Single(report.Issues);
+        Assert.Equal(ModIssueKind.OldCopy, issue.Kind);
+        Assert.True(issue.IsSure);
+        Assert.Contains("added 1 entry", issue.Why);
+        Assert.Equal(1, report.AuthorChangeCount);
+
+        Assert.Equal(1, ModHealthChecker.ApplySure(package, report));
+        var item = package.Rows.Single(r => r.CurrentFile == Items).FileItems.Single();
+        Assert.False(item.Fields.ContainsKey("Manual_Tags"));
+        Assert.Equal(5, item.Fields["Weight"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void DeletingAFieldTheGameHasNow_IsAnOldCopy_AndAValueEqualToTheGames_DoesNothing()
+    {
+        var package = Mod((Recipes, "Bread_Recipe", "RequiredMillijoules", null), (Items, "Bread", "Weight", 20));
+
+        var report = ModHealthChecker.Check(package, _data);
+
+        Assert.Contains(report.Issues, i => i.Kind == ModIssueKind.OldCopy && i.FieldName == "RequiredMillijoules");
+        Assert.Contains(report.Issues, i => i.Kind == ModIssueKind.SameAsGame && i.FieldName == "Weight");
+        Assert.All(report.Issues, i => Assert.True(i.IsSure));
+
+        ModHealthChecker.ApplySure(package, report);
+        Assert.DoesNotContain(package.Rows, r => r.CurrentFile is Items or Recipes);
+    }
+
+    [Fact]
+    public void AChangedCountInARecipe_AndASwappedIngredient_AreTheAuthorsChanges()
+    {
+        var package = Mod(
+            (Recipes, "Bread_Recipe", "Inputs", new JsonArray { Input("Flour", 1) }),
+            (Items, "Bread", "Decayable", new JsonObject { ["RowName"] = "Decay_Long" }));
+        var swapped = Mod((Recipes, "Bread_Recipe", "Inputs", new JsonArray { Input("Wheat", 2) }));
+
+        Assert.False(ModHealthChecker.Check(package, _data).HasIssues);
+        Assert.Equal(2, ModHealthChecker.Check(package, _data).AuthorChangeCount);
+        Assert.False(ModHealthChecker.Check(swapped, _data).HasIssues);
+    }
+
+    [Fact]
+    public void AMixedTagList_MergesTheGamesCurrentTagsWithTheModsAdditions()
+    {
+        var package = Mod((Items, "Cheese", "Manual_Tags", Tags("Item.Food", "Item.Food.Dairy")));
+
+        var issue = Assert.Single(ModHealthChecker.Check(package, _data).Issues);
+
+        Assert.Equal(ModIssueKind.MixedList, issue.Kind);
+        Assert.False(issue.IsSure);
+        Assert.Equal(ModIssueFix.Merge, issue.DefaultFix);
+        Assert.Equal(Tags("Item.Food.Cooked", "Item.Food", "Item.Food.Dairy").ToJsonString(), issue.MergedValue!.ToJsonString());
+
+        ModHealthChecker.Apply(package, [(issue, ModIssueFix.Merge)]);
+        Assert.Equal(issue.MergedValue.ToJsonString(), package.Rows.Single(r => r.CurrentFile == Items).FileItems.Single().Fields["Manual_Tags"]!.ToJsonString());
+    }
+
+    [Fact]
+    public void ATableCopiedWholesale_MarksItsOtherChangesOnOldRowsAsProbablyOld()
+    {
+        var changes = Enumerable.Range(0, 30).Select(i => (Items, $"Copied_{i}", "Manual_Tags", (JsonNode?)Tags("A"))).ToList();
+        changes.Add((Items, "Copied_0", "Weight", 3));
+        changes.Add((Items, "Copied_1", "Manual_Tags_Extra", 1));
+        var package = Mod([.. changes]);
+
+        var report = ModHealthChecker.Check(package, _data);
+
+        Assert.Equal(30, report.Count(ModIssueKind.OldCopy));
+        var likelyOld = Assert.Single(report.Issues, i => i.Kind == ModIssueKind.LikelyOld);
+        Assert.Equal("Weight", likelyOld.FieldName);
+        Assert.Equal(ModIssueFix.UseGame, likelyOld.DefaultFix);
+        Assert.False(likelyOld.IsSure);
+        Assert.Equal(1, report.AuthorChangeCount);
+    }
+
+    [Fact]
+    public void TheGamesOwnChangeHistory_MarksAValueTheGameHadBefore_AsOld()
+    {
+        var package = Mod((Items, "Bread", "Weight", 25));
+        var history = new[] { new FieldChange(Items, "Bread", "Weight", JsonValue.Create(25), JsonValue.Create(20), ValueSemantic.Scalar) };
+
+        Assert.False(ModHealthChecker.Check(package, _data).HasIssues);
+        var issue = Assert.Single(ModHealthChecker.Check(package, _data, gameHistory: history).Issues);
+        Assert.Equal(ModIssueKind.OldCopy, issue.Kind);
+        Assert.True(issue.IsSure);
+    }
+
+    [Fact]
+    public void TheModsOwnNewItems_AreNeverFlaggedAsMissingRows()
+    {
+        var package = Mod(
+            (Items, "My_Bag", "Weight", 5),
+            (Recipes, "My_Bag", "Inputs", new JsonArray { Input("Leather", 4) }),
+            (Items, "Wood_Floo", "Weight", 7));
+
+        var report = ModHealthChecker.Check(package, _data);
+
+        Assert.DoesNotContain(report.Issues, i => i.ItemName == "My_Bag");
+        var renamed = Assert.Single(report.Issues, i => i.Kind == ModIssueKind.MissingRow);
+        Assert.Equal("Wood_Floo", renamed.ItemName);
+        Assert.Equal("Wood_Floor", renamed.SuggestedRow);
+    }
+
+    private ExmodPackage Mod(params (string File, string Row, string Field, JsonNode? Value)[] changes)
+    {
+        var package = new ExmodPackage { Name = "Test", Author = "Me", Version = "1", Description = "", FileName = "Test" };
+        foreach (var group in changes.GroupBy(c => c.File))
+        {
+            var row = new ExmodFileRow { CurrentFile = group.Key };
+            foreach (var item in group.GroupBy(c => c.Row))
+            {
+                row.FileItems.Add(new ExmodFileItem { Name = item.Key, Fields = item.ToDictionary(c => c.Field, c => c.Value) });
+            }
+
+            package.Rows.Add(row);
+        }
+
+        package.Rows.Add(new ExmodFileRow { CurrentFile = "EndOfMod" });
+        return package;
+    }
+
+    private void Write(string relative, JsonArray rows)
+    {
+        var path = Path.Combine(_data, relative);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, new JsonObject { ["RowStruct"] = "S", ["Defaults"] = new JsonObject(), ["Rows"] = rows }.ToJsonString());
+    }
+
+    private static JsonObject Tags(params string[] tags) =>
+        new() { ["GameplayTags"] = new JsonArray(tags.Select(t => (JsonNode)new JsonObject { ["TagName"] = t }).ToArray()) };
+
+    private static JsonObject Input(string item, int count) =>
+        new() { ["Element"] = new JsonObject { ["RowName"] = item, ["DataTableName"] = "D_ItemsStatic" }, ["Count"] = count };
+
+    private static JsonObject Link(string row) => new() { ["RowName"] = row, ["DataTableName"] = "D_RecipeSets" };
+}
