@@ -22,7 +22,7 @@ public static class ServerModFiles
 
     /// <summary>Copies a merged pak (and its sibling ISL-Merged.txt manifest, when present) into the server's mods folder, replacing an older copy of the same file.</summary>
     /// <summary>The merged pak's earlier file name(s) (see PakIO's InstallManifestNames; Core can't reference PakIO).</summary>
-    public static IReadOnlyList<string> LegacyMergedPakFileNames { get; } = ["ISL-Merged_P.pak"];
+    public static IReadOnlyList<string> LegacyMergedPakFileNames { get; } = ["ISL-Merged_P.pak", "ISL-Merged_9999_P.pak"];
 
     public static void InstallPak(string sourcePakPath, string installFolder, string? manifestFileName)
     {

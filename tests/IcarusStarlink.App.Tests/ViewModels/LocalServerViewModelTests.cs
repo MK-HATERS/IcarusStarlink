@@ -421,7 +421,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         vm.Tick();
         vm.InstallMergedPakCommand.Execute(null);
 
-        Assert.Equal(["ISL-Merged_9999_P.pak"], vm.ServerPaks.Select(p => p.FileName));
+        Assert.Equal(["zz_zz_ISL-Merged_9999_P.pak"], vm.ServerPaks.Select(p => p.FileName));
         Assert.True(File.Exists(Path.Combine(DedicatedServerLayout.PakModsFolder(_install), "ISL-Merged.txt")));
     }
 
