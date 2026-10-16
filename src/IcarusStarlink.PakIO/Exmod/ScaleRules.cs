@@ -68,34 +68,43 @@ public static class ScaleRules
 {
     /// <summary>
     /// Rebuilds the rows a mod's rules own. Every top-level field any rule (old or new) owns is
-    /// first removed from that table's items — so turning a rule off or changing its factor never
-    /// leaves its old values behind — then each enabled rule is applied, in order, to current game
-    /// data (a later rule on the same field compounds on an earlier one). Other fields of the same
-    /// items (hand edits) are kept. Sets <paramref name="package"/>.ScaleRules to <paramref name="rules"/>.
+    /// first removed from the mod's copies of GAME rows — so turning a rule off or changing its
+    /// factor never leaves its old values behind — then each enabled rule is applied, in order, to
+    /// current game data (a later rule on the same field compounds on an earlier one). Rows the mod
+    /// adds itself (a new item's own Itemable) are the author's, never touched; other fields of the
+    /// game rows (hand edits) are kept. Sets <paramref name="package"/>.ScaleRules to <paramref name="rules"/>.
     /// </summary>
-    public static ScaleApplyResult ApplyToPackage(ExmodPackage package, IReadOnlyList<ScaleRule> rules, string dataFolder, MergeReport report)
+    /// <param name="game">The game's tables, shared across calls (the editor keeps one); null reads them fresh.</param>
+    public static ScaleApplyResult ApplyToPackage(ExmodPackage package, IReadOnlyList<ScaleRule> rules, string dataFolder, MergeReport report, GameTableIndex? game = null)
     {
+        game ??= new GameTableIndex(dataFolder);
         var owned = package.ScaleRules.Concat(rules)
             .Where(r => r.CurrentFile.Length > 0 && r.TopField.Length > 0)
             .Select(r => (File: r.CurrentFile, Field: r.TopField))
             .ToHashSet(new FileFieldComparer());
 
-        foreach (var row in package.Rows)
+        foreach (var row in package.Rows.Where(r => owned.Any(o => string.Equals(o.File, r.CurrentFile, StringComparison.OrdinalIgnoreCase))).ToList())
         {
-            foreach (var item in row.FileItems)
+            var emptied = new HashSet<ExmodFileItem>();
+            foreach (var item in row.FileItems.Where(i => game.HasRow(row.CurrentFile, i.Name)))
             {
-                foreach (var key in item.Fields.Keys.Where(k => owned.Contains((row.CurrentFile, k))).ToList())
+                var keys = item.Fields.Keys.Where(k => owned.Contains((row.CurrentFile, k))).ToList();
+                keys.ForEach(k => item.Fields.Remove(k));
+                if (keys.Count > 0 && item.Fields.Count == 0)
                 {
-                    item.Fields.Remove(key);
+                    emptied.Add(item);
                 }
             }
 
-            row.FileItems.RemoveAll(i => i.Fields.Count == 0);
+            // Only what this pass emptied goes: an item or table the author left empty on purpose stays.
+            row.FileItems.RemoveAll(emptied.Contains);
+            if (emptied.Count > 0 && row.FileItems.Count == 0)
+            {
+                package.Rows.Remove(row);
+            }
         }
 
-        package.Rows.RemoveAll(r => r.FileItems.Count == 0 && !string.Equals(r.CurrentFile, "EndOfMod", StringComparison.OrdinalIgnoreCase));
-
-        var (generated, previews) = Generate(rules, dataFolder, report);
+        var (generated, previews) = Generate(rules, dataFolder, report, game);
         var written = 0;
         foreach (var (file, items) in generated)
         {
@@ -104,17 +113,23 @@ public static class ScaleRules
             {
                 row = new ExmodFileRow { CurrentFile = file };
                 // Keep the EndOfMod sentinel last, the way every real EXMOD has it.
-                var end = package.Rows.FindIndex(r => string.Equals(r.CurrentFile, "EndOfMod", StringComparison.OrdinalIgnoreCase));
+                var end = package.Rows.FindIndex(r => ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile));
                 package.Rows.Insert(end < 0 ? package.Rows.Count : end, row);
+            }
+
+            var byName = new Dictionary<string, ExmodFileItem>(StringComparer.Ordinal);
+            foreach (var existing in row.FileItems)
+            {
+                byName.TryAdd(existing.Name, existing);
             }
 
             foreach (var (name, fields) in items)
             {
-                var item = row.FileItems.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.Ordinal));
-                if (item is null)
+                if (!byName.TryGetValue(name, out var item))
                 {
                     item = new ExmodFileItem { Name = name };
                     row.FileItems.Add(item);
+                    byName[name] = item;
                 }
 
                 foreach (var (field, value) in fields)
@@ -131,11 +146,11 @@ public static class ScaleRules
     }
 
     /// <summary>What one rule would change, without touching any mod.</summary>
-    public static ScalePreview Preview(ScaleRule rule, string dataFolder)
+    public static ScalePreview Preview(ScaleRule rule, string dataFolder, GameTableIndex? game = null)
     {
         var copy = rule.Clone();
         copy.Enabled = true;
-        return Generate([copy], dataFolder, new MergeReport()).Previews[0];
+        return Generate([copy], dataFolder, new MergeReport(), game).Previews[0];
     }
 
     /// <summary>
@@ -144,10 +159,10 @@ public static class ScaleRules
     /// item), plus one preview per rule (disabled rules preview as zero).
     /// </summary>
     public static (Dictionary<string, Dictionary<string, Dictionary<string, JsonNode?>>> Generated, IReadOnlyList<ScalePreview> Previews) Generate(
-        IReadOnlyList<ScaleRule> rules, string dataFolder, MergeReport report)
+        IReadOnlyList<ScaleRule> rules, string dataFolder, MergeReport report, GameTableIndex? game = null)
     {
+        game ??= new GameTableIndex(dataFolder);
         var generated = new Dictionary<string, Dictionary<string, Dictionary<string, JsonNode?>>>(StringComparer.OrdinalIgnoreCase);
-        var tables = new Dictionary<string, (JsonObject? Rows, JsonObject? Defaults)>(StringComparer.OrdinalIgnoreCase);
         var previews = new List<ScalePreview>();
 
         foreach (var rule in rules)
@@ -158,17 +173,10 @@ public static class ScaleRules
                 continue;
             }
 
-            if (!tables.TryGetValue(rule.CurrentFile, out var table))
-            {
-                var file = BaseDataFileReader.ParseFile(dataFolder, rule.CurrentFile, report);
-                table = file is null
-                    ? (null, null)
-                    : (DataTableJson.RowsToKeyedObject(file, _ => { }), file["Defaults"] as JsonObject);
-                tables[rule.CurrentFile] = table;
-            }
-
+            var table = (Rows: game.Rows(rule.CurrentFile), Defaults: game.Defaults(rule.CurrentFile));
             if (table.Rows is null)
             {
+                report.AddWarning($"No matching base file for '{rule.CurrentFile}' in the game data.");
                 previews.Add(new ScalePreview(0, 0, null));
                 continue;
             }
@@ -300,7 +308,7 @@ public static class ScaleRules
         {
             // Whole-number fields stay whole numbers. Scaling never rounds a real amount down to
             // nothing (an ingredient count of 1 × 0.4 stays 1, not free) unless the factor is 0.
-            var rounded = (long)Math.Round(after, MidpointRounding.AwayFromZero);
+            var rounded = (long)Math.Clamp(Math.Round(after, MidpointRounding.AwayFromZero), int.MinValue, int.MaxValue);
             if (rounded == 0 && before != 0 && after != 0)
             {
                 rounded = Math.Sign(after);
@@ -359,7 +367,11 @@ public static class ScaleRules
         if (jsonValue.TryGetValue<double>(out var d))
         {
             value = d;
-            isInteger = d == Math.Floor(d) && !jsonValue.ToJsonString().Contains('.');
+            // Only a number as written in the game's file can say it's whole ("100"); a double made
+            // in code (an earlier rule's 0.5 × 2 = 1.0) serializes as "1" but is still a real number.
+            isInteger = d == Math.Floor(d)
+                && jsonValue.TryGetValue<System.Text.Json.JsonElement>(out var element)
+                && !element.GetRawText().Contains('.');
             return true;
         }
 

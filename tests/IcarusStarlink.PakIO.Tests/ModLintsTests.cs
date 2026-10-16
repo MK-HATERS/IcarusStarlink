@@ -64,20 +64,4 @@ public sealed class ModLintsTests : IDisposable
         Assert.Contains(findings, f => f.Contains("Lonely.uasset") && f.Contains(".uexp"));
         Assert.Contains(findings, f => f.Contains("Orphan.uexp") && f.Contains(".uasset"));
     }
-
-    [Theory]
-    [InlineData("../../../Icarus/Content/Mods/WirelessPower/", "Mods/WirelessPower/")]
-    [InlineData("../../../Icarus/Content/", "")]
-    [InlineData(null, "")]
-    [InlineData("../../../Engine/Content/", "")]
-    public void PakMountPoints_RelativePrefixUnderGameContent(string? mountPoint, string expected) =>
-        Assert.Equal(expected, PakMountPoints.RelativePrefixUnderGameContent(mountPoint));
-
-    [Fact]
-    public void PakMountPoints_IsOutsideGameContent_OnlyForNonContentMounts()
-    {
-        Assert.True(PakMountPoints.IsOutsideGameContent("../../../Engine/Content/"));
-        Assert.False(PakMountPoints.IsOutsideGameContent("../../../Icarus/Content/Mods/X/"));
-        Assert.False(PakMountPoints.IsOutsideGameContent(null));
-    }
 }

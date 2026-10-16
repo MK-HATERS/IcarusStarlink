@@ -204,4 +204,11 @@ public sealed class ItemClonerTests : IDisposable
         Assert.Equal("""NSLOCTEXT("D_MapIcons", "My_Base_Marker-HoverName", "My Base Marker")""", item.Fields["HoverName"]!.GetValue<string>());
         Assert.Empty(ModTemplateContent.Create(IcarusStarlink.Core.Library.ModTemplate.Envirosuit, "Suit", "Me").Rows);
     }
+
+    /// <summary>Row names ignore case in game: "envirosuit" is the game's "Envirosuit".</summary>
+    [Fact]
+    public void NewName_ThatDiffersFromAGameItemOnlyInCase_IsTaken()
+    {
+        Assert.Throws<ArgumentException>(() => ItemCloner.Build(_game, new ItemCloneRequest { SourceItem = "Envirosuit", NewName = "envirosuit", DisplayName = "x" }));
+    }
 }

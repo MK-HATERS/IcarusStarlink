@@ -207,4 +207,48 @@ public sealed class ScaleRulesTests : IDisposable
     [InlineData("Inputs[].Count", new[] { "Inputs[]", "Count" })]
     public void SplitPath_IgnoresDotsInsideAStatKey(string path, string[] expected) =>
         Assert.Equal(expected, ScaleRules.SplitPath(path));
+
+    /// <summary>A review finding: Apply took the rule's field off the mod's OWN new items too (a wizard item's own Itemable lost its Weight for good).</summary>
+    [Fact]
+    public void Apply_LeavesRowsTheModAddsItselfAlone_AndItemsTheAuthorLeftEmpty()
+    {
+        var mod = EmptyMod();
+        mod.Rows.Insert(0, new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Itemable.json",
+            FileItems =
+            [
+                new ExmodFileItem { Name = "Item_My_New_Thing", Fields = { ["Weight"] = 42 } },
+                new ExmodFileItem { Name = "Item_Placeholder" },
+            ],
+        });
+
+        ScaleRules.ApplyToPackage(mod, [Rule("Traits-D_Itemable.json", "Weight", 0.5)], _data, new MergeReport());
+
+        Assert.Equal(42, Item(mod, "Traits-D_Itemable.json", "Item_My_New_Thing").Fields["Weight"]!.GetValue<int>());
+        Assert.Empty(Item(mod, "Traits-D_Itemable.json", "Item_Placeholder").Fields);
+        Assert.Equal(5, Item(mod, "Traits-D_Itemable.json", "Item_Fiber").Fields["Weight"]!.GetValue<long>());
+    }
+
+    [Fact]
+    public void Apply_AHugeFactor_StaysAWholeNumberTheGameCanHold()
+    {
+        var mod = EmptyMod();
+
+        ScaleRules.ApplyToPackage(mod, [Rule("Traits-D_Itemable.json", "MaxStack", 1e30)], _data, new MergeReport());
+
+        Assert.Equal(int.MaxValue, Item(mod, "Traits-D_Itemable.json", "Item_Fiber").Fields["MaxStack"]!.GetValue<long>());
+    }
+
+    /// <summary>Weight 10 × 0.5 × 0.3 = 1.5: the first rule's 5.0 must not count as a whole-number field and round the second.</summary>
+    [Fact]
+    public void ChainedRules_OnAFractionalResult_DoNotRoundIt()
+    {
+        Write("Traits/D_Decayable.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Food","SpoilTime":1.5}]}""");
+        var mod = EmptyMod();
+
+        ScaleRules.ApplyToPackage(mod, [Rule("Traits-D_Decayable.json", "SpoilTime", 2), Rule("Traits-D_Decayable.json", "SpoilTime", 0.5)], _data, new MergeReport());
+
+        Assert.Equal(1.5, Item(mod, "Traits-D_Decayable.json", "Food").Fields["SpoilTime"]!.GetValue<double>());
+    }
 }

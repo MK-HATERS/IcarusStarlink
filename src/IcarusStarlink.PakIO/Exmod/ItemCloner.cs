@@ -167,7 +167,8 @@ public static partial class ItemCloner
     {
         var source = Inspect(game, request.SourceItem) ?? throw new ArgumentException($"'{request.SourceItem}' isn't an item in the game data.");
         var newName = request.NewName.Trim();
-        if (game.Row(ItemsStatic, newName) is not null || HasRow(existingMod, ItemsStatic, newName))
+        // Row names ignore case in game: "envirosuit" would collide with the game's "Envirosuit".
+        if (game.HasRow(ItemsStatic, newName) || HasRow(existingMod, ItemsStatic, newName))
         {
             throw new ArgumentException($"An item called '{newName}' already exists — pick another name.");
         }
@@ -245,7 +246,7 @@ public static partial class ItemCloner
             var row = package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, newRow.CurrentFile, StringComparison.OrdinalIgnoreCase));
             if (row is null)
             {
-                var end = package.Rows.FindIndex(r => string.Equals(r.CurrentFile, "EndOfMod", StringComparison.OrdinalIgnoreCase));
+                var end = package.Rows.FindIndex(r => ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile));
                 package.Rows.Insert(end < 0 ? package.Rows.Count : end, newRow);
                 continue;
             }
@@ -311,8 +312,8 @@ public static partial class ItemCloner
             // A tab of the mod's own: a tree and an archetype, modeled on the game's envirosuit tab.
             var tab = string.IsNullOrWhiteSpace(request.NewWorkshopTab) ? "Mod Items" : request.NewWorkshopTab.Trim();
             tree = "Workshop_Mod_" + Regex.Replace(tab, "[^A-Za-z0-9]+", "_").Trim('_');
-            var alreadyAdding = rows.TryGetValue(TalentTrees, out var addedTrees) && addedTrees.Any(i => i.Name == tree);
-            if (!alreadyAdding && game.Row(TalentTrees, tree) is null && !HasRow(existingMod, TalentTrees, tree))
+            var alreadyAdding = rows.TryGetValue(TalentTrees, out var addedTrees) && addedTrees.Any(i => string.Equals(i.Name, tree, StringComparison.OrdinalIgnoreCase));
+            if (!alreadyAdding && !game.HasRow(TalentTrees, tree) && !HasRow(existingMod, TalentTrees, tree))
             {
                 var archetype = (JsonObject?)game.Row(TalentArchetypes, "Workshop_Envirosuits")?.DeepClone()
                     ?? new JsonObject { ["Model"] = new JsonObject { ["RowName"] = "Workshop" } };
@@ -327,7 +328,7 @@ public static partial class ItemCloner
 
         // Next free column in the tree, after the game's and this mod's own talents.
         var positions = (game.Rows(Talents) ?? []).Select(kv => kv.Value as JsonObject)
-            .Concat(existingMod?.Rows.Where(r => r.CurrentFile == Talents).SelectMany(r => r.FileItems).Select(i => new JsonObject(i.Fields.Select(f => KeyValuePair.Create(f.Key, f.Value?.DeepClone())))) ?? [])
+            .Concat(existingMod?.Rows.Where(r => string.Equals(r.CurrentFile, Talents, StringComparison.OrdinalIgnoreCase)).SelectMany(r => r.FileItems).Select(i => new JsonObject(i.Fields.Select(f => KeyValuePair.Create(f.Key, f.Value?.DeepClone())))) ?? [])
             .Concat(rows.GetValueOrDefault(Talents)?.Select(i => new JsonObject(i.Fields.Select(f => KeyValuePair.Create(f.Key, f.Value?.DeepClone())))) ?? [])
             .Where(t => t?["TalentTree"]?["RowName"]?.GetValue<string>() == tree)
             .Select(t => (X: t!["Position"]?["X"]?.GetValue<double>() ?? 0, Y: t["Position"]?["Y"]?.GetValue<double>() ?? 0))
@@ -367,7 +368,7 @@ public static partial class ItemCloner
     private static string UniqueName(GameTableIndex game, ExmodPackage? mod, string file, string wanted)
     {
         var name = wanted;
-        for (var i = 2; game.Row(file, name) is not null || HasRow(mod, file, name); i++)
+        for (var i = 2; game.HasRow(file, name) || HasRow(mod, file, name); i++)
         {
             name = $"{wanted}_{i}";
         }
@@ -376,7 +377,8 @@ public static partial class ItemCloner
     }
 
     private static bool HasRow(ExmodPackage? mod, string file, string name) =>
-        mod?.Rows.Any(r => string.Equals(r.CurrentFile, file, StringComparison.OrdinalIgnoreCase) && r.FileItems.Any(i => i.Name == name)) == true;
+        mod?.Rows.Any(r => string.Equals(r.CurrentFile, file, StringComparison.OrdinalIgnoreCase)
+            && r.FileItems.Any(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase))) == true;
 
     /// <summary>Every {"RowName": old} under node becomes new (the template's own item reference, a recipe's output).</summary>
     private static void ReplaceRowName(JsonNode? node, string oldName, string newName)

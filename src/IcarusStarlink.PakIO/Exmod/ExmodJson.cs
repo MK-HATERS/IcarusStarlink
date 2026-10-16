@@ -177,7 +177,7 @@ public static class ExmodJson
                     Label = entry["label"]?.GetValue<string>() ?? "",
                     CurrentFile = entry["currentFile"]?.GetValue<string>() ?? "",
                     Field = entry["field"]?.GetValue<string>() ?? "",
-                    Operation = Enum.TryParse<ScaleOperation>(entry["operation"]?.GetValue<string>(), ignoreCase: true, out var op) ? op : ScaleOperation.Multiply,
+                    Operation = Enum.TryParse<ScaleOperation>(entry["operation"]?.GetValue<string>(), ignoreCase: true, out var op) && Enum.IsDefined(op) ? op : ScaleOperation.Multiply,
                     Value = entry["value"]?.GetValue<double>() ?? 1,
                     RowFilter = entry["rowFilter"]?.GetValue<string>(),
                     IncludeInherited = entry["includeInherited"]?.GetValue<bool>() ?? true,

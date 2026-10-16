@@ -19,6 +19,9 @@ public static partial class ModChangeSummarizer
     /// <summary>A pattern must cover this share of a field's changes to be named as THE pattern.</summary>
     private const double Dominance = 0.8;
 
+    [GeneratedRegex(@"\[\d+\]")]
+    private static partial Regex ListIndexPattern();
+
     [GeneratedRegex(@"^\(Value=""(.+)""\)$")]
     private static partial Regex StatKeyPattern();
 
@@ -30,6 +33,7 @@ public static partial class ModChangeSummarizer
     /// </summary>
     public static IReadOnlyList<string> SummarizePackage(ExmodPackage package, string dataFolder)
     {
+        var game = new GameTableIndex(dataFolder); // each table read once, even if the mod lists it twice
         var changes = new List<FieldChange>();
         foreach (var row in package.Rows)
         {
@@ -38,9 +42,8 @@ public static partial class ModChangeSummarizer
                 continue;
             }
 
-            var file = DataChanges.BaseDataFileReader.ParseFile(dataFolder, row.CurrentFile, report: null);
-            var baseRows = file is null ? null : DataChanges.DataTableJson.RowsToKeyedObject(file, _ => { });
-            var defaults = file?["Defaults"] as JsonObject;
+            var baseRows = game.Rows(row.CurrentFile);
+            var defaults = game.Defaults(row.CurrentFile);
             foreach (var item in row.FileItems)
             {
                 var baseRow = baseRows?[item.Name] as JsonObject;
@@ -126,9 +129,13 @@ public static partial class ModChangeSummarizer
 
         // Several stats under one parent sharing one factor read as one line: "ArmourStats (8 stats)
         // ×1.5". Stats with a different factor stay on their own lines.
-        foreach (var sameFactor in groups
-            .Where(kv => kv.Key.Path.Contains('.') && DominantRatio(kv.Value) is not null)
-            .GroupBy(kv => (kv.Key.Table, Parent: kv.Key.Path[..kv.Key.Path.IndexOf('.')], Ratio: DominantRatio(kv.Value)!.Value))
+        var withRatio = groups
+            .Where(kv => kv.Key.Path.Contains('.'))
+            .Select(kv => (Entry: kv, Ratio: DominantRatio(kv.Value)))
+            .Where(x => x.Ratio is not null)
+            .ToList();
+        foreach (var sameFactor in withRatio
+            .GroupBy(x => (x.Entry.Key.Table, Parent: x.Entry.Key.Path[..x.Entry.Key.Path.IndexOf('.')], Ratio: x.Ratio!.Value), x => x.Entry)
             .Where(g => g.Count() >= 3)
             .ToList())
         {
@@ -210,16 +217,11 @@ public static partial class ModChangeSummarizer
         return count >= group.Total * Dominance ? value : null;
     }
 
-    /// <summary>"Traits-D_Itemable.json" → "D_Itemable".</summary>
-    private static string TableName(string currentFile)
-    {
-        var name = currentFile.Split('-').Last();
-        return name.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? name[..^5] : name;
-    }
+    private static string TableName(string currentFile) => GameTableIndex.TableNameOf(currentFile);
 
     /// <summary>List indexes collapse ("Inputs[0].Count" → "Inputs[].Count"); stat keys read plainly ("(Value=\"BaseColdResistance_%\")" → "BaseColdResistance_%").</summary>
     private static string Normalize(string path) =>
-        string.Join('.', Regex.Replace(path, @"\[\d+\]", "[]").Split('.').Select(segment => StatKeyPattern().Match(segment) is { Success: true } m ? m.Groups[1].Value : segment));
+        string.Join('.', ListIndexPattern().Replace(path, "[]").Split('.').Select(segment => StatKeyPattern().Match(segment) is { Success: true } m ? m.Groups[1].Value : segment));
 
     private static Dictionary<string, JsonNode?> Flatten(JsonNode? node, string prefix)
     {

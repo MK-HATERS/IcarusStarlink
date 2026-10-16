@@ -26,6 +26,19 @@ public sealed class PakMountRestageTests : IDisposable
 
     private bool Has(string relative) => File.Exists(Path.Combine(_dir, relative));
 
+    /// <summary>The mount point is the pak's own data: one that climbs back out after Content must not move files out of the folder.</summary>
+    [Fact]
+    public void AMountThatClimbsOutOfContent_StaysInsideTheFolder()
+    {
+        Write("evil.txt");
+
+        var outside = PakMountPoints.RestageUnderGameContent(_dir, "../../../Icarus/Content/../../../../Escaped/");
+
+        Assert.Equal(["evil.txt"], outside);
+        Assert.True(Has("evil.txt"));
+        Assert.False(File.Exists(Path.GetFullPath(Path.Combine(_dir, "..", "Escaped", "evil.txt"))));
+    }
+
     /// <summary>BiggerStacks (Week-253): one table, mounted at its own folder.</summary>
     [Fact]
     public void DeepMount_PutsTheTableUnderData()

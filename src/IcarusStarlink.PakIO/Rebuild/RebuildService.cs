@@ -46,7 +46,6 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             // Inside the try (an audit finding): with the loop outside it, the 2nd pak's extraction
             // throwing (a corrupt pak, a non-zero exit) leaked the 1st pak's already-extracted
             // scratch folder under TEMP forever — the finally below is what guarantees cleanup.
-            var prebuiltPakMountPrefixes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var prebuiltPakPath in prebuiltPakFilePaths)
             {
                 var prebuiltScratchDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"PrebuiltPakScratch_{Guid.NewGuid():N}");
@@ -63,8 +62,6 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                         $"Prebuilt pak '{Path.GetFileName(prebuiltPakPath)}' has {outsideContent.Count} file(s) outside the game's Content folder (e.g. '{outsideContent[0]}') — "
                         + "the merged pak can't reproduce that, so they are folded in at the content root and may not load.");
                 }
-
-                prebuiltPakMountPrefixes[prebuiltPakPath] = "";
             }
 
             // The merge computation (reading every required base-game JSON file, resolving field
@@ -96,7 +93,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                     progress?.Report(new RebuildStageProgress("Folding in prebuilt paks…", 50));
                 }
 
-                FoldInUnmergedPrebuiltPakFiles(prebuiltPakFilePaths, prebuiltPakScratchDirectories, prebuiltPakDiffedPaths, prebuiltPakMountPrefixes, stagingDirectory, report);
+                FoldInUnmergedPrebuiltPakFiles(prebuiltPakFilePaths, prebuiltPakScratchDirectories, prebuiltPakDiffedPaths, stagingDirectory, report);
 
                 progress?.Report(new RebuildStageProgress("Packing…", 75));
                 var result = await PackAndVerifyAsync(
@@ -228,7 +225,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     /// </summary>
     private static void FoldInUnmergedPrebuiltPakFiles(
         IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyDictionary<string, string> prebuiltPakScratchDirectories,
-        IReadOnlyDictionary<string, IReadOnlySet<string>> prebuiltPakDiffedPaths, IReadOnlyDictionary<string, string> prebuiltPakMountPrefixes,
+        IReadOnlyDictionary<string, IReadOnlySet<string>> prebuiltPakDiffedPaths,
         string stagingDirectory, MergeReport report)
     {
         // Scanned once, up front — previously rebuilt from scratch on every single iteration of the
@@ -247,7 +244,6 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
             var prebuiltScratchDirectory = prebuiltPakScratchDirectories[prebuiltPakPath];
             var diffedPaths = prebuiltPakDiffedPaths[prebuiltPakPath];
-            var mountPrefix = prebuiltPakMountPrefixes.GetValueOrDefault(prebuiltPakPath, "");
 
             foreach (var sourceFile in Directory.GetFiles(prebuiltScratchDirectory, "*", SearchOption.AllDirectories))
             {
@@ -257,9 +253,8 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                     continue;
                 }
 
-                // Where this file sits under the game's Content root once its pak's own mount point
-                // is honored (see the extraction loop in RebuildAsync).
-                var relativePath = mountPrefix + scratchRelativePath;
+                // Already its path under the game's Content root (restaged at extraction).
+                var relativePath = scratchRelativePath;
 
                 // Add's own return value doubles as the collision check — false means this exact
                 // relative path was already staged (by a queued mod's own merge/asset output, or an

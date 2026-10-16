@@ -30,8 +30,8 @@ public sealed record ReferenceReport(IReadOnlyList<BrokenReference> Broken, IRea
 /// </summary>
 public static class ReferenceChecker
 {
-    /// <param name="assets">The mod's own files (blueprints can use a row by name, which no table shows), so a row they mention isn't called unused.</param>
-    public static ReferenceReport Check(ExmodPackage package, GameTableIndex game, IReadOnlyCollection<byte[]>? assets = null)
+    /// <param name="assets">Reads the mod's own blueprints (they can use a row by name, which no table shows), so a row they mention isn't called unused. Only called when some row might be.</param>
+    public static ReferenceReport Check(ExmodPackage package, GameTableIndex game, Func<IReadOnlyCollection<byte[]>>? assets = null)
     {
         // What the mod adds: "D_ItemsStatic" → its row names.
         var modRows = package.Rows
@@ -73,10 +73,12 @@ public static class ReferenceChecker
 
         // Item traits only exist to be linked from an item, so an unlinked one the game lacks does nothing.
         var traitTables = TraitTables(game);
+        IReadOnlyCollection<byte[]>? assetBytes = null;
+        bool MentionedByAssets(string name) => MentionedIn(assetBytes ??= assets?.Invoke() ?? [], name);
         var unused = package.Rows
             .Where(r => traitTables.Contains(GameTableIndex.TableNameOf(r.CurrentFile)) && game.Rows(r.CurrentFile) is not null)
             .SelectMany(r => r.FileItems
-                .Where(i => !game.HasRow(r.CurrentFile, i.Name) && !linked.Contains((GameTableIndex.TableNameOf(r.CurrentFile), i.Name)) && !MentionedIn(assets, i.Name))
+                .Where(i => !game.HasRow(r.CurrentFile, i.Name) && !linked.Contains((GameTableIndex.TableNameOf(r.CurrentFile), i.Name)) && !MentionedByAssets(i.Name))
                 .Select(i => new UnusedRow(r.CurrentFile, i.Name)))
             .ToList();
 
@@ -87,16 +89,17 @@ public static class ReferenceChecker
     private static HashSet<string> TraitTables(GameTableIndex game)
     {
         const string itemsStatic = "Items-D_ItemsStatic.json";
-        return [.. (game.Defaults(itemsStatic) ?? [])
+        return (game.Defaults(itemsStatic) ?? [])
             .Select(kv => game.LinkTarget(itemsStatic, kv.Key))
             .OfType<string>()
-            .Where(t => !string.Equals(t, "D_ItemsStatic", StringComparison.OrdinalIgnoreCase))];
+            .Where(t => !string.Equals(t, "D_ItemsStatic", StringComparison.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Unreal assets keep the names they use as plain ASCII in their name table.</summary>
-    private static bool MentionedIn(IReadOnlyCollection<byte[]>? assets, string name)
+    private static bool MentionedIn(IReadOnlyCollection<byte[]> assets, string name)
     {
-        if (assets is null || assets.Count == 0)
+        if (assets.Count == 0)
         {
             return false;
         }

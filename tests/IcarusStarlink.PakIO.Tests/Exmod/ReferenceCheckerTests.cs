@@ -93,7 +93,7 @@ public sealed class ReferenceCheckerTests : IDisposable
         var mod = Mod(("Traits-D_Itemable.json", "Item_Used_By_Blueprint", """{"Weight":5}"""));
         var blueprint = Encoding.ASCII.GetBytes("\0\0Item_Used_By_Blueprint\0\0");
 
-        Assert.True(ReferenceChecker.Check(mod, _game, [blueprint]).IsClean);
+        Assert.True(ReferenceChecker.Check(mod, _game, () => [blueprint]).IsClean);
     }
 
     [Fact]

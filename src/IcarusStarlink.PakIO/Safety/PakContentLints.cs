@@ -10,8 +10,8 @@ namespace IcarusStarlink.PakIO.Safety;
 /// (already restaged under Content, see PakExtraction). Every finding here came from real Nexus
 /// downloads: an author's whole .git folder, Notepad++ session and build script packed into the
 /// mod; a blueprint dumped to .json where the game never reads it; full table copies built against
-/// an older game week; tables shipped without a single change. Warnings mean something is wrong
-/// with the pak itself; notes are harmless in Starlink but worth knowing.
+/// an older game week; tables shipped without a single change. All are warnings, shown at import:
+/// some are harmless inside Starlink, but each says the pak was packed carelessly or is outdated.
 /// </summary>
 public static class PakContentLints
 {
@@ -27,9 +27,10 @@ public static class PakContentLints
             return;
         }
 
+        var outside = outsideContent.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var files = Directory.GetFiles(extractedUnderContent, "*", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(extractedUnderContent, f).Replace('\\', '/'))
-            .Where(f => !outsideContent.Contains(f, StringComparer.OrdinalIgnoreCase))
+            .Where(f => !outside.Contains(f))
             .ToList();
 
         var junk = files.Where(IsUnusedByTheGame).OrderBy(f => f.Count(c => c == '/')).ThenBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
@@ -65,11 +66,14 @@ public static class PakContentLints
             || extension is ".np++" or ".cmd" or ".bat" or ".ps1" or ".sh" or ".sln" or ".csproj" or ".user" or ".suo" or ".bak" or ".tmp" or ".log";
     }
 
-    /// <summary>Not game content: anything that isn't an Unreal asset or a data table, except a pak-root .EXMOD (classic IMM bakes its source in on purpose).</summary>
+    /// <summary>Readmes and pictures authors put in on purpose — not worth a warning.</summary>
+    private static readonly HashSet<string> DocumentExtensions = new(StringComparer.OrdinalIgnoreCase) { ".txt", ".md", ".png", ".jpg", ".jpeg", ".gif", ".webp" };
+
+    /// <summary>Not game content: anything that isn't an Unreal asset or a data table, except a pak-root .EXMOD (classic IMM bakes its source in on purpose) and readmes/pictures.</summary>
     private static bool IsUnusedByTheGame(string relativePath)
     {
         var extension = Path.GetExtension(relativePath);
-        if (extension.Equals(".EXMOD", StringComparison.OrdinalIgnoreCase) && !relativePath.Contains('/'))
+        if ((extension.Equals(".EXMOD", StringComparison.OrdinalIgnoreCase) && !relativePath.Contains('/')) || DocumentExtensions.Contains(extension))
         {
             return false;
         }
