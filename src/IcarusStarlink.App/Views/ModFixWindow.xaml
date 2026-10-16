@@ -160,6 +160,9 @@
                     ToolTip="Back to the suggested fix for everything"/>
             <Button DockPanel.Dock="Left" Content="Open in mod editor" Command="{Binding OpenEditorCommand}" Margin="0,0,8,0"
                     ToolTip="Edit the mod by hand instead (close this first)"/>
+            <Button DockPanel.Dock="Left" Content="{Binding RememberedText}" Command="{Binding ForgetChoicesCommand}" Margin="0,0,8,0"
+                    Visibility="{Binding HasRemembered, Converter={StaticResource BoolToVisibilityConverter}}"
+                    ToolTip="Your earlier choices for this mod are made by themselves, and values you kept aren't listed. This forgets them, so everything is suggested afresh."/>
             <TextBlock DockPanel.Dock="Left" Text="{Binding StatusMessage}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="420" Margin="8,0,0,0"
                        Foreground="{DynamicResource DangerBrush}"/>
             <Button DockPanel.Dock="Right" Content="{Binding ApplyLabel}" Command="{Binding ApplyCommand}" Style="{StaticResource PrimaryButtonStyle}"

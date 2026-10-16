@@ -117,7 +117,7 @@ public sealed partial class ModFixViewModel : ObservableObject
     private readonly ModFixService _service;
     private readonly string _folderName;
     private readonly Func<bool> _isOpenInEditor;
-    private readonly List<ModFixIssueViewModel> _all;
+    private readonly ObservableCollection<ModFixIssueViewModel> _all = [];
 
     public ModFixViewModel(string folderName, string modName, ModHealthReport report, ModFixService service, Func<bool>? isOpenInEditor = null)
     {
@@ -125,9 +125,20 @@ public sealed partial class ModFixViewModel : ObservableObject
         _service = service;
         _isOpenInEditor = isOpenInEditor ?? (() => false);
         ModName = modName;
+        IssuesView = CollectionViewSource.GetDefaultView(_all);
+        IssuesView.Filter = o => o is ModFixIssueViewModel i
+            && (SelectedGroup is null || i.Issue.Kind == SelectedGroup.Kind)
+            && (SearchText.Length == 0 || i.Row.Contains(SearchText, StringComparison.OrdinalIgnoreCase) || i.Field.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+        Load(report);
+    }
+
+    /// <summary>Shows a (new) check result: after Forget, everything is suggested afresh.</summary>
+    private void Load(ModHealthReport report)
+    {
         AuthorChangeCount = report.AuthorChangeCount;
-        _all = [.. report.Issues.Select(i => new ModFixIssueViewModel(i))];
-        foreach (var issue in _all)
+        RememberedCount = _service.RememberedCount(_folderName);
+        _all.Clear();
+        foreach (var issue in report.Issues.Select(i => new ModFixIssueViewModel(i)))
         {
             issue.PropertyChanged += (_, e) =>
             {
@@ -137,38 +148,57 @@ public sealed partial class ModFixViewModel : ObservableObject
                     OnPropertyChanged(nameof(ApplyLabel));
                 }
             };
+            _all.Add(issue);
         }
 
         // The ones that matter most first; "already the game's value" is only tidying up.
-        Groups = [.. _all.GroupBy(i => i.Issue.Kind).OrderBy(g => KindOrder(g.Key)).Select(g => new ModFixGroupViewModel(g.Key, [.. g]))];
-        IssuesView = CollectionViewSource.GetDefaultView(_all);
-        IssuesView.Filter = o => o is ModFixIssueViewModel i
-            && (SelectedGroup is null || i.Issue.Kind == SelectedGroup.Kind)
-            && (SearchText.Length == 0 || i.Row.Contains(SearchText, StringComparison.OrdinalIgnoreCase) || i.Field.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+        Groups.Clear();
+        foreach (var group in _all.GroupBy(i => i.Issue.Kind).OrderBy(g => KindOrder(g.Key)))
+        {
+            Groups.Add(new ModFixGroupViewModel(group.Key, [.. group]));
+        }
+
+        SelectedGroup = null;
         SelectedIssue = _all.FirstOrDefault();
+        OnPropertyChanged(nameof(Summary));
+        OnPropertyChanged(nameof(HasIssues));
+        OnPropertyChanged(nameof(ChangeCount));
+        OnPropertyChanged(nameof(ApplyLabel));
     }
 
     public string WindowTitle => $"Fix mod — {ModName}";
 
     public string ModName { get; }
 
-    public int AuthorChangeCount { get; }
+    [ObservableProperty]
+    private int _authorChangeCount;
 
-    public ObservableCollection<ModFixGroupViewModel> Groups { get; }
+    /// <summary>Choices made before for this mod (they're done by themselves; a kept value isn't listed).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasRemembered), nameof(RememberedText))]
+    private int _rememberedCount;
+
+    public bool HasRemembered => RememberedCount > 0;
+
+    public string RememberedText => $"Forget my {RememberedCount} earlier choice(s)";
+
+    public ObservableCollection<ModFixGroupViewModel> Groups { get; } = [];
 
     public ICollectionView IssuesView { get; }
 
     public bool HasIssues => _all.Count > 0;
 
     public string Summary => _all.Count == 0
-        ? $"Nothing to fix: this mod fits the current game. Its {AuthorChangeCount} change(s) are the author's own."
+        ? $"Nothing to fix: this mod fits the current game. Its {AuthorChangeCount} change(s) are the author's own"
+          + (RememberedCount > 0 ? ", or ones you chose to keep." : ".")
         : $"{_all.Count} thing(s) in this mod don't fit the current game. {_all.Count(i => i.Issue.IsSure)} are sure fixes; "
           + $"the other {_all.Count(i => !i.Issue.IsSure)} are best guesses, already chosen, for you to look over. "
-          + $"The author's own {AuthorChangeCount} change(s) are kept and not listed.";
+          + $"The author's own {AuthorChangeCount} change(s) are kept and not listed. "
+          + "Your choices are remembered for this mod: what you keep isn't asked again, and the rest is done by itself next time.";
 
     public int ChangeCount => _all.Count(i => i.WillChange);
 
-    public string ApplyLabel => $"Apply {ChangeCount} fix(es)";
+    public string ApplyLabel => ChangeCount == 0 ? "Keep all as they are" : $"Apply {ChangeCount} fix(es)";
 
     [ObservableProperty]
     private ModFixGroupViewModel? _selectedGroup;
@@ -249,6 +279,22 @@ public sealed partial class ModFixViewModel : ObservableObject
 
     [RelayCommand]
     private void OpenEditor() => OpenInModEditor?.Invoke();
+
+    /// <summary>Forgets this mod's earlier choices and checks it again, so everything is suggested afresh.</summary>
+    [RelayCommand]
+    private void ForgetChoices()
+    {
+        try
+        {
+            _service.Forget(_folderName);
+            Load(_service.Check(_folderName));
+            StatusMessage = "Earlier choices forgotten: everything below is suggested afresh.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't check the mod again: {ex.Message}";
+        }
+    }
 
     private static int KindOrder(ModIssueKind kind) => kind switch
     {

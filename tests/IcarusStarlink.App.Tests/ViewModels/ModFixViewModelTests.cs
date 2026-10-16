@@ -57,9 +57,11 @@ public sealed class ModFixViewModelTests : IDisposable
         }
     }
 
+    private ModFixService Service => new(_library, DataFolder, decisionsDirectory: Path.Combine(_root, "Library_Meta", "Fix_Choices"));
+
     private ModFixViewModel Open(Func<bool>? editorOpen = null)
     {
-        var service = new ModFixService(_library, DataFolder);
+        var service = Service;
         return new ModFixViewModel(_folder, "Old Mod", service.Check(_folder), service, editorOpen);
     }
 
@@ -93,7 +95,7 @@ public sealed class ModFixViewModelTests : IDisposable
         Assert.False(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
         Assert.Equal(5, Item("Wood_Floor").Fields["Weight"]!.GetValue<int>());
         Assert.Equal(["Food.Cooked", "Food", "Food.Dairy"], ((JsonArray)Item("Cheese").Fields["Manual_Tags"]!["GameplayTags"]!).Select(t => t!["TagName"]!.ToString()));
-        Assert.False(new ModFixService(_library, DataFolder).Check(_folder).HasIssues);
+        Assert.False(Service.Check(_folder).HasIssues);
     }
 
     [Fact]
@@ -125,10 +127,66 @@ public sealed class ModFixViewModelTests : IDisposable
     [Fact]
     public void FixSure_IsTheAutomaticPart()
     {
-        var (applied, toReview) = new ModFixService(_library, DataFolder).FixSure(_folder);
+        var (applied, toReview) = Service.FixSure(_folder);
 
         Assert.Equal(1, applied);
         Assert.Equal(1, toReview);
+        Assert.False(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
+    }
+
+    [Fact]
+    public void YourChoices_AreRemembered_KeptOnesStopBeingAsked()
+    {
+        var vm = Open();
+        vm.Close = () => { };
+        vm.Groups.Single(g => g.Kind == ModIssueKind.MixedList).Issues[0].Choose(ModIssueFix.KeepMod);
+
+        vm.ApplyCommand.Execute(null);
+
+        var again = Open();
+        Assert.False(again.HasIssues);
+        Assert.Equal(1, again.RememberedCount);
+        Assert.Equal(2, again.AuthorChangeCount);
+
+        again.ForgetChoicesCommand.Execute(null);
+        Assert.Equal(0, again.RememberedCount);
+        Assert.Equal(ModIssueKind.MixedList, Assert.Single(again.Groups).Kind);
+    }
+
+    [Fact]
+    public void KeepingEverything_IsRememberedWithoutTouchingTheMod()
+    {
+        var vm = Open();
+        vm.Close = () => { };
+        foreach (var issue in vm.Groups.SelectMany(g => g.Issues))
+        {
+            issue.Choose(ModIssueFix.KeepMod);
+        }
+
+        Assert.Equal("Keep all as they are", vm.ApplyLabel);
+        vm.ApplyCommand.Execute(null);
+
+        Assert.False(_library.HasModBackup(_folder));
+        Assert.False(Open().HasIssues);
+    }
+
+    /// <summary>A converted prebuilt pak stays live: fixing it doesn't mark it edited, and after the next re-conversion the choices are made again.</summary>
+    [Fact]
+    public void AConvertedPak_KeepsRefreshing_AndYourChoicesAreMadeAgainAfterward()
+    {
+        _library.MarkConvertedFromPrebuiltPak(_folder);
+        var original = File.ReadAllText(Directory.GetFiles(_library.GetFolderPath(_folder), "*.EXMOD", SearchOption.AllDirectories).Single());
+        var vm = Open();
+        vm.Close = () => { };
+        vm.ApplyCommand.Execute(null);
+        Assert.False(_library.GetAll().Single(e => e.FolderName == _folder).IsLocallyEdited);
+
+        // What the refresh after a game update does: the mod is converted again from its pak.
+        File.WriteAllText(Directory.GetFiles(_library.GetFolderPath(_folder), "*.EXMOD", SearchOption.AllDirectories).Single(), original);
+        Assert.True(Item("Cheese").Fields["Manual_Tags"]!["GameplayTags"]!.AsArray().Count == 2);
+
+        Assert.Equal(2, Service.ReapplyRemembered(_folder));
+        Assert.Equal(3, Item("Cheese").Fields["Manual_Tags"]!["GameplayTags"]!.AsArray().Count);
         Assert.False(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
     }
 

@@ -130,7 +130,7 @@ public sealed class ModHealthCheckerTests : IDisposable
     public void TheGamesOwnChangeHistory_MarksAValueTheGameHadBefore_AsOld()
     {
         var package = Mod((Items, "Bread", "Weight", 25));
-        var history = new[] { new FieldChange(Items, "Bread", "Weight", JsonValue.Create(25), JsonValue.Create(20), ValueSemantic.Scalar) };
+        var history = new GameValueHistory([new FieldChange(Items, "Bread", "Weight", JsonValue.Create(25), JsonValue.Create(20), ValueSemantic.Scalar)]);
 
         Assert.False(ModHealthChecker.Check(package, _data).HasIssues);
         var issue = Assert.Single(ModHealthChecker.Check(package, _data, gameHistory: history).Issues);
@@ -152,6 +152,59 @@ public sealed class ModHealthCheckerTests : IDisposable
         var renamed = Assert.Single(report.Issues, i => i.Kind == ModIssueKind.MissingRow);
         Assert.Equal("Wood_Floo", renamed.ItemName);
         Assert.Equal("Wood_Floor", renamed.SuggestedRow);
+    }
+
+    [Fact]
+    public void AKeptValue_StaysHidden_UntilTheGameChangesItsSide()
+    {
+        var package = Mod((Items, "Cheese", "Manual_Tags", Tags("Item.Food", "Item.Food.Dairy")));
+        var decisions = new ModFixDecisions();
+        decisions.Remember(ModHealthChecker.Check(package, _data).Issues.Single(), ModIssueFix.KeepMod);
+
+        var report = ModHealthChecker.Check(package, _data, decisions: decisions);
+        Assert.False(report.HasIssues);
+        Assert.Equal(1, report.AuthorChangeCount);
+
+        // A game update adds a tag: the question is new, so it's asked again.
+        AddGameTagToCheese();
+        Assert.Single(ModHealthChecker.Check(package, _data, decisions: decisions).Issues);
+    }
+
+    [Fact]
+    public void AnyOtherChoice_IsMadeByItselfNextTime_EvenAfterTheGameChangesItsSide()
+    {
+        var package = Mod((Items, "Cheese", "Manual_Tags", Tags("Item.Food", "Item.Food.Dairy")));
+        var decisions = new ModFixDecisions();
+        decisions.Remember(ModHealthChecker.Check(package, _data).Issues.Single(), ModIssueFix.UseGame);
+
+        AddGameTagToCheese();
+        var issue = Assert.Single(ModHealthChecker.Check(package, _data, decisions: decisions).Issues);
+
+        Assert.True(issue.IsSure);
+        Assert.Equal(ModIssueFix.UseGame, issue.DefaultFix);
+        Assert.EndsWith("Done as you chose before.", issue.Why);
+    }
+
+    [Fact]
+    public void Apply_FixesEveryEntryOfARowListedTwice_AndKeepsAnEmptyItemItDidntTouch()
+    {
+        var package = Mod((Items, "Wood_Floor", "Manual_Tags", Tags("Building.Wood", "Audio.Shelter")));
+        var row = package.Rows.Single(r => r.CurrentFile == Items);
+        row.FileItems.Add(new ExmodFileItem { Name = "Wood_Floor", Fields = new() { ["Manual_Tags"] = Tags("Building.Wood") } });
+        row.FileItems.Add(new ExmodFileItem { Name = "Being_Built" });
+
+        ModHealthChecker.ApplySure(package, ModHealthChecker.Check(package, _data));
+
+        Assert.Equal(["Being_Built"], row.FileItems.Select(i => i.Name));
+    }
+
+    private void AddGameTagToCheese()
+    {
+        var path = Path.Combine(_data, "Items", "D_ItemsStatic.json");
+        var table = JsonNode.Parse(File.ReadAllText(path))!;
+        var cheese = table["Rows"]!.AsArray().Single(r => r!["Name"]!.ToString() == "Cheese")!;
+        cheese["Manual_Tags"]!["GameplayTags"]!.AsArray().Add(new JsonObject { ["TagName"] = "FieldGuide.Food" });
+        File.WriteAllText(path, table.ToJsonString());
     }
 
     private ExmodPackage Mod(params (string File, string Row, string Field, JsonNode? Value)[] changes)

@@ -322,6 +322,8 @@ public partial class App : Application
             // Old values from recent game updates: a mod still holding one is an old copy.
             GameHistory = () => sp.GetRequiredService<IWeeklyChangeReportStore>().History
                 .SelectMany(report => report.ChangedFiles).SelectMany(file => file.FieldChanges),
+            // Each mod's fix-window choices, so they're made by themselves next time.
+            FixDecisionsDirectory = Path.Combine(appDataDirectory, "Library_Meta", "Fix_Choices"),
         });
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),

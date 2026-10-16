@@ -2163,6 +2163,13 @@ public sealed partial class LibraryViewModel : ObservableObject
 
                 _repository.Refresh();
                 refreshedCount++;
+
+                // The fixes the user chose for this mod in the fix window, made again on the fresh
+                // conversion (its sure ones the converter already left out).
+                if (FixService.ReapplyRemembered(item.FolderName) is > 0 and var reapplied)
+                {
+                    _activityLog.Log($"Made your {reapplied} earlier fix choice(s) again in '{item.Name}' after refreshing it.", ActivityEntryKind.Info);
+                }
             }
             catch (Exception ex)
             {
@@ -2590,7 +2597,10 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     private ModFixService? _modFixService;
 
-    private ModFixService FixService => _modFixService ??= new ModFixService(_repository, _dataFolder, GameHistory);
+    /// <summary>Where each mod's remembered fix choices are kept; set by the app (null: nothing remembered).</summary>
+    public string? FixDecisionsDirectory { get; init; }
+
+    private ModFixService FixService => _modFixService ??= new ModFixService(_repository, _dataFolder, GameHistory, FixDecisionsDirectory);
 
     /// <summary>
     /// The row's warning badge, and right-click › Check against the game &amp; fix…: the fix window,
@@ -3402,7 +3412,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// </summary>
     private ModStalenessResult CheckOneModAgainstCurrentData(
         string folderName, Dictionary<string, JsonObject?> baseTableCache, DefaultSemanticClassifier classifier, bool allowAutoFix,
-        IReadOnlyList<FieldChange>? history = null)
+        GameValueHistory? history = null)
     {
         var folderPath = _repository.GetFolderPath(folderName);
         var package = ExmodFolder.ReadPackageOnly(folderPath);
@@ -3463,7 +3473,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     /// <summary>What in this mod doesn't fit the current game (old copies, mixed lists, renamed rows) — null if it can't be read.</summary>
-    private ModHealthReport? CheckHealth(string folderName, Dictionary<string, JsonObject?> baseTableCache, IReadOnlyList<FieldChange>? history)
+    private ModHealthReport? CheckHealth(string folderName, Dictionary<string, JsonObject?> baseTableCache, GameValueHistory? history)
     {
         try
         {

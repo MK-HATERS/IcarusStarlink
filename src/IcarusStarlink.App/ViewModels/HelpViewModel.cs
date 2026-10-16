@@ -302,6 +302,8 @@ public sealed partial class HelpViewModel : ObservableObject
 
             Every one shows the mod's value next to the game's, with the suggested fix already chosen; change any, or set a whole kind at once. **Apply** backs the mod up first (**Restore latest backup** undoes it). The author's own changes are never listed or touched.
 
+            Your choices are remembered per mod, so you only decide once: a value you keep isn't asked about again (until the mod or the game changes it), and any other choice is made by itself from then on, by **Fix sure problems in every mod** and after every refresh of a prebuilt pak. **Forget my earlier choices** in the fix window starts afresh.
+
             **Fix sure problems in every mod** (Check ▾) makes only the sure fixes in every flagged mod at once. Prebuilt paks get the sure fixes by themselves each time they're converted, including after every **Refresh game data**. **Weekly Changes** shows what the game itself changed.
             """),
 

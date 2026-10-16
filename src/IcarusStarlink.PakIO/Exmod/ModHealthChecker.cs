@@ -98,19 +98,19 @@ public static class ModHealthChecker
         Mixed,
     }
 
+    /// <param name="gameHistory">Old values from recent game updates (build once per pass, share across mods).</param>
+    /// <param name="decisions">This mod's remembered choices: a kept value stops being flagged, any other choice becomes automatic.</param>
     public static ModHealthReport Check(
         ExmodPackage package,
         string dataFolder,
         IDictionary<string, JsonObject?>? baseTableCache = null,
-        IEnumerable<FieldChange>? gameHistory = null,
+        GameValueHistory? gameHistory = null,
         IReadOnlyList<string>? ownAssetPaths = null,
-        ISemanticClassifier? classifier = null)
+        ISemanticClassifier? classifier = null,
+        ModFixDecisions? decisions = null)
     {
         baseTableCache ??= new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
-        var history = (gameHistory ?? [])
-            .Where(c => c.OriginalValue is not null && !c.IsNewItem)
-            .GroupBy(c => Key(c.CurrentFile, c.ItemName, c.FieldName), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.Select(c => c.OriginalValue!).ToList(), StringComparer.OrdinalIgnoreCase);
+        var history = gameHistory ?? GameValueHistory.Empty;
 
         var issues = new List<ModIssue>();
         var authorChanges = 0;
@@ -166,8 +166,7 @@ public static class ModHealthChecker
                         continue;
                     }
 
-                    if (history.TryGetValue(Key(row.CurrentFile, item.Name, field), out var oldValues)
-                        && oldValues.Any(old => JsonNode.DeepEquals(old, value)) && !JsonNode.DeepEquals(value, gameValue))
+                    if (history.WasOldValue(row.CurrentFile, item.Name, field, value) && !JsonNode.DeepEquals(value, gameValue))
                     {
                         rowsWithOld.Add(item.Name);
                         tableIssues.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
@@ -264,32 +263,70 @@ public static class ModHealthChecker
                     : $"The game no longer has this row. It may have been renamed to '{suggestion.SuggestedItemName}', or this is the mod's own new row."));
         }
 
+        // What the user decided before for this mod: a value they kept is theirs now (unless either
+        // side has changed since); any other choice is done by itself from now on.
+        if (decisions is { Count: > 0 })
+        {
+            var remembered = new List<ModIssue>(issues.Count);
+            foreach (var issue in issues)
+            {
+                if (!decisions.TryGet(issue, out var fix))
+                {
+                    remembered.Add(issue);
+                }
+                else if (fix == ModIssueFix.KeepMod)
+                {
+                    authorChanges++;
+                }
+                else if (issue.Choices.Contains(fix))
+                {
+                    remembered.Add(issue with { DefaultFix = fix, IsSure = true, Why = issue.Why + " Done as you chose before." });
+                }
+                else
+                {
+                    remembered.Add(issue);
+                }
+            }
+
+            issues = remembered;
+        }
+
         return new ModHealthReport(issues, authorChanges);
     }
 
     /// <summary>Applies the fixes to the package in memory; returns how many were applied. The caller backs the mod up and writes it.</summary>
     public static int Apply(ExmodPackage package, IEnumerable<(ModIssue Issue, ModIssueFix Fix)> fixes)
     {
-        var applied = 0;
-        foreach (var (issue, fix) in fixes)
+        // Field fixes first, through an index (a wholesale-copied mod has a thousand-plus fixes over
+        // hundreds of rows); row renames and removals last, since they change the names indexed.
+        var changing = fixes.Where(f => f.Fix != ModIssueFix.KeepMod)
+            .OrderBy(f => f.Fix is ModIssueFix.RenameRow or ModIssueFix.RemoveRow ? 1 : 0)
+            .ToList();
+        var rowsByFile = new Dictionary<string, ExmodFileRow>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in package.Rows)
         {
-            if (fix == ModIssueFix.KeepMod)
+            rowsByFile.TryAdd(row.CurrentFile, row);
+        }
+
+        var itemsByRow = new Dictionary<ExmodFileRow, ILookup<string, ExmodFileItem>>();
+        var touched = new HashSet<(string File, string Item)>(new FileItemComparer());
+        var applied = 0;
+        foreach (var (issue, fix) in changing)
+        {
+            if (!rowsByFile.TryGetValue(issue.CurrentFile, out var row))
             {
                 continue;
             }
 
-            var row = package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, issue.CurrentFile, StringComparison.OrdinalIgnoreCase));
-            if (row is null)
-            {
-                continue;
-            }
-
-            var items = row.FileItems.Where(i => string.Equals(i.Name, issue.ItemName, StringComparison.OrdinalIgnoreCase)).ToList();
+            var items = fix is ModIssueFix.RenameRow or ModIssueFix.RemoveRow
+                ? row.FileItems.Where(i => string.Equals(i.Name, issue.ItemName, StringComparison.OrdinalIgnoreCase)).ToList()
+                : (itemsByRow.TryGetValue(row, out var lookup) ? lookup : itemsByRow[row] = row.FileItems.ToLookup(i => i.Name, StringComparer.OrdinalIgnoreCase))[issue.ItemName].ToList();
             if (items.Count == 0)
             {
                 continue;
             }
 
+            touched.Add((row.CurrentFile, issue.ItemName));
             switch (fix)
             {
                 case ModIssueFix.UseGame when issue.FieldName is { } field:
@@ -312,15 +349,25 @@ public static class ModHealthChecker
             applied++;
         }
 
-        // An item left with nothing to change is gone from the mod; a file left with no items too.
-        foreach (var row in package.Rows)
+        // An item a fix left with nothing to change is gone from the mod; a file left with no items
+        // too. Items that were already empty (one being built in the editor) are left alone.
+        var touchedFiles = touched.Select(t => t.File).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in package.Rows.Where(r => touchedFiles.Contains(r.CurrentFile)))
         {
-            row.FileItems.RemoveAll(i => i.Fields.Count == 0 && fixes.Any(f => f.Fix != ModIssueFix.KeepMod && string.Equals(f.Issue.ItemName, i.Name, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(f.Issue.CurrentFile, row.CurrentFile, StringComparison.OrdinalIgnoreCase)));
+            row.FileItems.RemoveAll(i => i.Fields.Count == 0 && touched.Contains((row.CurrentFile, i.Name)));
         }
 
-        package.Rows.RemoveAll(r => r.FileItems.Count == 0 && !ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile) && fixes.Any(f => string.Equals(f.Issue.CurrentFile, r.CurrentFile, StringComparison.OrdinalIgnoreCase)));
+        package.Rows.RemoveAll(r => r.FileItems.Count == 0 && touchedFiles.Contains(r.CurrentFile) && !ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile));
         return applied;
+    }
+
+    private sealed class FileItemComparer : IEqualityComparer<(string File, string Item)>
+    {
+        public bool Equals((string File, string Item) x, (string File, string Item) y) =>
+            string.Equals(x.File, y.File, StringComparison.OrdinalIgnoreCase) && string.Equals(x.Item, y.Item, StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode((string File, string Item) obj) =>
+            HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(obj.File), StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Item));
     }
 
     /// <summary>Applies every sure fix (the automatic part); returns how many.</summary>
@@ -549,8 +596,6 @@ public static class ModHealthChecker
                 break;
         }
     }
-
-    private static string Key(string file, string row, string field) => $"{file}|{row}|{field}";
 
     private static JsonObject? Table(string currentFile, string dataFolder, IDictionary<string, JsonObject?> cache)
     {
