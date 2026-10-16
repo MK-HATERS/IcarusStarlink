@@ -2720,13 +2720,14 @@ public sealed partial class LibraryViewModel : ObservableObject
             {
                 var cache = new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
                 var history = FixService.History();
+                var addedRows = FixService.LibraryAddedRows();
                 var outcome = new Dictionary<string, (int Applied, ModHealthReport After)>(StringComparer.OrdinalIgnoreCase);
                 foreach (var folder in folders)
                 {
                     try
                     {
-                        var (applied, _) = FixService.FixSure(folder, cache, history);
-                        outcome[folder] = (applied, FixService.Check(folder, cache, history));
+                        var (applied, _) = FixService.FixSure(folder, cache, history, addedRows);
+                        outcome[folder] = (applied, FixService.Check(folder, cache, history, addedRows));
                     }
                     catch (Exception)
                     {
@@ -3359,6 +3360,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 var baseTableCache = new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
                 var classifier = new DefaultSemanticClassifier();
                 var history = FixService.History();
+                _passAddedRows = FixService.LibraryAddedRows();
                 var results = new Dictionary<string, ModStalenessResult>();
 
                 foreach (var folderName in folderNames)
@@ -3511,12 +3513,15 @@ public sealed partial class LibraryViewModel : ObservableObject
         return new ModStalenessResult(remaining, suggestionHint, activityMessages, backupTaken, packageChanged, CheckHealth(folderName, baseTableCache, history));
     }
 
+    /// <summary>The rows Library mods add, gathered once per whole-library check (see ModFixService.LibraryAddedRows).</summary>
+    private IReadOnlySet<string>? _passAddedRows;
+
     /// <summary>What in this mod doesn't fit the current game (old copies, mixed lists, renamed rows) — null if it can't be read.</summary>
     private ModHealthReport? CheckHealth(string folderName, Dictionary<string, JsonObject?> baseTableCache, GameValueHistory? history)
     {
         try
         {
-            return FixService.Check(folderName, baseTableCache, history);
+            return FixService.Check(folderName, baseTableCache, history, _passAddedRows);
         }
         catch (Exception)
         {

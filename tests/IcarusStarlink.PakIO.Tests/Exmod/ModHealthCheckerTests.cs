@@ -125,13 +125,28 @@ public sealed class ModHealthCheckerTests : IDisposable
         var own = Mod((Items, "Canteen", "Consumable", new JsonObject { ["RowName"] = "Canteen_Drink" }), ("Traits-D_Consumable.json", "Canteen_Drink", "Modifier", 5));
 
         var issue = Assert.Single(ModHealthChecker.Check(broken, _data).Issues);
-        Assert.Equal(ModIssueKind.OldCopy, issue.Kind);
+        Assert.Equal(ModIssueKind.BrokenLink, issue.Kind);
         Assert.True(issue.IsSure);
         Assert.Contains("'Canteen' in D_Consumable", issue.Why);
         Assert.Contains("'BasicWater'", issue.Why);
 
         Assert.False(ModHealthChecker.Check(real, _data).HasIssues);
         Assert.DoesNotContain(ModHealthChecker.Check(own, _data).Issues, i => i.ItemName == "Canteen");
+
+        // An add-on linking to a row another Library mod adds is a dependency, not a broken link.
+        var addOnFor = new HashSet<string> { ModHealthChecker.AddedRowKey("Traits-D_Consumable.json", "Canteen") };
+        Assert.False(ModHealthChecker.Check(broken, _data, rowsOtherModsAdd: addOnFor).HasIssues);
+    }
+
+    /// <summary>Converting a prebuilt pak can't see the other Library mods, so it never makes broken-link fixes itself.</summary>
+    [Fact]
+    public void AddedRows_ListsTheRowsAModAdds_NotTheGamesOwn()
+    {
+        var mod = Mod((Items, "Canteen", "Weight", 3), ("Traits-D_Consumable.json", "Canteen_Drink", "Modifier", 5), ("Traits-D_Consumable.json", "Juice", "Modifier", 1));
+
+        var added = ModHealthChecker.AddedRows(mod, new GameTableIndex(_data)).ToList();
+
+        Assert.Equal([ModHealthChecker.AddedRowKey("Traits-D_Consumable.json", "Canteen_Drink")], added);
     }
 
     [Fact]

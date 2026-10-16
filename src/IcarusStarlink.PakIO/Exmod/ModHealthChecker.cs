@@ -21,6 +21,13 @@ public enum ModIssueKind
 
     /// <summary>A small edit to a row the game no longer has.</summary>
     MissingRow,
+
+    /// <summary>
+    /// A link to a row the game doesn't have (and no mod in the Library adds), where the game's own
+    /// link is real: does nothing in game (a canteen you can't drink from, an item with no model).
+    /// Sure, but only made where every Library mod's new rows are known (not while converting a pak).
+    /// </summary>
+    BrokenLink,
 }
 
 /// <summary>How to handle one issue.</summary>
@@ -121,7 +128,8 @@ public static class ModHealthChecker
         ISemanticClassifier? classifier = null,
         ModFixDecisions? decisions = null,
         bool fromPrebuiltPak = false,
-        GameTableIndex? gameIndex = null)
+        GameTableIndex? gameIndex = null,
+        IReadOnlySet<string>? rowsOtherModsAdd = null)
     {
         // Which table a link field points into, and whether a row is there (share one across a pass).
         gameIndex ??= new GameTableIndex(dataFolder);
@@ -211,11 +219,11 @@ public static class ModHealthChecker
                                 ModIssueFix.Merge, IsSure: false, MixedWhy(value, gameValue)));
                             break;
                         default:
-                            if (BrokenLink(gameIndex, package, row.CurrentFile, field, value, gameValue) is { } broken)
+                            if (BrokenLink(gameIndex, package, row.CurrentFile, field, value, gameValue, rowsOtherModsAdd) is { } broken)
                             {
                                 // A link to a row the game doesn't have does nothing in game (an item that
                                 // can't be used, a recipe that never shows): never what anyone meant.
-                                tableIssues.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
+                                tableIssues.Add(new(ModIssueKind.BrokenLink, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
                                     ModIssueFix.UseGame, IsSure: true,
                                     $"Links to '{broken.Row}' in {broken.Table}, which the game doesn't have (any more), so this does nothing in game. The game links it to '{broken.GameRow}'."));
                                 rowsWithOld.Add(item.Name);
@@ -576,7 +584,8 @@ public static class ModHealthChecker
     /// The target table is the link's own DataTableName, else the field's in the table's Defaults.
     /// </summary>
     private static (string Row, string Table, string GameRow)? BrokenLink(
-        GameTableIndex index, ExmodPackage package, string currentFile, string field, JsonNode? mod, JsonNode? game)
+        GameTableIndex index, ExmodPackage package, string currentFile, string field, JsonNode? mod, JsonNode? game,
+        IReadOnlySet<string>? rowsOtherModsAdd)
     {
         if (mod is not JsonObject link || link["RowName"] is not JsonValue rowValue || !rowValue.TryGetValue<string>(out var rowName)
             || rowName.Length == 0 || string.Equals(rowName, "None", StringComparison.OrdinalIgnoreCase)
@@ -592,9 +601,31 @@ public static class ModHealthChecker
             return null;
         }
 
+        // A row this mod adds, or another Library mod does (an add-on linking to the mod it's for).
         var modAddsIt = package.Rows.Any(r => string.Equals(r.CurrentFile, targetFile, StringComparison.OrdinalIgnoreCase)
             && r.FileItems.Any(i => string.Equals(i.Name, rowName, StringComparison.OrdinalIgnoreCase)));
-        return modAddsIt ? null : (rowName, table, gameRow);
+        var anotherModAddsIt = rowsOtherModsAdd?.Contains(AddedRowKey(targetFile, rowName)) == true;
+        return modAddsIt || anotherModAddsIt ? null : (rowName, table, gameRow);
+    }
+
+    /// <summary>The key for <c>rowsOtherModsAdd</c>: a row a mod adds to a table ("Traits-D_Consumable.json|canteen_drink").</summary>
+    public static string AddedRowKey(string currentFile, string rowName) => $"{currentFile.ToLowerInvariant()}|{rowName.ToLowerInvariant()}";
+
+    /// <summary>The rows a mod adds (not in the game), as AddedRowKey keys: collect over the Library for <c>rowsOtherModsAdd</c>.</summary>
+    public static IEnumerable<string> AddedRows(ExmodPackage package, GameTableIndex index)
+    {
+        foreach (var row in package.Rows.Where(r => !ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile)))
+        {
+            if (index.Rows(row.CurrentFile) is null)
+            {
+                continue;
+            }
+
+            foreach (var item in row.FileItems.Where(i => !index.HasRow(row.CurrentFile, i.Name)))
+            {
+                yield return AddedRowKey(row.CurrentFile, item.Name);
+            }
+        }
     }
 
     private static string OlderWhy(JsonNode? mod, JsonNode? game)

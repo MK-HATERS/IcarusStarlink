@@ -43,11 +43,14 @@ public sealed class ModFixService(
         }
     }
 
-    public ModHealthReport Check(string folderName, IDictionary<string, JsonObject?>? baseTableCache = null, GameValueHistory? history = null)
+    /// <param name="libraryAddedRows">The rows every Library mod adds (LibraryAddedRows: share one across a pass), so a link to another mod's new row isn't called broken.</param>
+    public ModHealthReport Check(string folderName, IDictionary<string, JsonObject?>? baseTableCache = null, GameValueHistory? history = null,
+        IReadOnlySet<string>? libraryAddedRows = null)
     {
         var package = ExmodFolder.ReadPackageOnly(repository.GetFolderPath(folderName));
         return ModHealthChecker.Check(package, dataFolder, baseTableCache, history ?? History(), repository.ListAssetPaths(folderName),
-            decisions: LoadDecisions(folderName), fromPrebuiltPak: Entry(folderName)?.ConvertedFromPrebuiltPak == true, gameIndex: GameIndex);
+            decisions: LoadDecisions(folderName), fromPrebuiltPak: Entry(folderName)?.ConvertedFromPrebuiltPak == true, gameIndex: GameIndex,
+            rowsOtherModsAdd: libraryAddedRows ?? LibraryAddedRows());
     }
 
     /// <summary>The game's recorded old values from recent Refresh game data runs, indexed once (share it across a whole-library pass).</summary>
@@ -88,12 +91,14 @@ public sealed class ModFixService(
     }
 
     /// <summary>The automatic part for one mod: every sure fix, remembered choices included. Returns (applied, still to look over).</summary>
-    public (int Applied, int ToReview) FixSure(string folderName, IDictionary<string, JsonObject?>? baseTableCache = null, GameValueHistory? history = null)
+    public (int Applied, int ToReview) FixSure(string folderName, IDictionary<string, JsonObject?>? baseTableCache = null, GameValueHistory? history = null,
+        IReadOnlySet<string>? libraryAddedRows = null)
     {
+        libraryAddedRows ??= LibraryAddedRows();
         // A fix can reveal another (a renamed row whose value turns out to be the game's): a few
         // rounds, each backed up, until nothing sure is left.
         var applied = 0;
-        var report = Check(folderName, baseTableCache, history);
+        var report = Check(folderName, baseTableCache, history, libraryAddedRows);
         for (var round = 0; round < 3 && report.SureCount > 0; round++)
         {
             var thisRound = Write(folderName, [.. report.Issues.Where(i => i.IsSure).Select(i => (i, i.DefaultFix))]);
@@ -103,7 +108,7 @@ public sealed class ModFixService(
             }
 
             applied += thisRound;
-            report = Check(folderName, baseTableCache, history);
+            report = Check(folderName, baseTableCache, history, libraryAddedRows);
         }
 
         return (applied, report.ReviewCount);
@@ -156,6 +161,25 @@ public sealed class ModFixService(
         }
 
         return applied;
+    }
+
+    /// <summary>Every row the mods in the Library add (not in the game): a link to one of them is a dependency, not a broken link.</summary>
+    public IReadOnlySet<string> LibraryAddedRows()
+    {
+        var rows = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in repository.GetAll().Where(e => !e.IsOpaquePak))
+        {
+            try
+            {
+                rows.UnionWith(ModHealthChecker.AddedRows(ExmodFolder.ReadPackageOnly(repository.GetFolderPath(entry.FolderName)), GameIndex));
+            }
+            catch (Exception)
+            {
+                // An unreadable mod adds nothing to the set; it's reported when it's checked itself.
+            }
+        }
+
+        return rows;
     }
 
     private LibraryEntry? Entry(string folderName) =>

@@ -385,6 +385,7 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.OldCopy => 0,
         ModIssueKind.LikelyOld => 1,
         ModIssueKind.MixedList => 2,
+        ModIssueKind.BrokenLink => -1,
         ModIssueKind.MissingRow => 3,
         _ => 4,
     };
@@ -395,6 +396,7 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.SameAsGame => "Same as the game (tidy-up)",
         ModIssueKind.LikelyOld => "Probably old",
         ModIssueKind.MixedList => "Lists both changed",
+        ModIssueKind.BrokenLink => "Links to things the game doesn't have",
         ModIssueKind.MissingRow => "Rows the game renamed",
         _ => kind.ToString(),
     };
@@ -405,6 +407,7 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.SameAsGame => "Nothing wrong: the mod sets these to exactly what the game already has, so they change nothing. Taking them out only makes the mod smaller; the game plays the same.",
         ModIssueKind.LikelyOld => "Changes on rows the mod copied wholesale from an older game version. Most likely old values, not the author's idea; the suggestion is the game's current value.",
         ModIssueKind.MixedList => "The mod added entries to a list, and the game has entries the mod lacks (most likely added since). Merge keeps both.",
+        ModIssueKind.BrokenLink => "The mod links these to something the game (and no mod in your Library) has, so in game they do nothing: a canteen you can't drink from, food with no model. The fix links each back to what the game uses.",
         ModIssueKind.MissingRow => "The mod changes a row the game no longer has under that name.",
         _ => "",
     };
