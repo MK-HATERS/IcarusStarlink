@@ -2585,6 +2585,140 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
     }
 
+    /// <summary>The game's recorded changes from recent Refresh game data runs; set by the app (old values a mod may still hold).</summary>
+    public Func<IEnumerable<FieldChange>>? GameHistory { get; init; }
+
+    private ModFixService? _modFixService;
+
+    private ModFixService FixService => _modFixService ??= new ModFixService(_repository, _dataFolder, GameHistory);
+
+    /// <summary>
+    /// The row's warning badge, and right-click › Check against the game &amp; fix…: the fix window,
+    /// listing what in this mod doesn't fit the current game with a fix for each. Checks the mod
+    /// now when no whole-library check has yet.
+    /// </summary>
+    [RelayCommand]
+    private void OpenModFix(LibraryItemViewModel? item)
+    {
+        if (item is null || item.IsOpaquePak)
+        {
+            return;
+        }
+
+        if (!Directory.Exists(_dataFolder) || !Directory.EnumerateFiles(_dataFolder, "*.json", SearchOption.AllDirectories).Any())
+        {
+            StatusMessage = "No game data found — run Refresh game data in Settings first.";
+            return;
+        }
+
+        try
+        {
+            var folderName = item.FolderName;
+            var report = FixService.Check(folderName);
+            item.SetHealth(report);
+            var viewModel = new ModFixViewModel(folderName, item.Name, report, FixService, () => _openEditorCountByFolder.ContainsKey(folderName));
+            var window = new ModFixWindow(viewModel) { Owner = Application.Current.MainWindow };
+            viewModel.OpenInModEditor = () =>
+            {
+                var first = report.Issues.FirstOrDefault();
+                window.Close();
+                OpenEditor(folderName, first is null ? null : (first.CurrentFile, first.ItemName));
+            };
+
+            if (window.ShowDialog() == true)
+            {
+                item.SetHealth(FixService.Check(folderName));
+                item.NotifyBackupStateChanged();
+                item.NotifyRepairedFromDisk();
+                if (ReferenceEquals(item, SelectedItem))
+                {
+                    item.EnsureDetailsLoaded();
+                }
+
+                StatusMessage = viewModel.StatusMessage;
+                _activityLog.Log($"Fixed '{item.Name}' to fit the current game (backed up first).", ActivityEntryKind.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't check '{item.Name}': {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// The automatic part: every sure fix (old copies of game data, values that already match the
+    /// game, certain renames) in every mod the last check flagged, each backed up first. What needs
+    /// a look stays flagged for the fix window.
+    /// </summary>
+    [RelayCommand]
+    private async Task FixSureProblemsAsync()
+    {
+        if (IsCheckingStaleness)
+        {
+            return;
+        }
+
+        var flagged = AllLibraryItems().Where(i => i.Health is { SureCount: > 0 } && !i.IsOpaquePak).ToList();
+        if (flagged.Count == 0)
+        {
+            StalenessCheckStatusMessage = "Nothing sure to fix. Run Check mods against game data first, or click a flagged row's warning badge.";
+            return;
+        }
+
+        var skipped = flagged.Where(i => _openEditorCountByFolder.ContainsKey(i.FolderName)).Select(i => i.Name).ToList();
+        var folders = flagged.Where(i => !_openEditorCountByFolder.ContainsKey(i.FolderName)).Select(i => i.FolderName).ToList();
+        IsCheckingStaleness = true;
+        try
+        {
+            var results = await Task.Run(() =>
+            {
+                var cache = new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
+                var history = FixService.History();
+                var outcome = new Dictionary<string, (int Applied, ModHealthReport After)>(StringComparer.OrdinalIgnoreCase);
+                foreach (var folder in folders)
+                {
+                    try
+                    {
+                        var (applied, _) = FixService.FixSure(folder, cache, history);
+                        outcome[folder] = (applied, FixService.Check(folder, cache, history));
+                    }
+                    catch (Exception)
+                    {
+                        // One unreadable mod doesn't stop the others.
+                    }
+                }
+
+                return outcome;
+            });
+
+            var total = 0;
+            foreach (var item in flagged)
+            {
+                if (results.TryGetValue(item.FolderName, out var result))
+                {
+                    item.SetHealth(result.After);
+                    if (result.Applied > 0)
+                    {
+                        total += result.Applied;
+                        item.NotifyBackupStateChanged();
+                        item.NotifyRepairedFromDisk();
+                        _activityLog.Log($"Fixed {result.Applied} thing(s) in '{item.Name}' to fit the current game (backed up first).", ActivityEntryKind.Success);
+                    }
+                }
+            }
+
+            var left = flagged.Count(i => i.HasModIssues);
+            StalenessCheckStatusMessage = $"Fixed {total} sure thing(s) in {results.Count(r => r.Value.Applied > 0)} mod(s), each backed up first."
+                + (left > 0 ? $" {left} mod(s) still have things to look over: click a row's warning badge." : "")
+                + (skipped.Count > 0 ? $" Skipped (open in the mod editor): {string.Join(", ", skipped)}." : "");
+            SelectedItem?.EnsureDetailsLoaded();
+        }
+        finally
+        {
+            IsCheckingStaleness = false;
+        }
+    }
+
     /// <summary>
     /// The context-menu's own Delete — operates on the WHOLE bulk selection, not just the row that
     /// happened to be right-clicked: code-behind's EnsureBulkSelected already folded the
@@ -3104,7 +3238,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         string? SuggestionHint,
         IReadOnlyList<string> AutoFixActivityMessages,
         bool BackupTaken,
-        bool PackageChanged = false);
+        bool PackageChanged = false,
+        ModHealthReport? Health = null);
 
     /// <summary>
     /// A separate question and a separate action from CheckForUpdatesAsync above (that's Nexus/
@@ -3177,6 +3312,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 // avoidable cost. Also doubles as the fix suggester's own candidate-row pool per file.
                 var baseTableCache = new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
                 var classifier = new DefaultSemanticClassifier();
+                var history = FixService.History();
                 var results = new Dictionary<string, ModStalenessResult>();
 
                 foreach (var folderName in folderNames)
@@ -3184,7 +3320,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                     try
                     {
                         results[folderName] = CheckOneModAgainstCurrentData(
-                            folderName, baseTableCache, classifier, allowAutoFix: !foldersWithOpenEditors.Contains(folderName));
+                            folderName, baseTableCache, classifier, allowAutoFix: !foldersWithOpenEditors.Contains(folderName), history);
                     }
                     catch (Exception)
                     {
@@ -3207,7 +3343,8 @@ public sealed partial class LibraryViewModel : ObservableObject
                 }
 
                 item.SetStaleItems(result.RemainingStaleItems, result.SuggestionHint);
-                if (result.RemainingStaleItems.Count > 0)
+                item.SetHealth(result.Health);
+                if (result.Health is { HasIssues: true })
                 {
                     flaggedCount++;
                 }
@@ -3244,8 +3381,8 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
 
             messageParts.Add(flaggedCount > 0
-                ? $"{flaggedCount} mod(s) still have possibly stale items — click a flagged row's warning badge to review."
-                : "No possibly stale items remain.");
+                ? $"{flaggedCount} mod(s) don't fully fit the current game — click a flagged row's warning badge to see and fix them, or Check ▾ › Fix sure problems in every mod."
+                : "Every mod fits the current game.");
 
             StalenessCheckStatusMessage = string.Join(" ", messageParts);
         }
@@ -3264,7 +3401,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// it just never backs up or writes anything for this mod this pass.
     /// </summary>
     private ModStalenessResult CheckOneModAgainstCurrentData(
-        string folderName, Dictionary<string, JsonObject?> baseTableCache, DefaultSemanticClassifier classifier, bool allowAutoFix)
+        string folderName, Dictionary<string, JsonObject?> baseTableCache, DefaultSemanticClassifier classifier, bool allowAutoFix,
+        IReadOnlyList<FieldChange>? history = null)
     {
         var folderPath = _repository.GetFolderPath(folderName);
         var package = ExmodFolder.ReadPackageOnly(folderPath);
@@ -3273,7 +3411,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         var staleItems = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, classifier, baseTableCache, ownAssetPaths);
         if (staleItems.Count == 0)
         {
-            return new ModStalenessResult([], null, [], BackupTaken: false);
+            return new ModStalenessResult([], null, [], BackupTaken: false, Health: CheckHealth(folderName, baseTableCache, history));
         }
 
         var remaining = new List<ExmodStalenessChecker.StaleItem>();
@@ -3321,7 +3459,20 @@ public sealed partial class LibraryViewModel : ObservableObject
             _repository.MarkLocallyEdited(folderName);
         }
 
-        return new ModStalenessResult(remaining, suggestionHint, activityMessages, backupTaken, packageChanged);
+        return new ModStalenessResult(remaining, suggestionHint, activityMessages, backupTaken, packageChanged, CheckHealth(folderName, baseTableCache, history));
+    }
+
+    /// <summary>What in this mod doesn't fit the current game (old copies, mixed lists, renamed rows) — null if it can't be read.</summary>
+    private ModHealthReport? CheckHealth(string folderName, Dictionary<string, JsonObject?> baseTableCache, IReadOnlyList<FieldChange>? history)
+    {
+        try
+        {
+            return FixService.Check(folderName, baseTableCache, history);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     /// <summary>

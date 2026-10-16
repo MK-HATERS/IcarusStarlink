@@ -269,6 +269,11 @@
                                   Command="{Binding PlacementTarget.Tag.RenameItemCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
                                   ToolTip="Change how this mod displays in Library — its real folder/files aren't touched"/>
+                        <MenuItem Header="Check against the game &amp; fix…"
+                                  Command="{Binding PlacementTarget.Tag.OpenModFixCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}" IsEnabled="{Binding CanEdit}"
+                                  ToolTip="Compares this mod with the current game: old copies of game data (from a mod made for an older version), lists both changed, renamed rows. Shows each with a fix to choose. Greyed out: a prebuilt pak (make it editable first)."
+                                  ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="Convert to EXMOD…"
                                   Command="{Binding PlacementTarget.Tag.ConvertToExmodCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding IsOpaquePak}"
@@ -346,20 +351,14 @@
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
                           ToolTip="A rebuilt merged pak, re-imported as its own mod"
                           Visibility="{Binding IsMergedPack, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                    <!-- Set by "Check mods against game data" (diffs against the currently-extracted
-                         Data folder) — unlike the two plain indicator glyphs above, this one is
-                         clickable: it opens the editor with the first flagged item pre-selected. -->
+                    <!-- Set by "Check mods against game data" (against the current game data):
+                         clickable, it opens the fix window for what doesn't fit the game. -->
                     <Button Style="{StaticResource IconButtonStyle}" Width="14" Height="14" Padding="0" Margin="0,0,5,0"
-                            Command="{Binding DataContext.OpenStaleItemCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            Command="{Binding DataContext.OpenModFixCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
-                            AutomationProperties.Name="Possibly stale items"
-                            Visibility="{Binding HasPossiblyStaleItems, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <Button.ToolTip>
-                            <MultiBinding Converter="{StaticResource StaleItemTooltipConverter}">
-                                <Binding Path="StaleItemCount"/>
-                                <Binding Path="StaleItemSuggestionHint"/>
-                            </MultiBinding>
-                        </Button.ToolTip>
+                            AutomationProperties.Name="Doesn't fully fit the current game"
+                            ToolTip="{Binding ModIssuesTooltip}"
+                            Visibility="{Binding HasModIssues, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Path Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.4"
                               StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"/>
                     </Button>
@@ -649,6 +648,8 @@
                                               ToolTip="Updates every mod the last check found outdated — catalog mods in place, Nexus mods listed on the Nexus page for one-click download (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Check mods against game data" Command="{Binding CheckModsAgainstCurrentDataCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
                                               ToolTip="Diffs every mod against the currently-extracted game data — flags items that look like they're editing a row this game version no longer has, and auto-fixes any confident, unambiguous rename (each mod is backed up first) (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
+                                    <MenuItem Header="Fix sure problems in every mod" Command="{Binding FixSureProblemsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
+                                              ToolTip="After Check mods against game data: makes every sure fix in every flagged mod (old copies of game data, values that already match the game), each mod backed up first. What needs a look stays flagged. (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Check endorsements" Command="{Binding CheckEndorsementsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
                                               ToolTip="Fetches your Nexus account's own endorsement history and shows which of your Nexus-linked mods you haven't endorsed yet (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Make prebuilt paks editable…" Command="{Binding ConvertAllOpaqueModsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"

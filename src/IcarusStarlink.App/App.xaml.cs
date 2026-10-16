@@ -317,7 +317,12 @@ public partial class App : Application
             sp.GetRequiredService<IPrebuiltPakSourceStore>(),
             Path.Combine(appDataDirectory, "Cache", "Thumbnails"),
             Path.Combine(appDataDirectory, "Cache", "PakPreviews"),
-            sp.GetRequiredService<IDialogService>()));
+            sp.GetRequiredService<IDialogService>())
+        {
+            // Old values from recent game updates: a mod still holding one is an old copy.
+            GameHistory = () => sp.GetRequiredService<IWeeklyChangeReportStore>().History
+                .SelectMany(report => report.ChangedFiles).SelectMany(file => file.FieldChanges),
+        });
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IRebuildService>(),

@@ -31,10 +31,10 @@ public sealed partial class HelpViewModel : ObservableObject
             - If a download holds several alternatives of one mod (different sizes or presets), you're asked which one to install, since the author meant you to pick one. If Starlink can't work out how to install something, the **Install manually** window opens (see "When an install goes wrong").
             - Importing also checks how the mod was packed and warns in the Activity panel (the bell) about: leftover build files (a `.git` folder, editor session files), files outside the game's Content folder, data tables older than your game (missing rows the game has since added), and tables shipped without a single change.
             - **New mod…** creates a mod from a starting point (blank, Quality of life, a new item, or a classic IMM template; see "Making your own mods") and opens it in the mod editor.
-            - **Check ▾**: **Check for updates**, **Update all**, **Check mods against game data** (see "Making your own mods"), **Check endorsements**, **Make prebuilt paks editable…**.
+            - **Check ▾**: **Check for updates**, **Update all**, **Check mods against game data** and **Fix sure problems in every mod** (see "Making your own mods"), **Check endorsements**, **Make prebuilt paks editable…**.
             - Right-click a mod: **Rename…**, **Convert to EXMOD…**, **Create mod backup** / **Restore latest backup**, **See what changed vs previous version…**, **Find in Database**, **Search Nexus for this**, **Open on Nexus**, **Link to Nexus ID…**, **Endorse** / **Don't endorse (stop asking)**, **Delete**. Right-click a UE4SS row for **Open folder**, **Set minimum UE4SS version…** and the Nexus link items.
             - Double-click a mod for its details. The **Changes** tab starts with **IN SHORT**: a few lines like "D_Itemable · MaxStack ×10 on 1337 rows", worked out against your current game data, before the full list.
-            - Pin/Favorite/Notes are yours to organize with; none of them affect merging. ✎ means you changed it in the mod editor; a warning badge means "Check mods against game data" flagged something (click it to open the flagged row).
+            - Pin/Favorite/Notes are yours to organize with; none of them affect merging. ✎ means you changed it in the mod editor; a warning badge means the mod doesn't fully fit the current game (click it to see what and fix it). Right-click › **Check against the game & fix…** does the same for one mod.
             - A greyed-out button or menu item still shows its tooltip, which says why it's greyed out.
             """),
 
@@ -292,7 +292,17 @@ public sealed partial class HelpViewModel : ObservableObject
 
             **If a game update breaks your mod**
 
-            **Check mods against game data** (Library › Check) compares every mod with what the game defines now. A clear-cut rename it fixes for you, backing the mod up first (**Restore latest backup** undoes it); anything less certain gets a warning badge with its best guess. Click the badge to open that row. **Weekly Changes** shows what the game itself changed.
+            **Check mods against game data** (Library › Check) compares every mod with what the game defines now. A mod made for an older game version often carries a copy of that version's data next to the author's changes, and that copy puts old data back: tags the game added since go missing, fields it added get deleted. A flagged mod gets a warning badge; click it for the **fix window**:
+
+            - **Old copies of game data**: sure fixes. The game's current value stays.
+            - **Already the game's value**: changes that do nothing; taking them out is tidying up.
+            - **Probably old**: other changes on rows the mod copied wholesale. The suggestion is the game's value.
+            - **Lists both changed**: the mod added to a list and the game has entries the mod lacks. **Merge** keeps both.
+            - **Rows the game renamed**: renamed for you when it's certain.
+
+            Every one shows the mod's value next to the game's, with the suggested fix already chosen; change any, or set a whole kind at once. **Apply** backs the mod up first (**Restore latest backup** undoes it). The author's own changes are never listed or touched.
+
+            **Fix sure problems in every mod** (Check ▾) makes only the sure fixes in every flagged mod at once. Prebuilt paks get the sure fixes by themselves each time they're converted, including after every **Refresh game data**. **Weekly Changes** shows what the game itself changed.
             """),
 
         new("Keyboard shortcuts", """

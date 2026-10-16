@@ -420,6 +420,34 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         StaleItemSuggestionHint = suggestionHint;
     }
 
+    /// <summary>
+    /// What "Check mods against game data" found doesn't fit the current game (ModHealthChecker):
+    /// old copies of game data, mixed lists, renamed rows. Drives the row's warning badge, which
+    /// opens the fix window. Not persisted, recomputed each check.
+    /// </summary>
+    public ModHealthReport? Health { get; private set; }
+
+    [ObservableProperty]
+    private int _modIssueCount;
+
+    public bool HasModIssues => ModIssueCount > 0;
+
+    partial void OnModIssueCountChanged(int value) => OnPropertyChanged(nameof(HasModIssues));
+
+    public string ModIssuesTooltip => Health is not { HasIssues: true } health
+        ? ""
+        : $"Doesn't fully fit the current game: {health.SureCount} sure fix(es)"
+          + (health.Count(ModIssueKind.OldCopy) > 0 ? $" ({health.Count(ModIssueKind.OldCopy)} old copies of game data)" : "")
+          + (health.ReviewCount > 0 ? $" and {health.ReviewCount} to look over" : "")
+          + ". Click to see them and fix.";
+
+    public void SetHealth(ModHealthReport? report)
+    {
+        Health = report;
+        ModIssueCount = report?.Issues.Count ?? 0;
+        OnPropertyChanged(nameof(ModIssuesTooltip));
+    }
+
     /// <summary>Phase 10: an opaque .pak entry has no .EXMOD to edit — the inline row Edit action hides itself rather than opening an editor with nothing to show.</summary>
     public bool CanEdit => !IsOpaquePak;
 
