@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
 
-/// <summary>The fix window over a real Library folder: a mod made for an older game, with an old tag list, a mixed one and a real change.</summary>
+/// <summary>The fix window over a real Library folder: a prebuilt pak made for an older game (converted, like laanp's), with an old tag list, a mixed one and a real change.</summary>
 [Collection(MessengerCollection.Name)]
 public sealed class ModFixViewModelTests : IDisposable
 {
@@ -46,6 +46,7 @@ public sealed class ModFixViewModelTests : IDisposable
             ],
         });
         ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
+        _library.MarkConvertedFromPrebuiltPak(_folder);
     }
 
     public void Dispose()
@@ -81,7 +82,7 @@ public sealed class ModFixViewModelTests : IDisposable
     }
 
     [Fact]
-    public void Apply_BacksUpFixesAndMarksTheModEdited()
+    public void Apply_BacksUpAndFixes_AndAConvertedPakStaysLive()
     {
         var vm = Open();
         var closed = false;
@@ -91,7 +92,7 @@ public sealed class ModFixViewModelTests : IDisposable
 
         Assert.True(closed);
         Assert.True(_library.HasModBackup(_folder));
-        Assert.True(_library.GetAll().Single(e => e.FolderName == _folder).IsLocallyEdited);
+        Assert.False(_library.GetAll().Single(e => e.FolderName == _folder).IsLocallyEdited);
         Assert.False(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
         Assert.Equal(5, Item("Wood_Floor").Fields["Weight"]!.GetValue<int>());
         Assert.Equal(["Food.Cooked", "Food", "Food.Dairy"], ((JsonArray)Item("Cheese").Fields["Manual_Tags"]!["GameplayTags"]!).Select(t => t!["TagName"]!.ToString()));
@@ -168,6 +169,33 @@ public sealed class ModFixViewModelTests : IDisposable
 
         Assert.False(_library.HasModBackup(_folder));
         Assert.False(Open().HasIssues);
+    }
+
+    /// <summary>A hand-made mod lists only what its author changed: its shorter tag list is the author's, and a fix marks it edited (✎).</summary>
+    [Fact]
+    public void AHandMadeMod_KeepsItsShorterList_AndAFixMarksItEdited()
+    {
+        var entry = _library.CreateBlankMod("My Mod", "Me", ModTemplate.Blank);
+        var folderPath = _library.GetFolderPath(entry.FolderName);
+        var package = ExmodFolder.Read(folderPath).Package;
+        package.Rows.Insert(0, new ExmodFileRow
+        {
+            CurrentFile = "Items-D_ItemsStatic.json",
+            FileItems =
+            [
+                new ExmodFileItem { Name = "Wood_Floor", Fields = new() { ["Manual_Tags"] = Tags("Building.Wood") } },
+                new ExmodFileItem { Name = "Cheese", Fields = new() { ["Manual_Tags"] = Tags("Food", "Food.Dairy") } },
+            ],
+        });
+        ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
+        var service = Service;
+        var vm = new ModFixViewModel(entry.FolderName, "My Mod", service.Check(entry.FolderName), service) { Close = () => { } };
+
+        Assert.Equal(["Lists both changed"], vm.Groups.Select(g => g.Title));
+        Assert.Equal(1, vm.AuthorChangeCount);
+        vm.ApplyCommand.Execute(null);
+
+        Assert.True(_library.GetAll().Single(e => e.FolderName == entry.FolderName).IsLocallyEdited);
     }
 
     /// <summary>A converted prebuilt pak stays live: fixing it doesn't mark it edited, and after the next re-conversion the choices are made again.</summary>

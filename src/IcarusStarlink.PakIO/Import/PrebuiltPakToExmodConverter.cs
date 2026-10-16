@@ -177,7 +177,7 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
             // every time it is converted (including the re-conversion after each game data refresh).
             if (embedded is null)
             {
-                var health = ModHealthChecker.Check(package, dataFolder);
+                var health = ModHealthChecker.Check(package, dataFolder, fromPrebuiltPak: true);
                 var oldCopies = ModHealthChecker.Apply(package, health.Issues
                     .Where(i => i.IsSure && i.Kind is ModIssueKind.OldCopy or ModIssueKind.SameAsGame)
                     .Select(i => (i, i.DefaultFix))

@@ -865,51 +865,37 @@ public sealed class LibraryViewModelTests
     }
 
     // ---------------------------------------------------------------------------------------
-    // CheckModsAgainstCurrentDataCommand's own auto-fix pass vs. an open EXMOD editor window —
-    // the race LibraryViewModel's _openEditorCountByFolder/MarkFolderEditorOpenForTesting exist
-    // to close. See CreateStaleAutoFixableModOnDisk's own doc comment for how the fixture
-    // reproduces a genuine ExmodStalenessChecker.FindLikelyStaleItems + StaleItemFixSuggester
-    // CanAutoApply: true hit, not just a suggestion in isolation.
+    // "Check mods against game data" only looks; fixes happen through the fix window or
+    // Check ▾ › Fix sure problems in every mod. (It used to rename rows silently, which renamed
+    // mods' own new rows to similar game rows: Homestead's Water_Well became the game's Waterwheel.)
     // ---------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task CheckModsAgainstCurrentDataCommand_FolderHasAnOpenEditorWindow_NeverWritesTheAutoFixToDisk()
+    public async Task CheckModsAgainstCurrentData_OnlyLooks_TheRenameIsOfferedAsASureFix()
     {
-        // Regression guard: CheckModsAgainstCurrentDataAsync's background auto-fix pass used to back
-        // up and rewrite a mod's own .EXMOD with no regard for whether that same mod folder was
-        // already open in an ExmodEditorViewModel/ExmodEditorWindow (via LibraryViewModel.OpenEditor).
-        // The editor's own in-memory _package was loaded from disk BEFORE the auto-fix ran, so it has
-        // no idea the auto-fix happened — the very next click of that still-open editor's own Save
-        // button would write its stale in-memory copy straight back over the just-applied auto-fix,
-        // silently discarding it with no error and leaving the repository inconsistent with what the
-        // UI just told the user. The fix: CheckModsAgainstCurrentDataAsync snapshots which folders
-        // currently have an open editor window (_openEditorCountByFolder) on the UI thread before its
-        // background Task.Run, and CheckOneModAgainstCurrentData's auto-apply branch is gated on
-        // `allowAutoFix` — still detecting/reporting the stale item as usual, just never backing up or
-        // writing anything for that mod this pass. MarkFolderEditorOpenForTesting is the test-only
-        // seam that simulates "this folder has an open editor" without a real WPF Window, which can't
-        // run in this test host (see its own doc comment, and other ViewModel tests' precedent for the
-        // same constraint).
         var harness = new TestHarness();
-        const string folderName = "RaceyMod_GuardedByOpenEditor";
+        const string folderName = "RenamedRowMod";
         var modFolderPath = CreateStaleAutoFixableModOnDisk(harness, folderName);
         try
         {
             var vm = harness.Build();
-            vm.MarkFolderEditorOpenForTesting(folderName);
 
             await vm.CheckModsAgainstCurrentDataCommand.ExecuteAsync(null);
 
-            var packageOnDisk = ExmodFolder.ReadPackageOnly(modFolderPath);
-            var itemOnDisk = Assert.Single(Assert.Single(packageOnDisk.Rows).FileItems);
-            Assert.Equal(StaleItemName, itemOnDisk.Name);
-            Assert.DoesNotContain(folderName, harness.Repository.BackupModCalls);
-
-            // Still detected and reported as stale — allowAutoFix:false only skips the write, not
-            // the detection — so the row's own warning badge still shows up for the user to fix by
-            // hand (e.g. via the still-open editor) once they close it and this check runs again.
+            Assert.Equal(StaleItemName, Assert.Single(Assert.Single(ExmodFolder.ReadPackageOnly(modFolderPath).Rows).FileItems).Name);
+            Assert.Empty(harness.Repository.BackupModCalls);
             var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == folderName);
-            Assert.True(item.HasPossiblyStaleItems);
+            Assert.True(item.HasModIssues);
+            var rename = Assert.Single(item.Health!.Issues);
+            Assert.Equal(ModIssueKind.MissingRow, rename.Kind);
+            Assert.True(rename.IsSure);
+            Assert.Equal(FixedItemName, rename.SuggestedRow);
+
+            await vm.FixSureProblemsCommand.ExecuteAsync(null);
+
+            Assert.Equal(FixedItemName, Assert.Single(Assert.Single(ExmodFolder.ReadPackageOnly(modFolderPath).Rows).FileItems).Name);
+            Assert.Contains(folderName, harness.Repository.BackupModCalls);
+            Assert.False(item.HasModIssues);
         }
         finally
         {
@@ -917,30 +903,24 @@ public sealed class LibraryViewModelTests
         }
     }
 
+    /// <summary>A mod open in the mod editor is never written by Fix sure problems: the editor's next Save would undo it.</summary>
     [Fact]
-    public async Task CheckModsAgainstCurrentDataCommand_NoOpenEditorWindow_AppliesTheAutoFixToDiskAndBacksUpFirst()
+    public async Task FixSureProblems_SkipsAModOpenInTheEditor()
     {
-        // The control for the guarded test above: same fixture, same mod, just without
-        // MarkFolderEditorOpenForTesting — proving the fixture genuinely reaches and exercises the
-        // auto-fix write path at all. Without this, the guarded test passing could just as easily
-        // mean the fixture never triggered CanAutoApply in the first place, not that the guard
-        // actually worked.
         var harness = new TestHarness();
-        const string folderName = "RaceyMod_NoOpenEditor";
+        const string folderName = "RenamedRowMod_OpenInEditor";
         var modFolderPath = CreateStaleAutoFixableModOnDisk(harness, folderName);
         try
         {
             var vm = harness.Build();
-
             await vm.CheckModsAgainstCurrentDataCommand.ExecuteAsync(null);
+            vm.MarkFolderEditorOpenForTesting(folderName);
 
-            var packageOnDisk = ExmodFolder.ReadPackageOnly(modFolderPath);
-            var itemOnDisk = Assert.Single(Assert.Single(packageOnDisk.Rows).FileItems);
-            Assert.Equal(FixedItemName, itemOnDisk.Name);
-            Assert.Contains(folderName, harness.Repository.BackupModCalls);
+            await vm.FixSureProblemsCommand.ExecuteAsync(null);
 
-            var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == folderName);
-            Assert.False(item.HasPossiblyStaleItems);
+            Assert.Equal(StaleItemName, Assert.Single(Assert.Single(ExmodFolder.ReadPackageOnly(modFolderPath).Rows).FileItems).Name);
+            Assert.DoesNotContain(folderName, harness.Repository.BackupModCalls);
+            Assert.Contains("open in the mod editor", vm.StalenessCheckStatusMessage);
         }
         finally
         {
@@ -949,11 +929,11 @@ public sealed class LibraryViewModelTests
     }
 
     // Exact same scenario StaleItemFixSuggesterTests.Suggest_UnambiguousCloseMatchWithGoodFieldOverlap_CanAutoApply
-    // proves triggers CanAutoApply: true (a stale item named "Stone_Pickaxe_Mk2" with field
+    // proves triggers CanAutoApply: true (a stale item named "Stone_Pickax_MK2" (one letter short) with field
     // "RequiredMillijoules", against a base row "Stone_Pickaxe_MK2" with that same field) — reused
     // here rather than inventing a new one, since that test is the known-good reference for what
     // StaleItemFixSuggester.Suggest actually returns CanAutoApply: true for.
-    private const string StaleItemName = "Stone_Pickaxe_Mk2";
+    private const string StaleItemName = "Stone_Pickax_MK2";
     private const string FixedItemName = "Stone_Pickaxe_MK2";
     private const string StaleItemCurrentFile = "Items-D_ItemTemplate.json";
 
@@ -988,7 +968,7 @@ public sealed class LibraryViewModelTests
                 new ExmodFileRow
                 {
                     CurrentFile = StaleItemCurrentFile,
-                    FileItems = [new ExmodFileItem { Name = StaleItemName, Fields = { ["RequiredMillijoules"] = JsonValue.Create(100) } }],
+                    FileItems = [new ExmodFileItem { Name = StaleItemName, Fields = { ["RequiredMillijoules"] = JsonValue.Create(250) } }],
                 },
             ],
         };

@@ -46,11 +46,11 @@ public sealed class ModHealthCheckerTests : IDisposable
     }
 
     [Fact]
-    public void ATagListMissingWhatTheGameAddedSince_IsASureOldCopy_AndTheFixLeavesTheGamesValue()
+    public void InAPrebuiltPak_ATagListMissingWhatTheGameAddedSince_IsASureOldCopy_AndTheFixLeavesTheGamesValue()
     {
         var package = Mod((Items, "Wood_Floor", "Manual_Tags", Tags("Building.Wood", "Audio.Shelter")), (Items, "Wood_Floor", "Weight", 5));
 
-        var report = ModHealthChecker.Check(package, _data);
+        var report = ModHealthChecker.Check(package, _data, fromPrebuiltPak: true);
 
         var issue = Assert.Single(report.Issues);
         Assert.Equal(ModIssueKind.OldCopy, issue.Kind);
@@ -65,11 +65,11 @@ public sealed class ModHealthCheckerTests : IDisposable
     }
 
     [Fact]
-    public void DeletingAFieldTheGameHasNow_IsAnOldCopy_AndAValueEqualToTheGames_DoesNothing()
+    public void InAPrebuiltPak_DeletingAFieldTheGameHasNow_IsAnOldCopy_AndAValueEqualToTheGames_DoesNothing()
     {
         var package = Mod((Recipes, "Bread_Recipe", "RequiredMillijoules", null), (Items, "Bread", "Weight", 20));
 
-        var report = ModHealthChecker.Check(package, _data);
+        var report = ModHealthChecker.Check(package, _data, fromPrebuiltPak: true);
 
         Assert.Contains(report.Issues, i => i.Kind == ModIssueKind.OldCopy && i.FieldName == "RequiredMillijoules");
         Assert.Contains(report.Issues, i => i.Kind == ModIssueKind.SameAsGame && i.FieldName == "Weight");
@@ -77,6 +77,37 @@ public sealed class ModHealthCheckerTests : IDisposable
 
         ModHealthChecker.ApplySure(package, report);
         Assert.DoesNotContain(package.Rows, r => r.CurrentFile is Items or Recipes);
+    }
+
+    /// <summary>
+    /// Ferani's Effortless Lights: torches burn nothing because the mod empties their list of
+    /// burnable items, and deleting a field is how a hand-made mod removes something. Both are the
+    /// author's choices in a mod that lists only what it changed, never "old copies".
+    /// </summary>
+    [Fact]
+    public void InAHandMadeMod_AnEmptiedListOrADeletedField_IsTheAuthorsChange()
+    {
+        var package = Mod(
+            (Recipes, "Bread_Recipe", "RecipeSets", new JsonArray()),
+            (Recipes, "Bread_Recipe", "RequiredMillijoules", null));
+
+        var report = ModHealthChecker.Check(package, _data);
+
+        Assert.False(report.HasIssues);
+        Assert.Equal(2, report.AuthorChangeCount);
+        Assert.Equal(2, ModHealthChecker.Check(package, _data, fromPrebuiltPak: true).Count(ModIssueKind.OldCopy));
+    }
+
+    /// <summary>The game ignores case in row names: "wood_floor" is the game's Wood_Floor, never a missing row to rename.</summary>
+    [Fact]
+    public void ARowSpelledInOtherCase_IsTheGamesRow_NotARename()
+    {
+        var package = Mod((Items, "wood_floor", "Weight", 7));
+
+        var report = ModHealthChecker.Check(package, _data);
+
+        Assert.DoesNotContain(report.Issues, i => i.Kind == ModIssueKind.MissingRow);
+        Assert.Equal(1, report.AuthorChangeCount);
     }
 
     [Fact]
@@ -193,7 +224,7 @@ public sealed class ModHealthCheckerTests : IDisposable
         row.FileItems.Add(new ExmodFileItem { Name = "Wood_Floor", Fields = new() { ["Manual_Tags"] = Tags("Building.Wood") } });
         row.FileItems.Add(new ExmodFileItem { Name = "Being_Built" });
 
-        ModHealthChecker.ApplySure(package, ModHealthChecker.Check(package, _data));
+        ModHealthChecker.ApplySure(package, ModHealthChecker.Check(package, _data, fromPrebuiltPak: true));
 
         Assert.Equal(["Being_Built"], row.FileItems.Select(i => i.Name));
     }

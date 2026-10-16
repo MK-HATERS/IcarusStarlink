@@ -2718,7 +2718,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
 
             var left = flagged.Count(i => i.HasModIssues);
-            StalenessCheckStatusMessage = $"Fixed {total} sure thing(s) in {results.Count(r => r.Value.Applied > 0)} mod(s), each backed up first."
+            StalenessCheckStatusMessage = $"Fixed {total} sure thing(s) in {results.Count(r => r.Value.Applied > 0)} mod(s), each backed up first (right-click a mod › Restore latest backup undoes it)."
                 + (left > 0 ? $" {left} mod(s) still have things to look over: click a row's warning badge." : "")
                 + (skipped.Count > 0 ? $" Skipped (open in the mod editor): {string.Join(", ", skipped)}." : "");
             SelectedItem?.EnsureDetailsLoaded();
@@ -3329,8 +3329,11 @@ public sealed partial class LibraryViewModel : ObservableObject
                 {
                     try
                     {
+                        // Looks only: renames are offered (never for a mod's own new rows) and made from the
+                        // fix window or Fix sure problems. A silent rename here once turned Homestead's
+                        // own Water_Well into the game's Waterwheel.
                         results[folderName] = CheckOneModAgainstCurrentData(
-                            folderName, baseTableCache, classifier, allowAutoFix: !foldersWithOpenEditors.Contains(folderName), history);
+                            folderName, baseTableCache, classifier, allowAutoFix: false, history);
                     }
                     catch (Exception)
                     {

@@ -100,6 +100,13 @@ public static class ModHealthChecker
 
     /// <param name="gameHistory">Old values from recent game updates (build once per pass, share across mods).</param>
     /// <param name="decisions">This mod's remembered choices: a kept value stops being flagged, any other choice becomes automatic.</param>
+    /// <param name="fromPrebuiltPak">
+    /// The mod was converted from a prebuilt pak, which ships whole tables: a shorter list or a
+    /// missing field there is the old game version's, not a choice. In a hand-made mod, which
+    /// lists only what its author changed, the same shape is deliberate (an emptied fuel list is
+    /// how "torches need no fuel" works), so it only counts as old in a table the mod copied
+    /// wholesale.
+    /// </param>
     public static ModHealthReport Check(
         ExmodPackage package,
         string dataFolder,
@@ -107,7 +114,8 @@ public static class ModHealthChecker
         GameValueHistory? gameHistory = null,
         IReadOnlyList<string>? ownAssetPaths = null,
         ISemanticClassifier? classifier = null,
-        ModFixDecisions? decisions = null)
+        ModFixDecisions? decisions = null,
+        bool fromPrebuiltPak = false)
     {
         baseTableCache ??= new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
         var history = gameHistory ?? GameValueHistory.Empty;
@@ -129,6 +137,10 @@ public static class ModHealthChecker
             var rowsWithMixed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var rowsTouched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            // Old by shape only (a shorter list, a deleted field): decided once it's known whether
+            // this table is a copy (below).
+            var oldByShape = new List<ModIssue>();
+
             // The last entry wins when a mod lists a row twice (as the merge does), so judge that one.
             foreach (var item in row.FileItems.GroupBy(i => i.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.Last()))
             {
@@ -148,7 +160,7 @@ public static class ModHealthChecker
                         if (hasField && gameValue is not null)
                         {
                             rowsWithOld.Add(item.Name);
-                            tableIssues.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, null, gameValue?.DeepClone(), null, null,
+                            oldByShape.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, null, gameValue?.DeepClone(), null, null,
                                 ModIssueFix.UseGame, IsSure: true, "Deletes this, but the game has it now: it was added after the mod was made."));
                         }
                         else
@@ -182,7 +194,7 @@ public static class ModHealthChecker
                             break;
                         case Verdict.Older:
                             rowsWithOld.Add(item.Name);
-                            tableIssues.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
+                            oldByShape.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
                                 ModIssueFix.UseGame, IsSure: true, OlderWhy(value, gameValue)));
                             break;
                         case Verdict.Mixed:
@@ -201,6 +213,16 @@ public static class ModHealthChecker
             // are otherwise old copies are almost certainly old values too, not the author's idea.
             // Measured in rows: most rows the mod touches here carry an old copy somewhere.
             var wholesale = rowsTouched.Count >= WholesaleCopyMinRows && rowsWithOld.Union(rowsWithMixed, StringComparer.OrdinalIgnoreCase).Count() >= WholesaleCopyOldShare * rowsTouched.Count;
+            if (fromPrebuiltPak || wholesale)
+            {
+                tableIssues.AddRange(oldByShape);
+            }
+            else
+            {
+                // A hand-made mod's own edit: an author emptying a list or deleting a field meant it.
+                authorChanges += oldByShape.Count;
+            }
+
             if (wholesale)
             {
                 // A mixed list in a copied table is the game's list reorganised since (tags renamed),
@@ -242,7 +264,9 @@ public static class ModHealthChecker
         var ownNames = OwnRowNames(package, dataFolder, baseTableCache);
         foreach (var stale in ExmodStalenessChecker.FindLikelyStaleItems(package, dataFolder, classifier ?? new DefaultSemanticClassifier(), baseTableCache, ownAssetPaths))
         {
-            if (ownNames.Contains(stale.ItemName))
+            // Row names ignore case in the game, so "Pickaxe_Mk2" already is the game's "Pickaxe_MK2".
+            if (ownNames.Contains(stale.ItemName)
+                || (Table(stale.CurrentFile, dataFolder, baseTableCache) is { } staleTable && RowsByName(staleTable).ContainsKey(stale.ItemName)))
             {
                 continue;
             }

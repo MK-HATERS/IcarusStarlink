@@ -137,6 +137,7 @@ public sealed partial class ModFixViewModel : ObservableObject
     {
         AuthorChangeCount = report.AuthorChangeCount;
         RememberedCount = _service.RememberedCount(_folderName);
+        HasBackup = _service.HasBackup(_folderName);
         _all.Clear();
         foreach (var issue in report.Issues.Select(i => new ModFixIssueViewModel(i)))
         {
@@ -179,6 +180,10 @@ public sealed partial class ModFixViewModel : ObservableObject
     private int _rememberedCount;
 
     public bool HasRemembered => RememberedCount > 0;
+
+    /// <summary>The mod has a backup from before its last change: Restore backup puts it back.</summary>
+    [ObservableProperty]
+    private bool _hasBackup;
 
     public string RememberedText => $"Forget my {RememberedCount} earlier choice(s)";
 
@@ -265,7 +270,7 @@ public sealed partial class ModFixViewModel : ObservableObject
         {
             var applied = _service.Apply(_folderName, [.. _all.Select(i => (i.Issue, i.SelectedChoice.Fix))]);
             IsApplied = true;
-            StatusMessage = applied == 0 ? "Nothing changed." : $"Fixed {applied} thing(s). The mod was backed up first: Restore latest backup undoes it.";
+            StatusMessage = applied == 0 ? "Nothing changed." : $"Fixed {applied} thing(s). The mod was backed up first: Restore backup in this window, or right-click the mod › Restore latest backup, undoes it.";
         }
         catch (Exception ex)
         {
@@ -279,6 +284,34 @@ public sealed partial class ModFixViewModel : ObservableObject
 
     [RelayCommand]
     private void OpenEditor() => OpenInModEditor?.Invoke();
+
+    /// <summary>Puts the mod back as it was before its last change, then checks it again.</summary>
+    [RelayCommand]
+    private void RestoreBackup()
+    {
+        if (_isOpenInEditor())
+        {
+            StatusMessage = "This mod is open in the mod editor. Close it there first.";
+            return;
+        }
+
+        try
+        {
+            if (!_service.RestoreBackup(_folderName))
+            {
+                StatusMessage = "There's no backup of this mod to restore.";
+                return;
+            }
+
+            Load(_service.Check(_folderName));
+            StatusMessage = "Restored the mod as it was before its last change.";
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't restore the backup: {ex.Message}";
+        }
+    }
 
     /// <summary>Forgets this mod's earlier choices and checks it again, so everything is suggested afresh.</summary>
     [RelayCommand]

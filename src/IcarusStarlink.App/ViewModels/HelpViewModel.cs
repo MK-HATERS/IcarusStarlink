@@ -294,11 +294,11 @@ public sealed partial class HelpViewModel : ObservableObject
 
             **Check mods against game data** (Library › Check) compares every mod with what the game defines now. A mod made for an older game version often carries a copy of that version's data next to the author's changes, and that copy puts old data back: tags the game added since go missing, fields it added get deleted. A flagged mod gets a warning badge; click it for the **fix window**:
 
-            - **Old copies of game data**: sure fixes. The game's current value stays.
+            - **Old copies of game data**: sure fixes. The game's current value stays. A hand-made mod lists only the fields its author changed, so a shorter list or a deleted field there is the author's choice (an emptied fuel list is how "torches need no fuel" works) and is never called old; only a prebuilt pak, or a table a mod copied wholesale, can carry old copies that way.
             - **Already the game's value**: changes that do nothing; taking them out is tidying up.
             - **Probably old**: other changes on rows the mod copied wholesale. The suggestion is the game's value.
             - **Lists both changed**: the mod added to a list and the game has entries the mod lacks. **Merge** keeps both.
-            - **Rows the game renamed**: renamed for you when it's certain.
+            - **Rows the game renamed**: offered when it's certain. A mod's own new rows (a new item's rows, anything the mod links to) are never renamed, and a check never changes a mod by itself.
 
             Every one shows the mod's value next to the game's, with the suggested fix already chosen; change any, or set a whole kind at once. **Apply** backs the mod up first (**Restore latest backup** undoes it). The author's own changes are never listed or touched.
 

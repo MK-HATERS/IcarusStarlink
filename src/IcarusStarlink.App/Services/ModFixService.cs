@@ -28,7 +28,7 @@ public sealed class ModFixService(
     {
         var package = ExmodFolder.ReadPackageOnly(repository.GetFolderPath(folderName));
         return ModHealthChecker.Check(package, dataFolder, baseTableCache, history ?? History(), repository.ListAssetPaths(folderName),
-            decisions: LoadDecisions(folderName));
+            decisions: LoadDecisions(folderName), fromPrebuiltPak: Entry(folderName)?.ConvertedFromPrebuiltPak == true);
     }
 
     /// <summary>The game's recorded old values from recent Refresh game data runs, indexed once (share it across a whole-library pass).</summary>
@@ -71,8 +71,22 @@ public sealed class ModFixService(
     /// <summary>The automatic part for one mod: every sure fix, remembered choices included. Returns (applied, still to look over).</summary>
     public (int Applied, int ToReview) FixSure(string folderName, IDictionary<string, JsonObject?>? baseTableCache = null, GameValueHistory? history = null)
     {
+        // A fix can reveal another (a renamed row whose value turns out to be the game's): a few
+        // rounds, each backed up, until nothing sure is left.
+        var applied = 0;
         var report = Check(folderName, baseTableCache, history);
-        var applied = Write(folderName, [.. report.Issues.Where(i => i.IsSure).Select(i => (i, i.DefaultFix))]);
+        for (var round = 0; round < 3 && report.SureCount > 0; round++)
+        {
+            var thisRound = Write(folderName, [.. report.Issues.Where(i => i.IsSure).Select(i => (i, i.DefaultFix))]);
+            if (thisRound == 0)
+            {
+                break;
+            }
+
+            applied += thisRound;
+            report = Check(folderName, baseTableCache, history);
+        }
+
         return (applied, report.ReviewCount);
     }
 
@@ -81,6 +95,11 @@ public sealed class ModFixService(
         LoadDecisions(folderName).Count == 0 ? 0 : FixSure(folderName).Applied;
 
     public int RememberedCount(string folderName) => LoadDecisions(folderName).Count;
+
+    public bool HasBackup(string folderName) => repository.HasModBackup(folderName);
+
+    /// <summary>Puts the mod back as it was before its last change (each fix, rename or refresh backs it up first).</summary>
+    public bool RestoreBackup(string folderName) => repository.RestoreLatestModBackup(folderName);
 
     /// <summary>Forgets this mod's remembered choices: everything is suggested afresh next check.</summary>
     public void Forget(string folderName)
@@ -112,14 +131,16 @@ public sealed class ModFixService(
 
         // A converted pak that hasn't been hand-edited stays "live": it keeps re-converting against
         // new game data, with these fixes made again each time. Anything else shows the ✎.
-        var entry = repository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
-        if (entry is not { ConvertedFromPrebuiltPak: true, IsLocallyEdited: false })
+        if (Entry(folderName) is not { ConvertedFromPrebuiltPak: true, IsLocallyEdited: false })
         {
             repository.MarkLocallyEdited(folderName);
         }
 
         return applied;
     }
+
+    private LibraryEntry? Entry(string folderName) =>
+        repository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
 
     private ModFixDecisions LoadDecisions(string folderName)
     {

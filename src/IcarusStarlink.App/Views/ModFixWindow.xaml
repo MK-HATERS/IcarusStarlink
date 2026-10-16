@@ -160,6 +160,9 @@
                     ToolTip="Back to the suggested fix for everything"/>
             <Button DockPanel.Dock="Left" Content="Open in mod editor" Command="{Binding OpenEditorCommand}" Margin="0,0,8,0"
                     ToolTip="Edit the mod by hand instead (close this first)"/>
+            <Button DockPanel.Dock="Left" Content="Restore backup" Command="{Binding RestoreBackupCommand}" Margin="0,0,8,0"
+                    Visibility="{Binding HasBackup, Converter={StaticResource BoolToVisibilityConverter}}"
+                    ToolTip="Puts this mod back exactly as it was before its last change (a fix, a rename or a refresh). The same as right-click the mod in Library › Restore latest backup."/>
             <Button DockPanel.Dock="Left" Content="{Binding RememberedText}" Command="{Binding ForgetChoicesCommand}" Margin="0,0,8,0"
                     Visibility="{Binding HasRemembered, Converter={StaticResource BoolToVisibilityConverter}}"
                     ToolTip="Your earlier choices for this mod are made by themselves, and values you kept aren't listed. This forgets them, so everything is suggested afresh."/>
@@ -167,7 +170,7 @@
                        Foreground="{DynamicResource DangerBrush}"/>
             <Button DockPanel.Dock="Right" Content="{Binding ApplyLabel}" Command="{Binding ApplyCommand}" Style="{StaticResource PrimaryButtonStyle}"
                     IsEnabled="{Binding HasIssues}" Margin="8,0,0,0"
-                    ToolTip="Backs the mod up, then makes these changes to it (Restore latest backup undoes them). Greyed out: nothing to fix."
+                    ToolTip="Backs the mod up, then makes these changes to it (Restore backup here, or right-click the mod in Library › Restore latest backup, undoes them). Greyed out: nothing to fix."
                     ToolTipService.ShowOnDisabled="True"/>
             <Button DockPanel.Dock="Right" Content="Cancel" IsCancel="True" Click="Cancel_Click"/>
         </DockPanel>
