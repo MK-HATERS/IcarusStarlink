@@ -199,6 +199,21 @@ public sealed class NewItemWizardTests : IDisposable
         Assert.True(wizard.HasSource);
     }
 
+    /// <summary>A review finding: unticking Itemable silently dropped the typed name and description.</summary>
+    [Fact]
+    public void Wizard_ItemableCantBeUnticked_ItHoldsTheName()
+    {
+        var wizard = new NewItemWizardViewModel(new GameTableIndex(DataFolder), null);
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Envirosuit");
+        var itemable = wizard.Links.Single(l => l.Field == "Itemable");
+        Assert.False(itemable.CanChange);
+        Assert.True(wizard.Links.Single(l => l.Field == "Meshable").CanChange);
+
+        itemable.OwnCopy = false;
+
+        Assert.True(itemable.OwnCopy);
+    }
+
     [Fact]
     public void Wizard_WorkshopCosts_OnlyCountForAWorkshopItem()
     {

@@ -211,4 +211,29 @@ public sealed class ItemClonerTests : IDisposable
     {
         Assert.Throws<ArgumentException>(() => ItemCloner.Build(_game, new ItemCloneRequest { SourceItem = "Envirosuit", NewName = "envirosuit", DisplayName = "x" }));
     }
+
+    /// <summary>A review finding: without its own Itemable the typed name was silently dropped (the item showed the original's name).</summary>
+    [Fact]
+    public void Itemable_IsAlwaysItsOwn_SoTheTypedNameIsUsed()
+    {
+        var rows = ItemCloner.Build(_game, new ItemCloneRequest
+        {
+            SourceItem = "Envirosuit", NewName = "Dragon_Suit", DisplayName = "Dragon Suit", OwnCopyFields = new HashSet<string>(),
+        });
+
+        var itemable = RowName(Row(rows, "Items-D_ItemsStatic.json", "Dragon_Suit")["Itemable"])!;
+        Assert.Contains("\"Dragon Suit\"", Row(rows, "Traits-D_Itemable.json", itemable)["DisplayName"]!.GetValue<string>());
+    }
+
+    /// <summary>A review finding: "its own buff" with the game's Consumable row was silently ignored.</summary>
+    [Fact]
+    public void OwnBuff_WithoutItsOwnConsumable_SaysWhy()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => ItemCloner.Build(_game, new ItemCloneRequest
+        {
+            SourceItem = "Food_Bread", NewName = "Super_Bread", DisplayName = "Super Bread", OwnCopyFields = new HashSet<string> { "Itemable" }, CopyBuff = true,
+        }));
+
+        Assert.Contains("Consumable", ex.Message);
+    }
 }
