@@ -100,7 +100,7 @@ public sealed partial class ExmodEditorViewModel
         ReferenceReport report;
         try
         {
-            report = ReferenceChecker.Check(_package, GameTables, ModAssetBytes());
+            report = ReferenceChecker.Check(_package, GameTables, ModAssetBytes);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {

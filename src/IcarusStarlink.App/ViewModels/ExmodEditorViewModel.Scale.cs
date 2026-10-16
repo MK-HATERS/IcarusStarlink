@@ -84,7 +84,7 @@ public sealed partial class ExmodEditorViewModel
         {
             _scaleRulesDirty = true;
             OnPropertyChanged(nameof(HasScaleRules));
-        OnPropertyChanged(nameof(HasNoScaleRules));
+            OnPropertyChanged(nameof(HasNoScaleRules));
         }
     }
 
@@ -125,7 +125,7 @@ public sealed partial class ExmodEditorViewModel
 
         PushUndoSnapshot();
         var report = new MergeReport();
-        var result = ScaleRules.ApplyToPackage(_package, rules, _dataFolder, report);
+        var result = ScaleRules.ApplyToPackage(_package, rules, _dataFolder, report, GameTables);
         for (var i = 0; i < ScaleRuleRows.Count && i < result.PerRule.Count; i++)
         {
             ScaleRuleRows[i].ShowPreview(result.PerRule[i]);
@@ -256,7 +256,7 @@ public sealed partial class ScaleRuleViewModel : ObservableObject
             return;
         }
 
-        ShowPreview(ScaleRules.Preview(rule, _owner.DataFolderForScale));
+        ShowPreview(ScaleRules.Preview(rule, _owner.DataFolderForScale, _owner.GameTablesForScale));
     }
 
     public void ShowPreview(ScalePreview preview) =>

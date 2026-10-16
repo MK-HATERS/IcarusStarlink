@@ -267,7 +267,7 @@
                         <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"
                                    Text="Each rule changes one field across a whole game table, like every item's Weight ×0.5. Apply writes the rows into this mod from current game data. After a game update, click Apply again to catch up."/>
                         <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"
-                                   Text="Multiply by: a number below 1 lowers the value (0.5 = half), above 1 raises it (2 = double), 1 leaves it as is, 0 removes it. Set to: every row gets exactly that number."/>
+                                   Text="Multiply by: a number below 1 lowers the value (0.5 = half), above 1 raises it (2 = double), 1 leaves it as is, 0 makes it zero. Set to: every row gets exactly that number."/>
                         <TextBlock Text="No rules yet. Click Add rule." Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"
                                    Visibility="{Binding HasNoScaleRules, Converter={StaticResource BoolToVisibilityConverter}}"/>
                         <ItemsControl ItemsSource="{Binding ScaleRuleRows}">
@@ -302,7 +302,7 @@
                                                 <StackPanel Margin="0,0,8,4">
                                                     <TextBlock Text="Value" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                                                     <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" Width="80"
-                                                             ToolTip="Multiply by: 0.5 halves, 2 doubles, 0 removes. Set to: the exact number."/>
+                                                             ToolTip="Multiply by: 0.5 halves, 2 doubles, 0 makes it zero. Set to: the exact number."/>
                                                 </StackPanel>
                                             </WrapPanel>
                                             <WrapPanel>

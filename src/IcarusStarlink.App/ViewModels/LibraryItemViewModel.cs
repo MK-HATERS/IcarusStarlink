@@ -256,6 +256,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         IsLocallyEdited = true;
         ChangesContent = null;
         ChangesSummary = null;
+        _changesSummaryRun++;
         _detailsLoaded = false;
     }
 
@@ -647,6 +648,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         ReadmeContent = null;
         ChangesContent = null;
         ChangesSummary = null;
+        _changesSummaryRun++;
         ThumbnailImage = null;
         SelectedAssetPath = null;
         PakListingStatus = null;
@@ -1218,17 +1220,27 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             return;
         }
 
+        // The row can be reset (edited, reloaded) while this runs; a stale result mustn't land on it.
+        var run = ++_changesSummaryRun;
         ChangesSummary = "Working out what this mod changes…";
+        string summary;
         try
         {
             var lines = await Task.Run(() => PakIO.Exmod.ModChangeSummarizer.SummarizePackage(package, dataFolder));
-            ChangesSummary = lines.Count == 0 ? "Nothing differs from current game data." : string.Join(Environment.NewLine, lines);
+            summary = lines.Count == 0 ? "Nothing differs from current game data." : string.Join(Environment.NewLine, lines);
         }
         catch (Exception ex)
         {
-            ChangesSummary = $"Couldn't summarise this mod: {ex.Message}";
+            summary = $"Couldn't summarise this mod: {ex.Message}";
+        }
+
+        if (run == _changesSummaryRun)
+        {
+            ChangesSummary = summary;
         }
     }
+
+    private int _changesSummaryRun;
 
     /// <summary>
     /// Lists an opaque .pak's own internal files via UnrealPak -List — separate from

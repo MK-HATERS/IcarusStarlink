@@ -27,7 +27,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - The **ON** tick is how a mod goes into the game: ticked pak/EXMOD mods go in on the next **Merge & Install**, ticked UE4SS mods on **Apply UE4SS changes**. Select several rows (Ctrl/Shift-click) and tick one to tick them all.
             - The **PENDING** bar at the bottom says what you've changed that isn't in the game yet, with **Apply UE4SS changes** and **Merge & Install** right there.
             - The **Type** filter shows only EXMOD, Pak or UE4SS mods; the search box finds a mod by name.
-            - **Import ▾**: **Import archive…** (a `.zip`/`.rar`/`.7z`/`.EXMODZ`; it looks inside and works out whether it's an EXMOD mod, a bare `.pak`, a UE4SS mod or a mix), **Import folder…**, **Import .pak…**, **Import UE4SS mod…** (lands unticked: tick it, then Apply). A prebuilt pak is converted into a real, editable EXMOD whenever UnrealPak.exe is set up and the game data is extracted.
+            - **Import ▾**: **Import archive…** (a `.zip`/`.rar`/`.7z`/`.EXMODZ`; it looks inside and works out whether it's an EXMOD mod, a bare `.pak`, a UE4SS mod or a mix), **Import folder…**, **Import .pak…**, **Import UE4SS mod…** (lands unticked: tick it, then **Apply UE4SS changes**). A prebuilt pak is converted into a real, editable EXMOD whenever UnrealPak.exe is set up and the game data is extracted.
             - If a download holds several alternatives of one mod (different sizes or presets), you're asked which one to install, since the author meant you to pick one. If Starlink can't work out how to install something, the **Install manually** window opens (see "When an install goes wrong").
             - Importing also checks how the mod was packed and warns in the Activity panel (the bell) about: leftover build files (a `.git` folder, editor session files), files outside the game's Content folder, data tables older than your game (missing rows the game has since added), and tables shipped without a single change.
             - **New mod…** creates a mod from a starting point (blank, Quality of life, a new item, or a classic IMM template; see "Making your own mods") and opens it in the editor.
@@ -43,8 +43,8 @@ public sealed partial class HelpViewModel : ObservableObject
 
             Most downloads install by themselves. When one doesn't, Starlink says why and lets you do it by hand, instead of guessing.
 
-            - **Install manually** opens only when an automatic install fails. The left side shows what's in the download; the right side, **Will be installed**, shows Starlink's best guesses. Leave out anything with ✕, or select a file or folder on the left and add it as a **Pak mod**, **EXMOD mod** or **UE4SS mod**. Rename a piece if you like, then **Install**. **Cancel** changes nothing.
-            - **Choose which one to install** appears when a download holds several alternatives of the same mod. Pick one; installing a different one later replaces it.
+            - **Install manually** opens only when an automatic install fails. The left side shows what's in the download; the right side, **Will be installed**, shows Starlink's best guesses. Leave out anything with ✕, or select a file or folder on the left and add it as a **Pak mod**, **EXMOD mod** or **UE4SS mod**. Rename a piece if you like, then **Install**. It's all or nothing: if one piece can't go in, the others are taken back out. **Cancel** changes nothing.
+            - **Choose which one to install** appears when a download holds several alternatives of the same mod. Pick one; installing a different one later replaces it. Cancelling leaves the copy you already have exactly as it was.
             - Packing warnings (in the Activity panel after an import) don't stop the install. They tell you the mod may be outdated or carelessly packed, which is worth knowing when it misbehaves. A table "from an older game version" is the most important one: it replaces the whole table, so items the game added since are missing until the author updates it.
             """),
 
@@ -106,7 +106,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - A download installs the moment it finishes. One download is one mod: its paks go to Library, a Lua part to its UE4SS row.
             - Installed downloads are hidden; tick **Show installed** to see them. **Reinstall** puts back a mod you removed; **Discard** deletes the downloaded file (the installed mod stays).
             - **Needs** shows what the mod's own README says it requires, and **Get 'X'** fetches a missing one.
-            - When you have one file of a Nexus mod installed and Nexus lists a newer version of that same file (Nexus keeps each file's update chain), downloading the mod fetches that newer file, not whichever file is listed first. The older copy is replaced, not piled up.
+            - When you have one file of a Nexus mod installed and Nexus lists a newer version of that same file (Nexus keeps each file's update chain), the mod shows an update, and downloading it starts on that newer file in the file list (pick another file to switch variants). The older copy is replaced, not piled up.
             - If a download can't be installed automatically, see "When an install goes wrong".
             """),
 
@@ -232,14 +232,22 @@ public sealed partial class HelpViewModel : ObservableObject
             The way new-item mods are built: start from the game item closest to what you want, and give the new item its own copies of only what you want to change.
 
             - **Start from**: pick the item. Its model, sounds and behaviour carry over.
-            - **Name it**: the name players see; the item id (its row name in every table) follows it until you change it.
+            - **Name it**: the name players see, and a description (blank keeps the original's); the item id (its row name in every table) follows the name until you change it.
             - **What it gets its own copy of**: each table the item links to (name and icon, armour stats, what eating it does…). Ticked = its own copy, renamed and re-linked, safe to change. Unticked = it shares the game's row, and changing that row would change the original too. Food and medicine can also get **their own buff**.
             - **How players get it**: just the item; a **crafting recipe** at a bench you pick (starting from the original's ingredients, unlocked with the original's blueprint or known from the start); or an **orbital workshop purchase**, in an existing tab or a new tab of your mod's own, with research and replication costs in credits (research is paid once, replication per copy; lower is cheaper, 0 is free).
             - Everything lands in the editor as normal rows to fine-tune, and Undo takes it all back out.
 
             **Scale rules**
 
-            The **Scale rules** view changes one field across a whole table, like every item's Weight ×0.5. **Multiply by**: below 1 lowers the value (0.5 = half), above 1 raises it (2 = double). **Set to**: every matching row gets exactly that number. Limit a rule to rows whose name contains a word (several words, comma separated, match any). **Apply rules** writes the rows from your current game data, and Save applies them too, so a rule mod catches up after a game update just by being saved again. The Quality of life template includes rules you can turn on, among them **Cave sickness chance set to 5%** (25% in the game).
+            The **Scale rules** view changes one field across a whole table, like every item's Weight ×0.5.
+
+            - Each rule has an on/off tick, a name, a **Table** and a **Field** (pick from the list; `Name.*` means every stat in it, `Name[].Field` that field in every list entry), and a value.
+            - **Multiply by**: below 1 lowers the value (0.5 = half), above 1 raises it (2 = double), 1 leaves it as is, 0 makes it zero. **Set to**: every matching row gets exactly that number.
+            - **Only rows whose name contains** limits a rule (several words, comma separated, match any). **Also rows using the table's default value** is off for stack sizes, so tools and weapons don't start stacking.
+            - **Preview** / **Preview all** show what a rule would change without changing the mod. **Apply rules** writes the rows from your current game data (undoable); Save also applies a rule you changed but didn't apply.
+            - Rules only touch the game's own rows: items your mod adds itself are left as you made them.
+            - After a game update, **Update data folder** (Settings) rebuilds every rule mod from the new data by itself (a mod open in the editor waits for its own Apply).
+            - A Quality of life mod builds its rows the first time it opens. Its rules include ones you can turn on, among them **Cave sickness chance set to 5%** (25% in the game).
 
             **Check references**
 

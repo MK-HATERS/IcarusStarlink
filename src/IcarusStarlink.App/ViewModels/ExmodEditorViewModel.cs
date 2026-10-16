@@ -208,6 +208,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// <summary>The extracted game data the Scale rules read.</summary>
     internal string DataFolderForScale => _dataFolder;
 
+    /// <summary>The same tables, parsed once for this editor (previews would otherwise re-read a multi-MB table per click).</summary>
+    internal GameTableIndex GameTablesForScale => GameTables;
+
     partial void OnSelectedItemChanged(EditorItemViewModel? value)
     {
         PopulateFieldsForSelection();
@@ -757,7 +760,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     }
 
     /// <summary>Copies every field but FileName (the caller's own responsibility to guard, per ApplyFullExmodJson's own check above) from parsed onto the live _package in place, then refreshes every view derived from it. Shared by ApplyFullExmodJson and Undo — both are, structurally, "replace the whole package's content with something else."</summary>
-    private void ApplyParsedPackage(ExmodPackage parsed)
+    /// <param name="reloadRules">False keeps the Scale rules view as it is — Undo of some other edit mustn't throw away rule changes not applied yet.</param>
+    private void ApplyParsedPackage(ExmodPackage parsed, bool reloadRules = true)
     {
         _package.Name = parsed.Name;
         _package.Author = parsed.Author;
@@ -772,7 +776,10 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _package.VariantSort = parsed.VariantSort;
         _package.Rows = parsed.Rows;
         _package.ScaleRules = parsed.ScaleRules;
-        LoadScaleRules();
+        if (reloadRules)
+        {
+            LoadScaleRules();
+        }
 
         RefreshBaseDiff();
         ReloadItems();
@@ -810,7 +817,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         var snapshot = ExmodJson.Parse(snapshotJson);
         var previousFile = SelectedItem?.CurrentFile;
         var previousName = SelectedItem?.ItemName;
-        ApplyParsedPackage(snapshot);
+        ApplyParsedPackage(snapshot, reloadRules: !_scaleRulesDirty);
         SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == previousFile && i.ItemName == previousName) ?? Items.FirstOrDefault();
         StatusMessage = "Undid last action.";
     }
@@ -1037,16 +1044,17 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             StatusMessage = strippedFieldCount > 0
                 ? $"Saved — removed {strippedFieldCount} field(s) that matched base game data."
                 : "Saved.";
-
-            // Saved either way; a link to a row that doesn't exist is worth knowing about now, not in game.
-            if (Directory.Exists(_dataFolder) && RunReferenceCheck(showWhenClean: false) is > 0 and var problems)
-            {
-                StatusMessage += $" {problems} reference problem(s), listed above.";
-            }
         }
         catch (Exception ex)
         {
             StatusMessage = $"Save failed: {ex.Message}";
+            return;
+        }
+
+        // Saved either way; a link to a row that doesn't exist is worth knowing about now, not in game.
+        if (Directory.Exists(_dataFolder) && RunReferenceCheck(showWhenClean: false) is > 0 and var problems)
+        {
+            StatusMessage += $" {problems} reference problem(s), listed above.";
         }
     }
 

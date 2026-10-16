@@ -174,4 +174,60 @@ public sealed class NewItemWizardTests : IDisposable
         Assert.Empty(editor.ReferenceProblems);
         Assert.Contains("Every link", editor.ReferenceSummary);
     }
+
+    /// <summary>A review finding: typing in the search box cleared the list, the ListBox pushed back a null selection, and the pick and every tick were lost.</summary>
+    [Fact]
+    public void Wizard_Searching_KeepsThePickedItemAndItsTicks()
+    {
+        var wizard = new NewItemWizardViewModel(new GameTableIndex(DataFolder), null);
+        // What WPF's ListBox does when its items are cleared under the selection.
+        wizard.FilteredItems.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+            {
+                wizard.SelectedSource = null;
+            }
+        };
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Envirosuit");
+        wizard.Links.Single(l => l.Field == "Meshable").OwnCopy = true;
+
+        wizard.FilterText = "nothing matches this";
+
+        Assert.Equal("Envirosuit", wizard.SelectedSource?.Name);
+        Assert.Contains(wizard.SelectedSource!, wizard.FilteredItems);
+        Assert.True(wizard.Links.Single(l => l.Field == "Meshable").OwnCopy);
+        Assert.True(wizard.HasSource);
+    }
+
+    [Fact]
+    public void Wizard_WorkshopCosts_OnlyCountForAWorkshopItem()
+    {
+        var wizard = new NewItemWizardViewModel(new GameTableIndex(DataFolder), null);
+        wizard.SelectedSource = wizard.FilteredItems.Single();
+        wizard.DisplayName = "Dragon Suit";
+        wizard.ResearchCreditsText = "lots";
+        wizard.IsJustItem = true;
+
+        Assert.True(wizard.TryCreate(), wizard.Error);
+    }
+
+    /// <summary>A review finding: any Undo rebuilt the rule rows from the snapshot, silently dropping rule edits not applied yet.</summary>
+    [Fact]
+    public void Editor_Undo_KeepsRuleEditsNotAppliedYet()
+    {
+        var entry = _library.CreateBlankMod("Rules", "Me", ModTemplate.Blank);
+        var editor = Open(entry.FolderName);
+        editor.ShowWizardOverride = wizard =>
+        {
+            wizard.DisplayName = "Dragon Suit";
+            return wizard.TryCreate();
+        };
+        editor.StartNewItemWizard(null); // something to undo
+        editor.AddScaleRuleCommand.Execute(null);
+        editor.ScaleRuleRows[^1].Label = "My unapplied rule";
+
+        editor.UndoCommand.Execute(null);
+
+        Assert.Contains(editor.ScaleRuleRows, r => r.Label == "My unapplied rule");
+    }
 }

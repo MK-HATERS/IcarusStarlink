@@ -61,6 +61,7 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
         if (preset?.SourceItem is { } sourceName && _allItems.FirstOrDefault(i => i.Name == sourceName) is { } source)
         {
             SelectedSource = source;
+            RefreshFilter(); // the list shows the first 400 items; make sure the preset one is in it
         }
         else
         {
@@ -192,6 +193,11 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
 
     partial void OnSelectedSourceChanged(ItemChoice? value)
     {
+        if (_refreshingFilter)
+        {
+            return; // the list is being rebuilt under the selection, not a new pick
+        }
+
         _source = value is null ? null : ItemCloner.Inspect(_game, value.Name);
         Links.Clear();
         foreach (var link in _source?.Links ?? [])
@@ -208,10 +214,6 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
         ResearchCreditsText = (_source.ResearchCredits ?? 50).ToString();
         ReplicationCreditsText = (_source.ReplicationCredits ?? 25).ToString();
         ApplyObtainDefaults();
-        OnPropertyChanged(nameof(HasSource));
-        OnPropertyChanged(nameof(HasBuff));
-        OnPropertyChanged(nameof(SourceSummary));
-        OnPropertyChanged(nameof(CanUnlockWithSource));
     }
 
     /// <summary>A template's choice wins; otherwise start from how the game itself hands the source item out.</summary>
@@ -258,7 +260,8 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
             return false;
         }
 
-        if (!int.TryParse(ResearchCreditsText, out var research) || research < 0 || !int.TryParse(ReplicationCreditsText, out var replication) || replication < 0)
+        int research = 0, replication = 0;
+        if (IsWorkshop && (!int.TryParse(ResearchCreditsText, out research) || research < 0 || !int.TryParse(ReplicationCreditsText, out replication) || replication < 0))
         {
             Error = "Workshop costs need to be whole numbers, 0 or more.";
             return false;
@@ -297,18 +300,36 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
         }
     }
 
+    private bool _refreshingFilter;
+
+    /// <summary>
+    /// Rebuilds the list for the search text, keeping the picked item in it and picked: clearing the
+    /// list makes the ListBox push a null selection back, which used to forget the pick and every
+    /// tick made since.
+    /// </summary>
     private void RefreshFilter()
     {
-        FilteredItems.Clear();
-        var filter = FilterText.Trim();
-        foreach (var item in _allItems.Where(i => filter.Length == 0 || i.Display.Contains(filter, StringComparison.OrdinalIgnoreCase)).Take(400))
+        var picked = SelectedSource;
+        _refreshingFilter = true;
+        try
         {
-            FilteredItems.Add(item);
-        }
+            FilteredItems.Clear();
+            var filter = FilterText.Trim();
+            foreach (var item in _allItems.Where(i => filter.Length == 0 || i.Display.Contains(filter, StringComparison.OrdinalIgnoreCase)).Take(400))
+            {
+                FilteredItems.Add(item);
+            }
 
-        if (SelectedSource is not null && !FilteredItems.Contains(SelectedSource))
+            if (picked is not null && !FilteredItems.Contains(picked))
+            {
+                FilteredItems.Insert(0, picked);
+            }
+
+            SelectedSource = picked;
+        }
+        finally
         {
-            FilteredItems.Insert(0, SelectedSource);
+            _refreshingFilter = false;
         }
     }
 
