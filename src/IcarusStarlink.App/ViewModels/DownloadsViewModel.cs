@@ -758,21 +758,18 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 return;
             }
 
+            // Updating: the newer version of the exact file already installed (one of several
+            // variants, perhaps) is what's wanted — fetched directly when it's the only choice,
+            // otherwise preselected, so switching to a different variant stays possible.
+            var newer = NewerVersionOfInstalledFile(nexusModId, fileSet);
             NexusModFile file;
-            if (NewerVersionOfInstalledFile(nexusModId, fileSet) is { } newer)
-            {
-                // Updating: fetch the newer version of the exact file already installed (one of
-                // several variants, perhaps) instead of asking which file all over again.
-                file = newer;
-                PendingDownloadStatusMessage = $"Downloading the newer version of the file you have: '{newer.Name}' v{newer.Version}…";
-            }
-            else if (files.Count == 1)
+            if (files.Count == 1)
             {
                 file = files[0];
             }
             else
             {
-                var dialog = new PickNexusFileDialog(displayName ?? $"Mod #{nexusModId}", files) { Owner = Application.Current.MainWindow };
+                var dialog = new PickNexusFileDialog(displayName ?? $"Mod #{nexusModId}", files, newer) { Owner = Application.Current.MainWindow };
                 if (dialog.ShowDialog() != true || dialog.SelectedFile is not { } chosen)
                 {
                     PendingDownloadStatusMessage = "Download cancelled.";
@@ -980,7 +977,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         string? tempExtractDirectory = null;
         try
         {
-            var ownUe4ssNames = RemovePreviousCopies(item);
+            var previous = FindPreviousCopies(item);
 
             var source = item.IsCatalog ? PendingDownloadEntry.DatabaseSource : PendingDownloadEntry.NexusSource;
             int? nexusModId = item.IsCatalog ? null : item.ModId;
@@ -995,6 +992,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
             var localFilePath = ResolveLocalFilePath(item);
             if (string.Equals(Path.GetExtension(localFilePath), ".pak", StringComparison.OrdinalIgnoreCase))
             {
+                RemoveCopies(previous);
                 var entry = await _prebuiltPakImporter.ImportAsync(
                     localFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath, source: source, nexusModId: nexusModId,
                     catalogEntryId: item.CatalogEntryId, name: item.IsCatalog ? item.DisplayName : null);
@@ -1015,10 +1013,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
                     _activityLog.Log($"{entry.Name}: {warning}", ActivityEntryKind.Warning);
                 }
 
-                if (entry.ImportWarnings.Count > 0)
-                {
-                    statusMessage += $" Warning: {entry.ImportWarnings[0]}" + (entry.ImportWarnings.Count > 1 ? $" (+{entry.ImportWarnings.Count - 1} more in the Activity panel)" : "");
-                }
+                statusMessage += ExtractedModClassifier.WarningSummary(entry.ImportWarnings);
                 activatedItems = [new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library)];
                 _activityLog.Log($"Activated pending download '{entry.Name}'.", ActivityEntryKind.Success);
             }
@@ -1032,7 +1027,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 tempExtractDirectory = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Activate_{Guid.NewGuid():N}");
                 AnyArchiveExtractor.ExtractToDirectory(localFilePath, tempExtractDirectory);
                 (statusMessage, activatedItems, requirements) =
-                    await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, source, nexusModId, item.CatalogEntryId, ownUe4ssNames);
+                    await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, source, nexusModId, item.CatalogEntryId, previous);
             }
 
             if (!item.IsCatalog)
@@ -1079,75 +1074,61 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
     }
 
-    /// <summary>
-    /// Before (re)installing a download: removes what this row installed last time, or — the first
-    /// time — any copy of the same Nexus mod / Database entry installed some other way, so an
-    /// update replaces the mod instead of adding a "_2" copy. Returns the UE4SS folder names it
-    /// freed, which the new install may reuse.
-    /// </summary>
-    private HashSet<string> RemovePreviousCopies(PendingDownloadItemViewModel item)
+    /// <summary>What a (re)install of this download replaces: Library folders and UE4SS folders.</summary>
+    private sealed record PreviousCopies(IReadOnlyList<string> LibraryFolders, IReadOnlyList<string> Ue4ssFolders)
     {
-        // The UE4SS folder names this download owned before this Reinstall — they may still be
-        // INSTALLED in the game's Mods folder (an audit of a real report: the first activation
-        // had been applied into the game, so re-staging saw the name "in use" and landed as a
-        // "_2" copy, doubling the mod in the UE4SS tab). Re-staging under the same name is the
-        // whole point of a reinstall; the UE4SS tab's Apply then updates the game copy.
-        var ownUe4ssNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>The UE4SS folder names this download owned — the new install may reuse them even while the game still holds the old copy.</summary>
+        public IReadOnlySet<string> Ue4ssNames { get; } = new HashSet<string>(Ue4ssFolders, StringComparer.OrdinalIgnoreCase);
+    }
 
+    /// <summary>
+    /// Before (re)installing a download: what this row installed last time, or — the first time —
+    /// any copy of the same Nexus mod / Database entry installed some other way, so an update
+    /// replaces the mod instead of adding a "_2" copy. Only finds them; RemoveCopies deletes, as
+    /// late as possible (after any "which one?" question, so cancelling it changes nothing).
+    /// </summary>
+    private PreviousCopies FindPreviousCopies(PendingDownloadItemViewModel item)
+    {
         if (item.IsInstalled)
         {
-            foreach (var activated in item.ActivatedItems)
-            {
-                if (activated.Kind == PendingDownloadActivationKind.Library)
-                {
-                    _libraryRepository.Delete(activated.FolderName);
-                }
-                else if (activated.Kind == PendingDownloadActivationKind.Ue4ssMod)
-                {
-                    ownUe4ssNames.Add(activated.FolderName);
-                    _ue4ssModRepository.Delete(activated.FolderName);
-                    // Without this, a Reinstall's own Nexus-link sidecar (Ue4ss_Meta/{folder}.json)
-                    // is orphaned on disk — never cleaned up, and a stale link if a different,
-                    // unrelated mod later happens to land under the same folder name.
-                    _ue4ssModMetaStore.Delete(activated.FolderName);
-                }
-            }
+            // The UE4SS folder names this download owned may still be INSTALLED in the game's Mods
+            // folder (an audit of a real report: re-staging saw the name "in use" and landed as a
+            // "_2" copy). Re-staging under the same name is the whole point of a reinstall.
+            return new PreviousCopies(
+                [.. item.ActivatedItems.Where(a => a.Kind == PendingDownloadActivationKind.Library).Select(a => a.FolderName)],
+                [.. item.ActivatedItems.Where(a => a.Kind == PendingDownloadActivationKind.Ue4ssMod).Select(a => a.FolderName)]);
         }
-        else
+
+        // Never activated through THIS row (a first download of a new file for this mod — e.g.
+        // "Update" on a mod installed some other way: a manual import, a classic-IMM migration),
+        // but entries linked to the same Nexus mod / catalog entry can still exist. Without
+        // replacing them, "Update" silently added a "_2" copy and left the original untouched
+        // (a real bug found live: "I download the update but it's not updating the mod").
+        var library = item.IsCatalog
+            ? _libraryRepository.GetAll().Where(e => string.Equals(e.CatalogEntryId, item.CatalogEntryId, StringComparison.OrdinalIgnoreCase))
+            : _libraryRepository.GetAll().Where(e => e.NexusModId == item.ModId);
+        var ue4ss = item.IsCatalog
+            ? []
+            : _ue4ssModRepository.GetAll().Where(folderName => _ue4ssModMetaStore.Load(folderName).NexusModId == item.ModId);
+        return new PreviousCopies([.. library.Select(e => e.FolderName)], [.. ue4ss]);
+    }
+
+    private void RemoveCopies(PreviousCopies copies)
+    {
+        var libraryFolders = _libraryRepository.GetAll().Select(e => e.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in copies.LibraryFolders.Where(libraryFolders.Contains))
         {
-            // This exact PendingDownloadEntry has never been activated before through THIS row
-            // (a first-time download of a new file for this Nexus mod — e.g. clicking "Update"
-            // on a mod that was originally installed some other way: a manual EXMOD/pak import,
-            // a migration from classic IMM, or a download from before Pending Downloads existed
-            // at all) — but a Library or UE4SS entry already linked to this same Nexus mod ID can
-            // still exist on disk. Without deleting it first, the classify-and-import below just
-            // adds a second, "_2"-suffixed copy alongside the original, which is left completely
-            // untouched — from the user's own perspective, clicking "Update" on their existing
-            // mod silently did nothing to it at all (a real bug found live: "I download the
-            // update but it's not updating the mod I clicked update on").
-            // EVERY entry linked to this same source identity (Nexus mod ID, or catalog entry
-            // ID for an IMM Database download), not just the first.
-            var existingLibraryEntries = item.IsCatalog
-                ? _libraryRepository.GetAll().Where(e => string.Equals(e.CatalogEntryId, item.CatalogEntryId, StringComparison.OrdinalIgnoreCase)).ToList()
-                : _libraryRepository.GetAll().Where(e => e.NexusModId == item.ModId).ToList();
-            foreach (var existingLibraryEntry in existingLibraryEntries)
-            {
-                _libraryRepository.Delete(existingLibraryEntry.FolderName);
-            }
-
-            if (!item.IsCatalog)
-            {
-                foreach (var existingUe4ssFolderName in _ue4ssModRepository.GetAll()
-                    .Where(folderName => _ue4ssModMetaStore.Load(folderName).NexusModId == item.ModId).ToList())
-                {
-                    ownUe4ssNames.Add(existingUe4ssFolderName);
-                    _ue4ssModRepository.Delete(existingUe4ssFolderName);
-                    _ue4ssModMetaStore.Delete(existingUe4ssFolderName);
-                }
-            }
+            _libraryRepository.Delete(folder);
         }
 
-        return ownUe4ssNames;
+        var ue4ssFolders = _ue4ssModRepository.GetAll().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in copies.Ue4ssFolders.Where(ue4ssFolders.Contains))
+        {
+            _ue4ssModRepository.Delete(folder);
+            // Otherwise the Nexus-link sidecar is orphaned, and a stale link if an unrelated mod
+            // later lands under the same folder name.
+            _ue4ssModMetaStore.Delete(folder);
+        }
     }
 
     /// <summary>
@@ -1160,18 +1141,19 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// (Library's UE4SS tab has its own reload path, never wired to this pipeline before this).
     /// </summary>
     private async Task<(string StatusMessage, IReadOnlyList<PendingDownloadActivatedItem> Items, IReadOnlyList<string> Requirements)> ClassifyAndImportExtractedModAsync(
-        string extractedDirectory, string originalFileName, string source, int? nexusModId, string? catalogEntryId, IReadOnlySet<string>? ownUe4ssNamesToReuse = null)
+        string extractedDirectory, string originalFileName, string source, int? nexusModId, string? catalogEntryId, PreviousCopies previous)
     {
         // Only meaningful if the game path is actually configured — with nothing to check against,
         // this degrades to the same "no collision avoidance" behavior importing already had. This
         // download's OWN previously-staged names are allowed back (a reinstall must land under the
         // same name even while the game folder still holds the earlier copy).
-        var installedUe4ssNames = InstalledUe4ssNamesExcept(ownUe4ssNamesToReuse);
+        var installedUe4ssNames = InstalledUe4ssNamesExcept(previous.Ue4ssNames);
 
         var classified = await ExtractedModClassifier.ClassifyAndImport(
             extractedDirectory, originalFileName, _libraryRepository, _ue4ssModRepository,
             _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, source: source, nexusModId: nexusModId,
-            ue4ssNamesAlreadyInstalledInGame: installedUe4ssNames, catalogEntryId: catalogEntryId, chooseArchive: ChooseArchive);
+            ue4ssNamesAlreadyInstalledInGame: installedUe4ssNames, catalogEntryId: catalogEntryId, chooseArchive: ChooseArchive,
+            beforeFirstWrite: () => RemoveCopies(previous));
 
         var landed = await FollowUpImportedAsync(classified.Items, nexusModId);
 
@@ -1184,10 +1166,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
             _activityLog.Log($"{originalFileName}: {warning}", ActivityEntryKind.Warning);
         }
 
-        if (classified.Warnings.Count > 0)
-        {
-            statusMessage += $" Warning: {classified.Warnings[0]}" + (classified.Warnings.Count > 1 ? $" (+{classified.Warnings.Count - 1} more in the Activity panel)" : "");
-        }
+        statusMessage += ExtractedModClassifier.WarningSummary(classified.Warnings);
 
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         return (statusMessage, classified.Items, classified.Requirements);
@@ -1235,7 +1214,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
                     await EnrichUe4ssModFromNexusAsync(produced.FolderName, ue4ssModId);
                 }
 
-                landed.Add($"'{produced.FolderName}' (UE4SS mod — tick it in the Mods list, then Apply)");
+                landed.Add($"'{produced.FolderName}' (UE4SS mod — tick it in the Library list, then Apply UE4SS changes)");
                 _activityLog.Log($"Activated pending download '{produced.FolderName}' as a UE4SS mod.", ActivityEntryKind.Success);
             }
         }
@@ -1254,31 +1233,22 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// </summary>
     private async Task InstallManuallyAfterFailureAsync(PendingDownloadItemViewModel item, string reason)
     {
-        var scratch = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Manual_{Guid.NewGuid():N}");
+        string? scratch = null;
         try
         {
-            var localFilePath = ResolveLocalFilePath(item);
-            if (string.Equals(Path.GetExtension(localFilePath), ".pak", StringComparison.OrdinalIgnoreCase))
-            {
-                Directory.CreateDirectory(scratch);
-                File.Copy(localFilePath, Path.Combine(scratch, Path.GetFileName(localFilePath)));
-            }
-            else
-            {
-                AnyArchiveExtractor.ExtractToDirectory(localFilePath, scratch);
-            }
-
+            scratch = ManualInstaller.UnpackForManualInstall(ResolveLocalFilePath(item));
             if (ManualInstall(scratch, item.DisplayName, reason, ManualInstaller.Suggest(scratch)) is not { Count: > 0 } plan)
             {
                 return; // the "Import failed: …" message stays
             }
 
-            var ownUe4ssNames = RemovePreviousCopies(item);
+            var previous = FindPreviousCopies(item);
+            RemoveCopies(previous);
             var source = item.IsCatalog ? PendingDownloadEntry.DatabaseSource : PendingDownloadEntry.NexusSource;
             int? nexusModId = item.IsCatalog ? null : item.ModId;
             var installed = await ManualInstaller.InstallAsync(
                 plan, _libraryRepository, _ue4ssModRepository, _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath,
-                source, nexusModId, item.CatalogEntryId, InstalledUe4ssNamesExcept(ownUe4ssNames));
+                source, nexusModId, item.CatalogEntryId, InstalledUe4ssNamesExcept(previous.Ue4ssNames));
             var landed = await FollowUpImportedAsync(installed, nexusModId);
             if (!item.IsCatalog)
             {
@@ -1297,17 +1267,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
         finally
         {
-            try
-            {
-                if (Directory.Exists(scratch))
-                {
-                    Directory.Delete(scratch, recursive: true);
-                }
-            }
-            catch (Exception)
-            {
-                // Best-effort scratch cleanup.
-            }
+            ManualInstaller.TryDelete(scratch);
         }
     }
 
@@ -1354,17 +1314,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
         return $" Needs: {string.Join("; ", parts)}.";
     }
 
-    /// <summary>
-    /// Looks the mod up by the ID the nxm:// download already told us and records what Nexus knows
-    /// (name/author/description/version) in the entry's sidecar. For an opaque .pak (no embedded
-    /// metadata of its own) or a converted one, that becomes the displayed name/author; for an
-    /// ordinary EXMODZ only the version is surfaced (as LibraryEntry.NexusVersion, the like-for-like
-    /// side of update-checking) — FolderLibraryRepository.SetNexusMetadata never overwrites a real
-    /// author's own declared name. Best-effort only: no signed-in key, a rejected key, or a network
-    /// hiccup all fall through silently, since a missing enrichment shouldn't turn an otherwise-
-    /// successful import into a reported failure — the entry just keeps showing "Unknown" the way
-    /// it always has.
-    /// </summary>
     /// <summary>
     /// When exactly one file of this mod is installed (by its recorded Nexus file ID) and Nexus lists
     /// a newer file in that file's own update chain, that newer file; otherwise null, and the usual
@@ -1421,25 +1370,47 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         foreach (var activated in activatedItems)
         {
-            if (activated.Kind == PendingDownloadActivationKind.Library)
+            try
             {
-                _libraryRepository.SetNexusFile(activated.FolderName, fileId, fileVersion);
+                if (activated.Kind == PendingDownloadActivationKind.Library)
+                {
+                    _libraryRepository.SetNexusFile(activated.FolderName, fileId, fileVersion);
+                }
+                else
+                {
+                    var meta = _ue4ssModMetaStore.Load(activated.FolderName);
+                    meta.NexusFileId = fileId;
+                    meta.NexusFileVersion = fileVersion;
+                    _ue4ssModMetaStore.Save(activated.FolderName, meta);
+                }
             }
-            else
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                var meta = _ue4ssModMetaStore.Load(activated.FolderName);
-                meta.NexusFileId = fileId;
-                meta.NexusFileVersion = fileVersion;
-                _ue4ssModMetaStore.Save(activated.FolderName, meta);
+                // Bookkeeping only (which Nexus file this is, for per-file updates). A locked
+                // sidecar must not turn an install that worked into a "failed" one — that used to
+                // open the manual install and delete the mod that had just landed.
+                _activityLog.Log($"Couldn't record which Nexus file '{activated.FolderName}' came from: {ex.Message}", ActivityEntryKind.Warning);
             }
         }
 
+        // Callers refreshed the Library before this ran; once more so it sees the file id.
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
     }
 
     /// <summary>Asks which of several alternative archives in one download to install (tests swap in a fake).</summary>
     internal Func<string, IReadOnlyList<ArchiveChoice>, int?> ChooseArchive { get; set; } = Views.ChooseArchiveDialog.Ask;
 
+    /// <summary>
+    /// Looks the mod up by the ID the nxm:// download already told us and records what Nexus knows
+    /// (name/author/description/version) in the entry's sidecar. For an opaque .pak (no embedded
+    /// metadata of its own) or a converted one, that becomes the displayed name/author; for an
+    /// ordinary EXMODZ only the version is surfaced (as LibraryEntry.NexusVersion, the like-for-like
+    /// side of update-checking) — FolderLibraryRepository.SetNexusMetadata never overwrites a real
+    /// author's own declared name. Best-effort only: no signed-in key, a rejected key, or a network
+    /// hiccup all fall through silently, since a missing enrichment shouldn't turn an otherwise-
+    /// successful import into a reported failure — the entry just keeps showing "Unknown" the way
+    /// it always has.
+    /// </summary>
     private async Task RecordNexusMetadataAsync(string folderName, int modId)
     {
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
@@ -1594,15 +1565,17 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// <summary>Exact name first, then a name that contains (or is contained by) the requirement — the first such hit in Nexus's own relevance order; null when nothing is close enough to offer without asking the user to look.</summary>
     internal static NexusModInfo? PickRequirementMatch(IReadOnlyList<NexusModInfo> results, string requirementName)
     {
-        static string Norm(string s) => new([.. s.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant)]);
+        // Nexus lists hidden/removed mods with no name — never a match (an empty name is "contained" in everything).
+        static string Norm(string? s) => s is null ? "" : new([.. s.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant)]);
         var wanted = Norm(requirementName);
         if (wanted.Length == 0)
         {
             return null;
         }
 
-        return results.FirstOrDefault(r => Norm(r.Name) == wanted)
-            ?? results.FirstOrDefault(r => Norm(r.Name).Contains(wanted, StringComparison.Ordinal) || wanted.Contains(Norm(r.Name), StringComparison.Ordinal));
+        var named = results.Select(r => (Mod: r, Name: Norm(r.Name))).Where(r => r.Name.Length > 0).ToList();
+        return named.FirstOrDefault(r => r.Name == wanted).Mod
+            ?? named.FirstOrDefault(r => r.Name.Contains(wanted, StringComparison.Ordinal) || wanted.Contains(r.Name, StringComparison.Ordinal)).Mod;
     }
 
     private string ResolveLocalFilePath(PendingDownloadItemViewModel item) =>

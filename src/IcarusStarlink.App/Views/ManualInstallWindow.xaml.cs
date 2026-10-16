@@ -22,6 +22,7 @@ public sealed partial class DownloadTreeNode : ObservableObject
 public partial class ManualInstallWindow : Window
 {
     private readonly string _root;
+    private readonly string _modName;
     private readonly ObservableCollection<ManualInstallItem> _plan;
 
     public IReadOnlyList<ManualInstallItem> Plan => _plan;
@@ -30,6 +31,7 @@ public partial class ManualInstallWindow : Window
     {
         InitializeComponent();
         _root = root;
+        _modName = modName;
         _plan = new ObservableCollection<ManualInstallItem>(suggestions);
         HeaderText.Text = $"Starlink couldn't install '{modName}' by itself: {reason}\n\nChoose what to install and what each piece is. Starlink's best guesses are on the right — "
             + "leave out anything you don't want, or select something in the download and add it.";
@@ -78,7 +80,8 @@ public partial class ManualInstallWindow : Window
             return;
         }
 
-        var name = node.FullPath == _root ? Path.GetFileName(_root) : Path.GetFileNameWithoutExtension(node.FullPath);
+        // The whole download is named after the mod, not the scratch folder it was unpacked into.
+        var name = node.FullPath == _root ? _modName : Path.GetFileNameWithoutExtension(node.FullPath);
         var item = new ManualInstallItem(kind, node.FullPath, ManualInstaller.Relative(_root, node.FullPath), name);
         if (ManualInstaller.Problem(item) is { } problem)
         {

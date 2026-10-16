@@ -62,4 +62,51 @@ public sealed class ManualInstallerTests : IDisposable
         Assert.Contains("give it a name", ManualInstaller.Problem(unnamed));
         Assert.Null(ManualInstaller.Problem(new ManualInstallItem(ManualInstallKind.PakMod, Path.Combine(_root, "Paks"), "Paks", "Paks")));
     }
+
+    private sealed class FailingPakImporter : IcarusStarlink.PakIO.Import.IPrebuiltPakImporter
+    {
+        public Task<IcarusStarlink.Core.Library.LibraryEntry> ImportAsync(
+            string pakFilePath, string dataFolder, string? unrealPakExePath, string? source = null, int? nexusModId = null,
+            string? catalogEntryId = null, string? name = null, string? author = null, CancellationToken cancellationToken = default) =>
+            throw new FormatException("broken pak");
+    }
+
+    /// <summary>A manual install is all or nothing: a later piece failing takes the earlier ones back out, so nothing is left untracked.</summary>
+    [Fact]
+    public async Task Install_APieceThatFails_TakesBackThePiecesAlreadyIn()
+    {
+        var store = Path.Combine(_root, "_store");
+        using var library = new IcarusStarlink.Storage.Library.FolderLibraryRepository(
+            Path.Combine(store, "Extracted_Mods"), Path.Combine(store, "Library_Meta"), Path.Combine(store, "Backups"),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<IcarusStarlink.Storage.Library.FolderLibraryRepository>.Instance);
+        var ue4ss = new IcarusStarlink.Storage.Ue4ss.Ue4ssModRepository(Path.Combine(store, "Staged_UE4SS"));
+        IReadOnlyList<ManualInstallItem> plan =
+        [
+            new(ManualInstallKind.Ue4ssMod, Path.Combine(_root, "UE4SS Mods", "MiniMapa"), "UE4SS Mods/MiniMapa", "MiniMapa"),
+            new(ManualInstallKind.PakMod, Path.Combine(_root, "Paks", "A_P.pak"), "Paks/A_P.pak", "A"),
+        ];
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ManualInstaller.InstallAsync(
+            plan, library, ue4ss, new FailingPakImporter(), Path.Combine(_root, "Data"), null, null, null, null, null));
+
+        Assert.Equal("broken pak", ex.Message);
+        Assert.Empty(ue4ss.GetAll());
+    }
+
+    [Fact]
+    public void UnpackForManualInstall_ABrokenArchive_LeavesNoTempFolderBehind()
+    {
+        var broken = Path.Combine(_root, "broken.zip");
+        File.WriteAllText(broken, "not a zip");
+        var before = Directory.Exists(Path.Combine(Path.GetTempPath(), "IcarusStarlink"))
+            ? Directory.GetDirectories(Path.Combine(Path.GetTempPath(), "IcarusStarlink"), "Manual_*").ToHashSet()
+            : [];
+
+        Assert.ThrowsAny<Exception>(() => ManualInstaller.UnpackForManualInstall(broken));
+
+        var after = Directory.Exists(Path.Combine(Path.GetTempPath(), "IcarusStarlink"))
+            ? Directory.GetDirectories(Path.Combine(Path.GetTempPath(), "IcarusStarlink"), "Manual_*")
+            : [];
+        Assert.DoesNotContain(after, d => !before.Contains(d));
+    }
 }

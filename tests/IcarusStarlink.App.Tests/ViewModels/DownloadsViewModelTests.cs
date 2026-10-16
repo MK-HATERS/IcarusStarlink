@@ -215,6 +215,41 @@ public sealed class DownloadsViewModelTests : IDisposable
         Assert.Contains("cancelled", vm.PendingDownloadStatusMessage);
     }
 
+    private static void WriteTwoAlternatives(ZipArchive archive)
+    {
+        foreach (var inner in new[] { "A.zip", "B.zip" })
+        {
+            var bytes = new MemoryStream();
+            using (var innerZip = new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                WriteEntry(innerZip, "Scripts/main.lua", "print('x')");
+            }
+
+            using var entry = archive.CreateEntry(inner).Open();
+            entry.Write(bytes.ToArray());
+        }
+    }
+
+    /// <summary>A real review finding: Reinstall deleted the installed mod first, so cancelling the "which one?" question left the user with nothing.</summary>
+    [Fact]
+    public async Task Reinstall_CancellingTheChoiceOfAlternatives_KeepsTheInstalledMod()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        vm.ManualInstall = (_, _, _, _) => null;
+        var item = harness.AddDownload("Two.zip", WriteTwoAlternatives);
+        vm.ChooseArchive = (_, _) => 0;
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+        var installed = Assert.Single(harness.Ue4ss.GetAll());
+
+        vm.ChooseArchive = (_, _) => null;
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        Assert.Contains("cancelled", vm.PendingDownloadStatusMessage);
+        Assert.Equal([installed], harness.Ue4ss.GetAll());
+        Assert.True(item.IsInstalled);
+    }
+
     /// <summary>The real report: both of WirelessPower's paks were renamed to the Nexus title, so the Library showed three rows called "Wireless Power" and the user read the extras as a dependency fetched behind their back.</summary>
     [Fact]
     public async Task Activate_GameFolderBundle_LandsAsOneLibraryModHoldingBothPaks()
@@ -325,6 +360,20 @@ public sealed class DownloadsViewModelTests : IDisposable
 
         Assert.Equal(expectedName, match?.Name);
         Assert.Equal(expectedId, match?.ModId ?? 0);
+    }
+
+    /// <summary>Nexus lists hidden/removed mods with no name; one of those used to crash the match, or be "contained" in any requirement.</summary>
+    [Fact]
+    public void PickRequirementMatch_SkipsNamelessMods()
+    {
+        IReadOnlyList<NexusModInfo> results =
+        [
+            new NexusModInfo(1, null!, "a", "", "1", null),
+            new NexusModInfo(356, "ArcFission Library", "a", "", "1", null),
+        ];
+
+        Assert.Equal(356, DownloadsViewModel.PickRequirementMatch(results, "ArcFission")?.ModId);
+        Assert.Null(DownloadsViewModel.PickRequirementMatch([results[0]], "ArcFission"));
     }
 
     [Fact]

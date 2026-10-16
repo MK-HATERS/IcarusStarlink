@@ -156,7 +156,7 @@ public static class ManualInstaller
         };
     }
 
-    /// <summary>Installs every line, in order. Throws (with the reason) on the first line that can't go in; lines already installed stay.</summary>
+    /// <summary>Installs every line, in order. Throws (with the reason) on the first line that can't go in, after taking back the lines already in — a manual install is all or nothing.</summary>
     public static async Task<IReadOnlyList<PendingDownloadActivatedItem>> InstallAsync(
         IReadOnlyList<ManualInstallItem> items, ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
@@ -168,6 +168,42 @@ public static class ManualInstaller
         }
 
         var installed = new List<PendingDownloadActivatedItem>();
+        try
+        {
+            await InstallEachAsync(items, installed, libraryRepository, ue4ssModRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, ue4ssNamesInUse);
+        }
+        catch
+        {
+            foreach (var item in installed)
+            {
+                try
+                {
+                    if (item.Kind == PendingDownloadActivationKind.Library)
+                    {
+                        libraryRepository.Delete(item.FolderName);
+                    }
+                    else
+                    {
+                        ue4ssModRepository.Delete(item.FolderName);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Best effort: the failure that stopped the install is what the user sees.
+                }
+            }
+
+            throw;
+        }
+
+        return installed;
+    }
+
+    private static async Task InstallEachAsync(
+        IReadOnlyList<ManualInstallItem> items, List<PendingDownloadActivatedItem> installed, ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
+        IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
+        string? source, int? nexusModId, string? catalogEntryId, IReadOnlyCollection<string>? ue4ssNamesInUse)
+    {
         foreach (var item in items)
         {
             var name = item.Name.Trim();
@@ -205,15 +241,15 @@ public static class ManualInstaller
                 {
                     var folder = item.FullPath;
                     string? scratch = null;
-                    if (!Directory.Exists(folder))
-                    {
-                        scratch = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"Manual_{Guid.NewGuid():N}");
-                        AnyArchiveExtractor.ExtractToDirectory(item.FullPath, scratch);
-                        folder = scratch;
-                    }
-
                     try
                     {
+                        if (!Directory.Exists(folder))
+                        {
+                            scratch = NewScratchFolder();
+                            AnyArchiveExtractor.ExtractToDirectory(item.FullPath, scratch);
+                            folder = scratch;
+                        }
+
                         var entry = libraryRepository.Import(folder, source: source, nexusModId: nexusModId, catalogEntryId: catalogEntryId);
                         RenameIfAsked(libraryRepository, entry, item);
                         installed.Add(new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library));
@@ -234,8 +270,34 @@ public static class ManualInstaller
                 }
             }
         }
+    }
 
-        return installed;
+    /// <summary>A fresh folder under %TEMP%\IcarusStarlink for unpacking (TryDelete removes it).</summary>
+    public static string NewScratchFolder() => Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"Manual_{Guid.NewGuid():N}");
+
+    /// <summary>The download as a folder the manual-install window can show: an archive unpacked, a bare .pak copied in. Deletes the folder again if that fails.</summary>
+    public static string UnpackForManualInstall(string downloadPath)
+    {
+        var scratch = NewScratchFolder();
+        try
+        {
+            if (string.Equals(Path.GetExtension(downloadPath), ".pak", StringComparison.OrdinalIgnoreCase))
+            {
+                Directory.CreateDirectory(scratch);
+                File.Copy(downloadPath, Path.Combine(scratch, Path.GetFileName(downloadPath)));
+            }
+            else
+            {
+                AnyArchiveExtractor.ExtractToDirectory(downloadPath, scratch);
+            }
+
+            return scratch;
+        }
+        catch
+        {
+            TryDelete(scratch);
+            throw;
+        }
     }
 
     /// <summary>The user changed the suggested name: show theirs (the mod's files keep their own).</summary>
@@ -257,7 +319,8 @@ public static class ManualInstaller
     private static bool SameAs(string a, string b) =>
         string.Equals(Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
 
-    private static void TryDelete(string? folder)
+    /// <summary>Best-effort removal of a scratch folder (a file still locked by antivirus, or read-only from a .rar, is left for Windows' temp cleanup).</summary>
+    public static void TryDelete(string? folder)
     {
         try
         {
@@ -266,7 +329,7 @@ public static class ManualInstaller
                 Directory.Delete(folder, recursive: true);
             }
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
         }
     }

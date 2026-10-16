@@ -13,12 +13,15 @@ namespace IcarusStarlink.App.Views;
 public partial class PickNexusFileDialog : Window
 {
     private readonly List<NexusModFile> _allFilesSorted;
+    private readonly NexusModFile? _preselect;
 
     public NexusModFile? SelectedFile { get; private set; }
 
-    public PickNexusFileDialog(string modName, IEnumerable<NexusModFile> files)
+    /// <param name="preselect">Starts on this file (the newer version of the one installed) instead of the primary.</param>
+    public PickNexusFileDialog(string modName, IEnumerable<NexusModFile> files, NexusModFile? preselect = null)
     {
         InitializeComponent();
+        _preselect = preselect;
 
         _allFilesSorted = [.. files.OrderBy(SortPriority)];
         HeaderText.Text = $"'{modName}' has more than one file available. Pick the one you want:";
@@ -47,7 +50,7 @@ public partial class PickNexusFileDialog : Window
         FilesListBox.ItemsSource = visible;
         FilesListBox.SelectedItem = previouslySelected is not null && visible.Contains(previouslySelected)
             ? previouslySelected
-            : visible.FirstOrDefault(f => f.IsPrimary) ?? visible.FirstOrDefault();
+            : visible.FirstOrDefault(f => f.FileId == _preselect?.FileId) ?? visible.FirstOrDefault(f => f.IsPrimary) ?? visible.FirstOrDefault();
     }
 
     private void ShowOldVersionsCheckBox_Changed(object sender, RoutedEventArgs e) => ApplyFilter();

@@ -21,7 +21,7 @@
 
         <TextBlock Grid.Row="0" Text="Downloads" Style="{StaticResource PageHeaderStyle}"/>
         <TextBlock Grid.Row="1" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,4,0,12"
-                   Text="Everything downloaded through this app, from Nexus or the IMM Database. A download is imported the moment it finishes — one download is one mod: its paks go to Library, a Lua part to the UE4SS tab. Reinstall puts a removed mod back; Discard deletes the downloaded file."/>
+                   Text="Everything downloaded through this app, from Nexus or the IMM Database. A download is imported the moment it finishes — one download is one mod: its paks and any Lua part all land in Library's list, as linked rows. Reinstall puts a removed mod back; Discard deletes the downloaded file."/>
 
         <DockPanel Grid.Row="2" Margin="0,0,0,8">
             <CheckBox DockPanel.Dock="Right" IsChecked="{Binding ShowInstalledDownloads}" VerticalAlignment="Center"

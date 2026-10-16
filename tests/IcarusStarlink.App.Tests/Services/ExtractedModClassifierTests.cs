@@ -503,13 +503,35 @@ public sealed class ExtractedModClassifierTests : IDisposable
         var libraryRepository = new FakeLibraryRepository();
         var ue4ssModRepository = new FakeUe4ssModRepository();
 
+        var removedPrevious = false;
+
         var ex = await Assert.ThrowsAsync<ImportCancelledException>(() => ExtractedModClassifier.ClassifyAndImport(
             _extractedDir, "Minimap V1.0.5.zip", libraryRepository, ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null,
-            chooseArchive: (_, _) => null));
+            chooseArchive: (_, _) => null, beforeFirstWrite: () => removedPrevious = true));
 
         Assert.Contains("cancelled", ex.Message);
         Assert.Equal(0, libraryRepository.ImportCallCount);
         Assert.Equal(0, ue4ssModRepository.ImportFromFolderCallCount);
+        // A reinstall removes the previous copy only right before writing — never when the user backs out.
+        Assert.False(removedPrevious);
+    }
+
+    /// <summary>One download is one mod: when its UE4SS half fails to stage, the Library half already in is taken back out.</summary>
+    [Fact]
+    public async Task ClassifyAndImport_APartThatFails_TakesBackThePartsAlreadyIn()
+    {
+        BuildMinimapDownload();
+        var libraryRepository = new FakeLibraryRepository();
+        var ue4ssModRepository = new FakeUe4ssModRepository { ImportFromFolderException = new IOException("disk full") };
+        var removedPrevious = 0;
+
+        await Assert.ThrowsAsync<IOException>(() => ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Minimap V1.0.5.zip", libraryRepository, ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null,
+            chooseArchive: (_, _) => 0, beforeFirstWrite: () => removedPrevious++));
+
+        Assert.Equal(1, libraryRepository.ImportCallCount);
+        Assert.Single(libraryRepository.Deleted);
+        Assert.Equal(1, removedPrevious);
     }
 
     [Fact]
@@ -605,7 +627,9 @@ public sealed class ExtractedModClassifierTests : IDisposable
         public void SetNexusMetadata(string folderName, string? name, string? author, string? description, string? version) =>
             throw new NotSupportedException("Not exercised by these tests.");
         public void Refresh() => throw new NotSupportedException("Not exercised by these tests.");
-        public void Delete(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
+        public List<string> Deleted { get; } = [];
+
+        public void Delete(string folderName) => Deleted.Add(folderName);
         public void UpdateMetadata(string folderName, bool isPinned, bool isFavorite, string notes) =>
             throw new NotSupportedException("Not exercised by these tests.");
         public void MarkLocallyEdited(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
@@ -637,8 +661,16 @@ public sealed class ExtractedModClassifierTests : IDisposable
         public string? LastSourceFolder { get; private set; }
         public string? LastFallbackName { get; private set; }
 
+        public Exception? ImportFromFolderException { get; set; }
+        public List<string> Deleted { get; } = [];
+
         public string ImportFromFolder(string sourceFolder, string fallbackName, IReadOnlyCollection<string>? namesAlreadyInUse = null)
         {
+            if (ImportFromFolderException is not null)
+            {
+                throw ImportFromFolderException;
+            }
+
             ImportFromFolderCallCount++;
             LastSourceFolder = sourceFolder;
             LastFallbackName = fallbackName;
@@ -647,7 +679,7 @@ public sealed class ExtractedModClassifierTests : IDisposable
 
         public IReadOnlyList<string> GetAll() => throw new NotSupportedException("Not exercised by these tests.");
         public string Import(string zipFilePath, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
-        public void Delete(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
+        public void Delete(string folderName) => Deleted.Add(folderName);
         public string GetFolderPath(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
         public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) => throw new NotSupportedException("Not exercised by these tests.");
         public string AdoptFromGame(string gameModsFolderPath, string folderName, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");

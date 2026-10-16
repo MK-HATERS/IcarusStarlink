@@ -59,22 +59,87 @@ public static class ExtractedModClassifier
 
     private static readonly string[] NestedArchiveExtensions = [".exmodz", ".zip", ".rar", ".7z"];
 
-    public static Task<ClassifiedImport> ClassifyAndImport(
+    /// <summary>" Warning: … (+N more in the Activity panel)" for the end of a status line; "" when there are none.</summary>
+    public static string WarningSummary(IReadOnlyList<string> warnings) =>
+        warnings.Count == 0 ? "" : $" Warning: {warnings[0]}" + (warnings.Count > 1 ? $" (+{warnings.Count - 1} more in the Activity panel)" : "");
+
+    public static async Task<ClassifiedImport> ClassifyAndImport(
         string extractedDirectory, string originalFileName,
         ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
         string? source = null, int? nexusModId = null, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame = null,
-        string? catalogEntryId = null, Func<string, IReadOnlyList<ArchiveChoice>, int?>? chooseArchive = null) =>
-        ClassifyAndImportCore(
-            extractedDirectory, originalFileName, libraryRepository, ue4ssModRepository, prebuiltPakImporter,
-            dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, ue4ssNamesAlreadyInstalledInGame, nestedDepth: 0, chooseArchive);
+        string? catalogEntryId = null, Func<string, IReadOnlyList<ArchiveChoice>, int?>? chooseArchive = null,
+        Action? beforeFirstWrite = null)
+    {
+        var session = new ImportSession(beforeFirstWrite);
+        try
+        {
+            return await ClassifyAndImportCore(
+                extractedDirectory, originalFileName, libraryRepository, ue4ssModRepository, prebuiltPakImporter,
+                dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, ue4ssNamesAlreadyInstalledInGame, nestedDepth: 0, chooseArchive, session);
+        }
+        catch
+        {
+            // A download is one mod: if any part of it failed, take back the parts already in, so a
+            // retry (or the manual install that follows a failure) doesn't land next to "_2" copies.
+            session.Undo(libraryRepository, ue4ssModRepository);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// One classify-and-import run. beforeFirstWrite runs once, right before the first thing is
+    /// written — a reinstall removes the previous copy there, AFTER any "which one?" question, so
+    /// cancelling that question leaves the installed mod alone. Records what was written so a
+    /// half-finished import can be undone.
+    /// </summary>
+    private sealed class ImportSession(Action? beforeFirstWrite)
+    {
+        private Action? _beforeFirstWrite = beforeFirstWrite;
+        private readonly List<PendingDownloadActivatedItem> _written = [];
+
+        public void Writing()
+        {
+            var run = _beforeFirstWrite;
+            _beforeFirstWrite = null;
+            run?.Invoke();
+        }
+
+        public string Wrote(string folderName, PendingDownloadActivationKind kind)
+        {
+            _written.Add(new PendingDownloadActivatedItem(folderName, kind));
+            return folderName;
+        }
+
+        public void Undo(ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository)
+        {
+            foreach (var item in _written)
+            {
+                try
+                {
+                    if (item.Kind == PendingDownloadActivationKind.Library)
+                    {
+                        libraryRepository.Delete(item.FolderName);
+                    }
+                    else
+                    {
+                        ue4ssModRepository.Delete(item.FolderName);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Best effort: the original failure is what the user needs to see.
+                }
+            }
+        }
+    }
 
     private static async Task<ClassifiedImport> ClassifyAndImportCore(
         string extractedDirectory, string originalFileName,
         ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
         string? source, int? nexusModId, string? catalogEntryId, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame, int nestedDepth,
-        Func<string, IReadOnlyList<ArchiveChoice>, int?>? chooseArchive)
+        Func<string, IReadOnlyList<ArchiveChoice>, int?>? chooseArchive, ImportSession session)
     {
         // A manual scan, not a "*.EXMOD" glob — Directory.EnumerateFiles' pattern matching follows
         // the filesystem's own case sensitivity, same reasoning ExmodFolder.FindExmodFile's own
@@ -99,7 +164,9 @@ public static class ExtractedModClassifier
             // asset path, a size-budget violation) propagate up as-is — this genuinely IS
             // EXMOD-shaped content, so a failure here is a real problem, not a signal to try a
             // different format.
+            session.Writing();
             var entry = libraryRepository.Import(extractedDirectory, source: source, nexusModId: nexusModId, catalogEntryId: catalogEntryId);
+            session.Wrote(entry.FolderName, PendingDownloadActivationKind.Library);
             return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, isOpaquePak: false, requirements, warnings);
         }
 
@@ -116,9 +183,11 @@ public static class ExtractedModClassifier
             var items = new List<PendingDownloadActivatedItem>();
             var names = new List<string>();
             var anyOpaque = false;
+            session.Writing();
             foreach (var modFolder in ue4ssModFolders)
             {
-                var folderName = ue4ssModRepository.ImportFromFolder(modFolder, Path.GetFileName(modFolder), ue4ssNamesAlreadyInstalledInGame);
+                var folderName = session.Wrote(
+                    ue4ssModRepository.ImportFromFolder(modFolder, Path.GetFileName(modFolder), ue4ssNamesAlreadyInstalledInGame), PendingDownloadActivationKind.Ue4ssMod);
                 items.Add(new PendingDownloadActivatedItem(folderName, PendingDownloadActivationKind.Ue4ssMod));
                 names.Add(folderName);
             }
@@ -129,7 +198,7 @@ public static class ExtractedModClassifier
                 // The mod's own name, not the first pak's: a single UE4SS folder names the whole
                 // download (WirelessPower); otherwise the upload's own file name does.
                 var modName = ue4ssModFolders.Count == 1 ? Path.GetFileName(ue4ssModFolders[0]) : downloadName;
-                var entry = await ImportPakSetAsync(bundlePaks, modName, libraryRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId);
+                var entry = await ImportPakSetAsync(bundlePaks, modName, libraryRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, session);
                 warnings = [.. warnings, .. entry.ImportWarnings];
                 items.Add(new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library));
                 names.Add(entry.Name);
@@ -146,7 +215,7 @@ public static class ExtractedModClassifier
         // hit exactly that on a Nexus download and had no way forward inside the app.
         if (pakFiles.Length >= 1)
         {
-            var entry = await ImportPakSetAsync(pakFiles, downloadName, libraryRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId);
+            var entry = await ImportPakSetAsync(pakFiles, downloadName, libraryRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, session);
             return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, entry.IsOpaquePak, requirements, [.. warnings, .. entry.ImportWarnings]);
         }
 
@@ -190,7 +259,7 @@ public static class ExtractedModClassifier
                 var pick = chooseArchive(downloadName, choices);
                 if (pick is not { } index || index < 0 || index >= nestedArchives.Length)
                 {
-                    throw new ImportCancelledException("Import cancelled — no version was chosen. Activate it again to choose.");
+                    throw new ImportCancelledException("Import cancelled — no version was chosen, nothing was changed.");
                 }
 
                 chosen = nestedArchives[index];
@@ -207,13 +276,13 @@ public static class ExtractedModClassifier
             var nested = await ClassifyAndImportCore(
                 nestedDirectory, Path.GetFileName(chosen), libraryRepository, ue4ssModRepository,
                 prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, ue4ssNamesAlreadyInstalledInGame,
-                nestedDepth + 1, chooseArchive);
+                nestedDepth + 1, chooseArchive, session);
 
             if (looseUe4ssFolders.Count > 0)
             {
                 var ue4ssItems = looseUe4ssFolders
                     .Select(folder => new PendingDownloadActivatedItem(
-                        ue4ssModRepository.ImportFromFolder(folder, Path.GetFileName(folder), ue4ssNamesAlreadyInstalledInGame),
+                        session.Wrote(ue4ssModRepository.ImportFromFolder(folder, Path.GetFileName(folder), ue4ssNamesAlreadyInstalledInGame), PendingDownloadActivationKind.Ue4ssMod),
                         PendingDownloadActivationKind.Ue4ssMod))
                     .ToList();
                 nested = nested with { Items = [.. nested.Items, .. ue4ssItems] };
@@ -248,7 +317,8 @@ public static class ExtractedModClassifier
         // that carries no metadata file of its own to detect it by. Named after the upload, not
         // the full Nexus file name with its id/timestamp/hash tail (a real complaint).
         var fallbackName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName));
-        var stagedName = ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName, ue4ssNamesAlreadyInstalledInGame);
+        session.Writing();
+        var stagedName = session.Wrote(ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName, ue4ssNamesAlreadyInstalledInGame), PendingDownloadActivationKind.Ue4ssMod);
         return Single(stagedName, stagedName, PendingDownloadActivationKind.Ue4ssMod, isOpaquePak: false, requirements, warnings);
     }
 
@@ -261,11 +331,14 @@ public static class ExtractedModClassifier
     /// </summary>
     private static async Task<LibraryEntry> ImportPakSetAsync(
         IReadOnlyList<string> pakFiles, string modName, ILibraryRepository libraryRepository, IPrebuiltPakImporter prebuiltPakImporter,
-        string dataFolder, string? unrealPakExePath, string? source, int? nexusModId, string? catalogEntryId)
+        string dataFolder, string? unrealPakExePath, string? source, int? nexusModId, string? catalogEntryId, ImportSession session)
     {
         if (pakFiles.Count == 1)
         {
-            return await prebuiltPakImporter.ImportAsync(pakFiles[0], dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId, catalogEntryId: catalogEntryId);
+            session.Writing();
+            var single = await prebuiltPakImporter.ImportAsync(pakFiles[0], dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId, catalogEntryId: catalogEntryId);
+            session.Wrote(single.FolderName, PendingDownloadActivationKind.Library);
+            return single;
         }
 
         foreach (var pak in pakFiles)
@@ -276,7 +349,10 @@ public static class ExtractedModClassifier
             }
         }
 
-        return libraryRepository.ImportPaks(pakFiles, modName, source, nexusModId, catalogEntryId);
+        session.Writing();
+        var bundle = libraryRepository.ImportPaks(pakFiles, modName, source, nexusModId, catalogEntryId);
+        session.Wrote(bundle.FolderName, PendingDownloadActivationKind.Library);
+        return bundle;
     }
 
     private static ClassifiedImport Single(string entryName, string folderName, PendingDownloadActivationKind kind, bool isOpaquePak, IReadOnlyList<string> requirements, IReadOnlyList<string> warnings) =>

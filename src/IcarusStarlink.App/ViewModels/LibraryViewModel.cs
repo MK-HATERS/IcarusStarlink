@@ -99,8 +99,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// </summary>
     private readonly Dictionary<string, int> _openEditorCountByFolder = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The last row clicked without Shift held — a Shift-click ranges from here, the same anchor concept Explorer/ListBox multi-select use. Cleared (never explicitly re-set to null; a stale anchor pointing at a since-deleted row is simply skipped by FlattenModItems' own lookup) whenever a fresh plain/Ctrl click moves it.</summary>
-    /// <summary>A LibraryItemViewModel or a Ue4ssModRowViewModel: Shift-click ranges across both kinds of row.</summary>
+    /// <summary>The last row clicked without Shift held — a Shift-click ranges from here, the same anchor concept Explorer/ListBox multi-select use; a LibraryItemViewModel or a Ue4ssModRowViewModel, since a range spans both kinds of row. Moved by every plain/Ctrl click; a stale anchor pointing at a since-deleted row is simply skipped by FlattenModItems' own lookup.</summary>
     private object? _bulkSelectionAnchor;
 
     /// <summary>Whether a mod folder is still present in this page's own current listing — used by ModDetailWindow to close itself if the mod it's showing gets deleted while its pop-out window is open.</summary>
@@ -942,10 +941,10 @@ public sealed partial class LibraryViewModel : ObservableObject
         public int PartCount => LibraryFolderNames.Count + Ue4ssFolderNames.Count;
 
         /// <summary>On the Library row: the mod also has a Lua half living on the UE4SS tab.</summary>
-        public string LibraryLabel => Ue4ssFolderNames.Count == 1 ? "includes a Lua mod on the UE4SS tab" : $"includes {Ue4ssFolderNames.Count} Lua mods on the UE4SS tab";
+        public string LibraryLabel => Ue4ssFolderNames.Count == 1 ? "includes a Lua mod (its UE4SS row)" : $"includes {Ue4ssFolderNames.Count} Lua mods (their UE4SS rows)";
 
         /// <summary>On the UE4SS row: this Lua mod is one half of a Library mod.</summary>
-        public string Ue4ssLabel => $"Lua part of '{DisplayName}' — see the Mods tab";
+        public string Ue4ssLabel => $"Lua part of '{DisplayName}'";
     }
 
     private IReadOnlyDictionary<int, ModPackage> _packagesByNexusModId = new Dictionary<int, ModPackage>();
@@ -1348,6 +1347,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         await ImportPaths(dialog.FileNames);
     }
 
+    /// <summary>A hint for the end of the current import batch's summary (set by the manual install).</summary>
+    private string? _importNote;
+
     /// <summary>
     /// Mod Organizer's manual install, offered only when importing an archive failed: choose what in
     /// it to install and what each piece is (ManualInstaller / ManualInstallWindow). True when
@@ -1355,19 +1357,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// </summary>
     private async Task<bool> InstallArchiveManuallyAfterFailureAsync(string path, string reason)
     {
-        var scratch = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Manual_{Guid.NewGuid():N}");
+        var scratch = ManualInstaller.UnpackForManualInstall(path);
         try
         {
-            if (string.Equals(Path.GetExtension(path), ".pak", StringComparison.OrdinalIgnoreCase))
-            {
-                Directory.CreateDirectory(scratch);
-                File.Copy(path, Path.Combine(scratch, Path.GetFileName(path)));
-            }
-            else
-            {
-                AnyArchiveExtractor.ExtractToDirectory(path, scratch);
-            }
-
             if (Downloads.ManualInstall(scratch, Path.GetFileNameWithoutExtension(path), reason, ManualInstaller.Suggest(scratch)) is not { Count: > 0 } plan)
             {
                 return false;
@@ -1377,23 +1369,25 @@ public sealed partial class LibraryViewModel : ObservableObject
                 plan, _repository, _ue4ssModRepository, _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath,
                 source: null, nexusModId: null, catalogEntryId: null, ue4ssNamesInUse: null);
             _activityLog.Log($"Installed {installed.Count} part(s) of '{Path.GetFileName(path)}' manually.", ActivityEntryKind.Success);
-            StatusMessage = $"Installed {installed.Count} part(s) from '{Path.GetFileName(path)}'. UE4SS mods land unticked: tick them, then Apply.";
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            if (installed.Any(i => i.Kind == PendingDownloadActivationKind.Ue4ssMod))
+            {
+                _importNote = "UE4SS mods land unticked: tick them, then Apply UE4SS changes.";
+            }
+
             return true;
         }
         finally
         {
-            try
-            {
-                if (Directory.Exists(scratch))
-                {
-                    Directory.Delete(scratch, recursive: true);
-                }
-            }
-            catch (Exception)
-            {
-                // Best-effort scratch cleanup.
-            }
+            ManualInstaller.TryDelete(scratch);
+        }
+    }
+
+    /// <summary>Lint findings from an import (ModLints via the classifier) — each one a real "this part of the mod is broken" note the user should see, kept in the Activity panel so it survives the next status line.</summary>
+    private void LogImportWarnings(string path, IReadOnlyList<string> warnings)
+    {
+        foreach (var warning in warnings)
+        {
+            _activityLog.Log($"{Path.GetFileName(path)}: {warning}", ActivityEntryKind.Warning);
         }
     }
 
@@ -1404,15 +1398,6 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// every multi-select import path below, so "what kind of thing is this path" is decided in
     /// exactly one place.
     /// </summary>
-    /// <summary>Lint findings from an import (ModLints via the classifier) — each one a real "this part of the mod is broken" note the user should see, kept in the Activity panel so it survives the next status line.</summary>
-    private void LogImportWarnings(string path, IReadOnlyList<string> warnings)
-    {
-        foreach (var warning in warnings)
-        {
-            _activityLog.Log($"{Path.GetFileName(path)}: {warning}", ActivityEntryKind.Warning);
-        }
-    }
-
     private async Task ImportOnePath(string path)
     {
         if (Directory.Exists(path))
@@ -1541,9 +1526,11 @@ public sealed partial class LibraryViewModel : ObservableObject
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         ReloadInstalledUe4ssMods();
 
-        StatusMessage = failures.Count == 0
+        StatusMessage = (failures.Count == 0
             ? (paths.Count == 1 ? "Imported 1 mod." : $"Imported {importedCount} mod(s).")
-            : $"Imported {importedCount} of {paths.Count} — {string.Join("; ", failures)}";
+            : $"Imported {importedCount} of {paths.Count} — {string.Join("; ", failures)}")
+            + (_importNote is { } note ? " " + note : "");
+        _importNote = null;
     }
 
     /// <summary>
@@ -2192,6 +2179,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         // rules instead of frozen copies. Rules own only their own fields, so hand edits stay; a mod
         // open in the editor is left for its own Apply/Save, same guard as above.
         var rulesRefreshedCount = 0;
+        var gameTables = new GameTableIndex(_dataFolder);
         foreach (var item in AllLibraryItems().Where(i => !i.IsOpaquePak && !foldersWithOpenEditors.Contains(i.FolderName)))
         {
             try
@@ -2204,7 +2192,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 }
 
                 var before = ExmodJson.Serialize(package, indented: false);
-                ScaleRules.ApplyToPackage(package, package.ScaleRules, _dataFolder, new MergeReport());
+                ScaleRules.ApplyToPackage(package, package.ScaleRules, _dataFolder, new MergeReport(), gameTables);
                 if (ExmodJson.Serialize(package, indented: false) == before)
                 {
                     continue;
@@ -2765,10 +2753,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 ? $"Imported '{entry.Name}'."
                 : $"Imported '{entry.Name}' as a real, editable mod — its data changes are now visible in the editor.";
             LogImportWarnings(pakFilePath, entry.ImportWarnings);
-            if (entry.ImportWarnings.Count > 0)
-            {
-                StatusMessage += $" Warning: {entry.ImportWarnings[0]}" + (entry.ImportWarnings.Count > 1 ? $" (+{entry.ImportWarnings.Count - 1} more in the Activity panel)" : "");
-            }
+            StatusMessage += ExtractedModClassifier.WarningSummary(entry.ImportWarnings);
             Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
@@ -2976,12 +2961,6 @@ public sealed partial class LibraryViewModel : ObservableObject
     private void SyncRootItems(IReadOnlyList<object> target) => ObservableCollectionSync.SyncTo(RootItems, target);
 
     /// <summary>
-    /// Reusing the same LibraryItemViewModel instance across reloads (rather than always
-    /// constructing a new one) means a mod that's still selected after a search-triggered reload
-    /// keeps its already-loaded Files/Readme state (no redundant disk I/O) and stays the same
-    /// object reference SelectedItem points at.
-    /// </summary>
-    /// <summary>
     /// Every mod in the Library, regardless of the current search filter — the set every
     /// "whole-library" action (Check for updates, Check mods against game data, Convert opaque
     /// mods, endorsements, Delete all) is documented to operate on. They used to run over the
@@ -2992,6 +2971,12 @@ public sealed partial class LibraryViewModel : ObservableObject
     private List<LibraryItemViewModel> AllLibraryItems() =>
         _repository.GetAll().Select(entry => GetOrCreateItem(entry, fullResync: false)).ToList();
 
+    /// <summary>
+    /// Reusing the same LibraryItemViewModel instance across reloads (rather than always
+    /// constructing a new one) means a mod that's still selected after a search-triggered reload
+    /// keeps its already-loaded Files/Readme state (no redundant disk I/O) and stays the same
+    /// object reference SelectedItem points at.
+    /// </summary>
     private LibraryItemViewModel GetOrCreateItem(LibraryEntry entry, bool fullResync)
     {
         if (_itemsByFolderName.TryGetValue(entry.FolderName, out var existing))
@@ -3466,12 +3451,6 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Batched per-item Nexus version lookup + apply, shared by CheckForUpdatesAsync's Library-mod
-    /// and UE4SS-mod checks above — both used to be near-identical copies differing only in which
-    /// property/type they touched. Returns how many of the checked items now have an update
-    /// available, for the caller's own running total.
-    /// </summary>
-    /// <summary>
     /// Per-file update check: one files request per Nexus mod, then each tracked copy follows its
     /// own file's update chain (NexusFileLineage) — so with several variants of one mod installed or
     /// known, each is judged on its own file. Returns how many have an update and which items/rows
@@ -3531,6 +3510,12 @@ public sealed partial class LibraryViewModel : ObservableObject
         return (updates, resolvedItems, resolvedNames);
     }
 
+    /// <summary>
+    /// Batched per-item Nexus version lookup + apply, shared by CheckForUpdatesAsync's Library-mod
+    /// and UE4SS-mod checks above — both used to be near-identical copies differing only in which
+    /// property/type they touched. Returns how many of the checked items now have an update
+    /// available, for the caller's own running total.
+    /// </summary>
     private async Task<int> ApplyNexusVersionsAsync<T>(
         IReadOnlyList<T> items, string apiKey, Func<T, int> getNexusModId, Action<T, string> setLatestVersion, Func<T, bool> hasUpdateAvailable)
     {

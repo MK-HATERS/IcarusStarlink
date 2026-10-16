@@ -64,7 +64,7 @@
                                             <StackPanel>
                                                 <StackPanel Orientation="Horizontal">
                                                     <ComboBox ItemsSource="{Binding KindOptions}" SelectedIndex="{Binding KindIndex}" Width="110"
-                                                              ToolTip="What this is: a pak mod and an EXMOD mod go to the Library; a UE4SS mod is staged for the UE4SS tab"/>
+                                                              ToolTip="What this is: a pak mod and an EXMOD mod go to the Library; a UE4SS mod lands in the Library list unticked (tick it, then Apply UE4SS changes)"/>
                                                     <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="260" Margin="8,0,8,0"
                                                              ToolTip="Its name in Starlink" AutomationProperties.Name="Name"/>
                                                 </StackPanel>
