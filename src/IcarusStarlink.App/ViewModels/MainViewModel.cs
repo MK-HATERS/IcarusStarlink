@@ -8,6 +8,7 @@ using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Navigation;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.Core.Server;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
 using Microsoft.Extensions.DependencyInjection;
@@ -138,6 +139,23 @@ public sealed partial class MainViewModel : ObservableObject
         {
             UrlOpener.TryOpen(gameRoot);
         }
+    }
+
+    /// <summary>
+    /// The local dedicated server's install folder (the first one set up on the Server page). With
+    /// no server yet there's nothing to open, so it goes to the Server page, where one is set up.
+    /// </summary>
+    [RelayCommand]
+    private void OpenServerFolder()
+    {
+        var server = _serviceProvider.GetService<IDedicatedServerProfileStore>()?.GetAll().FirstOrDefault(p => Directory.Exists(p.InstallFolder));
+        if (server is not null)
+        {
+            UrlOpener.TryOpen(server.InstallFolder);
+            return;
+        }
+
+        SelectedNavItem = NavItems.First(item => item.Id == "server");
     }
 
     /// <summary>Steam's own URI launch, not the exe directly — respects whatever launch options/overlay the user already has configured in Steam, the same way clicking Play in the Steam library itself does. 1149460 is Icarus's real App ID, already used by SteamInstallLocator elsewhere in this app.</summary>

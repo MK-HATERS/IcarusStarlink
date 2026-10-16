@@ -156,6 +156,10 @@
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconBook}"/>
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#4A90D9"/>
                                 </DataTrigger>
+                                <DataTrigger Binding="{Binding Id}" Value="editor">
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconPencil}"/>
+                                    <Setter TargetName="NavIcon" Property="Stroke" Value="#E0705F"/>
+                                </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="merge">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconMerge}"/>
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#9B6FDE"/>
@@ -227,6 +231,15 @@
                             <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
                                   StrokeLineJoin="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,8,0"/>
                             <TextBlock Text="Game folder" VerticalAlignment="Center" FontSize="12"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding OpenServerFolderCommand}" HorizontalContentAlignment="Left" Margin="0,4,0,0"
+                            ToolTip="Open your dedicated server's folder (no server yet: opens the Server page to set one up)"
+                            AutomationProperties.Name="Open server folder">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
+                                  StrokeLineJoin="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,8,0"/>
+                            <TextBlock Text="Server folder" VerticalAlignment="Center" FontSize="12"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
