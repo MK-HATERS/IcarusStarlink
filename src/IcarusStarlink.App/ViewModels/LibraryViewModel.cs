@@ -2180,10 +2180,16 @@ public sealed partial class LibraryViewModel : ObservableObject
 
                 // The fixes the user chose for this mod in the fix window, made again on the fresh
                 // conversion (its sure ones the converter already left out).
-                if (FixService.ReapplyRemembered(item.FolderName) is > 0 and var reapplied)
+                // Off the UI thread: the service is shared with any check or fix pass and waits its turn.
+                var folderName = item.FolderName;
+                var reapplied = await Task.Run(() => FixService.ReapplyRemembered(folderName));
+                if (reapplied > 0)
                 {
                     _activityLog.Log($"Made your {reapplied} earlier fix choice(s) again in '{item.Name}' after refreshing it.", ActivityEntryKind.Info);
                 }
+
+                // The fresh conversion (and those fixes) can change what the row's badge says.
+                await RefreshHealthAsync(item);
             }
             catch (Exception ex)
             {
@@ -2307,11 +2313,19 @@ public sealed partial class LibraryViewModel : ObservableObject
             WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("nexus"));
         }
 
+        // Named here, not promised on the Nexus page: its "updates only" filter narrows only the page
+        // of results it's on, so an outdated mod on another page wouldn't show there.
+        var nexusNames = string.Join(", ", nexusItems.Select(i => i.Name));
+        if (nexusItems.Count > 0)
+        {
+            _activityLog.Log($"Nexus mod(s) with updates to download: {nexusNames}.", ActivityEntryKind.Info);
+        }
+
         StatusMessage = (databaseItems.Count, nexusItems.Count) switch
         {
             (> 0, 0) => $"Updated {updated} of {databaseItems.Count} catalog mod(s).",
-            (0, > 0) => $"{nexusItems.Count} Nexus mod(s) have updates — the Nexus page is showing just those; use each one's Download button.",
-            _ => $"Updated {updated} of {databaseItems.Count} catalog mod(s); {nexusItems.Count} Nexus mod(s) are listed on the Nexus page for download.",
+            (0, > 0) => $"{nexusItems.Count} Nexus mod(s) have updates: {nexusNames}. Download each from its Nexus page (right-click › Open on Nexus).",
+            _ => $"Updated {updated} of {databaseItems.Count} catalog mod(s); {nexusItems.Count} Nexus mod(s) have updates: {nexusNames}. Download each from its Nexus page (right-click › Open on Nexus).",
         };
     }
 
@@ -2544,7 +2558,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// </summary>
     /// <param name="preSelect">
     /// When given and a matching row exists in the freshly-opened editor's own Items list, selects
-    /// it instead of the editor's own default (its first item) — used by OpenStaleItem so the
+    /// it instead of the editor's own default (its first item) — used by the fix window's Open in mod editor so the
     /// editor's existing amber base-diff highlighting is what the user sees first, not an unrelated
     /// row.
     /// </param>
@@ -2562,17 +2576,25 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         var window = new ExmodEditorWindow(editorViewModel) { Owner = Application.Current.MainWindow };
-        _openEditorCountByFolder[folderName] = _openEditorCountByFolder.GetValueOrDefault(folderName) + 1;
+        // Locked: Fix sure problems reads it live from its background pass (IsEditorOpenLive).
+        lock (_openEditorCountByFolder)
+        {
+            _openEditorCountByFolder[folderName] = _openEditorCountByFolder.GetValueOrDefault(folderName) + 1;
+        }
+
         window.Closed += (_, _) =>
         {
-            var remaining = _openEditorCountByFolder[folderName] - 1;
-            if (remaining <= 0)
+            lock (_openEditorCountByFolder)
             {
-                _openEditorCountByFolder.Remove(folderName);
-            }
-            else
-            {
-                _openEditorCountByFolder[folderName] = remaining;
+                var remaining = _openEditorCountByFolder[folderName] - 1;
+                if (remaining <= 0)
+                {
+                    _openEditorCountByFolder.Remove(folderName);
+                }
+                else
+                {
+                    _openEditorCountByFolder[folderName] = remaining;
+                }
             }
         };
         window.Show();
@@ -2584,25 +2606,20 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     /// <summary>Test-only seam — see AssemblyInfo.cs's own InternalsVisibleTo grant. OpenEditor itself constructs a real ExmodEditorWindow, which (like every other real Window in this app) can't run in a unit test host — this lets a test mark a folder as "has an open editor" the same way OpenEditor's own bookkeeping does, without needing a real window.</summary>
-    internal void MarkFolderEditorOpenForTesting(string folderName) =>
-        _openEditorCountByFolder[folderName] = _openEditorCountByFolder.GetValueOrDefault(folderName) + 1;
-
-    /// <summary>The row's own warning badge — clicking it opens the mod in the editor with the first flagged item pre-selected (see OpenEditor's preSelect param), so the editor's already-existing amber base-diff highlighting does the rest.</summary>
-    [RelayCommand]
-    private void OpenStaleItem(LibraryItemViewModel? item)
+    internal void MarkFolderEditorOpenForTesting(string folderName)
     {
-        if (item is null || item.IsOpaquePak)
+        lock (_openEditorCountByFolder)
         {
-            return;
+            _openEditorCountByFolder[folderName] = _openEditorCountByFolder.GetValueOrDefault(folderName) + 1;
         }
+    }
 
-        try
+    /// <summary>Whether the mod is open in an editor right now; safe from a background thread (the count is only changed under the same lock).</summary>
+    private bool IsEditorOpenLive(string folderName)
+    {
+        lock (_openEditorCountByFolder)
         {
-            OpenEditor(item.FolderName, item.FirstStaleItem);
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Couldn't open the mod editor: {ex.Message}";
+            return _openEditorCountByFolder.ContainsKey(folderName);
         }
     }
 
@@ -2641,7 +2658,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// <summary>
     /// The row's warning badge, and right-click › Check against the game &amp; fix…: the fix window,
     /// listing what in this mod doesn't fit the current game with a fix for each. Checks the mod
-    /// now when no whole-library check has yet.
+    /// now when no whole-library check has yet. Not while a whole-library check or Fix sure
+    /// problems is running (they write mods too), and not while the mod is open in the editor:
+    /// the fix window is modal, so the editor couldn't be closed from behind it.
     /// </summary>
     [RelayCommand]
     private void OpenModFix(LibraryItemViewModel? item)
@@ -2651,18 +2670,25 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
+        if (ModFixBlockedReason(item) is { } blocked)
+        {
+            StatusMessage = blocked;
+            return;
+        }
+
         if (!Directory.Exists(_dataFolder) || !Directory.EnumerateFiles(_dataFolder, "*.json", SearchOption.AllDirectories).Any())
         {
             StatusMessage = "No game data found — run Refresh game data in Settings first.";
             return;
         }
 
+        ModFixViewModel? viewModel = null;
         try
         {
             var folderName = item.FolderName;
             var report = FixService.Check(folderName);
             item.SetHealth(report);
-            var viewModel = new ModFixViewModel(folderName, item.Name, report, FixService, () => _openEditorCountByFolder.ContainsKey(folderName));
+            viewModel = new ModFixViewModel(folderName, item.Name, report, FixService, () => _openEditorCountByFolder.ContainsKey(folderName));
             var window = new ModFixWindow(viewModel) { Owner = Application.Current.MainWindow };
             viewModel.OpenInModEditor = () =>
             {
@@ -2671,23 +2697,72 @@ public sealed partial class LibraryViewModel : ObservableObject
                 OpenEditor(folderName, first is null ? null : (first.CurrentFile, first.ItemName));
             };
 
-            if (window.ShowDialog() == true)
-            {
-                item.SetHealth(FixService.Check(folderName));
-                item.NotifyBackupStateChanged();
-                item.NotifyRepairedFromDisk();
-                if (ReferenceEquals(item, SelectedItem))
-                {
-                    item.EnsureDetailsLoaded();
-                }
-
-                StatusMessage = viewModel.StatusMessage;
-                _activityLog.Log($"Fixed '{item.Name}' to fit the current game (backed up first).", ActivityEntryKind.Success);
-            }
+            window.ShowDialog();
         }
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't check '{item.Name}': {ex.Message}";
+        }
+
+        if (viewModel is not null)
+        {
+            AfterModFixClosed(item, viewModel);
+        }
+    }
+
+    /// <summary>Why the fix window can't open for this mod right now (null: it can).</summary>
+    internal string? ModFixBlockedReason(LibraryItemViewModel item)
+    {
+        if (IsCheckingStaleness)
+        {
+            return "Mods are being checked or fixed against the game right now. Try again when that's done.";
+        }
+
+        if (_foldersCurrentlyConvertingToExmod.Contains(item.FolderName))
+        {
+            return $"'{item.Name}' is being refreshed against the game data right now. Try again in a moment.";
+        }
+
+        return _openEditorCountByFolder.ContainsKey(item.FolderName)
+            ? $"'{item.Name}' is open in the mod editor. Close it there first, so its next Save doesn't undo the fixes."
+            : null;
+    }
+
+    /// <summary>
+    /// After the fix window closes, however it closed: the badge is checked again (Restore backup
+    /// and Forget change what's flagged too), and only fixes actually made are logged as such
+    /// ("Keep all as they are" applies nothing; it only remembers the choices).
+    /// </summary>
+    internal void AfterModFixClosed(LibraryItemViewModel item, ModFixViewModel viewModel)
+    {
+        try
+        {
+            item.SetHealth(FixService.Check(item.FolderName));
+        }
+        catch (Exception)
+        {
+            // The badge keeps what the window opened with.
+        }
+
+        var changedOnDisk = viewModel.AppliedCount > 0 || viewModel.ChangedWithoutApply;
+        if (changedOnDisk)
+        {
+            item.NotifyBackupStateChanged();
+            item.NotifyRepairedFromDisk();
+            if (ReferenceEquals(item, SelectedItem))
+            {
+                item.EnsureDetailsLoaded();
+            }
+        }
+
+        if (viewModel.IsApplied && viewModel.StatusMessage is { } status)
+        {
+            StatusMessage = status;
+        }
+
+        if (viewModel.AppliedCount > 0)
+        {
+            _activityLog.Log($"Fixed {viewModel.AppliedCount} thing(s) in '{item.Name}' to fit the current game (backed up first).", ActivityEntryKind.Success);
         }
     }
 
@@ -2711,8 +2786,10 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var skipped = flagged.Where(i => _openEditorCountByFolder.ContainsKey(i.FolderName)).Select(i => i.Name).ToList();
-        var folders = flagged.Where(i => !_openEditorCountByFolder.ContainsKey(i.FolderName)).Select(i => i.FolderName).ToList();
+        var folders = flagged.Select(i => i.FolderName).ToList();
+        // Mods whose editor is open are skipped, checked again right before each one is written
+        // (an editor can be opened while the pass runs): the editor's next Save would undo the fixes.
+        var skippedFolders = new System.Collections.Concurrent.ConcurrentDictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         IsCheckingStaleness = true;
         try
         {
@@ -2724,6 +2801,12 @@ public sealed partial class LibraryViewModel : ObservableObject
                 var outcome = new Dictionary<string, (int Applied, ModHealthReport After)>(StringComparer.OrdinalIgnoreCase);
                 foreach (var folder in folders)
                 {
+                    if (IsEditorOpenLive(folder))
+                    {
+                        skippedFolders[folder] = true;
+                        continue;
+                    }
+
                     try
                     {
                         var (applied, _) = FixService.FixSure(folder, cache, history, addedRows);
@@ -2739,6 +2822,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             });
 
             var total = 0;
+            var openedDuringPass = new List<string>();
             foreach (var item in flagged)
             {
                 if (results.TryGetValue(item.FolderName, out var result))
@@ -2750,14 +2834,32 @@ public sealed partial class LibraryViewModel : ObservableObject
                         item.NotifyBackupStateChanged();
                         item.NotifyRepairedFromDisk();
                         _activityLog.Log($"Fixed {result.Applied} thing(s) in '{item.Name}' to fit the current game (backed up first).", ActivityEntryKind.Success);
+
+                        // Opened in the editor after this mod's own check but before the pass ended:
+                        // that editor still holds the mod as it was, and its Save would undo these.
+                        if (_openEditorCountByFolder.ContainsKey(item.FolderName))
+                        {
+                            openedDuringPass.Add(item.Name);
+                        }
                     }
                 }
             }
 
+            var skipped = flagged.Where(i => skippedFolders.ContainsKey(i.FolderName)).Select(i => i.Name).ToList();
+            var failed = flagged.Where(i => !skippedFolders.ContainsKey(i.FolderName) && !results.ContainsKey(i.FolderName)).Select(i => i.Name).ToList();
             var left = flagged.Count(i => i.HasModIssues);
             StalenessCheckStatusMessage = $"Fixed {total} sure thing(s) in {results.Count(r => r.Value.Applied > 0)} mod(s), each backed up first (right-click a mod › Restore latest backup undoes it)."
                 + (left > 0 ? $" {left} mod(s) still have things to look over: click a row's warning badge." : "")
-                + (skipped.Count > 0 ? $" Skipped (open in the mod editor): {string.Join(", ", skipped)}." : "");
+                + (skipped.Count > 0 ? $" Skipped (open in the mod editor): {string.Join(", ", skipped)}." : "")
+                + (failed.Count > 0 ? $" Couldn't read: {string.Join(", ", failed)}." : "")
+                + (openedDuringPass.Count > 0 ? $" Opened in the mod editor while fixing: {string.Join(", ", openedDuringPass)} — close that editor without saving, or its Save undoes the fixes." : "");
+
+            if (total > 0)
+            {
+                // Like Apply and the editor's Save: the rest of the app (merge state, details) re-reads the rewritten mods.
+                WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            }
+
             SelectedItem?.EnsureDetailsLoaded();
         }
         finally
@@ -3286,7 +3388,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         IReadOnlyList<string> AutoFixActivityMessages,
         bool BackupTaken,
         bool PackageChanged = false,
-        ModHealthReport? Health = null);
+        ModHealthReport? Health = null,
+        bool HealthCheckFailed = false);
 
     /// <summary>
     /// A separate question and a separate action from CheckForUpdatesAsync above (that's Nexus/
@@ -3385,17 +3488,28 @@ public sealed partial class LibraryViewModel : ObservableObject
             });
 
             var flaggedCount = 0;
+            var couldNotCheck = new List<string>();
             var autoFixedCount = 0;
             foreach (var item in candidates)
             {
                 if (!resultsByFolder.TryGetValue(item.FolderName, out var result))
                 {
+                    couldNotCheck.Add(item.Name);
                     continue;
                 }
 
                 item.SetStaleItems(result.RemainingStaleItems, result.SuggestionHint);
-                item.SetHealth(result.Health);
-                if (result.Health is { HasProblems: true })
+                if (result.HealthCheckFailed)
+                {
+                    // Not an all-clear: the badge keeps what it had and the mod is named below.
+                    couldNotCheck.Add(item.Name);
+                }
+                else
+                {
+                    item.SetHealth(result.Health);
+                }
+
+                if (item.Health is { HasProblems: true })
                 {
                     flaggedCount++;
                 }
@@ -3433,7 +3547,11 @@ public sealed partial class LibraryViewModel : ObservableObject
 
             messageParts.Add(flaggedCount > 0
                 ? $"{flaggedCount} mod(s) don't fully fit the current game — click a flagged row's warning badge to see and fix them, or Check ▾ › Fix sure problems in every mod."
-                : "Every mod fits the current game.");
+                : couldNotCheck.Count > 0 ? "Every mod that could be checked fits the current game." : "Every mod fits the current game.");
+            if (couldNotCheck.Count > 0)
+            {
+                messageParts.Add($"Couldn't check {couldNotCheck.Count} mod(s): {string.Join(", ", couldNotCheck)}.");
+            }
 
             StalenessCheckStatusMessage = string.Join(" ", messageParts);
         }
@@ -3462,7 +3580,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         var staleItems = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, classifier, baseTableCache, ownAssetPaths);
         if (staleItems.Count == 0)
         {
-            return new ModStalenessResult([], null, [], BackupTaken: false, Health: CheckHealth(folderName, baseTableCache, history));
+            var (health, healthFailed) = CheckHealth(folderName, baseTableCache, history);
+            return new ModStalenessResult([], null, [], BackupTaken: false, Health: health, HealthCheckFailed: healthFailed);
         }
 
         var remaining = new List<ExmodStalenessChecker.StaleItem>();
@@ -3510,22 +3629,37 @@ public sealed partial class LibraryViewModel : ObservableObject
             _repository.MarkLocallyEdited(folderName);
         }
 
-        return new ModStalenessResult(remaining, suggestionHint, activityMessages, backupTaken, packageChanged, CheckHealth(folderName, baseTableCache, history));
+        var (report, failed) = CheckHealth(folderName, baseTableCache, history);
+        return new ModStalenessResult(remaining, suggestionHint, activityMessages, backupTaken, packageChanged, report, failed);
     }
 
     /// <summary>The rows Library mods add, gathered once per whole-library check (see ModFixService.LibraryAddedRows).</summary>
     private IReadOnlySet<string>? _passAddedRows;
 
-    /// <summary>What in this mod doesn't fit the current game (old copies, mixed lists, renamed rows) — null if it can't be read.</summary>
-    private ModHealthReport? CheckHealth(string folderName, Dictionary<string, JsonObject?> baseTableCache, GameValueHistory? history)
+    /// <summary>What in this mod doesn't fit the current game (old copies, mixed lists, renamed rows); Failed when it couldn't be checked (the row keeps its badge).</summary>
+    private (ModHealthReport? Report, bool Failed) CheckHealth(string folderName, Dictionary<string, JsonObject?> baseTableCache, GameValueHistory? history)
     {
         try
         {
-            return FixService.Check(folderName, baseTableCache, history, _passAddedRows);
+            return (FixService.Check(folderName, baseTableCache, history, _passAddedRows), false);
         }
         catch (Exception)
         {
-            return null;
+            return (null, true);
+        }
+    }
+
+    /// <summary>Checks one row's mod again off the UI thread and updates its badge; a failed check keeps the badge it had.</summary>
+    private async Task RefreshHealthAsync(LibraryItemViewModel item)
+    {
+        var folderName = item.FolderName;
+        try
+        {
+            item.SetHealth(await Task.Run(() => FixService.Check(folderName)));
+        }
+        catch (Exception)
+        {
+            // Only the badge: the next check against game data tries again.
         }
     }
 

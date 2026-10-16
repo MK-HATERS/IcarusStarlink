@@ -903,6 +903,95 @@ public sealed class LibraryViewModelTests
         }
     }
 
+    /// <summary>
+    /// Fix sure problems tells the rest of the app the mods changed (like Apply and the editor's
+    /// Save), and the row's ✎ comes from the repository's entry rather than being forced on: a
+    /// converted prebuilt pak isn't marked edited by a fix (this fake never marks anything edited).
+    /// </summary>
+    [Fact]
+    public async Task FixSureProblems_SendsLibraryChanged_AndTakesTheEditedMarkFromTheRepository()
+    {
+        var harness = new TestHarness();
+        const string folderName = "RenamedRowMod_Message";
+        var modFolderPath = CreateStaleAutoFixableModOnDisk(harness, folderName);
+        var recipient = new object();
+        var received = 0;
+        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(recipient, (_, _) => received++);
+        try
+        {
+            var vm = harness.Build();
+            await vm.CheckModsAgainstCurrentDataCommand.ExecuteAsync(null);
+            var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == folderName);
+
+            await vm.FixSureProblemsCommand.ExecuteAsync(null);
+
+            Assert.True(received > 0);
+            Assert.False(item.IsLocallyEdited);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(recipient);
+            Directory.Delete(modFolderPath, recursive: true);
+        }
+    }
+
+    /// <summary>The fix window is modal, so a mod open in the editor (or a running check) is refused before it opens, with a reason.</summary>
+    [Fact]
+    public void OpenModFix_IsRefused_WhileTheModIsInTheEditor_OrACheckRuns()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("FixMe");
+        var vm = harness.Build();
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "FixMe");
+
+        Assert.Null(vm.ModFixBlockedReason(item));
+
+        vm.MarkFolderEditorOpenForTesting("FixMe");
+        vm.OpenModFixCommand.Execute(item);
+        Assert.Contains("open in the mod editor", vm.StatusMessage);
+
+        vm.IsCheckingStaleness = true;
+        Assert.Contains("checked or fixed", vm.ModFixBlockedReason(item));
+    }
+
+    /// <summary>
+    /// However the fix window closed, the row's badge is checked again; "Keep all as they are"
+    /// applies nothing, so nothing is logged as fixed and nothing is backed up.
+    /// </summary>
+    [Fact]
+    public void AfterTheFixWindow_KeepAll_IsNotLoggedAsFixed_AndTheBadgeIsCheckedAgain()
+    {
+        var harness = new TestHarness();
+        const string folderName = "RenamedRowMod_KeepAll";
+        var modFolderPath = CreateStaleAutoFixableModOnDisk(harness, folderName);
+        try
+        {
+            var vm = harness.Build();
+            var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == folderName);
+            Assert.Null(item.Health);
+
+            var service = new ModFixService(harness.Repository, harness.DataFolder);
+            var fixWindow = new ModFixViewModel(folderName, item.Name, service.Check(folderName), service) { Close = () => { } };
+            foreach (var issue in fixWindow.Groups.SelectMany(g => g.Issues))
+            {
+                issue.Choose(ModIssueFix.KeepMod);
+            }
+
+            fixWindow.ApplyCommand.Execute(null);
+            vm.AfterModFixClosed(item, fixWindow);
+
+            Assert.True(fixWindow.IsApplied);
+            Assert.Equal(0, fixWindow.AppliedCount);
+            Assert.Empty(harness.Repository.BackupModCalls);
+            Assert.DoesNotContain(harness.ActivityLog.Entries, e => e.Message.StartsWith("Fixed", StringComparison.Ordinal));
+            Assert.True(item.HasModIssues);
+        }
+        finally
+        {
+            Directory.Delete(modFolderPath, recursive: true);
+        }
+    }
+
     /// <summary>A mod open in the mod editor is never written by Fix sure problems: the editor's next Save would undo it.</summary>
     [Fact]
     public async Task FixSureProblems_SkipsAModOpenInTheEditor()

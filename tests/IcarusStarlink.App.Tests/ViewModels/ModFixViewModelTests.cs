@@ -240,6 +240,50 @@ public sealed class ModFixViewModelTests : IDisposable
         Assert.False(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
     }
 
+    /// <summary>"Keep all as they are": the choices are remembered, the mod isn't touched, and the window says nothing was applied.</summary>
+    [Fact]
+    public void KeepAll_AppliesNothing_ButRemembersTheChoices()
+    {
+        var vm = Open();
+        var closed = false;
+        vm.Close = () => closed = true;
+        foreach (var issue in vm.Groups.SelectMany(g => g.Issues))
+        {
+            issue.Choose(ModIssueFix.KeepMod);
+        }
+
+        Assert.Equal("Keep all as they are", vm.ApplyLabel);
+        vm.ApplyCommand.Execute(null);
+
+        Assert.True(closed);
+        Assert.Equal(0, vm.AppliedCount);
+        Assert.False(_library.HasModBackup(_folder));
+        Assert.Equal(2, Service.RememberedCount(_folder));
+    }
+
+    /// <summary>One Fix sure click is one backup, so Restore latest backup undoes all of it.</summary>
+    [Fact]
+    public void FixSure_BacksUpOnce()
+    {
+        var backups = Path.Combine(_root, "Backups");
+
+        Assert.Equal(1, Service.FixSure(_folder).Applied);
+
+        Assert.Single(Directory.GetDirectories(backups, "*", SearchOption.AllDirectories).Where(d => Path.GetFileName(d).StartsWith(_folder, StringComparison.OrdinalIgnoreCase)));
+        Assert.True(Service.RestoreBackup(_folder));
+        Assert.True(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
+    }
+
+    /// <summary>Calls from several threads at once (the fix window, Fix sure problems, the library check) are taken one at a time.</summary>
+    [Fact]
+    public async Task ConcurrentChecks_ShareOneServiceSafely()
+    {
+        var service = Service;
+        var reports = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => service.Check(_folder))));
+
+        Assert.All(reports, r => Assert.Equal(2, r.Issues.Count));
+    }
+
     private static JsonObject Tags(params string[] tags) =>
         new() { ["GameplayTags"] = new JsonArray(tags.Select(t => (JsonNode)new JsonObject { ["TagName"] = t }).ToArray()) };
 }

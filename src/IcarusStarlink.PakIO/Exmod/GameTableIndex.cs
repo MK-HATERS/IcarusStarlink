@@ -9,9 +9,11 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// {"RowName": "X"} and leave the target table to the table's own Defaults block
 /// (D_ItemsStatic's Defaults say Itemable → D_Itemable, Audio → D_ItemAudioData, AmmoType →
 /// D_AmmoTypes …), so links are resolved from the game data itself, never a hand-kept list.
+/// Its lazily-filled lookups are locked, so one index can be shared by more than one thread.
 /// </summary>
 public sealed class GameTableIndex(string dataFolder)
 {
+    private readonly Lock _gate = new();
     private Dictionary<string, string>? _currentFileByTable;
     private readonly Dictionary<string, (JsonObject? Rows, JsonObject? Defaults)> _tables = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Dictionary<string, string>> _rowNames = new(StringComparer.OrdinalIgnoreCase);
@@ -21,10 +23,13 @@ public sealed class GameTableIndex(string dataFolder)
     /// <summary>"D_Itemable" → "Traits-D_Itemable.json"; null when the game has no such table.</summary>
     public string? CurrentFileFor(string tableName)
     {
-        _currentFileByTable ??= ScaleRules.ListTables(DataFolder)
-            .GroupBy(f => Path.GetFileNameWithoutExtension(f.Split('-').Last()), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-        return _currentFileByTable.GetValueOrDefault(tableName);
+        lock (_gate)
+        {
+            _currentFileByTable ??= ScaleRules.ListTables(DataFolder)
+                .GroupBy(f => Path.GetFileNameWithoutExtension(f.Split('-').Last()), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            return _currentFileByTable.GetValueOrDefault(tableName);
+        }
     }
 
     /// <summary>"Traits-D_Itemable.json" → "D_Itemable".</summary>
@@ -44,18 +49,21 @@ public sealed class GameTableIndex(string dataFolder)
     /// <summary>The row's name as the game spells it ("FirePit" → "Firepit"); null when the game has no such row.</summary>
     public string? GameRowName(string currentFile, string rowName)
     {
-        if (!_rowNames.TryGetValue(currentFile, out var names))
+        lock (_gate)
         {
-            names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (key, _) in Rows(currentFile) ?? [])
+            if (!_rowNames.TryGetValue(currentFile, out var names))
             {
-                names.TryAdd(key, key);
+                names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (key, _) in Rows(currentFile) ?? [])
+                {
+                    names.TryAdd(key, key);
+                }
+
+                _rowNames[currentFile] = names;
             }
 
-            _rowNames[currentFile] = names;
+            return names.GetValueOrDefault(rowName);
         }
-
-        return names.GetValueOrDefault(rowName);
     }
 
     /// <summary>The table a top-level link field points into, from the table's own Defaults ("Itemable" in D_ItemsStatic → "D_Itemable").</summary>
@@ -64,13 +72,16 @@ public sealed class GameTableIndex(string dataFolder)
 
     private (JsonObject? Rows, JsonObject? Defaults) Load(string currentFile)
     {
-        if (!_tables.TryGetValue(currentFile, out var table))
+        lock (_gate)
         {
-            var file = BaseDataFileReader.ParseFile(DataFolder, currentFile, report: null);
-            table = file is null ? (null, null) : (DataTableJson.RowsToKeyedObject(file, _ => { }), file["Defaults"] as JsonObject);
-            _tables[currentFile] = table;
-        }
+            if (!_tables.TryGetValue(currentFile, out var table))
+            {
+                var file = BaseDataFileReader.ParseFile(DataFolder, currentFile, report: null);
+                table = file is null ? (null, null) : (DataTableJson.RowsToKeyedObject(file, _ => { }), file["Defaults"] as JsonObject);
+                _tables[currentFile] = table;
+            }
 
-        return table;
+            return table;
+        }
     }
 }
