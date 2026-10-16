@@ -90,6 +90,9 @@ public sealed partial class ServerViewModel : ObservableObject
 
     public string Title => "Server (Beta)";
 
+    /// <summary>The "Local server" tab: dedicated servers on this PC (see LocalServerViewModel). Null in tests that only exercise the FTP side.</summary>
+    public LocalServerViewModel? Local { get; }
+
     public static IReadOnlyList<FtpEncryptionMode> EncryptionModes { get; } = Enum.GetValues<FtpEncryptionMode>();
 
     // --- Site Manager ---
@@ -188,8 +191,10 @@ public sealed partial class ServerViewModel : ObservableObject
         ISettingsService settingsService,
         IUe4ssModRepository ue4ssModRepository,
         IDialogService dialogService,
-        string outputPakPath)
+        string outputPakPath,
+        LocalServerViewModel? local = null)
     {
+        Local = local;
         _siteStore = siteStore;
         _credentialStore = credentialStore;
         _ftpClientFactory = ftpClientFactory;

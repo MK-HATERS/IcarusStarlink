@@ -1,0 +1,251 @@
+<UserControl x:Class="IcarusStarlink.App.Views.LocalServerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d">
+
+    <!-- The Server page's "Local server" tab (LocalServerViewModel): dedicated servers on this PC.
+         Left: the profiles. Right: run state + Start/Stop/Restart, then a Log tab (live tail of the
+         server's own log file) and a Settings tab (launch options + ServerSettings.ini). -->
+    <Grid Margin="0,12,0,0">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="250"/>
+            <ColumnDefinition Width="16"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Grid Grid.Column="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="SERVERS ON THIS PC" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+            <ListBox Grid.Row="1" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}"
+                     BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,3">
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding InstallFolder}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                                <Run Text="port "/><Run Text="{Binding Port, Mode=OneWay}"/><Run Text=" · query "/><Run Text="{Binding QueryPort, Mode=OneWay}"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+                <Button Content="Add existing server…" Command="{Binding AddExistingServerCommand}"
+                        ToolTip="Point at a dedicated server you already installed (the folder with IcarusServer.exe). Its settings are read from its own ServerSettings.ini."/>
+                <Button Content="Remove" Command="{Binding RemoveProfileCommand}" Margin="8,0,0,0"
+                        ToolTip="Removes the entry from this list only — the server's files are not touched"/>
+            </StackPanel>
+            <TextBlock Grid.Row="3" Margin="0,8,0,0" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}"
+                       Text="Installing a new server through SteamCMD (app 2089300, free, no Icarus licence needed) is coming next. For now, install it with SteamCMD and add the folder here."/>
+        </Grid>
+
+        <TextBlock Grid.Column="2" Margin="0,40,0,0" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                   Visibility="{Binding HasNoProfile, Converter={StaticResource BoolToVisibilityConverter}}"
+                   Text="No servers yet. Click 'Add existing server…' and pick the folder that holds IcarusServer.exe. Starlink then edits its ServerSettings.ini, starts and stops it, and shows its log here."/>
+
+        <Grid Grid.Column="2" Visibility="{Binding HasProfile, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Padding="14,10" CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Content="Start" Command="{Binding StartCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                ToolTip="Saves the settings below, then launches IcarusServer.exe in its own console window"/>
+                        <Button Content="Stop" Command="{Binding StopCommand}" Margin="8,0,0,0"
+                                ToolTip="Asks the server to shut down cleanly (it saves on exit); ends it after 60 seconds if it hasn't closed"/>
+                        <Button Content="Restart" Command="{Binding RestartCommand}" Margin="8,0,0,0"/>
+                        <Button Content="Open folder" Command="{Binding OpenInstallFolderCommand}" Margin="16,0,0,0"/>
+                        <Button Content="Open Saved" Command="{Binding OpenSavedFolderCommand}" Margin="8,0,0,0"
+                                ToolTip="The server's Saved folder: settings, logs, worlds (PlayerData\DedicatedServer\Prospects)"/>
+                    </StackPanel>
+                    <StackPanel VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <Border CornerRadius="8" Padding="8,2" Margin="0,0,10,0" VerticalAlignment="Center">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="{DynamicResource CardRaisedBackgroundBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                                <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="{Binding RunStateText}" FontSize="10.5" FontFamily="Consolas" FontWeight="SemiBold">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Border>
+                            <TextBlock Text="{Binding SelectedProfile.Name}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding InstallFolder}" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
+                       Foreground="{DynamicResource SecondaryForegroundBrush}"
+                       Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+            <TabControl Grid.Row="2" Margin="0,8,0,0">
+                <TabItem Header="Log">
+                    <Grid Margin="0,8,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <DockPanel Grid.Row="0" Margin="0,0,0,6">
+                            <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearLogCommand}" Margin="8,0,0,0"/>
+                            <TextBox DockPanel.Dock="Right" Width="180" Text="{Binding LogFilter, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Show only lines containing this text" AutomationProperties.Name="Filter log"/>
+                            <CheckBox DockPanel.Dock="Right" Content="Follow" IsChecked="{Binding FollowLog}" Margin="12,0,12,0" VerticalAlignment="Center"/>
+                            <CheckBox DockPanel.Dock="Right" Content="Hide noise" IsChecked="{Binding HideNoise}" VerticalAlignment="Center"
+                                      ToolTip="Hides engine chatter (texture streaming, shaders, audio, HTTP…) — joins, prospect loads, mods, warnings and errors stay"/>
+                            <TextBlock Text="{Binding LogPath}" FontFamily="Consolas" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        </DockPanel>
+                        <ListBox x:Name="LogList" Grid.Row="1" ItemsSource="{Binding LogLines}" FontFamily="Consolas" FontSize="11.5"
+                                 BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="Settings">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+                        <Grid Margin="0,0,8,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="20"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Grid.Row="0" Grid.Column="0">
+                                <TextBlock Text="SERVER" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                                <TextBlock Text="Profile name (only in this app)" FontSize="12"/>
+                                <TextBox Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
+                                <TextBlock Text="Server name in the browser (64 characters max)" FontSize="12"/>
+                                <TextBox Text="{Binding SteamServerName, UpdateSourceTrigger=PropertyChanged}" MaxLength="64" Margin="0,2,0,8"
+                                         ToolTip="Sent as -SteamServerName — the ini's SessionName key does nothing, per the official docs"/>
+                                <TextBlock Text="Max players (1-8, blank = game default)" FontSize="12"/>
+                                <TextBox Text="{Binding MaxPlayersText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,8"/>
+                                <TextBlock Text="Join password (blank = anyone can join)" FontSize="12"/>
+                                <TextBox Text="{Binding JoinPassword, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
+                                <TextBlock Text="Admin password" FontSize="12"/>
+                                <TextBox Text="{Binding AdminPassword, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,2"/>
+                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource AccentBrush}" Margin="0,0,0,8"
+                                           Visibility="{Binding AdminPasswordIsEmpty, Converter={StaticResource BoolToVisibilityConverter}}"
+                                           Text="Empty: any player who types /AdminLogin in chat becomes admin. Set one."/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="0" Grid.Column="2">
+                                <TextBlock Text="NETWORK" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <StackPanel>
+                                        <TextBlock Text="Game port (UDP)" FontSize="12"/>
+                                        <TextBox Text="{Binding PortText, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="0,2,16,8"/>
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="Query port (UDP)" FontSize="12"/>
+                                        <TextBox Text="{Binding QueryPortText, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="0,2,0,8"/>
+                                    </StackPanel>
+                                </StackPanel>
+                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"
+                                           Text="Forward both ports on your router for players outside your network. Defaults: 17777 and 27015."/>
+                                <TextBlock Text="Bind to IP (-MULTIHOME, blank = all)" FontSize="12"/>
+                                <TextBox Text="{Binding Multihome, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
+                                <TextBlock Text="Saved folder suffix (for a second server on the same install)" FontSize="12"/>
+                                <TextBox Text="{Binding SavedDirSuffix, UpdateSourceTrigger=PropertyChanged}" Width="140" HorizontalAlignment="Left" Margin="0,2,0,8"
+                                         ToolTip="-saveddirsuffix — e.g. _2 makes this profile use Icarus\Saved_2 for its settings, logs and worlds"/>
+                                <TextBlock Text="Log file name (blank = Icarus.log)" FontSize="12"/>
+                                <TextBox Text="{Binding LogFileName, UpdateSourceTrigger=PropertyChanged}" Width="200" HorizontalAlignment="Left" Margin="0,2,0,8"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,8,0,0">
+                                <TextBlock Text="WORLD" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                                <CheckBox Content="Resume the last prospect on start" IsChecked="{Binding ResumeProspect}" IsThreeState="True" Margin="0,0,0,4"
+                                          ToolTip="A dash means: not set, the game's own default applies"/>
+                                <TextBlock FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="20,0,0,6">
+                                    <Run Text="Last prospect: "/><Run Text="{Binding LastProspectName, Mode=OneWay, TargetNullValue='(none yet)'}"/>
+                                </TextBlock>
+                                <TextBlock Text="Load prospect on start (blank = none)" FontSize="12"/>
+                                <ComboBox ItemsSource="{Binding Prospects}" Text="{Binding LoadProspect, UpdateSourceTrigger=PropertyChanged}" IsEditable="True" Margin="0,2,0,8"
+                                          ToolTip="A save under Saved\PlayerData\DedicatedServer\Prospects. Applied before Resume and Create."/>
+                                <TextBlock Text="Create prospect on start (blank = none)" FontSize="12"/>
+                                <TextBox Text="{Binding CreateProspect, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,2"
+                                         ToolTip="[ProspectType] [Difficulty 1-4] [Hardcore True/False] [SaveName]"/>
+                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"
+                                           Text="Format: type, difficulty 1-4, hardcore True/False, save name. Clear it after the first start or every restart makes a fresh world."/>
+                                <TextBlock Text="Autosave every (minutes, blank = game default)" FontSize="12"/>
+                                <TextBox Text="{Binding GameSaveFrequencyText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,8"/>
+                                <CheckBox Content="Save on exit" IsChecked="{Binding SaveGameOnExit}" IsThreeState="True" Margin="0,0,0,4"/>
+                                <CheckBox Content="Fiber foliage regrows over time" IsChecked="{Binding FiberFoliageRespawn}" IsThreeState="True" Margin="0,0,0,4"/>
+                                <CheckBox Content="Mined large stones respawn" IsChecked="{Binding LargeStoneRespawn}" IsThreeState="True" Margin="0,0,0,4"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,8,0,0">
+                                <TextBlock Text="LOBBY" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                                <TextBlock Text="Return to lobby if nobody joins for (seconds, -1 = never)" FontSize="12"/>
+                                <TextBox Text="{Binding ShutdownIfNotJoinedForText, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" Margin="0,2,0,8"/>
+                                <TextBlock Text="Return to lobby after the last player leaves (seconds, -1 = never)" FontSize="12"/>
+                                <TextBox Text="{Binding ShutdownIfEmptyForText, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" Margin="0,2,0,8"/>
+                                <CheckBox Content="Players who aren't admins can create or load prospects" IsChecked="{Binding AllowNonAdminsToLaunchProspects}" IsThreeState="True" Margin="0,0,0,4"/>
+                                <CheckBox Content="Players who aren't admins can delete prospects" IsChecked="{Binding AllowNonAdminsToDeleteProspects}" IsThreeState="True" Margin="0,0,0,4"/>
+                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,4,0,0"
+                                           Text="A checkbox showing a dash isn't set in the file, so the game's own default applies."/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,12,0,4">
+                                <TextBlock Text="COMMAND LINE STARLINK RUNS" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="Copy" Command="{Binding CopyCommandLineCommand}" Margin="8,0,0,0" VerticalAlignment="Top"/>
+                                    <TextBox Text="{Binding CommandLinePreview, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="11.5" TextWrapping="Wrap"/>
+                                </DockPanel>
+                                <TextBlock FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0" TextTrimming="CharacterEllipsis">
+                                    <Run Text="Settings file: "/><Run Text="{Binding SettingsIniPath, Mode=OneWay}"/>
+                                </TextBlock>
+                                <TextBlock Text="{Binding ValidationMessage}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                           Visibility="{Binding ValidationMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                <Button Content="Save settings" Command="{Binding SaveSettingsCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                        HorizontalAlignment="Left" Margin="0,10,0,0"
+                                        ToolTip="Writes the launch options here and the game settings into ServerSettings.ini (every other line in that file is kept). A running server picks them up on restart."/>
+                            </StackPanel>
+                        </Grid>
+                    </ScrollViewer>
+                </TabItem>
+            </TabControl>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -1,0 +1,39 @@
+using System.Windows;
+using System.Windows.Controls;
+using IcarusStarlink.App.ViewModels;
+
+namespace IcarusStarlink.App.Views;
+
+public partial class LocalServerView : UserControl
+{
+    private LocalServerViewModel? _viewModel;
+
+    public LocalServerView()
+    {
+        InitializeComponent();
+        DataContextChanged += OnDataContextChanged;
+    }
+
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (_viewModel is not null)
+        {
+            _viewModel.LogAppended -= ScrollLogToEnd;
+        }
+
+        _viewModel = e.NewValue as LocalServerViewModel;
+        if (_viewModel is not null)
+        {
+            _viewModel.LogAppended += ScrollLogToEnd;
+        }
+    }
+
+    /// <summary>"Follow": keep the newest log line in view as it arrives.</summary>
+    private void ScrollLogToEnd(object? sender, EventArgs e)
+    {
+        if (LogList.Items.Count > 0)
+        {
+            LogList.ScrollIntoView(LogList.Items[^1]);
+        }
+    }
+}

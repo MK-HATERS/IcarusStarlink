@@ -397,7 +397,16 @@ public partial class App : Application
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUe4ssModRepository>(),
             sp.GetRequiredService<IDialogService>(),
-            Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak")));
+            Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
+            sp.GetRequiredService<LocalServerViewModel>()));
+        builder.Services.AddSingleton<IDedicatedServerProfileStore>(sp =>
+            new DedicatedServerProfileStore(appDataDirectory, sp.GetRequiredService<ILogger<DedicatedServerProfileStore>>()));
+        builder.Services.AddSingleton<IDedicatedServerProcessService, DedicatedServerProcessService>();
+        builder.Services.AddSingleton(sp => new LocalServerViewModel(
+            sp.GetRequiredService<IDedicatedServerProfileStore>(),
+            sp.GetRequiredService<IDedicatedServerProcessService>(),
+            sp.GetRequiredService<IDialogService>(),
+            sp.GetRequiredService<IActivityLog>()));
         builder.Services.AddSingleton<HelpViewModel>();
 
         builder.Services.AddSingleton<MainWindow>();
