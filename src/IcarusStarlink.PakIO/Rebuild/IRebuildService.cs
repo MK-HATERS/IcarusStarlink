@@ -32,6 +32,12 @@ public interface IRebuildService
     /// computed against (see MergeEngine.FindConflicts) — a stale pick against a since-changed queue
     /// throws ArgumentOutOfRangeException rather than silently applying the wrong mod's value.
     /// </param>
+    /// <param name="lowPriorityPrebuiltPakFilePaths">
+    /// Prebuilt paks folded in the same way as prebuiltPakFilePaths, but whose changes come FIRST
+    /// (lowest priority, before every queued mod) rather than after — ArcFission Library's own data
+    /// pak, which copies whole tables from the game, so any queued mod or gameplay option wins a
+    /// clash with it. A manualPicks index counts these first, ahead of the queued mods.
+    /// </param>
     Task<RebuildResult> RebuildAsync(
         IReadOnlyList<ExmodPackageContents> queuedMods,
         GameplayOptions gameplayOptions,
@@ -41,7 +47,8 @@ public interface IRebuildService
         IReadOnlyList<string> prebuiltPakFilePaths,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
         IProgress<RebuildStageProgress>? progress = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null);
 
     /// <summary>
     /// Extracts and diffs each prebuilt pak against real base game data (the same

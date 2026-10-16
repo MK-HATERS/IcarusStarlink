@@ -20,11 +20,16 @@ public static class ServerModFiles
             : [];
     }
 
-    /// <summary>Copies a merged pak (and its sibling ISL-Merged.txt manifest, when present) into the server's mods folder, replacing an older copy of the same file.</summary>
     /// <summary>The merged pak's earlier file name(s) (see PakIO's InstallManifestNames; Core can't reference PakIO).</summary>
     public static IReadOnlyList<string> LegacyMergedPakFileNames { get; } = ["ISL-Merged_P.pak", "ISL-Merged_9999_P.pak"];
 
-    public static void InstallPak(string sourcePakPath, string installFolder, string? manifestFileName)
+    /// <summary>
+    /// Copies a merged pak (and its sibling ISL-Merged.txt manifest, when present) into the server's
+    /// mods folder, replacing an older copy of the same file. The merged pak under an earlier name
+    /// is taken off the server too: moved into the removed-paks folder of <paramref name="backupsFolder"/> like
+    /// RemovePak does, or deleted when no backups folder is given.
+    /// </summary>
+    public static void InstallPak(string sourcePakPath, string installFolder, string? manifestFileName, string? backupsFolder = null)
     {
         var target = DedicatedServerLayout.PakModsFolder(installFolder);
         Directory.CreateDirectory(target);
@@ -34,11 +39,21 @@ public static class ServerModFiles
         foreach (var legacy in LegacyMergedPakFileNames.Where(n => !string.Equals(n, Path.GetFileName(sourcePakPath), StringComparison.OrdinalIgnoreCase)))
         {
             var old = Path.Combine(target, legacy);
-            if (File.Exists(old))
+            if (!File.Exists(old))
+            {
+                continue;
+            }
+
+            if (backupsFolder is not null)
+            {
+                RemovePak(installFolder, legacy, backupsFolder);
+            }
+            else
             {
                 File.Delete(old);
             }
         }
+
         if (manifestFileName is not null)
         {
             var manifest = Path.Combine(Path.GetDirectoryName(sourcePakPath)!, manifestFileName);

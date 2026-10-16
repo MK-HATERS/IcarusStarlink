@@ -446,7 +446,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // so "_ = task" inside would try assigning the Task to the message parameter itself.
         _messenger.Register<SettingsSavedMessage>(this, (recipient, message) =>
         {
-            _ = ((MergeInstallViewModel)recipient).RefreshHasExistingInstallAsync();
+            var viewModel = (MergeInstallViewModel)recipient;
+            _ = viewModel.RefreshHasExistingInstallAsync();
+            // The Content path may have changed: the Library's "In game" and the ArcFission prompt follow it.
+            _ = viewModel.RefreshInstalledModNamesAsync();
         });
 
         // A queued mod's own files can change on disk without any Queue mutation at all (most
@@ -631,8 +634,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            var targetPakPath = Path.Combine(_settingsService.Current.IcarusContentPath!, "Paks", "mods", Path.GetFileName(_outputPakPath));
-            HasExistingInstall = File.Exists(targetPakPath);
+            // The merged pak under an earlier name (left by an older version) is an install too:
+            // it still loads, and Install/Remove clear it.
+            var modsDirectory = Path.Combine(_settingsService.Current.IcarusContentPath!, "Paks", "mods");
+            HasExistingInstall = InstallManifestNames.LegacyMergedPakFileNames
+                .Prepend(Path.GetFileName(_outputPakPath))
+                .Any(name => File.Exists(Path.Combine(modsDirectory, name)));
         }
         catch (Exception)
         {
@@ -876,6 +883,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         try
         {
             var newName = ProfileNameInput;
+            // A pending auto-save would otherwise write the old name back as a second profile.
+            SaveWorkingState();
             _profileStore.Rename(oldName, newName);
             ReloadProfileNames();
             // Backing field, not the property: the property setter's change hook reloads the profile
@@ -884,6 +893,17 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             _selectedProfileName = newName;
             OnPropertyChanged(nameof(SelectedProfileName));
             OnPropertyChanged(nameof(CanRestoreProfileBackup));
+            // The change hook is skipped above, so the next start's profile is remembered here.
+            try
+            {
+                _settingsService.Current.LastMergeProfileName = newName;
+                _settingsService.Save();
+            }
+            catch (Exception)
+            {
+                // Only a convenience for the next start.
+            }
+
             ProfileNameInput = "";
             ProfileStatusMessage = $"Renamed '{oldName}' to '{newName}'.";
         }
@@ -904,9 +924,43 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
+            // A pending auto-save of this profile must not write it back once it's deleted (or, with
+            // no profile selected, into "Default").
+            _workingStateSaveTimer?.Cancel();
+            _unsavedProfileName = null;
+
             _profileStore.Delete(name);
             ReloadProfileNames();
-            SelectedProfileName = null;
+
+            if (!string.Equals(name, "Default", StringComparison.OrdinalIgnoreCase)
+                && ProfileNames.FirstOrDefault(n => string.Equals(n, "Default", StringComparison.OrdinalIgnoreCase)) is { } defaultName)
+            {
+                // Loads "Default" as saved, replacing the deleted profile's queue and options.
+                SelectedProfileName = defaultName;
+            }
+            else
+            {
+                // Nothing to fall back to: start empty, without saving the deleted profile's queue,
+                // options or picks anywhere (the next change saves into a fresh "Default").
+                _loadingProfile = true;
+                try
+                {
+                    SelectedProfileName = null;
+                    LoadGameplayOptionsIntoUi(new GameplayOptions());
+                    _winners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    OnPropertyChanged(nameof(SavedWinnerCount));
+                    Queue.Clear();
+                    PrependBaselineMods();
+                }
+                finally
+                {
+                    _loadingProfile = false;
+                }
+
+                _workingStateSaveTimer?.Cancel();
+                _unsavedProfileName = null;
+            }
+
             ProfileStatusMessage = $"Deleted '{name}'.";
         }
         catch (Exception ex)
@@ -1469,19 +1523,29 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private bool _arcFissionNeedsMerge;
 
+    /// <summary>
+    /// Re-reads the installed merge's manifest (LastInstalledModNames) and whether ArcFission Library
+    /// wrote newer data since (ArcFissionNeedsMerge). Runs when the Library subscribes, after
+    /// Install/Remove, after Settings are saved, and when the app's window is activated again (the
+    /// game may have run meanwhile and ArcFission written a new pak).
+    /// </summary>
     public async Task RefreshInstalledModNamesAsync()
     {
         var contentPath = _settingsService.Current.IcarusContentPath;
         if (string.IsNullOrWhiteSpace(contentPath))
         {
             LastInstalledModNames = [];
+            ArcFissionNeedsMerge = false;
             return;
         }
 
         try
         {
             var installed = await _installService.GetInstalledStateAsync(contentPath);
-            ArcFissionNeedsMerge = ArcFissionDataPakPath() is { } arcFission
+            // Only with a merge installed (its manifest lists mods): with none, there's nothing for
+            // ArcFission's newer rows to be missing from.
+            ArcFissionNeedsMerge = installed.ModNames.Count > 0
+                && ArcFissionDataPakPath() is { } arcFission
                 && !installed.ModNames.Contains(Path.GetFileNameWithoutExtension(arcFission), StringComparer.OrdinalIgnoreCase);
             LastInstalledModNames = installed.ModNames;
         }
@@ -1489,6 +1553,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             // A missing/unreadable manifest just means "nothing known to be installed".
             LastInstalledModNames = [];
+            ArcFissionNeedsMerge = false;
         }
     }
 
@@ -1640,6 +1705,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 var pakPaths = Directory.GetFiles(_libraryRepository.GetFolderPath(entry.FolderName), "*.pak").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
                 return pakPaths.Count > 0 ? pakPaths.Select(Path.GetFileNameWithoutExtension).Select(n => n!) : [entry.Name];
             }).ToList();
+            // Rebuild folds ArcFission Library's data pak in too, and the manifest lists it.
+            if (ArcFissionDataPakPath() is { } arcFission)
+            {
+                currentList.Insert(0, Path.GetFileNameWithoutExtension(arcFission));
+            }
+
             var comparison = InstalledVsListComparer.Compare(installed.ModNames, currentList);
 
             ComparisonEntries.Clear();
@@ -1763,11 +1834,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             using var perfScope = _performanceTracker.Track("Rebuild");
             var (_, packages, prebuiltPakFilePaths) = await LoadQueuedPackagesAsync();
-            if (ArcFissionDataPakPath() is { } arcFission)
-            {
-                // Its rows go into the merge (which outranks its pak), first so a queued mod wins a clash.
-                prebuiltPakFilePaths.Insert(0, arcFission);
-            }
+            // ArcFission Library's data pak: its rows go into the merge (which outranks its pak),
+            // as the lowest-priority input so any queued mod or option wins a clash with it.
+            List<string> lowPriorityPaks = ArcFissionDataPakPath() is { } arcFission ? [arcFission] : [];
 
             // Progress<T>'s own callback marshals back through the SynchronizationContext captured
             // at construction time — safe to update these bound properties directly from it since
@@ -1781,9 +1850,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
             var picks = await ResolveWinnerPicksAsync();
             var result = await _rebuildService.RebuildAsync(
-                packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath, prebuiltPakFilePaths, picks, progress);
+                packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath, prebuiltPakFilePaths, picks, progress,
+                lowPriorityPrebuiltPakFilePaths: lowPriorityPaks);
 
-            var prebuiltNote = prebuiltPakFilePaths.Count > 0 ? $", {prebuiltPakFilePaths.Count} prebuilt pak(s) folded in" : "";
+            var foldedInCount = prebuiltPakFilePaths.Count + lowPriorityPaks.Count;
+            var prebuiltNote = foldedInCount > 0 ? $", {foldedInCount} prebuilt pak(s) folded in" : "";
             StatusMessage = $"Built '{result.OutputPakPath}' — {result.PackedFileCount} files packed, "
                 + $"{result.MergedFileCount} data table(s) merged{prebuiltNote}.";
             foreach (var warning in result.Warnings)
@@ -2054,6 +2125,20 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             () => packages.Select(p => ExmodFieldChangeMapper.ToFieldChanges(p.Package, classifier)).ToList());
         var names = entries.Select(e => e.Name).ToList();
 
+        // ArcFission Library's data pak goes FIRST (lowest priority), the same place Rebuild puts
+        // it (lowPriorityPrebuiltPakFilePaths), so a candidate index here is the index Rebuild uses.
+        if (includePrebuiltPaks && ArcFissionDataPakPath() is { } arcFission
+            && !string.IsNullOrWhiteSpace(_settingsService.Current.UnrealPakExePath))
+        {
+            var arcFissionChanges = await _rebuildService.ComputePrebuiltPakFieldChangesAsync(
+                [arcFission], _dataFolder, _settingsService.Current.UnrealPakExePath!, new MergeReport());
+            foreach (var (pakName, changes) in arcFissionChanges)
+            {
+                orderedModChanges.Insert(0, changes);
+                names.Insert(0, pakName);
+            }
+        }
+
         if (includePrebuiltPaks && prebuiltPakFilePaths.Count > 0
             && !string.IsNullOrWhiteSpace(_settingsService.Current.UnrealPakExePath))
         {
@@ -2157,7 +2242,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// The winners by mod name, turned into the merge's per-field picks for the queue as it is now
     /// (a pick's position among the mods changing that value). Prebuilt paks are only unpacked for
     /// this when a winner is one of them or the built-in options, whose positions come after the
-    /// EXMOD mods'. A test's ManualPicksForTesting is used when nothing was picked by name.
+    /// EXMOD mods', or when ArcFission Library's data pak is present: it comes before every queued
+    /// mod, so it shifts every position of a field it also changes. A test's ManualPicksForTesting
+    /// is used when nothing was picked by name.
     /// </summary>
     private async Task<IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>?> ResolveWinnerPicksAsync()
     {
@@ -2167,7 +2254,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
 
         var exmodNames = Queue.Where(e => !e.IsOpaquePak).Select(e => e.Name).ToHashSet(StringComparer.Ordinal);
-        var needsPaks = _winners.Values.Any(w => !exmodNames.Contains(w));
+        var needsPaks = ArcFissionDataPakPath() is not null || _winners.Values.Any(w => !exmodNames.Contains(w));
         var (conflicts, _, _) = await FindQueueConflictsAsync(includePrebuiltPaks: needsPaks);
         var picks = new Dictionary<(string CurrentFile, string ItemName, string FieldName), int>(FieldChangeKeyComparer.Instance);
         foreach (var conflict in conflicts)
@@ -2602,6 +2689,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 _activityLog.Log($"Removed installed pack from {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityEntryKind.Success);
                 HasExistingInstall = false;
             }
+
+            // The manifest is gone too, so the Library's "In game" status has to drop with it.
+            await RefreshInstalledModNamesAsync();
         }
         catch (Exception ex)
         {

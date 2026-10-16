@@ -28,7 +28,8 @@ public interface IInstallService
     /// Content\Paks\mods — a standalone uninstall, independent of Install. Backs up whatever it
     /// removes first, the same keep-last-5 rotation InstallAsync already uses, so it's always
     /// undoable. stagedPakFileName only supplies the target's own filename (this app's own output
-    /// pak is always the same name across every Rebuild) — no staged file needs to exist on disk
+    /// pak is always the same name across every Rebuild; the merged pak's earlier names,
+    /// InstallManifestNames.LegacyMergedPakFileNames, are removed too) — no staged file needs to exist on disk
     /// for this to run, unlike InstallAsync. Returns false (not an error) if nothing this app
     /// recognizes was installed there to begin with.
     /// </summary>
