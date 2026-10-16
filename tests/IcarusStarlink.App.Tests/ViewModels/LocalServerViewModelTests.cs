@@ -9,7 +9,7 @@ using IcarusStarlink.Core.Settings;
 namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>The Server page's Local server tab against a fake install on disk — nothing is ever launched.</summary>
-public sealed class LocalServerViewModelTests : IDisposable
+public sealed partial class LocalServerViewModelTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
     private readonly string _install;
@@ -35,6 +35,8 @@ public sealed class LocalServerViewModelTests : IDisposable
 
     private FakeSettings Settings { get; } = new();
 
+    private FakeFirewall Firewall { get; } = new();
+
     private string BackupsRoot => Path.Combine(_root, "Backups");
 
     private string MergedPakPath => Path.Combine(_root, "Staged_Build", "ISL-Merged_P.pak");
@@ -44,7 +46,10 @@ public sealed class LocalServerViewModelTests : IDisposable
         var store = new FakeStore();
         var processes = new FakeProcesses();
         var dialogs = new FakeDialogs(confirm);
-        var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, () => pickExe, startTimer: false);
+        var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, () => pickExe, startTimer: false, firewall: Firewall)
+        {
+            StartPollDelay = TimeSpan.Zero,
+        };
         SteamCmd.Chosen = () => Settings.Current.SteamCmdExePath;
         return (vm, store, processes, dialogs);
     }
@@ -621,6 +626,16 @@ public sealed class LocalServerViewModelTests : IDisposable
             Stopped.Add(server.ProcessId);
             Running = null;
             return Task.FromResult(StopIsClean);
+        }
+
+        public long? GetMemoryBytes(int processId) => Running?.ProcessId == processId ? 8L << 30 : null;
+
+        public List<int> Minimized { get; } = [];
+
+        public bool TryMinimizeConsole(int processId)
+        {
+            Minimized.Add(processId);
+            return true;
         }
     }
 

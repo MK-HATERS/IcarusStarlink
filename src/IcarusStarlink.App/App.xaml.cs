@@ -412,7 +412,9 @@ public partial class App : Application
             sp.GetRequiredService<ISteamCmdService>(),
             sp.GetRequiredService<ISettingsService>(),
             Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
-            Path.Combine(appDataDirectory, "Backups")));
+            Path.Combine(appDataDirectory, "Backups"),
+            firewall: sp.GetRequiredService<IFirewallService>()));
+        builder.Services.AddSingleton<IFirewallService, FirewallService>();
         builder.Services.AddSingleton<HelpViewModel>();
 
         builder.Services.AddSingleton<MainWindow>();
@@ -530,6 +532,17 @@ public partial class App : Application
                     if (settingsViewModel.FirstLaunchSetupNeededAttention)
                     {
                         WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("settings"));
+                    }
+                });
+
+                // Dedicated servers: automation (crash restarts, the daily restart, auto-update,
+                // "start with Starlink") must run from launch, not from the first visit to the
+                // Server page, so its view model is built now when there is any server to watch.
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
+                {
+                    if (_host.Services.GetRequiredService<IDedicatedServerProfileStore>().GetAll().Count > 0)
+                    {
+                        _host.Services.GetRequiredService<ServerViewModel>();
                     }
                 });
 

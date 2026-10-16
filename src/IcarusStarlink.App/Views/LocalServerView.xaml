@@ -88,6 +88,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
@@ -159,7 +160,200 @@
                        Foreground="{DynamicResource SecondaryForegroundBrush}"
                        Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-            <TabControl Grid.Row="2" Margin="0,8,0,0">
+            <!-- Live tiles: the selected server at a glance. -->
+            <UniformGrid Grid.Row="2" Rows="1" Columns="6" Margin="0,8,0,0">
+                <UniformGrid.Resources>
+                    <Style x:Key="TileStyle" TargetType="Border">
+                        <Setter Property="Padding" Value="12,8"/>
+                        <Setter Property="Margin" Value="0,0,8,0"/>
+                        <Setter Property="CornerRadius" Value="6"/>
+                        <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
+                        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                        <Setter Property="BorderThickness" Value="1"/>
+                    </Style>
+                    <Style x:Key="TileValueStyle" TargetType="TextBlock">
+                        <Setter Property="FontSize" Value="17"/>
+                        <Setter Property="FontWeight" Value="SemiBold"/>
+                        <Setter Property="Margin" Value="0,2,0,1"/>
+                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                    </Style>
+                    <Style x:Key="TileHintStyle" TargetType="TextBlock">
+                        <Setter Property="FontSize" Value="11"/>
+                        <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                    </Style>
+                </UniformGrid.Resources>
+                <Border Style="{StaticResource TileStyle}">
+                    <StackPanel>
+                        <TextBlock Text="PLAYERS" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Text="{Binding PlayersTile}" Style="{StaticResource TileValueStyle}"/>
+                        <TextBlock Text="{Binding PlayersHint}" Style="{StaticResource TileHintStyle}" ToolTip="{Binding PlayersHint}"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource TileStyle}">
+                    <StackPanel>
+                        <TextBlock Text="WORLD" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Text="{Binding WorldTile}" Style="{StaticResource TileValueStyle}" ToolTip="{Binding WorldTile}"/>
+                        <TextBlock Text="{Binding WorldHint}" Style="{StaticResource TileHintStyle}"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource TileStyle}">
+                    <StackPanel>
+                        <TextBlock Text="UPTIME" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Text="{Binding UptimeTile}" Style="{StaticResource TileValueStyle}"/>
+                        <TextBlock Text="{Binding UptimeHint}" Style="{StaticResource TileHintStyle}"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource TileStyle}">
+                    <StackPanel>
+                        <TextBlock Text="MEMORY" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Text="{Binding MemoryTile}" Style="{StaticResource TileValueStyle}"/>
+                        <TextBlock Text="{Binding MemoryHint}" Style="{StaticResource TileHintStyle}"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource TileStyle}">
+                    <StackPanel>
+                        <TextBlock Text="BUILD" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Text="{Binding BuildTile}" Style="{StaticResource TileValueStyle}"/>
+                        <TextBlock Text="{Binding BuildHint}" Style="{StaticResource TileHintStyle}"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource TileStyle}" Margin="0">
+                    <StackPanel>
+                        <TextBlock Text="LAST BACKUP" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Text="{Binding BackupTile}" Style="{StaticResource TileValueStyle}"/>
+                        <TextBlock Text="{Binding BackupHint}" Style="{StaticResource TileHintStyle}"/>
+                    </StackPanel>
+                </Border>
+            </UniformGrid>
+
+            <TabControl Grid.Row="3" Margin="0,8,0,0">
+                <TabItem Header="Overview">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+                        <Grid Margin="0,0,8,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="16"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.Resources>
+                                <Style x:Key="OptionHintStyle" TargetType="TextBlock">
+                                    <Setter Property="FontSize" Value="11.5"/>
+                                    <Setter Property="TextWrapping" Value="Wrap"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                    <Setter Property="Margin" Value="22,0,0,10"/>
+                                </Style>
+                            </Grid.Resources>
+
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="AUTOMATION" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                                <CheckBox IsChecked="{Binding AutoRestartOnCrash}" Margin="0,0,0,2">
+                                    <TextBlock Text="Restart it if it crashes" FontWeight="SemiBold"/>
+                                </CheckBox>
+                                <TextBlock Style="{StaticResource OptionHintStyle}"
+                                           Text="Only when its log shows no clean exit. Up to 3 times in 10 minutes, then it is left stopped and you are told."/>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                                    <CheckBox IsChecked="{Binding DailyRestartEnabled}" VerticalAlignment="Center">
+                                        <TextBlock Text="Restart every day at" FontWeight="SemiBold"/>
+                                    </CheckBox>
+                                    <TextBox Text="{Binding DailyRestartTime, UpdateSourceTrigger=PropertyChanged}" Width="56" Margin="8,0,0,0" Padding="2,0"
+                                             AutomationProperties.Name="Daily restart time" ToolTip="24-hour time, like 05:00"/>
+                                </StackPanel>
+                                <TextBlock Text="{Binding DailyRestartTimeError}" Foreground="{DynamicResource DangerBrush}" FontSize="11.5" Margin="22,0,0,0"
+                                           Visibility="{Binding DailyRestartTimeError, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                <TextBlock Style="{StaticResource OptionHintStyle}"
+                                           Text="Waits up to an hour for everyone to leave. Icarus has no way to message players from outside the game, so it can't warn them."/>
+
+                                <CheckBox IsChecked="{Binding UpdateOnRestart}" Margin="0,0,0,2">
+                                    <TextBlock Text="Update on restart" FontWeight="SemiBold"/>
+                                </CheckBox>
+                                <TextBlock Style="{StaticResource OptionHintStyle}"
+                                           Text="Before the daily restart and the Restart button, asks Steam for a newer build and installs it. Worlds are backed up first."/>
+
+                                <CheckBox IsChecked="{Binding AutoUpdate}" Margin="0,0,0,2">
+                                    <TextBlock Text="Update automatically" FontWeight="SemiBold"/>
+                                </CheckBox>
+                                <TextBlock Style="{StaticResource OptionHintStyle}"
+                                           Text="While it runs, checks Steam every hour. A newer build installs the next time nobody is online."/>
+
+                                <CheckBox IsChecked="{Binding StartWithApp}" Margin="0,0,0,2">
+                                    <TextBlock Text="Start with Starlink" FontWeight="SemiBold"/>
+                                </CheckBox>
+                                <TextBlock Style="{StaticResource OptionHintStyle}"
+                                           Text="Starts this server when Starlink opens, if it isn't running already."/>
+
+                                <CheckBox IsChecked="{Binding StartMinimized}" Margin="0,0,0,2">
+                                    <TextBlock Text="Start minimized" FontWeight="SemiBold"/>
+                                </CheckBox>
+                                <TextBlock Style="{StaticResource OptionHintStyle}"
+                                           Text="Minimizes the server's console window as soon as it opens."/>
+
+                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}"
+                                           Text="Automation runs only while Starlink is open. Every server in the list is watched, not just the selected one."/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="NEXT UP" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                                <ItemsControl ItemsSource="{Binding NextUp}" Margin="0,0,0,14">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,4"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <DockPanel Margin="0,0,0,6">
+                                    <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshFirewallCommand}" Padding="8,1" FontSize="11"/>
+                                    <TextBlock Text="WINDOWS FIREWALL" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center"/>
+                                </DockPanel>
+                                <WrapPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="Game port" FontSize="12"/>
+                                        <TextBox Text="{Binding FirewallGamePortText, UpdateSourceTrigger=PropertyChanged}" Width="90" Margin="0,2,12,8"/>
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="Query port" FontSize="12"/>
+                                        <TextBox Text="{Binding FirewallQueryPortText, UpdateSourceTrigger=PropertyChanged}" Width="90" Margin="0,2,12,8"/>
+                                    </StackPanel>
+                                    <CheckBox Content="Also TCP on the game port" IsChecked="{Binding FirewallIncludeTcp}" VerticalAlignment="Center" Margin="0,8,0,0"
+                                              ToolTip="Icarus needs UDP. Some hosts open TCP on the game port too; this is ticked when a rule for it already exists."/>
+                                </WrapPanel>
+                                <ItemsControl ItemsSource="{Binding FirewallPorts}" Margin="0,0,0,6">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Summary}" FontSize="12" TextWrapping="Wrap" Margin="0,1">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Open}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Blocked}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="{Binding FirewallSummary}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Open these ports" Command="{Binding OpenFirewallPortsCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                            ToolTip="Adds inbound allow rules for the ports that aren't open yet, only for this server's exe. Windows asks for administrator approval once."/>
+                                    <Button Content="Remove Starlink's rules" Command="{Binding RemoveFirewallRulesCommand}" Margin="8,0,0,0"
+                                            ToolTip="Removes only the rules Starlink added for this server. Rules you made yourself stay."/>
+                                </StackPanel>
+                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,8,0,0"
+                                           Text="Players outside your home network also need both UDP ports forwarded on your router to this PC. Starlink can't change router settings."/>
+                            </StackPanel>
+                        </Grid>
+                    </ScrollViewer>
+                </TabItem>
+
                 <TabItem Header="Log">
                     <Grid Margin="0,8,0,0">
                         <Grid.RowDefinitions>

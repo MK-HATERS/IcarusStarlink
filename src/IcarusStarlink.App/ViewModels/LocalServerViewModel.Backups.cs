@@ -58,13 +58,10 @@ public sealed partial class LocalServerViewModel
     }
 
     /// <summary>A backup that must never block the action it precedes — a failure is reported, the action goes on.</summary>
-    private string? TryBackup(string reason)
-    {
-        if (SelectedProfile is not { } p)
-        {
-            return null;
-        }
+    private string? TryBackup(string reason) => SelectedProfile is { } p ? TryBackup(p, reason) : null;
 
+    private string? TryBackup(DedicatedServerProfile p, string reason)
+    {
         try
         {
             return ServerBackups.CreateBackup(p.InstallFolder, p.SavedDirSuffix, ServerBackupsFolder(p), reason);

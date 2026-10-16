@@ -36,14 +36,17 @@ public sealed partial class LocalServerViewModel : ObservableObject
     private readonly string? _mergedPakPath;
     private readonly string _backupsRoot;
     private readonly DispatcherTimer? _timer;
+    private readonly IFirewallService? _firewall;
     private readonly List<string> _allLogLines = [];
     private LogTailer? _tailer;
 
     public LocalServerViewModel(
         IDedicatedServerProfileStore store, IDedicatedServerProcessService processes, IDialogService dialogService,
         IActivityLog activityLog, ISteamCmdService? steamCmd = null, Core.Settings.ISettingsService? settings = null,
-        string? mergedPakPath = null, string? backupsRoot = null, Func<string, string?>? pickFolder = null, Func<string?>? pickSteamCmdExe = null, bool startTimer = true)
+        string? mergedPakPath = null, string? backupsRoot = null, Func<string, string?>? pickFolder = null, Func<string?>? pickSteamCmdExe = null, bool startTimer = true,
+        IFirewallService? firewall = null)
     {
+        _firewall = firewall;
         _steamCmd = steamCmd;
         _settings = settings;
         _mergedPakPath = mergedPakPath;
@@ -65,8 +68,13 @@ public sealed partial class LocalServerViewModel : ObservableObject
         if (startTimer && Application.Current is not null)
         {
             _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-            _timer.Tick += (_, _) => Tick();
+            _timer.Tick += (_, _) =>
+            {
+                Tick();
+                AutomationTick();
+            };
             _timer.Start();
+            _ = StartServersMarkedForStartupAsync();
         }
     }
 
@@ -94,6 +102,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
         AttachLog();
         Tick();
         RefreshServerExtras();
+        LoadFirewall();
+        RefreshOverview();
     }
 
     [ObservableProperty]
@@ -287,14 +297,22 @@ public sealed partial class LocalServerViewModel : ObservableObject
             _tailer?.SeekToEnd();
             _allLogLines.Clear();
             LogLines.Clear();
+            var watch = GetWatch(profile);
+            watch.Automation.NoteManualStart();
             _processes.Start(profile);
+            watch.CleanExitSeen = false;
+            if (profile.StartMinimized)
+            {
+                watch.MinimizeUntil = Clock() + TimeSpan.FromMinutes(2);
+            }
+
             StatusMessage = $"Starting '{profile.Name}'…";
             _activityLog.Log($"Started dedicated server '{profile.Name}': {DedicatedServerCommandLine.BuildDisplayLine(profile)}", ActivityEntryKind.Info);
 
             // The launcher hands off to the real server process; give it a moment to show up.
             for (var i = 0; i < 20 && Running is null; i++)
             {
-                await Task.Delay(500);
+                await Task.Delay(StartPollDelay);
                 Tick();
             }
 
@@ -322,6 +340,11 @@ public sealed partial class LocalServerViewModel : ObservableObject
     {
         if (await StopCoreAsync(ask: true))
         {
+            if (SelectedProfile is { UpdateOnRestart: true } profile)
+            {
+                await UpdateProfileIfNewerAsync(GetWatch(profile));
+            }
+
             await StartAsync();
         }
     }
@@ -344,6 +367,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         try
         {
             StatusMessage = $"Stopping '{profile.Name}'…";
+            GetWatch(profile).Automation.NoteIntentionalStop(Clock());
             var clean = await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
             Tick();
             StatusMessage = clean ? $"'{profile.Name}' stopped." : $"'{profile.Name}' didn't close within 60 seconds and was ended. The last autosave is intact.";
@@ -437,6 +461,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
 
         ExpireStalePlayers();
+        RefreshOverview();
     }
 
     // ---- Internals ----
@@ -448,12 +473,14 @@ public sealed partial class LocalServerViewModel : ObservableObject
         if (SelectedProfile is not { } p)
         {
             ProfileName = SteamServerName = PortText = QueryPortText = Multihome = SavedDirSuffix = LogFileName = "";
+            LoadAutomation(null);
             JoinPassword = AdminPassword = MaxPlayersText = ShutdownIfNotJoinedForText = ShutdownIfEmptyForText = GameSaveFrequencyText = LoadProspect = CreateProspect = "";
             OnPropertyChanged(nameof(InstallFolder));
             return;
         }
 
         ProfileName = p.Name;
+        LoadAutomation(p);
         Branch = SteamCmd.NormalizeBranch(p.Branch);
         SteamServerName = p.SteamServerName;
         PortText = p.Port.ToString(CultureInfo.InvariantCulture);
@@ -528,6 +555,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
         var index = Profiles.IndexOf(current);
         _store.Save(updated);
+        SyncFirewallPortsAfterSave(current, updated);
 
         // Swap the list entry and re-select it without reloading the form from disk (it already
         // holds what was saved) — the ListBox briefly pushes a null selection while the item is
@@ -580,7 +608,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
         else
         {
-            return new DedicatedServerProfile
+            var built = new DedicatedServerProfile
             {
                 Id = current.Id,
                 Name = ProfileName.Trim(),
@@ -593,6 +621,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
                 LogFileName = LogFileName.Trim(),
                 Branch = SteamCmd.NormalizeBranch(Branch),
             };
+            CopyAutomation(current, built);
+            return built;
         }
 
         if (strict)
@@ -659,12 +689,15 @@ public sealed partial class LocalServerViewModel : ObservableObject
         ResetPlayersAndEvents();
         if (_tailer is not null)
         {
-            // Show the tail of the current (or last) run right away, not the whole history.
-            AppendLog(_tailer.Poll(maxBytes: 64 * 1024));
+            // Read the whole current run so the player list is right (someone who joined hours ago
+            // is still online), but only put its newest lines in the panel.
+            var lines = _tailer.Poll(maxBytes: 64 << 20).Select(ServerLogFilter.Redact).ToList();
+            FeedPlayersAndEvents(lines);
+            AppendLog(lines.Count > MaxLogLines ? lines.GetRange(lines.Count - MaxLogLines, MaxLogLines) : lines, feedEvents: false);
         }
     }
 
-    private void AppendLog(IReadOnlyList<string> lines)
+    private void AppendLog(IReadOnlyList<string> lines, bool feedEvents = true)
     {
         if (lines.Count == 0)
         {
@@ -673,7 +706,10 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
         // The server logs the join password in plain text on every login — never show or keep it.
         lines = [.. lines.Select(ServerLogFilter.Redact)];
-        FeedPlayersAndEvents(lines);
+        if (feedEvents)
+        {
+            FeedPlayersAndEvents(lines);
+        }
         _allLogLines.AddRange(lines);
         if (_allLogLines.Count > MaxLogLines)
         {

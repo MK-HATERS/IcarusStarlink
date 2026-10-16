@@ -117,6 +117,57 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
         }
     }
 
+    public long? GetMemoryBytes(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return process.HasExited ? null : process.WorkingSet64;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The server opens its own console for -log, after the launcher hands off, so the window can't be started minimized — it is minimized once it exists, by attaching to it like Stop does.</summary>
+    public bool TryMinimizeConsole(int processId)
+    {
+        lock (ConsoleLock)
+        {
+            if (!AttachConsole((uint)processId))
+            {
+                return false;
+            }
+
+            try
+            {
+                var window = GetConsoleWindow();
+                if (window == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                // ShowWindow returns the PREVIOUS visibility, not success, so it is ignored.
+                ShowWindow(window, SwMinimize);
+                return true;
+            }
+            finally
+            {
+                FreeConsole();
+            }
+        }
+    }
+
+    private const int SwMinimize = 6;
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetConsoleWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
     private static readonly object ConsoleLock = new();
 
     /// <summary>Attach to the server's console, ignore Ctrl+C ourselves, send it, detach. One at a time: a process can be attached to only one console.</summary>

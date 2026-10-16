@@ -20,4 +20,10 @@ public interface IDedicatedServerProcessService
     /// then kills it. Returns true when it exited cleanly, false when it had to be killed.
     /// </summary>
     Task<bool> StopAsync(RunningServer server, TimeSpan timeout, CancellationToken cancellationToken = default);
+
+    /// <summary>The process's working set in bytes (what Task Manager calls memory), or null when it is gone or can't be read.</summary>
+    long? GetMemoryBytes(int processId);
+
+    /// <summary>Minimizes the server's console window. False while it has no console yet (the launcher, or an engine still starting) — try again later.</summary>
+    bool TryMinimizeConsole(int processId);
 }

@@ -411,7 +411,10 @@ public sealed partial class LocalServerViewModel
     private sealed record SteamCmdResultView(bool Success, string Message);
 
     /// <summary>SteamCMD output: progress lines drive the bar; every line also goes into the log panel, tagged.</summary>
-    private void OnSteamCmdLine(string line)
+    private void OnSteamCmdLine(string line) => OnSteamCmdLineFor(SelectedProfile?.Id, line);
+
+    /// <summary>Automation can update a server that isn't the selected one: its SteamCMD lines go to the SteamCMD box, but not into another server's log.</summary>
+    private void OnSteamCmdLineFor(Guid? profileId, string line)
     {
         void Apply()
         {
@@ -441,7 +444,10 @@ public sealed partial class LocalServerViewModel
 
             OnPropertyChanged(nameof(ShowSteamCmdPanel));
             SteamCmdOutputAppended?.Invoke(this, EventArgs.Empty);
-            AppendLog(["[SteamCMD] " + line]);
+            if (profileId is null || profileId == SelectedProfile?.Id)
+            {
+                AppendLog(["[SteamCMD] " + line]);
+            }
         }
 
         if (System.Windows.Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
