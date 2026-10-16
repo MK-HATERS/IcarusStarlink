@@ -44,14 +44,6 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
         : Issue.Kind == ModIssueKind.SameAsGame ? "the same (no change)"
         : ModFixViewModel.OnlyIn(Issue.GameValue, Issue.ModValue) ?? ModFixViewModel.Describe(Issue.GameValue);
 
-    public string ModJson => ModFixViewModel.Pretty(Issue.ModValue);
-
-    public string GameJson => ModFixViewModel.Pretty(Issue.GameValue);
-
-    public string? MergedJson => Issue.MergedValue is null ? null : ModFixViewModel.Pretty(Issue.MergedValue);
-
-    public bool HasMerged => Issue.MergedValue is not null;
-
     /// <summary>A renamed row has no values to compare, only the names.</summary>
     public bool ShowValues => Issue.Kind != ModIssueKind.MissingRow;
 
@@ -64,7 +56,46 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
 
     public bool WillChange => SelectedChoice.Fix != ModIssueFix.KeepMod;
 
-    partial void OnSelectedChoiceChanged(ModFixChoice value) => OnPropertyChanged(nameof(WillChange));
+    partial void OnSelectedChoiceChanged(ModFixChoice value)
+    {
+        OnPropertyChanged(nameof(WillChange));
+        _diff = null;
+        OnPropertyChanged(nameof(Diff));
+        OnPropertyChanged(nameof(AfterTitle));
+    }
+
+    /// <summary>The value once the chosen fix is made: the mod's kept, the game's (a field left out), or merged.</summary>
+    public JsonNode? AfterValue => SelectedChoice.Fix switch
+    {
+        ModIssueFix.KeepMod => Issue.ModValue,
+        ModIssueFix.Merge => Issue.MergedValue,
+        _ => Issue.GameValue,
+    };
+
+    private IReadOnlyList<DiffRow>? _diff;
+
+    /// <summary>The bottom panel: the mod, the game now and the result side by side, lined up (built when shown).</summary>
+    public IReadOnlyList<DiffRow> Diff => _diff ??= ShowValues ? ValueDiff.Build(Issue.ModValue, Issue.GameValue, AfterValue) : [];
+
+    /// <summary>Lists are compared entry by entry (in words); other values line by line (as code).</summary>
+    public bool IsListDiff => ValueDiff.IsList(Issue.ModValue, Issue.GameValue);
+
+    public string AfterTitle => $"AFTER YOUR FIX ({SelectedChoice.Label.ToUpperInvariant()})";
+
+    public string DiffSummary
+    {
+        get
+        {
+            var onlyMod = Diff.Count(r => r.IsOnlyMod);
+            var onlyGame = Diff.Count(r => r.IsOnlyGame);
+            var changed = Diff.Count(r => r.IsChanged);
+            var parts = new List<string>();
+            if (onlyMod > 0) parts.Add($"{onlyMod} only the mod has");
+            if (onlyGame > 0) parts.Add($"{onlyGame} only the game has");
+            if (changed > 0) parts.Add($"{changed} line(s) different");
+            return parts.Count == 0 ? "No difference." : string.Join(" · ", parts);
+        }
+    }
 
     public void Choose(ModIssueFix fix)
     {
@@ -455,6 +486,4 @@ public sealed partial class ModFixViewModel : ObservableObject
         _ => null,
     };
 
-    internal static string Pretty(JsonNode? value) =>
-        value is null ? "(deleted / not set)" : value.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 }

@@ -10,8 +10,9 @@
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*" MinHeight="160"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="270" MinHeight="140"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
@@ -118,42 +119,106 @@
             </DockPanel>
         </Grid>
 
-        <!-- The selected one in full. -->
-        <Border Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,10,0,0"
+        <!-- Drag to give the comparison below more room. -->
+        <GridSplitter Grid.Row="2" Height="8" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="Transparent"
+                      ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Cursor="SizeNS" ToolTip="Drag to resize"/>
+
+        <!-- The selected one, side by side like kdiff: lists entry by entry in words, other values
+             line by line; only the differences are coloured. The third column follows the fix chosen. -->
+        <Border Grid.Row="3" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10"
                 DataContext="{Binding SelectedIssue}"
                 Visibility="{Binding Converter={StaticResource NullToVisibilityConverter}}">
-            <StackPanel>
-                <TextBlock TextWrapping="Wrap" Margin="0,0,0,8">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,6">
                     <Run Text="{Binding KindLabel, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=": "/><Run Text="{Binding Issue.Why, Mode=OneWay}"/>
                 </TextBlock>
-                <Grid Visibility="{Binding ShowValues, Converter={StaticResource BoolToVisibilityConverter}}">
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6" Visibility="{Binding ShowValues, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Border Width="12" Height="12" CornerRadius="2" Background="#5539A845" Margin="0,0,4,0"/>
+                        <TextBlock Text="only the mod has" FontSize="11.5" Margin="0,0,12,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        <Border Width="12" Height="12" CornerRadius="2" Background="#553F7FE0" Margin="0,0,4,0"/>
+                        <TextBlock Text="only the game has" FontSize="11.5" Margin="0,0,12,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        <Border Width="12" Height="12" CornerRadius="2" Background="#55E0A030" Margin="0,0,4,0"/>
+                        <TextBlock Text="different" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding DiffSummary}" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                </DockPanel>
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,2" Visibility="{Binding ShowValues, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="10"/>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="10"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0">
-                        <TextBlock Text="THE MOD HAS" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,2"/>
-                        <TextBox Text="{Binding ModJson, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="11.5" Height="130"
-                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
-                    </StackPanel>
-                    <StackPanel Grid.Column="2">
-                        <TextBlock Text="THE GAME HAS NOW" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,2"/>
-                        <TextBox Text="{Binding GameJson, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="11.5" Height="130"
-                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
-                    </StackPanel>
-                    <StackPanel Grid.Column="4" Visibility="{Binding HasMerged, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBlock Text="MERGED" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,2"/>
-                        <TextBox Text="{Binding MergedJson, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="11.5" Height="130"
-                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
-                    </StackPanel>
+                    <TextBlock Grid.Column="0" Text="THE MOD HAS" Style="{StaticResource FieldLabelStyle}" Margin="6,0,0,0"/>
+                    <TextBlock Grid.Column="1" Text="THE GAME HAS NOW" Style="{StaticResource FieldLabelStyle}" Margin="6,0,0,0"/>
+                    <TextBlock Grid.Column="2" Text="{Binding AfterTitle}" Style="{StaticResource FieldLabelStyle}" Margin="6,0,0,0" TextTrimming="CharacterEllipsis"/>
                 </Grid>
-            </StackPanel>
+                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3"
+                        Visibility="{Binding ShowValues, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <ListBox ItemsSource="{Binding Diff}" BorderThickness="0" Background="Transparent" Focusable="False"
+                             VirtualizingPanel.IsVirtualizing="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             HorizontalContentAlignment="Stretch">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="Margin" Value="0"/>
+                                <Setter Property="Focusable" Value="False"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <ContentPresenter/>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid x:Name="Row">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border x:Name="ModCell" Grid.Column="0" Padding="6,1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+                                        <TextBlock x:Name="ModText" Text="{Binding Mod}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Mod}"/>
+                                    </Border>
+                                    <Border x:Name="GameCell" Grid.Column="1" Padding="6,1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+                                        <TextBlock x:Name="GameText" Text="{Binding Game}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Game}"/>
+                                    </Border>
+                                    <Border x:Name="AfterCell" Grid.Column="2" Padding="6,1">
+                                        <TextBlock x:Name="AfterText" Text="{Binding After}" TextTrimming="CharacterEllipsis" ToolTip="{Binding After}"/>
+                                    </Border>
+                                </Grid>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsOnlyMod}" Value="True">
+                                        <Setter TargetName="ModCell" Property="Background" Value="#5539A845"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsOnlyGame}" Value="True">
+                                        <Setter TargetName="GameCell" Property="Background" Value="#553F7FE0"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                                        <Setter TargetName="ModCell" Property="Background" Value="#55E0A030"/>
+                                        <Setter TargetName="GameCell" Property="Background" Value="#55E0A030"/>
+                                    </DataTrigger>
+                                    <!-- Code (not a list): monospace, so the lines line up. -->
+                                    <DataTrigger Binding="{Binding DataContext.IsListDiff, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="False">
+                                        <Setter TargetName="ModText" Property="FontFamily" Value="Consolas"/>
+                                        <Setter TargetName="GameText" Property="FontFamily" Value="Consolas"/>
+                                        <Setter TargetName="AfterText" Property="FontFamily" Value="Consolas"/>
+                                        <Setter TargetName="ModText" Property="FontSize" Value="11.5"/>
+                                        <Setter TargetName="GameText" Property="FontSize" Value="11.5"/>
+                                        <Setter TargetName="AfterText" Property="FontSize" Value="11.5"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+            </DockPanel>
         </Border>
 
-        <DockPanel Grid.Row="3" Margin="0,12,0,0" LastChildFill="False">
+        <DockPanel Grid.Row="4" Margin="0,12,0,0" LastChildFill="False">
             <Button DockPanel.Dock="Left" Content="Only the sure fixes" Command="{Binding OnlySureCommand}" Margin="0,0,8,0"
                     ToolTip="Fix only the sure ones; keep the mod's value for everything else"/>
             <Button DockPanel.Dock="Left" Content="Use suggestions" Command="{Binding UseSuggestionsCommand}" Margin="0,0,8,0"
