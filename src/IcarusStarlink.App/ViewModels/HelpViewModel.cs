@@ -22,32 +22,46 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Library", """
             # Library
 
-            Your local collection of extracted mods — the source of truth is the **Extracted_Mods** folder itself, not any database inside the app.
+            Your local collection of mods: EXMOD mods, pak mods and UE4SS (Lua) mods, all in one list. The source of truth is the **Extracted_Mods** folder itself, not a database inside the app.
 
-            - **Import ▾** brings a mod in three ways: **Import archive…** (a `.zip`/`.rar`/`.7z`/`.EXMODZ` — it looks at what's actually inside and recognizes an EXMOD-shaped mod, a bare `.pak`, or a UE4SS mod automatically, so you don't need to know which kind it is ahead of time), **Import folder…**, or **Import .pak…** (a prebuilt pak with no `.EXMOD` has no name/author of its own and can't be browsed or edited — it's an opaque entry, and importing one offers to link it to a Nexus ID right away). A prebuilt pak converts into a real, editable EXMOD automatically whenever that's possible (UnrealPak.exe set up and game data extracted) — only when it isn't yet does it stay opaque.
-            - **New mod…** creates a blank EXMOD (just a name and author) and opens it straight in the editor.
-            - **Check ▾** holds three whole-library checks: **Check for updates** (every Nexus/Database-sourced mod against its real current version), **Check mods against game data** (see "Making your own mods" below), and **Convert opaque mods…** (retries converting every still-opaque `.pak` right now — useful right after setting up UnrealPak.exe, instead of waiting for the automatic retry that already runs quietly after every "Update data folder"). A converted mod's own original `.pak` is kept behind the scenes so a later game update can re-derive a fresher diff — once you've hand-edited a converted mod yourself, it's never silently touched again.
-            - Select one or more mods (Ctrl/Shift-click for more than one) and right-click → **Add to merge queue** — the same action shows as a toolbar button once you've selected 2 or more.
-            - Right-click a mod for more: **Rename…**, **Create/Restore mod backup**, **See what changed vs previous version…**, **Find in Database**/**Search Nexus for this**, **Open on Nexus**, **Link to Nexus ID…**, **Delete**.
-            - The blue **Database**/**Nexus** pill and the orange **Update** pill are clickable: Database jumps to that mod's row on the IMM Database tab, Nexus jumps to its card on the native Nexus page, and Update runs the actual update (or opens the right place to get one).
-            - Right-click the column header bar to show or hide **Author/Version/Source/Status/Latest/Imported** — pick whichever columns you actually want to see.
-            - Pin/Favorite/Notes are yours to organize with — none of them affect merging.
-            - The ✎ glyph means a mod was edited in the EXMOD editor; 📦 means it's a rebuilt merged pak re-imported as its own entry; a warning badge means "Check mods against game data" flagged something — click it to open the mod with the flagged item pre-selected.
-            - Several versions of the same mod (different bag sizes, presets, etc.) show up grouped as one family if the EXMOD declares `variantGroup` — expand the group and add whichever variant you want to the queue.
-            - The **UE4SS mods** tab is a separate list, covered on its own page below.
+            - The **ON** tick is how a mod goes into the game: ticked pak/EXMOD mods go in on the next **Merge & Install**, ticked UE4SS mods on **Apply UE4SS changes**. Select several rows (Ctrl/Shift-click) and tick one to tick them all.
+            - The **PENDING** bar at the bottom says what you've changed that isn't in the game yet, with **Apply UE4SS changes** and **Merge & Install** right there.
+            - The **Type** filter shows only EXMOD, Pak or UE4SS mods; the search box finds a mod by name.
+            - **Import ▾**: **Import archive…** (a `.zip`/`.rar`/`.7z`/`.EXMODZ`; it looks inside and works out whether it's an EXMOD mod, a bare `.pak`, a UE4SS mod or a mix), **Import folder…**, **Import .pak…**, **Import UE4SS mod…** (lands unticked: tick it, then Apply). A prebuilt pak is converted into a real, editable EXMOD whenever UnrealPak.exe is set up and the game data is extracted.
+            - If a download holds several alternatives of one mod (different sizes or presets), you're asked which one to install, since the author meant you to pick one. If Starlink can't work out how to install something, the **Install manually** window opens (see "When an install goes wrong").
+            - Importing also checks how the mod was packed and warns in the Activity panel (the bell) about: leftover build files (a `.git` folder, editor session files), files outside the game's Content folder, data tables older than your game (missing rows the game has since added), and tables shipped without a single change.
+            - **New mod…** creates a mod from a starting point (blank, Quality of life, a new item, or a classic IMM template; see "Making your own mods") and opens it in the editor.
+            - **Check ▾**: **Check for updates**, **Update all**, **Check mods against game data** (see "Making your own mods"), **Check endorsements**, **Convert opaque mods…**.
+            - Right-click a mod: **Rename…**, **Convert to EXMOD…**, **Create mod backup** / **Restore latest backup**, **See what changed vs previous version…**, **Find in Database**, **Search Nexus for this**, **Open on Nexus**, **Link to Nexus ID…**, **Endorse** / **Abstain**, **Delete**. Right-click a UE4SS row for **Open folder**, **Set minimum UE4SS version…** and the Nexus link items.
+            - Double-click a mod for its details. The **Changes** tab starts with **IN SHORT**: a few lines like "D_Itemable · MaxStack ×10 on 1337 rows", worked out against your current game data, before the full list.
+            - Pin/Favorite/Notes are yours to organize with; none of them affect merging. ✎ means you edited it in the editor; a warning badge means "Check mods against game data" flagged something (click it to open the flagged row).
+            - The **IMM Database** tab is the community catalog: search, filter, and **Download & extract**.
+            """),
+
+        new("When an install goes wrong", """
+            # When an install goes wrong
+
+            Most downloads install by themselves. When one doesn't, Starlink says why and lets you do it by hand, instead of guessing.
+
+            - **Install manually** opens only when an automatic install fails. The left side shows what's in the download; the right side, **Will be installed**, shows Starlink's best guesses. Leave out anything with ✕, or select a file or folder on the left and add it as a **Pak mod**, **EXMOD mod** or **UE4SS mod**. Rename a piece if you like, then **Install**. **Cancel** changes nothing.
+            - **Choose which one to install** appears when a download holds several alternatives of the same mod. Pick one; installing a different one later replaces it.
+            - Packing warnings (in the Activity panel after an import) don't stop the install. They tell you the mod may be outdated or carelessly packed, which is worth knowing when it misbehaves. A table "from an older game version" is the most important one: it replaces the whole table, so items the game added since are missing until the author updates it.
             """),
 
         new("Merge & Install", """
             # Merge & Install
 
-            The core workflow: build one merged pak from everything in your queue, then install it into the game.
+            Builds one merged pak from every ticked mod, then installs it into the game.
 
-            - In **Library**, select one or more mods (Ctrl/Shift-click for more than one) and right-click → **Add to merge queue**. Order matters — later entries win when two mods change the same thing, unless you override that (see Merge conflicts below).
-            - **Install** rebuilds and installs in one click — it always asks for confirmation first (this is the one action in the whole app that writes into your real `Content\Paks\mods`), and always backs up whatever pak is already there (last 5 kept). The button relabels to **Update install** once something of this app's own is already installed.
-            - **Profiles** (the bar at the top) save a whole queue + merge options as one named preset. **Save** always backs up whatever was there before overwriting it — **Restore backup** brings that back if a save went wrong (a bad edit, an accidental Clear). **Set baseline** marks the current queue as mods every profile should always include — set it once and those mods auto-add (lowest priority) to any queue you load or build from then on; click it again with an empty queue to clear it. **Import & migrate** (an expandable section) holds **Export/Import patch** (shares a profile with a friend or a server — catalog mods are referenced by name, anything else including anything you edited locally gets bundled into the file) and **Import IMM mod list…** (see "Coming from classic IMM").
-            - **Merge options** (another expandable section, collapsed by default — its own header always shows a summary of what's currently on) apply gameplay-wide toggles as a final pass after your queue merges, and work even with an empty queue: Speed/Player/XP Boost, Craft Cost, Stacks/Slots multipliers, Faster Taming, Remove Weight, Unlimited Ammo, Disable Temperatures, Remove Level Cap. A small (i) icon next to each leveled option shows its real documented values.
-            - If two or more queued mods (or a mod and an enabled Merge option) touch the same field, a red conflict banner appears with a count — click **Review conflicts** to see exactly what disagrees and optionally pick a specific mod's value per field (see Merge conflicts below).
-            - **Advanced actions** (also expandable): **Verify** holds **Compare to installed** (previews exactly what Install would change) and **Compare paks…** (diffs any two `.pak` files — see "Comparing versions & paks"); **Uninstall** holds **Copy to game** (installs the already-staged pak without rebuilding — for when Icarus was running and Install failed) and **Remove from game** (uninstalls this app's own pak from the real game folder; your Library is untouched).
+            - Tick mods' **ON** box in **Library** (or right-click → **Add to merge queue**). Order matters: later mods win when two change the same thing, unless you pick otherwise in **Review conflicts**. **Suggest order** proposes one; **Validate mods** checks the queue against your game data and each other before you build (a renamed field, a recipe pointing at a missing item, two mods overwriting the same file).
+            - **Install** rebuilds and installs in one click. It always asks first (it's what writes into your real `Content\Paks\mods`) and backs up the pak already there (last 5 kept). It reads **Update install** once something of this app's is installed.
+            - **Profiles** save a whole queue plus merge options under a name: **Save profile**, **Restore profile backup** (every save backs up the one before), **Set baseline** (mods every profile always includes). **Import & migrate** holds **Export patch…** / **Import patch…**, to share a setup with a friend or a server.
+            - **Merge options** apply game-wide changes after your mods, even with nothing queued:
+            - **Player boosts**: Speed Boost, Player Boost, XP Boost (L1 +200%, L2 +500%, L3 +1000%).
+            - **Crafting & economy**: Craft Cost (fewer ingredients; Free = creative mode), **Stacks multiplier** (higher = bigger stacks), **Slots multiplier** (higher = more backpack and container slots), **Speed Crafting** and **Faster Taming** (0% = unchanged, higher = faster, 50% = half the time).
+            - **Other**: **Lighter Items** (0% = normal weight, higher = lighter, 50% = half, 100% = weightless), Unlimited Ammo, Disable Temperatures, Remove Level Cap.
+            - A red conflict banner means two mods (or a mod and an option) change the same field; **Review conflicts** shows them.
+            - **Advanced actions**: **Verify** (**Compare to installed**, **Compare paks…**) and **Uninstall** (**Copy to game** installs the built pak without rebuilding; **Remove from game** removes it; your Library is untouched).
             """),
 
         new("Merge conflicts", """
@@ -75,24 +89,25 @@ public sealed partial class HelpViewModel : ObservableObject
         new("UE4SS mods", """
             # UE4SS mods
 
-            UE4SS is Icarus's separate Lua/scripting mod framework — a different system from the EXMOD/pak mods above, unrelated to Rebuild and Install.
+            UE4SS is Icarus's Lua scripting framework, separate from pak/EXMOD mods and from Merge & Install.
 
-            - The **UE4SS mods** tab (on the Library page) shows every mod folder currently in your game's real Mods folder, plus anything staged here but not currently enabled.
-            - Check or uncheck mods, then click **Apply** — checked mods get moved into the game's Mods folder, unchecked ones get moved back out here (backed up first). Nothing happens until you click Apply.
-            - **Import…** stages a UE4SS mod from a downloaded zip, disabled by default.
-            - Settings has a separate **Install/Update UE4SS** action for the loader itself (the framework, not a mod) — that's a different, more sensitive action with its own confirmation, since it writes into `Binaries\Win64` rather than the Mods subfolder.
-            - **Uninstall UE4SS** (Settings, next to Install) removes the loader completely. Your own mods are moved back to this app's staging first — the confirmation names them before anything happens — everything removed is backed up (last 5 kept), and Icarus's own files are never touched.
+            - UE4SS mods are rows in **Library**'s list (Type: UE4SS). Tick or untick their **ON** box, then **Apply UE4SS changes** in the pending bar: ticked mods move into the game's Mods folder, unticked ones move back out (backed up first). Nothing changes until you Apply.
+            - A download that is both a Lua mod and paks becomes one mod: its paks in the list as a mod, its Lua half as a linked UE4SS row. Deleting one offers to delete both.
+            - **Import UE4SS mod…** (Import menu) adds one from a zip, unticked.
+            - Starlink ships with UE4SS. If you tick a UE4SS mod but the loader isn't in the game, a **UE4SS MISSING** bar says so, with **Install UE4SS** right there.
+            - **Settings › UE4SS** installs, updates or reinstalls the loader (the bundled copy, or GitHub's latest if newer), **Install from zip…** installs a UE4SS release you downloaded yourself, and **Uninstall** removes it. Each asks first and backs up, since it writes into `Binaries\Win64`; your mods are moved aside before an uninstall.
             """),
 
-        new("Finding & downloading mods", """
-            # Finding & downloading mods
+        new("Downloads", """
+            # Downloads
 
-            Two more tabs on the **Library** page, alongside the **Mods** tab covered above:
+            Everything downloaded through this app, from Nexus or the IMM Database, has its own page: **Downloads**.
 
-            - **IMM Database** — a live, community-maintained catalog. Search, filter by author/category, sort any column, and see at a glance whether a mod is already extracted, outdated, or not downloaded yet.
-            - **Mods**' own pending-download list also holds files you've downloaded from Nexus, waiting to install — this is where a real Nexus "Mod Manager Download" click lands (once registered in Settings), or where the **Nexus** page's own per-mod Download button lands a file either way. Activate a file to import it — a download laid out like the game folder (a UE4SS mod plus its asset paks) lands as all of its parts at once, and the **Needs** column shows what the mod's own README says it requires, with a note in the Activity panel if something is missing. Or discard it.
-
-            Tracking mods you're following, and browsing/searching Nexus itself, both live on the **Nexus** page now — see its own Help topic.
+            - A download installs the moment it finishes. One download is one mod: its paks go to Library, a Lua part to its UE4SS row.
+            - Installed downloads are hidden; tick **Show installed** to see them. **Reinstall** puts back a mod you removed; **Discard** deletes the downloaded file (the installed mod stays).
+            - **Needs** shows what the mod's own README says it requires, and **Get 'X'** fetches a missing one.
+            - When you have one file of a Nexus mod installed and Nexus lists a newer version of that same file (Nexus keeps each file's update chain), downloading the mod fetches that newer file, not whichever file is listed first. The older copy is replaced, not piled up.
+            - If a download can't be installed automatically, see "When an install goes wrong".
             """),
 
         new("Coming from classic IMM", """
@@ -102,11 +117,11 @@ public sealed partial class HelpViewModel : ObservableObject
 
             **The one-click migration:**
 
-            - In **Settings**, on the **Migrate from IMM** tab, click **Import IMM mod list…** and pick classic IMM's own `LastMergedMods.txt` (in its install folder). If you pick the `IMM_Merged_Mod.txt` from your game's Paks\mods folder instead, you'll be asked to point at your IMM folder too, since the mods themselves aren't stored near it.
+            - In **Settings**, on the **Migrate from IMM** tab, click **Migrate mods + mod list…** and pick classic IMM's own `LastMergedMods.txt` (in its install folder). If you pick the `IMM_Merged_Mod.txt` from your game's Paks\mods folder instead, you'll be asked to point at your IMM folder too, since the mods themselves aren't stored near it.
             - Every mod on that list is copied straight out of IMM's own folder into your Library — offline, instantly, and at exactly the versions you were already running.
             - Each mod is matched against the community database and, failing that, searched for on Nexus, so update checks work from day one. Mods that can't be identified still work fine; they just won't check for updates until you right-click → **Link to Nexus ID…**.
             - Your merge list is rebuilt in **Merge & Install** in the same order, so you can click **Install** immediately.
-            - Anything that couldn't be found is listed by name rather than silently dropped — get those from **Library**'s own **IMM Database** tab, then run the migration again.
+            - Anything that couldn't be found is listed by name rather than silently dropped — get those from Library's **IMM Database** tab, then run the migration again.
 
             Classic IMM's own files are only ever read. Your existing classic-IMM pak is backed up before this app replaces it.
 
@@ -142,13 +157,13 @@ public sealed partial class HelpViewModel : ObservableObject
 
             Per mod:
 
-            - **Download** pulls the main file straight into Library's **Mods** tab. This uses Nexus's API directly, which requires a Nexus Premium account — non-Premium accounts should use **Open page**'s own Mod Manager Download button on the website instead.
+            - **Download** downloads the mod and installs it (it shows on the **Downloads** page). This uses Nexus's API directly, which requires a Nexus Premium account — non-Premium accounts should use **Open page**'s own Mod Manager Download button on the website instead.
             - **Track** adds the mod to your tracked list — click it again on an already-tracked mod (shown as **Tracked** with a check) to untrack it. There's no separate list to manage; the **Tracked** filter above shows exactly what you're tracking, right here.
             - **Open page** opens the mod on nexusmods.com in your normal browser — where you're already signed in, and where non-Premium downloads happen.
 
             When a tracked mod you already own gets a real update on Nexus, you'll see it in the **notifications** panel (the bell icon in the header) — no separate "check for updates" click needed, since this is computed every time the page loads.
 
-            Clicking a real **Mod Manager Download** button on Nexus's own site can hand the file straight to this app instead of downloading it manually, but that needs a one-time setup step: in **Settings**, on the **Nexus** tab under **Download handler**, click **Register**. It asks for confirmation first (it's a real Windows registry change, and it replaces another mod manager if one's already registered for this). Files land in Library's **Mods** tab either way — you always Activate them from there.
+            Clicking a real **Mod Manager Download** button on Nexus's own site can hand the file straight to this app instead of downloading it manually, but that needs a one-time setup step: in **Settings**, on the **Nexus** tab under **Download handler**, click **Register**. It asks for confirmation first (it's a real Windows registry change, and it replaces another mod manager if one's already registered for this). Files land on the **Downloads** page either way and install by themselves.
             """),
 
         new("Saves", """
@@ -166,13 +181,21 @@ public sealed partial class HelpViewModel : ObservableObject
             **What's editable today:** character name and XP (raw XP is the honest control — the game derives level from it); profile currencies (Ren, Exotics, Red, Stabilized, Biomass, Uranium, Licences, Respec points); character talents and account-wide Workshop research, each searchable with a rank +/− and a "Show unlearned" toggle; character/account/binary unlock flags, as searchable chips; account-wide Bestiary encounter points (with a Set max per creature); account-wide Accolade completion; the account-wide Items bank (view real item names and remove one — full item creation/stat editing isn't offered, since a malformed item is easy to create by hand and hard to notice); raw Cosmetic hash values per character (there's no known way to map these to option names, so it's a raw editor, not a picker — still useful for copying an exact look between your own characters); and your tamed **Mounts** — name, level, and species (species is a picker over the game's own real options, so you can't land on an invalid one). Everything the editor doesn't understand — item internals (durability, alterations, upgrades), Loadouts (equipped gear sets), raw Bestiary/Accolade progress counters, a mount's own real stats/stomach/saddle state, timestamps — is preserved exactly as-is when saving. The Overview shows character cards and an account snapshot; click a card to edit it. **Duplicate** and **Delete** character are on each character card (Delete is real and goes through the same backup-first flow). Extracting the game's own icons isn't built yet.
             """),
 
-        new("Server (FTP)", """
-            # Server (FTP)
+        new("Server", """
+            # Server
 
-            File management for a dedicated Icarus server over FTP — not a full remote-control agent, just uploading/downloading files to a server's own mods folder.
+            **Server (Beta)** has two tabs.
 
-            - **Site Manager** saves host/port/username/remote path per site; the password goes into Windows Credential Manager, never a plain file. Reconnecting to a saved site needs nothing further from you.
-            - Once connected: browse folders, **Upload…**/**Download…** files, **Delete** (with confirmation — a remote delete can't be undone from here).
+            **Local server**: run an Icarus dedicated server on this PC.
+
+            - **Install new server…** downloads one with SteamCMD (**Install SteamCMD**, or **Use my SteamCMD…**); **Add existing server…** adopts one you already have. Each server is its own profile.
+            - **Start**, **Stop**, **Restart**, **Check for update**, **Update**.
+            - **Overview**: players, world, uptime, memory, last backup; automation (restart if it crashes, a daily restart, update on restart, start with Starlink) and Windows firewall rules.
+            - **Log** (follow, hide noise, events), **Settings** (name, password, ports, world, lobby, Steam branch; **Save settings**).
+            - **Mods**: **Install my merged pak** puts your Merge & Install pak on the server; **Install UE4SS from my game** and tick which UE4SS mods to copy over.
+            - **Worlds & backups** (**Back up now**, **Restore selected**) and **Admins & bans** (Steam64 ids, one per line).
+
+            **Remote (FTP)**: a server hosted elsewhere. Save sites (the password is kept in Windows Credential Manager), **Connect**, browse, upload and download, and the **Icarus server sync** buttons: **Install merged pak**, **Sync UE4SS loader**, **Sync UE4SS mods**.
             """),
 
         new("Settings & Diagnostics", """
@@ -181,7 +204,7 @@ public sealed partial class HelpViewModel : ObservableObject
             Settings is split into tabs. Beyond **Game & tools** (covered in Getting started) and **Migrate from IMM**:
 
             - **Nexus** — sign in with your own Personal API Key (a plain account-wide token from Nexus's own Account Settings page — not tied to this or any other app), and optionally register the nxm:// download handler.
-            - **UE4SS** — install/update the loader itself, separate from the per-mod enable/disable on the Library page. **Uninstall** removes it completely — your own installed mods are preserved and moved aside first, only the framework's own bundled files are removed.
+            - **UE4SS** — **Install / Update to / Reinstall** the loader (the copy that ships with Starlink, or GitHub's latest stable if newer), **Install from zip…** for a UE4SS release you downloaded yourself, and **Uninstall** (your own mods are moved aside first; only the framework's files are removed).
             - **Maintenance** — **Check for updates** looks at this app's own GitHub releases; **Update now** downloads and installs the new version automatically (it closes the app, applies the update, and relaunches itself — nothing of yours in `Extracted_Mods`/`Profiles`/`Cache`/your settings is ever touched), or **Open release page** if you'd rather grab it yourself. Also **Performance tracking** (off by default; logs how long Rebuild/Install/catalog-refresh actually take to a separate `app.perf` log file) and **Export diagnostics zip…**, which bundles your logs — including any crash reports and your app/OS version info — plus a sanitized copy of your settings (nothing sensitive — real keys and passwords live in Windows Credential Manager, never in a settings file) into one zip to attach to a bug report.
             - **Appearance** — three built-in themes (Icarus/Dark/Light) plus a fully custom fourth one: edit any of ~19 colors by hex value, **Copy Icarus/Dark/Light** to start from a built-in theme's own colors instead of from scratch, and **Open skin file**/**Reload skin file** if you'd rather hand-edit the JSON file directly and pull your changes back in.
             """),
@@ -189,32 +212,53 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Making your own mods", """
             # Making your own mods
 
-            Covers field-value-only mods — editing values the game already defines (stats, costs, sizes, and the like). Adding new custom assets or blueprints is its own, separate skill this app doesn't teach.
+            **New mod…** (Library) asks for a name, an author and a starting point:
 
-            **Start to finish:**
+            - **Blank**: build it up by hand.
+            - **Quality of life**: rules like "Stack sizes ×4" and "Item weight halved", built from your own game data (see "Scale rules" below).
+            - **A new item, made from a game item**: **Envirosuit**, **Envirosuit module**, **Food or medicine with its own buff**, **Any item, bought in a workshop tab of your own**. These open the new-item wizard (below) already set up for that kind of item.
+            - **Map icon**: a map and compass marker row. Nothing shows it by itself; your blueprint or Lua mod looks it up by its row name.
+            - **Classic IMM templates**: craftable/deployable item, consumable, building piece, electric generator, water pump.
 
-            - **New mod…** (Library's toolbar) creates a blank EXMOD from just a name and author, and opens it straight in the editor.
-            - **Add item from game data…** (in the editor) picks any real in-game item and copies its complete current values in as a starting point — safer than typing a field name by hand, since it guarantees the field actually exists right now. Check **Hide items already in this mod** to see only what you haven't touched yet — handy for confirming you've covered everything you meant to.
-            - Edit whatever fields you want changed. Every field shows the real base game value underneath, amber-highlighted the moment your value differs from it — that's your at-a-glance confirmation you're actually changing something.
-            - **Ctrl+S** (or the Save button) writes it to disk — Save reconstructs the mod first, dropping any field that ended up byte-identical to the real base game value (the usual cause: **Add item from game data…** cloned a whole row and you only meant to change one field of it), so the saved file only ever carries genuine changes; the status bar names how many fields got trimmed this way, if any. The ✎ glyph appears next to the mod in Library from then on.
-            - **⧉ Pop out** detaches whichever view is currently showing (Item fields / File JSON / Full EXMOD JSON) into its own window, so you can see two views side by side instead of switching back and forth — its scroll position stays in step with wherever else that same view is open.
+            **Changing the game's own items**
 
-            **Example: doubling a container's storage**
+            - **Change a game row…** (in the editor) copies any row of the game's data into your mod with all its current values. Change just the fields you want; every field shows the game's value underneath, amber-bordered when yours differs.
+            - **Ctrl+S** saves. Fields you left identical to the game are dropped from the file, so it only carries real changes.
+            - **Search game data…** finds a row by name and every place the game refers to it (which recipes use Wood, which items grant a stat).
+            - Select two or more rows to set one field on all of them at once. **⧉ Pop out** puts a view in its own window.
 
-            A simple, real worked example. Say you want a storage container to hold twice as many slots:
+            **New items: New item from a game item…**
 
-            - **New mod…**, then **Add item from game data…** and pick the container (e.g. a wooden storage box).
-            - Find its `StartingSlots` field — that's the item's real inventory slot count.
-            - Change the value to double the number shown underneath in amber.
-            - **Ctrl+S**. Queue it in Merge & Install and Install to try it in-game.
+            The way new-item mods are built: start from the game item closest to what you want, and give the new item its own copies of only what you want to change.
 
-            The same pattern works for any numeric field you can find on an item — a weapon's damage, a recipe's resource cost, a building piece's stability. **Search game data…** (also in the editor) is the tool for the other half of "which field do I need?": type a value or a row name and see every file/item that names it, plus every other place in the game's data that references it — useful for tracing how something connects before you commit to editing it.
+            - **Start from**: pick the item. Its model, sounds and behaviour carry over.
+            - **Name it**: the name players see; the item id (its row name in every table) follows it until you change it.
+            - **What it gets its own copy of**: each table the item links to (name and icon, armour stats, what eating it does…). Ticked = its own copy, renamed and re-linked, safe to change. Unticked = it shares the game's row, and changing that row would change the original too. Food and medicine can also get **their own buff**.
+            - **How players get it**: just the item; a **crafting recipe** at a bench you pick (starting from the original's ingredients, unlocked with the original's blueprint or known from the start); or an **orbital workshop purchase**, in an existing tab or a new tab of your mod's own, with research and replication costs in credits (research is paid once, replication per copy; lower is cheaper, 0 is free).
+            - Everything lands in the editor as normal rows to fine-tune, and Undo takes it all back out.
 
-            **If a game update breaks your mod:**
+            **Scale rules**
 
-            Click **Check mods against game data** (Library's toolbar) any time. It diffs every mod you own against whatever the game currently defines and does two things: anything it's confident about — an unambiguous rename with matching fields — it fixes automatically, backing the mod up first (undo any single fix with **Restore latest backup**). Anything less certain gets a warning badge instead, with its best guess, if it has one, right in the badge's own tooltip — click the badge to open that item in the editor and decide for yourself. **Weekly Changes** (its own page) is the other half of this: a real diff of what the game itself changed, which is often the fastest way to see why something broke.
+            The **Scale rules** view changes one field across a whole table, like every item's Weight ×0.5. **Multiply by**: below 1 lowers the value (0.5 = half), above 1 raises it (2 = double). **Set to**: every matching row gets exactly that number. Limit a rule to rows whose name contains a word (several words, comma separated, match any). **Apply rules** writes the rows from your current game data, and Save applies them too, so a rule mod catches up after a game update just by being saved again. The Quality of life template includes rules you can turn on, among them **Cave sickness chance set to 5%** (25% in the game).
 
-            It won't ever guess silently beyond that. There's no reliable way to tell "this field was renamed" from "this field was removed" from "this just happens to look similar" with full confidence, so anything it isn't sure about stays exactly as honest as it looks: flagged, not fixed.
+            **Check references**
+
+            A link to a row that doesn't exist (a typo, or a row a game update renamed) is ignored by the game at best and breaks the item at worst, with no message. **Check references** (also run on every Save) lists:
+
+            - links to rows that exist neither in the game nor in your mod, e.g. a mesh name that's one word off;
+            - item rows (names, stats) that the game doesn't have and nothing in your mod uses, usually an item a game update renamed or removed.
+
+            Click a problem to jump to that row. Row names are compared the way the game does, ignoring capitals.
+
+            **Good to know**
+
+            - New meshes and icons are cooked Unreal assets, which this app doesn't make; a new item reuses the game's until you ship your own.
+            - A table you copy whole replaces the game's, so rows the game adds later are missing; only change the rows you mean to.
+            - Mods that change the same rows of the same table conflict; Merge & Install shows you where.
+
+            **If a game update breaks your mod**
+
+            **Check mods against game data** (Library › Check) compares every mod with what the game defines now. A clear-cut rename it fixes for you, backing the mod up first (**Restore latest backup** undoes it); anything less certain gets a warning badge with its best guess. Click the badge to open that row. **Weekly Changes** shows what the game itself changed.
             """),
 
         new("Keyboard shortcuts", """
@@ -226,6 +270,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Ctrl+F** — focus the item filter box
             - **F3** — jump to the next item in the (possibly filtered) list
             - **Ctrl+D** — duplicate the selected item's fields under a new name
+            - **Ctrl+Z** — undo the last action (adding rows, a mass edit, a wizard's new item, applying rules)
 
             Select two or more items (Ctrl/Shift-click) to reveal a mass-edit bar — set one field across every selected item at once.
             """),

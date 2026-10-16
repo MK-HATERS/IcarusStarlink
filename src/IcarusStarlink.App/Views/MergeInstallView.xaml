@@ -163,7 +163,7 @@
                             BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,8"
                             Visibility="{Binding IsQueueEmpty, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
-                            <Run Text="No mods queued yet. Go to "/><Run Text="Library" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text=", select one or more mods (Ctrl/Shift-click for more than one), then right-click → "/><Run Text="Add to merge queue" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text="."/>
+                            <Run Text="No mods queued yet. Go to "/><Run Text="Library" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text=" and tick a mod's "/><Run Text="ON" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text=" box (or right-click → Add to merge queue)."/>
                         </TextBlock>
                     </Border>
                     <ListBox ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueEntry}" MinHeight="100"
