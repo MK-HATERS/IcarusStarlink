@@ -1,0 +1,249 @@
+using System.Globalization;
+
+namespace IcarusStarlink.Core.Server;
+
+public enum AutomationActionKind
+{
+    None,
+
+    /// <summary>The server stopped without logging a clean exit: start it again.</summary>
+    RestartAfterCrash,
+
+    /// <summary>It crashed too often in a short time: stop restarting it and tell the owner.</summary>
+    GaveUpAfterCrashes,
+
+    /// <summary>The daily restart is due (and the server is empty, or the wait ran out).</summary>
+    ScheduledRestart,
+
+    /// <summary>Time for the hourly "is there a newer build" question to Steam.</summary>
+    CheckForUpdate,
+
+    /// <summary>A newer build is known and nobody is online: stop, update, start.</summary>
+    UpdateNow,
+}
+
+public sealed record AutomationAction(AutomationActionKind Kind, string Reason)
+{
+    public static readonly AutomationAction None = new(AutomationActionKind.None, "");
+}
+
+/// <summary>What the app saw on one beat: the server process, who is online per its log, and whether its log shows a clean exit.</summary>
+public readonly record struct ServerObservation(DateTime NowLocal, bool Running, int PlayersOnline, bool CleanExitLogged);
+
+/// <summary>
+/// The decisions behind the Overview tab's automation, for ONE server, kept free of processes,
+/// timers and SteamCMD so every rule is testable: the app feeds an observation every few seconds
+/// and carries out whatever action comes back, reporting results through the Note methods.
+/// Icarus has no RCON, so nothing here can warn players: restarts wait for an empty server instead.
+/// </summary>
+public sealed class ServerAutomation
+{
+    public const int MaxCrashRestarts = 3;
+    public static readonly TimeSpan CrashWindow = TimeSpan.FromMinutes(10);
+    public static readonly TimeSpan RestartWaitForEmpty = TimeSpan.FromMinutes(60);
+    public static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(1);
+
+    /// <summary>A daily slot the app wasn't open for (or that is long past) is skipped, never run hours late.</summary>
+    private static readonly TimeSpan MissedSlotGrace = TimeSpan.FromMinutes(5);
+
+    private readonly List<DateTime> _crashRestarts = [];
+    private bool? _wasRunning;
+    private DateTime? _stopIntendedAt;
+
+    /// <summary>How long a "we are stopping it" note excuses the next exit. Stop waits at most 60 seconds, so a note older than this is stale and must not hide a later crash.</summary>
+    private static readonly TimeSpan IntendedStopWindow = TimeSpan.FromMinutes(3);
+    private DateTime? _lastDailySlotHandled;
+
+    /// <summary>Crashed MaxCrashRestarts times within CrashWindow; no more restarts until someone starts it by hand.</summary>
+    public bool GaveUp { get; private set; }
+
+    /// <summary>The last hourly check found a newer build that hasn't been installed yet.</summary>
+    public bool UpdatePending { get; private set; }
+
+    public DateTime? LastUpdateCheck { get; private set; }
+
+    public int RecentCrashRestarts => _crashRestarts.Count;
+
+    /// <summary>The app (or the owner through the app) is stopping it: the next exit is not a crash.</summary>
+    public void NoteIntentionalStop(DateTime nowLocal) => _stopIntendedAt = nowLocal;
+
+    /// <summary>Someone pressed Start: re-arm crash restarts.</summary>
+    public void NoteManualStart()
+    {
+        GaveUp = false;
+        _crashRestarts.Clear();
+    }
+
+    public void NoteUpdateCheck(DateTime nowLocal, bool updateAvailable)
+    {
+        LastUpdateCheck = nowLocal;
+        UpdatePending = updateAvailable;
+    }
+
+    /// <summary>The update ran (or failed): either way, wait for the next hourly check rather than retrying every beat.</summary>
+    public void NoteUpdateFinished() => UpdatePending = false;
+
+    public AutomationAction Evaluate(DedicatedServerProfile profile, ServerObservation now)
+    {
+        var wasRunning = _wasRunning;
+        _wasRunning = now.Running;
+
+        if (!now.Running)
+        {
+            return wasRunning == true ? OnStopped(profile, now) : AutomationAction.None;
+        }
+
+        if (DailyRestartDue(profile, now) is { } restart)
+        {
+            return restart;
+        }
+
+        if (profile.AutoUpdate)
+        {
+            if (UpdatePending && now.PlayersOnline == 0)
+            {
+                return new AutomationAction(AutomationActionKind.UpdateNow, "a newer server build is out and nobody is online");
+            }
+
+            if (!UpdatePending && (LastUpdateCheck is null || now.NowLocal - LastUpdateCheck >= UpdateCheckInterval))
+            {
+                // Stamped now, not when the answer comes back: a failed check waits for the next hour too.
+                LastUpdateCheck = now.NowLocal;
+                return new AutomationAction(AutomationActionKind.CheckForUpdate, "hourly update check");
+            }
+        }
+
+        return AutomationAction.None;
+    }
+
+    private AutomationAction OnStopped(DedicatedServerProfile profile, ServerObservation now)
+    {
+        var intended = now.CleanExitLogged || (_stopIntendedAt is { } at && now.NowLocal - at <= IntendedStopWindow);
+        _stopIntendedAt = null;
+        if (intended || !profile.AutoRestartOnCrash || GaveUp)
+        {
+            return AutomationAction.None;
+        }
+
+        _crashRestarts.RemoveAll(t => now.NowLocal - t > CrashWindow);
+        if (_crashRestarts.Count >= MaxCrashRestarts)
+        {
+            GaveUp = true;
+            return new AutomationAction(AutomationActionKind.GaveUpAfterCrashes,
+                $"it crashed {MaxCrashRestarts + 1} times in {CrashWindow.TotalMinutes:0} minutes, so it was left stopped. Check its log, then Start it to re-arm crash restarts");
+        }
+
+        _crashRestarts.Add(now.NowLocal);
+        return new AutomationAction(AutomationActionKind.RestartAfterCrash,
+            $"it stopped without a clean exit (restart {_crashRestarts.Count} of {MaxCrashRestarts} allowed in {CrashWindow.TotalMinutes:0} minutes)");
+    }
+
+    private AutomationAction? DailyRestartDue(DedicatedServerProfile profile, ServerObservation now)
+    {
+        if (!profile.DailyRestartEnabled || !TryParseDailyTime(profile.DailyRestartTime, out var time))
+        {
+            return null;
+        }
+
+        // Yesterday's slot too: a 23:30 restart that waits for players is still due at 00:10.
+        var today = DateOnly.FromDateTime(now.NowLocal);
+        foreach (var day in new[] { today.AddDays(-1), today })
+        {
+            var slot = day.ToDateTime(time);
+            if (now.NowLocal < slot || _lastDailySlotHandled >= slot)
+            {
+                continue;
+            }
+
+            var forceAt = slot + RestartWaitForEmpty;
+            if (now.NowLocal > forceAt + MissedSlotGrace)
+            {
+                _lastDailySlotHandled = slot;
+                continue;
+            }
+
+            if (now.PlayersOnline == 0)
+            {
+                _lastDailySlotHandled = slot;
+                return new AutomationAction(AutomationActionKind.ScheduledRestart, $"daily restart ({time:HH\\:mm})");
+            }
+
+            if (now.NowLocal >= forceAt)
+            {
+                _lastDailySlotHandled = slot;
+                return new AutomationAction(AutomationActionKind.ScheduledRestart,
+                    $"daily restart ({time:HH\\:mm}); players were still online after waiting {RestartWaitForEmpty.TotalMinutes:0} minutes");
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The daily restart waiting for players to leave right now, as the time it will go ahead anyway; null when not waiting.</summary>
+    public DateTime? WaitingForEmptyUntil(DedicatedServerProfile profile, DateTime nowLocal)
+    {
+        if (!profile.DailyRestartEnabled || !TryParseDailyTime(profile.DailyRestartTime, out var time))
+        {
+            return null;
+        }
+
+        var today = DateOnly.FromDateTime(nowLocal);
+        foreach (var day in new[] { today.AddDays(-1), today })
+        {
+            var slot = day.ToDateTime(time);
+            if (nowLocal >= slot && nowLocal <= slot + RestartWaitForEmpty && !(_lastDailySlotHandled >= slot))
+            {
+                return slot + RestartWaitForEmpty;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>"Next up" lines for the Overview tab.</summary>
+    public IReadOnlyList<string> DescribeUpcoming(DedicatedServerProfile profile, DateTime nowLocal, int playersOnline)
+    {
+        var lines = new List<string>();
+        if (profile.DailyRestartEnabled)
+        {
+            if (!TryParseDailyTime(profile.DailyRestartTime, out var time))
+            {
+                lines.Add($"Daily restart is on, but '{profile.DailyRestartTime}' isn't a time. Use 24-hour HH:mm, like 05:00.");
+            }
+            else if (WaitingForEmptyUntil(profile, nowLocal) is { } until && playersOnline > 0)
+            {
+                lines.Add($"Daily restart is waiting for {playersOnline} player(s) to leave. It goes ahead anyway at {until:HH:mm}.");
+            }
+            else
+            {
+                lines.Add($"Daily restart at {time:HH\\:mm}{(profile.UpdateOnRestart ? ", with an update check" : "")}.");
+            }
+        }
+
+        if (profile.AutoUpdate)
+        {
+            lines.Add(UpdatePending
+                ? "A newer build is out. It installs as soon as nobody is online."
+                : LastUpdateCheck is { } last
+                    ? $"Next update check at {last + UpdateCheckInterval:HH:mm}."
+                    : "Checks for an update shortly.");
+        }
+
+        if (profile.AutoRestartOnCrash)
+        {
+            lines.Add(GaveUp
+                ? $"Crash restarts are paused after {MaxCrashRestarts + 1} crashes in {CrashWindow.TotalMinutes:0} minutes. Start it to re-arm them."
+                : $"Restarts after a crash, up to {MaxCrashRestarts} times in {CrashWindow.TotalMinutes:0} minutes.");
+        }
+
+        if (lines.Count == 0)
+        {
+            lines.Add("No automation is on for this server.");
+        }
+
+        return lines;
+    }
+
+    public static bool TryParseDailyTime(string? text, out TimeOnly time) =>
+        TimeOnly.TryParseExact((text ?? "").Trim(), ["H:mm", "HH:mm"], CultureInfo.InvariantCulture, DateTimeStyles.None, out time);
+}

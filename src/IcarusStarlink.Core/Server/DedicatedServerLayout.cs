@@ -48,6 +48,9 @@ public static class DedicatedServerLayout
 
     public static string Win64Folder(string installFolder) => Path.Combine(installFolder, "Icarus", "Binaries", "Win64");
 
+    /// <summary>The exe that actually listens on the ports, which is what firewall rules must name.</summary>
+    public static string ShippingExePath(string installFolder) => Path.Combine(Win64Folder(installFolder), ShippingProcessName + ".exe");
+
     /// <summary>The server's UE4SS mods folder — the same layout as the game client's (UE4SS 3.x: Binaries\Win64\ue4ss\Mods). Verified on a real server: UE4SS 3.0.1 loads on IcarusServer-Win64-Shipping.exe through dwmapi.dll.</summary>
     public static string Ue4ssModsFolder(string installFolder) => Path.Combine(Win64Folder(installFolder), "ue4ss", "Mods");
 

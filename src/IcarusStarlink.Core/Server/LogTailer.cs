@@ -106,6 +106,16 @@ public static class ServerLogFilter
 
     public static bool IsWarning(string line) => line.Contains(": Warning:", StringComparison.Ordinal);
 
+    /// <summary>
+    /// A run that ended on purpose logs one of these just before the process exits: Ctrl+C or
+    /// closing the console ("Engine exit requested (reason: ConsoleCtrl RequestExit)"), the ini's
+    /// shutdown-when-empty timers, and the normal engine exit ("LogExit: Exiting."). A run whose log
+    /// simply stops, with no exit line, crashed or was killed.
+    /// </summary>
+    public static bool IsCleanExit(string line) =>
+        line.Contains("Engine exit requested", StringComparison.Ordinal)
+        || line.Contains("LogExit: Exiting.", StringComparison.Ordinal);
+
     /// <summary>The server logs every login request WITH the join password in plain text ("Login request: ?password=4543?Name=…") — masked before it is shown or copied anywhere.</summary>
     public static string Redact(string line)
     {

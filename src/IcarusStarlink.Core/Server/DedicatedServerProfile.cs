@@ -38,6 +38,29 @@ public sealed class DedicatedServerProfile
 
     /// <summary>Steam branch the install tracks: "public" or "experimental" (players on Experimental can only join an experimental server).</summary>
     public string Branch { get; set; } = "public";
+
+    // ---- Automation (Overview tab). Everything is off except crash restart. ----
+
+    /// <summary>Start the server again when it stops without logging a clean exit — capped, see ServerAutomation.</summary>
+    public bool AutoRestartOnCrash { get; set; } = true;
+
+    /// <summary>Start this server when Starlink opens (if it isn't already running).</summary>
+    public bool StartWithApp { get; set; }
+
+    /// <summary>Minimize the server's console window once it appears.</summary>
+    public bool StartMinimized { get; set; }
+
+    /// <summary>Restart once a day at DailyRestartTime, waiting for the server to empty first.</summary>
+    public bool DailyRestartEnabled { get; set; }
+
+    /// <summary>Local time "HH:mm" for the daily restart.</summary>
+    public string DailyRestartTime { get; set; } = "05:00";
+
+    /// <summary>Before a scheduled or manual restart, ask Steam for the latest build and update when there is one.</summary>
+    public bool UpdateOnRestart { get; set; }
+
+    /// <summary>Check Steam every hour and update the next time nobody is online.</summary>
+    public bool AutoUpdate { get; set; }
 }
 
 public static class DedicatedServerDefaults
