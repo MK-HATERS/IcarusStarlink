@@ -310,8 +310,9 @@ public sealed class LibraryViewModelTests
         harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
         var vm = harness.Build();
         var mod = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
-        Assert.Equal("includes a Lua mod on the UE4SS tab", mod.PackageLabel);
-        Assert.Null(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Unrelated").PackageLabel);
+        Assert.Equal(["WirelessPower"], mod.LinkedUe4ssNames);
+        Assert.Equal("Pak + UE4SS", mod.TypeLabel);
+        Assert.Empty(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Unrelated").LinkedUe4ssNames);
 
         vm.DeleteItemCommand.Execute(mod);
 
@@ -324,6 +325,116 @@ public sealed class LibraryViewModelTests
         Assert.Equal(1, vm.ModCount);
         Assert.Contains("Deleted 'Wireless Power' (2 parts)", vm.StatusMessage);
         Assert.Contains("Run Merge & Install", vm.StatusMessage);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The single Mods list: UE4SS rows live in the same list as pak/EXMOD rows, a Lua half is
+    // folded into its Mods-tab row, every row has a Type, a Status and the same "On" checkbox.
+    // ---------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Reload_WithUe4ssMods_ListsThemBesidePakRowsAndFoldsALuaHalfIntoItsPakRow()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.AddMod("Steadfast", name: "Steadfast Structures");
+        harness.Ue4ssModRepository.Staged.Add("WirelessPower");
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
+        harness.Ue4ssModMetaStore.Metas["ArcFissionLibrary"] = new Ue4ssModMeta { NexusModId = 356, NexusName = "ArcFission Library", NexusVersion = "1" };
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("ArcFissionLibrary", IsEnabled: true));
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("WirelessPower", IsEnabled: false));
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("ConsoleEnablerMod", IsEnabled: true));
+        harness.Ue4ssLoaderInstallService.BuiltIns.Add("ConsoleEnablerMod");
+        var vm = harness.Build();
+
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+
+        var ue4ssRows = vm.RootItems.OfType<Ue4ssModRowViewModel>().Select(r => r.Name).ToList();
+        Assert.Equal(["ArcFissionLibrary", "ConsoleEnablerMod"], ue4ssRows);
+        Assert.DoesNotContain("WirelessPower", ue4ssRows);
+
+        var wireless = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
+        Assert.Equal("Pak + UE4SS", wireless.TypeLabel);
+        Assert.Equal(["WirelessPower"], wireless.LinkedUe4ssNames);
+        Assert.Equal("EXMOD", vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Steadfast").TypeLabel);
+
+        var arcFission = vm.RootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "ArcFissionLibrary");
+        Assert.Equal("UE4SS", arcFission.TypeLabel);
+        Assert.Equal("In game", arcFission.InstallStatus);
+        Assert.True(arcFission.IsInGame);
+        Assert.False(vm.HasPendingChanges);
+
+        // Default order interleaves both kinds by name.
+        var names = vm.RootItems.Select(r => r is Ue4ssModRowViewModel u ? u.Name : ((LibraryItemViewModel)r).Name).ToList();
+        Assert.Equal(["ArcFissionLibrary", "ConsoleEnablerMod", "Steadfast Structures", "Wireless Power"], names);
+    }
+
+    [Fact]
+    public void UntickingAUe4ssRow_ShowsNeedsApplyAndThePendingBar()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("ArcFissionLibrary", IsEnabled: true));
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        var row = vm.RootItems.OfType<Ue4ssModRowViewModel>().Single();
+
+        row.IsEnabled = false;
+
+        Assert.Equal("Needs Apply", row.InstallStatus);
+        Assert.True(row.NeedsAction);
+        Assert.True(vm.HasPendingChanges);
+        Assert.True(vm.HasPendingUe4ssChanges);
+        Assert.Contains("1 UE4SS change", vm.PendingChangesSummary);
+    }
+
+    [Fact]
+    public void TypeFilter_NarrowsTheListToOneKind()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.AddMod("Steadfast");
+        harness.AddMod("SomePak", isOpaquePak: true);
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("ArcFissionLibrary", IsEnabled: true));
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        Assert.Equal(3, vm.RootItems.Count);
+
+        vm.TypeFilter = "UE4SS";
+        Assert.Single(vm.RootItems.OfType<Ue4ssModRowViewModel>());
+        Assert.Empty(vm.RootItems.OfType<LibraryItemViewModel>());
+
+        vm.TypeFilter = "Pak";
+        Assert.Equal(["SomePak"], vm.RootItems.OfType<LibraryItemViewModel>().Select(i => i.FolderName).ToList());
+        Assert.Empty(vm.RootItems.OfType<Ue4ssModRowViewModel>());
+
+        vm.TypeFilter = "EXMOD";
+        Assert.Equal(["Steadfast"], vm.RootItems.OfType<LibraryItemViewModel>().Select(i => i.FolderName).ToList());
+
+        vm.TypeFilter = "All";
+        Assert.Equal(3, vm.RootItems.Count);
+    }
+
+    /// <summary>The "On" checkbox: a user tick raises EnabledToggled (the view model turns that into a merge-queue change); a tick set FROM the queue must not, or the two would loop.</summary>
+    [Fact]
+    public void PakRowOnCheckbox_UserTickRaisesEnabledToggled_QueueSyncDoesNot()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("ModA", isOpaquePak: true);
+        var vm = harness.Build();
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single();
+        var raised = new List<bool>();
+        item.EnabledToggled += (_, enabled) => raised.Add(enabled);
+
+        item.IsEnabled = true;
+        item.SetEnabledFromQueue(false);
+        item.SetEnabledFromQueue(true);
+        item.IsEnabled = false;
+
+        Assert.Equal([true, false], raised);
+        Assert.Equal("Not enabled", item.InstallStatus);
+        Assert.Equal("Pak", item.TypeLabel);
     }
 
     [Fact]
@@ -1452,8 +1563,10 @@ public sealed class LibraryViewModelTests
 
     private sealed class FakeUe4ssModStateService : IUe4ssModStateService
     {
-        public IReadOnlyList<Ue4ssModState> GetAll(string gameModsFolderPath) =>
-            throw new NotSupportedException("Not exercised by these tests — IcarusContentPath stays unset, so ReloadInstalledUe4ssMods returns before reaching this.");
+        /// <summary>What GetAll reports — seed it (and set IcarusContentPath) for a test that wants UE4SS rows in the list.</summary>
+        public List<Ue4ssModState> States { get; } = [];
+
+        public IReadOnlyList<Ue4ssModState> GetAll(string gameModsFolderPath) => [.. States];
         public IReadOnlyList<Ue4ssModApplyFailure> Apply(string gameModsFolderPath, IReadOnlyDictionary<string, bool> desiredEnabledByName, string backupDirectory) =>
             throw new NotSupportedException("Not exercised by these tests.");
     }
@@ -1470,11 +1583,13 @@ public sealed class LibraryViewModelTests
 
     private sealed class FakeUe4ssLoaderInstallService : IUe4ssLoaderInstallService
     {
-        public Ue4ssLoaderStatus GetStatus(string icarusContentPath) => throw new NotSupportedException("Not exercised by these tests.");
+        public HashSet<string> BuiltIns { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public Ue4ssLoaderStatus GetStatus(string icarusContentPath) => new(IsInstalled: true, InstalledVersion: "3.0.1");
         public Task InstallOrUpdateAsync(string icarusContentPath, string downloadedZipPath, string backupDirectory, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
         public IReadOnlyList<string> ListUserAddedMods(string icarusContentPath) => throw new NotSupportedException("Not exercised by these tests.");
-        public bool IsFrameworkOwned(string icarusContentPath, string modName) => throw new NotSupportedException("Not exercised by these tests.");
+        public bool IsFrameworkOwned(string icarusContentPath, string modName) => BuiltIns.Contains(modName);
         public Task<Ue4ssUninstallResult> UninstallAsync(string icarusContentPath, string stagedModsDirectory, string backupDirectory, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
     }

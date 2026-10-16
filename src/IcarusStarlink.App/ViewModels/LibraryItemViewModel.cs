@@ -53,14 +53,87 @@ public sealed record MaterialParamsDisplay(
 
 public sealed partial class LibraryItemViewModel : ObservableObject
 {
-    /// <summary>"Part of 'Wireless Power' (3 parts)" when this entry came from the same Nexus download as other Library entries or a UE4SS mod — set by LibraryViewModel after every reload; null for a stand-alone mod.</summary>
-    [ObservableProperty]
-    private string? _packageLabel;
-
     /// <summary>How many .pak files an opaque entry holds (LibraryEntry.PakFileNames) — 0 for an EXMOD mod. A bundle (2+) is one mod that is never converted into an EXMOD.</summary>
     public int PakCount { get; }
 
     public bool IsPakBundle => PakCount > 1;
+
+    /// <summary>The opaque entry's pak file names (with extension) — what the installed manifest lists for it, so Status can tell whether it is in the game.</summary>
+    public IReadOnlyList<string> PakFileNames { get; private set; } = [];
+
+    // ---- The single Mods list (UE4SS tab merged in): every row has the same "On" checkbox, a
+    // Type, and a Status that says what still has to happen for the mod to be in the game. ----
+
+    /// <summary>
+    /// The row's "On" checkbox: for a pak/EXMOD mod this IS merge-queue membership. Set from the
+    /// queue by LibraryViewModel (SetEnabledFromQueue, no event) and toggled by the user (raises
+    /// EnabledToggled, which adds to / removes from the queue).
+    /// </summary>
+    [ObservableProperty]
+    private bool _isEnabled;
+
+    private bool _suppressEnabledToggled;
+
+    public event EventHandler<bool>? EnabledToggled;
+
+    public void SetEnabledFromQueue(bool enabled)
+    {
+        if (IsEnabled == enabled)
+        {
+            return;
+        }
+
+        _suppressEnabledToggled = true;
+        try
+        {
+            IsEnabled = enabled;
+        }
+        finally
+        {
+            _suppressEnabledToggled = false;
+        }
+    }
+
+    partial void OnIsEnabledChanged(bool value)
+    {
+        if (!_suppressEnabledToggled)
+        {
+            EnabledToggled?.Invoke(this, value);
+        }
+    }
+
+    /// <summary>The UE4SS (Lua) mod folder names that came in the same download as this mod's paks (same Nexus mod ID) — the mod's "Lua half", enabled and disabled together with this row. Empty for a mod without one.</summary>
+    [ObservableProperty]
+    private IReadOnlyList<string> _linkedUe4ssNames = [];
+
+    public bool HasLuaPart => LinkedUe4ssNames.Count > 0;
+
+    /// <summary>"EXMOD", "Pak", or "Pak + UE4SS" — the Type column.</summary>
+    public string TypeLabel => !IsOpaquePak ? "EXMOD" : HasLuaPart ? "Pak + UE4SS" : "Pak";
+
+    partial void OnLinkedUe4ssNamesChanged(IReadOnlyList<string> value)
+    {
+        OnPropertyChanged(nameof(HasLuaPart));
+        OnPropertyChanged(nameof(TypeLabel));
+    }
+
+    /// <summary>"In game", "Needs Merge &amp; Install", "Needs Apply", "Not enabled" — computed by LibraryViewModel from the queue, the installed manifest and the Lua half's own state.</summary>
+    [ObservableProperty]
+    private string _installStatus = "";
+
+    /// <summary>The second line under InstallStatus ("scripts in game · paks not yet"); empty when there is nothing to add.</summary>
+    [ObservableProperty]
+    private string _installStatusDetail = "";
+
+    public bool IsInGame => InstallStatus == "In game";
+
+    public bool NeedsAction => InstallStatus.StartsWith("Needs", StringComparison.Ordinal);
+
+    partial void OnInstallStatusChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsInGame));
+        OnPropertyChanged(nameof(NeedsAction));
+    }
 
     private static readonly HashSet<string> ImageExtensions =
         new(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".bmp", ".gif" };
@@ -454,6 +527,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         _variantLabel = entry.Variant;
         _isOpaquePak = entry.IsOpaquePak;
         PakCount = entry.IsOpaquePak ? Math.Max(1, entry.PakFileNames.Count) : 0;
+        PakFileNames = entry.PakFileNames;
         _isLocallyEdited = entry.IsLocallyEdited;
         ConvertedFromPrebuiltPak = entry.ConvertedFromPrebuiltPak;
         _source = entry.Source;

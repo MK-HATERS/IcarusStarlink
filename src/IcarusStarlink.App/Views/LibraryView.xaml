@@ -39,6 +39,147 @@
         <!-- Phase 10 redesign: real icons replace the raw emoji markers, and hovering a row
              reveals inline Pin/Favorite/Edit actions (RowActions, opacity 0→1 on IsMouseOver)
              instead of only the detail pane or the right-click menu below. -->
+        <!-- A UE4SS (Lua) mod as a row in the SAME list as pak/EXMOD mods (the separate UE4SS tab is
+             gone). Same SharedSizeGroup columns as the LibraryItemViewModel template below, so the
+             columns line up; the "On" checkbox is the mod's pending enabled state (Apply moves it);
+             Type says UE4SS; Status says In game / Needs Apply / Not enabled. A Lua mod that is the
+             Lua half of a Mods-tab row (same download) is never listed here — see
+             LibraryViewModel.Reload. -->
+        <DataTemplate DataType="{x:Type vm:Ue4ssModRowViewModel}">
+            <Grid Margin="0,3" Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" MinWidth="26" SharedSizeGroup="ColCheckbox"/>
+                    <ColumnDefinition Width="Auto" MinWidth="34" SharedSizeGroup="ColEnabled"/>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
+                    <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
+                    <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColType"/>
+                    <ColumnDefinition Width="Auto" MinWidth="110" SharedSizeGroup="ColAuthor"/>
+                    <ColumnDefinition Width="Auto" MinWidth="60" SharedSizeGroup="ColVersion"/>
+                    <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColSource"/>
+                    <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColStatus"/>
+                    <ColumnDefinition Width="Auto" MinWidth="30" SharedSizeGroup="ColEndorsed"/>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="ColLatest"/>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="ColImported"/>
+                    <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColActions"/>
+                </Grid.ColumnDefinitions>
+                <Grid.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Open folder"
+                                  Command="{Binding PlacementTarget.Tag.OpenUe4ssModFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  ToolTip="Opens this mod's folder — in the game's Mods folder when enabled, in this app's staging when disabled"/>
+                        <Separator/>
+                        <MenuItem Header="Open on Nexus" Command="{Binding OpenOnNexusCommand}" IsEnabled="{Binding HasNexusLink}"
+                                  Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
+                                  ToolTip="Open this mod's Nexus page in your browser"/>
+                        <MenuItem Header="{Binding NexusLinkActionLabel}"
+                                  Command="{Binding PlacementTarget.Tag.LinkUe4ssModToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
+                                  ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates"/>
+                        <MenuItem Header="Set minimum UE4SS version…"
+                                  Command="{Binding PlacementTarget.Tag.SetMinUe4ssVersionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
+                                  ToolTip="Declare the minimum UE4SS loader version this mod needs, so this app can warn you if your installed loader is older"/>
+                        <Separator/>
+                        <MenuItem Header="Delete"
+                                  Command="{Binding PlacementTarget.Tag.DeleteUe4ssModCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
+                                  ToolTip="Removes this mod from the game's Mods folder (backed up first) and from staging — asks first"/>
+                    </ContextMenu>
+                </Grid.ContextMenu>
+
+                <CheckBox Grid.Column="1" VerticalAlignment="Center" Margin="4,0,4,0" IsChecked="{Binding IsEnabled}"
+                          ToolTip="On = in the game's Mods folder. Changes apply when you click Apply in the bar below."
+                          AutomationProperties.Name="{Binding Name, StringFormat='Enable {0}'}"/>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Path Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.4"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"
+                          Margin="0,0,5,0" VerticalAlignment="Center"
+                          Visibility="{Binding HasVersionWarning, Converter={StaticResource BoolToVisibilityConverter}}"
+                          ToolTip="{Binding VersionWarningTooltip}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="3" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding NexusSummary}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}" TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                    <Border CornerRadius="8" Padding="7,2" Background="{DynamicResource AccentSoftBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                            ToolTip="A UE4SS (Lua script) mod — enabling puts its folder in the game's UE4SS Mods folder">
+                        <TextBlock Text="UE4SS" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource InfoBrush}"/>
+                    </Border>
+                    <Border Margin="4,0,0,0" CornerRadius="8" Padding="7,2" Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                            ToolTip="Ships with the UE4SS loader itself — not something you installed separately"
+                            Visibility="{Binding IsBuiltIn, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock Text="Default" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    </Border>
+                </StackPanel>
+
+                <TextBlock Grid.Column="5" Text="—" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource FaintForegroundBrush}" Margin="8,0,0,0"
+                           Visibility="{Binding DataContext.ShowAuthorColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                <TextBlock Grid.Column="6" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
+                           Visibility="{Binding DataContext.ShowVersionColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Run Text="v"/><Run Text="{Binding KnownVersion, Mode=OneWay}"/>
+                </TextBlock>
+                <Border Grid.Column="7"
+                        Visibility="{Binding DataContext.ShowSourceColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" Background="{DynamicResource InfoBrush}"
+                            ToolTip="Linked to a Nexus mod page for update-checking"
+                            Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock Text="Nexus" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
+                    </Border>
+                </Border>
+
+                <StackPanel Grid.Column="8" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0"
+                            Visibility="{Binding DataContext.ShowStatusColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <TextBlock Text="{Binding InstallStatus}" FontSize="12" VerticalAlignment="Center" ToolTip="{Binding InstallStatusDetail}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsInGame}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding NeedsAction}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" Background="{DynamicResource AccentBrush}"
+                            Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}">
+                            <Run Text="Update v"/><Run Text="{Binding LatestVersion, Mode=OneWay}"/>
+                        </TextBlock>
+                    </Border>
+                </StackPanel>
+
+                <TextBlock Grid.Column="10" Text="{Binding LatestVersion}" VerticalAlignment="Center" FontSize="12"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
+                           Visibility="{Binding DataContext.ShowLatestColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+                <StackPanel Grid.Column="12" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Style="{StaticResource IconButtonStyle}" Width="22" Height="22" Padding="0" ToolTip="Open folder" AutomationProperties.Name="Open folder"
+                            Command="{Binding DataContext.OpenUe4ssModFolderCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}">
+                        <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6" StrokeLineJoin="Round" Width="12" Height="12" Stretch="Uniform"/>
+                    </Button>
+                    <Button Style="{StaticResource IconButtonStyle}" Width="22" Height="22" Padding="0" ToolTip="Delete" AutomationProperties.Name="Delete"
+                            Command="{Binding DataContext.DeleteUe4ssModCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                            Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+
         <DataTemplate DataType="{x:Type vm:LibraryItemViewModel}">
             <!-- SharedSizeGroup on every column, matching the header Grid above (both sit inside the
                  Mods tab's own Grid.IsSharedSizeScope="True") — the real column-alignment fix; see
@@ -63,8 +204,10 @@
                 </Grid.Style>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" MinWidth="26" SharedSizeGroup="ColCheckbox"/>
+                    <ColumnDefinition Width="Auto" MinWidth="34" SharedSizeGroup="ColEnabled"/>
                     <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
                     <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
+                    <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColType"/>
                     <ColumnDefinition Width="Auto" MinWidth="110" SharedSizeGroup="ColAuthor"/>
                     <ColumnDefinition Width="Auto" MinWidth="60" SharedSizeGroup="ColVersion"/>
                     <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColSource"/>
@@ -168,8 +311,23 @@
                           IsChecked="{Binding IsSelectedForBulk, Mode=OneWay}"
                           Checked="RowCheckbox_Checked" Unchecked="RowCheckbox_Unchecked"
                           AutomationProperties.Name="{Binding Name, StringFormat='Select {0}'}"/>
+                <!-- The "On" checkbox: for a pak/EXMOD mod this IS merge-queue membership (see
+                     LibraryItemViewModel.IsEnabled) — ticked mods are what the next Merge &
+                     Install builds. A "Pak + UE4SS" mod's Lua half follows the same tick. -->
+                <CheckBox Grid.Column="1" VerticalAlignment="Center" Margin="4,0,4,0" IsChecked="{Binding IsEnabled}"
+                          ToolTip="On = goes into the game on the next Merge &amp; Install (it's in the merge queue). Off = left out."
+                          AutomationProperties.Name="{Binding Name, StringFormat='Enable {0}'}"/>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Border Grid.Column="4" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" Margin="8,0,0,0" HorizontalAlignment="Left"
+                        Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                    <Border.ToolTip>
+                        <TextBlock Text="EXMOD: an editable data mod merged by Merge &amp; Install. Pak: a prebuilt pak folded in as-is. Pak + UE4SS: this download also ships Lua scripts, which enable together with it."/>
+                    </Border.ToolTip>
+                    <TextBlock Text="{Binding TypeLabel}" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                </Border>
+
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
                           ToolTip="Locally edited in the EXMOD editor"
@@ -205,15 +363,15 @@
                      substituted BEFORE StringFormat, not instead of it) — confirmed live, every row
                      rendered a bare " — " suffix even with no VariantLabel at all until this was
                      fixed. -->
-                <TextBlock Grid.Column="2" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
-                    <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/><Run Text="{Binding PackageLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11"/>
+                <TextBlock Grid.Column="3" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                    <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                 </TextBlock>
 
-                <TextBlock Grid.Column="3" Text="{Binding Author}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                <TextBlock Grid.Column="5" Text="{Binding Author}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="8,0,0,0"
                            Visibility="{Binding DataContext.ShowAuthorColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
-                <TextBlock Grid.Column="4" VerticalAlignment="Center" FontSize="12"
+                <TextBlock Grid.Column="6" VerticalAlignment="Center" FontSize="12"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
                            Visibility="{Binding DataContext.ShowVersionColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Run Text="v"/><Run Text="{Binding Version, Mode=OneWay}"/>
@@ -228,7 +386,7 @@
                      page-level ShowSourceColumn toggle, so the Button's own HasSource visibility
                      (a per-row fact) and the column's own on/off (a page-level setting) don't fight
                      over the same Visibility property. -->
-                <Border Grid.Column="5"
+                <Border Grid.Column="7"
                         Visibility="{Binding DataContext.ShowSourceColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Button Background="{DynamicResource InfoBrush}" Margin="8,0,0,0"
                             CommandParameter="{Binding}"
@@ -254,8 +412,24 @@
                      already promised — for a Database mod this updates in place; for a Nexus mod
                      it opens the mod's page (GetUpdateCommand's own doc comment explains why). Same
                      Border-wrapper reasoning as the Source badge above, for ShowStatusColumn. -->
-                <Border Grid.Column="6"
+                <Border Grid.Column="8"
                         Visibility="{Binding DataContext.ShowStatusColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
+<StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="{Binding InstallStatus}" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0" ToolTip="{Binding InstallStatusDetail}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsInGame}" Value="True">
+                                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding NeedsAction}" Value="True">
+                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
                 <Button Style="{StaticResource PillButtonStyle}" Background="{DynamicResource AccentBrush}" Margin="8,0,0,0"
                         Command="{Binding DataContext.GetUpdateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                         CommandParameter="{Binding}"
@@ -264,17 +438,18 @@
                         AutomationProperties.Name="Get update">
                     <TextBlock Text="Update" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
                 </Button>
+</StackPanel>
                 </Border>
 
-                <TextBlock Grid.Column="8" Text="{Binding LatestVersion}" VerticalAlignment="Center" FontSize="12"
+                <TextBlock Grid.Column="10" Text="{Binding LatestVersion}" VerticalAlignment="Center" FontSize="12"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
                            Visibility="{Binding DataContext.ShowLatestColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
-                <TextBlock Grid.Column="9" Text="{Binding ImportedAtUtc.LocalDateTime, StringFormat='{}{0:d}'}" VerticalAlignment="Center" FontSize="12"
+                <TextBlock Grid.Column="11" Text="{Binding ImportedAtUtc.LocalDateTime, StringFormat='{}{0:d}'}" VerticalAlignment="Center" FontSize="12"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
                            Visibility="{Binding DataContext.ShowImportedColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
-                <StackPanel x:Name="RowActions" Grid.Column="10" Orientation="Horizontal" Opacity="0" HorizontalAlignment="Right">
+                <StackPanel x:Name="RowActions" Grid.Column="12" Orientation="Horizontal" Opacity="0" HorizontalAlignment="Right">
                     <ToggleButton IsChecked="{Binding IsPinned}" Style="{StaticResource IconToggleButtonStyle}"
                                   ToolTip="Pin" AutomationProperties.Name="Toggle pinned">
                         <Path Data="{StaticResource IconPin}" Width="12" Height="12" Stretch="Uniform">
@@ -322,7 +497,7 @@
                      for (endorsed vs. not), rather than inventing a third look nothing requested.
                      Doubles as a one-click Endorse shortcut — EndorseCommand's own CanExecute
                      already covers "no Nexus link"/"already endorsed" by disabling it. -->
-                <Button Grid.Column="7" Style="{StaticResource IconButtonStyle}" Width="22" Height="22"
+                <Button Grid.Column="9" Style="{StaticResource IconButtonStyle}" Width="22" Height="22"
                         Command="{Binding EndorseCommand}"
                         Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}"
                         AutomationProperties.Name="Endorse on Nexus">
@@ -400,6 +575,7 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <!-- Reorganized into 4 groups instead of 9 same-weight buttons in a row (the
@@ -438,6 +614,8 @@
                                     <MenuItem Header="Import folder…" Command="{Binding ImportFolderCommand}"/>
                                     <MenuItem Header="Import .pak…" Command="{Binding ImportPakCommand}"
                                               ToolTip="Import a prebuilt .pak as an opaque library entry — no .EXMOD, can't be browsed or edited"/>
+                                    <MenuItem Header="Import UE4SS mod…" Command="{Binding ImportUe4ssModCommand}"
+                                              ToolTip="A UE4SS (Lua) mod archive — lands in the list unticked; tick it and click Apply"/>
                                 </ContextMenu>
                             </Button.ContextMenu>
                             <StackPanel Orientation="Horizontal">
@@ -507,6 +685,14 @@
                         <TextBlock Text="Search your library" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
                         <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                                  ToolTip="Search by name, author, notes, or mod file/item contents"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <TextBlock Text="Type" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <ComboBox ItemsSource="{Binding TypeFilterOptions}" SelectedItem="{Binding TypeFilter}" Width="110"
+                                      ToolTip="Show only one kind of mod: EXMOD (editable data mods), Pak (prebuilt paks), UE4SS (Lua script mods)"/>
+                            <TextBlock Text="{Binding Ue4ssStatusMessage}" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       Visibility="{Binding Ue4ssStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        </StackPanel>
+
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}">
                             <Run Text="{Binding ModCount, Mode=OneWay}"/><Run Text=" mod(s) · "/><Run Text="{Binding GroupCount, Mode=OneWay}"/><Run Text=" group(s)"/>
                             <Run Text=" — double-click a mod for details, hover a row for quick actions" Foreground="{DynamicResource FaintForegroundBrush}"/>
@@ -552,8 +738,10 @@
                         </Grid.ContextMenu>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" MinWidth="26" SharedSizeGroup="ColCheckbox"/>
+                            <ColumnDefinition Width="Auto" MinWidth="34" SharedSizeGroup="ColEnabled"/>
                             <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
                             <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
+                            <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColType"/>
                             <ColumnDefinition Width="Auto" MinWidth="110" SharedSizeGroup="ColAuthor"/>
                             <ColumnDefinition Width="Auto" MinWidth="60" SharedSizeGroup="ColVersion"/>
                             <ColumnDefinition Width="Auto" MinWidth="80" SharedSizeGroup="ColSource"/>
@@ -567,6 +755,10 @@
                                   IsChecked="{Binding IsAllSelectedForBulk}"
                                   ToolTip="Select/deselect every mod currently shown"
                                   AutomationProperties.Name="Select all mods"/>
+                        <TextBlock Grid.Column="1" Text="ON" Style="{StaticResource FieldLabelStyle}" Margin="4,0,0,0" VerticalAlignment="Center"
+                                   ToolTip="Ticked mods go into the game (pak/EXMOD on the next Merge &amp; Install, UE4SS on Apply)"/>
+                        <TextBlock Grid.Column="4" Text="TYPE" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+
                         <!-- Sortable headers (NAME/AUTHOR/VERSION/SOURCE/IMPORTED) — a borderless
                              button reading as plain text, matching Explorer's own Details-view
                              header convention: click to sort by that column, click again to flip
@@ -574,7 +766,7 @@
                              to whichever column is actually the active sort. STATUS/ENDORSED/LATEST
                              aren't sortable — STATUS and ENDORSED are computed badges, not a single
                              stable value; LATEST is a fetched-on-demand comparison value. -->
-                        <Button Grid.Column="2" Style="{StaticResource ColumnHeaderButtonStyle}"
+                        <Button Grid.Column="3" Style="{StaticResource ColumnHeaderButtonStyle}"
                                 Command="{Binding SortByColumnCommand}" CommandParameter="Name"
                                 ToolTip="Sort by name" AutomationProperties.Name="Sort by name">
                             <StackPanel Orientation="Horizontal">
@@ -589,7 +781,7 @@
                                 </TextBlock>
                             </StackPanel>
                         </Button>
-                        <Button Grid.Column="3" Style="{StaticResource ColumnHeaderButtonStyle}" Margin="8,0,0,0"
+                        <Button Grid.Column="5" Style="{StaticResource ColumnHeaderButtonStyle}" Margin="8,0,0,0"
                                 Command="{Binding SortByColumnCommand}" CommandParameter="Author"
                                 ToolTip="Sort by author" AutomationProperties.Name="Sort by author"
                                 Visibility="{Binding ShowAuthorColumn, Converter={StaticResource BoolToVisibilityConverter}}">
@@ -605,7 +797,7 @@
                                 </TextBlock>
                             </StackPanel>
                         </Button>
-                        <Button Grid.Column="4" Style="{StaticResource ColumnHeaderButtonStyle}" Margin="8,0,0,0"
+                        <Button Grid.Column="6" Style="{StaticResource ColumnHeaderButtonStyle}" Margin="8,0,0,0"
                                 Command="{Binding SortByColumnCommand}" CommandParameter="Version"
                                 ToolTip="Sort by version" AutomationProperties.Name="Sort by version"
                                 Visibility="{Binding ShowVersionColumn, Converter={StaticResource BoolToVisibilityConverter}}">
@@ -621,7 +813,7 @@
                                 </TextBlock>
                             </StackPanel>
                         </Button>
-                        <Button Grid.Column="5" Style="{StaticResource ColumnHeaderButtonStyle}" Margin="8,0,0,0"
+                        <Button Grid.Column="7" Style="{StaticResource ColumnHeaderButtonStyle}" Margin="8,0,0,0"
                                 Command="{Binding SortByColumnCommand}" CommandParameter="Source"
                                 ToolTip="Sort by source" AutomationProperties.Name="Sort by source"
                                 Visibility="{Binding ShowSourceColumn, Converter={StaticResource BoolToVisibilityConverter}}">
@@ -637,12 +829,12 @@
                                 </TextBlock>
                             </StackPanel>
                         </Button>
-                        <TextBlock Grid.Column="6" Text="STATUS" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
+                        <TextBlock Grid.Column="8" Text="STATUS" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
                                    Visibility="{Binding ShowStatusColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                        <TextBlock Grid.Column="7" Text="ENDORSED" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"/>
-                        <TextBlock Grid.Column="8" Text="LATEST" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
+                        <TextBlock Grid.Column="9" Text="ENDORSED" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Column="10" Text="LATEST" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0"
                                    Visibility="{Binding ShowLatestColumn, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                        <Button Grid.Column="9" Style="{StaticResource ColumnHeaderButtonStyle}" Margin="8,0,0,0"
+                        <Button Grid.Column="11" Style="{StaticResource ColumnHeaderButtonStyle}" Margin="8,0,0,0"
                                 Command="{Binding SortByColumnCommand}" CommandParameter="Imported"
                                 ToolTip="Sort by when each mod was imported" AutomationProperties.Name="Sort by imported date"
                                 Visibility="{Binding ShowImportedColumn, Converter={StaticResource BoolToVisibilityConverter}}">
@@ -677,124 +869,31 @@
                                   PreviewMouseLeftButtonDown="LibraryTree_PreviewMouseLeftButtonDown"
                                   MouseDoubleClick="LibraryTree_MouseDoubleClick"/>
                     </Border>
+                    <!-- The pending-changes bar: every "On" tick that isn't in the game yet, in one
+                         sentence, with the two actions that make it so. Apply moves UE4SS folders;
+                         Merge & Install is where paks go in (its own page, since conflicts are
+                         reviewed there). Hidden when nothing is pending. -->
+                    <Border Grid.Row="6" Margin="0,8,0,0" Padding="12,8" CornerRadius="6"
+                            Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
+                            Visibility="{Binding HasPendingChanges, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <Button Content="Apply UE4SS changes" Command="{Binding ApplyUe4ssChangesCommand}" Margin="8,0,0,0"
+                                        Visibility="{Binding HasPendingUe4ssChanges, Converter={StaticResource BoolToVisibilityConverter}}"
+                                        ToolTip="Moves every ticked/unticked UE4SS mod to match — backs up anything removed from the game folder first"/>
+                                <Button Content="Merge &amp; Install" Command="{Binding GoToMergeInstallCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"
+                                        Visibility="{Binding HasPendingPakChanges, Converter={StaticResource BoolToVisibilityConverter}}"
+                                        ToolTip="Opens Merge &amp; Install, where the ticked pak/EXMOD mods are built into the game's merged pak"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="PENDING" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBlock Text="{Binding PendingChangesSummary}" VerticalAlignment="Center" FontSize="13"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
                 </Grid>
             </TabItem>
-
-            <TabItem Header="UE4SS mods">
-                <Grid Margin="16">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-
-                    <StackPanel Grid.Row="0" Orientation="Horizontal">
-                        <TextBlock Text="Tick a mod to enable it, untick to disable, then click Apply. Enabled mods sit in the game's own Mods folder and are live the next time Icarus starts; disabled ones wait in this app's staging. Right-click a mod for Open folder, Delete, and Nexus actions."
-                                   Style="{StaticResource PageBodyTextStyle}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="520"/>
-                        <Button Content="Import…" Command="{Binding ImportUe4ssModCommand}" Margin="12,0,0,0"
-                                ToolTip="Stage a UE4SS mod from a downloaded zip — lands here disabled, ready to enable and Apply"/>
-                        <Button Content="Refresh" Command="{Binding ReloadInstalledUe4ssModsCommand}" Margin="8,0,0,0"/>
-                    </StackPanel>
-                    <TextBlock Grid.Row="1" Text="{Binding Ue4ssStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                               FontSize="12" Margin="0,4,0,8"/>
-                    <ListBox Grid.Row="2" ItemsSource="{Binding Ue4ssMods}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Orientation="Horizontal" Margin="0,2"
-                                            Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
-                                    <StackPanel.ContextMenu>
-                                        <ContextMenu>
-                                            <!-- Hidden (not just disabled) for a built-in — it ships with the
-                                                 loader itself, so there's no standalone Nexus page to explain
-                                                 via a disabled-tooltip the way a transient unavailability would. -->
-                                            <MenuItem Header="Open on Nexus" Command="{Binding OpenOnNexusCommand}" IsEnabled="{Binding HasNexusLink}"
-                                                      Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
-                                                      ToolTip="Open this mod's Nexus page in your browser"/>
-                                            <MenuItem Header="{Binding NexusLinkActionLabel}"
-                                                      Command="{Binding PlacementTarget.Tag.LinkUe4ssModToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                      CommandParameter="{Binding}"
-                                                      Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
-                                                      ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates"/>
-                                            <!-- Manual-only, right next to Link to Nexus ID — see
-                                                 LibraryViewModel.SetMinUe4ssVersion's own doc comment
-                                                 for why this can never be automatic. -->
-                                            <MenuItem Header="Set minimum UE4SS version…"
-                                                      Command="{Binding PlacementTarget.Tag.SetMinUe4ssVersionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                      CommandParameter="{Binding}"
-                                                      Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
-                                                      ToolTip="Declare the minimum UE4SS loader version this mod needs, so this app can warn you if your installed loader is older"/>
-                                            <Separator/>
-                                            <MenuItem Header="Open folder"
-                                                      Command="{Binding PlacementTarget.Tag.OpenUe4ssModFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                      CommandParameter="{Binding}"
-                                                      ToolTip="Opens this mod's folder — in the game's Mods folder when enabled, in this app's staging when disabled"/>
-                                            <MenuItem Header="Delete"
-                                                      Command="{Binding PlacementTarget.Tag.DeleteUe4ssModCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                      CommandParameter="{Binding}"
-                                                      Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
-                                                      ToolTip="Removes this mod from the game's Mods folder (backed up first) and from staging — asks first; a mod that came with Library paks is removed together with them"/>
-                                        </ContextMenu>
-                                    </StackPanel.ContextMenu>
-                                    <CheckBox IsChecked="{Binding IsEnabled}" VerticalAlignment="Center" Margin="0,0,8,0"
-                                              ToolTip="Checked = enabled (in the real game Mods folder). Nothing moves until you click Apply below."
-                                              AutomationProperties.Name="{Binding Name, StringFormat='Enable {0}'}"/>
-                                    <StackPanel VerticalAlignment="Center" Width="260">
-                                        <TextBlock Text="{Binding Name}"/>
-                                        <TextBlock Text="{Binding NexusSummary}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                                   Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                        <TextBlock Text="{Binding PackageLabel}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                                   Visibility="{Binding IsPartOfPackage, Converter={StaticResource BoolToVisibilityConverter}}"
-                                                   ToolTip="This Lua mod and the listed Library paks came from one Nexus download — deleting any of them removes all of them"/>
-                                    </StackPanel>
-                                    <!-- Declared MinUe4ssVersion exceeds the installed loader's own
-                                         version (Ue4ssVersionComparer.Compare == BelowMinimum) — same
-                                         per-row Path+ToolTip warning convention as Merge & Install's
-                                         own queue conflict indicator. Never shown for Unknown (no
-                                         declared minimum, or either version too odd to compare). -->
-                                    <Path Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.4"
-                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform"
-                                          Margin="0,0,6,0" VerticalAlignment="Center"
-                                          Visibility="{Binding HasVersionWarning, Converter={StaticResource BoolToVisibilityConverter}}"
-                                          ToolTip="{Binding VersionWarningTooltip}"/>
-                                    <!-- One of UE4SS's own bundled mods (or its shared\ infrastructure
-                                         folder) — see IUe4ssLoaderInstallService.IsFrameworkOwned. Right-click
-                                         "Link to Nexus ID…" is hidden for these; they have no page of their own. -->
-                                    <Border Margin="0,0,6,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
-                                            Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                                            ToolTip="Ships with the UE4SS loader itself — not something you installed separately"
-                                            Visibility="{Binding IsBuiltIn, Converter={StaticResource BoolToVisibilityConverter}}">
-                                        <TextBlock Text="Default" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                                    </Border>
-                                    <!-- Set when this mod was downloaded through the Nexus pipeline (see
-                                         DownloadsViewModel.EnrichUe4ssModFromNexusAsync) or manually linked
-                                         via the row's own "Link to Nexus ID…" — a never-linked UE4SS mod has
-                                         no badge. -->
-                                    <Border Margin="0,0,6,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
-                                            Background="{DynamicResource InfoBrush}"
-                                            ToolTip="Linked to a Nexus mod page for update-checking"
-                                            Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}">
-                                        <TextBlock Text="Nexus" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
-                                    </Border>
-                                    <Border Margin="0,0,6,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
-                                            Background="{DynamicResource AccentBrush}"
-                                            Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
-                                        <TextBlock FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}">
-                                            <Run Text="Update available: v"/><Run Text="{Binding LatestVersion, Mode=OneWay}"/>
-                                        </TextBlock>
-                                    </Border>
-                                    <TextBlock Text="modified" Foreground="{DynamicResource AccentBrush}" FontSize="12"
-                                               VerticalAlignment="Center" Visibility="{Binding IsDirty, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <Button Grid.Row="3" Content="Apply" Command="{Binding ApplyUe4ssChangesCommand}"
-                            IsEnabled="{Binding HasPendingUe4ssChanges}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,8,0,0"
-                            ToolTip="Moves every checked/unchecked mod to match — backs up anything removed from the game folder first"/>
-                </Grid>
-            </TabItem>
-
             <!-- Last, per explicit placement request — folded in from the former standalone
                  Downloads page. Every binding here targets Downloads (the nested DownloadsViewModel),
                  not this page's own LibraryViewModel DataContext. -->

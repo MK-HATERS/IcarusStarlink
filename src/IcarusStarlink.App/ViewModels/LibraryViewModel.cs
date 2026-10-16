@@ -591,6 +591,9 @@ public sealed partial class LibraryViewModel : ObservableObject
 
             _packagesByNexusModId = BuildPackages();
             Ue4ssStatusMessage = states.Count == 0 ? "No UE4SS mods found." : null;
+
+            // The UE4SS rows live in the same list as everything else — rebuild it with the fresh rows.
+            Reload();
         }
         catch (Exception ex)
         {
@@ -598,7 +601,209 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
     }
 
-    private void RecomputeHasPendingUe4ssChanges() => HasPendingUe4ssChanges = Ue4ssMods.Any(m => m.IsDirty);
+    private void RecomputeHasPendingUe4ssChanges()
+    {
+        HasPendingUe4ssChanges = Ue4ssMods.Any(m => m.IsDirty);
+        RefreshEnabledAndStatus();
+    }
+
+    // ---- The single Mods list: Type filter, the "On" checkbox's link to the merge queue, Status,
+    // and the pending-changes bar. ----
+
+    public IReadOnlyList<string> TypeFilterOptions { get; } = ["All", "EXMOD", "Pak", "UE4SS"];
+
+    /// <summary>"All" / "EXMOD" / "Pak" / "UE4SS" — the Type dropdown next to the search box.</summary>
+    [ObservableProperty]
+    private string _typeFilter = "All";
+
+    partial void OnTypeFilterChanged(string value) => Reload();
+
+    /// <summary>How many UE4SS rows the list is showing (stand-alone Lua mods; a Lua half folded into a Mods-tab row doesn't count).</summary>
+    [ObservableProperty]
+    private int _ue4ssCount;
+
+    /// <summary>True when an "On" tick differs from what the installed merged pak contains (Merge &amp; Install needed) or a UE4SS tick differs from disk (Apply needed).</summary>
+    [ObservableProperty]
+    private bool _hasPendingChanges;
+
+    /// <summary>"2 changes not in the game yet: 1 UE4SS change and 1 pak mod".</summary>
+    [ObservableProperty]
+    private string _pendingChangesSummary = "";
+
+    [ObservableProperty]
+    private bool _hasPendingPakChanges;
+
+    private bool _mergeQueueSubscribed;
+
+    private MergeInstallViewModel? TryGetMergeInstall()
+    {
+        try
+        {
+            return _mergeInstallViewModel();
+        }
+        catch (Exception)
+        {
+            // A test harness without a Merge & Install page: the "On" checkbox just has no queue to talk to.
+            return null;
+        }
+    }
+
+    private void EnsureMergeQueueSubscription()
+    {
+        if (_mergeQueueSubscribed)
+        {
+            return;
+        }
+
+        var mergeInstall = TryGetMergeInstall();
+        if (mergeInstall is null)
+        {
+            return;
+        }
+
+        _mergeQueueSubscribed = true;
+        mergeInstall.Queue.CollectionChanged += (_, _) => RefreshEnabledAndStatus();
+        mergeInstall.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MergeInstallViewModel.LastInstalledModNames))
+            {
+                RefreshEnabledAndStatus();
+            }
+        };
+        _ = mergeInstall.RefreshInstalledModNamesAsync();
+    }
+
+    private bool MatchesTypeFilter(LibraryGroup group) => TypeFilter switch
+    {
+        "EXMOD" => group.Entries.Any(e => !e.IsOpaquePak),
+        "Pak" => group.Entries.Any(e => e.IsOpaquePak),
+        "UE4SS" => false,
+        _ => true,
+    };
+
+    private bool MatchesSearch(Ue4ssModRowViewModel row) =>
+        string.IsNullOrWhiteSpace(SearchText)
+        || row.Name.Contains(SearchText.Trim(), StringComparison.OrdinalIgnoreCase)
+        || (row.NexusName?.Contains(SearchText.Trim(), StringComparison.OrdinalIgnoreCase) ?? false);
+
+    /// <summary>The user ticked/unticked a pak or EXMOD row: that IS adding it to / removing it from the merge queue; a mod's Lua half follows the same tick.</summary>
+    private void OnItemEnabledToggled(object? sender, bool enabled)
+    {
+        if (sender is not LibraryItemViewModel item)
+        {
+            return;
+        }
+
+        var mergeInstall = TryGetMergeInstall();
+        if (mergeInstall is null)
+        {
+            return;
+        }
+
+        if (enabled)
+        {
+            mergeInstall.AddToQueueByFolderNames([item.FolderName]);
+            if (!mergeInstall.IsQueued(item.FolderName))
+            {
+                // Refused (already covered by a queued merged pack, for instance) — the queue says why.
+                item.SetEnabledFromQueue(false);
+                StatusMessage = mergeInstall.StatusMessage;
+            }
+        }
+        else
+        {
+            mergeInstall.RemoveFromQueueByFolderNames([item.FolderName]);
+        }
+
+        foreach (var luaRow in Ue4ssMods.Where(r => item.LinkedUe4ssNames.Contains(r.Name, StringComparer.OrdinalIgnoreCase)))
+        {
+            luaRow.IsEnabled = enabled;
+        }
+
+        RefreshEnabledAndStatus();
+    }
+
+    /// <summary>
+    /// Recomputes every row's "On" tick (from the merge queue) and Status (from the installed
+    /// merged pak's manifest plus the Lua half's own state), and the pending-changes bar.
+    /// </summary>
+    private void RefreshEnabledAndStatus()
+    {
+        var mergeInstall = TryGetMergeInstall();
+        var installed = new HashSet<string>(mergeInstall?.LastInstalledModNames ?? [], StringComparer.OrdinalIgnoreCase);
+        var pendingPak = 0;
+        foreach (var item in _itemsByFolderName.Values)
+        {
+            var queued = mergeInstall?.IsQueued(item.FolderName) ?? false;
+            item.SetEnabledFromQueue(queued);
+
+            // The manifest lists an EXMOD by name and an opaque entry by each pak's file name.
+            var inGame = item.IsOpaquePak && item.PakFileNames.Count > 0
+                ? item.PakFileNames.All(p => installed.Contains(Path.GetFileNameWithoutExtension(p)))
+                : installed.Contains(item.Name) || installed.Contains(item.FolderName);
+
+            var luaRows = Ue4ssMods.Where(r => item.LinkedUe4ssNames.Contains(r.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+            var luaDirty = luaRows.Any(r => r.IsDirty);
+            var luaInGame = luaRows.Count > 0 && luaRows.All(r => r.RealIsEnabled);
+
+            string status;
+            var detail = "";
+            if (luaDirty)
+            {
+                status = "Needs Apply";
+                detail = queued && !inGame ? "then Merge & Install for the paks" : "";
+            }
+            else if (queued && !inGame)
+            {
+                status = "Needs Merge & Install";
+                detail = luaRows.Count > 0 ? (luaInGame ? "scripts in game · paks not yet" : "paks not in the game yet") : "";
+            }
+            else if (!queued && inGame)
+            {
+                status = "In game";
+                detail = "untick + Merge & Install to remove";
+            }
+            else if (queued && inGame)
+            {
+                status = "In game";
+                detail = luaRows.Count > 0 && !luaInGame ? "paks in game · scripts not enabled" : "";
+            }
+            else
+            {
+                status = "Not enabled";
+            }
+
+            if (queued != inGame)
+            {
+                pendingPak++;
+            }
+
+            item.InstallStatus = status;
+            item.InstallStatusDetail = detail;
+        }
+
+        var pendingLua = Ue4ssMods.Count(m => m.IsDirty);
+        HasPendingPakChanges = pendingPak > 0;
+        HasPendingChanges = pendingPak > 0 || pendingLua > 0;
+        var parts = new List<string>();
+        if (pendingLua > 0)
+        {
+            parts.Add(pendingLua == 1 ? "1 UE4SS change" : $"{pendingLua} UE4SS changes");
+        }
+
+        if (pendingPak > 0)
+        {
+            parts.Add(pendingPak == 1 ? "1 pak mod" : $"{pendingPak} pak mods");
+        }
+
+        PendingChangesSummary = parts.Count == 0
+            ? ""
+            : $"{pendingLua + pendingPak} change(s) not in the game yet: {string.Join(" and ", parts)}";
+    }
+
+    /// <summary>The pending bar's "Merge &amp; Install" button — hands over to that page rather than building here, since conflicts are reviewed there.</summary>
+    [RelayCommand]
+    private void GoToMergeInstall() => WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("merge"));
 
     /// <summary>
     /// One Nexus download that landed as several things — a Lua mod plus its asset paks (WirelessPower)
@@ -618,7 +823,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     private IReadOnlyDictionary<int, ModPackage> _packagesByNexusModId = new Dictionary<int, ModPackage>();
 
-    /// <summary>Groups every Library entry and staged UE4SS mod by Nexus mod ID; only groups with two or more parts count. Also stamps PackageLabel onto every visible row (null for a stand-alone mod).</summary>
+    /// <summary>Groups every Library entry and staged UE4SS mod by Nexus mod ID; only groups with two or more parts count.</summary>
     private Dictionary<int, ModPackage> BuildPackages()
     {
         var libraryByNexusId = _repository.GetAll()
@@ -661,12 +866,16 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         foreach (var item in AllLibraryItems())
         {
-            item.PackageLabel = item.NexusModId is { } id && packages.TryGetValue(id, out var package) && package.Ue4ssFolderNames.Count > 0 ? package.LibraryLabel : null;
+            item.LinkedUe4ssNames = item.NexusModId is { } id && packages.TryGetValue(id, out var package) && package.LibraryFolderNames.Count > 0
+                ? package.Ue4ssFolderNames
+                : [];
         }
 
         foreach (var row in Ue4ssMods)
         {
-            row.PackageLabel = row.NexusModId is { } id && packages.TryGetValue(id, out var package) && package.LibraryFolderNames.Count > 0 ? package.Ue4ssLabel : null;
+            row.LinkedLibraryModName = row.NexusModId is { } id && packages.TryGetValue(id, out var package) && package.LibraryFolderNames.Count > 0
+                ? package.DisplayName
+                : null;
         }
 
         return packages;
@@ -2419,27 +2628,60 @@ public sealed partial class LibraryViewModel : ObservableObject
             targetRootItems.Add(new DownloadStubViewModel(download.DisplayName));
         }
 
+        // One list for every kind of mod: pak/EXMOD rows (groups) and UE4SS rows side by side.
+        // A UE4SS mod that is the Lua half of a Mods-tab row (same Nexus download) is folded into
+        // that row and not listed on its own. Default/Name order interleaves both kinds by name
+        // (pinned families first, as before); any other sort keeps the UE4SS rows after the groups.
+        var libraryRows = new List<(string SortName, bool Pinned, object Row)>();
         foreach (var group in groups)
         {
+            if (!MatchesTypeFilter(group))
+            {
+                continue;
+            }
+
             var items = group.Entries.Select(entry => GetOrCreateItem(entry, fullResync)).ToList();
             foreach (var item in items)
             {
                 seenFolders.Add(item.FolderName);
             }
 
+            var pinned = group.Entries.Any(e => e.IsPinned);
             if (group.IsFamily)
             {
                 seenGroupKeys.Add(group.GroupKey);
-                targetRootItems.Add(GetOrCreateGroup(group.GroupKey, group.DisplayName, items));
+                libraryRows.Add((group.DisplayName, pinned, GetOrCreateGroup(group.GroupKey, group.DisplayName, items)));
             }
             else
             {
-                targetRootItems.Add(items[0]);
+                libraryRows.Add((group.DisplayName, pinned, items[0]));
             }
         }
 
+        var ue4ssRows = TypeFilter is "All" or "UE4SS"
+            ? Ue4ssMods.Where(row => !row.IsLinkedToLibraryMod && MatchesSearch(row)).Select(row => (SortName: row.Name, Pinned: false, Row: (object)row)).ToList()
+            : [];
+        if (SortColumn is null)
+        {
+            targetRootItems.AddRange(libraryRows.Where(r => r.Pinned).Select(r => r.Row));
+            targetRootItems.AddRange(libraryRows.Where(r => !r.Pinned).Concat(ue4ssRows).OrderBy(r => r.SortName, StringComparer.OrdinalIgnoreCase).Select(r => r.Row));
+        }
+        else if (SortColumn == "Name")
+        {
+            var all = libraryRows.Concat(ue4ssRows);
+            targetRootItems.AddRange((SortDescending ? all.OrderByDescending(r => r.SortName, StringComparer.OrdinalIgnoreCase) : all.OrderBy(r => r.SortName, StringComparer.OrdinalIgnoreCase)).Select(r => r.Row));
+        }
+        else
+        {
+            targetRootItems.AddRange(libraryRows.Select(r => r.Row));
+            targetRootItems.AddRange(ue4ssRows.OrderBy(r => r.SortName, StringComparer.OrdinalIgnoreCase).Select(r => r.Row));
+        }
+
+        Ue4ssCount = ue4ssRows.Count;
         SyncRootItems(targetRootItems);
         OnPropertyChanged(nameof(IsAllSelectedForBulk));
+        EnsureMergeQueueSubscription();
+        RefreshEnabledAndStatus();
 
         // Drop cached instances for mods/families no longer present/matching, so these don't grow
         // forever. FlushPendingSave() first, not CancelPendingSave() — the mod's folder isn't going
@@ -2530,6 +2772,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             _nexusApiClient, _credentialStore,
             _downloadHttpClient, _thumbnailCacheDirectory, _pakPreviewCacheDirectory, Downloads.GetOrFetchCatalogAsync,
             status => StatusMessage = status, () => Reload());
+        created.EnabledToggled += OnItemEnabledToggled;
         _itemsByFolderName[entry.FolderName] = created;
         return created;
     }

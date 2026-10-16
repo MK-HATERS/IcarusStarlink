@@ -48,13 +48,31 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     public bool RealIsEnabled { get; }
 
-    /// <summary>"Part of 'Wireless Power' (3 parts)" when this Lua mod came from the same Nexus download as one or more Library paks — set by LibraryViewModel after a reload; null for a stand-alone mod.</summary>
+    // ---- The single Mods list: UE4SS rows sit in the same list as pak/EXMOD rows. ----
+
+    /// <summary>The Type column.</summary>
+    public string TypeLabel => "UE4SS";
+
+    /// <summary>"Needs Apply" while the checkbox differs from what's on disk, "In game" when enabled and applied, else "Not enabled".</summary>
+    public string InstallStatus => IsDirty ? "Needs Apply" : RealIsEnabled ? "In game" : "Not enabled";
+
+    public string InstallStatusDetail => IsDirty ? (IsEnabled ? "ticked — click Apply to put it in the game" : "unticked — click Apply to take it out") : "";
+
+    public bool IsInGame => InstallStatus == "In game";
+
+    public bool NeedsAction => IsDirty;
+
+    /// <summary>
+    /// Set by LibraryViewModel when this Lua mod is the "Lua half" of a Mods-tab row (same Nexus
+    /// download as that row's paks): the list shows that one row with Type "Pak + UE4SS" and this
+    /// row is folded into it — its checkbox follows the Library row's, Apply still moves it.
+    /// </summary>
     [ObservableProperty]
-    private string? _packageLabel;
+    private string? _linkedLibraryModName;
 
-    public bool IsPartOfPackage => !string.IsNullOrEmpty(PackageLabel);
+    public bool IsLinkedToLibraryMod => LinkedLibraryModName is not null;
 
-    partial void OnPackageLabelChanged(string? value) => OnPropertyChanged(nameof(IsPartOfPackage));
+    partial void OnLinkedLibraryModNameChanged(string? value) => OnPropertyChanged(nameof(IsLinkedToLibraryMod));
 
     /// <summary>Whether this is one of UE4SS's own bundled mods (or its shared\ infrastructure folder) rather than something the user installed themselves — see IUe4ssLoaderInstallService.IsFrameworkOwned. Drives the "Default" badge, and whether Link to Nexus even makes sense to offer at all (a framework mod has no standalone Nexus page of its own).</summary>
     public bool IsBuiltIn { get; }
@@ -146,6 +164,10 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     partial void OnIsEnabledChanged(bool value)
     {
         OnPropertyChanged(nameof(IsDirty));
+        OnPropertyChanged(nameof(InstallStatus));
+        OnPropertyChanged(nameof(InstallStatusDetail));
+        OnPropertyChanged(nameof(IsInGame));
+        OnPropertyChanged(nameof(NeedsAction));
         _onDirtyChanged();
     }
 }

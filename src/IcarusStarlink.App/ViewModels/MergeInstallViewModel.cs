@@ -1256,6 +1256,49 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// the pack and merge on top" — the queue rules for a merged pack re-imported into Library.
     /// Returns whether the entry actually got added, so a bulk caller can tally a real count.
     /// </summary>
+    /// <summary>Whether this Library folder is in the merge queue — the Library's own "On" checkbox for a pak/EXMOD mod reads this.</summary>
+    public bool IsQueued(string folderName) =>
+        Queue.Any(q => string.Equals(q.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The Library's "On" checkbox unticked: the mod leaves the queue (the next Merge &amp; Install drops it from the game).</summary>
+    public void RemoveFromQueueByFolderNames(IReadOnlyList<string> folderNames)
+    {
+        foreach (var entry in Queue.Where(q => folderNames.Contains(q.FolderName, StringComparer.OrdinalIgnoreCase)).ToList())
+        {
+            Queue.Remove(entry);
+        }
+    }
+
+    /// <summary>
+    /// The mod names the installed merged pak's own manifest lists (ISL-Merged.txt), as last read —
+    /// what the Library's Status column compares each enabled mod against ("In game" vs "Needs
+    /// Merge &amp; Install"). Empty until RefreshInstalledModNamesAsync has run, or when no Content
+    /// path is set. Raises PropertyChanged so the Library can recompute.
+    /// </summary>
+    [ObservableProperty]
+    private IReadOnlyList<string> _lastInstalledModNames = [];
+
+    public async Task RefreshInstalledModNamesAsync()
+    {
+        var contentPath = _settingsService.Current.IcarusContentPath;
+        if (string.IsNullOrWhiteSpace(contentPath))
+        {
+            LastInstalledModNames = [];
+            return;
+        }
+
+        try
+        {
+            var installed = await _installService.GetInstalledStateAsync(contentPath);
+            LastInstalledModNames = installed.ModNames;
+        }
+        catch (Exception)
+        {
+            // A missing/unreadable manifest just means "nothing known to be installed".
+            LastInstalledModNames = [];
+        }
+    }
+
     private bool AddEntryToQueue(LibraryEntry entry)
     {
         if (Queue.Any(q => string.Equals(q.FolderName, entry.FolderName, StringComparison.OrdinalIgnoreCase)))
@@ -2206,6 +2249,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 : $"Installed to '{result.InstalledPakPath}'.";
             _activityLog.Log($"Installed pack to {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityEntryKind.Success);
             HasExistingInstall = true;
+            _ = RefreshInstalledModNamesAsync();
 
             // Read back on the NEXT app launch (SettingsViewModel) to check whether a real game
             // crash happened since — see AppSettings.LastInstallAtUtc's own doc comment for why.
