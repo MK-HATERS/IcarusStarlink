@@ -255,6 +255,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     {
         IsLocallyEdited = true;
         ChangesContent = null;
+        ChangesSummary = null;
         _detailsLoaded = false;
     }
 
@@ -473,6 +474,13 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private string? _changesContent;
 
+    /// <summary>"What this mod changes" in a few lines (ModChangeSummarizer), shown above the full Changes list. Null until worked out.</summary>
+    [ObservableProperty]
+    private string? _changesSummary;
+
+    /// <summary>The extracted game data, for the summary's comparison. Set by LibraryViewModel when it creates the row.</summary>
+    internal string? DataFolder { get; set; }
+
     [ObservableProperty]
     private string? _selectedAssetPath;
 
@@ -638,6 +646,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         AssetPaths.Clear();
         ReadmeContent = null;
         ChangesContent = null;
+        ChangesSummary = null;
         ThumbnailImage = null;
         SelectedAssetPath = null;
         PakListingStatus = null;
@@ -1174,6 +1183,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
                 // .EXMOD's own JSON, which is the only thing the Changes text is built from.
                 var package = ExmodFolder.ReadPackageOnly(_repository.GetFolderPath(FolderName), files);
                 ChangesContent = ExmodChangesFormatter.Format(package);
+                _ = LoadChangesSummaryAsync(package);
             }
             else
             {
@@ -1193,6 +1203,31 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             // OnSelectedItemChanged, off a binding-driven selection change, so an unhandled
             // exception here would crash the app instead of showing a status message.
             _reportStatus($"Couldn't load mod details: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Compares the mod with current game data off the UI thread (a big mod touches tables of
+    /// several MB) and boils the result down to a few readable lines.
+    /// </summary>
+    private async Task LoadChangesSummaryAsync(PakIO.Exmod.ExmodPackage package)
+    {
+        if (DataFolder is not { } dataFolder || !Directory.Exists(dataFolder))
+        {
+            ChangesSummary = "Run \"Update data folder\" in Settings to see a summary of what this mod changes.";
+            return;
+        }
+
+        ChangesSummary = "Working out what this mod changes…";
+        try
+        {
+            var lines = await Task.Run(() => PakIO.Exmod.ModChangeSummarizer.Summarize(
+                PakIO.Exmod.ExmodBaseDiffer.DiffAgainstBase(package, dataFolder, new Diffing.DefaultSemanticClassifier())));
+            ChangesSummary = lines.Count == 0 ? "Nothing differs from current game data." : string.Join(Environment.NewLine, lines);
+        }
+        catch (Exception ex)
+        {
+            ChangesSummary = $"Couldn't summarise this mod: {ex.Message}";
         }
     }
 

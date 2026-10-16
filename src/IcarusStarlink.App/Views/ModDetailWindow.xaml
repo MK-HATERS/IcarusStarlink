@@ -158,12 +158,26 @@
         <TabControl Grid.Row="2" Margin="0,12,0,0">
             <TabItem Header="Changes"
                      ToolTip="What this mod actually changes — read-only. For editing, see the EXMOD editor.">
-                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" MinHeight="110">
-                    <TextBox Text="{Binding ChangesContent, Mode=OneWay}"
-                             IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
-                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                             AcceptsReturn="True" BorderThickness="0" Padding="8"/>
-                </Border>
+                <DockPanel Margin="0,8,0,0">
+                    <!-- In a few lines first ("D_Itemable · MaxStack ×10 on 1337 rows"), then every change. -->
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,0,0,8"
+                            Visibility="{Binding ChangesSummary, Converter={StaticResource NullToVisibilityConverter}}">
+                        <StackPanel>
+                            <TextBlock Text="IN SHORT" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                            <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                                <TextBlock Text="{Binding ChangesSummary}" TextWrapping="Wrap" FontSize="12.5"
+                                           ToolTip="Compared with your current game data: each line is one field changed the same way across a table."/>
+                            </ScrollViewer>
+                        </StackPanel>
+                    </Border>
+                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" MinHeight="110">
+                        <TextBox Text="{Binding ChangesContent, Mode=OneWay}"
+                                 IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
+                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                 AcceptsReturn="True" BorderThickness="0" Padding="8"/>
+                    </Border>
+                </DockPanel>
             </TabItem>
             <TabItem Header="Files">
                 <Grid Margin="0,8,0,0" MinHeight="110">
