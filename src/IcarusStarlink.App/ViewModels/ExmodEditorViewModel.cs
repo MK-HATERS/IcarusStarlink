@@ -896,7 +896,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         {
             var baseValue = BaseValueFor(selected.CurrentFile, selected.ItemName, fieldName, item);
             var originalValue = LookupOrFallback(_originalValuesByKey, selected.CurrentFile, selected.ItemName, fieldName, item);
-            AddFieldRow(new EditorFieldViewModel(fieldName, item.Fields, baseValue, originalValue, StatChoicesForFields()), selected);
+            AddFieldRow(new EditorFieldViewModel(fieldName, item.Fields, baseValue, originalValue, StatChoicesForFields(),
+                ChoicesFor(selected.CurrentFile, fieldName, item.Fields.GetValueOrDefault(fieldName) ?? baseValue)), selected);
         }
     }
 
@@ -997,7 +998,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         RefreshBaseDiff();
         var baseValue = BaseValueFor(SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
         var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
-        AddFieldRow(new EditorFieldViewModel(NewFieldName, item.Fields, baseValue, originalValue, StatChoicesForFields()), SelectedItem);
+        AddFieldRow(new EditorFieldViewModel(NewFieldName, item.Fields, baseValue, originalValue, StatChoicesForFields(),
+            ChoicesFor(SelectedItem.CurrentFile, NewFieldName, parsedValue ?? baseValue)), SelectedItem);
         Recount(SelectedItem);
 
         NewFieldName = "";

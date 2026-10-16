@@ -24,9 +24,26 @@ public enum EditorFieldKind
     /// <summary>A stats list ("ArmourStats"): one row per stat.</summary>
     Stats,
 
-    /// <summary>Anything else (lists, links, nested objects): the JSON itself.</summary>
+    /// <summary>Anything else (lists, nested objects): the JSON itself.</summary>
     Raw,
+
+    /// <summary>A true/false switch: a checkbox.</summary>
+    Bool,
+
+    /// <summary>A link to a row of another table ("Consumable" → D_Consumable): a dropdown of the rows that exist.</summary>
+    Link,
+
+    /// <summary>Text the game only ever sets to a few values ("SnapBehaviour"): a dropdown of those.</summary>
+    Choice,
 }
+
+/// <summary>
+/// What a field may hold, read from the game's own tables: a link field's target table (its
+/// Defaults' DataTableName) and the rows there, or the handful of values the game uses for a
+/// text field. Lets the editor offer only real values, so a mod can't link to a row that doesn't
+/// exist (a canteen you can't drink from).
+/// </summary>
+public sealed record FieldChoices(string? LinkTable, IReadOnlyList<string> Options);
 
 /// <summary>
 /// One editable field row in the EXMOD editor's right-hand pane. Writes straight back into the
@@ -68,6 +85,14 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     public bool IsStringKind => Kind == EditorFieldKind.String;
     public bool IsStatsKind => Kind == EditorFieldKind.Stats;
     public bool IsRawKind => Kind == EditorFieldKind.Raw;
+    public bool IsBoolKind => Kind == EditorFieldKind.Bool;
+    public bool IsListKind => Kind is EditorFieldKind.Link or EditorFieldKind.Choice;
+
+    /// <summary>The values a Link or Choice field may take (rows of the target table, or the game's own values).</summary>
+    public IReadOnlyList<string> Options { get; } = [];
+
+    /// <summary>The table a Link field points into ("D_Consumable").</summary>
+    public string? LinkTable { get; }
 
     /// <summary>"game: 6" — the vanilla value in plain words (the text, not NSLOCTEXT; "not in the game" for a field the game doesn't set).</summary>
     public string BasePlainText { get; }
@@ -95,7 +120,8 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     [ObservableProperty]
     private string? _parseError;
 
-    public EditorFieldViewModel(string fieldName, Dictionary<string, JsonNode?> fields, JsonNode? baseValue, JsonNode? originalValue, IReadOnlyList<StatChoice>? statChoices = null)
+    public EditorFieldViewModel(string fieldName, Dictionary<string, JsonNode?> fields, JsonNode? baseValue, JsonNode? originalValue, IReadOnlyList<StatChoice>? statChoices = null,
+        FieldChoices? choices = null)
     {
         FieldName = fieldName;
         _fields = fields;
@@ -106,13 +132,27 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         var current = fields.TryGetValue(fieldName, out var value) ? value : null;
         _valueText = FormatForDisplay(current);
 
-        Kind = KindOf(fieldName, current ?? baseValue);
+        Kind = KindOf(fieldName, current ?? baseValue, choices);
+        if (Kind is EditorFieldKind.Link or EditorFieldKind.Choice)
+        {
+            Options = choices!.Options;
+            LinkTable = choices.LinkTable;
+        }
         (Label, Hint) = GameItemEditor.FieldText(fieldName, Kind == EditorFieldKind.Number);
         BasePlainText = baseValue is null ? "not in the game" : $"game: {Plain(baseValue)}";
         if (Kind == EditorFieldKind.String && (CurrentString() ?? "").Contains("/Game/", StringComparison.Ordinal))
         {
             Hint = "A game file this uses (a model, texture or sound). Use another game file's path, or ✕ to keep the game's.";
         }
+        if (Kind == EditorFieldKind.Link)
+        {
+            Hint = $"Links to a row of {LinkTable}: pick one the game (or this mod) has. A link to a row that doesn't exist does nothing in game.";
+        }
+        else if (Kind == EditorFieldKind.Choice)
+        {
+            Hint = "The values the game uses for this.";
+        }
+
         if (Kind == EditorFieldKind.Stats)
         {
             Hint = "A mod's list replaces the game's whole list: a game stat left out is gone in game. ✕ removes a stat; Put back restores one.";
@@ -137,6 +177,53 @@ public sealed partial class EditorFieldViewModel : ObservableObject
                 ? NsLocText.Make(table, key, value)
                 : value;
             ValueText = JsonValue.Create(encoded)!.ToJsonString(DisplayOptions);
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>A true/false field as a checkbox.</summary>
+    public bool BoolValue
+    {
+        get => ((_fields.TryGetValue(FieldName, out var v) ? v : null) ?? _baseValue) is JsonValue jv && jv.TryGetValue<bool>(out var b) && b;
+        set
+        {
+            ValueText = value ? "true" : "false";
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// A Link field's row name, or a Choice field's value. Only a value in Options is written (in the
+    /// game's spelling); anything else shows why and leaves the field as it was.
+    /// </summary>
+    public string SelectedOption
+    {
+        get => Kind == EditorFieldKind.Link
+            ? ((_fields.TryGetValue(FieldName, out var v) ? v : null) ?? _baseValue)?["RowName"]?.ToString() ?? ""
+            : CurrentString() ?? "";
+        set
+        {
+            var match = Options.FirstOrDefault(o => string.Equals(o, value?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                ParseError = Kind == EditorFieldKind.Link
+                    ? $"{LinkTable} has no row '{value}'. Pick one from the list."
+                    : "Pick one of the values in the list.";
+                return;
+            }
+
+            if (Kind == EditorFieldKind.Link)
+            {
+                // Keep the link's other parts (its DataTableName); only the row changes.
+                var link = ((_fields.TryGetValue(FieldName, out var v) ? v : null) ?? _baseValue)?.DeepClone() as JsonObject ?? new JsonObject();
+                link["RowName"] = match;
+                ValueText = link.ToJsonString(DisplayOptions);
+            }
+            else
+            {
+                ValueText = JsonValue.Create(match)!.ToJsonString(DisplayOptions);
+            }
+
             OnPropertyChanged();
         }
     }
@@ -237,8 +324,11 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     private string? CurrentString() =>
         ((_fields.TryGetValue(FieldName, out var v) ? v : null) ?? _baseValue) is JsonValue jv && jv.TryGetValue<string>(out var s) ? s : null;
 
-    private static EditorFieldKind KindOf(string field, JsonNode? value) => value switch
+    private static EditorFieldKind KindOf(string field, JsonNode? value, FieldChoices? choices) => value switch
     {
+        JsonValue b when b.GetValueKind() is JsonValueKind.True or JsonValueKind.False => EditorFieldKind.Bool,
+        JsonObject o when choices?.LinkTable is not null && choices.Options.Count > 0 && o["RowName"] is JsonValue && o.Count <= 2 => EditorFieldKind.Link,
+        JsonValue s when choices is { LinkTable: null, Options.Count: > 1 } && s.TryGetValue<string>(out var text) && NsLocText.TextOf(text) is null => EditorFieldKind.Choice,
         _ when ScaleRules.TryReadNumber(value, out _) => EditorFieldKind.Number,
         JsonValue v when v.TryGetValue<string>(out var s) => NsLocText.TextOf(s) is not null ? EditorFieldKind.Text : EditorFieldKind.String,
         _ when GameItemEditor.IsStatsObject(field, value) => EditorFieldKind.Stats,

@@ -88,6 +88,56 @@ public sealed partial class ExmodEditorViewModel
     private bool HasGameTable(string currentFile) =>
         !_gameDataMissing && !string.Equals(currentFile, "EndOfMod", StringComparison.OrdinalIgnoreCase) && Directory.Exists(_dataFolder) && GameTables.Rows(currentFile) is not null;
 
+    private readonly Dictionary<(string File, string Field), FieldChoices?> _fieldChoices = [];
+
+    /// <summary>
+    /// What a field may hold, from the game's own tables (null: free entry): a link field's target
+    /// rows (the game's, plus rows this mod adds there, plus "None"), or the few values the game
+    /// uses for a text field. Read once per table and field.
+    /// </summary>
+    private FieldChoices? ChoicesFor(string currentFile, string field, JsonNode? value)
+    {
+        if (_gameDataMissing || !HasGameTable(currentFile))
+        {
+            return null;
+        }
+
+        if (value is JsonObject { } link && link["RowName"] is JsonValue)
+        {
+            var table = link["DataTableName"] is JsonValue t && t.TryGetValue<string>(out var named) && named.Length > 0 ? named : GameTables.LinkTarget(currentFile, field);
+            if (table is null || GameTables.CurrentFileFor(table) is not { } targetFile || GameTables.Rows(targetFile) is not { } rows)
+            {
+                return null;
+            }
+
+            var own = _package?.Rows.Where(r => string.Equals(r.CurrentFile, targetFile, StringComparison.OrdinalIgnoreCase)).SelectMany(r => r.FileItems.Select(i => i.Name)) ?? [];
+            return new FieldChoices(table, [.. new[] { "None" }.Concat(rows.Select(kv => kv.Key)).Concat(own)
+                .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n == "None" ? 0 : 1).ThenBy(n => n, StringComparer.OrdinalIgnoreCase)]);
+        }
+
+        if (_fieldChoices.TryGetValue((currentFile, field), out var cached))
+        {
+            return cached;
+        }
+
+        // A text field the game only ever sets to a few identifier-like values is a choice.
+        FieldChoices? choices = null;
+        if (value is JsonValue v && v.TryGetValue<string>(out _))
+        {
+            var values = (GameTables.Rows(currentFile) ?? []).Select(kv => kv.Value?[field])
+                .Append(GameTables.Defaults(currentFile)?[field])
+                .OfType<JsonValue>().Select(x => x.TryGetValue<string>(out var s) ? s : null).OfType<string>()
+                .Distinct(StringComparer.Ordinal).ToList();
+            if (values.Count is > 1 and <= 40 && values.All(s => s.Length is > 0 and < 60 && !s.Contains('/') && !s.Contains(' ') && NsLocText.TextOf(s) is null))
+            {
+                choices = new FieldChoices(null, [.. values.OrderBy(s => s, StringComparer.OrdinalIgnoreCase)]);
+            }
+        }
+
+        _fieldChoices[(currentFile, field)] = choices;
+        return choices;
+    }
+
     /// <summary>The game's stats for "Add a stat" on stats fields; null without game data.</summary>
     private IReadOnlyList<StatChoice>? StatChoicesForFields()
     {

@@ -1167,6 +1167,26 @@
                         <TextBlock Text="{Binding BasePlainText}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" FontFamily="Consolas" Foreground="{DynamicResource FaintForegroundBrush}"/>
                     </StackPanel>
 
+                    <!-- True/false -->
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding IsBoolKind, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <CheckBox IsChecked="{Binding BoolValue}" VerticalAlignment="Center" AutomationProperties.Name="{Binding Label}"/>
+                        <TextBlock Text="{Binding BasePlainText}" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                    </StackPanel>
+
+                    <!-- A link to another table's row, or one of the game's own values: only real ones -->
+                    <StackPanel Visibility="{Binding IsListKind, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <ComboBox ItemsSource="{Binding Options}" Text="{Binding SelectedOption, UpdateSourceTrigger=LostFocus}"
+                                  IsEditable="True" IsTextSearchEnabled="True" MaxWidth="420" HorizontalAlignment="Left" MinWidth="260"
+                                  AutomationProperties.Name="{Binding Label}" ToolTip="Type to search; only values in the list are kept">
+                            <ComboBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ComboBox.ItemsPanel>
+                        </ComboBox>
+                        <TextBlock Text="{Binding BasePlainText}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                    </StackPanel>
+
                     <!-- One row per stat -->
                     <StackPanel Visibility="{Binding IsStatsKind, Converter={StaticResource BoolToVisibilityConverter}}">
                         <ItemsControl ItemsSource="{Binding Stats}">
