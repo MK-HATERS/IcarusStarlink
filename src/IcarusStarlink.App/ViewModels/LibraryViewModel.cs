@@ -1349,6 +1349,55 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Mod Organizer's manual install, offered only when importing an archive failed: choose what in
+    /// it to install and what each piece is (ManualInstaller / ManualInstallWindow). True when
+    /// something was installed; false when the user cancelled (the caller reports the failure).
+    /// </summary>
+    private async Task<bool> InstallArchiveManuallyAfterFailureAsync(string path, string reason)
+    {
+        var scratch = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Manual_{Guid.NewGuid():N}");
+        try
+        {
+            if (string.Equals(Path.GetExtension(path), ".pak", StringComparison.OrdinalIgnoreCase))
+            {
+                Directory.CreateDirectory(scratch);
+                File.Copy(path, Path.Combine(scratch, Path.GetFileName(path)));
+            }
+            else
+            {
+                AnyArchiveExtractor.ExtractToDirectory(path, scratch);
+            }
+
+            if (Downloads.ManualInstall(scratch, Path.GetFileNameWithoutExtension(path), reason, ManualInstaller.Suggest(scratch)) is not { Count: > 0 } plan)
+            {
+                return false;
+            }
+
+            var installed = await ManualInstaller.InstallAsync(
+                plan, _repository, _ue4ssModRepository, _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath,
+                source: null, nexusModId: null, catalogEntryId: null, ue4ssNamesInUse: null);
+            _activityLog.Log($"Installed {installed.Count} part(s) of '{Path.GetFileName(path)}' manually.", ActivityEntryKind.Success);
+            StatusMessage = $"Installed {installed.Count} part(s) from '{Path.GetFileName(path)}'. UE4SS mods land unticked: tick them, then Apply.";
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            return true;
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(scratch))
+                {
+                    Directory.Delete(scratch, recursive: true);
+                }
+            }
+            catch (Exception)
+            {
+                // Best-effort scratch cleanup.
+            }
+        }
+    }
+
+    /// <summary>
     /// Imports one already-known path — a real folder, a bare .pak, or (falling through to the
     /// same auto-detection ImportFile's own dialog already uses) any other file, sniffed as an
     /// archive by its actual content rather than trusted by extension. Shared by drag-and-drop and
@@ -1418,9 +1467,25 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             AnyArchiveExtractor.ExtractToDirectory(path, tempExtractDirectory);
-            var archiveResult = await ExtractedModClassifier.ClassifyAndImport(
-                tempExtractDirectory, path, _repository, _ue4ssModRepository,
-                _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, chooseArchive: Downloads.ChooseArchive);
+            ClassifiedImport archiveResult;
+            try
+            {
+                archiveResult = await ExtractedModClassifier.ClassifyAndImport(
+                    tempExtractDirectory, path, _repository, _ue4ssModRepository,
+                    _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, chooseArchive: Downloads.ChooseArchive);
+            }
+            catch (Exception ex) when (ex is not ImportCancelledException)
+            {
+                // Couldn't sort it out automatically: let the user say what's what (Mod Organizer's
+                // manual install). Cancelling that reports the original failure as before.
+                if (await InstallArchiveManuallyAfterFailureAsync(path, ex.Message))
+                {
+                    return;
+                }
+
+                throw;
+            }
+
             var (entryName, folderName, kind, _) = archiveResult;
             _activityLog.Log(
                 kind == PendingDownloadActivationKind.Library ? $"Imported '{entryName}'." : $"Imported '{folderName}' as a UE4SS mod.",

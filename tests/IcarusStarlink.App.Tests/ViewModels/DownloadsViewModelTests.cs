@@ -142,6 +142,78 @@ public sealed class DownloadsViewModelTests : IDisposable
         Assert.Contains("Needs:", item.RequirementsSummary);
     }
 
+    /// <summary>A download Starlink can't sort out (loose .uasset files next to a Lua mod) — the import fails and only THEN the manual install opens, with the reason, pre-filled with Starlink's guesses.</summary>
+    private static void WriteUnrecognisable(ZipArchive archive)
+    {
+        WriteEntry(archive, "Stray/BP_Thing.uasset", "asset");
+        WriteEntry(archive, "LuaPart/Scripts/main.lua", "print('lua')");
+        WriteEntry(archive, "readme.txt", "hi");
+    }
+
+    [Fact]
+    public async Task Activate_Fails_ThenManualInstall_InstallsWhatTheUserKept()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        string? reasonShown = null;
+        vm.ManualInstall = (root, name, reason, guesses) => { reasonShown = reason; return [.. guesses]; };
+        var item = harness.AddDownload("Odd Mod 1.0.zip", WriteUnrecognisable);
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        Assert.Contains(".uasset", reasonShown);
+        Assert.Contains("LuaPart", harness.Ue4ss.GetAll());
+        Assert.Equal(361, harness.Ue4ssMeta.Load("LuaPart").NexusModId);
+        Assert.Equal(2739, harness.Ue4ssMeta.Load("LuaPart").NexusFileId);
+        Assert.Contains(harness.PendingStore.Entries.Single().ActivatedItems, i => i.FolderName == "LuaPart" && i.Kind == PendingDownloadActivationKind.Ue4ssMod);
+        Assert.StartsWith("Installed manually", vm.PendingDownloadStatusMessage);
+    }
+
+    [Fact]
+    public async Task Activate_Fails_AndManualInstallCancelled_KeepsTheFailureAndInstallsNothing()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        vm.ManualInstall = (_, _, _, _) => null;
+        var item = harness.AddDownload("Odd Mod 1.0.zip", WriteUnrecognisable);
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        Assert.StartsWith("Import failed", vm.PendingDownloadStatusMessage);
+        Assert.Empty(harness.Ue4ss.GetAll());
+        Assert.Empty(harness.PendingStore.Entries.Single().ActivatedItems);
+    }
+
+    /// <summary>Choosing nothing when asked which alternative to install is the user's decision, not a failure — no manual install pops up.</summary>
+    [Fact]
+    public async Task Activate_CancellingTheChoiceOfAlternatives_DoesNotOpenManualInstall()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        var manualOpened = false;
+        vm.ManualInstall = (_, _, _, _) => { manualOpened = true; return null; };
+        vm.ChooseArchive = (_, _) => null;
+        var item = harness.AddDownload("Two.zip", archive =>
+        {
+            foreach (var inner in new[] { "A.zip", "B.zip" })
+            {
+                var bytes = new MemoryStream();
+                using (var innerZip = new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
+                {
+                    WriteEntry(innerZip, "Scripts/main.lua", "print('x')");
+                }
+
+                using var entry = archive.CreateEntry(inner).Open();
+                entry.Write(bytes.ToArray());
+            }
+        });
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        Assert.False(manualOpened);
+        Assert.Contains("cancelled", vm.PendingDownloadStatusMessage);
+    }
+
     /// <summary>The real report: both of WirelessPower's paks were renamed to the Nexus title, so the Library showed three rows called "Wireless Power" and the user read the extras as a dependency fetched behind their back.</summary>
     [Fact]
     public async Task Activate_GameFolderBundle_LandsAsOneLibraryModHoldingBothPaks()

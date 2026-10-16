@@ -8,6 +8,9 @@ using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.App.Services;
 
+/// <summary>The user cancelled a choice the import needed (which alternative to install) — not a failure, so nothing falls back to a manual install.</summary>
+public sealed class ImportCancelledException(string message) : Exception(message);
+
 /// <summary>One of several archives inside a download, as offered to the user: its file name and, when it holds an EXMOD, that mod's own name, version and description.</summary>
 public sealed record ArchiveChoice(string FileName, string Title, string? Detail);
 
@@ -186,7 +189,7 @@ public static class ExtractedModClassifier
                 var pick = chooseArchive(downloadName, choices);
                 if (pick is not { } index || index < 0 || index >= nestedArchives.Length)
                 {
-                    throw new FormatException("Import cancelled — no version was chosen. Activate it again to choose.");
+                    throw new ImportCancelledException("Import cancelled — no version was chosen. Activate it again to choose.");
                 }
 
                 chosen = nestedArchives[index];

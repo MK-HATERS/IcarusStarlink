@@ -503,7 +503,7 @@ public sealed class ExtractedModClassifierTests : IDisposable
         var libraryRepository = new FakeLibraryRepository();
         var ue4ssModRepository = new FakeUe4ssModRepository();
 
-        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
+        var ex = await Assert.ThrowsAsync<ImportCancelledException>(() => ExtractedModClassifier.ClassifyAndImport(
             _extractedDir, "Minimap V1.0.5.zip", libraryRepository, ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null,
             chooseArchive: (_, _) => null));
 
