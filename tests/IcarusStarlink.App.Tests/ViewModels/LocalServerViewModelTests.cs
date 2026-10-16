@@ -4,6 +4,7 @@ using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Server;
+using IcarusStarlink.Core.Settings;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
 
@@ -30,12 +31,20 @@ public sealed class LocalServerViewModelTests : IDisposable
 
     private string IniPath => DedicatedServerLayout.SettingsIniPath(_install, null);
 
+    private FakeSteamCmd SteamCmd { get; } = new();
+
+    private FakeSettings Settings { get; } = new();
+
+    private string BackupsRoot => Path.Combine(_root, "Backups");
+
+    private string MergedPakPath => Path.Combine(_root, "Staged_Build", "ISL-Merged_P.pak");
+
     private (LocalServerViewModel Vm, FakeStore Store, FakeProcesses Processes, FakeDialogs Dialogs) Build(string? pick = null, bool confirm = true)
     {
         var store = new FakeStore();
         var processes = new FakeProcesses();
         var dialogs = new FakeDialogs(confirm);
-        var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), () => pick, startTimer: false);
+        var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, startTimer: false);
         return (vm, store, processes, dialogs);
     }
 
@@ -201,6 +210,269 @@ public sealed class LocalServerViewModelTests : IDisposable
         Assert.Empty(store.Profiles);
         Assert.Null(vm.SelectedProfile);
         Assert.True(File.Exists(Path.Combine(_install, "IcarusServer.exe")));
+    }
+
+    // ---- Phase 2: SteamCMD ----
+
+    [Fact]
+    public async Task InstallNewServer_RunsSteamCmdIntoAnEmptyFolderAndAddsTheProfileWithAnIni()
+    {
+        var target = Path.Combine(_root, "NewServer");
+        SteamCmd.CreateServerOnInstall = true;
+        var (vm, store, _, dialogs) = Build(pick: target);
+
+        await vm.InstallNewServerCommand.ExecuteAsync(null);
+
+        Assert.Single(dialogs.Messages);
+        Assert.Equal([(target, "public")], SteamCmd.Installs);
+        var profile = Assert.Single(store.Profiles);
+        Assert.Equal(target, profile.InstallFolder);
+        Assert.True(File.Exists(DedicatedServerLayout.SettingsIniPath(target, null)));
+        Assert.Contains("Installed the server", vm.StatusMessage);
+    }
+
+    /// <summary>A non-empty folder gets the server in a subfolder, never mixed into whatever is already there.</summary>
+    [Fact]
+    public async Task InstallNewServer_IntoANonEmptyFolder_UsesASubfolder()
+    {
+        var picked = Path.Combine(_root, "Games");
+        Directory.CreateDirectory(picked);
+        File.WriteAllText(Path.Combine(picked, "other.txt"), "x");
+        SteamCmd.CreateServerOnInstall = true;
+        var (vm, _, _, _) = Build(pick: picked);
+
+        await vm.InstallNewServerCommand.ExecuteAsync(null);
+
+        Assert.Equal(Path.Combine(picked, "IcarusServer"), Assert.Single(SteamCmd.Installs).Folder);
+    }
+
+    [Fact]
+    public async Task InstallNewServer_SteamCmdFails_AddsNothingAndSaysWhy()
+    {
+        SteamCmd.FailWith = "ERROR! Failed to install app '2089300' (Disk write failure)";
+        var (vm, store, _, _) = Build(pick: Path.Combine(_root, "NewServer"));
+
+        await vm.InstallNewServerCommand.ExecuteAsync(null);
+
+        Assert.Empty(store.Profiles);
+        Assert.Contains("Disk write failure", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task CheckForUpdate_ComparesTheInstalledManifestWithSteam()
+    {
+        WriteManifest(buildId: 25621760);
+        SteamCmd.LatestBuild = 25700000;
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        Assert.Equal(25621760, vm.InstalledBuildId);
+        Assert.False(vm.UpdateAvailable);
+
+        await vm.CheckForUpdateCommand.ExecuteAsync(null);
+
+        Assert.True(vm.UpdateAvailable);
+        Assert.Contains("update available (build 25700000)", vm.BuildSummary);
+    }
+
+    /// <summary>Update while running: asks, stops the server, backs up its worlds, then runs SteamCMD on the profile's branch (how a branch switch is applied).</summary>
+    [Fact]
+    public async Task UpdateServer_WhileRunning_StopsBacksUpAndUpdatesOnTheChosenBranch()
+    {
+        WriteManifest(buildId: 1);
+        WriteProspect("Hard Elysium JULY");
+        var (vm, _, processes, dialogs) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        processes.Running = new RunningServer(7, DateTime.Now);
+        vm.Tick();
+        vm.Branch = "experimental";
+        Assert.True(vm.UpdateAvailable, "a different branch than the installed one needs an Update");
+
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+
+        Assert.Single(dialogs.Messages);
+        Assert.Equal([7], processes.Stopped);
+        Assert.Equal([(_install, "experimental")], SteamCmd.Installs);
+        var backup = Assert.Single(vm.Backups);
+        Assert.Contains("before-update", backup.Name);
+    }
+
+    // ---- Phase 3: mods, backups, admins, players ----
+
+    [Fact]
+    public void InstallMergedPak_CopiesThePakAndManifestAndRefusesWhileRunning()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(MergedPakPath)!);
+        File.WriteAllBytes(MergedPakPath, [1, 2, 3]);
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(MergedPakPath)!, "ISL-Merged.txt"), "Includes the following mods:\nA\n");
+        var (vm, _, processes, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        processes.Running = new RunningServer(1, DateTime.Now);
+        vm.Tick();
+
+        vm.InstallMergedPakCommand.Execute(null);
+        Assert.Contains("Stop the server", vm.StatusMessage);
+        Assert.Empty(vm.ServerPaks);
+
+        processes.Running = null;
+        vm.Tick();
+        vm.InstallMergedPakCommand.Execute(null);
+
+        Assert.Equal(["ISL-Merged_P.pak"], vm.ServerPaks.Select(p => p.FileName));
+        Assert.True(File.Exists(Path.Combine(DedicatedServerLayout.PakModsFolder(_install), "ISL-Merged.txt")));
+    }
+
+    [Fact]
+    public void Ue4ss_InstallFromGameThenCopyTickedMods_PutsThemOnTheServerAndTurnsThemOn()
+    {
+        var gameWin64 = MakeGameWithUe4ss(("StorageLink", true), ("NearbyCrafting", false));
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        Assert.False(vm.ServerHasUe4ss);
+        Assert.Equal(["NearbyCrafting", "StorageLink"], vm.GameUe4ssMods.Select(m => m.Name));
+        Assert.True(vm.GameUe4ssMods.Single(m => m.Name == "StorageLink").IsChecked, "mods enabled in the game start ticked");
+        Assert.False(vm.GameUe4ssMods.Single(m => m.Name == "NearbyCrafting").IsChecked);
+
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+        Assert.True(vm.ServerHasUe4ss);
+
+        vm.CopyCheckedUe4ssModsCommand.Execute(null);
+
+        var onServer = Assert.Single(vm.ServerUe4ssMods);
+        Assert.Equal("StorageLink", onServer.Name);
+        Assert.True(onServer.Enabled);
+        Assert.True(File.Exists(Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(_install), "StorageLink", "Scripts", "main.lua")));
+    }
+
+    [Fact]
+    public void BackUpNow_ThenRestore_PutsTheWorldBackAndKeepsASafetyCopy()
+    {
+        WriteProspect("World A", content: "{\"v\":1}");
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        vm.BackUpNowCommand.Execute(null);
+        var backup = Assert.Single(vm.Backups);
+        WriteProspect("World A", content: "{\"v\":2,\"broken\":true}");
+
+        vm.SelectedBackup = backup;
+        vm.RestoreSelectedBackupCommand.Execute(null);
+
+        Assert.Equal("{\"v\":1}", File.ReadAllText(Path.Combine(DedicatedServerLayout.ProspectsFolder(_install, null), "World A.json")));
+        Assert.Equal(2, vm.Backups.Count);
+        Assert.Contains(vm.Backups, b => b.Name.Contains("before-restore"));
+    }
+
+    [Fact]
+    public void SaveAccessLists_RequiresSteam64IdsForAdmins()
+    {
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        vm.AdminWhitelistText = "76561198851388131\nnot-an-id\n";
+
+        vm.SaveAccessListsCommand.Execute(null);
+        Assert.Contains("not-an-id", vm.StatusMessage);
+        Assert.False(File.Exists(DedicatedServerLayout.AdminWhitelistPath(_install, null)));
+
+        vm.AdminWhitelistText = "76561198851388131\n";
+        vm.SaveAccessListsCommand.Execute(null);
+        Assert.Equal("76561198851388131\r\n", File.ReadAllText(DedicatedServerLayout.AdminWhitelistPath(_install, null)));
+    }
+
+    /// <summary>Real log lines from an Icarus dedicated server (password replaced): the panel shows who is online and what happened, and the join password never reaches the log view.</summary>
+    [Fact]
+    public void Log_DrivesPlayersAndEventsAndMasksTheJoinPassword()
+    {
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        var log = DedicatedServerLayout.LogPath(_install, null, null);
+        Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+        File.WriteAllText(log, string.Join("\r\n",
+            "[2026.08.12-17.31.50:975][102]LogNet: Login request: ?password=hunter2?Name=MK-HATERS userId: Steam:UNKNOWN [0x1100001351D72E3] platform: Steam",
+            "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: MK-HATERS",
+            "[2026.08.12-17.32.01:410][337]LogLocalSessionSubsystem: Display: SetActiveProspectInfo - ProspectID: Hard Elysium JULY | ProspectDTKey: OpenWorld_Elysium") + "\r\n");
+
+        vm.Tick();
+
+        Assert.Equal("MK-HATERS", Assert.Single(vm.OnlinePlayers).Name);
+        Assert.Equal("Hard Elysium JULY", vm.CurrentProspect);
+        Assert.Contains(vm.Events, e => e.EndsWith("MK-HATERS joined"));
+        Assert.DoesNotContain(vm.LogLines, l => l.Contains("hunter2"));
+        vm.HideNoise = false;
+        Assert.Contains(vm.LogLines, l => l.Contains("password=***"));
+    }
+
+    private void WriteManifest(int buildId, string? betaKey = null)
+    {
+        var path = DedicatedServerLayout.AppManifestPath(_install);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, $"\"AppState\"\n{{\n\t\"appid\"\t\t\"2089300\"\n\t\"buildid\"\t\t\"{buildId}\"\n\t\"UserConfig\"\n\t{{\n{(betaKey is null ? "" : $"\t\t\"BetaKey\"\t\t\"{betaKey}\"\n")}\t}}\n}}\n");
+    }
+
+    private void WriteProspect(string name, string content = "{}")
+    {
+        var folder = DedicatedServerLayout.ProspectsFolder(_install, null);
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, name + ".json"), content);
+    }
+
+    /// <summary>A fake game install with UE4SS: Icarus\Binaries\Win64\{dwmapi.dll, ue4ss\UE4SS.dll, ue4ss\Mods\…}. Returns its Win64 folder.</summary>
+    private string MakeGameWithUe4ss(params (string Name, bool Enabled)[] mods)
+    {
+        var win64 = Path.Combine(_root, "Game", "Icarus", "Binaries", "Win64");
+        var modsFolder = Path.Combine(win64, "ue4ss", "Mods");
+        Directory.CreateDirectory(Path.Combine(modsFolder, "shared"));
+        Directory.CreateDirectory(Path.Combine(modsFolder, "Keybinds"));
+        File.WriteAllText(Path.Combine(win64, "dwmapi.dll"), "proxy");
+        File.WriteAllText(Path.Combine(win64, "ue4ss", "UE4SS.dll"), "loader");
+        File.WriteAllText(Path.Combine(win64, "ue4ss", "UE4SS-settings.ini"), "[General]\n");
+        var txt = new List<string>();
+        foreach (var (name, enabled) in mods)
+        {
+            Directory.CreateDirectory(Path.Combine(modsFolder, name, "Scripts"));
+            File.WriteAllText(Path.Combine(modsFolder, name, "Scripts", "main.lua"), "-- " + name);
+            txt.Add($"{name} : {(enabled ? 1 : 0)}");
+        }
+
+        txt.AddRange(["", "; Built-in keybinds, do not move up!", "Keybinds : 1"]);
+        File.WriteAllText(Path.Combine(modsFolder, "mods.txt"), string.Join("\r\n", txt) + "\r\n");
+        return win64;
+    }
+
+    private sealed class FakeSteamCmd : ISteamCmdService
+    {
+        public List<(string Folder, string Branch)> Installs { get; } = [];
+        public bool CreateServerOnInstall { get; set; }
+        public string? FailWith { get; set; }
+        public int? LatestBuild { get; set; }
+
+        public Task EnsureInstalledAsync(Action<string> onLine, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, Action<string> onLine, CancellationToken cancellationToken = default)
+        {
+            Installs.Add((installFolder, branch));
+            onLine(" Update state (0x61) downloading, progress: 50.00 (1 / 2)");
+            if (FailWith is not null)
+            {
+                onLine(FailWith);
+                return Task.FromResult(new SteamCmdResult(false, FailWith));
+            }
+
+            if (CreateServerOnInstall)
+            {
+                Directory.CreateDirectory(installFolder);
+                File.WriteAllText(Path.Combine(installFolder, "IcarusServer.exe"), "");
+            }
+
+            return Task.FromResult(new SteamCmdResult(true, "ok"));
+        }
+
+        public Task<int?> GetLatestBuildIdAsync(string branch, CancellationToken cancellationToken = default) => Task.FromResult(LatestBuild);
+    }
+
+    private sealed class FakeSettings : ISettingsService
+    {
+        public AppSettings Current { get; } = new();
+        public bool Save() => true;
     }
 
     private sealed class FakeStore : IDedicatedServerProfileStore

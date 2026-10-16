@@ -37,19 +37,31 @@
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
-            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
-                <Button Content="Add existing server…" Command="{Binding AddExistingServerCommand}"
-                        ToolTip="Point at a dedicated server you already installed (the folder with IcarusServer.exe). Its settings are read from its own ServerSettings.ini."/>
-                <Button Content="Remove" Command="{Binding RemoveProfileCommand}" Margin="8,0,0,0"
-                        ToolTip="Removes the entry from this list only — the server's files are not touched"/>
+            <StackPanel Grid.Row="2" Margin="0,8,0,0">
+                <Button Content="Install new server…" Command="{Binding InstallNewServerCommand}" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Stretch"
+                        ToolTip="Downloads the Icarus dedicated server with SteamCMD (app 2089300 — free, no Icarus licence needed, about 10 GB) into a folder you choose"/>
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button Content="Add existing server…" Command="{Binding AddExistingServerCommand}"
+                            ToolTip="Point at a dedicated server you already installed (the folder with IcarusServer.exe). Its settings are read from its own ServerSettings.ini."/>
+                    <Button Content="Remove" Command="{Binding RemoveProfileCommand}" Margin="8,0,0,0"
+                            ToolTip="Removes the entry from this list only — the server's files are not touched"/>
+                </StackPanel>
             </StackPanel>
-            <TextBlock Grid.Row="3" Margin="0,8,0,0" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}"
-                       Text="Installing a new server through SteamCMD (app 2089300, free, no Icarus licence needed) is coming next. For now, install it with SteamCMD and add the folder here."/>
+            <Border Grid.Row="3" Margin="0,10,0,0" Padding="10,8" CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
+                    Visibility="{Binding IsSteamCmdBusy, Converter={StaticResource BoolToVisibilityConverter}}">
+                <StackPanel>
+                    <TextBlock Text="STEAMCMD" Style="{StaticResource FieldLabelStyle}"/>
+                    <ProgressBar Value="{Binding SteamCmdProgress}" Maximum="100" Height="6" Margin="0,6,0,6"/>
+                    <TextBlock Text="{Binding SteamCmdStatus}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    <TextBlock Text="Full output is in the Log tab." FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Border>
         </Grid>
 
         <TextBlock Grid.Column="2" Margin="0,40,0,0" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
                    Visibility="{Binding HasNoProfile, Converter={StaticResource BoolToVisibilityConverter}}"
-                   Text="No servers yet. Click 'Add existing server…' and pick the folder that holds IcarusServer.exe. Starlink then edits its ServerSettings.ini, starts and stops it, and shows its log here."/>
+                   Text="No servers yet. Click 'Install new server…' to download one with SteamCMD, or 'Add existing server…' and pick the folder that holds IcarusServer.exe. Starlink then edits its ServerSettings.ini, starts and stops it, keeps it updated, manages its mods and backups, and shows its log here."/>
 
         <Grid Grid.Column="2" Visibility="{Binding HasProfile, Converter={StaticResource BoolToVisibilityConverter}}">
             <Grid.RowDefinitions>
@@ -100,6 +112,24 @@
                             <TextBlock Text="{Binding SelectedProfile.Name}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </StackPanel>
                         <TextBlock Text="{Binding InstallFolder}" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock Text="{Binding BuildSummary}" FontSize="11.5" VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <Button Content="Check for update" Command="{Binding CheckForUpdateCommand}" Margin="12,0,0,0" Padding="8,2" FontSize="11.5"
+                                    ToolTip="Asks Steam (through SteamCMD, anonymous) for the newest build on this profile's branch"/>
+                            <Button Content="Update" Command="{Binding UpdateServerCommand}" Margin="6,0,0,0" Padding="8,2" FontSize="11.5"
+                                    ToolTip="Stops the server if it's running, backs up its worlds and settings, then updates it with SteamCMD — also how a branch switch is applied"/>
+                        </StackPanel>
                     </StackPanel>
                 </DockPanel>
             </Border>
@@ -125,16 +155,55 @@
                             <TextBlock Text="{Binding LogPath}" FontFamily="Consolas" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"
                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                         </DockPanel>
-                        <ListBox x:Name="LogList" Grid.Row="1" ItemsSource="{Binding LogLines}" FontFamily="Consolas" FontSize="11.5"
-                                 BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
-                                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Auto">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding}"/>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                        <Grid Grid.Row="1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="260"/>
+                            </Grid.ColumnDefinitions>
+                            <ListBox x:Name="LogList" Grid.Column="0" ItemsSource="{Binding LogLines}" FontFamily="Consolas" FontSize="11.5"
+                                     BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                                     VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}"/>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <Grid Grid.Column="2">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="{Binding OnlineSummary}" Style="{StaticResource FieldLabelStyle}"/>
+                                <ItemsControl Grid.Row="1" ItemsSource="{Binding OnlinePlayers}" Margin="0,4,0,8">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Margin="0,1">
+                                                <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold"/>
+                                                <Run Text="{Binding Since, Mode=OneWay, StringFormat='  since {0:HH:mm} UTC'}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Grid.Row="2" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap">
+                                    <Run Text="World: " Foreground="{DynamicResource SecondaryForegroundBrush}"/><Run Text="{Binding CurrentProspect, Mode=OneWay, TargetNullValue='lobby'}"/>
+                                </TextBlock>
+                                <TextBlock Grid.Row="3" Text="EVENTS" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                                <ListBox Grid.Row="4" ItemsSource="{Binding Events}" FontSize="11.5" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Grid>
+                        </Grid>
                     </Grid>
                 </TabItem>
 
@@ -171,6 +240,10 @@
                             </StackPanel>
 
                             <StackPanel Grid.Row="0" Grid.Column="2">
+                                <TextBlock Text="STEAM BRANCH" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                                <ComboBox ItemsSource="{Binding BranchOptions}" SelectedItem="{Binding Branch}" Width="160" HorizontalAlignment="Left" Margin="0,0,0,2"/>
+                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,12"
+                                           Text="Players on Icarus's Experimental branch can only join an experimental server. Changing this takes effect when you click Update."/>
                                 <TextBlock Text="NETWORK" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
                                 <StackPanel Orientation="Horizontal">
                                     <StackPanel>
@@ -212,7 +285,7 @@
                                 <TextBox Text="{Binding GameSaveFrequencyText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,8"/>
                                 <CheckBox Content="Save on exit" IsChecked="{Binding SaveGameOnExit}" IsThreeState="True" Margin="0,0,0,4"/>
                                 <CheckBox Content="Fiber foliage regrows over time" IsChecked="{Binding FiberFoliageRespawn}" IsThreeState="True" Margin="0,0,0,4"/>
-                                <CheckBox Content="Mined large stones respawn" IsChecked="{Binding LargeStoneRespawn}" IsThreeState="True" Margin="0,0,0,4"/>
+                                <CheckBox Content="Mined large stones respawn" IsChecked="{Binding LargeStonesRespawn}" IsThreeState="True" Margin="0,0,0,4"/>
                             </StackPanel>
 
                             <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,8,0,0">
@@ -244,6 +317,157 @@
                             </StackPanel>
                         </Grid>
                     </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="Mods">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,10"
+                                       Text="Stop the server before changing its mods. Each change backs up its worlds and settings first, and anything taken off the server is moved into its backups folder, never deleted. Players need the same content mods as the server."/>
+
+                            <TextBlock Text="PAK MODS ON THE SERVER" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                            <TextBlock Text="{Binding MergedPakSummary}" FontSize="12" Margin="0,0,0,6"/>
+                            <ListBox ItemsSource="{Binding ServerPaks}" SelectedItem="{Binding SelectedServerPak}" Height="110"
+                                     BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock>
+                                            <Run Text="{Binding FileName, Mode=OneWay}" FontFamily="Consolas"/>
+                                            <Run Text="{Binding ModifiedLocal, Mode=OneWay, StringFormat='  {0:g}'}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <StackPanel Orientation="Horizontal" Margin="0,6,0,14">
+                                <Button Content="Install my merged pak" Command="{Binding InstallMergedPakCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                        IsEnabled="{Binding HasMergedPak}"
+                                        ToolTip="Copies the pak your last Merge &amp; Install built (and its mod list) into the server's Content\Paks\mods"/>
+                                <Button Content="Remove selected" Command="{Binding RemoveSelectedPakCommand}" Margin="8,0,0,0"/>
+                                <Button Content="Open folder" Command="{Binding OpenServerPaksFolderCommand}" Margin="8,0,0,0"/>
+                            </StackPanel>
+
+                            <TextBlock Text="UE4SS ON THE SERVER" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                            <TextBlock Text="{Binding ServerUe4ssSummary}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                            <Button Content="Install UE4SS from my game" Command="{Binding InstallUe4ssOnServerCommand}" HorizontalAlignment="Left" Margin="0,0,0,10"
+                                    ToolTip="Copies the loader (dwmapi.dll, UE4SS.dll), its settings and framework mods from your game's install — verified to run on the dedicated server. Existing settings on the server are kept."/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="16"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Your game's UE4SS mods — tick to put on the server" FontSize="12" Margin="0,0,0,4"/>
+                                    <ItemsControl ItemsSource="{Binding GameUe4ssMods}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <CheckBox IsChecked="{Binding IsChecked}" Margin="0,2">
+                                                    <TextBlock>
+                                                        <Run Text="{Binding Name, Mode=OneWay}"/>
+                                                        <Run Text="{Binding Note, Mode=OneWay, StringFormat='  ({0})'}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
+                                                    </TextBlock>
+                                                </CheckBox>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Content="Copy ticked mods to the server" Command="{Binding CopyCheckedUe4ssModsCommand}" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                            ToolTip="Copies each ticked mod folder from your game to the server and turns it on in the server's mods.txt"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="On the server" FontSize="12" Margin="0,0,0,4"/>
+                                    <ItemsControl ItemsSource="{Binding ServerUe4ssMods}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <DockPanel Margin="0,2">
+                                                    <Button DockPanel.Dock="Right" Content="Remove" Padding="6,1" FontSize="11"
+                                                            Command="{Binding DataContext.RemoveServerUe4ssModCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"/>
+                                                    <TextBlock VerticalAlignment="Center">
+                                                        <Run Text="{Binding Name, Mode=OneWay}"/>
+                                                        <Run Text="{Binding Enabled, Mode=OneWay, StringFormat='  (on: {0})'}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
+                                                    </TextBlock>
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="Worlds &amp; backups">
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <DockPanel Grid.Column="0">
+                            <TextBlock DockPanel.Dock="Top" Text="WORLDS (PROSPECTS)" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                            <TextBlock DockPanel.Dock="Bottom" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0"
+                                       Text="Saved under PlayerData\DedicatedServer\Prospects, newest first. Pick which one starts in Settings → Load prospect. The game also keeps rolling .backup copies of each."/>
+                            <ListBox ItemsSource="{Binding Prospects}" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"/>
+                        </DockPanel>
+                        <DockPanel Grid.Column="2">
+                            <TextBlock DockPanel.Dock="Top" Text="BACKUPS" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                            <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Back up now" Command="{Binding BackUpNowCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                            ToolTip="Zips every world, ServerSettings.ini and the admin/ban lists (safe while the server runs)"/>
+                                    <Button Content="Restore selected" Command="{Binding RestoreSelectedBackupCommand}" Margin="8,0,0,0"
+                                            ToolTip="Server must be stopped. The current state is backed up first, so a restore can be undone."/>
+                                    <Button Content="Open folder" Command="{Binding OpenBackupsFolderCommand}" Margin="8,0,0,0"/>
+                                </StackPanel>
+                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0"
+                                           Text="Made automatically before every Update, mod change and restore."/>
+                            </StackPanel>
+                            <ListBox ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock>
+                                            <Run Text="{Binding Name, Mode=OneWay}"/>
+                                            <Run Text="{Binding SizeBytes, Mode=OneWay, StringFormat='  {0:N0} bytes'}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="Admins &amp; bans">
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <DockPanel Grid.Column="0">
+                            <TextBlock DockPanel.Dock="Top" Text="ADMINS (STEAM64 IDS, ONE PER LINE)" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                            <TextBlock DockPanel.Dock="Bottom" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0"
+                                       Text="These players are admin without typing /AdminLogin (AdminWhitelist.txt). Known side effect from the official wiki: it breaks the lobby's prospect Delete button."/>
+                            <TextBox Text="{Binding AdminWhitelistText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" FontFamily="Consolas"
+                                     VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
+                        </DockPanel>
+                        <DockPanel Grid.Column="2">
+                            <TextBlock DockPanel.Dock="Top" Text="BAN LIST" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                            <TextBlock DockPanel.Dock="Bottom" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0"
+                                       Text="PlayerBanList.txt as the server stores it. In game, admins can also type /BanPlayer name and /UnbanPlayer name in chat."/>
+                            <TextBox Text="{Binding BanListText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" FontFamily="Consolas"
+                                     VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
+                        </DockPanel>
+                        <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button Content="Save lists" Command="{Binding SaveAccessListsCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                    ToolTip="Server must be stopped (it rewrites the ban list itself while running). Applies on the next start."/>
+                            <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}"
+                                       Text="Admin chat commands: /AdminLogin password, /KickPlayer, /BanPlayer, /UnbanPlayer, /ReturnToLobby, /AdminSay."/>
+                        </StackPanel>
+                    </Grid>
                 </TabItem>
             </TabControl>
         </Grid>

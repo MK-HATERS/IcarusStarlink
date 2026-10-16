@@ -105,4 +105,18 @@ public static class ServerLogFilter
         line.Contains(": Error:", StringComparison.Ordinal) || line.Contains("Fatal error", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsWarning(string line) => line.Contains(": Warning:", StringComparison.Ordinal);
+
+    /// <summary>The server logs every login request WITH the join password in plain text ("Login request: ?password=4543?Name=…") — masked before it is shown or copied anywhere.</summary>
+    public static string Redact(string line)
+    {
+        var at = line.IndexOf("password=", StringComparison.OrdinalIgnoreCase);
+        if (at < 0)
+        {
+            return line;
+        }
+
+        var start = at + "password=".Length;
+        var end = line.IndexOfAny(['?', ' '], start);
+        return line[..start] + "***" + (end < 0 ? "" : line[end..]);
+    }
 }

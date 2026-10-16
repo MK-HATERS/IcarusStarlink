@@ -402,11 +402,17 @@ public partial class App : Application
         builder.Services.AddSingleton<IDedicatedServerProfileStore>(sp =>
             new DedicatedServerProfileStore(appDataDirectory, sp.GetRequiredService<ILogger<DedicatedServerProfileStore>>()));
         builder.Services.AddSingleton<IDedicatedServerProcessService, DedicatedServerProcessService>();
+        builder.Services.AddSingleton<ISteamCmdService>(sp =>
+            new SteamCmdService(sp.GetRequiredService<HttpClient>(), Path.Combine(appDataDirectory, "Tools")));
         builder.Services.AddSingleton(sp => new LocalServerViewModel(
             sp.GetRequiredService<IDedicatedServerProfileStore>(),
             sp.GetRequiredService<IDedicatedServerProcessService>(),
             sp.GetRequiredService<IDialogService>(),
-            sp.GetRequiredService<IActivityLog>()));
+            sp.GetRequiredService<IActivityLog>(),
+            sp.GetRequiredService<ISteamCmdService>(),
+            sp.GetRequiredService<ISettingsService>(),
+            Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
+            Path.Combine(appDataDirectory, "Backups")));
         builder.Services.AddSingleton<HelpViewModel>();
 
         builder.Services.AddSingleton<MainWindow>();

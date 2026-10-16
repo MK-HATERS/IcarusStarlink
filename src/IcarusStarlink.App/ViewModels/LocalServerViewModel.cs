@@ -29,15 +29,24 @@ public sealed partial class LocalServerViewModel : ObservableObject
     private readonly IDedicatedServerProcessService _processes;
     private readonly IDialogService _dialogService;
     private readonly IActivityLog _activityLog;
-    private readonly Func<string?> _pickFolder;
+    private readonly Func<string, string?> _pickFolder;
+    private readonly ISteamCmdService? _steamCmd;
+    private readonly Core.Settings.ISettingsService? _settings;
+    private readonly string? _mergedPakPath;
+    private readonly string _backupsRoot;
     private readonly DispatcherTimer? _timer;
     private readonly List<string> _allLogLines = [];
     private LogTailer? _tailer;
 
     public LocalServerViewModel(
         IDedicatedServerProfileStore store, IDedicatedServerProcessService processes, IDialogService dialogService,
-        IActivityLog activityLog, Func<string?>? pickFolder = null, bool startTimer = true)
+        IActivityLog activityLog, ISteamCmdService? steamCmd = null, Core.Settings.ISettingsService? settings = null,
+        string? mergedPakPath = null, string? backupsRoot = null, Func<string, string?>? pickFolder = null, bool startTimer = true)
     {
+        _steamCmd = steamCmd;
+        _settings = settings;
+        _mergedPakPath = mergedPakPath;
+        _backupsRoot = backupsRoot ?? Path.Combine(Path.GetTempPath(), "IcarusStarlink", "ServerBackups");
         _store = store;
         _processes = processes;
         _dialogService = dialogService;
@@ -82,6 +91,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         LoadForm();
         AttachLog();
         Tick();
+        RefreshServerExtras();
     }
 
     [ObservableProperty]
@@ -117,7 +127,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
     [ObservableProperty] private bool? _resumeProspect;
     [ObservableProperty] private bool? _saveGameOnExit;
     [ObservableProperty] private bool? _fiberFoliageRespawn;
-    [ObservableProperty] private bool? _largeStoneRespawn;
+    [ObservableProperty] private bool? _largeStonesRespawn;
 
     /// <summary>Written by the server — shown, never edited.</summary>
     [ObservableProperty] private string? _lastProspectName;
@@ -190,7 +200,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
     [RelayCommand]
     private void AddExistingServer()
     {
-        var picked = _pickFolder();
+        var picked = _pickFolder("Select the dedicated server's install folder (the one with IcarusServer.exe)");
         if (string.IsNullOrWhiteSpace(picked))
         {
             return;
@@ -253,7 +263,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanUseProfile))]
     private void SaveSettings() => TrySave();
 
-    private bool CanStart() => SelectedProfile is not null && Running is null && !IsBusy;
+    private bool CanStart() => SelectedProfile is not null && Running is null && !IsBusy && !IsSteamCmdBusy;
 
     [RelayCommand(CanExecute = nameof(CanStart))]
     private async Task StartAsync()
@@ -421,6 +431,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
         {
             AppendLog(_tailer.Poll());
         }
+
+        ExpireStalePlayers();
     }
 
     // ---- Internals ----
@@ -438,6 +450,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
 
         ProfileName = p.Name;
+        Branch = SteamCmd.NormalizeBranch(p.Branch);
         SteamServerName = p.SteamServerName;
         PortText = p.Port.ToString(CultureInfo.InvariantCulture);
         QueryPortText = p.QueryPort.ToString(CultureInfo.InvariantCulture);
@@ -459,7 +472,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         ResumeProspect = s.ResumeProspect;
         SaveGameOnExit = s.SaveGameOnExit;
         FiberFoliageRespawn = s.FiberFoliageRespawn;
-        LargeStoneRespawn = s.LargeStoneRespawn;
+        LargeStonesRespawn = s.LargeStonesRespawn;
         LastProspectName = s.LastProspectName;
 
         foreach (var name in DedicatedServerLayout.ListProspects(p.InstallFolder, p.SavedDirSuffix))
@@ -574,7 +587,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
                 Multihome = Multihome.Trim(),
                 SavedDirSuffix = SavedDirSuffix.Trim(),
                 LogFileName = LogFileName.Trim(),
-                Branch = current.Branch,
+                Branch = SteamCmd.NormalizeBranch(Branch),
             };
         }
 
@@ -630,7 +643,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
             ResumeProspect = ResumeProspect,
             SaveGameOnExit = SaveGameOnExit,
             FiberFoliageRespawn = FiberFoliageRespawn,
-            LargeStoneRespawn = LargeStoneRespawn,
+            LargeStonesRespawn = LargeStonesRespawn,
         };
     }
 
@@ -639,6 +652,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         _allLogLines.Clear();
         LogLines.Clear();
         _tailer = SelectedProfile is null ? null : new LogTailer(LogPath);
+        ResetPlayersAndEvents();
         if (_tailer is not null)
         {
             // Show the tail of the current (or last) run right away, not the whole history.
@@ -653,6 +667,9 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
+        // The server logs the join password in plain text on every login — never show or keep it.
+        lines = [.. lines.Select(ServerLogFilter.Redact)];
+        FeedPlayersAndEvents(lines);
         _allLogLines.AddRange(lines);
         if (_allLogLines.Count > MaxLogLines)
         {
@@ -691,9 +708,9 @@ public sealed partial class LocalServerViewModel : ObservableObject
         && (!HideNoise || !ServerLogFilter.IsNoise(line))
         && (string.IsNullOrWhiteSpace(LogFilter) || line.Contains(LogFilter.Trim(), StringComparison.OrdinalIgnoreCase));
 
-    private static string? PickFolderWithDialog()
+    private static string? PickFolderWithDialog(string title)
     {
-        var dialog = new OpenFolderDialog { Title = "Select the dedicated server's install folder (the one with IcarusServer.exe)" };
+        var dialog = new OpenFolderDialog { Title = title };
         return dialog.ShowDialog() == true ? dialog.FolderName : null;
     }
 

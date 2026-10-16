@@ -4,7 +4,7 @@ namespace IcarusStarlink.Core.Server;
 /// The [/Script/Icarus.DedicatedServerSettings] keys of ServerSettings.ini, typed. Key names and
 /// meanings are from RocketWerkz's own "Server Config &amp; Launch Parameters" wiki page plus the four
 /// keys hosts document beyond it (GameSaveFrequency, SaveGameOnExit, FiberFoliageRespawn,
-/// LargeStoneRespawn). A null value means "not set in the file" — written back as an empty value
+/// LargeStonesRespawn — that spelling is what the game itself writes). A null value means "not set in the file" — written back as an empty value
 /// so the game uses its own default, never invented here.
 /// </summary>
 public sealed class DedicatedServerSettings
@@ -40,5 +40,5 @@ public sealed class DedicatedServerSettings
 
     public bool? SaveGameOnExit { get; set; }
     public bool? FiberFoliageRespawn { get; set; }
-    public bool? LargeStoneRespawn { get; set; }
+    public bool? LargeStonesRespawn { get; set; }
 }

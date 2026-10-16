@@ -35,6 +35,25 @@ public static class DedicatedServerLayout
     /// <summary>The server's own pak mods folder (lowercase "mods", as the game requires).</summary>
     public static string PakModsFolder(string installFolder) => Path.Combine(installFolder, "Icarus", "Content", "Paks", "mods");
 
+    /// <summary>Steam64 ids, one per line, of players who are admin without /AdminLogin (official wiki: Icarus/Saved/AdminWhitelist.txt). Known side effect per the wiki: it breaks the lobby's prospect Delete button.</summary>
+    public static string AdminWhitelistPath(string installFolder, string? savedDirSuffix) =>
+        Path.Combine(SavedFolder(installFolder, savedDirSuffix), "AdminWhitelist.txt");
+
+    /// <summary>The server's saved ban list (BanPlayer / UnbanPlayer edit it; official wiki: Icarus/Saved/PlayerBanList.txt).</summary>
+    public static string BanListPath(string installFolder, string? savedDirSuffix) =>
+        Path.Combine(SavedFolder(installFolder, savedDirSuffix), "PlayerBanList.txt");
+
+    public static string PlayerDataFolder(string installFolder, string? savedDirSuffix) =>
+        Path.Combine(SavedFolder(installFolder, savedDirSuffix), "PlayerData");
+
+    public static string Win64Folder(string installFolder) => Path.Combine(installFolder, "Icarus", "Binaries", "Win64");
+
+    /// <summary>The server's UE4SS mods folder — the same layout as the game client's (UE4SS 3.x: Binaries\Win64\ue4ss\Mods). Verified on a real server: UE4SS 3.0.1 loads on IcarusServer-Win64-Shipping.exe through dwmapi.dll.</summary>
+    public static string Ue4ssModsFolder(string installFolder) => Path.Combine(Win64Folder(installFolder), "ue4ss", "Mods");
+
+    public static bool IsUe4ssInstalled(string installFolder) =>
+        File.Exists(Path.Combine(Win64Folder(installFolder), "dwmapi.dll")) && File.Exists(Path.Combine(Win64Folder(installFolder), "ue4ss", "UE4SS.dll"));
+
     /// <summary>SteamCMD writes this next to the install when it installed it there.</summary>
     public static string AppManifestPath(string installFolder) =>
         Path.Combine(installFolder, "steamapps", $"appmanifest_{DedicatedServerDefaults.SteamAppId}.acf");

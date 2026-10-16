@@ -115,7 +115,9 @@ public sealed class ServerSettingsIni
         GameSaveFrequency = GetDouble(nameof(DedicatedServerSettings.GameSaveFrequency)),
         SaveGameOnExit = GetBool(nameof(DedicatedServerSettings.SaveGameOnExit)),
         FiberFoliageRespawn = GetBool(nameof(DedicatedServerSettings.FiberFoliageRespawn)),
-        LargeStoneRespawn = GetBool(nameof(DedicatedServerSettings.LargeStoneRespawn)),
+        // The game writes "LargeStonesRespawn" (seen in a real server-written file); some host
+        // guides spell it without the s — accept either, always write the game's spelling.
+        LargeStonesRespawn = GetBool(nameof(DedicatedServerSettings.LargeStonesRespawn)) ?? GetBool("LargeStoneRespawn"),
     };
 
     /// <summary>Writes every key except LastProspectName (the server owns that one). A null value is written empty so the game falls back to its own default.</summary>
@@ -135,7 +137,7 @@ public sealed class ServerSettingsIni
         SetRaw(nameof(s.GameSaveFrequency), FormatDouble(s.GameSaveFrequency));
         SetRaw(nameof(s.SaveGameOnExit), FormatBool(s.SaveGameOnExit));
         SetRaw(nameof(s.FiberFoliageRespawn), FormatBool(s.FiberFoliageRespawn));
-        SetRaw(nameof(s.LargeStoneRespawn), FormatBool(s.LargeStoneRespawn));
+        SetRaw(nameof(s.LargeStonesRespawn), FormatBool(s.LargeStonesRespawn));
     }
 
     private (int Start, int End) FindSection()
