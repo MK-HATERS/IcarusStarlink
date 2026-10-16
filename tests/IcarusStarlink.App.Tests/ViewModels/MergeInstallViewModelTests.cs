@@ -206,6 +206,60 @@ public sealed class MergeInstallViewModelTests : IDisposable
     // 1. Queue mutation -> debounced conflict/validation recompute
     // ---------------------------------------------------------------------------------------
 
+    /// <summary>The ticked mods and options save themselves (into "Default" when no profile is picked), so a restart keeps them without Save profile.</summary>
+    [Fact]
+    public void TheQueueSavesItself_AndComesBackOnTheNextStart()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA"), MakeEntry("ModB")] };
+        var store = new FakeProfileStore();
+        var settings = new FakeSettingsService();
+        var vm = CreateViewModel(libraryRepository: library, profileStore: store, settingsService: settings);
+
+        vm.Queue.Add(library.AllEntries[0]);
+        vm.Queue.Add(library.AllEntries[1]);
+        vm.RemoveLevelCap = true;
+        vm.SaveWorkingState();
+
+        Assert.Equal("Default", vm.SelectedProfileName);
+        Assert.Equal(["ModA", "ModB"], store.Load("Default").MergeQueueFolderNames);
+        Assert.True(store.Load("Default").Options.RemoveLevelCap);
+
+        var next = CreateViewModel(libraryRepository: library, profileStore: store, settingsService: settings);
+        Assert.Equal(["ModA", "ModB"], next.Queue.Select(e => e.FolderName));
+    }
+
+    /// <summary>The profile last in use is the one selected on the next start.</summary>
+    [Fact]
+    public void TheLastProfileUsed_IsSelectedOnTheNextStart()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA")] };
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Default" });
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModA"] });
+        var settings = new FakeSettingsService();
+        var vm = CreateViewModel(libraryRepository: library, profileStore: store, settingsService: settings);
+
+        vm.SelectedProfileName = "Coop";
+
+        var next = CreateViewModel(libraryRepository: library, profileStore: store, settingsService: settings);
+        Assert.Equal("Coop", next.SelectedProfileName);
+        Assert.Equal(["ModA"], next.Queue.Select(e => e.FolderName));
+    }
+
+    /// <summary>When the ticks were lost but the game still has its merged pak, its mods are ticked again in merge order.</summary>
+    [Fact]
+    public void RestoreQueueFromGame_TicksWhatTheInstalledPakWasBuiltFrom_InItsOrder()
+    {
+        var pak = MakeEntry("WirelessPower", isOpaquePak: true);
+        pak.PakFileNames = ["ZZ_WirelessPower_Icon_P.pak"];
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA"), MakeEntry("ModB"), pak] };
+        var vm = CreateViewModel(libraryRepository: library);
+        vm.LastInstalledModNames = ["ModB", "Gone_Mod", "ModA", "ZZ_WirelessPower_Icon_P"];
+
+        Assert.Equal(3, vm.RestoreQueueFromGame());
+        Assert.Equal(["ModB", "ModA", "WirelessPower"], vm.Queue.Select(e => e.FolderName));
+    }
+
     /// <summary>With the name box gone, New profile… and Rename profile… ask for the name; cancelling changes nothing.</summary>
     [Fact]
     public void NewAndRenameProfile_AskForTheName()

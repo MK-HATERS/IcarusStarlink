@@ -840,6 +840,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         var mergeInstall = TryGetMergeInstall();
         var installed = new HashSet<string>(mergeInstall?.LastInstalledModNames ?? [], StringComparer.OrdinalIgnoreCase);
         var pendingPak = 0;
+        var inGameNotTicked = 0;
         foreach (var item in _itemsByFolderName.Values)
         {
             var queued = mergeInstall?.IsQueued(item.FolderName) ?? false;
@@ -886,11 +887,17 @@ public sealed partial class LibraryViewModel : ObservableObject
                 pendingPak++;
             }
 
+            if (inGame && !queued && !item.IsMergedPack)
+            {
+                inGameNotTicked++;
+            }
+
             item.InstallStatus = status;
             item.InstallStatusDetail = detail;
         }
 
         var pendingLua = Ue4ssMods.Count(m => m.IsDirty);
+        InGameNotTickedCount = inGameNotTicked;
         HasPendingPakChanges = pendingPak > 0;
         HasPendingChanges = pendingPak > 0 || pendingLua > 0;
         var parts = new List<string>();
@@ -2590,6 +2597,28 @@ public sealed partial class LibraryViewModel : ObservableObject
         {
             StatusMessage = $"Couldn't open the mod editor: {ex.Message}";
         }
+    }
+
+    /// <summary>Mods the game has (from the last Merge &amp; Install) that aren't ticked: Merge &amp; Install would take them out.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanTickWhatsInTheGame), nameof(TickWhatsInTheGameLabel))]
+    private int _inGameNotTickedCount;
+
+    /// <summary>Several in-game mods unticked at once: most likely the ticks were lost, not undone one by one.</summary>
+    public bool CanTickWhatsInTheGame => InGameNotTickedCount > 1;
+
+    public string TickWhatsInTheGameLabel => $"Tick the {InGameNotTickedCount} mods in the game";
+
+    /// <summary>Ticks again what the game's merged pak was built from, in its merge order.</summary>
+    [RelayCommand]
+    private void TickWhatsInTheGame()
+    {
+        var mergeInstall = TryGetMergeInstall();
+        var ticked = mergeInstall?.RestoreQueueFromGame() ?? 0;
+        StatusMessage = ticked > 0
+            ? $"Ticked the {ticked} mod(s) that are in the game, in the order they were merged. Nothing changes in the game until Merge & Install."
+            : "Couldn't find the mods the game's merged pak was built from in your Library.";
+        RefreshEnabledAndStatus();
     }
 
     /// <summary>The game's recorded changes from recent Refresh game data runs; set by the app (old values a mod may still hold).</summary>

@@ -903,6 +903,9 @@
                             Visibility="{Binding HasPendingChanges, Converter={StaticResource BoolToVisibilityConverter}}">
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <Button Content="{Binding TickWhatsInTheGameLabel}" Command="{Binding TickWhatsInTheGameCommand}" Margin="8,0,0,0"
+                                        Visibility="{Binding CanTickWhatsInTheGame, Converter={StaticResource BoolToVisibilityConverter}}"
+                                        ToolTip="These mods are in the game but not ticked, so Merge &amp; Install would take them out. This ticks them again in the order they were merged (nothing changes in the game until Merge &amp; Install)."/>
                                 <Button Content="Apply UE4SS changes" Command="{Binding ApplyUe4ssChangesCommand}" Margin="8,0,0,0"
                                         Visibility="{Binding HasPendingUe4ssChanges, Converter={StaticResource BoolToVisibilityConverter}}"
                                         ToolTip="Moves every ticked/unticked UE4SS mod to match — backs up anything removed from the game folder first"/>

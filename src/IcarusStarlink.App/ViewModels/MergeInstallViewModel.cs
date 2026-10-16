@@ -404,7 +404,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // brand-new user who's never touched Profiles at all just as much as for anyone else who
         // works ad hoc. A fresh install with nothing built yet correctly stays on an empty queue
         // until the first Rebuild creates "Default" for the first time.
-        if (SelectedProfileName is null && ProfileNames.Contains("Default", StringComparer.OrdinalIgnoreCase))
+        if (SelectedProfileName is null && settingsService.Current.LastMergeProfileName is { } last && ProfileNames.Contains(last, StringComparer.OrdinalIgnoreCase))
+        {
+            SelectedProfileName = ProfileNames.First(n => string.Equals(n, last, StringComparison.OrdinalIgnoreCase));
+        }
+        else if (SelectedProfileName is null && ProfileNames.Contains("Default", StringComparer.OrdinalIgnoreCase))
         {
             SelectedProfileName = "Default";
         }
@@ -432,6 +436,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             ValidationStatusMessage = null;
 
             _recomputeDebounceTimer.Restart();
+            MarkWorkingStateChanged();
         };
 
         // Without this, the Install/"Update install" label goes stale after the user changes the
@@ -493,6 +498,114 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // settled, covers exactly that gap without reordering the subscription itself.
         _ = RecomputeConflictCountAsync();
         _ = RecomputeValidationIssueCountAsync();
+
+        // Any merge option changing raises the options summary: that's the cue to save too.
+        _workingStateSaveTimer = new DebounceTimer(TimeSpan.FromMilliseconds(800), SaveWorkingState);
+        PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ActiveOptionsSummary))
+            {
+                MarkWorkingStateChanged();
+            }
+        };
+        _workingStateReady = true;
+    }
+
+    private DebounceTimer? _workingStateSaveTimer;
+    private bool _workingStateReady;
+    private bool _loadingProfile;
+    private string? _unsavedProfileName;
+
+    /// <summary>
+    /// The queue and options save themselves into the profile in use (or "Default" when none is
+    /// picked yet) a moment after each change, so ticking mods, reordering and options survive a
+    /// restart or an update without Save profile. Save profile still makes a backup to go back to.
+    /// </summary>
+    private void MarkWorkingStateChanged()
+    {
+        if (!_workingStateReady || _loadingProfile)
+        {
+            return;
+        }
+
+        _unsavedProfileName = SelectedProfileName ?? "Default";
+        _workingStateSaveTimer?.Restart();
+    }
+
+    /// <summary>Writes any pending change now (before switching profile, and from the timer).</summary>
+    internal void SaveWorkingState()
+    {
+        _workingStateSaveTimer?.Cancel();
+        if (_unsavedProfileName is not { } name)
+        {
+            return;
+        }
+
+        _unsavedProfileName = null;
+        try
+        {
+            _profileStore.SaveWithoutBackup(new Profile
+            {
+                Name = name,
+                MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)],
+                Options = BuildGameplayOptionsFromUi(),
+                ConflictWinners = new(_winners),
+            });
+
+            if (SelectedProfileName is null)
+            {
+                // The first change ever: "Default" now exists, so show it as the profile in use.
+                _loadingProfile = true;
+                try
+                {
+                    ReloadProfileNames();
+                    SelectedProfileName = name;
+                }
+                finally
+                {
+                    _loadingProfile = false;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Best-effort: Save profile still works and says why if the folder can't be written.
+        }
+    }
+
+    /// <summary>
+    /// The mods the installed merged pak was built from, ticked again in the order they were merged
+    /// — for when the queue was lost (an older version that didn't save it, a profile switch) while
+    /// the game still has them. Returns how many were ticked.
+    /// </summary>
+    public int RestoreQueueFromGame()
+    {
+        var library = _libraryRepository.GetAll();
+        var restored = new List<LibraryEntry>();
+        var opaqueByPak = library.Where(e => e.IsOpaquePak && e.PakFileNames.Count > 0 && e.MergedPackModNames is null).ToList();
+        foreach (var name in LastInstalledModNames)
+        {
+            var entry = library.FirstOrDefault(e => !e.IsOpaquePak && (string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase) || string.Equals(e.FolderName, name, StringComparison.OrdinalIgnoreCase)))
+                ?? opaqueByPak.FirstOrDefault(e => e.PakFileNames.Any(p => string.Equals(Path.GetFileNameWithoutExtension(p), name, StringComparison.OrdinalIgnoreCase)));
+            if (entry is not null && !restored.Contains(entry))
+            {
+                restored.Add(entry);
+            }
+        }
+
+        if (restored.Count == 0)
+        {
+            return 0;
+        }
+
+        foreach (var entry in restored.Where(e => !Queue.Any(q => string.Equals(q.FolderName, e.FolderName, StringComparison.OrdinalIgnoreCase))))
+        {
+            Queue.Add(entry);
+        }
+
+        StatusMessage = $"Ticked the {restored.Count} mod(s) that are in the game, in the order they were merged.";
+        _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
+        return restored.Count;
     }
 
     /// <summary>
@@ -571,15 +684,42 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     }
 
     /// <summary>Selecting a profile replaces the current queue with that profile's own saved one — a profile *is* "a saved merge list" per the spec, not something merged alongside the current queue.</summary>
+    partial void OnSelectedProfileNameChanging(string? value)
+    {
+        // Whatever was changed in the profile being left goes into that profile, not the next.
+        if (!_loadingProfile)
+        {
+            SaveWorkingState();
+        }
+    }
+
     partial void OnSelectedProfileNameChanged(string? value)
     {
         OnPropertyChanged(nameof(CanRestoreProfileBackup));
-        if (value is null)
+        if (value is null || _loadingProfile)
         {
             return;
         }
 
-        LoadProfileIntoUi(value, verb: "Loaded");
+        try
+        {
+            _settingsService.Current.LastMergeProfileName = value;
+            _settingsService.Save();
+        }
+        catch (Exception)
+        {
+            // Only a convenience for the next start.
+        }
+
+        _loadingProfile = true;
+        try
+        {
+            LoadProfileIntoUi(value, verb: "Loaded");
+        }
+        finally
+        {
+            _loadingProfile = false;
+        }
     }
 
     /// <summary>

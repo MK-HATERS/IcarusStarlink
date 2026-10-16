@@ -58,6 +58,9 @@ public sealed class AppSettings
     /// </summary>
     public string? LastSeenAppVersion { get; set; }
 
+    /// <summary>The Merge &amp; Install profile last in use, selected again on the next start.</summary>
+    public string? LastMergeProfileName { get; set; }
+
     /// <summary>
     /// Set right after a successful real Install (MergeInstallViewModel.InstallAsync) — read back
     /// on the NEXT app launch (SettingsViewModel) to check whether a real game crash happened since

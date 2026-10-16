@@ -9,6 +9,13 @@ public interface IProfileStore
     /// <summary>Upsert — creates a new profile or overwrites an existing one with the same Name.</summary>
     void Save(Profile profile);
 
+    /// <summary>
+    /// Save without a backup of the version before: for the automatic save of the working queue
+    /// on every change, which would otherwise push the real backups (made by Save profile and
+    /// before each build) out within minutes.
+    /// </summary>
+    void SaveWithoutBackup(Profile profile) => Save(profile);
+
     void Delete(string name);
 
     /// <summary>Throws if newName already names a different existing profile.</summary>

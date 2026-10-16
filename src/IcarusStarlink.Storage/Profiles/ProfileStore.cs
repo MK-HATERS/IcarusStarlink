@@ -70,6 +70,8 @@ public sealed class ProfileStore : IProfileStore
         JsonFileStore.Save(path, profile);
     }
 
+    public void SaveWithoutBackup(Profile profile) => JsonFileStore.Save(ResolvePath(profile.Name), profile);
+
     public void Delete(string name)
     {
         var path = ResolvePath(name);
