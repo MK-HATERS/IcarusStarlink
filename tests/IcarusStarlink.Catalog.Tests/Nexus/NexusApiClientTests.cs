@@ -267,6 +267,32 @@ public class NexusApiClientTests
         Assert.Equal("OLD_VERSION", result[1].CategoryName);
     }
 
+    /// <summary>file_updates is Nexus's record of which file replaced which — what per-file update checks follow.</summary>
+    [Fact]
+    public async Task GetModFileSetAsync_ParsesFilesAndTheirUpdateChain()
+    {
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://api.nexusmods.com/v1/games/icarus/mods/317/files"] = """
+                {
+                  "files": [
+                    {"file_id": 100, "name": "All In One Vanilla Weight", "version": "1.0.8", "category_name": "OLD_VERSION", "is_primary": false, "file_name": "a.zip"},
+                    {"file_id": 101, "name": "All In One Vanilla Weight", "version": "1.0.9", "category_name": "OPTIONAL", "is_primary": false, "file_name": "b.zip"}
+                  ],
+                  "file_updates": [
+                    {"old_file_id": 100, "new_file_id": 101, "old_file_name": "a.zip", "new_file_name": "b.zip", "uploaded_timestamp": 1760000000}
+                  ]
+                }
+                """,
+        });
+
+        var set = await client.GetModFileSetAsync("some-key", "icarus", 317);
+
+        Assert.Equal(2, set.Files.Count);
+        Assert.Equal(new NexusFileUpdate(100, 101), Assert.Single(set.Updates));
+        Assert.Equal(101, NexusFileLineage.Newest(set, 100)!.FileId);
+    }
+
     [Fact]
     public async Task SearchModsAsync_RealisticGraphShape_ParsesNodesAndDecodesHtml()
     {

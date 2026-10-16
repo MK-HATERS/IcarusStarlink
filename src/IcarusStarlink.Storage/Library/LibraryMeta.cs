@@ -23,6 +23,11 @@ internal sealed class LibraryMeta
     public string? NexusDescription { get; set; }
     public string? NexusVersion { get; set; }
 
+    /// <summary>See LibraryEntry.NexusFileId / NexusFileVersion.</summary>
+    public int? NexusFileId { get; set; }
+
+    public string? NexusFileVersion { get; set; }
+
     /// <summary>The real Nexus mod ID, set at import time for a Nexus-sourced entry — see LibraryEntry.NexusModId.</summary>
     public int? NexusModId { get; set; }
 

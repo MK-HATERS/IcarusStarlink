@@ -6,6 +6,13 @@ public sealed class Ue4ssModMeta
     public int? NexusModId { get; set; }
     public string? NexusVersion { get; set; }
 
+    /// <summary>The exact Nexus file this copy came from (a mod can offer several side by side, like the variants of
+    /// Deyvid's All-in-One) and that file's own version. Update checks follow this file's own update chain instead of
+    /// the mod's headline version. Null for anything not downloaded through Starlink's Nexus pipeline.</summary>
+    public int? NexusFileId { get; set; }
+
+    public string? NexusFileVersion { get; set; }
+
     /// <summary>The mod page's own title, recorded at the same Nexus lookup as NexusVersion — the UE4SS tab shows it under the folder name so a staged mod reads as the thing the user downloaded, not just a folder.</summary>
     public string? NexusName { get; set; }
 

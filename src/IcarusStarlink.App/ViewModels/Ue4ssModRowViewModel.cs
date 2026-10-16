@@ -142,7 +142,18 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     // mislabeling an unenriched mod as having an update available.
     // Not a plain string compare — see UpdateVersionComparer ("1" vs "1.0" is the same version).
     public bool HasUpdateAvailable =>
-        HasNexusLink && !string.IsNullOrEmpty(KnownVersion) && UpdateVersionComparer.HasUpdate(LatestVersion, KnownVersion, null);
+        HasNexusLink && (NexusFileId is { } installedFile && LatestNexusFileId is { } newestFile
+            ? newestFile != installedFile
+            : !string.IsNullOrEmpty(KnownVersion) && UpdateVersionComparer.HasUpdate(LatestVersion, KnownVersion, null));
+
+    /// <summary>The Nexus file this mod came from (Ue4ssModMeta.NexusFileId); when known, updates follow that file's own update chain.</summary>
+    public int? NexusFileId { get; set; }
+
+    /// <summary>The newest file in that chain, from the last check.</summary>
+    [ObservableProperty]
+    private int? _latestNexusFileId;
+
+    partial void OnLatestNexusFileIdChanged(int? value) => OnPropertyChanged(nameof(HasUpdateAvailable));
 
     partial void OnLatestVersionChanged(string? value) => OnPropertyChanged(nameof(HasUpdateAvailable));
 

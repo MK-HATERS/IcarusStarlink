@@ -34,6 +34,15 @@ public interface ILibraryRepository
     /// </summary>
     void SetNexusMetadata(string folderName, string? name, string? author, string? description, string? version);
 
+    /// <summary>
+    /// Records which Nexus file this copy came from and that file's own version (see
+    /// LibraryEntry.NexusFileId). An opaque or converted pak also shows the file's version as its
+    /// own. The default does nothing, for repositories that don't persist metadata.
+    /// </summary>
+    void SetNexusFile(string folderName, int fileId, string? fileVersion)
+    {
+    }
+
     /// <summary>Re-scans Extracted_Mods from disk — for mods added/edited outside the app while it was running.</summary>
     void Refresh();
 

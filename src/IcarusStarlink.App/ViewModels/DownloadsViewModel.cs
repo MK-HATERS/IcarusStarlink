@@ -750,7 +750,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
         PendingDownloadStatusMessage = $"Finding mod #{nexusModId}'s file(s)…";
         try
         {
-            var files = await _nexusApiClient.GetModFilesAsync(apiKey, "icarus", nexusModId);
+            var fileSet = await _nexusApiClient.GetModFileSetAsync(apiKey, "icarus", nexusModId);
+            var files = fileSet.Files;
             if (files.Count == 0)
             {
                 PendingDownloadStatusMessage = $"Mod #{nexusModId} has no downloadable files listed.";
@@ -758,7 +759,14 @@ public sealed partial class DownloadsViewModel : ObservableObject
             }
 
             NexusModFile file;
-            if (files.Count == 1)
+            if (NewerVersionOfInstalledFile(nexusModId, fileSet) is { } newer)
+            {
+                // Updating: fetch the newer version of the exact file already installed (one of
+                // several variants, perhaps) instead of asking which file all over again.
+                file = newer;
+                PendingDownloadStatusMessage = $"Downloading the newer version of the file you have: '{newer.Name}' v{newer.Version}…";
+            }
+            else if (files.Count == 1)
             {
                 file = files[0];
             }
@@ -1076,6 +1084,11 @@ public sealed partial class DownloadsViewModel : ObservableObject
                     await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, source, nexusModId, item.CatalogEntryId, ownUe4ssNames);
             }
 
+            if (!item.IsCatalog)
+            {
+                await RecordNexusFileAsync(item.ModId, item.FileId, activatedItems);
+            }
+
             _pendingDownloadStore.SetActivation(item.ModId, item.FileId, activatedItems, requirements);
             item.SetActivated(activatedItems, requirements);
             RefreshVisiblePendingDownloads();
@@ -1241,6 +1254,78 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// successful import into a reported failure — the entry just keeps showing "Unknown" the way
     /// it always has.
     /// </summary>
+    /// <summary>
+    /// When exactly one file of this mod is installed (by its recorded Nexus file ID) and Nexus lists
+    /// a newer file in that file's own update chain, that newer file; otherwise null, and the usual
+    /// choice applies. Two different files of the same mod installed means there's no single answer.
+    /// </summary>
+    internal NexusModFile? NewerVersionOfInstalledFile(int nexusModId, NexusModFileSet fileSet)
+    {
+        var installedFileIds = _libraryRepository.GetAll()
+            .Where(e => e.NexusModId == nexusModId && e.NexusFileId is not null)
+            .Select(e => e.NexusFileId!.Value)
+            .Concat(_ue4ssModRepository.GetAll()
+                .Select(folder => _ue4ssModMetaStore.Load(folder))
+                .Where(meta => meta.NexusModId == nexusModId && meta.NexusFileId is not null)
+                .Select(meta => meta.NexusFileId!.Value))
+            .Distinct()
+            .ToList();
+        if (installedFileIds.Count == 0)
+        {
+            return null;
+        }
+
+        // One download can land as a pak mod AND a UE4SS mod from the same file — that's still one file.
+        var newest = installedFileIds.Select(id => NexusFileLineage.Newest(fileSet, id)).ToList();
+        if (newest.Any(n => n is null) || newest.Select(n => n!.FileId).Distinct().Count() != 1)
+        {
+            return null;
+        }
+
+        var target = newest[0]!;
+        return installedFileIds.Contains(target.FileId) ? null : target;
+    }
+
+    /// <summary>
+    /// Remembers which Nexus file every mod from this download came from, and that file's own
+    /// version, so update checks follow THIS file (one of several variants, perhaps) rather than
+    /// the mod's headline version. The file ID is always known here; the version is best-effort
+    /// (no key, or Nexus unreachable, leaves it unknown and the check falls back to the mod).
+    /// </summary>
+    private async Task RecordNexusFileAsync(int modId, int fileId, IReadOnlyList<PendingDownloadActivatedItem> activatedItems)
+    {
+        string? fileVersion = null;
+        if (_credentialStore.Read(CredentialTargets.NexusApiKey) is { } apiKey)
+        {
+            try
+            {
+                var files = await _nexusApiClient.GetModFilesAsync(apiKey, "icarus", modId);
+                fileVersion = files.FirstOrDefault(f => f.FileId == fileId)?.Version is { Length: > 0 } v ? v : null;
+            }
+            catch (Exception)
+            {
+                // Best-effort — the file ID alone is still worth keeping.
+            }
+        }
+
+        foreach (var activated in activatedItems)
+        {
+            if (activated.Kind == PendingDownloadActivationKind.Library)
+            {
+                _libraryRepository.SetNexusFile(activated.FolderName, fileId, fileVersion);
+            }
+            else
+            {
+                var meta = _ue4ssModMetaStore.Load(activated.FolderName);
+                meta.NexusFileId = fileId;
+                meta.NexusFileVersion = fileVersion;
+                _ue4ssModMetaStore.Save(activated.FolderName, meta);
+            }
+        }
+
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+    }
+
     private async Task RecordNexusMetadataAsync(string folderName, int modId)
     {
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);

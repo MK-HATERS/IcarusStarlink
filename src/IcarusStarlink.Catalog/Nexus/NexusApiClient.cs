@@ -179,6 +179,10 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         dto.CreatedAt, dto.UpdatedAt);
 
     public async Task<IReadOnlyList<NexusModFile>> GetModFilesAsync(
+        string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
+        (await GetModFileSetAsync(apiKey, gameDomain, modId, cancellationToken)).Files;
+
+    public async Task<NexusModFileSet> GetModFileSetAsync(
         string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
     {
         using var response = await SendAuthenticatedAsync(HttpMethod.Get, $"{BaseUrl}/games/{gameDomain}/mods/{modId}/files", apiKey, content: null, cancellationToken);
@@ -192,9 +196,11 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         // official client's own IModFiles shape, not a bare array like the browse lists.
         var dto = await response.Content.ReadFromJsonAsync<ModFilesResponseDto>(cancellationToken)
             ?? throw new HttpRequestException("Nexus's mod-files endpoint returned an empty response.");
-        return [.. dto.Files.Select(f => new NexusModFile(
-            f.FileId, f.FileName, f.Name, f.Version, f.CategoryName, f.IsPrimary,
-            CleanHtmlNotes(f.ChangelogHtml) ?? CleanHtmlNotes(f.Description)))];
+        return new NexusModFileSet(
+            [.. dto.Files.Select(f => new NexusModFile(
+                f.FileId, f.FileName, f.Name, f.Version, f.CategoryName, f.IsPrimary,
+                CleanHtmlNotes(f.ChangelogHtml) ?? CleanHtmlNotes(f.Description)))],
+            [.. dto.FileUpdates.Select(u => new NexusFileUpdate(u.OldFileId, u.NewFileId))]);
     }
 
     public async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetChangelogsAsync(
@@ -437,6 +443,19 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
     {
         [JsonPropertyName("files")]
         public List<ModFileDto> Files { get; init; } = [];
+
+        [JsonPropertyName("file_updates")]
+        public List<FileUpdateDto> FileUpdates { get; init; } = [];
+    }
+
+    /// <summary>One "this file replaced that one" record, per the official client's IFileUpdate shape.</summary>
+    private sealed class FileUpdateDto
+    {
+        [JsonPropertyName("old_file_id")]
+        public int OldFileId { get; init; }
+
+        [JsonPropertyName("new_file_id")]
+        public int NewFileId { get; init; }
     }
 
     private sealed class ModFileDto

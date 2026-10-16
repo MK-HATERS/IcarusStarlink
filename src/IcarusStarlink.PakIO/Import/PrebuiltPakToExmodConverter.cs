@@ -47,6 +47,16 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
             await unrealPakService.ExtractPakAsync(unrealPakExePath, pakFilePath, scratchDirectory, cancellationToken);
 
             var embedded = TryReadEmbeddedExmod(scratchDirectory, pakName, report);
+            if (embedded is { } bundled && UncoveredDataTables(scratchDirectory, bundled.Package) is { Count: > 0 } uncovered)
+            {
+                // A merged pak can carry the .EXMOD of ONE mod it contains while its data tables hold
+                // many more changes (seen on a real Nexus "All-in-One" pak: its EXMODs describe 2 of
+                // its 25 tables). Reading only the EXMOD would silently drop every other change, so
+                // it is trusted only when it accounts for every table the pak ships.
+                report.AddNote(
+                    $"'{pakName}' bundles an EXMOD that covers only part of its data ({uncovered.Count} table(s) not in it, e.g. {uncovered[0]}) — reconstructed by comparing against current game data so none of its changes are lost.");
+                embedded = null;
+            }
 
             List<ExmodFileRow> rows;
             string effectiveName, effectiveAuthor, effectiveVersion, effectiveDescription;
@@ -220,6 +230,25 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
                 $"'{pakName}' has a bundled EXMOD file, but it couldn't be read ({ex.Message}) — reconstructed by comparing against current game data instead.");
             return null;
         }
+    }
+
+    /// <summary>
+    /// The pak's data tables (data/**/*.json, in the EXMOD CurrentFile form "Items-D_ItemsStatic.json")
+    /// that the embedded EXMOD has no rows for. Empty when the EXMOD describes everything the pak ships.
+    /// </summary>
+    internal static List<string> UncoveredDataTables(string scratchDirectory, ExmodPackage package)
+    {
+        var dataRoot = Path.Combine(scratchDirectory, "data");
+        if (!Directory.Exists(dataRoot))
+        {
+            return [];
+        }
+
+        var covered = new HashSet<string>(package.Rows.Select(r => r.CurrentFile), StringComparer.OrdinalIgnoreCase);
+        return [.. Directory.GetFiles(dataRoot, "*.json", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(dataRoot, f).Replace('\\', '/').Replace('/', '-'))
+            .Where(table => !covered.Contains(table))
+            .OrderBy(table => table, StringComparer.OrdinalIgnoreCase)];
     }
 
     /// <summary>Prefers a real, non-placeholder value over a fallback — used for every field the

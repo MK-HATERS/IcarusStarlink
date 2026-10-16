@@ -670,6 +670,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                     }
 
                     row.LatestVersion = previous.LatestVersion;
+                    row.LatestNexusFileId = previous.LatestNexusFileId;
                 }
 
                 if (selectedNames.Contains(row.Name))
@@ -683,6 +684,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 }
 
                 row.LoaderMissing = !IsUe4ssLoaderInstalled;
+                row.NexusFileId = meta.NexusFileId;
                 Ue4ssMods.Add(row);
             }
             RecomputeHasPendingUe4ssChanges();
@@ -3269,6 +3271,12 @@ public sealed partial class LibraryViewModel : ObservableObject
                     // "current version" is whatever KnownVersion recorded at link time, since
                     // there's no live-installed version string to read the way a Library EXMOD/pak
                     // entry has, but the check itself (fetch, compare, count) is identical.
+                    // Mods that know their exact Nexus file are checked against that file's own
+                    // update chain first; only the rest fall back to the mod's headline version.
+                    var (perFileUpdates, resolvedItems, resolvedRows) = await ApplyNexusFileUpdatesAsync(nexusItems, ue4ssItems, apiKey);
+                    updatedCount += perFileUpdates;
+                    nexusItems = [.. nexusItems.Where(i => !resolvedItems.Contains(i))];
+                    ue4ssItems = [.. ue4ssItems.Where(r => !resolvedRows.Contains(r.Name))];
                     updatedCount += await ApplyNexusVersionsAsync(nexusItems, apiKey, i => i.NexusModId!.Value, (i, v) => i.LatestVersion = v, i => i.HasUpdateAvailable);
                     // Resolved against the LIVE row by name at apply time: a reload of the UE4SS list while
                     // the Nexus lookups were in flight replaces every row, and stamping the version onto
@@ -3343,6 +3351,66 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// property/type they touched. Returns how many of the checked items now have an update
     /// available, for the caller's own running total.
     /// </summary>
+    /// <summary>
+    /// Per-file update check: one files request per Nexus mod, then each tracked copy follows its
+    /// own file's update chain (NexusFileLineage) — so with several variants of one mod installed or
+    /// known, each is judged on its own file. Returns how many have an update and which items/rows
+    /// were resolved this way (the rest fall back to the mod-level check).
+    /// </summary>
+    private async Task<(int Updates, HashSet<LibraryItemViewModel> Items, HashSet<string> Ue4ssNames)> ApplyNexusFileUpdatesAsync(
+        IReadOnlyList<LibraryItemViewModel> items, IReadOnlyList<Ue4ssModRowViewModel> rows, string apiKey)
+    {
+        var resolvedItems = new HashSet<LibraryItemViewModel>();
+        var resolvedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var trackedItems = items.Where(i => i.NexusFileId is not null).ToList();
+        var trackedRows = rows.Where(r => r.NexusFileId is not null && r.NexusModId is not null).ToList();
+        var modIds = trackedItems.Select(i => i.NexusModId!.Value).Concat(trackedRows.Select(r => r.NexusModId!.Value)).Distinct().ToList();
+        if (modIds.Count == 0)
+        {
+            return (0, resolvedItems, resolvedNames);
+        }
+
+        var sets = await Task.WhenAll(modIds.Select(async modId =>
+        {
+            try
+            {
+                return (ModId: modId, Set: (NexusModFileSet?)await _nexusApiClient.GetModFileSetAsync(apiKey, "icarus", modId));
+            }
+            catch (Exception)
+            {
+                return (ModId: modId, Set: (NexusModFileSet?)null); // best-effort, like the mod-level check
+            }
+        }));
+        var setByMod = sets.Where(s => s.Set is not null).ToDictionary(s => s.ModId, s => s.Set!);
+
+        var updates = 0;
+        foreach (var item in trackedItems)
+        {
+            if (setByMod.TryGetValue(item.NexusModId!.Value, out var set) && NexusFileLineage.Newest(set, item.NexusFileId!.Value) is { } newest)
+            {
+                item.LatestVersion = newest.Version;
+                item.LatestNexusFileId = newest.FileId;
+                resolvedItems.Add(item);
+                updates += item.HasUpdateAvailable ? 1 : 0;
+            }
+        }
+
+        foreach (var captured in trackedRows)
+        {
+            // The live row by name, for the same reason as the mod-level check below.
+            var row = Ue4ssMods.FirstOrDefault(m => m.Name == captured.Name) ?? captured;
+            if (setByMod.TryGetValue(captured.NexusModId!.Value, out var set) && NexusFileLineage.Newest(set, captured.NexusFileId!.Value) is { } newest)
+            {
+                row.LatestVersion = newest.Version;
+                row.LatestNexusFileId = newest.FileId;
+                resolvedNames.Add(captured.Name);
+                updates += row.HasUpdateAvailable ? 1 : 0;
+            }
+        }
+
+        return (updates, resolvedItems, resolvedNames);
+    }
+
     private async Task<int> ApplyNexusVersionsAsync<T>(
         IReadOnlyList<T> items, string apiKey, Func<T, int> getNexusModId, Action<T, string> setLatestVersion, Func<T, bool> hasUpdateAvailable)
     {

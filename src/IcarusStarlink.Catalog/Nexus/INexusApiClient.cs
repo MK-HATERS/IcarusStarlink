@@ -44,6 +44,14 @@ public interface INexusApiClient
     Task<IReadOnlyList<NexusModFile>> GetModFilesAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The same files plus Nexus's file_updates (which file replaced which) — what per-file update
+    /// checks follow (see NexusFileLineage). The default serves clients that only know the file
+    /// list: no update chain, so a file is only ever its own newest version.
+    /// </summary>
+    async Task<NexusModFileSet> GetModFileSetAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
+        new(await GetModFilesAsync(apiKey, gameDomain, modId, cancellationToken), []);
+
+    /// <summary>
     /// Name search over a game's whole mod catalog — the one thing v1 can't do at all, served by
     /// Nexus's newer v2 GraphQL endpoint (shape confirmed by live probing during planning).
     /// apiKey is genuinely optional here: the endpoint answers unauthenticated (confirmed live),

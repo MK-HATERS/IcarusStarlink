@@ -176,7 +176,7 @@ public sealed class DownloadsViewModelTests : IDisposable
         Assert.Contains("needs ArcFission Library 1.2.0 or newer", question);
         Assert.Contains("Download 'ArcFission Library' (Nexus mod #356)", question);
         Assert.Equal(["ArcFission Library"], harness.NexusApi.SearchQueries);
-        Assert.Equal([356], harness.NexusApi.GetModFilesCalls);
+        Assert.Equal([356], harness.NexusApi.FileSetCalls);
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public sealed class DownloadsViewModelTests : IDisposable
         await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
 
         Assert.Single(harness.Dialogs.ConfirmMessages);
-        Assert.Empty(harness.NexusApi.GetModFilesCalls);
+        Assert.Empty(harness.NexusApi.FileSetCalls);
         Assert.Contains("Skipped 'ArcFission Library'", vm.PendingDownloadStatusMessage);
         Assert.True(item.CanGetRequirement, "the row keeps its Get button so the user can come back to it");
     }
@@ -207,7 +207,7 @@ public sealed class DownloadsViewModelTests : IDisposable
         await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
 
         Assert.Empty(harness.Dialogs.ConfirmMessages);
-        Assert.Empty(harness.NexusApi.GetModFilesCalls);
+        Assert.Empty(harness.NexusApi.FileSetCalls);
         Assert.Equal("Get 'ArcFission Library'", item.GetRequirementLabel);
     }
 
@@ -459,6 +459,15 @@ public sealed class DownloadsViewModelTests : IDisposable
         {
             GetModFilesCalls.Add(modId);
             return Task.FromResult<IReadOnlyList<NexusModFile>>([new NexusModFile(1, $"mod{modId}.zip", "Main", "1", "MAIN", IsPrimary: true)]);
+        }
+
+        /// <summary>Mod IDs whose files were listed to START a download (the dependency offer's "Yes" lands here). Recording an activated download's file version uses GetModFilesAsync instead.</summary>
+        public List<int> FileSetCalls { get; } = [];
+
+        public Task<NexusModFileSet> GetModFileSetAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
+        {
+            FileSetCalls.Add(modId);
+            return Task.FromResult(new NexusModFileSet([new NexusModFile(1, $"mod{modId}.zip", "Main", "1", "MAIN", IsPrimary: true)], []));
         }
 
         public Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default)

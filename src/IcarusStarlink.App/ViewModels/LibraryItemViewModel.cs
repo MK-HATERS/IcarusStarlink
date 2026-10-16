@@ -212,6 +212,15 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// <summary>What Nexus said the version was when this copy was downloaded/linked (LibraryEntry.NexusVersion) — the like-for-like side of HasUpdateAvailable; null when never recorded.</summary>
     public string? NexusVersion { get; private set; }
 
+    /// <summary>The Nexus file this copy came from (LibraryEntry.NexusFileId) — when known, updates are judged by that file's own update chain.</summary>
+    public int? NexusFileId { get; private set; }
+
+    /// <summary>The newest file in this copy's own update chain, from the last check (null until then, or when the file isn't tracked).</summary>
+    [ObservableProperty]
+    private int? _latestNexusFileId;
+
+    partial void OnLatestNexusFileIdChanged(int? value) => OnPropertyChanged(nameof(HasUpdateAvailable));
+
     /// <summary>The Link-to-Nexus button/menu text: an already-linked mod (this one has a Nexus badge and a mod ID) is offered a RE-link, so the action never reads as "this still needs linking" — a real point of confusion reported live on a freshly-activated Nexus download.</summary>
     public string NexusLinkActionLabel => HasNexusLink ? "Re-link Nexus ID…" : "Link to Nexus ID…";
 
@@ -366,7 +375,11 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     private string? _latestVersion;
 
     // Not a plain string compare — see UpdateVersionComparer for the live "1.0" vs "1" false positive.
-    public bool HasUpdateAvailable => HasSource && UpdateVersionComparer.HasUpdate(LatestVersion, Version, NexusVersion);
+    // A tracked Nexus file: an update means a newer file replaced the one installed — versions of
+    // OTHER files of the same mod (its other variants) never count.
+    public bool HasUpdateAvailable => HasSource && (NexusFileId is { } installedFile && LatestNexusFileId is { } newestFile
+        ? newestFile != installedFile
+        : UpdateVersionComparer.HasUpdate(LatestVersion, Version, NexusVersion));
 
     partial void OnLatestVersionChanged(string? value) => OnPropertyChanged(nameof(HasUpdateAvailable));
 
@@ -533,6 +546,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         _source = entry.Source;
         NexusModId = entry.NexusModId;
         NexusVersion = entry.NexusVersion;
+        NexusFileId = entry.NexusFileId;
         CatalogEntryId = entry.CatalogEntryId;
         MergedPackModNames = entry.MergedPackModNames;
         MergedPackOptionDescriptions = entry.MergedPackOptionDescriptions;
@@ -577,6 +591,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         OnPropertyChanged(nameof(HasNexusLink));
         OnPropertyChanged(nameof(NexusLinkActionLabel));
         NexusVersion = entry.NexusVersion;
+        NexusFileId = entry.NexusFileId;
         OnPropertyChanged(nameof(HasUpdateAvailable));
         CatalogEntryId = entry.CatalogEntryId;
         MergedPackModNames = entry.MergedPackModNames;

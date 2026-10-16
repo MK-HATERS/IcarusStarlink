@@ -464,6 +464,79 @@ public sealed class LibraryViewModelTests
         Assert.Equal("Needs Apply", vm.RootItems.OfType<Ue4ssModRowViewModel>().Single().InstallStatus);
     }
 
+    // ---- Per-file updates: a Nexus mod with several variant files (Deyvid's All-in-One, mod 317) ----
+
+    private static NexusModFile NexusFile(int id, string name, string version) => new(id, $"{id}.zip", name, version, "OPTIONAL", false);
+
+    /// <summary>Vanilla Weight 1.0.8 (file 100) was replaced by 1.0.9 (file 101); the Without Level Progression file (200) is still 1.0.5, its own latest.</summary>
+    private static NexusModFileSet AllInOneFiles() => new(
+        [NexusFile(100, "All In One Vanilla Weight", "1.0.8"), NexusFile(101, "All In One Vanilla Weight", "1.0.9"),
+         NexusFile(200, "All In One 75 Weight Without Level Progression", "1.0.5")],
+        [new NexusFileUpdate(100, 101)]);
+
+    [Fact]
+    public async Task CheckForUpdates_TrackedFiles_AreJudgedByTheirOwnFileNotTheModsHeadlineVersion()
+    {
+        var harness = new TestHarness();
+        harness.CredentialStore.ApiKey = "key";
+        harness.NexusApiClient.FileSets[317] = AllInOneFiles();
+        harness.AddMod("Vanilla", source: "Nexus", nexusModId: 317, version: "1.0.8", isOpaquePak: true).NexusFileId = 100;
+        harness.AddMod("NoLevel", source: "Nexus", nexusModId: 317, version: "1.0.5", isOpaquePak: true).NexusFileId = 200;
+        var vm = harness.Build();
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        var vanilla = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Vanilla");
+        var noLevel = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "NoLevel");
+        Assert.True(vanilla.HasUpdateAvailable);
+        Assert.Equal("1.0.9", vanilla.LatestVersion);
+        Assert.Equal(101, vanilla.LatestNexusFileId);
+        Assert.False(noLevel.HasUpdateAvailable); // 1.0.5 is that file's latest, whatever the other variants are at
+        Assert.Equal("1.0.5", noLevel.LatestVersion);
+        Assert.Contains("1 mod(s) have an update", vm.UpdateCheckStatusMessage);
+    }
+
+    [Fact]
+    public async Task CheckForUpdates_TrackedUe4ssMod_FollowsItsOwnFile()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.CredentialStore.ApiKey = "key";
+        harness.NexusApiClient.FileSets[317] = AllInOneFiles();
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("AllInOneLua", IsEnabled: true));
+        harness.Ue4ssModMetaStore.Metas["AllInOneLua"] = new Ue4ssModMeta { NexusModId = 317, NexusVersion = "1.0.8", NexusFileId = 100 };
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        var row = vm.RootItems.OfType<Ue4ssModRowViewModel>().Single();
+        Assert.Equal(100, row.NexusFileId);
+        Assert.True(row.HasUpdateAvailable);
+        Assert.Equal("1.0.9", row.LatestVersion);
+    }
+
+    /// <summary>Downloading an update fetches the newer version of the file you have, without asking which file — but only when that is unambiguous.</summary>
+    [Fact]
+    public void NewerVersionOfInstalledFile_PicksTheInstalledFilesSuccessorOnly()
+    {
+        var harness = new TestHarness();
+        var vanilla = harness.AddMod("Vanilla", source: "Nexus", nexusModId: 317);
+        vanilla.NexusFileId = 100;
+        var vm = harness.Build();
+
+        Assert.Equal(101, vm.Downloads.NewerVersionOfInstalledFile(317, AllInOneFiles())!.FileId);
+
+        vanilla.NexusFileId = 101; // already the newest
+        Assert.Null(vm.Downloads.NewerVersionOfInstalledFile(317, AllInOneFiles()));
+
+        vanilla.NexusFileId = 100;
+        harness.AddMod("NoLevel", source: "Nexus", nexusModId: 317).NexusFileId = 200; // two variants: no single answer
+        Assert.Null(vm.Downloads.NewerVersionOfInstalledFile(317, AllInOneFiles()));
+
+        Assert.Null(vm.Downloads.NewerVersionOfInstalledFile(999, AllInOneFiles())); // nothing installed from that mod
+    }
+
     private static (LibraryViewModel Vm, TestHarness Harness) BuildMixedList()
     {
         var harness = new TestHarness();
@@ -1769,6 +1842,12 @@ public sealed class LibraryViewModelTests
             throw new NotSupportedException("Not exercised by these tests.");
         public Task<IReadOnlyList<NexusModFile>> GetModFilesAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
+
+        /// <summary>Per-file update checks: the files (and update chain) Nexus lists for a mod.</summary>
+        public Dictionary<int, NexusModFileSet> FileSets { get; } = [];
+
+        public Task<NexusModFileSet> GetModFileSetAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
+            FileSets.TryGetValue(modId, out var set) ? Task.FromResult(set) : throw new HttpRequestException("no such mod");
         public Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
         public Task<NexusModPage> ListAllModsAsync(string? apiKey, string gameDomain, int offset, int count, CancellationToken cancellationToken = default) =>
@@ -1784,8 +1863,9 @@ public sealed class LibraryViewModelTests
 
     private sealed class FakeCredentialStore : ICredentialStore
     {
+        public string? ApiKey { get; set; }
         public void Save(string target, string secret) { }
-        public string? Read(string target) => null;
+        public string? Read(string target) => ApiKey;
         public void Delete(string target) { }
     }
 

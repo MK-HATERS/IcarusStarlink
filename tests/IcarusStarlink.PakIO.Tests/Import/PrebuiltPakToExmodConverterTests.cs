@@ -329,6 +329,37 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         Assert.DoesNotContain(result.Contents.Assets, a => a.RelativePath == "SomeMod_P.EXMOD");
     }
 
+    /// <summary>
+    /// A merged pak (shaped like Deyvid's "All-in-One", Nexus mod 317) carries one mod's .EXMOD
+    /// but changes more tables than that EXMOD describes. Trusting the EXMOD alone would drop the
+    /// other tables' changes, so the conversion compares against game data instead.
+    /// </summary>
+    [Fact]
+    public async Task TryConvertAsync_BundledExmodCoversOnlySomeTables_DiffsSoNothingIsLost()
+    {
+        WriteBaseTable("Traits/D_Armour.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Undersuit_Shengong","SomeField":1}]}""");
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var report = new MergeReport();
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFiles["SomeMod_P.EXMOD"] = RealShapeEmbeddedExmod; // describes D_Armour only
+        pakService.FakeExtractedFiles["data/Traits/D_Armour.json"] =
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Undersuit_Shengong","SomeField":12345}]}""";
+        pakService.FakeExtractedFiles["data/Crafting/D_ProcessorRecipes.json"] =
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":1}]}""";
+        var converter = new PrebuiltPakToExmodConverter(pakService);
+
+        var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
+
+        Assert.NotNull(result);
+        Assert.False(result.HasAuthorDeclaredMetadata);
+        var crafting = Assert.Single(result.Contents.Package.Rows, r => r.CurrentFile == "Crafting-D_ProcessorRecipes.json");
+        Assert.Equal(1, Assert.Single(crafting.FileItems).Fields["CraftTime"]!.GetValue<int>());
+        var armour = Assert.Single(result.Contents.Package.Rows, r => r.CurrentFile == "Traits-D_Armour.json");
+        Assert.Equal(12345, Assert.Single(armour.FileItems).Fields["SomeField"]!.GetValue<int>());
+        Assert.Contains(report.Notes, n => n.Contains("covers only part of its data") && n.Contains("Crafting-D_ProcessorRecipes.json"));
+        Assert.DoesNotContain(result.Contents.Assets, a => a.RelativePath.EndsWith(".EXMOD"));
+    }
+
     [Fact]
     public async Task TryConvertAsync_BundledExmodFileIsCorrupt_FallsBackToDiffingWithWarning()
     {

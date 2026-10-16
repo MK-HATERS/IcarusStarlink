@@ -381,6 +381,23 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         return FolderBackup.EnumerateFolderBackups(_modBackupsDirectory, folderName).FirstOrDefault();
     }
 
+    public void SetNexusFile(string folderName, int fileId, string? fileVersion) =>
+        UpdateMeta(folderName,
+            meta =>
+            {
+                meta.NexusFileId = fileId;
+                meta.NexusFileVersion = fileVersion;
+            },
+            entry =>
+            {
+                entry.NexusFileId = fileId;
+                entry.NexusFileVersion = fileVersion;
+                if (fileVersion is not null && entry is { IsOpaquePak: true } or { ConvertedFromPrebuiltPak: true })
+                {
+                    entry.Version = fileVersion;
+                }
+            });
+
     public void SetNexusMetadata(string folderName, string? name, string? author, string? description, string? version)
     {
         UpdateMeta(folderName,
@@ -550,7 +567,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         // survives a rescan/restart instead of reverting to the placeholder every time.
         Name = meta.DisplayNameOverride ?? (meta.ConvertedFromPrebuiltPak ? meta.NexusName : null) ?? package.Name,
         Author = (meta.ConvertedFromPrebuiltPak ? meta.NexusAuthor : null) ?? package.Author,
-        Version = (meta.ConvertedFromPrebuiltPak ? meta.NexusVersion : null) ?? package.Version,
+        Version = (meta.ConvertedFromPrebuiltPak ? meta.NexusFileVersion ?? meta.NexusVersion : null) ?? package.Version,
         Description = (meta.ConvertedFromPrebuiltPak ? meta.NexusDescription : null) ?? package.Description,
         FileName = package.FileName,
         VariantGroup = package.VariantGroup,
@@ -565,6 +582,8 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         Source = meta.Source,
         NexusModId = meta.NexusModId,
         NexusVersion = meta.NexusVersion,
+        NexusFileId = meta.NexusFileId,
+        NexusFileVersion = meta.NexusFileVersion,
         CatalogEntryId = meta.CatalogEntryId,
         DisplayNameOverride = meta.DisplayNameOverride,
     };
@@ -606,7 +625,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             FolderName = folderName,
             Name = meta.DisplayNameOverride ?? meta.NexusName ?? displayName,
             Author = meta.MergedPackProfileName ?? meta.NexusAuthor ?? "Unknown",
-            Version = meta.NexusVersion ?? "",
+            Version = meta.NexusFileVersion ?? meta.NexusVersion ?? "",
             Description = description,
             FileName = Path.GetFileNameWithoutExtension(pakFilePath),
             IsOpaquePak = true,
@@ -619,6 +638,8 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             Source = meta.Source,
             NexusModId = meta.NexusModId,
             NexusVersion = meta.NexusVersion,
+            NexusFileId = meta.NexusFileId,
+            NexusFileVersion = meta.NexusFileVersion,
             CatalogEntryId = meta.CatalogEntryId,
             DisplayNameOverride = meta.DisplayNameOverride,
             MergedPackModNames = meta.MergedPackModNames,

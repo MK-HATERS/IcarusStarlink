@@ -478,6 +478,40 @@ public class FolderLibraryRepositoryTests : IDisposable
         }
     }
 
+    /// <summary>A Nexus download records its exact file and that file's version; an opaque pak shows the file's version (1.0.5) rather than the mod's headline one (1.0.8), and both survive a restart.</summary>
+    [Fact]
+    public void SetNexusFile_PersistsAndAnOpaquePakShowsTheFilesVersion()
+    {
+        var pakPath = WriteFixturePakFile();
+        try
+        {
+            string folderName;
+            using (var repo = CreateRepository())
+            {
+                var entry = repo.ImportPak(pakPath, source: "Nexus", nexusModId: 317);
+                folderName = entry.FolderName;
+                repo.SetNexusMetadata(folderName, "All In One", "Deyvid", null, "1.0.8");
+                repo.SetNexusFile(folderName, 200, "1.0.5");
+
+                var cached = repo.GetAll().Single(e => e.FolderName == folderName);
+                Assert.Equal(200, cached.NexusFileId);
+                Assert.Equal("1.0.5", cached.NexusFileVersion);
+                Assert.Equal("1.0.5", cached.Version);
+            }
+
+            using var reopened = CreateRepository();
+            var reloaded = reopened.GetAll().Single(e => e.FolderName == folderName);
+            Assert.Equal(200, reloaded.NexusFileId);
+            Assert.Equal("1.0.5", reloaded.NexusFileVersion);
+            Assert.Equal("1.0.5", reloaded.Version);
+            Assert.Equal("1.0.8", reloaded.NexusVersion);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
     [Fact]
     public void ImportPak_NoMergedPackProfileName_AuthorFallsBackToUnknown()
     {
