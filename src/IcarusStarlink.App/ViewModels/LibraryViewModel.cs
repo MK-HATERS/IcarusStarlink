@@ -100,7 +100,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly Dictionary<string, int> _openEditorCountByFolder = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The last row clicked without Shift held — a Shift-click ranges from here, the same anchor concept Explorer/ListBox multi-select use. Cleared (never explicitly re-set to null; a stale anchor pointing at a since-deleted row is simply skipped by FlattenModItems' own lookup) whenever a fresh plain/Ctrl click moves it.</summary>
-    private LibraryItemViewModel? _bulkSelectionAnchor;
+    /// <summary>A LibraryItemViewModel or a Ue4ssModRowViewModel: Shift-click ranges across both kinds of row.</summary>
+    private object? _bulkSelectionAnchor;
 
     /// <summary>Whether a mod folder is still present in this page's own current listing — used by ModDetailWindow to close itself if the mod it's showing gets deleted while its pop-out window is open.</summary>
     public bool ContainsMod(string folderName) => _itemsByFolderName.ContainsKey(folderName);
@@ -211,17 +212,24 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// <summary>Ctrl/Shift-click multi-select, for "Add to merge queue" — the only way mods reach Merge & Install's queue now that its own Library pane is gone. A plain list (not a HashSet): insertion order isn't meaningful here, but ObservableCollection gives free CollectionChanged notification for HasBulkSelection/BulkSelectedCount.</summary>
     public ObservableCollection<LibraryItemViewModel> BulkSelectedItems { get; } = [];
 
-    public bool HasBulkSelection => BulkSelectedItems.Count > 0;
+    /// <summary>UE4SS rows in the same click selection. Kept apart from BulkSelectedItems so pak-only actions (Add to merge queue, Delete, Convert) never see a Lua row.</summary>
+    public ObservableCollection<Ue4ssModRowViewModel> BulkSelectedUe4ssRows { get; } = [];
 
-    public int BulkSelectedCount => BulkSelectedItems.Count;
+    public bool HasBulkSelection => BulkSelectedCount > 0;
+
+    /// <summary>Every selected row, pak and UE4SS.</summary>
+    public int BulkSelectedCount => BulkSelectedItems.Count + BulkSelectedUe4ssRows.Count;
+
+    /// <summary>Selected pak/EXMOD rows only — what "Add to merge queue" acts on.</summary>
+    public int BulkSelectedPakCount => BulkSelectedItems.Count;
 
     /// <summary>Whether every mod currently shown is bulk-selected — drives the header row's own "select all" checkbox. False (not true) when the list is empty, matching Explorer's own convention of an unchecked header checkbox on an empty list.</summary>
     public bool IsAllSelectedForBulk
     {
         get
         {
-            var flattened = FlattenModItems();
-            return flattened.Count > 0 && BulkSelectedItems.Count == flattened.Count;
+            var rows = FlattenRows();
+            return rows.Count > 0 && BulkSelectedCount == rows.Count;
         }
         set
         {
@@ -358,12 +366,8 @@ public sealed partial class LibraryViewModel : ObservableObject
             _ = ((LibraryViewModel)recipient).RefreshConvertedOpaqueModsAsync();
         });
 
-        BulkSelectedItems.CollectionChanged += (_, _) =>
-        {
-            OnPropertyChanged(nameof(HasBulkSelection));
-            OnPropertyChanged(nameof(BulkSelectedCount));
-            OnPropertyChanged(nameof(IsAllSelectedForBulk));
-        };
+        BulkSelectedItems.CollectionChanged += (_, _) => RaiseBulkSelectionChanged();
+        BulkSelectedUe4ssRows.CollectionChanged += (_, _) => RaiseBulkSelectionChanged();
 
         Reload();
         ReloadInstalledUe4ssMods();
@@ -378,21 +382,57 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     partial void OnSelectedItemChanged(LibraryItemViewModel? value) => value?.EnsureDetailsLoaded();
 
-    /// <summary>Ctrl-click: toggles this row's own membership, called from LibraryView's code-behind on a plain (non-Ctrl) click first to clear whatever was previously selected — so a fresh click always starts a new bulk selection rather than adding to a stale one.</summary>
-    public void ToggleBulkSelection(LibraryItemViewModel item)
+    private void RaiseBulkSelectionChanged()
     {
-        if (item.IsSelectedForBulk)
-        {
-            item.IsSelectedForBulk = false;
-            BulkSelectedItems.Remove(item);
-        }
-        else
-        {
-            item.IsSelectedForBulk = true;
-            BulkSelectedItems.Add(item);
-        }
+        OnPropertyChanged(nameof(HasBulkSelection));
+        OnPropertyChanged(nameof(BulkSelectedCount));
+        OnPropertyChanged(nameof(BulkSelectedPakCount));
+        OnPropertyChanged(nameof(IsAllSelectedForBulk));
+    }
 
-        _bulkSelectionAnchor = item;
+    private static bool IsRowSelected(object row) => row switch
+    {
+        LibraryItemViewModel item => item.IsSelectedForBulk,
+        Ue4ssModRowViewModel lua => lua.IsSelectedForBulk,
+        _ => false,
+    };
+
+    private void SetRowSelected(object row, bool selected)
+    {
+        switch (row)
+        {
+            case LibraryItemViewModel item when item.IsSelectedForBulk != selected:
+                item.IsSelectedForBulk = selected;
+                if (selected)
+                {
+                    BulkSelectedItems.Add(item);
+                }
+                else
+                {
+                    BulkSelectedItems.Remove(item);
+                }
+
+                break;
+            case Ue4ssModRowViewModel lua when lua.IsSelectedForBulk != selected:
+                lua.IsSelectedForBulk = selected;
+                if (selected)
+                {
+                    BulkSelectedUe4ssRows.Add(lua);
+                }
+                else
+                {
+                    BulkSelectedUe4ssRows.Remove(lua);
+                }
+
+                break;
+        }
+    }
+
+    /// <summary>Ctrl-click: adds or removes this one row (pak or UE4SS) and makes it the Shift-click anchor.</summary>
+    public void ToggleBulkSelection(object row)
+    {
+        SetRowSelected(row, !IsRowSelected(row));
+        _bulkSelectionAnchor = row;
     }
 
     public void ClearBulkSelection()
@@ -402,27 +442,61 @@ public sealed partial class LibraryViewModel : ObservableObject
             item.IsSelectedForBulk = false;
         }
 
+        foreach (var lua in BulkSelectedUe4ssRows)
+        {
+            lua.IsSelectedForBulk = false;
+        }
+
         BulkSelectedItems.Clear();
+        BulkSelectedUe4ssRows.Clear();
     }
 
-    /// <summary>Plain click (no modifier): clears any active bulk selection but still moves the anchor to this row, so a later Shift-click ranges from here — matching Explorer's own "any plain click resets the range start" behavior.</summary>
-    public void SetBulkSelectionAnchor(LibraryItemViewModel item)
+    /// <summary>Plain click (no modifier): selects just this row (it turns grey) and makes it the anchor for a later Shift-click, like Explorer and Mod Organizer.</summary>
+    public void SetBulkSelectionAnchor(object row)
     {
         ClearBulkSelection();
-        _bulkSelectionAnchor = item;
+        SetRowSelected(row, true);
+        _bulkSelectionAnchor = row;
     }
 
     /// <summary>Right-click: a row that's already part of a multi-selection stays part of it (so right-clicking any one of several Ctrl-selected rows adds all of them); right-clicking a row outside the current selection replaces it with just that row — the same convention Explorer uses.</summary>
-    public void EnsureBulkSelected(LibraryItemViewModel item)
+    public void EnsureBulkSelected(object row)
     {
-        if (!item.IsSelectedForBulk)
+        if (!IsRowSelected(row))
         {
             ClearBulkSelection();
-            item.IsSelectedForBulk = true;
-            BulkSelectedItems.Add(item);
+            SetRowSelected(row, true);
         }
 
-        _bulkSelectionAnchor = item;
+        _bulkSelectionAnchor = row;
+    }
+
+    /// <summary>
+    /// Ticking or unticking ON on a row that is part of a multi-selection applies the same state
+    /// to every selected row: paks/EXMODs join or leave the merge queue, UE4SS mods are ticked for
+    /// the next Apply. Returns how many other rows changed.
+    /// </summary>
+    public int ApplyEnabledToSelection(object clickedRow, bool enabled)
+    {
+        if (!IsRowSelected(clickedRow) || BulkSelectedCount < 2)
+        {
+            return 0;
+        }
+
+        var changed = 0;
+        foreach (var item in BulkSelectedItems.ToList().Where(i => !ReferenceEquals(i, clickedRow) && i.IsEnabled != enabled))
+        {
+            item.IsEnabled = enabled;
+            changed++;
+        }
+
+        foreach (var lua in BulkSelectedUe4ssRows.ToList().Where(r => !ReferenceEquals(r, clickedRow) && r.IsEnabled != enabled))
+        {
+            lua.IsEnabled = enabled;
+            changed++;
+        }
+
+        return changed;
     }
 
     /// <summary>
@@ -434,6 +508,14 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// app's own bulk actions (Add to merge queue, Delete) already treat a family as a transparent
     /// container rather than something that can hide its members from a bulk operation.
     /// </summary>
+    private List<object> FlattenRows() =>
+        [.. RootItems.SelectMany(entry => entry switch
+        {
+            LibraryItemViewModel or Ue4ssModRowViewModel => (IEnumerable<object>)[entry],
+            LibraryGroupViewModel group => group.Items,
+            _ => [],
+        })];
+
     private List<LibraryItemViewModel> FlattenModItems() =>
         [.. RootItems.SelectMany(entry => entry switch
         {
@@ -465,9 +547,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         [.. (SortDescending ? groups.OrderByDescending(keySelector, comparer) : groups.OrderBy(keySelector, comparer))];
 
     /// <summary>Shift-click: selects every mod between the last plain/Ctrl-clicked anchor and this one (inclusive), replacing whatever was selected before — matching Explorer's own Shift-click convention. Falls back to selecting just this row alone if there's no anchor yet (e.g. the very first click in a fresh session was a Shift-click).</summary>
-    public void SelectBulkRange(LibraryItemViewModel target)
+    public void SelectBulkRange(object target)
     {
-        var flattened = FlattenModItems();
+        var flattened = FlattenRows();
         var anchorIndex = _bulkSelectionAnchor is not null ? flattened.IndexOf(_bulkSelectionAnchor) : -1;
         var targetIndex = flattened.IndexOf(target);
         if (targetIndex < 0)
@@ -484,8 +566,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         var (start, end) = anchorIndex <= targetIndex ? (anchorIndex, targetIndex) : (targetIndex, anchorIndex);
         for (var i = start; i <= end; i++)
         {
-            flattened[i].IsSelectedForBulk = true;
-            BulkSelectedItems.Add(flattened[i]);
+            SetRowSelected(flattened[i], true);
         }
 
         // Deliberately NOT updated to target — Explorer's own Shift-click keeps ranging from the
@@ -498,10 +579,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     private void SelectAllForBulk()
     {
         ClearBulkSelection();
-        foreach (var item in FlattenModItems())
+        foreach (var row in FlattenRows())
         {
-            item.IsSelectedForBulk = true;
-            BulkSelectedItems.Add(item);
+            SetRowSelected(row, true);
         }
 
         _bulkSelectionAnchor = null;
@@ -555,6 +635,11 @@ public sealed partial class LibraryViewModel : ObservableObject
             // persisted anywhere else. Snapshot by name first, then reapply onto the fresh rows.
             var previousByName = Ue4ssMods.ToDictionary(m => m.Name);
 
+            // The old row objects are about to go: carry their selection over by name.
+            var selectedNames = BulkSelectedUe4ssRows.Select(r => r.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var anchorName = (_bulkSelectionAnchor as Ue4ssModRowViewModel)?.Name;
+            BulkSelectedUe4ssRows.Clear();
+
             Ue4ssMods.Clear();
             foreach (var state in states)
             {
@@ -574,6 +659,16 @@ public sealed partial class LibraryViewModel : ObservableObject
                     }
 
                     row.LatestVersion = previous.LatestVersion;
+                }
+
+                if (selectedNames.Contains(row.Name))
+                {
+                    SetRowSelected(row, true);
+                }
+
+                if (anchorName is not null && string.Equals(anchorName, row.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    _bulkSelectionAnchor = row;
                 }
 
                 Ue4ssMods.Add(row);

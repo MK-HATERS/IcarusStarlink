@@ -437,6 +437,76 @@ public sealed class LibraryViewModelTests
         Assert.Equal("Pak", item.TypeLabel);
     }
 
+    private static (LibraryViewModel Vm, TestHarness Harness) BuildMixedList()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.AddMod("Steadfast");
+        harness.AddMod("SomePak", isOpaquePak: true);
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("ArcFissionLibrary", IsEnabled: false));
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("NearbyCrafting", IsEnabled: false));
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        return (vm, harness);
+    }
+
+    /// <summary>One checkbox per row: clicking selects (grey), Shift-click ranges across pak AND UE4SS rows, and ticking ON on a selected row ticks every selected row.</summary>
+    [Fact]
+    public void ClickSelection_SpansBothKinds_AndOneOnTickAppliesToAllSelected()
+    {
+        var (vm, _) = BuildMixedList();
+        var rows = vm.RootItems.ToList();
+        Assert.Equal(4, rows.Count);
+
+        vm.SetBulkSelectionAnchor(rows[0]);
+        Assert.Equal(1, vm.BulkSelectedCount);
+        vm.SelectBulkRange(rows[^1]);
+
+        Assert.Equal(4, vm.BulkSelectedCount);
+        Assert.Equal(2, vm.BulkSelectedPakCount);
+        Assert.True(vm.IsAllSelectedForBulk);
+        Assert.All(vm.RootItems.OfType<Ue4ssModRowViewModel>(), r => Assert.True(r.IsSelectedForBulk));
+
+        var steadfast = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Steadfast");
+        steadfast.IsEnabled = true; // what the checkbox's binding does on the click
+        var others = vm.ApplyEnabledToSelection(steadfast, true);
+
+        // Every other selected row was set (paks go through the merge queue, which this harness
+        // doesn't have, so only the UE4SS rows can be checked here).
+        Assert.Equal(3, others);
+        Assert.All(vm.RootItems.OfType<Ue4ssModRowViewModel>(), r => Assert.True(r.IsEnabled));
+        Assert.True(vm.HasPendingUe4ssChanges);
+    }
+
+    [Fact]
+    public void OnTick_OnARowOutsideTheSelection_ChangesOnlyThatRow()
+    {
+        var (vm, _) = BuildMixedList();
+        var arc = vm.RootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "ArcFissionLibrary");
+        var nearby = vm.RootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "NearbyCrafting");
+        vm.ToggleBulkSelection(arc);
+        vm.ToggleBulkSelection(vm.RootItems.OfType<LibraryItemViewModel>().First());
+
+        nearby.IsEnabled = true;
+        Assert.Equal(0, vm.ApplyEnabledToSelection(nearby, true));
+
+        Assert.False(arc.IsEnabled);
+        Assert.Equal(2, vm.BulkSelectedCount);
+    }
+
+    [Fact]
+    public void Ue4ssSelection_SurvivesAReloadOfTheUe4ssRows()
+    {
+        var (vm, _) = BuildMixedList();
+        vm.ToggleBulkSelection(vm.RootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "NearbyCrafting"));
+
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+
+        var fresh = vm.RootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "NearbyCrafting");
+        Assert.True(fresh.IsSelectedForBulk);
+        Assert.Same(fresh, Assert.Single(vm.BulkSelectedUe4ssRows));
+    }
+
     [Fact]
     public void DeleteItemCommand_WithAnActiveBulkSelection_DeletesEveryBulkSelectedItemInsteadOfJustTheClickedRow()
     {

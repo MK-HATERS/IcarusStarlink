@@ -154,9 +154,9 @@ public partial class LibraryView : UserControl
         }
 
         treeViewItem.IsSelected = true;
-        if (treeViewItem.DataContext is LibraryItemViewModel item && DataContext is LibraryViewModel viewModel)
+        if (treeViewItem.DataContext is LibraryItemViewModel or Ue4ssModRowViewModel && DataContext is LibraryViewModel viewModel)
         {
-            viewModel.EnsureBulkSelected(item);
+            viewModel.EnsureBulkSelected(treeViewItem.DataContext);
         }
     }
 
@@ -191,7 +191,7 @@ public partial class LibraryView : UserControl
         var isCtrlHeld = System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Control);
         var isShiftHeld = System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Shift);
 
-        if (element is not TreeViewItem { DataContext: LibraryItemViewModel item })
+        if (element is not TreeViewItem { DataContext: (LibraryItemViewModel or Ue4ssModRowViewModel) and var item })
         {
             if (!isCtrlHeld && !isShiftHeld)
             {
@@ -216,26 +216,15 @@ public partial class LibraryView : UserControl
     }
 
     /// <summary>
-    /// The row's own bulk-select checkbox — IsChecked binds OneWay (LibraryItemViewModel.IsSelectedForBulk
-    /// has no setter logic of its own; ToggleBulkSelection is the single source of truth that keeps
-    /// it and LibraryViewModel.BulkSelectedItems consistent, the same way Ctrl-click already
-    /// works), so these events drive that shared method directly rather than writing the property
-    /// themselves. The IsSelectedForBulk guard avoids a redundant toggle if this ever fires from
-    /// the OneWay binding pushing an already-current value back in, rather than a genuine click.
+    /// A row's ON checkbox, clicked by the user (Click, not Checked: it never fires for binding
+    /// updates, so applying it to the selection can't echo). The binding has already set this
+    /// row; when the row is part of a multi-selection, every other selected row follows.
     /// </summary>
-    private void RowCheckbox_Checked(object sender, RoutedEventArgs e)
+    private void EnabledCheckbox_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is CheckBox { DataContext: LibraryItemViewModel { IsSelectedForBulk: false } item } && DataContext is LibraryViewModel viewModel)
+        if (sender is CheckBox { DataContext: { } row } checkBox && DataContext is LibraryViewModel viewModel)
         {
-            viewModel.ToggleBulkSelection(item);
-        }
-    }
-
-    private void RowCheckbox_Unchecked(object sender, RoutedEventArgs e)
-    {
-        if (sender is CheckBox { DataContext: LibraryItemViewModel { IsSelectedForBulk: true } item } && DataContext is LibraryViewModel viewModel)
-        {
-            viewModel.ToggleBulkSelection(item);
+            viewModel.ApplyEnabledToSelection(row, checkBox.IsChecked == true);
         }
     }
 

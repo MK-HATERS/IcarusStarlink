@@ -47,8 +47,18 @@
              LibraryViewModel.Reload. -->
         <DataTemplate DataType="{x:Type vm:Ue4ssModRowViewModel}">
             <Grid Margin="0,3" Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                <Grid.Style>
+                    <!-- Selected rows turn grey, the same as pak/EXMOD rows (see that template). -->
+                    <Style TargetType="Grid">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSelectedForBulk}" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource NavItemSelectedBrush}"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" MinWidth="26" SharedSizeGroup="ColCheckbox"/>
+                    <ColumnDefinition Width="Auto" MinWidth="6" SharedSizeGroup="ColCheckbox"/>
                     <ColumnDefinition Width="Auto" MinWidth="34" SharedSizeGroup="ColEnabled"/>
                     <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
                     <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
@@ -64,6 +74,10 @@
                 </Grid.ColumnDefinitions>
                 <Grid.ContextMenu>
                     <ContextMenu>
+                        <MenuItem Header="Select all"
+                                  Command="{Binding PlacementTarget.Tag.SelectAllForBulkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  ToolTip="Selects every mod currently shown, so one ON tick turns them all on or off"/>
+                        <Separator/>
                         <MenuItem Header="Open folder"
                                   Command="{Binding PlacementTarget.Tag.OpenUe4ssModFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
@@ -91,8 +105,8 @@
                     </ContextMenu>
                 </Grid.ContextMenu>
 
-                <CheckBox Grid.Column="1" VerticalAlignment="Center" Margin="4,0,4,0" IsChecked="{Binding IsEnabled}"
-                          ToolTip="On = in the game's Mods folder. Changes apply when you click Apply in the bar below."
+                <CheckBox Grid.Column="1" VerticalAlignment="Center" Margin="4,0,4,0" IsChecked="{Binding IsEnabled}" Click="EnabledCheckbox_Click"
+                          ToolTip="On = in the game's Mods folder. Changes apply when you click Apply in the bar below. With several rows selected, ticking one ticks them all."
                           AutomationProperties.Name="{Binding Name, StringFormat='Enable {0}'}"/>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
@@ -190,20 +204,18 @@
             <Grid x:Name="Row" Margin="0,3"
                   Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
                 <Grid.Style>
-                    <!-- Ctrl/Shift-click bulk selection for "Add to merge queue" — a soft accent
-                         wash, distinct from the TreeView's own native selection highlight, so a
-                         user can tell "picked for the merge queue" apart from "currently viewing
-                         details for" at a glance. -->
+                    <!-- Click selection (click, Ctrl-click, Shift-click): the row turns grey.
+                         The ON checkbox is separate: it is whether the mod goes into the game. -->
                     <Style TargetType="Grid">
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding IsSelectedForBulk}" Value="True">
-                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+                                <Setter Property="Background" Value="{DynamicResource NavItemSelectedBrush}"/>
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
                 </Grid.Style>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" MinWidth="26" SharedSizeGroup="ColCheckbox"/>
+                    <ColumnDefinition Width="Auto" MinWidth="6" SharedSizeGroup="ColCheckbox"/>
                     <ColumnDefinition Width="Auto" MinWidth="34" SharedSizeGroup="ColEnabled"/>
                     <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
                     <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
@@ -243,7 +255,7 @@
                             <MenuItem.Header>
                                 <TextBlock>
                                     <Run Text="Add to merge queue"/>
-                                    <Run Text=" ("/><Run Text="{Binding PlacementTarget.Tag.BulkSelectedCount, RelativeSource={RelativeSource AncestorType=ContextMenu}, Mode=OneWay}"/><Run Text=")"/>
+                                    <Run Text=" ("/><Run Text="{Binding PlacementTarget.Tag.BulkSelectedPakCount, RelativeSource={RelativeSource AncestorType=ContextMenu}, Mode=OneWay}"/><Run Text=")"/>
                                 </TextBlock>
                             </MenuItem.Header>
                         </MenuItem>
@@ -307,15 +319,11 @@
                     </ContextMenu>
                 </Grid.ContextMenu>
 
-                <CheckBox Grid.Column="0" VerticalAlignment="Center" Margin="0,0,4,0"
-                          IsChecked="{Binding IsSelectedForBulk, Mode=OneWay}"
-                          Checked="RowCheckbox_Checked" Unchecked="RowCheckbox_Unchecked"
-                          AutomationProperties.Name="{Binding Name, StringFormat='Select {0}'}"/>
                 <!-- The "On" checkbox: for a pak/EXMOD mod this IS merge-queue membership (see
                      LibraryItemViewModel.IsEnabled) — ticked mods are what the next Merge &
                      Install builds. A "Pak + UE4SS" mod's Lua half follows the same tick. -->
-                <CheckBox Grid.Column="1" VerticalAlignment="Center" Margin="4,0,4,0" IsChecked="{Binding IsEnabled}"
-                          ToolTip="On = goes into the game on the next Merge &amp; Install (it's in the merge queue). Off = left out."
+                <CheckBox Grid.Column="1" VerticalAlignment="Center" Margin="4,0,4,0" IsChecked="{Binding IsEnabled}" Click="EnabledCheckbox_Click"
+                          ToolTip="On = goes into the game on the next Merge &amp; Install (it's in the merge queue). Off = left out. With several rows selected, ticking one ticks them all."
                           AutomationProperties.Name="{Binding Name, StringFormat='Enable {0}'}"/>
 
                 <Border Grid.Column="4" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" Margin="8,0,0,0" HorizontalAlignment="Left"
@@ -698,7 +706,7 @@
                             <Run Text=" — double-click a mod for details, hover a row for quick actions" Foreground="{DynamicResource FaintForegroundBrush}"/>
                         </TextBlock>
                         <TextBlock Margin="0,2,0,0" FontSize="12" Foreground="{DynamicResource FaintForegroundBrush}"
-                                   Text="Ctrl-click to add a mod to the selection, Shift-click to select a range, right-click for bulk actions (Select all, Add to merge queue, Delete)"/>
+                                   Text="Click to select, Ctrl-click to add, Shift-click for a range. Ticking ON on a selected mod ticks every selected mod. Right-click for more (Select all, Add to merge queue, Delete)."/>
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding UpdateCheckStatusMessage}"
                                    Visibility="{Binding UpdateCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding StalenessCheckStatusMessage}"
@@ -737,7 +745,7 @@
                             </ContextMenu>
                         </Grid.ContextMenu>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" MinWidth="26" SharedSizeGroup="ColCheckbox"/>
+                            <ColumnDefinition Width="Auto" MinWidth="6" SharedSizeGroup="ColCheckbox"/>
                             <ColumnDefinition Width="Auto" MinWidth="34" SharedSizeGroup="ColEnabled"/>
                             <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
                             <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
@@ -751,10 +759,6 @@
                             <ColumnDefinition Width="Auto" SharedSizeGroup="ColImported"/>
                             <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColActions"/>
                         </Grid.ColumnDefinitions>
-                        <CheckBox Grid.Column="0" VerticalAlignment="Center"
-                                  IsChecked="{Binding IsAllSelectedForBulk}"
-                                  ToolTip="Select/deselect every mod currently shown"
-                                  AutomationProperties.Name="Select all mods"/>
                         <TextBlock Grid.Column="1" Text="ON" Style="{StaticResource FieldLabelStyle}" Margin="4,0,0,0" VerticalAlignment="Center"
                                    ToolTip="Ticked mods go into the game (pak/EXMOD on the next Merge &amp; Install, UE4SS on Apply)"/>
                         <TextBlock Grid.Column="4" Text="TYPE" Style="{StaticResource FieldLabelStyle}" Margin="8,0,0,0" VerticalAlignment="Center"/>

@@ -159,6 +159,10 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     [ObservableProperty]
     private bool _isEnabled;
 
+    /// <summary>Part of the Mods list's click selection (grey row): Ctrl/Shift-click and Select all include UE4SS rows, and ticking ON on a selected row ticks every selected row.</summary>
+    [ObservableProperty]
+    private bool _isSelectedForBulk;
+
     public bool IsDirty => IsEnabled != RealIsEnabled;
 
     partial void OnIsEnabledChanged(bool value)
