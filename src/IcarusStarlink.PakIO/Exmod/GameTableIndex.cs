@@ -14,7 +14,7 @@ public sealed class GameTableIndex(string dataFolder)
 {
     private Dictionary<string, string>? _currentFileByTable;
     private readonly Dictionary<string, (JsonObject? Rows, JsonObject? Defaults)> _tables = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, HashSet<string>> _rowNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<string, string>> _rowNames = new(StringComparer.OrdinalIgnoreCase);
 
     public string DataFolder { get; } = dataFolder;
 
@@ -34,18 +34,28 @@ public sealed class GameTableIndex(string dataFolder)
 
     public JsonObject? Defaults(string currentFile) => Load(currentFile).Defaults;
 
-    public JsonObject? Row(string currentFile, string rowName) => Rows(currentFile)?[rowName] as JsonObject;
+    /// <summary>The game's row, found the way the game finds it (ignoring case).</summary>
+    public JsonObject? Row(string currentFile, string rowName) =>
+        Rows(currentFile)?[rowName] as JsonObject ?? (GameRowName(currentFile, rowName) is { } exact ? Rows(currentFile)?[exact] as JsonObject : null);
 
     /// <summary>Whether the game has the row, ignoring case — Unreal row names (FNames) are case-insensitive, so "FirePit" finds "Firepit" in game.</summary>
-    public bool HasRow(string currentFile, string rowName)
+    public bool HasRow(string currentFile, string rowName) => GameRowName(currentFile, rowName) is not null;
+
+    /// <summary>The row's name as the game spells it ("FirePit" → "Firepit"); null when the game has no such row.</summary>
+    public string? GameRowName(string currentFile, string rowName)
     {
         if (!_rowNames.TryGetValue(currentFile, out var names))
         {
-            names = Rows(currentFile)?.Select(kv => kv.Key).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+            names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, _) in Rows(currentFile) ?? [])
+            {
+                names.TryAdd(key, key);
+            }
+
             _rowNames[currentFile] = names;
         }
 
-        return names.Contains(rowName);
+        return names.GetValueOrDefault(rowName);
     }
 
     /// <summary>The table a top-level link field points into, from the table's own Defaults ("Itemable" in D_ItemsStatic → "D_Itemable").</summary>

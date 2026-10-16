@@ -19,16 +19,12 @@ public sealed class GameItemNames(GameTableIndex game)
         var table = GameTableIndex.TableNameOf(currentFile);
         if (string.Equals(table, "D_ItemsStatic", StringComparison.OrdinalIgnoreCase) || string.Equals(table, "D_ItemTemplate", StringComparison.OrdinalIgnoreCase))
         {
-            return game.HasRow(ItemsStatic, rowName) ? rowName : null;
+            return game.GameRowName(ItemsStatic, rowName);
         }
 
         _itemByRow ??= Build();
         return _itemByRow.GetValueOrDefault((table.ToUpperInvariant(), rowName.ToUpperInvariant()));
     }
-
-    /// <summary>The in-game name of the item using this row ("Xigo S5-II Envirosuit"); null when unknown.</summary>
-    public string? DisplayNameFor(string currentFile, string rowName) =>
-        ItemFor(currentFile, rowName) is { } item ? DisplayName(item) : null;
 
     public string? DisplayName(string itemName) =>
         game.Row(ItemsStatic, itemName)?["Itemable"]?["RowName"]?.GetValue<string>() is { } itemable

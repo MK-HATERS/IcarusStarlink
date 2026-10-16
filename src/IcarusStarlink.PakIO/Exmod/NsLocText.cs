@@ -29,7 +29,23 @@ public static partial class NsLocText
     /// <summary>The text players see, or null when the value isn't localized text.</summary>
     public static string? TextOf(string? value) => TryParse(value, out _, out _, out var text) ? text : null;
 
-    public static string Escape(string text) => text.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    /// <summary>The same text under another key, its words exactly as written (escapes and all); null when it isn't localized text.</summary>
+    public static string? WithKey(string value, string newKey) =>
+        Pattern().Match(value.Trim()) is { Success: true } m
+            ? value.Trim()[..m.Groups["key"].Index] + newKey + value.Trim()[(m.Groups["key"].Index + m.Groups["key"].Length)..]
+            : null;
 
-    private static string Unescape(string text) => Regex.Replace(text, @"\\(.)", "$1");
+    /// <summary>As the game writes it: backslash, quotes, apostrophes and line breaks escaped.</summary>
+    public static string Escape(string text) => text
+        .Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("'", "\\'")
+        .Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");
+
+    /// <summary>What players see: "\\r\\n" is a line break (Item_Purification_Pill's description has two), "\\'" an apostrophe.</summary>
+    private static string Unescape(string text) => Regex.Replace(text, @"\\(.)", m => m.Groups[1].Value switch
+    {
+        "r" => "\r",
+        "n" => "\n",
+        "t" => "\t",
+        var other => other,
+    });
 }
