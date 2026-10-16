@@ -240,7 +240,10 @@ public sealed partial class HelpViewModel : ObservableObject
             **Changing the game's own items**
 
             - The **Editor** page (left menu) is the easy way: pick an item, change its numbers, save. See its own Help topic.
-            - **Change a game row…** (in the mod editor) is the raw way: it copies any row of the game's data into your mod with all its current values. Change just the fields you want; every field shows the game's value underneath, amber-bordered when yours differs.
+            - **Change a game row…** (in the mod editor) copies any row of the game's data into your mod with all its current values. Change just the fields you want.
+            - The mod editor's **Fields** view shows each row in plain words: the list on the left is grouped by part (Armour, Recipes…) with in-game names and how many values differ from the game; a number is one box with what lower and higher do; game text (names, descriptions) is plain text; a stats list is one row per stat, with ✕, **Put back** and **Add a stat**. An orange border marks a value that differs from the game's. Lists and links still show as JSON, and **File JSON** / **Full EXMOD JSON** show everything raw.
+            - A mod's stats list replaces the game's whole list, so a game stat the mod leaves out is gone in game; the Fields view marks those in red with **Put back**.
+            - **Open in Editor** shows the selected row's item on the Editor page, with all its other parts. Rarer tools (Duplicate, Open original file, Insert file, Merge another mod, Open folder) are under **More ▾**.
             - **Ctrl+S** saves. Fields you left identical to the game are dropped from the file, so it only carries real changes.
             - **Search game data…** finds a row by name and every place the game refers to it (which recipes use Wood, which items grant a stat).
             - Select two or more rows to set one field on all of them at once. **⧉ Pop out** puts a view in its own window.

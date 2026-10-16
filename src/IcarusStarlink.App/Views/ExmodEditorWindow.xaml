@@ -5,7 +5,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
         mc:Ignorable="d"
-        Title="{Binding WindowTitle}" Height="680" Width="1040" MinHeight="420" MinWidth="700"
+        Title="{Binding WindowTitle}" Height="760" Width="1200" MinHeight="460" MinWidth="820"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource ContentBackgroundBrush}">
 
@@ -36,58 +36,92 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Text="Items" Style="{StaticResource FieldLabelStyle}"/>
+            <TextBlock Grid.Row="0" Text="THIS MOD'S ITEMS" Style="{StaticResource FieldLabelStyle}"/>
 
-            <TextBox x:Name="FilterBox" Grid.Row="1" Margin="0,4,0,0"
-                     Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
-                     ToolTip="Filter by file or item name (Ctrl+F)"/>
+            <Grid Grid.Row="1" Margin="0,4,0,0">
+                <TextBox x:Name="FilterBox" Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="Filter by in-game name, row or file (Ctrl+F)"/>
+                <TextBlock Text="Search this mod's items (Ctrl+F)" Style="{StaticResource PlaceholderTextStyle}"
+                           Visibility="{Binding FilterText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+            </Grid>
 
             <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,4,0,0">
                 <ListBox x:Name="ItemsListBox" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}"
                          SelectionMode="Extended" SelectionChanged="ItemsListBox_SelectionChanged"
-                         DisplayMemberPath="Display" Background="Transparent" BorderThickness="0"
-                         ToolTip="Ctrl/Shift-click to select several items for mass edit"/>
+                         Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ToolTip="Ctrl/Shift-click to select several items for mass edit">
+                    <ListBox.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.HeaderTemplate>
+                                <DataTemplate>
+                                    <DockPanel Margin="4,8,4,2">
+                                        <TextBlock DockPanel.Dock="Right" Text="{Binding ItemCount}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                        <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </GroupStyle.HeaderTemplate>
+                        </GroupStyle>
+                    </ListBox.GroupStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <DockPanel>
+                                <Border DockPanel.Dock="Right" CornerRadius="8" Padding="6,0" VerticalAlignment="Center" Background="{DynamicResource AccentSoftBrush}"
+                                        Visibility="{Binding HasChanges, Converter={StaticResource BoolToVisibilityConverter}}"
+                                        ToolTip="Values that differ from the game's">
+                                    <TextBlock Text="{Binding ChangeCount}" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}"/>
+                                </Border>
+                                <StackPanel Margin="0,1,6,1">
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding ItemName}" FontFamily="Consolas" FontSize="10.5" Foreground="{DynamicResource FaintForegroundBrush}" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </Border>
 
             <WrapPanel Grid.Row="3" Margin="0,8,0,0">
-                <Button Content="Duplicate (Ctrl+D)" Command="{Binding DuplicateItemCommand}" Margin="0,0,8,4"
-                        ToolTip="Clone the selected item's fields under a new name"/>
-                <Button Content="Open original file" Command="{Binding OpenOriginalFileCommand}" Margin="0,0,8,4"
-                        ToolTip="Open the real, unmodified base game data file for the selected item"/>
-                <Button Content="Open mods folder" Command="{Binding OpenModsFolderCommand}" Margin="0,0,8,4"
-                        ToolTip="Reveal this mod's own folder in Explorer"/>
-                <Button Content="Insert file at location…" Command="{Binding InsertFileAtLocationCommand}" Margin="0,0,8,4"
-                        ToolTip="Add one of the game's own real data files to this mod, with no items yet"/>
-                <Button Content="Merge existing mod into this one…" Command="{Binding MergeExistingModCommand}" Margin="0,0,8,4"
-                        ToolTip="Copy another Library mod's own items into this one — an item already here is left alone"/>
+                <Button Content="New item from a game item…" Command="{Binding NewItemFromGameCommand}" Margin="0,0,8,4"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        ToolTip="Make a brand-new item that starts as a copy of a game item: its own name, icon and stats, and a recipe or workshop purchase so players can get it"/>
+                <Button Content="Change a game row…" Command="{Binding AddItemFromGameCommand}" Margin="0,0,8,4"
+                        ToolTip="Pick any row of the game's data and copy its complete current values into this mod, to change the game's own item (not make a new one). Edit just the fields you want changed."/>
                 <Button Content="Search game data…" Command="{Binding SearchGameDataCommand}" Margin="0,0,8,4"
                         ToolTip="Find any item by name, and everywhere its name is referenced inside other items' JSON — e.g. every recipe that consumes it"/>
                 <Button Content="Check references" Command="{Binding CheckReferencesCommand}" Margin="0,0,8,4"
                         ToolTip="Finds links to rows that exist neither in the game nor in this mod (a typo, or a row a game update renamed), and item rows nothing uses. Also runs on Save."/>
+                <Button x:Name="MoreButton" Content="More ▾" Click="MoreButton_Click" Margin="0,0,8,4" ToolTip="Duplicate, open the original file, insert a file, merge another mod, open the folder">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Duplicate (Ctrl+D)" Command="{Binding DuplicateItemCommand}" ToolTip="Clone the selected item's fields under a new name"/>
+                            <MenuItem Header="Open original file" Command="{Binding OpenOriginalFileCommand}" ToolTip="Open the real, unmodified base game data file for the selected item"/>
+                            <MenuItem Header="Insert file at location…" Command="{Binding InsertFileAtLocationCommand}" ToolTip="Add one of the game's own real data files to this mod, with no items yet"/>
+                            <MenuItem Header="Merge existing mod into this one…" Command="{Binding MergeExistingModCommand}" ToolTip="Copy another Library mod's own items into this one — an item already here is left alone"/>
+                            <MenuItem Header="Open mods folder" Command="{Binding OpenModsFolderCommand}" ToolTip="Reveal this mod's own folder in Explorer"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
             </WrapPanel>
 
-            <StackPanel Grid.Row="4" Margin="0,8,0,0">
-                <TextBlock Text="Add item" Style="{StaticResource FieldLabelStyle}"/>
-                <Button Content="New item from a game item…" Command="{Binding NewItemFromGameCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"
-                        Style="{StaticResource PrimaryButtonStyle}"
-                        ToolTip="Make a brand-new item that starts as a copy of a game item: its own name, icon and stats, and a recipe or workshop purchase so players can get it"/>
-                <Button Content="Change a game row…" Command="{Binding AddItemFromGameCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"
-                        ToolTip="Pick any row of the game's data and copy its complete current values into this mod, to change the game's own item (not make a new one). Edit just the fields you want changed."/>
-                <Grid Margin="0,4,0,0">
-                    <TextBox Text="{Binding NewItemCurrentFile, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="Real game data file path, e.g. Traits/D_Fuel.json"/>
-                    <TextBlock Text="e.g. Traits/D_Fuel.json" Style="{StaticResource PlaceholderTextStyle}"
-                               Visibility="{Binding NewItemCurrentFile, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                </Grid>
-                <Grid Margin="0,4,0,0">
-                    <TextBox Text="{Binding NewItemName, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="Item/row name in that file, e.g. Item_Wood"/>
-                    <TextBlock Text="e.g. Item_Wood" Style="{StaticResource PlaceholderTextStyle}"
-                               Visibility="{Binding NewItemName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                </Grid>
-                <Button Content="Add item" Command="{Binding AddItemCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"
-                        ToolTip="Adds a new, empty item to this file (or creates the file if it's not already part of this mod)"/>
-            </StackPanel>
+            <Expander Grid.Row="4" Header="Add an empty row (advanced)" Margin="0,4,0,0">
+                <StackPanel Margin="0,4,0,0">
+                    <Grid>
+                        <TextBox Text="{Binding NewItemCurrentFile, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Real game data file path, e.g. Traits/D_Fuel.json"/>
+                        <TextBlock Text="e.g. Traits/D_Fuel.json" Style="{StaticResource PlaceholderTextStyle}"
+                                   Visibility="{Binding NewItemCurrentFile, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                    </Grid>
+                    <Grid Margin="0,4,0,0">
+                        <TextBox Text="{Binding NewItemName, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Item/row name in that file, e.g. Item_Wood"/>
+                        <TextBlock Text="e.g. Item_Wood" Style="{StaticResource PlaceholderTextStyle}"
+                                   Visibility="{Binding NewItemName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                    </Grid>
+                    <Button Content="Add item" Command="{Binding AddItemCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"
+                            ToolTip="Adds a new, empty item to this file (or creates the file if it's not already part of this mod)"/>
+                </StackPanel>
+            </Expander>
         </Grid>
 
         <!-- Right: three views over the same selected item/package — Item fields (structured,
@@ -104,9 +138,9 @@
             </Grid.RowDefinitions>
 
             <StackPanel Grid.Row="0" Orientation="Horizontal">
-                <Button Content="Item fields" Style="{StaticResource ThemeButtonStyle}" Margin="0"
+                <Button Content="Fields" Style="{StaticResource ThemeButtonStyle}" Margin="0"
                         Command="{Binding SetViewModeCommand}" CommandParameter="ItemFields"
-                        ToolTip="Structured, one row per field — the amber-highlighted view">
+                        ToolTip="The selected row in plain words: one box per value, one row per stat, the game's value beside each">
                     <Button.Tag>
                         <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
                             <Binding Path="ViewMode"/>
@@ -196,53 +230,21 @@
                            Foreground="{DynamicResource SecondaryForegroundBrush}"
                            Visibility="{Binding NoDataRowsMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                 <ScrollViewer x:Name="ItemFieldsScrollViewer" VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding Fields}" Margin="8">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,8">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="160"/>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-
-                                        <TextBlock Grid.Column="0" Text="{Binding FieldName}" VerticalAlignment="Top" Margin="0,4,8,0" TextWrapping="Wrap"/>
-
-                                        <StackPanel Grid.Column="1">
-                                            <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}"
-                                                     AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas"
-                                                     ToolTip="This mod's current value for this field, as JSON. An orange border means it differs from the real game's own default (see 'base' below).">
-                                                <TextBox.Style>
-                                                    <Style TargetType="TextBox">
-                                                        <Setter Property="BorderThickness" Value="1"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsChanged}" Value="True">
-                                                                <Setter Property="BorderBrush" Value="#FFB84D"/>
-                                                                <Setter Property="BorderThickness" Value="2"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </TextBox.Style>
-                                            </TextBox>
-                                            <TextBlock Text="{Binding BaseValueText, StringFormat='base (vanilla game): {0}'}" FontSize="11"
-                                                       Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,2,0,0"/>
-                                            <TextBlock Text="{Binding OriginalValueText, StringFormat='was (before this edit): {0}'}" FontSize="11"
-                                                       Foreground="{DynamicResource AccentBrush}" Margin="0,2,0,0"
-                                                       Visibility="{Binding IsChangedFromOriginal, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                            <TextBlock Text="{Binding ParseError}" FontSize="11" Foreground="#E05555" Margin="0,2,0,0"
-                                                       Visibility="{Binding ParseError, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                        </StackPanel>
-
-                                        <Button Grid.Column="2" Content="✕" Padding="6,2" VerticalAlignment="Top" Margin="8,0,0,0"
-                                                ToolTip="Remove this field"
-                                                Command="{Binding DataContext.RemoveFieldCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                CommandParameter="{Binding}"/>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <StackPanel Margin="12,10,12,4">
+                        <DockPanel Visibility="{Binding SelectedItem, Converter={StaticResource NullToVisibilityConverter}}">
+                            <Button DockPanel.Dock="Right" Content="Open in Editor" Command="{Binding OpenInGameEditorCommand}" VerticalAlignment="Top"
+                                    ToolTip="Show this game item on the Editor page, with all its other parts (armour, buff, recipe…) in plain words"/>
+                            <StackPanel>
+                                <TextBlock Text="{Binding SelectedItem.Title}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <TextBlock FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" FontFamily="Consolas" TextWrapping="Wrap">
+                                    <Run Text="{Binding SelectedItem.RealPath, Mode=OneWay}"/><Run Text=" › "/><Run Text="{Binding SelectedItem.ItemName, Mode=OneWay}"/>
+                                </TextBlock>
+                                <TextBlock Text="An orange border marks a value that differs from the game's. Every number says what lower and higher do." FontSize="12"
+                                           Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,4,0,2" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding Fields}" ItemTemplate="{StaticResource EditorFieldTemplate}"/>
+                    </StackPanel>
                 </ScrollViewer>
                 </Grid>
             </Border>

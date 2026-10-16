@@ -87,7 +87,7 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
     public GameItemSectionViewModel(EditableSection section, IReadOnlyList<StatChoice> stats, Action changed)
     {
         Section = section;
-        _stats = stats;
+        Picker = new StatPickerViewModel(stats, AddStat);
         _changed = changed;
         foreach (var field in section.Fields)
         {
@@ -124,64 +124,21 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
 
     public bool CanAddStat => Section.StatGroups.Count > 0;
 
-    private readonly IReadOnlyList<StatChoice> _stats;
+    /// <summary>"Add a stat" for this card (cards with a stats list only).</summary>
+    public StatPickerViewModel Picker { get; }
 
-    /// <summary>What the user typed to find a stat: "cold", "movement", "health"…</summary>
-    [ObservableProperty]
-    private string _statSearch = "";
-
-    /// <summary>Stats matching the search (by plain name or game name), at most 40.</summary>
-    public ObservableCollection<StatChoice> MatchingStats { get; } = [];
-
-    public bool HasMatchingStats => MatchingStats.Count > 0;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(SelectedStatText))]
-    private StatChoice? _selectedStat;
-
-    public string SelectedStatText => SelectedStat is { } s ? $"{s.Label}  ·  {s.Kind}" : "Nothing picked yet: search, then click a stat.";
-
-    [ObservableProperty]
-    private string? _statError;
-
-    partial void OnStatSearchChanged(string value)
+    private string? AddStat(StatChoice stat)
     {
-        MatchingStats.Clear();
-        var words = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length > 0)
-        {
-            foreach (var stat in _stats.Where(s => words.All(w => s.Label.Contains(w, StringComparison.OrdinalIgnoreCase) || s.Name.Contains(w, StringComparison.OrdinalIgnoreCase))).Take(40))
-            {
-                MatchingStats.Add(stat);
-            }
-        }
-
-        OnPropertyChanged(nameof(HasMatchingStats));
-    }
-
-    [RelayCommand]
-    private void AddStat()
-    {
-        if (SelectedStat is not { } stat)
-        {
-            StatError = "Search for a stat (e.g. cold, movement, health) and click one first.";
-            return;
-        }
-
-        var name = stat.Name;
-        var key = GameItemEditor.StatKeyFor(name);
+        var key = GameItemEditor.StatKeyFor(stat.Name);
         var group = Section.StatGroups[0];
         if (Fields.Any(f => f.Field.Path.Top == group && f.Field.Path.Steps.Count == 1 && (string)f.Field.Path.Steps[0] == key))
         {
-            StatError = "That stat is already here.";
-            return;
+            return "That stat is already here.";
         }
 
         Add(new GameItemFieldViewModel(new EditableField(new EditPath(group, [key]), stat.Label, $"Added by you: a {stat.Kind}. Higher = more, lower = less; 0 = no bonus.", EditableKind.Number, null, null, false)) { ValueText = "0" });
-        StatError = null;
-        SelectedStat = null;
-        StatSearch = "";
         _changed();
+        return null;
     }
 
     private void Add(GameItemFieldViewModel field)
@@ -226,6 +183,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
         // Game data changes under the page when Settings' Update data folder runs.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).ResetGameData());
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).RefreshTargets());
+        WeakReferenceMessenger.Default.Register<OpenGameItemMessage>(this, (recipient, message) => ((GameEditorViewModel)recipient).Open(message.ItemName));
         RefreshTargets();
     }
 
@@ -314,6 +272,17 @@ public sealed partial class GameEditorViewModel : ObservableObject
         NoDataMessage = null;
         _allItems = ItemCloner.ListItems(game);
         RefreshFilter();
+    }
+
+    /// <summary>Shows one game item (from the mod editor's "Open in Editor").</summary>
+    public void Open(string itemName)
+    {
+        EnsureLoaded();
+        if (_allItems.FirstOrDefault(i => string.Equals(i.Name, itemName, StringComparison.OrdinalIgnoreCase)) is { } item)
+        {
+            SelectedItem = item;
+            RefreshFilter(); // the list shows 400 items; make sure this one is in it
+        }
     }
 
     partial void OnFilterTextChanged(string value) => RefreshFilter();

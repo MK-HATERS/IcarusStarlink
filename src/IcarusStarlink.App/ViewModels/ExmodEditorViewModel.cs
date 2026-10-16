@@ -342,7 +342,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         row.FileItems.Add(new ExmodFileItem { Name = newName, Fields = clonedFields });
         RefreshBaseDiff();
 
-        var newEditorItem = new EditorItemViewModel(row.CurrentFile, newName);
+        var newEditorItem = MakeItem(row.CurrentFile, newName);
         Items.Add(newEditorItem);
         SyncItemOrder();
         SelectedItem = newEditorItem;
@@ -871,7 +871,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         {
             var baseValue = LookupOrFallback(_baseValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, fieldName, item);
             var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, fieldName, item);
-            Fields.Add(new EditorFieldViewModel(fieldName, item.Fields, baseValue, originalValue));
+            Fields.Add(new EditorFieldViewModel(fieldName, item.Fields, baseValue, originalValue, StatChoicesForFields()));
         }
     }
 
@@ -959,7 +959,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         RefreshBaseDiff();
         var baseValue = LookupOrFallback(_baseValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
         var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
-        Fields.Add(new EditorFieldViewModel(NewFieldName, item.Fields, baseValue, originalValue));
+        Fields.Add(new EditorFieldViewModel(NewFieldName, item.Fields, baseValue, originalValue, StatChoicesForFields()));
 
         NewFieldName = "";
         NewFieldValue = "";
@@ -1011,7 +1011,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         row.FileItems.Add(new ExmodFileItem { Name = NewItemName });
 
-        var newItem = new EditorItemViewModel(currentFile, NewItemName);
+        var newItem = MakeItem(currentFile, NewItemName);
         Items.Add(newItem);
         SyncItemOrder();
         SelectedItem = newItem;
@@ -1082,8 +1082,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         {
             foreach (var item in row.FileItems.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase))
             {
-                var candidate = new EditorItemViewModel(row.CurrentFile, item.Name);
-                if (string.IsNullOrWhiteSpace(FilterText) || candidate.Display.Contains(FilterText, StringComparison.OrdinalIgnoreCase))
+                var candidate = MakeItem(row.CurrentFile, item.Name);
+                if (string.IsNullOrWhiteSpace(FilterText) || candidate.SearchText.Contains(FilterText, StringComparison.OrdinalIgnoreCase))
                 {
                     Items.Add(candidate);
                 }

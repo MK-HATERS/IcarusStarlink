@@ -1068,4 +1068,200 @@
         </Setter>
     </Style>
 
+    <!-- "Add a stat" (StatPickerViewModel): search by plain name, see flat vs percent, pick, add.
+         Shared by the Editor page and the mod editor's Fields view. -->
+    <DataTemplate x:Key="StatPickerTemplate">
+        <Border Padding="10,8" CornerRadius="4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+            <StackPanel>
+                <TextBlock Text="Add a stat" FontWeight="SemiBold" FontSize="12.5"/>
+                <Grid Margin="0,6,0,0">
+                    <TextBox Text="{Binding StatSearch, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search stats"/>
+                    <TextBlock Text="Search: cold, heat, movement, health, carry…" Style="{StaticResource PlaceholderTextStyle}"
+                               Visibility="{Binding StatSearch, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                </Grid>
+                <ListBox ItemsSource="{Binding MatchingStats}" SelectedItem="{Binding SelectedStat}" MaxHeight="170" Margin="0,4,0,0"
+                         Visibility="{Binding HasMatchingStats, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <TextBlock><Run Text="{Binding Label, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="  ·  "/><Run Text="{Binding Kind, Mode=OneWay}" Foreground="{DynamicResource SecondaryForegroundBrush}"/></TextBlock>
+                                <TextBlock Text="{Binding Name}" FontFamily="Consolas" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <DockPanel Margin="0,6,0,0">
+                    <Button DockPanel.Dock="Right" Content="Add stat" Command="{Binding AddStatCommand}" Margin="8,0,0,0"/>
+                    <TextBlock Text="{Binding SelectedStatText}" VerticalAlignment="Center" TextWrapping="Wrap" FontSize="12"/>
+                </DockPanel>
+                <TextBlock Text="{Binding StatError}" Foreground="{DynamicResource DangerBrush}" FontSize="12" TextWrapping="Wrap"
+                           Visibility="{Binding StatError, Converter={StaticResource NullToVisibilityConverter}}"/>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <!-- One field in the mod editor's Fields view (EditorFieldViewModel): a number box, plain game
+         text, a path, one row per stat, or (for anything else) the JSON itself. Shared by the
+         editor window and its pop-out pane. -->
+    <DataTemplate x:Key="EditorFieldTemplate">
+        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Margin="0,3,10,0">
+                    <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding FieldName}" FontFamily="Consolas" FontSize="10.5" Foreground="{DynamicResource FaintForegroundBrush}" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1">
+                    <!-- Number -->
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding IsNumberKind, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" Width="160" AutomationProperties.Name="{Binding Label}">
+                            <TextBox.Style>
+                                <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                                            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                            <Setter Property="BorderThickness" Value="2"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBox.Style>
+                        </TextBox>
+                        <TextBlock Text="{Binding BasePlainText}" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                    </StackPanel>
+
+                    <!-- Game text and plain text -->
+                    <StackPanel Visibility="{Binding IsTextKind, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBox Text="{Binding PlainText, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AcceptsReturn="False" AutomationProperties.Name="{Binding Label}">
+                            <TextBox.Style>
+                                <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                                            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                            <Setter Property="BorderThickness" Value="2"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBox.Style>
+                        </TextBox>
+                        <TextBlock Text="{Binding BasePlainText}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                    </StackPanel>
+                    <StackPanel Visibility="{Binding IsStringKind, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBox Text="{Binding PlainString, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas" FontSize="11.5" AutomationProperties.Name="{Binding Label}">
+                            <TextBox.Style>
+                                <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                                            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                            <Setter Property="BorderThickness" Value="2"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBox.Style>
+                        </TextBox>
+                        <TextBlock Text="{Binding BasePlainText}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" FontFamily="Consolas" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                    </StackPanel>
+
+                    <!-- One row per stat -->
+                    <StackPanel Visibility="{Binding IsStatsKind, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <ItemsControl ItemsSource="{Binding Stats}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="200"/>
+                                            <ColumnDefinition Width="110"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                                        <TextBox Grid.Column="1" Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsKept}" AutomationProperties.Name="{Binding Label}">
+                                            <TextBox.Style>
+                                                <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                                                            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                                            <Setter Property="BorderThickness" Value="2"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBox.Style>
+                                        </TextBox>
+                                        <TextBlock Grid.Column="2" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12" TextWrapping="Wrap">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="{Binding GameText}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsAdded}" Value="True">
+                                                            <Setter Property="Foreground" Value="{DynamicResource InfoBrush}"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding IsDropped}" Value="True">
+                                                            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <StackPanel Grid.Column="3" Orientation="Horizontal">
+                                            <Button Content="✕" Padding="6,1" Command="{Binding RemoveCommand}" ToolTip="Remove this stat from the mod's list (a game stat left out is gone in game)"
+                                                    AutomationProperties.Name="Remove stat" Visibility="{Binding IsKept, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                            <Button Content="Put back" Padding="6,1" Command="{Binding PutBackCommand}" ToolTip="Keep the game's stat in this mod's list"
+                                                    Visibility="{Binding IsDropped, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding Hint}" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding Error}" FontSize="11" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"
+                                                   Visibility="{Binding Error, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <ContentControl Content="{Binding Picker}" ContentTemplate="{StaticResource StatPickerTemplate}" Margin="0,4,0,0"
+                                        Visibility="{Binding HasPicker, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    </StackPanel>
+
+                    <!-- Anything else: the JSON -->
+                    <StackPanel Visibility="{Binding IsRawKind, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas"
+                                 ToolTip="This field as JSON (a list, link or nested value). An orange border means it differs from the game's.">
+                            <TextBox.Style>
+                                <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                                            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                            <Setter Property="BorderThickness" Value="2"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBox.Style>
+                        </TextBox>
+                        <TextBlock Text="{Binding BaseValueText, StringFormat='game: {0}'}" FontSize="11" TextWrapping="Wrap" FontFamily="Consolas"
+                                   Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <TextBlock Text="{Binding Hint}" FontSize="11.5" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Visibility="{Binding HasHint, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <TextBlock Text="{Binding OriginalValueText, StringFormat='was (before this edit): {0}'}" FontSize="11" TextWrapping="Wrap"
+                               Foreground="{DynamicResource AccentBrush}" Margin="0,2,0,0"
+                               Visibility="{Binding IsChangedFromOriginal, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <TextBlock Text="{Binding ParseError}" FontSize="11" Foreground="{DynamicResource DangerBrush}" Margin="0,2,0,0"
+                               Visibility="{Binding ParseError, Converter={StaticResource NullToVisibilityConverter}}"/>
+                </StackPanel>
+
+                <Button Grid.Column="2" Content="✕" Padding="6,2" VerticalAlignment="Top" Margin="10,0,0,0"
+                        ToolTip="Take this field out of the mod (the game's value applies again)" AutomationProperties.Name="Remove field"
+                        Command="{Binding DataContext.RemoveFieldCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding}"/>
+            </Grid>
+        </Border>
+    </DataTemplate>
 </ResourceDictionary>

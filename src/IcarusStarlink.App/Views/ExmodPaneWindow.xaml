@@ -35,53 +35,7 @@
         <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
                 Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
             <ScrollViewer x:Name="ItemFieldsScrollViewer" VerticalScrollBarVisibility="Auto">
-                <ItemsControl ItemsSource="{Binding Fields}" Margin="8">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,8">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="160"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <TextBlock Grid.Column="0" Text="{Binding FieldName}" VerticalAlignment="Top" Margin="0,4,8,0" TextWrapping="Wrap"/>
-
-                                    <StackPanel Grid.Column="1">
-                                        <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}"
-                                                 AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas"
-                                                 ToolTip="This mod's current value for this field, as JSON. An orange border means it differs from the real game's own default (see 'base' below).">
-                                            <TextBox.Style>
-                                                <Style TargetType="TextBox">
-                                                    <Setter Property="BorderThickness" Value="1"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsChanged}" Value="True">
-                                                            <Setter Property="BorderBrush" Value="#FFB84D"/>
-                                                            <Setter Property="BorderThickness" Value="2"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBox.Style>
-                                        </TextBox>
-                                        <TextBlock Text="{Binding BaseValueText, StringFormat='base (vanilla game): {0}'}" FontSize="11"
-                                                   Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,2,0,0"/>
-                                        <TextBlock Text="{Binding OriginalValueText, StringFormat='was (before this edit): {0}'}" FontSize="11"
-                                                   Foreground="{DynamicResource AccentBrush}" Margin="0,2,0,0"
-                                                   Visibility="{Binding IsChangedFromOriginal, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                        <TextBlock Text="{Binding ParseError}" FontSize="11" Foreground="#E05555" Margin="0,2,0,0"
-                                                   Visibility="{Binding ParseError, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                    </StackPanel>
-
-                                    <Button Grid.Column="2" Content="✕" Padding="6,2" VerticalAlignment="Top" Margin="8,0,0,0"
-                                            ToolTip="Remove this field"
-                                            Command="{Binding DataContext.RemoveFieldCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                            CommandParameter="{Binding}"/>
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <ItemsControl ItemsSource="{Binding Fields}" Margin="8" ItemTemplate="{StaticResource EditorFieldTemplate}"/>
             </ScrollViewer>
         </Border>
 

@@ -1,0 +1,199 @@
+using System.IO;
+using System.Text.Json.Nodes;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Services;
+using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.Core.Library;
+using IcarusStarlink.PakIO.Container;
+using IcarusStarlink.PakIO.Exmod;
+using IcarusStarlink.Storage.Library;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace IcarusStarlink.App.Tests.ViewModels;
+
+/// <summary>The mod editor's plain Fields view, on the shape of a real mod (nik4kin's Larkwell envirosuit cheat).</summary>
+[Collection(MessengerCollection.Name)]
+public sealed class EditorPlainFieldsTests : IDisposable
+{
+    private const string Stats = """{"(Value=\"BaseUpgradeSlots_+\")":4,"(Value=\"BaseBackpackSlots_+\")":6,"(Value=\"BaseOxygenSlots_+\")":1}""";
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "PlainFields_" + Guid.NewGuid().ToString("N"));
+    private readonly FolderLibraryRepository _library;
+
+    private string DataFolder => Path.Combine(_root, "Data");
+
+    public EditorPlainFieldsTests()
+    {
+        _library = new FolderLibraryRepository(Path.Combine(_root, "Extracted_Mods"), Path.Combine(_root, "Library_Meta"), Path.Combine(_root, "Backups"), NullLogger<FolderLibraryRepository>.Instance);
+        Write("Items/D_ItemsStatic.json", """
+            {"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"},"Armour":{"RowName":"None","DataTableName":"D_Armour"}},"Rows":[
+              {"Name":"Envirosuit_Larkwell_Alpha","Itemable":{"RowName":"Item_Larkwell"},"Armour":{"RowName":"Undersuit_Larkwell_Alpha"}}
+            ]}
+            """);
+        Write("Traits/D_Itemable.json", """{"RowStruct":"S","Defaults":{"Weight":0},"Rows":[{"Name":"Item_Larkwell","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Larkwell-DisplayName\", \"Larkwell \\\"Haulier\\\" Envirosuit\")","Weight":100}]}""");
+        Write("Traits/D_Armour.json", $$"""{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Undersuit_Larkwell_Alpha","ArmourStats":{{Stats}},"ArmourMesh":"/Game/ASS/Suit.Suit"}]}""");
+        Write("Stats/D_Stats.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"BaseColdResistance_%"},{"Name":"BaseMovementSpeed_+%"}]}""");
+    }
+
+    public void Dispose()
+    {
+        _library.Dispose();
+        if (Directory.Exists(_root))
+        {
+            Directory.Delete(_root, recursive: true);
+        }
+    }
+
+    private void Write(string relative, string json)
+    {
+        var path = Path.Combine(DataFolder, relative);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, json);
+    }
+
+    /// <summary>The mod: 72 backpack slots and cold resistance added, the game's upgrade slots left out; and a renamed suit.</summary>
+    private ExmodEditorViewModel OpenMod()
+    {
+        var entry = _library.CreateBlankMod("Cheat", "Me", ModTemplate.Blank);
+        var package = ExmodFolder.Read(_library.GetFolderPath(entry.FolderName)).Package;
+        package.Rows.Add(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Armour.json",
+            FileItems = [new ExmodFileItem { Name = "Undersuit_Larkwell_Alpha", Fields =
+            {
+                ["ArmourStats"] = JsonNode.Parse("""{"(Value=\"BaseBackpackSlots_+\")":72,"(Value=\"BaseOxygenSlots_+\")":1,"(Value=\"BaseColdResistance_%\")":15}"""),
+                ["ArmourMesh"] = JsonValue.Create("/Game/ASS/OtherSuit.OtherSuit"),
+            } }],
+        });
+        package.Rows.Add(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Itemable.json",
+            FileItems = [new ExmodFileItem { Name = "Item_Larkwell", Fields =
+            {
+                ["DisplayName"] = JsonValue.Create("NSLOCTEXT(\"D_Itemable\", \"Item_Larkwell-DisplayName\", \"Haulier Mk II\")"),
+                ["Weight"] = JsonValue.Create(50),
+            } }],
+        });
+        ExmodFolder.Write(_library.GetFolderPath(entry.FolderName), new ExmodPackageContents(package, []));
+        return new ExmodEditorViewModel(entry.FolderName, _library, DataFolder, new GameDataIndexCache());
+    }
+
+    private static EditorFieldViewModel Field(ExmodEditorViewModel editor, string name) => editor.Fields.Single(f => f.FieldName == name);
+
+    [Fact]
+    public void TheList_UsesInGameNames_GroupsByPart_AndCountsChangedValues()
+    {
+        var editor = OpenMod();
+
+        var armour = editor.Items.Single(i => i.ItemName == "Undersuit_Larkwell_Alpha");
+        Assert.Equal("Larkwell \"Haulier\" Envirosuit", armour.Title);
+        Assert.Equal("Armour", armour.Group);
+        Assert.Equal("Envirosuit_Larkwell_Alpha", armour.GameItem);
+        Assert.Equal(4, armour.ChangeCount); // backpack changed, cold added, upgrade left out, mesh swapped
+        Assert.Equal("Names, weights, stacks", editor.Items.Single(i => i.ItemName == "Item_Larkwell").Group);
+    }
+
+    [Fact]
+    public void Stats_AreOneRowEach_WithWhatTheModAddsAndLeavesOut()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Undersuit_Larkwell_Alpha");
+
+        var stats = Field(editor, "ArmourStats");
+        Assert.Equal(EditorFieldKind.Stats, stats.Kind);
+        Assert.Equal(["Backpack slots", "Oxygen slots", "Cold resistance %", "Upgrade slots"], stats.Stats.Select(s => s.Label));
+        Assert.Equal("game: 6", stats.Stats[0].GameText);
+        Assert.True(stats.Stats[2].IsAdded);
+        Assert.True(stats.Stats[3].IsDropped); // the mod's list replaces the game's: upgrade slots are gone in game
+        Assert.Contains("gone in game", stats.Stats[3].GameText);
+        Assert.Equal(EditorFieldKind.String, Field(editor, "ArmourMesh").Kind);
+    }
+
+    [Fact]
+    public void EditingAStatRow_RewritesTheField_AndPutBackRestoresAGameStat()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Undersuit_Larkwell_Alpha");
+        var stats = Field(editor, "ArmourStats");
+
+        stats.Stats[0].ValueText = "100";
+        stats.Stats[3].PutBackCommand.Execute(null);
+        stats.Stats[2].RemoveCommand.Execute(null); // an added stat goes entirely
+
+        var written = (JsonObject)JsonNode.Parse(stats.ValueText)!;
+        Assert.Equal(100, written["(Value=\"BaseBackpackSlots_+\")"]!.GetValue<long>());
+        Assert.Equal(4, written["(Value=\"BaseUpgradeSlots_+\")"]!.GetValue<long>());
+        Assert.False(written.ContainsKey("(Value=\"BaseColdResistance_%\")"));
+        Assert.DoesNotContain(stats.Stats, s => s.Label == "Cold resistance %");
+    }
+
+    [Fact]
+    public void AddingAStat_UsesThePicker()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Undersuit_Larkwell_Alpha");
+        var stats = Field(editor, "ArmourStats");
+
+        stats.Picker!.StatSearch = "movement";
+        stats.Picker.SelectedStat = Assert.Single(stats.Picker.MatchingStats);
+        stats.Picker.AddStatCommand.Execute(null);
+
+        Assert.Contains("BaseMovementSpeed_+%", stats.ValueText);
+        Assert.Equal("Movement speed +%", stats.Stats[^1].Label);
+    }
+
+    [Fact]
+    public void GameText_IsEditedAsPlainText_KeepingItsKey()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
+        var name = Field(editor, "DisplayName");
+        Assert.Equal(EditorFieldKind.Text, name.Kind);
+        Assert.Equal("Haulier Mk II", name.PlainText);
+        Assert.Equal("game: Larkwell \"Haulier\" Envirosuit", name.BasePlainText);
+
+        name.PlainText = "Haulier \"Mk III\"";
+
+        Assert.Equal("NSLOCTEXT(\"D_Itemable\", \"Item_Larkwell-DisplayName\", \"Haulier \\\"Mk III\\\"\")", JsonNode.Parse(name.ValueText)!.GetValue<string>());
+    }
+
+    [Fact]
+    public void ANumberField_SaysPlainlyWhenItIsntANumber_AndKeepsTheLastGoodValue()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
+        var weight = Field(editor, "Weight");
+        Assert.Equal("Weight", weight.Label);
+        Assert.Contains("Lower = lighter", weight.Hint);
+
+        weight.ValueText = "heavy";
+
+        Assert.Equal("Needs a number, like 50 or 0.5.", weight.ParseError);
+        editor.SaveCommand.Execute(null);
+        var saved = ExmodFolder.Read(_library.GetFolderPath(_library.GetAll().Single().FolderName)).Package;
+        Assert.Equal(50, saved.Rows.Single(r => r.CurrentFile == "Traits-D_Itemable.json").FileItems.Single().Fields["Weight"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void OpenInEditor_ShowsTheGameItemOnTheEditorPage()
+    {
+        var editor = OpenMod();
+        var page = new GameEditorViewModel(_library, DataFolder);
+        string? navigated = null;
+        WeakReferenceMessenger.Default.Register<NavigateToPageMessage>(this, (_, m) => navigated = m.NavItemId);
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Undersuit_Larkwell_Alpha");
+
+        try
+        {
+            editor.OpenInGameEditorCommand.Execute(null);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.Unregister<NavigateToPageMessage>(this);
+        }
+
+        Assert.Equal("editor", navigated);
+        Assert.Equal("Envirosuit_Larkwell_Alpha", page.SelectedItem?.Name);
+        GC.KeepAlive(page);
+    }
+}

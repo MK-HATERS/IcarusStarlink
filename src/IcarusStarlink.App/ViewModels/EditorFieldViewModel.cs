@@ -1,16 +1,40 @@
+using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.App.ViewModels;
+
+/// <summary>How the Fields view shows a field: plainly when it can, as JSON when it can't.</summary>
+public enum EditorFieldKind
+{
+    /// <summary>A number: one box.</summary>
+    Number,
+
+    /// <summary>Game text (NSLOCTEXT): what players see, edited as plain text.</summary>
+    Text,
+
+    /// <summary>Any other text (a model or sound path): one line, no JSON quotes.</summary>
+    String,
+
+    /// <summary>A stats list ("ArmourStats"): one row per stat.</summary>
+    Stats,
+
+    /// <summary>Anything else (lists, links, nested objects): the JSON itself.</summary>
+    Raw,
+}
 
 /// <summary>
 /// One editable field row in the EXMOD editor's right-hand pane. Writes straight back into the
 /// owning item's own Fields dictionary on every successfully-parsed edit — the in-memory
 /// ExmodPackage the editor holds is always live/current, so ExmodEditorViewModel.Save doesn't
 /// need a separate "commit the currently-displayed pane" step when the user switches items
-/// without saving first.
+/// without saving first. ValueText (the field's JSON) stays the one source of truth; the plain
+/// views (number, text, one row per stat) read and write through it.
 /// </summary>
 public sealed partial class EditorFieldViewModel : ObservableObject
 {
@@ -23,12 +47,40 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     private readonly Dictionary<string, JsonNode?> _fields;
     private readonly JsonNode? _baseValue;
     private readonly JsonNode? _originalValue;
+    private bool _syncingStats;
 
     public string FieldName { get; }
     public string BaseValueText { get; }
 
     /// <summary>What this field held when the editor was opened (or last saved) — "was: X", shown only when it differs from the live value. A separate reference point from base/vanilla-game.</summary>
     public string OriginalValueText { get; }
+
+    public EditorFieldKind Kind { get; }
+
+    /// <summary>The field in plain words ("Stack size" for MaxStack).</summary>
+    public string Label { get; }
+
+    /// <summary>What lower and higher values do, for numbers.</summary>
+    public string Hint { get; }
+
+    public bool IsNumberKind => Kind == EditorFieldKind.Number;
+    public bool IsTextKind => Kind == EditorFieldKind.Text;
+    public bool IsStringKind => Kind == EditorFieldKind.String;
+    public bool IsStatsKind => Kind == EditorFieldKind.Stats;
+    public bool IsRawKind => Kind == EditorFieldKind.Raw;
+
+    /// <summary>"game: 6" — the vanilla value in plain words (the text, not NSLOCTEXT; "not in the game" for a field the game doesn't set).</summary>
+    public string BasePlainText { get; }
+
+    public bool HasHint => Hint.Length > 0;
+
+    /// <summary>One row per stat (Stats fields only), including game stats this mod's list leaves out.</summary>
+    public ObservableCollection<StatEntryViewModel> Stats { get; } = [];
+
+    /// <summary>"Add a stat" (Stats fields only, when the game's stat list is known).</summary>
+    public StatPickerViewModel? Picker { get; }
+
+    public bool HasPicker => Picker is not null;
 
     [ObservableProperty]
     private string _valueText;
@@ -43,7 +95,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     [ObservableProperty]
     private string? _parseError;
 
-    public EditorFieldViewModel(string fieldName, Dictionary<string, JsonNode?> fields, JsonNode? baseValue, JsonNode? originalValue)
+    public EditorFieldViewModel(string fieldName, Dictionary<string, JsonNode?> fields, JsonNode? baseValue, JsonNode? originalValue, IReadOnlyList<StatChoice>? statChoices = null)
     {
         FieldName = fieldName;
         _fields = fields;
@@ -51,8 +103,53 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         _originalValue = originalValue;
         BaseValueText = FormatForDisplay(baseValue);
         OriginalValueText = FormatForDisplay(originalValue);
-        _valueText = FormatForDisplay(fields.TryGetValue(fieldName, out var current) ? current : null);
+        var current = fields.TryGetValue(fieldName, out var value) ? value : null;
+        _valueText = FormatForDisplay(current);
+
+        Kind = KindOf(fieldName, current ?? baseValue);
+        (Label, Hint) = GameItemEditor.FieldText(fieldName, Kind == EditorFieldKind.Number);
+        BasePlainText = baseValue is null ? "not in the game" : $"game: {Plain(baseValue)}";
+        if (Kind == EditorFieldKind.String && (CurrentString() ?? "").Contains("/Game/", StringComparison.Ordinal))
+        {
+            Hint = "A game file this uses (a model, texture or sound). Use another game file's path, or ✕ to keep the game's.";
+        }
+        if (Kind == EditorFieldKind.Stats)
+        {
+            Hint = "A mod's list replaces the game's whole list: a game stat left out is gone in game. ✕ removes a stat; Put back restores one.";
+            BuildStats(current as JsonObject);
+            if (statChoices is { Count: > 0 })
+            {
+                Picker = new StatPickerViewModel(statChoices, AddStat);
+            }
+        }
+
         RecomputeChanged();
+    }
+
+    /// <summary>Game text as players see it; typing keeps the game's NSLOCTEXT table and key.</summary>
+    public string PlainText
+    {
+        get => CurrentString() is { } s ? NsLocText.TextOf(s) ?? s : "";
+        set
+        {
+            var previous = CurrentString();
+            var encoded = previous is not null && NsLocText.TryParse(previous, out var table, out var key, out _)
+                ? NsLocText.Make(table, key, value)
+                : value;
+            ValueText = JsonValue.Create(encoded)!.ToJsonString(DisplayOptions);
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>A plain text field (a model path) without JSON quotes.</summary>
+    public string PlainString
+    {
+        get => CurrentString() ?? "";
+        set
+        {
+            ValueText = JsonValue.Create(value)!.ToJsonString(DisplayOptions);
+            OnPropertyChanged();
+        }
     }
 
     partial void OnValueTextChanged(string value)
@@ -60,6 +157,11 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         try
         {
             var parsed = string.IsNullOrWhiteSpace(value) ? null : JsonNode.Parse(value);
+            if (Kind == EditorFieldKind.Number && parsed is not null && !ScaleRules.TryReadNumber(parsed, out _))
+            {
+                throw new FormatException("needs a number");
+            }
+
             _fields[FieldName] = parsed;
             ParseError = null;
         }
@@ -68,11 +170,89 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             // Deliberately doesn't write back — _fields keeps whatever the last successfully-
             // parsed value was until this becomes valid JSON again, so a mid-typing invalid state
             // never corrupts the in-memory package.
-            ParseError = ex.Message;
+            ParseError = Kind == EditorFieldKind.Number ? "Needs a number, like 50 or 0.5." : ex.Message;
         }
 
         RecomputeChanged();
     }
+
+    /// <summary>Called by a stat row: rebuilds this field's JSON from the rows.</summary>
+    internal void StatsChanged()
+    {
+        if (_syncingStats)
+        {
+            return;
+        }
+
+        var obj = new JsonObject();
+        foreach (var stat in Stats.Where(s => !s.IsDropped))
+        {
+            obj[stat.Key] = stat.NumberValue() is { } n
+                ? (n == Math.Floor(n) && Math.Abs(n) < int.MaxValue ? JsonValue.Create((long)n) : JsonValue.Create(n))
+                : JsonValue.Create(0);
+        }
+
+        ValueText = obj.ToJsonString(DisplayOptions);
+    }
+
+    private string? AddStat(StatChoice choice)
+    {
+        var key = GameItemEditor.StatKeyFor(choice.Name);
+        if (Stats.FirstOrDefault(s => s.Key == key) is { } existing)
+        {
+            if (!existing.IsDropped)
+            {
+                return "That stat is already here.";
+            }
+
+            existing.PutBackCommand.Execute(null);
+            return null;
+        }
+
+        Stats.Add(new StatEntryViewModel(this, key, null, JsonValue.Create(0)));
+        StatsChanged();
+        return null;
+    }
+
+    private void BuildStats(JsonObject? current)
+    {
+        _syncingStats = true;
+        var game = _baseValue as JsonObject;
+        foreach (var (key, value) in current ?? [])
+        {
+            Stats.Add(new StatEntryViewModel(this, key, game?[key], value));
+        }
+
+        foreach (var (key, value) in game ?? [])
+        {
+            if (current?.ContainsKey(key) != true)
+            {
+                Stats.Add(new StatEntryViewModel(this, key, value, null) { IsDropped = true });
+            }
+        }
+
+        _syncingStats = false;
+    }
+
+    private string? CurrentString() =>
+        (_fields.TryGetValue(FieldName, out var v) ? v : _baseValue) is JsonValue jv && jv.TryGetValue<string>(out var s) ? s : null;
+
+    private static EditorFieldKind KindOf(string field, JsonNode? value) => value switch
+    {
+        _ when ScaleRules.TryReadNumber(value, out _) => EditorFieldKind.Number,
+        JsonValue v when v.TryGetValue<string>(out var s) => NsLocText.TextOf(s) is not null ? EditorFieldKind.Text : EditorFieldKind.String,
+        _ when GameItemEditor.IsStatsObject(field, value) => EditorFieldKind.Stats,
+        _ => EditorFieldKind.Raw,
+    };
+
+    internal static string Plain(JsonNode? value) => value switch
+    {
+        null => "",
+        JsonValue v when v.TryGetValue<string>(out var s) => NsLocText.TextOf(s) ?? s,
+        _ when ScaleRules.TryReadNumber(value, out var n) => n.ToString("0.######", CultureInfo.InvariantCulture),
+        JsonObject o when o.Count > 0 && o.All(kv => GameItemEditor.StatNameOf(kv.Key) != kv.Key) => $"{o.Count} stat(s)",
+        _ => value.ToJsonString(),
+    };
 
     private void RecomputeChanged()
     {
@@ -90,4 +270,88 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     }
 
     private static string FormatForDisplay(JsonNode? value) => value?.ToJsonString(DisplayOptions) ?? "null";
+}
+
+/// <summary>One stat in a stats field: "Backpack slots" 72, game 6.</summary>
+public sealed partial class StatEntryViewModel : ObservableObject
+{
+    private readonly EditorFieldViewModel _owner;
+    private readonly JsonNode? _gameValue;
+
+    public StatEntryViewModel(EditorFieldViewModel owner, string key, JsonNode? gameValue, JsonNode? value)
+    {
+        _owner = owner;
+        _gameValue = gameValue;
+        Key = key;
+        StatName = GameItemEditor.StatNameOf(key);
+        Label = GameItemEditor.StatLabel(key);
+        Hint = GameItemEditor.StatHint(StatName);
+        _valueText = EditorFieldViewModel.Plain(value ?? gameValue);
+    }
+
+    public string Key { get; }
+
+    public string StatName { get; }
+
+    public string Label { get; }
+
+    public string Hint { get; }
+
+    /// <summary>Not in the game's list: this mod adds it.</summary>
+    public bool IsAdded => _gameValue is null;
+
+    public string GameText => _gameValue is null ? "added by this mod" : IsDropped ? $"game: {EditorFieldViewModel.Plain(_gameValue)} · left out, so gone in game" : $"game: {EditorFieldViewModel.Plain(_gameValue)}";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsChanged), nameof(Error))]
+    private string _valueText;
+
+    /// <summary>In the game's list but not in this mod's: the game drops it.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GameText), nameof(IsKept), nameof(IsChanged))]
+    private bool _isDropped;
+
+    public bool IsKept => !IsDropped;
+
+    public bool IsChanged => !IsDropped && (_gameValue is null || ValueText.Trim() != EditorFieldViewModel.Plain(_gameValue));
+
+    public string? Error => NumberValue() is null ? "Needs a number, like 15 or -50." : null;
+
+    partial void OnValueTextChanged(string value)
+    {
+        if (Error is null)
+        {
+            _owner.StatsChanged();
+        }
+    }
+
+    internal double? NumberValue() =>
+        double.TryParse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : null;
+
+    [RelayCommand]
+    private void Remove()
+    {
+        if (IsAdded)
+        {
+            _owner.Stats.Remove(this);
+        }
+        else
+        {
+            IsDropped = true;
+        }
+
+        _owner.StatsChanged();
+    }
+
+    [RelayCommand]
+    private void PutBack()
+    {
+        IsDropped = false;
+        if (_gameValue is not null && NumberValue() is null)
+        {
+            ValueText = EditorFieldViewModel.Plain(_gameValue);
+        }
+
+        _owner.StatsChanged();
+    }
 }

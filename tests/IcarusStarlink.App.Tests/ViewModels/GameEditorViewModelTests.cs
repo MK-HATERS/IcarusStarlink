@@ -177,18 +177,18 @@ public sealed class GameEditorViewModelTests : IDisposable
         vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
         var armour = vm.Sections.Single(s => s.Section.Key == "Armour");
 
-        armour.StatSearch = "movement";
+        armour.Picker.StatSearch = "movement";
 
-        Assert.Equal(["Movement speed  ·  flat amount (10 = +10)", "Movement speed +%  ·  percent bonus (10 = +10%)"], armour.MatchingStats.Select(s => s.Display));
-        armour.SelectedStat = armour.MatchingStats[1];
-        Assert.StartsWith("Movement speed +%", armour.SelectedStatText);
+        Assert.Equal(["Movement speed  ·  flat amount (10 = +10)", "Movement speed +%  ·  percent bonus (10 = +10%)"], armour.Picker.MatchingStats.Select(s => s.Display));
+        armour.Picker.SelectedStat = armour.Picker.MatchingStats[1];
+        Assert.StartsWith("Movement speed +%", armour.Picker.SelectedStatText);
 
-        armour.AddStatCommand.Execute(null);
+        armour.Picker.AddStatCommand.Execute(null);
 
         var added = armour.Fields.Single(f => f.Label == "Movement speed +%");
         Assert.Equal("0", added.ValueText);
-        Assert.Equal("", armour.StatSearch);
-        Assert.Null(armour.SelectedStat);
+        Assert.Equal("", armour.Picker.StatSearch);
+        Assert.Null(armour.Picker.SelectedStat);
         Assert.Equal(1, vm.PendingCount);
     }
 }

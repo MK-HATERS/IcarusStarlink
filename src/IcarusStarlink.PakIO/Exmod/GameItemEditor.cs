@@ -218,6 +218,22 @@ public static partial class GameItemEditor
         return Humanize(name) + suffix;
     }
 
+    /// <summary>A field in plain words: "MaxStack" → ("Stack size", "How many fit in one slot…"). Shared with the mod editor's Fields view.</summary>
+    public static (string Label, string Description) FieldText(string field, bool isNumber) =>
+        KnownFields.TryGetValue(field, out var known) ? known
+        : isNumber ? (Humanize(field), $"Higher = more {Humanize(field).ToLowerInvariant()}, lower = less. The game's value is shown beside it.")
+        : (Humanize(field), "");
+
+    /// <summary>A stats object: every key is a stat ("(Value=\"BaseOxygenSlots_+\")": 1). An empty object counts when its name says so ("ArmourStats").</summary>
+    public static bool IsStatsObject(string field, JsonNode? value) =>
+        value is JsonObject obj && (obj.Count == 0 ? field.EndsWith("Stats", StringComparison.OrdinalIgnoreCase) : obj.All(kv => StatKey().IsMatch(kv.Key)));
+
+    /// <summary>The stat name inside a stats key: "(Value=\"BaseOxygenSlots_+\")" → "BaseOxygenSlots_+".</summary>
+    public static string StatNameOf(string key) => StatKey().Match(key) is { Success: true } m ? m.Groups["stat"].Value : key;
+
+    /// <summary>Plain description of one stat for a row, from its label.</summary>
+    public static string StatHint(string statName) => StatDescription(StatLabel(statName));
+
     /// <summary>What kind of number a stat is, in words, for the stat picker.</summary>
     public static string StatKind(string statName) =>
         statName.EndsWith("_+%", StringComparison.Ordinal) ? "percent bonus (10 = +10%)"

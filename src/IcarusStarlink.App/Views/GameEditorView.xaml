@@ -135,34 +135,8 @@
                                                     </ItemsControl.ItemTemplate>
                                                 </ItemsControl>
 
-                                                <Border Margin="10,0,10,10" Padding="10,8" CornerRadius="4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                                                        Visibility="{Binding CanAddStat, Converter={StaticResource BoolToVisibilityConverter}}">
-                                                    <StackPanel>
-                                                        <TextBlock Text="Add a stat" FontWeight="SemiBold" FontSize="12.5"/>
-                                                        <Grid Margin="0,6,0,0">
-                                                            <TextBox Text="{Binding StatSearch, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search stats"/>
-                                                            <TextBlock Text="Search: cold, heat, movement, health, carry…" Style="{StaticResource PlaceholderTextStyle}"
-                                                                       Visibility="{Binding StatSearch, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                                                        </Grid>
-                                                        <ListBox ItemsSource="{Binding MatchingStats}" SelectedItem="{Binding SelectedStat}" MaxHeight="170" Margin="0,4,0,0"
-                                                                 Visibility="{Binding HasMatchingStats, Converter={StaticResource BoolToVisibilityConverter}}">
-                                                            <ListBox.ItemTemplate>
-                                                                <DataTemplate>
-                                                                    <StackPanel>
-                                                                        <TextBlock><Run Text="{Binding Label, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="  ·  "/><Run Text="{Binding Kind, Mode=OneWay}" Foreground="{DynamicResource SecondaryForegroundBrush}"/></TextBlock>
-                                                                        <TextBlock Text="{Binding Name}" FontFamily="Consolas" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"/>
-                                                                    </StackPanel>
-                                                                </DataTemplate>
-                                                            </ListBox.ItemTemplate>
-                                                        </ListBox>
-                                                        <DockPanel Margin="0,6,0,0">
-                                                            <Button DockPanel.Dock="Right" Content="Add stat" Command="{Binding AddStatCommand}" Margin="8,0,0,0"/>
-                                                            <TextBlock Text="{Binding SelectedStatText}" VerticalAlignment="Center" TextWrapping="Wrap" FontSize="12"/>
-                                                        </DockPanel>
-                                                        <TextBlock Text="{Binding StatError}" Foreground="{DynamicResource DangerBrush}" FontSize="12" TextWrapping="Wrap"
-                                                                   Visibility="{Binding StatError, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                                    </StackPanel>
-                                                </Border>
+                                                <ContentControl Margin="10,0,10,10" Content="{Binding Picker}" ContentTemplate="{StaticResource StatPickerTemplate}"
+                                                                Visibility="{Binding CanAddStat, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                             </StackPanel>
                                         </Border>
                                     </DataTemplate>

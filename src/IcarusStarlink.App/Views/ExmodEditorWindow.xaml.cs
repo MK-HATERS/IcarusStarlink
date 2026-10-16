@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using IcarusStarlink.App.ViewModels;
 
@@ -12,6 +13,9 @@ public partial class ExmodEditorWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
+
+        // The list is grouped by the part of the game each row changes ("Armour", "Recipes").
+        CollectionViewSource.GetDefaultView(viewModel.Items).GroupDescriptions.Add(new PropertyGroupDescription(nameof(EditorItemViewModel.Group)));
 
         // See ScrollSyncHelper's own doc comment — keeps each view's scroll position in step with
         // whatever else has the same view open (a popped-out pane fixed to the same mode).
@@ -29,6 +33,18 @@ public partial class ExmodEditorWindow : Window
         if (DataContext is ExmodEditorViewModel viewModel)
         {
             viewModel.SetSelectedItemsForMassEdit(ItemsListBox.SelectedItems.Cast<EditorItemViewModel>().ToList());
+        }
+    }
+
+    /// <summary>More ▾ opens its menu on a plain click (a context menu otherwise needs a right-click).</summary>
+    private void MoreButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (MoreButton.ContextMenu is { } menu)
+        {
+            menu.DataContext = DataContext;
+            menu.PlacementTarget = MoreButton;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
         }
     }
 
