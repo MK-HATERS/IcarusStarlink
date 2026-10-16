@@ -150,6 +150,12 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         if (Kind == EditorFieldKind.Link)
         {
             Hint = $"Links to a row of {LinkTable}: pick one the game (or this mod) has. A link to a row that doesn't exist does nothing in game.";
+            // Say so straight away when the mod's link already points nowhere (an old copy of the game's data).
+            if (SelectedOption is { Length: > 0 } linked && !Options.Contains(linked, StringComparer.OrdinalIgnoreCase))
+            {
+                ParseError = $"{LinkTable} has no row '{linked}', so this does nothing in game"
+                    + (baseValue?["RowName"]?.ToString() is { Length: > 0 } gameRow ? $" (the game uses '{gameRow}')." : ".");
+            }
         }
         else if (Kind == EditorFieldKind.Choice)
         {
@@ -347,6 +353,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     {
         null => "",
         JsonValue v when v.TryGetValue<string>(out var s) => NsLocText.TextOf(s) ?? s,
+        JsonObject link when link.Count <= 2 && link["RowName"] is JsonValue row && (link.Count == 1 || link.ContainsKey("DataTableName")) => row.ToString(),
         _ when ScaleRules.TryReadNumber(value, out var n) => n.ToString("0.######", CultureInfo.InvariantCulture),
         JsonObject o when o.Count > 0 && o.All(kv => GameItemEditor.StatNameOf(kv.Key) != kv.Key) => $"{o.Count} stat(s)",
         _ => value.ToJsonString(),

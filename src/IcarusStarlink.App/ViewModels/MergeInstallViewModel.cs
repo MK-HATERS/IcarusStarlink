@@ -1872,6 +1872,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
             CanCopyToGame = true;
 
+            // The Server page's "Install my merged pak" shows the new build without a page switch.
+            _messenger.Send(new MergedPakBuiltMessage());
+
             // The Library import below sends LibraryChangedMessage, and this VM's own handler for
             // that message invalidates manual conflict picks — right for an external change (a
             // queued mod's content moved under the picks), wrong here, where the only change is the
