@@ -64,6 +64,8 @@ public sealed partial class MainViewModel : ObservableObject
             // list ("Downloads needing attention"), which is where a real user lost track of it.
             new NavItem("downloads", "Downloads", typeof(DownloadsViewModel)),
             new NavItem("library", "Library", typeof(LibraryViewModel)),
+            // Changing the game's own items (New mod is for new ones) — the user's own name for it.
+            new NavItem("editor", "Editor", typeof(GameEditorViewModel)),
             new NavItem("merge", "Merge & Install", typeof(MergeInstallViewModel)),
             new NavItem("weekly-changes", "Weekly Changes", typeof(WeeklyChangesViewModel)),
             // A narrower revival of the spec's original "Server" nav item, cut from v1 entirely —

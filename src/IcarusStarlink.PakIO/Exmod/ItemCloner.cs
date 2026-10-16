@@ -235,6 +235,16 @@ public static partial class ItemCloner
                 break;
         }
 
+        // New mod makes new things and never changes the game's own: a row named like one the game
+        // already has would edit that row instead of adding one (the Editor page is for that).
+        foreach (var (file, items) in rows)
+        {
+            if (items.FirstOrDefault(i => game.HasRow(file, i.Name)) is { } clash)
+            {
+                throw new ArgumentException($"'{clash.Name}' is already a row in the game's {GameTableIndex.TableNameOf(file)}, so adding it would change the game's own. Pick another name.");
+            }
+        }
+
         return [.. rows.Select(kv => new ExmodFileRow { CurrentFile = kv.Key, FileItems = kv.Value })];
     }
 

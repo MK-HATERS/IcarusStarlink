@@ -34,6 +34,9 @@
         <DataTemplate DataType="{x:Type vm:ServerViewModel}">
             <views:ServerView/>
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:GameEditorViewModel}">
+            <views:GameEditorView/>
+        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:HelpViewModel}">
             <views:HelpView/>
         </DataTemplate>

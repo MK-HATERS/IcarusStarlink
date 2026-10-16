@@ -63,6 +63,18 @@ public sealed class LibraryEntry
     /// <summary>Set once the EXMOD editor's own Save action runs against this mod — the ✎ glyph.</summary>
     public bool IsLocallyEdited { get; set; }
 
+    /// <summary>Created in Starlink (New mod…, or Save as a new mod on the Editor page) rather than downloaded or imported.</summary>
+    public bool MadeInStarlink { get; set; }
+
+    /// <summary>
+    /// A mod of the user's own, so the Editor page may add changes to it — never one from Nexus, the
+    /// IMM Database or an imported file, which an update would replace (and which isn't theirs).
+    /// Mods made before MadeInStarlink existed count when they have no source, no Nexus or Database
+    /// link and were edited here.
+    /// </summary>
+    public bool IsOwnMod => !IsOpaquePak && MergedPackModNames is null
+        && (MadeInStarlink || (string.IsNullOrEmpty(Source) && NexusModId is null && CatalogEntryId is null && !ConvertedFromPrebuiltPak && IsLocallyEdited));
+
     /// <summary>
     /// True for an entry that started as an opaque prebuilt .pak and was successfully converted
     /// into a real EXMOD (IsOpaquePak false) — either automatically at import time or via the

@@ -38,6 +38,23 @@ public sealed partial class HelpViewModel : ObservableObject
             - The **IMM Database** tab is the community catalog: search, filter, and **Download & extract**.
             """),
 
+        new("Editor", """
+            # Editor
+
+            Change the game's own items: make the default Envirosuit lighter, give it more oxygen slots, make Bread's buff last longer, a recipe cheaper. New mod… (Library) is the other half: it only ever makes new items, never changes the game's.
+
+            - **Pick an item** on the left by its in-game name (search: envirosuit, bread, axe…).
+            - **Each card is one game row the item uses:** Name, icon, weight · Armour · Eating or using it · Its buff · Durability · Decay and spoiling · Tool damage · Recipe · Workshop price. Every number says what lower and higher do, and shows the game's value on the right; an orange border means yours differs. ↺ puts the game's value back.
+            - **Shared rows:** a card marked "shared by N items" is used by other items too (the basic Envirosuit's decay row is shared by 1,895 items). Choose **Give this item its own copy** (the default: only this item changes) or **Change it for all**.
+            - **Stats:** armour, module and buff cards can **Add stat**: any stat the game knows, like cold resistance or max health.
+            - Models, sounds and how an item is picked up or used are kept as the game's; changing those needs new art.
+
+            **Saving**
+
+            - **Save to:** **A new mod** (give it a name), or one of **your own mods**: ones made in Starlink. Mods from Nexus or the IMM Database aren't listed, since an update would replace your changes and they aren't yours.
+            - Only the values you changed go into the mod. Putting a value back to the game's takes it out again.
+            - Then tick the mod in **Library** and **Merge & Install** as usual. Open it in the mod editor to see exactly what it holds.
+            """),
         new("When an install goes wrong", """
             # When an install goes wrong
 
@@ -222,7 +239,8 @@ public sealed partial class HelpViewModel : ObservableObject
 
             **Changing the game's own items**
 
-            - **Change a game row…** (in the editor) copies any row of the game's data into your mod with all its current values. Change just the fields you want; every field shows the game's value underneath, amber-bordered when yours differs.
+            - The **Editor** page (left menu) is the easy way: pick an item, change its numbers, save. See its own Help topic.
+            - **Change a game row…** (in the mod editor) is the raw way: it copies any row of the game's data into your mod with all its current values. Change just the fields you want; every field shows the game's value underneath, amber-bordered when yours differs.
             - **Ctrl+S** saves. Fields you left identical to the game are dropped from the file, so it only carries real changes.
             - **Search game data…** finds a row by name and every place the game refers to it (which recipes use Wood, which items grant a stat).
             - Select two or more rows to set one field on all of them at once. **⧉ Pop out** puts a view in its own window.

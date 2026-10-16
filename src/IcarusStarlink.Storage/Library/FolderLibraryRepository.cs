@@ -198,7 +198,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         var package = ModTemplateContent.Create(template, name, author);
         ExmodFolder.Write(targetFolder, new ExmodPackageContents(package, []));
 
-        var meta = new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow };
+        var meta = new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow, MadeInStarlink = true };
         _metaStore.Save(folderName, meta);
 
         var entry = ToEntry(folderName, package, meta);
@@ -578,6 +578,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         Notes = meta.Notes,
         ImportedAtUtc = meta.ImportedAtUtc,
         IsLocallyEdited = meta.IsLocallyEdited,
+        MadeInStarlink = meta.MadeInStarlink,
         ConvertedFromPrebuiltPak = meta.ConvertedFromPrebuiltPak,
         Source = meta.Source,
         NexusModId = meta.NexusModId,

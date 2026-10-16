@@ -389,6 +389,7 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "settings.json"),
             Path.Combine(appDataDirectory, "Staged_UE4SS")));
         builder.Services.AddSingleton<WeeklyChangesViewModel>();
+        builder.Services.AddSingleton(sp => new GameEditorViewModel(sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton(sp => new ServerViewModel(
             sp.GetRequiredService<IFtpSiteStore>(),
             sp.GetRequiredService<ICredentialStore>(),

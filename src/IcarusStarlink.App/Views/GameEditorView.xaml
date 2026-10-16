@@ -1,0 +1,193 @@
+<UserControl x:Class="IcarusStarlink.App.Views.GameEditorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
+             mc:Ignorable="d" d:DataContext="{d:DesignInstance vm:GameEditorViewModel}"
+             IsVisibleChanged="OnIsVisibleChanged">
+
+    <Grid Margin="32,32,32,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
+        <TextBlock Grid.Row="1" TextWrapping="Wrap" MaxWidth="900" HorizontalAlignment="Left" Margin="0,6,0,14" Style="{StaticResource PageBodyTextStyle}"
+                   Text="Change the game's own items: make the default Envirosuit lighter, Bread's buff stronger, a recipe cheaper. Pick an item, change the numbers you want, then save into a new mod or one of your own mods. Only what you change goes into the mod. To make a brand-new item instead, use New mod… in Library."/>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="300"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- The game's items -->
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Grid>
+                    <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search game items"/>
+                    <TextBlock Text="Search, e.g. envirosuit, bread, axe" Style="{StaticResource PlaceholderTextStyle}"
+                               Visibility="{Binding FilterText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                </Grid>
+                <Border Grid.Row="1" Margin="0,6,0,0" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+                    <ListBox ItemsSource="{Binding FilteredItems}" SelectedItem="{Binding SelectedItem}" DisplayMemberPath="Display" Background="Transparent" BorderThickness="0"/>
+                </Border>
+            </Grid>
+
+            <!-- The item's sections -->
+            <Border Grid.Column="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+                <Grid>
+                    <TextBlock Text="{Binding NoDataMessage}" TextWrapping="Wrap" Margin="16" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Visibility="{Binding NoDataMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    <TextBlock Text="Pick a game item on the left." Margin="16" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Visibility="{Binding ShowPickPrompt, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding HasItem, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <StackPanel Margin="14">
+                            <TextBlock Text="{Binding ItemTitle}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            <TextBlock TextWrapping="Wrap" Margin="0,4,0,10" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                       Text="Each card is one of the game rows this item uses. An orange border marks a value that differs from the game's."/>
+                            <ItemsControl ItemsSource="{Binding Sections}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:GameItemSectionViewModel}">
+                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,10" Background="{DynamicResource ContentBackgroundBrush}">
+                                            <StackPanel>
+                                                <DockPanel Margin="10,8">
+                                                    <Border DockPanel.Dock="Right" CornerRadius="9" Padding="8,2" VerticalAlignment="Center">
+                                                        <Border.Style>
+                                                            <Style TargetType="Border">
+                                                                <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsShared}" Value="True">
+                                                                        <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Border.Style>
+                                                        <TextBlock Text="{Binding SharedText}" FontSize="11.5" FontWeight="SemiBold"/>
+                                                    </Border>
+                                                    <TextBlock VerticalAlignment="Center">
+                                                        <Run Text="{Binding Title, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="   "/><Run Text="{Binding Source, Mode=OneWay}" FontFamily="Consolas" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                                                    </TextBlock>
+                                                </DockPanel>
+
+                                                <Border Margin="10,0,10,6" Padding="9,7" CornerRadius="4" Background="{DynamicResource AccentSoftBrush}"
+                                                        Visibility="{Binding IsShared, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                    <StackPanel>
+                                                        <TextBlock Text="Other items use this row too. Changing it changes all of them." TextWrapping="Wrap" FontSize="12.5"/>
+                                                        <WrapPanel Margin="0,4,0,0">
+                                                            <RadioButton Content="Give this item its own copy (only it changes)" IsChecked="{Binding OwnCopy}" Margin="0,0,16,0"/>
+                                                            <RadioButton Content="{Binding AllItemsText}" IsChecked="{Binding ChangeForAll}"/>
+                                                        </WrapPanel>
+                                                    </StackPanel>
+                                                </Border>
+
+                                                <ItemsControl ItemsSource="{Binding Fields}" Margin="10,0,10,6">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate DataType="{x:Type vm:GameItemFieldViewModel}">
+                                                            <Grid Margin="0,4">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="190"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <Grid.RowDefinitions>
+                                                                    <RowDefinition Height="Auto"/>
+                                                                    <RowDefinition Height="Auto"/>
+                                                                </Grid.RowDefinitions>
+                                                                <TextBlock Text="{Binding Label}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                                                                <TextBox Grid.Column="1" Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="{Binding Label}">
+                                                                    <TextBox.Style>
+                                                                        <Style TargetType="TextBox">
+                                                                            <Setter Property="BorderThickness" Value="1"/>
+                                                                            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding DiffersFromGame}" Value="True">
+                                                                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                                                                    <Setter Property="BorderThickness" Value="2"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </TextBox.Style>
+                                                                </TextBox>
+                                                                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding GameText}" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" MaxWidth="180" TextTrimming="CharacterEllipsis"
+                                                                               ToolTip="{Binding GameText}"/>
+                                                                    <Button Content="↺" Command="{Binding UseGameValueCommand}" Margin="6,0,0,0" Padding="5,0"
+                                                                            ToolTip="Back to the game's value" AutomationProperties.Name="Back to the game's value"
+                                                                            Visibility="{Binding DiffersFromGame, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                                </StackPanel>
+                                                                <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2">
+                                                                    <TextBlock Text="{Binding Description}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                                    <TextBlock Text="{Binding Error}" FontSize="11.5" Foreground="{DynamicResource DangerBrush}"
+                                                                               Visibility="{Binding Error, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                                                </StackPanel>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+
+                                                <StackPanel Orientation="Horizontal" Margin="10,0,10,10" Visibility="{Binding CanAddStat, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                    <ComboBox ItemsSource="{Binding StatNames}" Text="{Binding NewStatName, UpdateSourceTrigger=PropertyChanged}" IsEditable="True" Width="260"
+                                                              ToolTip="Any stat the game knows, e.g. BaseColdResistance_% (cold resistance) or BaseMaximumHealth_+ (max health)"
+                                                              AutomationProperties.Name="Stat to add"/>
+                                                    <Button Content="Add stat" Command="{Binding AddStatCommand}" Margin="8,0,0,0"/>
+                                                    <TextBlock Text="{Binding StatError}" Foreground="{DynamicResource DangerBrush}" VerticalAlignment="Center" Margin="8,0,0,0" FontSize="12"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="{Binding KeptAsGames}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                       Visibility="{Binding KeptAsGames, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <!-- Saving -->
+            <Border Grid.Column="4" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="14">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top">
+                        <TextBlock Text="SAVE TO" Style="{StaticResource FieldLabelStyle}"/>
+                        <ComboBox ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}" DisplayMemberPath="Display" Margin="0,6,0,0"
+                                  ToolTip="A new mod, or a mod you made in Starlink. Mods from Nexus or the IMM Database aren't listed: an update would replace your changes."/>
+                        <StackPanel Margin="0,8,0,0" Visibility="{Binding IsNewTarget, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="Name" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                            <TextBox Text="{Binding NewModName, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,6" AutomationProperties.Name="New mod name"/>
+                            <TextBlock Text="Author" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                            <TextBox Text="{Binding NewModAuthor, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0" AutomationProperties.Name="New mod author"/>
+                        </StackPanel>
+                        <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,8,0,12"
+                                   Text="Only mods you made in Starlink are listed: changes can't go into a mod from Nexus or the IMM Database."/>
+
+                        <TextBlock Text="YOUR CHANGES" Style="{StaticResource FieldLabelStyle}"/>
+                    </StackPanel>
+
+                    <StackPanel DockPanel.Dock="Bottom">
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button Content="Save" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                    ToolTip="Writes every changed value into the chosen mod (only those values)"/>
+                            <Button Content="Discard" Command="{Binding DiscardChangesCommand}" Margin="8,0,0,0" ToolTip="Forget the changes typed here, nothing saved"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" Margin="0,8,0,0" FontSize="12"
+                                   Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    </StackPanel>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
+                        <TextBlock Text="{Binding PendingSummary}" TextWrapping="Wrap" FontSize="12.5"/>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -21,11 +21,12 @@ internal static class MiniGameData
               "Meshable":{"RowName":"None","DataTableName":"D_Meshable"},
               "Itemable":{"RowName":"None","DataTableName":"D_Itemable"},
               "Armour":{"RowName":"None","DataTableName":"D_Armour"},
-              "Consumable":{"RowName":"None","DataTableName":"D_Consumable"}},
+              "Consumable":{"RowName":"None","DataTableName":"D_Consumable"},
+              "Decayable":{"RowName":"None","DataTableName":"D_Decayable"}},
              "Rows":[
-              {"Name":"Envirosuit","Meshable":{"RowName":"Mesh_Generic_Workshop"},"Itemable":{"RowName":"Item_Envirosuit"},"Armour":{"RowName":"IO_Undersuit"},
+              {"Name":"Envirosuit","Meshable":{"RowName":"Mesh_Generic_Workshop"},"Itemable":{"RowName":"Item_Envirosuit"},"Armour":{"RowName":"IO_Undersuit"},"Decayable":{"RowName":"Decay_General"},
                "Manual_Tags":{"GameplayTags":[{"TagName":"Item.Envirosuit"}]}},
-              {"Name":"Food_Bread","Meshable":{"RowName":"Mesh_Bread"},"Itemable":{"RowName":"Item_Bread"},"Consumable":{"RowName":"Food_Bread"}}
+              {"Name":"Food_Bread","Meshable":{"RowName":"Mesh_Bread"},"Itemable":{"RowName":"Item_Bread"},"Consumable":{"RowName":"Food_Bread"},"Decayable":{"RowName":"Decay_General"}}
             ]}
             """);
         W("Items/D_ItemTemplate.json", """
@@ -34,8 +35,9 @@ internal static class MiniGameData
               {"Name":"Food_Bread","ItemStaticData":{"RowName":"Food_Bread"}}
             ]}
             """);
+        W("Traits/D_Decayable.json", """{"RowStruct":"S","Defaults":{"DecayTime":0,"SpoilTime":0},"Rows":[{"Name":"Decay_General","DecayTime":300}]}""");
         W("Traits/D_Itemable.json", """
-            {"RowStruct":"S","Defaults":{},"Rows":[
+            {"RowStruct":"S","Defaults":{"Weight":0,"MaxStack":1},"Rows":[
               {"Name":"Item_Envirosuit","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Envirosuit-DisplayName\", \"Xigo Envirosuit\")","Description":"NSLOCTEXT(\"D_Itemable\", \"Item_Envirosuit-Description\", \"A suit.\")","Weight":100},
               {"Name":"Item_Bread","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Bread-DisplayName\", \"Bread\")","Weight":50}
             ]}
