@@ -777,6 +777,46 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RebuildAsync_LowPriorityPrebuiltPakAndModTouchSameField_ModWinsAndPicksCountThePakFirst()
+    {
+        // ArcFission Library's data pak goes in as a low-priority prebuilt pak: its changes come
+        // before every queued mod, so the queued mod wins a clash by default, and a manual pick's
+        // index counts it first (index 0 = the pak, index 1 = the mod).
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json",
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5,"RequiredMillijoules":100}]}""");
+        var mod = MakeMod("Mod A", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var arcFissionPakPath = Path.Combine(_tempDir, "ZZ_ArcFission_Data_3_P.pak");
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFilesByPakPath[arcFissionPakPath] = new()
+        {
+            ["data/Crafting/D_ProcessorRecipes.json"] =
+                """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":999,"RequiredMillijoules":42}]}""",
+        };
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync(
+            [mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [],
+            lowPriorityPrebuiltPakFilePaths: [arcFissionPakPath]);
+
+        var row = System.Text.Json.Nodes.JsonNode.Parse(pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"])!["Rows"]![0]!;
+        Assert.Equal(1, (int)row["CraftTime"]!);
+        Assert.Equal(42, (int)row["RequiredMillijoules"]!);
+        Assert.Contains("ZZ_ArcFission_Data_3_P", await File.ReadAllTextAsync(result.ManifestPath));
+
+        var picked = await service.RebuildAsync(
+            [mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [],
+            manualPicks: new Dictionary<(string CurrentFile, string ItemName, string FieldName), int>
+            {
+                [("Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe", "CraftTime")] = 0,
+            },
+            lowPriorityPrebuiltPakFilePaths: [arcFissionPakPath]);
+
+        row = System.Text.Json.Nodes.JsonNode.Parse(pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"])!["Rows"]![0]!;
+        Assert.Equal(999, (int)row["CraftTime"]!);
+    }
+
+    [Fact]
     public async Task RebuildAsync_LaterModsFieldMatchesBaseValue_EarlierModsGenuineEditSurvivesInstead()
     {
         // The real "whole-row-copy" scenario a library survey confirmed is common: Mod B's own

@@ -1,21 +1,76 @@
 using System.Windows;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Core.Settings;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace IcarusStarlink.App;
 
 public partial class MainWindow : Window
 {
     private readonly ISettingsService _settingsService;
+    private readonly IServiceProvider _serviceProvider;
 
-    public MainWindow(MainViewModel viewModel, ISettingsService settingsService)
+    public MainWindow(MainViewModel viewModel, ISettingsService settingsService, IServiceProvider serviceProvider)
     {
         InitializeComponent();
         DataContext = viewModel;
         _settingsService = settingsService;
+        _serviceProvider = serviceProvider;
 
         RestoreWindowBounds();
-        Closing += (_, _) => SaveBounds();
+        Closing += (_, _) =>
+        {
+            FlushMergeWorkingState();
+            SaveBounds();
+        };
+
+        // Back from the game: ArcFission Library may have written a new data pak while it ran, so the
+        // Library's "In game" status and the ArcFission prompt are re-read.
+        Activated += (_, _) => RefreshMergeInstalledState();
+    }
+
+    /// <summary>The Merge &amp; Install page's state, or null while the app is starting or shutting down.</summary>
+    private MergeInstallViewModel? TryGetMergeInstall()
+    {
+        try
+        {
+            return _serviceProvider.GetService<MergeInstallViewModel>();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Writes the merge queue/options change still waiting on its short auto-save delay, so closing
+    /// the app (or the updater's restart) right after a change doesn't lose it. Never throws.
+    /// </summary>
+    private void FlushMergeWorkingState()
+    {
+        try
+        {
+            TryGetMergeInstall()?.SaveWorkingState();
+        }
+        catch (Exception)
+        {
+            // Best-effort: closing must never fail over this.
+        }
+    }
+
+    private void RefreshMergeInstalledState()
+    {
+        try
+        {
+            if (TryGetMergeInstall() is { } mergeInstall)
+            {
+                _ = mergeInstall.RefreshInstalledModNamesAsync();
+            }
+        }
+        catch (Exception)
+        {
+            // Best-effort: the status just stays as it was.
+        }
     }
 
     /// <summary>

@@ -281,4 +281,23 @@ public sealed class ServerPhase23Tests : IDisposable
         Assert.StartsWith(Path.Combine(backups, "removed-paks"), movedTo);
         Assert.Throws<ArgumentException>(() => ServerModFiles.RemovePak(install, "..\\x.pak", backups));
     }
+
+    /// <summary>The merged pak under an earlier name is moved into the backups folder, not deleted, when one is given.</summary>
+    [Fact]
+    public void InstallPak_WithABackupsFolder_MovesTheLegacyNamedMergedPakThere()
+    {
+        var install = Path.Combine(_root, "Server");
+        var mods = DedicatedServerLayout.PakModsFolder(install);
+        Directory.CreateDirectory(mods);
+        File.WriteAllBytes(Path.Combine(mods, "ISL-Merged_P.pak"), [1]);
+        var source = Path.Combine(_root, "Staged", "zz_zz_ISL-Merged_9999_P.pak");
+        Directory.CreateDirectory(Path.GetDirectoryName(source)!);
+        File.WriteAllBytes(source, [2]);
+        var backups = Path.Combine(_root, "Backups");
+
+        ServerModFiles.InstallPak(source, install, manifestFileName: null, backupsFolder: backups);
+
+        Assert.Equal(["zz_zz_ISL-Merged_9999_P.pak"], ServerModFiles.ListPaks(install).Select(p => p.FileName));
+        Assert.Single(Directory.GetFiles(Path.Combine(backups, "removed-paks"), "*_ISL-Merged_P.pak"));
+    }
 }

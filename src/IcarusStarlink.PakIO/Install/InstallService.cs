@@ -130,11 +130,20 @@ public sealed class InstallService : IInstallService
 
         var removedAnything = false;
 
-        if (File.Exists(targetPakPath))
+        // The merged pak under its earlier name(s) too: one left behind by an older version still
+        // loads in-game, so "removed" would be untrue while it sits there.
+        var pakPaths = InstallManifestNames.LegacyMergedPakFileNames
+            .Select(name => Path.Combine(modsDirectory, name))
+            .Prepend(targetPakPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var pakPath in pakPaths)
         {
-            FolderBackup.BackupFile(targetPakPath, backupDirectory);
-            File.Delete(targetPakPath);
-            removedAnything = true;
+            if (File.Exists(pakPath))
+            {
+                FolderBackup.BackupFile(pakPath, backupDirectory);
+                File.Delete(pakPath);
+                removedAnything = true;
+            }
         }
 
         if (File.Exists(targetManifestPath))

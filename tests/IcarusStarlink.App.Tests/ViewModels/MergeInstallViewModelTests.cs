@@ -283,6 +283,128 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.DoesNotContain("Coop run", store.ProfileNames);
     }
 
+    /// <summary>Renaming the profile in use makes it the one selected on the next start.</summary>
+    [Fact]
+    public void RenameProfile_RemembersTheNewNameForTheNextStart()
+    {
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop" });
+        var settings = new FakeSettingsService();
+        var vm = CreateViewModel(profileStore: store, settingsService: settings);
+        vm.SelectedProfileName = "Coop";
+        vm.PromptForProfileName = (_, _) => "Solo";
+
+        vm.RenameProfileCommand.Execute(null);
+
+        Assert.Equal("Solo", vm.SelectedProfileName);
+        Assert.Equal("Solo", settings.Current.LastMergeProfileName);
+    }
+
+    /// <summary>Deleting a profile with an unsaved change loads "Default" as saved; the change is written nowhere.</summary>
+    [Fact]
+    public void DeleteProfile_WithAPendingChange_LoadsDefaultAndNeverWritesTheDeletedQueueAnywhere()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA"), MakeEntry("ModB")] };
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Default", MergeQueueFolderNames = ["ModA"] });
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModB"] });
+        var vm = CreateViewModel(libraryRepository: library, profileStore: store);
+        vm.SelectedProfileName = "Coop";
+        vm.Queue.Add(library.AllEntries[0]); // pending auto-save of Coop
+
+        vm.DeleteProfileCommand.Execute(null);
+        vm.SaveWorkingState();
+
+        Assert.DoesNotContain("Coop", store.ProfileNames);
+        Assert.Equal("Default", vm.SelectedProfileName);
+        Assert.Equal(["ModA"], vm.Queue.Select(e => e.FolderName));
+        Assert.Equal(["ModA"], store.Load("Default").MergeQueueFolderNames);
+    }
+
+    /// <summary>Deleting the only profile empties the queue and options and saves nothing.</summary>
+    [Fact]
+    public void DeleteProfile_NoDefaultToFallBackTo_StartsEmptyWithoutSaving()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA")] };
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModA"], Options = new GameplayOptions { RemoveLevelCap = true } });
+        var vm = CreateViewModel(libraryRepository: library, profileStore: store);
+        vm.SelectedProfileName = "Coop";
+        vm.UnlimitedAmmo = true; // pending auto-save of Coop
+
+        vm.DeleteProfileCommand.Execute(null);
+        vm.SaveWorkingState();
+
+        Assert.Null(vm.SelectedProfileName);
+        Assert.Empty(vm.Queue);
+        Assert.False(vm.RemoveLevelCap);
+        Assert.Empty(store.ProfileNames);
+    }
+
+    /// <summary>ArcFission's prompt shows only with a merge installed that its newest data pak isn't part of.</summary>
+    [Fact]
+    public async Task ArcFissionNeedsMerge_OnlyWhenAMergeIsInstalledWithoutItsNewestPak()
+    {
+        var contentPath = Path.Combine(_tempRoot, "Content");
+        var modsFolder = Path.Combine(contentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsFolder);
+        File.WriteAllBytes(Path.Combine(modsFolder, "ZZ_ArcFission_Data_3_P.pak"), []);
+        var settings = new FakeSettingsService();
+        settings.Current.IcarusContentPath = contentPath;
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(installService: install, settingsService: settings);
+
+        await vm.RefreshInstalledModNamesAsync();
+        Assert.False(vm.ArcFissionNeedsMerge); // nothing installed
+
+        install.InstalledModNames = ["ModA", "ZZ_ArcFission_Data_2_P"];
+        await vm.RefreshInstalledModNamesAsync();
+        Assert.True(vm.ArcFissionNeedsMerge);
+
+        install.InstalledModNames = ["ModA", "ZZ_ArcFission_Data_3_P"];
+        await vm.RefreshInstalledModNamesAsync();
+        Assert.False(vm.ArcFissionNeedsMerge);
+    }
+
+    /// <summary>
+    /// ArcFission's data pak goes to Rebuild as the lowest-priority input, and a saved winner's
+    /// index counts it first, the same order Rebuild merges in.
+    /// </summary>
+    [Fact]
+    public async Task Rebuild_ArcFissionPakIsLowestPriority_AndSavedWinnerIndexCountsIt()
+    {
+        var contentPath = Path.Combine(_tempRoot, "Content");
+        var modsFolder = Path.Combine(contentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsFolder);
+        var arcFissionPak = Path.Combine(modsFolder, "ZZ_ArcFission_Data_3_P.pak");
+        File.WriteAllBytes(arcFissionPak, []);
+        var settings = new FakeSettingsService();
+        settings.Current.IcarusContentPath = contentPath;
+        settings.Current.UnrealPakExePath = Path.Combine(_tempRoot, "UnrealPak.exe");
+
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA"), MakeEntry("ModB")] };
+        library.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        library.FolderPaths["ModB"] = CreateExmodFolder("ModB", BuildCraftTimeExmodJson("ModB", craftTime: 99), out _);
+        var rebuild = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables() };
+        rebuild.PrebuiltPakChanges[arcFissionPak] =
+            [new FieldChange("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime", JsonValue.Create(3), JsonValue.Create(42), ValueSemantic.Scalar)];
+        var store = new FakeProfileStore();
+        store.Save(new Profile
+        {
+            Name = "Default",
+            MergeQueueFolderNames = ["ModA", "ModB"],
+            ConflictWinners = new() { [MergeConflictsViewModel.WinnerKey("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime")] = "ModA" },
+        });
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, profileStore: store, settingsService: settings);
+
+        Assert.True(await vm.RebuildAsync());
+
+        Assert.Equal([arcFissionPak], rebuild.LastLowPriorityPrebuiltPakFilePaths);
+        Assert.Empty(rebuild.LastPrebuiltPakFilePaths!);
+        // Candidates in merge order: ArcFission (0), ModA (1), ModB (2).
+        Assert.Equal(1, rebuild.LastManualPicks![("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime")]);
+    }
+
     [Fact]
     public void AddingToQueue_RestartsTheDebounceTimer_RatherThanRecomputingInline()
     {
@@ -843,6 +965,8 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public int RebuildCallCount { get; private set; }
         public IReadOnlyList<ExmodPackageContents>? LastQueuedMods { get; private set; }
         public IReadOnlyList<string>? LastPrebuiltPakFilePaths { get; private set; }
+        public IReadOnlyList<string>? LastLowPriorityPrebuiltPakFilePaths { get; private set; }
+        public IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? LastManualPicks { get; private set; }
         public RebuildResult Result { get; set; } = new(0, 0, "out.pak", "out.manifest", [], []);
         public Exception? ExceptionToThrow { get; set; }
         public Func<IEnumerable<string>, string, MergeReport, IReadOnlyDictionary<string, JsonObject>>? ReadKeyedBaseTablesHandler { get; set; }
@@ -851,11 +975,14 @@ public sealed class MergeInstallViewModelTests : IDisposable
             IReadOnlyList<ExmodPackageContents> queuedMods, GameplayOptions gameplayOptions, string dataFolder, string unrealPakExePath,
             string outputPakPath, IReadOnlyList<string> prebuiltPakFilePaths,
             IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
-            IProgress<RebuildStageProgress>? progress = null, CancellationToken cancellationToken = default)
+            IProgress<RebuildStageProgress>? progress = null, CancellationToken cancellationToken = default,
+            IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null)
         {
             RebuildCallCount++;
             LastQueuedMods = queuedMods;
             LastPrebuiltPakFilePaths = prebuiltPakFilePaths;
+            LastLowPriorityPrebuiltPakFilePaths = lowPriorityPrebuiltPakFilePaths;
+            LastManualPicks = manualPicks;
             if (ExceptionToThrow is not null)
             {
                 throw ExceptionToThrow;
@@ -864,10 +991,16 @@ public sealed class MergeInstallViewModelTests : IDisposable
             return Task.FromResult(Result);
         }
 
+        /// <summary>Per pak path, the changes ComputePrebuiltPakFieldChangesAsync reports for it (none by default).</summary>
+        public Dictionary<string, IReadOnlyList<FieldChange>> PrebuiltPakChanges { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public Task<IReadOnlyList<(string PakName, IReadOnlyList<FieldChange> Changes)>> ComputePrebuiltPakFieldChangesAsync(
             IReadOnlyList<string> prebuiltPakFilePaths, string dataFolder, string unrealPakExePath, MergeReport report,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<(string PakName, IReadOnlyList<FieldChange> Changes)>>([]);
+            Task.FromResult<IReadOnlyList<(string PakName, IReadOnlyList<FieldChange> Changes)>>(
+                [.. prebuiltPakFilePaths
+                    .Where(PrebuiltPakChanges.ContainsKey)
+                    .Select(path => (Path.GetFileNameWithoutExtension(path), PrebuiltPakChanges[path]))]);
 
         public IReadOnlyDictionary<string, JsonObject> ReadKeyedBaseTables(IEnumerable<string> currentFiles, string dataFolder, MergeReport report) =>
             ReadKeyedBaseTablesHandler?.Invoke(currentFiles, dataFolder, report)
@@ -885,8 +1018,10 @@ public sealed class MergeInstallViewModelTests : IDisposable
             return Task.FromResult(Result);
         }
 
+        public IReadOnlyList<string> InstalledModNames { get; set; } = [];
+
         public Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new InstalledState([]));
+            Task.FromResult(new InstalledState(InstalledModNames));
 
         public Task<bool> RemoveInstalledPakAsync(string stagedPakFileName, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);

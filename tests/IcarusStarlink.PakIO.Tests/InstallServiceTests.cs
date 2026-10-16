@@ -227,6 +227,21 @@ public class InstallServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RemoveInstalledPakAsync_LegacyNamedMergedPak_IsRemovedTooAfterBackingItUp()
+    {
+        var modsDirectory = Path.Combine(_fakeContentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsDirectory);
+        var legacyPakPath = Path.Combine(modsDirectory, "ISL-Merged_P.pak");
+        await File.WriteAllTextAsync(legacyPakPath, "old merged pak");
+
+        var removed = await _service.RemoveInstalledPakAsync("zz_zz_ISL-Merged_9999_P.pak", _fakeContentPath, _backupDirectory);
+
+        Assert.True(removed);
+        Assert.False(File.Exists(legacyPakPath));
+        Assert.Equal("old merged pak", await File.ReadAllTextAsync(Directory.GetFiles(_backupDirectory, "ISL-Merged_P_*.pak").Single()));
+    }
+
+    [Fact]
     public async Task RemoveInstalledPakAsync_OnlyDerivesTheFileNameFromStagedPakFileName_DoesNotRequireItToExistOnDisk()
     {
         await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);

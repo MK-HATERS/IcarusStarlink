@@ -29,9 +29,14 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         IReadOnlyList<string> prebuiltPakFilePaths,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
         IProgress<RebuildStageProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null)
     {
         var report = new MergeReport();
+        var lowPriorityPaks = lowPriorityPrebuiltPakFilePaths ?? [];
+        // Every prebuilt pak, lowest priority first: extracted, folded in (a later pak wins a literal
+        // file collision) and listed in the manifest in this order.
+        IReadOnlyList<string> allPrebuiltPaks = [.. lowPriorityPaks, .. prebuiltPakFilePaths];
         progress?.Report(new RebuildStageProgress("Merging queued mods…", 0));
 
         // Each prebuilt/opaque pak is extracted to its own scratch folder exactly once, up front —
@@ -46,7 +51,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             // Inside the try (an audit finding): with the loop outside it, the 2nd pak's extraction
             // throwing (a corrupt pak, a non-zero exit) leaked the 1st pak's already-extracted
             // scratch folder under TEMP forever — the finally below is what guarantees cleanup.
-            foreach (var prebuiltPakPath in prebuiltPakFilePaths)
+            foreach (var prebuiltPakPath in allPrebuiltPaks)
             {
                 var prebuiltScratchDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"PrebuiltPakScratch_{Guid.NewGuid():N}");
                 prebuiltPakScratchDirectories[prebuiltPakPath] = prebuiltScratchDirectory;
@@ -69,7 +74,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             // offloaded via Task.Run so it doesn't block the calling (UI) thread the way running it
             // bare ahead of this method's first real await used to.
             var (mergedTables, originalFileJsonByFile, prebuiltPakDiffedPaths) = await Task.Run(
-                () => ComputeMergedTables(queuedMods, gameplayOptions, dataFolder, prebuiltPakFilePaths, prebuiltPakScratchDirectories, manualPicks, report),
+                () => ComputeMergedTables(queuedMods, gameplayOptions, dataFolder, lowPriorityPaks, prebuiltPakFilePaths, prebuiltPakScratchDirectories, manualPicks, report),
                 cancellationToken);
 
             var stagingDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"Rebuild_{Guid.NewGuid():N}");
@@ -88,16 +93,16 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                     StageAssets(queuedMods, stagingDirectory);
                 }, cancellationToken);
 
-                if (prebuiltPakFilePaths.Count > 0)
+                if (allPrebuiltPaks.Count > 0)
                 {
                     progress?.Report(new RebuildStageProgress("Folding in prebuilt paks…", 50));
                 }
 
-                FoldInUnmergedPrebuiltPakFiles(prebuiltPakFilePaths, prebuiltPakScratchDirectories, prebuiltPakDiffedPaths, stagingDirectory, report);
+                FoldInUnmergedPrebuiltPakFiles(allPrebuiltPaks, prebuiltPakScratchDirectories, prebuiltPakDiffedPaths, stagingDirectory, report);
 
                 progress?.Report(new RebuildStageProgress("Packing…", 75));
                 var result = await PackAndVerifyAsync(
-                    queuedMods, prebuiltPakFilePaths, gameplayOptions, unrealPakExePath, outputPakPath, stagingDirectory, mergedTables.Count, report, cancellationToken);
+                    queuedMods, allPrebuiltPaks, gameplayOptions, unrealPakExePath, outputPakPath, stagingDirectory, mergedTables.Count, report, cancellationToken);
 
                 progress?.Report(new RebuildStageProgress("Done.", 100));
                 return result;
@@ -128,15 +133,30 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     /// </summary>
     private static (Dictionary<string, JsonObject> Merged, Dictionary<string, JsonObject> Original, Dictionary<string, IReadOnlySet<string>> PrebuiltPakDiffedPaths) ComputeMergedTables(
         IReadOnlyList<ExmodPackageContents> queuedMods, GameplayOptions gameplayOptions, string dataFolder,
+        IReadOnlyList<string> lowPriorityPrebuiltPakFilePaths,
         IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyDictionary<string, string> prebuiltPakScratchDirectories,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks, MergeReport report)
     {
         var prebuiltPakDiffedPaths = new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase);
         var classifier = new DefaultSemanticClassifier();
 
-        var orderedModChanges = queuedMods
-            .Select(mod => ExmodFieldChangeMapper.ToFieldChanges(mod.Package, classifier))
-            .ToList();
+        var orderedModChanges = new List<IReadOnlyList<FieldChange>>();
+
+        // Low-priority prebuilt paks (ArcFission Library's data pak) come before every queued mod,
+        // so any queued mod, prebuilt pak or gameplay option touching the same field wins over them.
+        foreach (var prebuiltPakPath in lowPriorityPrebuiltPakFilePaths)
+        {
+            var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
+            var (changes, diffedPaths) = PrebuiltPakFieldChangeExtractor.Extract(
+                prebuiltPakScratchDirectories[prebuiltPakPath], dataFolder, pakName, classifier, report);
+            prebuiltPakDiffedPaths[prebuiltPakPath] = diffedPaths;
+            if (changes.Count > 0)
+            {
+                orderedModChanges.Add(changes);
+            }
+        }
+
+        orderedModChanges.AddRange(queuedMods.Select(mod => ExmodFieldChangeMapper.ToFieldChanges(mod.Package, classifier)));
 
         // A prebuilt pak carries no EXMOD-style declared changes, so its own DataTable JSON
         // is reverse-engineered into real FieldChanges by diffing it against current base
