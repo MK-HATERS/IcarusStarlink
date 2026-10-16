@@ -67,7 +67,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
         if (startTimer && Application.Current is not null)
         {
-            _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _timer = new DispatcherTimer(DispatcherPriority.Normal, System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher) { Interval = TimeSpan.FromSeconds(1) };
             _timer.Tick += (_, _) =>
             {
                 Tick();

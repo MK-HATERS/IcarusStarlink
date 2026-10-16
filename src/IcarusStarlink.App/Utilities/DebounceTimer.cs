@@ -16,7 +16,10 @@ public sealed class DebounceTimer
     public DebounceTimer(TimeSpan interval, Action onElapsed)
     {
         _onElapsed = onElapsed;
-        _timer = new DispatcherTimer { Interval = interval };
+        // The UI thread's dispatcher, not the creating thread's: Library/IMM Database are built on
+        // the startup thread behind the splash screen, and a timer there never ticks (that thread
+        // doesn't pump messages), so search did nothing. No Application (tests): this thread's.
+        _timer = new DispatcherTimer(DispatcherPriority.Normal, System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher) { Interval = interval };
         _timer.Tick += (_, _) =>
         {
             _timer.Stop();
