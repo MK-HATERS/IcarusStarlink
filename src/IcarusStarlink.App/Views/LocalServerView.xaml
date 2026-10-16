@@ -492,11 +492,26 @@
                                 <TextBlock Text="Load prospect on start (blank = none)" FontSize="12"/>
                                 <ComboBox ItemsSource="{Binding Prospects}" Text="{Binding LoadProspect, UpdateSourceTrigger=PropertyChanged}" IsEditable="True" Margin="0,2,0,8"
                                           ToolTip="A save under Saved\PlayerData\DedicatedServer\Prospects. Applied before Resume and Create."/>
-                                <TextBlock Text="Create prospect on start (blank = none)" FontSize="12"/>
+                                <TextBlock Text="Create a new world on start" FontSize="12"/>
+                                <StackPanel Visibility="{Binding HasProspectChoices, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,2,0,2">
+                                    <ComboBox ItemsSource="{Binding ProspectChoices}" SelectedItem="{Binding NewProspectType}" DisplayMemberPath="Display"
+                                              ToolTip="The prospect the server creates when it starts: an open world, an outpost or a mission (the game's own list)"/>
+                                    <WrapPanel Margin="0,4,0,0" Visibility="{Binding IsCreatingProspect, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <ComboBox ItemsSource="{Binding ProspectDifficulties}" SelectedItem="{Binding NewProspectDifficulty}" DisplayMemberPath="Label" Width="110" Margin="0,0,8,4"
+                                                  ToolTip="Difficulty: Easy to Extreme. Higher = tougher creatures and harsher conditions."/>
+                                        <CheckBox Content="Hardcore (no respawns)" IsChecked="{Binding NewProspectHardcore}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                                        <Grid Width="180" Margin="0,0,0,4">
+                                            <TextBox Text="{Binding NewProspectName, UpdateSourceTrigger=PropertyChanged}" ToolTip="The world's save name (spaces become _). Needed for an outpost; a blank one gets a random name."/>
+                                            <TextBlock Text="World name" Style="{StaticResource PlaceholderTextStyle}"
+                                                       Visibility="{Binding NewProspectName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                        </Grid>
+                                    </WrapPanel>
+                                </StackPanel>
                                 <TextBox Text="{Binding CreateProspect, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,2"
-                                         ToolTip="[ProspectType] [Difficulty 1-4] [Hardcore True/False] [SaveName]"/>
+                                         Visibility="{Binding HasNoProspectChoices, Converter={StaticResource BoolToVisibilityConverter}}"
+                                         ToolTip="[ProspectType] [Difficulty 1-4] [Hardcore True/False] [SaveName] — run Refresh game data in Settings to pick from a list instead"/>
                                 <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"
-                                           Text="Format: type, difficulty 1-4, hardcore True/False, save name. Clear it after the first start or every restart makes a fresh world."/>
+                                           Text="{Binding ProspectHint}"/>
                                 <TextBlock Text="Autosave every (minutes, blank = game default)" FontSize="12"/>
                                 <TextBox Text="{Binding GameSaveFrequencyText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,2"/>
                                 <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Lower = saves more often, so less is lost if the server crashes; higher = fewer saves (slightly less load)."/>
