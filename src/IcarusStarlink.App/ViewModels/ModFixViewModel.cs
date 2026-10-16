@@ -37,9 +37,11 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
     public string Field => Issue.FieldName ?? "(whole row)";
 
     public string ModText => Issue.Kind == ModIssueKind.MissingRow ? $"changes '{Issue.ItemName}'"
+        : Issue.Kind == ModIssueKind.SameAsGame ? ModFixViewModel.Describe(Issue.ModValue)
         : ModFixViewModel.OnlyIn(Issue.ModValue, Issue.GameValue) ?? ModFixViewModel.Describe(Issue.ModValue);
 
     public string GameText => Issue.Kind == ModIssueKind.MissingRow ? $"has '{Issue.SuggestedRow}'"
+        : Issue.Kind == ModIssueKind.SameAsGame ? "the same (no change)"
         : ModFixViewModel.OnlyIn(Issue.GameValue, Issue.ModValue) ?? ModFixViewModel.Describe(Issue.GameValue);
 
     public string ModJson => ModFixViewModel.Pretty(Issue.ModValue);
@@ -92,7 +94,7 @@ public sealed partial class ModFixGroupViewModel(ModIssueKind kind, IReadOnlyLis
 
     /// <summary>The fixes every issue in this group offers, for "set all".</summary>
     public IReadOnlyList<ModFixChoice> Choices { get; } =
-        [.. issues.SelectMany(i => i.Choices).DistinctBy(c => c.Fix).Select(c => new ModFixChoice(c.Fix, ModFixViewModel.GroupChoiceLabel(c.Fix)))];
+        [.. issues.SelectMany(i => i.Choices).DistinctBy(c => c.Fix).Select(c => new ModFixChoice(c.Fix, ModFixViewModel.GroupChoiceLabel(c.Fix, kind)))];
 
     [RelayCommand]
     private void SetAll(ModFixChoice? choice)
@@ -193,13 +195,31 @@ public sealed partial class ModFixViewModel : ObservableObject
 
     public bool HasIssues => _all.Count > 0;
 
-    public string Summary => _all.Count == 0
-        ? $"Nothing to fix: this mod fits the current game. Its {AuthorChangeCount} change(s) are the author's own"
-          + (RememberedCount > 0 ? ", or ones you chose to keep." : ".")
-        : $"{_all.Count} thing(s) in this mod don't fit the current game. {_all.Count(i => i.Issue.IsSure)} are sure fixes; "
-          + $"the other {_all.Count(i => !i.Issue.IsSure)} are best guesses, already chosen, for you to look over. "
-          + $"The author's own {AuthorChangeCount} change(s) are kept and not listed. "
-          + "Your choices are remembered for this mod: what you keep isn't asked again, and the rest is done by itself next time.";
+    public string Summary
+    {
+        get
+        {
+            var tidy = _all.Count(i => i.Issue.Kind == ModIssueKind.SameAsGame);
+            var problems = _all.Count - tidy;
+            var authors = $"The author's own {AuthorChangeCount} change(s) are kept and not listed.";
+            if (_all.Count == 0)
+            {
+                return $"Nothing to fix: this mod fits the current game. Its {AuthorChangeCount} change(s) are the author's own"
+                    + (RememberedCount > 0 ? ", or ones you chose to keep." : ".");
+            }
+
+            var tidyText = tidy == 0 ? "" : $"{tidy} value(s) are exactly what the game already has, so they change nothing: taking them out is optional tidying, and the game plays the same either way. ";
+            if (problems == 0)
+            {
+                return "Nothing here is wrong: this mod fits the current game. " + tidyText + authors;
+            }
+
+            var sure = _all.Count(i => i.Issue.IsSure && i.Issue.Kind != ModIssueKind.SameAsGame);
+            return $"{problems} thing(s) in this mod don't fit the current game: {sure} sure fix(es), and {problems - sure} best guess(es), already chosen, for you to look over. "
+                + tidyText + authors
+                + " Your choices are remembered for this mod: what you keep isn't asked again, and the rest is done by itself next time.";
+        }
+    }
 
     public int ChangeCount => _all.Count(i => i.WillChange);
 
@@ -341,7 +361,7 @@ public sealed partial class ModFixViewModel : ObservableObject
     internal static string KindTitle(ModIssueKind kind) => kind switch
     {
         ModIssueKind.OldCopy => "Old copies of game data",
-        ModIssueKind.SameAsGame => "Already the game's value",
+        ModIssueKind.SameAsGame => "Same as the game (tidy-up)",
         ModIssueKind.LikelyOld => "Probably old",
         ModIssueKind.MixedList => "Lists both changed",
         ModIssueKind.MissingRow => "Rows the game renamed",
@@ -351,7 +371,7 @@ public sealed partial class ModFixViewModel : ObservableObject
     internal static string KindExplanation(ModIssueKind kind) => kind switch
     {
         ModIssueKind.OldCopy => "The mod was made for an older game version and copied these from it. They would only bring old data back (tags the game added since go missing, new fields get deleted). The fix leaves the game's current value.",
-        ModIssueKind.SameAsGame => "These already match the game, so they do nothing. Taking them out makes the mod smaller and clearer.",
+        ModIssueKind.SameAsGame => "Nothing wrong: the mod sets these to exactly what the game already has, so they change nothing. Taking them out only makes the mod smaller; the game plays the same.",
         ModIssueKind.LikelyOld => "Changes on rows the mod copied wholesale from an older game version. Most likely old values, not the author's idea; the suggestion is the game's current value.",
         ModIssueKind.MixedList => "The mod added entries to a list, and the game has entries the mod lacks (most likely added since). Merge keeps both.",
         ModIssueKind.MissingRow => "The mod changes a row the game no longer has under that name.",
@@ -368,8 +388,10 @@ public sealed partial class ModFixViewModel : ObservableObject
         _ => fix.ToString(),
     };
 
-    internal static string GroupChoiceLabel(ModIssueFix fix) => fix switch
+    internal static string GroupChoiceLabel(ModIssueFix fix, ModIssueKind kind) => fix switch
     {
+        ModIssueFix.UseGame when kind == ModIssueKind.SameAsGame => "Take them all out",
+        ModIssueFix.KeepMod when kind == ModIssueKind.SameAsGame => "Leave them all",
         ModIssueFix.UseGame => "Use the game's for all",
         ModIssueFix.KeepMod => "Keep the mod's for all",
         ModIssueFix.Merge => "Merge all",
@@ -388,6 +410,8 @@ public sealed partial class ModFixViewModel : ObservableObject
             JsonObject o when o.Count <= 2 && o["RowName"] is JsonValue row => row.ToString(),
             JsonArray a when a.All(e => e is JsonObject { } o && o["RowName"] is JsonValue) => string.Join(", ", a.Select(e => e!["RowName"]!.ToString())),
             JsonValue v => v.ToString(),
+            // A small object in words: "RequiredFeatureLevel: GreatHunts".
+            JsonObject o when o.Count is > 0 and <= 3 => string.Join(", ", o.Select(kv => $"{kv.Key}: {Describe(kv.Value)}")),
             _ => value.ToJsonString(),
         };
         return text.Length > 140 ? text[..140] + "…" : text;

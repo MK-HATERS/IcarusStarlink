@@ -68,6 +68,11 @@ public sealed record ModHealthReport(IReadOnlyList<ModIssue> Issues, int AuthorC
 
     public bool HasIssues => Issues.Count > 0;
 
+    /// <summary>Findings that matter: everything but values that already match the game (those change nothing, so they're only tidying).</summary>
+    public int ProblemCount => Issues.Count(i => i.Kind != ModIssueKind.SameAsGame);
+
+    public bool HasProblems => ProblemCount > 0;
+
     public int Count(ModIssueKind kind) => Issues.Count(i => i.Kind == kind);
 }
 
@@ -166,7 +171,7 @@ public static class ModHealthChecker
                         else
                         {
                             tableIssues.Add(new(ModIssueKind.SameAsGame, row.CurrentFile, item.Name, field, null, null, null, null,
-                                ModIssueFix.UseGame, IsSure: true, "Deletes something the game doesn't have: does nothing."));
+                                ModIssueFix.UseGame, IsSure: true, "The mod deletes something the game doesn't have, so it changes nothing. Taking it out is only tidying."));
                         }
 
                         continue;
@@ -190,7 +195,7 @@ public static class ModHealthChecker
                     {
                         case Verdict.Equal:
                             tableIssues.Add(new(ModIssueKind.SameAsGame, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
-                                ModIssueFix.UseGame, IsSure: true, "Already the game's value: does nothing."));
+                                ModIssueFix.UseGame, IsSure: true, "The mod sets this to exactly what the game already has, so it changes nothing. Taking it out is only tidying; the game's value stays either way."));
                             break;
                         case Verdict.Older:
                             rowsWithOld.Add(item.Name);

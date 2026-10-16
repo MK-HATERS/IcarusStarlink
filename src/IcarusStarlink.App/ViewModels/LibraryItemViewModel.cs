@@ -434,17 +434,21 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     partial void OnModIssueCountChanged(int value) => OnPropertyChanged(nameof(HasModIssues));
 
-    public string ModIssuesTooltip => Health is not { HasIssues: true } health
+    public string ModIssuesTooltip => Health is not { HasProblems: true } health
         ? ""
-        : $"Doesn't fully fit the current game: {health.SureCount} sure fix(es)"
-          + (health.Count(ModIssueKind.OldCopy) > 0 ? $" ({health.Count(ModIssueKind.OldCopy)} old copies of game data)" : "")
-          + (health.ReviewCount > 0 ? $" and {health.ReviewCount} to look over" : "")
+        : "Doesn't fully fit the current game: "
+          + string.Join(", ", new[]
+            {
+                health.Count(ModIssueKind.OldCopy) > 0 ? $"{health.Count(ModIssueKind.OldCopy)} old copies of game data (sure fixes)" : null,
+                health.ProblemCount - health.Count(ModIssueKind.OldCopy) is > 0 and var toLook ? $"{toLook} to look over" : null,
+            }.Where(p => p is not null))
           + ". Click to see them and fix.";
 
     public void SetHealth(ModHealthReport? report)
     {
         Health = report;
-        ModIssueCount = report?.Issues.Count ?? 0;
+        // Values that already match the game change nothing: no badge for those alone.
+        ModIssueCount = report?.ProblemCount ?? 0;
         OnPropertyChanged(nameof(ModIssuesTooltip));
     }
 

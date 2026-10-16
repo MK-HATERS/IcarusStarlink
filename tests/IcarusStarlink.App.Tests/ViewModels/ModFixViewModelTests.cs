@@ -198,6 +198,28 @@ public sealed class ModFixViewModelTests : IDisposable
         Assert.True(_library.GetAll().Single(e => e.FolderName == entry.FolderName).IsLocallyEdited);
     }
 
+    /// <summary>Values that already match the game change nothing: shown as optional tidying, never as a problem (no warning badge).</summary>
+    [Fact]
+    public void ValuesTheGameAlreadyHas_AreTidyingNotProblems()
+    {
+        var entry = _library.CreateBlankMod("Tidy Mod", "Me", ModTemplate.Blank);
+        var folderPath = _library.GetFolderPath(entry.FolderName);
+        var package = ExmodFolder.Read(folderPath).Package;
+        package.Rows.Insert(0, new ExmodFileRow
+        {
+            CurrentFile = "Items-D_ItemsStatic.json",
+            FileItems = [new ExmodFileItem { Name = "Cheese", Fields = new() { ["Weight"] = 50, ["Manual_Tags"] = Tags("Food.Cooked") } }],
+        });
+        ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
+        var report = Service.Check(entry.FolderName);
+
+        Assert.Equal(2, report.Count(ModIssueKind.SameAsGame));
+        Assert.False(report.HasProblems);
+        var vm = new ModFixViewModel(entry.FolderName, "Tidy Mod", report, Service);
+        Assert.StartsWith("Nothing here is wrong", vm.Summary);
+        Assert.Equal("the same (no change)", vm.Groups.Single().Issues[0].GameText);
+    }
+
     /// <summary>A converted prebuilt pak stays live: fixing it doesn't mark it edited, and after the next re-conversion the choices are made again.</summary>
     [Fact]
     public void AConvertedPak_KeepsRefreshing_AndYourChoicesAreMadeAgainAfterward()

@@ -29,7 +29,7 @@
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
                     <Button DockPanel.Dock="Right" Content="Show all" Command="{Binding ShowAllCommand}" Padding="8,1"
                             ToolTip="List every kind again"/>
-                    <TextBlock Text="WHAT'S WRONG" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center"/>
+                    <TextBlock Text="WHAT IT FOUND" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center"/>
                 </DockPanel>
                 <ListBox ItemsSource="{Binding Groups}" SelectedItem="{Binding SelectedGroup}" BorderThickness="0" Background="Transparent"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">

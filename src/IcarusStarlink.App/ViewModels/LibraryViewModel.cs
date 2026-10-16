@@ -3357,7 +3357,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
                 item.SetStaleItems(result.RemainingStaleItems, result.SuggestionHint);
                 item.SetHealth(result.Health);
-                if (result.Health is { HasIssues: true })
+                if (result.Health is { HasProblems: true })
                 {
                     flaggedCount++;
                 }
