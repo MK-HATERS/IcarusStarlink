@@ -10,7 +10,7 @@ namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
 /// Transient, per-open-instance ViewModel for PakCompareWindow — same shape as
-/// ConflictPickerViewModel (only ever opened from MergeInstallViewModel, so constructed directly
+/// MergeConflictsViewModel (only ever opened from MergeInstallViewModel, so constructed directly
 /// rather than through a DI factory). Built for the "verify classic IMM's merged pak and this
 /// app's own rebuilt pak are equivalent" migration workflow, but compares any two paks.
 /// </summary>

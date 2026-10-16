@@ -7,7 +7,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// <summary>
 /// "What did the author change?" — a read-only view of one mod's differences between two versions
 /// (its pre-update backup vs what's installed now). Transient, constructed directly by
-/// LibraryViewModel, same as ConflictPickerViewModel/PakCompareViewModel.
+/// LibraryViewModel, same as MergeConflictsViewModel/PakCompareViewModel.
 /// </summary>
 public sealed partial class ModVersionCompareViewModel : ObservableObject
 {

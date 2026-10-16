@@ -21,4 +21,11 @@ public sealed class Profile
     public List<string> MergeQueueFolderNames { get; set; } = [];
 
     public GameplayOptions Options { get; set; } = new();
+
+    /// <summary>
+    /// Conflict winners picked in Merge &amp; Install's conflict review: "file|row|field" → the
+    /// winning mod's name. By name, not queue position, so a pick survives reordering the queue
+    /// and adding or removing other mods; a pick whose conflict isn't there right now just waits.
+    /// </summary>
+    public Dictionary<string, string> ConflictWinners { get; set; } = [];
 }

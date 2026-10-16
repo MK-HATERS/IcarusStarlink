@@ -77,7 +77,8 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Player boosts**: Speed Boost, Player Boost, XP Boost (L1 +200%, L2 +500%, L3 +1000%).
             - **Crafting & economy**: Craft Cost (fewer ingredients; Free = creative mode), **Stacks multiplier** (higher = bigger stacks), **Slots multiplier** (higher = more backpack and container slots), **Speed Crafting** and **Faster Taming** (0% = unchanged, higher = faster, 50% = half the time).
             - **Other**: **Lighter Items** (0% = normal weight, higher = lighter, 50% = half, 100% = weightless), Unlimited Ammo, Disable Temperatures, Remove Level Cap.
-            - A red conflict banner means two mods (or a mod and an option) change the same field; **Review conflicts** shows them.
+            - A red conflict banner means two mods (or a mod and an option) change the same value. **Review conflicts** shows them, grouped by which mods collide ("Homestead Expanded ↔ laanp-BuildTools · 14"). Pick the line, and the bottom shows the game's value, each mod's and the result side by side, lists lined up entry by entry (green: the game doesn't have it, red: left out). Choose a winner per line in its dropdown or with **Make it win** on a mod's column, or a whole group with **… wins all**. **Default** is the mod lower in the queue, except lists that can take every mod's additions.
+            - **Save picks** keeps your winners with the profile, by mod name, so they still apply after you reorder the queue, add mods or restart; the next Merge & Install uses them.
             - **Advanced actions**: **Verify** (**Compare to installed**, **Compare paks…**) and **Uninstall** (**Copy to game** installs the built pak without rebuilding; **Remove from game** removes it; your Library is untouched).
             """),
 

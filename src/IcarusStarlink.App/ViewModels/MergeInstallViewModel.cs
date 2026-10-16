@@ -157,6 +157,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     // index now refers to, or whether the field is even still a conflict at all.
     private IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? _manualPicks;
 
+    /// <summary>Conflict winners by mod name (see Profile.ConflictWinners), loaded and saved with the profile.</summary>
+    private Dictionary<string, string> _winners = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>How many conflict winners the user has picked for this profile.</summary>
+    public int SavedWinnerCount => _winners.Count;
+
     /// <summary>Test-only seam — see AssemblyInfo.cs's own InternalsVisibleTo grant. Lets a test set up a stored manual pick and then assert whether a given invalidation trigger correctly cleared it, without a real conflict-picker dialog flow.</summary>
     internal IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? ManualPicksForTesting
     {
@@ -587,6 +593,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             var profile = _profileStore.Load(name);
             LoadGameplayOptionsIntoUi(profile.Options);
+            _winners = new Dictionary<string, string>(profile.ConflictWinners ?? [], StringComparer.OrdinalIgnoreCase);
+            OnPropertyChanged(nameof(SavedWinnerCount));
 
             Queue.Clear();
             var missingCount = 0;
@@ -656,6 +664,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 Name = name,
                 MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)],
                 Options = BuildGameplayOptionsFromUi(),
+                ConflictWinners = new(_winners),
             });
             ReloadProfileNames();
             SelectedProfileName = name;
@@ -685,6 +694,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 Name = name,
                 MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)],
                 Options = BuildGameplayOptionsFromUi(),
+                ConflictWinners = new(_winners),
             });
             ProfileStatusMessage = $"Saved '{name}'.";
             _activityLog.Log($"Saved profile '{name}'.", ActivityEntryKind.Success);
@@ -1564,7 +1574,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             try
             {
-                _profileStore.Save(new Profile { Name = "Default", MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = gameplayOptions });
+                _profileStore.Save(new Profile { Name = "Default", MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = gameplayOptions, ConflictWinners = new(_winners) });
                 ReloadProfileNames();
             }
             catch (Exception)
@@ -1605,8 +1615,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 RebuildProgressPercent = p.PercentComplete;
             });
 
+            var picks = await ResolveWinnerPicksAsync();
             var result = await _rebuildService.RebuildAsync(
-                packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath, prebuiltPakFilePaths, _manualPicks, progress);
+                packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath, prebuiltPakFilePaths, picks, progress);
 
             var prebuiltNote = prebuiltPakFilePaths.Count > 0 ? $", {prebuiltPakFilePaths.Count} prebuilt pak(s) folded in" : "";
             StatusMessage = $"Built '{result.OutputPakPath}' — {result.PackedFileCount} files packed, "
@@ -1651,7 +1662,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 ConflictStatusMessage = pickStatusBeforeImport;
             }
 
-            var pickNote = _manualPicks is { Count: > 0 } picks ? $", {picks.Count} conflict(s) manually resolved" : "";
+            var pickNote = picks is { Count: > 0 } ? $", {picks.Count} conflict(s) won by your pick" : "";
             _activityLog.Log($"Rebuilt pack with {Queue.Count} mod(s) — {result.PackedFileCount} files packed{pickNote}.", ActivityEntryKind.Success);
             return true;
         }
@@ -1948,11 +1959,63 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
     }
 
+    /// <summary>Keeps the winners with the selected profile at once (only the winners: its queue and options stay as saved).</summary>
+    private void SaveWinnersToProfile()
+    {
+        if (SelectedProfileName is not { } name)
+        {
+            return;
+        }
+
+        try
+        {
+            var profile = _profileStore.Load(name);
+            profile.ConflictWinners = new(_winners);
+            _profileStore.Save(profile);
+        }
+        catch (Exception ex)
+        {
+            ConflictStatusMessage = $"Couldn't save the picks with '{name}': {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// The winners by mod name, turned into the merge's per-field picks for the queue as it is now
+    /// (a pick's position among the mods changing that value). Prebuilt paks are only unpacked for
+    /// this when a winner is one of them or the built-in options, whose positions come after the
+    /// EXMOD mods'. A test's ManualPicksForTesting is used when nothing was picked by name.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>?> ResolveWinnerPicksAsync()
+    {
+        if (_winners.Count == 0)
+        {
+            return _manualPicks;
+        }
+
+        var exmodNames = Queue.Where(e => !e.IsOpaquePak).Select(e => e.Name).ToHashSet(StringComparer.Ordinal);
+        var needsPaks = _winners.Values.Any(w => !exmodNames.Contains(w));
+        var (conflicts, _, _) = await FindQueueConflictsAsync(includePrebuiltPaks: needsPaks);
+        var picks = new Dictionary<(string CurrentFile, string ItemName, string FieldName), int>(FieldChangeKeyComparer.Instance);
+        foreach (var conflict in conflicts)
+        {
+            if (_winners.TryGetValue(MergeConflictsViewModel.WinnerKey(conflict.CurrentFile, conflict.ItemName, conflict.FieldName), out var winner))
+            {
+                var index = conflict.Candidates.ToList().FindIndex(c => string.Equals(c.ModName, winner, StringComparison.Ordinal));
+                if (index >= 0)
+                {
+                    picks[(conflict.CurrentFile, conflict.ItemName, conflict.FieldName)] = index;
+                }
+            }
+        }
+
+        return picks.Count > 0 ? picks : null;
+    }
+
     /// <summary>
     /// The advanced conflict picker's own entry point — computes which fields two or more queued
     /// mods change differently and, if any, opens a window to let the user pick a winner per field
     /// (or leave it on Default — usually last-mod-wins, but a combine rule instead unions every
-    /// candidate's own value for some field shapes; see ConflictRowViewModel's own doc comment).
+    /// candidate's own value for some field shapes; see MergeConflictViewModel).
     /// Picks are stored in _manualPicks and used by the next Rebuild; they're invalidated the
     /// moment the queue changes at all (or a queued mod's own content or the base data changes —
     /// see the LibraryChangedMessage/WeeklyChangeReportUpdatedMessage handlers above), so this
@@ -1983,17 +2046,18 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             var collisionNote = newItemCollisions.Count > 0 ? $", {newItemCollisions.Count} new-item name collision(s)" : "";
             _activityLog.Log($"{conflicts.Count} conflict(s){collisionNote} found among {modNames.Count} queued mod(s).", ActivityEntryKind.Warning);
 
-            var pickerViewModel = new ConflictPickerViewModel(conflicts, _manualPicks, newItemCollisions);
-            var window = new ConflictPickerWindow(pickerViewModel) { Owner = Application.Current.MainWindow };
+            var conflictsViewModel = new MergeConflictsViewModel(conflicts, newItemCollisions, _winners);
+            var window = new MergeConflictsWindow(conflictsViewModel) { Owner = Application.Current.MainWindow };
             if (window.ShowDialog() == true)
             {
-                var picks = window.ResultPicks!;
-                _manualPicks = picks.Count > 0 ? picks : null;
-                ConflictStatusMessage = picks.Count > 0
-                    ? $"{conflicts.Count} conflict(s){collisionNote} found, {picks.Count} manually picked — Rebuild to apply."
-                    // "Default" per-field, not necessarily "last mod wins" — see ConflictRowViewModel's
-                    // own doc comment: a combine rule can instead union every candidate's own value.
-                    : $"{conflicts.Count} conflict(s){collisionNote} found, all left on default.";
+                _winners = new Dictionary<string, string>(window.ResultWinners!, StringComparer.OrdinalIgnoreCase);
+                OnPropertyChanged(nameof(SavedWinnerCount));
+                SaveWinnersToProfile();
+                var pickedNow = conflictsViewModel.PickedCount;
+                ConflictStatusMessage = pickedNow > 0
+                    ? $"{conflicts.Count} conflict(s){collisionNote}, {pickedNow} won by your pick (saved with the profile). Merge & Install to apply."
+                    // "Default" per line: the mod lower in the queue wins, or a list takes everyone's additions.
+                    : $"{conflicts.Count} conflict(s){collisionNote}, all left on default.";
             }
         }
         catch (Exception ex)
