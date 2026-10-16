@@ -54,13 +54,27 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     public string TypeLabel => "UE4SS";
 
     /// <summary>"Needs Apply" while the checkbox differs from what's on disk, "In game" when enabled and applied, else "Not enabled".</summary>
-    public string InstallStatus => IsDirty ? "Needs Apply" : RealIsEnabled ? "In game" : "Not enabled";
+    public string InstallStatus => LoaderMissing && IsEnabled ? "Needs UE4SS" : IsDirty ? "Needs Apply" : RealIsEnabled ? "In game" : "Not enabled";
 
-    public string InstallStatusDetail => IsDirty ? (IsEnabled ? "ticked — click Apply to put it in the game" : "unticked — click Apply to take it out") : "";
+    public string InstallStatusDetail => LoaderMissing && IsEnabled
+        ? "UE4SS itself isn't installed in the game, so this mod can't run. Install it from the bar below the list or in Settings."
+        : IsDirty ? (IsEnabled ? "ticked — click Apply to put it in the game" : "unticked — click Apply to take it out") : "";
+
+    /// <summary>Set by LibraryViewModel: the game has no UE4SS loader (dwmapi.dll + ue4ss\UE4SS.dll), so a ticked Lua mod can't run.</summary>
+    [ObservableProperty]
+    private bool _loaderMissing;
+
+    partial void OnLoaderMissingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(InstallStatus));
+        OnPropertyChanged(nameof(InstallStatusDetail));
+        OnPropertyChanged(nameof(IsInGame));
+        OnPropertyChanged(nameof(NeedsAction));
+    }
 
     public bool IsInGame => InstallStatus == "In game";
 
-    public bool NeedsAction => IsDirty;
+    public bool NeedsAction => IsDirty || (LoaderMissing && IsEnabled);
 
     /// <summary>
     /// Set by LibraryViewModel when this Lua mod is the "Lua half" of a Mods-tab row (same Nexus

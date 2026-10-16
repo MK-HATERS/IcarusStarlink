@@ -264,23 +264,89 @@ public sealed class SettingsViewModelTests
     //    migration in the first place.
     // =====================================================================================
 
+    /// <summary>Offline (or GitHub has nothing newer): Install uses the UE4SS built into Starlink, the real release zip, hash-checked, with UE4SS's licence added.</summary>
     [Fact]
-    public async Task InstallOrUpdateUe4ssCommand_NoLatestReleaseAvailable_ShowsGuidance_NeverConfirms()
+    public async Task InstallOrUpdateUe4ssCommand_NoGitHub_InstallsTheBundledCopy()
     {
-        using var harness = new Harness();
+        using var harness = new Harness(dialogConfirmResult: true);
+        harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, BundledUe4ss.Version);
+        var vm = harness.BuildViewModel();
+        Assert.True(vm.CanInstallOrUpdateUe4ss);
+        Assert.Equal($"Install v{BundledUe4ss.Version}", vm.Ue4ssInstallButtonLabel);
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+        Assert.Contains("UE4SS_bundled_", harness.Ue4ssLoaderInstallService.LastDownloadedZipPath);
+        Assert.Contains("UE4SS.dll", harness.Ue4ssLoaderInstallService.LastZipEntries);
+        Assert.Contains("dwmapi.dll", harness.Ue4ssLoaderInstallService.LastZipEntries);
+        Assert.Contains("LICENSE", harness.Ue4ssLoaderInstallService.LastZipEntries);
+        Assert.False(File.Exists(harness.Ue4ssLoaderInstallService.LastDownloadedZipPath));
+        Assert.Equal($"Installed to v{BundledUe4ss.Version}.", vm.Ue4ssStatusMessage);
+        Assert.Equal("Reinstall v" + BundledUe4ss.Version, vm.Ue4ssInstallButtonLabel);
+    }
+
+    /// <summary>GitHub's latest is the same version as the bundled one: no download.</summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_GitHubSameAsBundled_UsesTheBundledCopy()
+    {
+        using var harness = new Harness(dialogConfirmResult: true, httpHandler: SucceedingHandler([1, 2, 3]));
+        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo(BundledUe4ss.Version, "https://example.invalid/UE4SS.zip");
         var vm = harness.BuildViewModel();
 
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
 
-        Assert.Contains("Couldn't reach GitHub", vm.Ue4ssStatusMessage);
-        Assert.Equal(0, harness.DialogService.ConfirmCallCount);
+        Assert.Contains("UE4SS_bundled_", harness.Ue4ssLoaderInstallService.LastDownloadedZipPath);
     }
+
+    [Fact]
+    public async Task InstallUe4ssFromZip_InstallsThePickedZip_AndCancelDoesNothing()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, "3.0.1");
+        var vm = harness.BuildViewModel();
+        vm.PickUe4ssZip = () => null;
+
+        await vm.InstallUe4ssFromZipCommand.ExecuteAsync(null);
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+
+        vm.PickUe4ssZip = () => @"C:\Downloads\UE4SS_v3.0.1.zip";
+        await vm.InstallUe4ssFromZipCommand.ExecuteAsync(null);
+
+        Assert.Equal(@"C:\Downloads\UE4SS_v3.0.1.zip", harness.Ue4ssLoaderInstallService.LastDownloadedZipPath);
+        Assert.Equal("Installed UE4SS v3.0.1 from UE4SS_v3.0.1.zip.", vm.Ue4ssStatusMessage);
+        Assert.Equal(1, harness.DialogService.ConfirmCallCount);
+    }
+
+    [Fact]
+    public async Task InstallUe4ssFromZip_ABadZip_ReportsTheInstallersReason()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        harness.Ue4ssLoaderInstallService.InstallOrUpdateException = new InvalidOperationException("This UE4SS archive doesn't have the expected layout");
+        var vm = harness.BuildViewModel();
+        vm.PickUe4ssZip = () => @"C:\Downloads\something.zip";
+
+        await vm.InstallUe4ssFromZipCommand.ExecuteAsync(null);
+
+        Assert.Contains("expected layout", vm.Ue4ssStatusMessage);
+        Assert.False(vm.IsInstallingUe4ss);
+    }
+
+    [Theory]
+    [InlineData("3.1.0", "3.0.1", true)]
+    [InlineData("v3.0.2", "3.0.1", true)]
+    [InlineData("3.0.1", "3.0.1", false)]
+    [InlineData("3.0.0", "3.0.1", false)]
+    [InlineData("3.0.1", null, true)]
+    [InlineData("nonsense", "3.0.1", false)]
+    public void BundledUe4ss_IsNewer_ComparesVersions(string candidate, string? current, bool expected) =>
+        Assert.Equal(expected, BundledUe4ss.IsNewer(candidate, current));
 
     [Fact]
     public async Task InstallOrUpdateUe4ssCommand_Declined_DoesNotDownloadOrInstall()
     {
         using var harness = new Harness(dialogConfirmResult: false);
-        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip");
+        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.1.0", "https://example.invalid/UE4SS.zip");
         var vm = harness.BuildViewModel();
 
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
@@ -295,8 +361,8 @@ public sealed class SettingsViewModelTests
     {
         var payloadBytes = new byte[] { 1, 2, 3, 4 };
         using var harness = new Harness(dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes));
-        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip");
-        harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, "3.0.1");
+        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.1.0", "https://example.invalid/UE4SS.zip");
+        harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, "3.1.0");
         var vm = harness.BuildViewModel();
 
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
@@ -306,8 +372,9 @@ public sealed class SettingsViewModelTests
         Assert.Contains("UE4SS_", harness.Ue4ssLoaderInstallService.LastDownloadedZipPath);
         Assert.False(File.Exists(harness.Ue4ssLoaderInstallService.LastDownloadedZipPath));
         Assert.True(vm.IsUe4ssInstalled);
-        Assert.Equal("3.0.1", vm.Ue4ssInstalledVersion);
-        Assert.Equal("Installed to v3.0.1.", vm.Ue4ssStatusMessage);
+        Assert.Equal("3.1.0", vm.Ue4ssInstalledVersion);
+        Assert.Equal("Installed to v3.1.0.", vm.Ue4ssStatusMessage);
+        Assert.Empty(harness.Ue4ssLoaderInstallService.LastZipEntries); // the fake download isn't a real zip
         Assert.False(vm.IsInstallingUe4ss);
     }
 
@@ -315,7 +382,7 @@ public sealed class SettingsViewModelTests
     public async Task InstallOrUpdateUe4ssCommand_DownloadFails_ShowsInstallFailedMessage()
     {
         using var harness = new Harness(dialogConfirmResult: true);
-        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip");
+        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.1.0", "https://example.invalid/UE4SS.zip");
         var vm = harness.BuildViewModel();
 
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
@@ -335,7 +402,7 @@ public sealed class SettingsViewModelTests
         var payloadBytes = "zip-bytes"u8.ToArray();
         using var harness = new Harness(dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes));
         var wrongDigest = "sha256:" + new string('0', 64);
-        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", wrongDigest);
+        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.1.0", "https://example.invalid/UE4SS.zip", wrongDigest);
         var vm = harness.BuildViewModel();
 
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
@@ -351,7 +418,7 @@ public sealed class SettingsViewModelTests
     {
         var payloadBytes = new byte[] { 9, 9 };
         using var harness = new Harness(dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes));
-        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip");
+        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.1.0", "https://example.invalid/UE4SS.zip");
         harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "2.9.0");
         harness.Ue4ssLoaderInstallService.InstallOrUpdateException = new IOException("locked file");
         var vm = harness.BuildViewModel();
@@ -434,7 +501,7 @@ public sealed class SettingsViewModelTests
     public async Task InstallOrUpdateUe4ssCommand_GameRunning_RefusesAndNeverDownloads()
     {
         using var harness = new Harness(dialogConfirmResult: true, gameProcessChecker: new FakeGameProcessChecker(true));
-        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip");
+        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.1.0", "https://example.invalid/UE4SS.zip");
         var vm = harness.BuildViewModel();
 
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
@@ -451,7 +518,7 @@ public sealed class SettingsViewModelTests
         var payloadBytes = new byte[] { 1, 2, 3 };
         using var harness = new Harness(
             dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes), gameProcessChecker: new FakeGameProcessChecker(false, true));
-        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip");
+        harness.Ue4ssReleaseClient.ReleaseToReturn = new Ue4ssReleaseInfo("3.1.0", "https://example.invalid/UE4SS.zip");
         var vm = harness.BuildViewModel();
 
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
@@ -897,6 +964,7 @@ public sealed class SettingsViewModelTests
         public int InstallOrUpdateCallCount { get; private set; }
         public string? LastIcarusContentPath { get; private set; }
         public string? LastDownloadedZipPath { get; private set; }
+        public List<string> LastZipEntries { get; private set; } = [];
         public string? LastBackupDirectory { get; private set; }
         public Exception? InstallOrUpdateException { get; set; }
 
@@ -915,6 +983,16 @@ public sealed class SettingsViewModelTests
             InstallOrUpdateCallCount++;
             LastIcarusContentPath = icarusContentPath;
             LastDownloadedZipPath = downloadedZipPath;
+            try
+            {
+                using var zip = System.IO.Compression.ZipFile.OpenRead(downloadedZipPath);
+                LastZipEntries = [.. zip.Entries.Select(e => e.FullName)];
+            }
+            catch (Exception)
+            {
+                LastZipEntries = []; // not a real zip (the fake download) or a made-up path
+            }
+
             LastBackupDirectory = backupDirectory;
             if (InstallOrUpdateException is not null)
             {

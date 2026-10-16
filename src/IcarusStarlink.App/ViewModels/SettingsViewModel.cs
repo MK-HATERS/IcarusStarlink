@@ -152,16 +152,23 @@ public sealed partial class SettingsViewModel : ObservableObject
         (true, { } latest) => $"v{Ue4ssInstalledVersion} installed — v{latest.Version} available.",
     };
 
+    /// <summary>Install uses the UE4SS built into Starlink (no download) unless GitHub has a newer stable release.</summary>
     public string Ue4ssInstallButtonLabel => (IsUe4ssInstalled, Ue4ssLatestRelease) switch
     {
-        (false, null) => "Install",
-        (false, { } latest) => $"Install v{latest.Version}",
-        (true, null) => "Update",
-        (true, { } latest) when latest.Version == Ue4ssInstalledVersion => "Reinstall",
-        (true, { } latest) => $"Update to v{latest.Version}",
+        (false, _) => $"Install v{Ue4ssInstallVersion}",
+        _ when Ue4ssInstalledVersion is null => "Reinstall", // installed, version not known yet (no UE4SS.log)
+        (true, { } latest) when BundledUe4ss.IsNewer(latest.Version, Ue4ssInstalledVersion) => $"Update to v{latest.Version}",
+        _ when BundledUe4ss.IsNewer(BundledUe4ss.Version, Ue4ssInstalledVersion) => $"Update to v{BundledUe4ss.Version}",
+        _ => $"Reinstall v{Ue4ssInstallVersion}",
     };
 
-    public bool CanInstallOrUpdateUe4ss => Ue4ssLatestRelease is not null && !IsInstallingUe4ss && !IsUninstallingUe4ss;
+    /// <summary>What Install would put in: GitHub's latest stable when it is newer than the bundled copy, otherwise the bundled one.</summary>
+    private string Ue4ssInstallVersion => UseGitHubUe4ss ? Ue4ssLatestRelease!.Version : BundledUe4ss.Version;
+
+    private bool UseGitHubUe4ss => Ue4ssLatestRelease is { } latest && BundledUe4ss.IsNewerThanBundled(latest.Version);
+
+    /// <summary>Never waits on GitHub: the bundled copy is always there.</summary>
+    public bool CanInstallOrUpdateUe4ss => !IsInstallingUe4ss && !IsUninstallingUe4ss;
 
     public bool CanUninstallUe4ss => !IsInstallingUe4ss && !IsUninstallingUe4ss;
 
@@ -243,6 +250,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ = CheckForGameUpdateAsync();
         _ = InitializeNexusStatusAsync();
         _ = CheckUe4ssLatestReleaseAsync();
+
+        // The Library's "UE4SS isn't installed" bar: install here, where the confirmation,
+        // the game-running check and the backup already live.
+        WeakReferenceMessenger.Default.Register<InstallUe4ssRequestedMessage>(this, (recipient, message) =>
+        {
+            var install = ((SettingsViewModel)recipient).InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+        });
         FirstLaunchSetupTask = RunFirstLaunchSetupAsync();
         // After setup, not alongside it (an audit finding): both show modal dialogs, and an
         // "Update available" accepted mid-setup shut the app down over a running data extraction.
@@ -1170,16 +1184,17 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        if (Ue4ssLatestRelease is not { } release)
-        {
-            Ue4ssStatusMessage = "Couldn't reach GitHub to find the latest release — try again.";
-            return;
-        }
-
+        var fromGitHub = UseGitHubUe4ss;
+        var version = Ue4ssInstallVersion;
         var wasInstalled = IsUe4ssInstalled;
         var verb = wasInstalled ? "Update" : "Install";
+        var downgrade = wasInstalled && BundledUe4ss.IsNewer(Ue4ssInstalledVersion, version) && Ue4ssInstalledVersion is not null
+            ? $"Your installed v{Ue4ssInstalledVersion} is newer: this replaces it with v{version}. To keep it, cancel.\n\n"
+            : "";
         var result = _dialogService.Confirm(
-            $"This downloads UE4SS v{release.Version} from GitHub and installs it into your game's Binaries\\Win64 folder " +
+            downgrade + (fromGitHub
+                ? $"This downloads UE4SS v{version} from GitHub and installs it into your game's Binaries\\Win64 folder "
+                : $"This installs UE4SS v{version}, which comes with Starlink (no download), into your game's Binaries\\Win64 folder ") +
             "— the loader that lets Lua/scripting mods run.\n\n" +
             "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Any mods already in your Mods folder, " +
             "and your own UE4SS-settings.ini if you've customized it, are left untouched.\n\n" +
@@ -1198,18 +1213,27 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         IsInstallingUe4ss = true;
-        Ue4ssStatusMessage = "Downloading…";
+        Ue4ssStatusMessage = fromGitHub ? "Downloading…" : "Preparing…";
         var tempZipPath = Path.Combine(Path.GetTempPath(), $"UE4SS_{Guid.NewGuid():N}.zip");
         try
         {
-            var bytes = await _httpClient.GetByteArrayAsync(release.DownloadUrl);
-            await File.WriteAllBytesAsync(tempZipPath, bytes);
+            if (fromGitHub)
+            {
+                var release = Ue4ssLatestRelease!;
+                var bytes = await _httpClient.GetByteArrayAsync(release.DownloadUrl);
+                await File.WriteAllBytesAsync(tempZipPath, bytes);
 
-            // A real bug found live: unlike this app's own self-update (AppUpdateClient), this
-            // download had no integrity check at all — it writes a third-party DLL loader straight
-            // into the game's own Binaries\Win64 folder. Same GitHubAssetIntegrity check, same
-            // "null digest skips rather than fails" tolerance — see its own doc comment.
-            await GitHubAssetIntegrity.VerifySha256Async(release.Digest, tempZipPath);
+                // A real bug found live: unlike this app's own self-update (AppUpdateClient), this
+                // download had no integrity check at all — it writes a third-party DLL loader straight
+                // into the game's own Binaries\Win64 folder. Same GitHubAssetIntegrity check, same
+                // "null digest skips rather than fails" tolerance — see its own doc comment.
+                await GitHubAssetIntegrity.VerifySha256Async(release.Digest, tempZipPath);
+            }
+            else
+            {
+                // The bundled copy checks its own hash on the way out.
+                tempZipPath = await BundledUe4ss.ExtractToTempAsync();
+            }
 
             // A SECOND, LATE check, immediately before the real write below — the first
             // IsGameRunning() check above (before the confirm dialog and the download itself) can go
@@ -1226,7 +1250,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             await _ue4ssLoaderInstallService.InstallOrUpdateAsync(IcarusContentPath, tempZipPath, _backupDirectory);
 
             RefreshUe4ssStatus();
-            Ue4ssStatusMessage = $"{(wasInstalled ? "Updated" : "Installed")} to v{release.Version}.";
+            Ue4ssStatusMessage = $"{(wasInstalled ? "Updated" : "Installed")} to v{version}.";
+            WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage($"UE4SS v{version} is installed in the game."));
         }
         catch (Exception ex)
         {
@@ -1244,6 +1269,67 @@ public sealed partial class SettingsViewModel : ObservableObject
                 // Best-effort cleanup of a temp file — leaving a stray one behind isn't worth
                 // surfacing over whatever the install itself already reported.
             }
+        }
+    }
+
+    /// <summary>Picks a UE4SS release zip the user downloaded themselves (tests swap in a fake).</summary>
+    internal Func<string?> PickUe4ssZip { get; set; } = () =>
+    {
+        var dialog = new OpenFileDialog { Title = "Pick a UE4SS release zip (for example UE4SS_v3.0.1.zip)", Filter = "UE4SS release (*.zip)|*.zip" };
+        return dialog.ShowDialog() == true ? dialog.FileName : null;
+    };
+
+    /// <summary>
+    /// Installs UE4SS from a zip the user downloaded (a version GitHub no longer lists as latest,
+    /// or a PC offline). Same safety as Install: confirmation, game-running checks, backup first,
+    /// mods and a customised UE4SS-settings.ini kept. The installer refuses a zip without
+    /// UE4SS.dll and dwmapi.dll at its root before writing anything.
+    /// </summary>
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task InstallUe4ssFromZipAsync()
+    {
+        if (string.IsNullOrWhiteSpace(IcarusContentPath))
+        {
+            Ue4ssStatusMessage = "Set the Icarus Content folder first.";
+            return;
+        }
+
+        if (IsInstallingUe4ss || IsUninstallingUe4ss || PickUe4ssZip() is not { } zipPath)
+        {
+            return;
+        }
+
+        if (!_dialogService.Confirm(
+                $"Install UE4SS from\n{zipPath}\ninto your game's Binaries\\Win64 folder?\n\n" +
+                "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Mods already in your Mods folder, " +
+                "and your own UE4SS-settings.ini, are left untouched.",
+                "Install UE4SS from a zip", ThemedConfirmSeverity.Question))
+        {
+            return;
+        }
+
+        if (IsGameRunning())
+        {
+            Ue4ssStatusMessage = "Icarus is running — close it before installing UE4SS, or the game may lock the files being replaced.";
+            return;
+        }
+
+        IsInstallingUe4ss = true;
+        Ue4ssStatusMessage = "Installing…";
+        try
+        {
+            await _ue4ssLoaderInstallService.InstallOrUpdateAsync(IcarusContentPath, zipPath, _backupDirectory);
+            RefreshUe4ssStatus();
+            Ue4ssStatusMessage = $"Installed UE4SS{(Ue4ssInstalledVersion is { } v ? $" v{v}" : "")} from {Path.GetFileName(zipPath)}.";
+            WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage(Ue4ssStatusMessage));
+        }
+        catch (Exception ex)
+        {
+            Ue4ssStatusMessage = $"Install failed: {ex.Message}";
+        }
+        finally
+        {
+            IsInstallingUe4ss = false;
         }
     }
 
@@ -1314,6 +1400,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             Ue4ssStatusMessage = uninstallResult.PreservedUserMods.Count > 0
                 ? $"UE4SS removed. Your {uninstallResult.PreservedUserMods.Count} mod(s) were kept in this app's staging; the rest is backed up."
                 : "UE4SS removed. A backup was kept.";
+            WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage(Ue4ssStatusMessage));
         }
         catch (Exception ex)
         {

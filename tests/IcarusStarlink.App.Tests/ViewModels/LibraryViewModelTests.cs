@@ -437,6 +437,33 @@ public sealed class LibraryViewModelTests
         Assert.Equal("Pak", item.TypeLabel);
     }
 
+    /// <summary>A ticked UE4SS mod with no UE4SS in the game: the bar under the list says so and offers the install, and the row's status says why.</summary>
+    [Fact]
+    public void Ue4ssLoaderMissing_WarnsOnlyWhileAUe4ssModIsTicked()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.Ue4ssLoaderInstallService.Installed = false;
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("NearbyCrafting", IsEnabled: false));
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        var row = vm.RootItems.OfType<Ue4ssModRowViewModel>().Single();
+
+        Assert.False(vm.ShowUe4ssLoaderMissing); // nothing ticked: nothing to warn about
+        row.IsEnabled = true;
+
+        Assert.True(vm.ShowUe4ssLoaderMissing);
+        Assert.Equal("Needs UE4SS", row.InstallStatus);
+        Assert.True(row.NeedsAction);
+
+        harness.Ue4ssLoaderInstallService.Installed = true;
+        WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage("UE4SS v3.0.1 is installed in the game."));
+
+        Assert.False(vm.ShowUe4ssLoaderMissing);
+        Assert.Equal("UE4SS v3.0.1 is installed in the game.", vm.Ue4ssStatusMessage);
+        Assert.Equal("Needs Apply", vm.RootItems.OfType<Ue4ssModRowViewModel>().Single().InstallStatus);
+    }
+
     private static (LibraryViewModel Vm, TestHarness Harness) BuildMixedList()
     {
         var harness = new TestHarness();
@@ -1655,7 +1682,9 @@ public sealed class LibraryViewModelTests
     {
         public HashSet<string> BuiltIns { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-        public Ue4ssLoaderStatus GetStatus(string icarusContentPath) => new(IsInstalled: true, InstalledVersion: "3.0.1");
+        public bool Installed { get; set; } = true;
+
+        public Ue4ssLoaderStatus GetStatus(string icarusContentPath) => Installed ? new(IsInstalled: true, InstalledVersion: "3.0.1") : new(false, null);
         public Task InstallOrUpdateAsync(string icarusContentPath, string downloadedZipPath, string backupDirectory, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
         public IReadOnlyList<string> ListUserAddedMods(string icarusContentPath) => throw new NotSupportedException("Not exercised by these tests.");

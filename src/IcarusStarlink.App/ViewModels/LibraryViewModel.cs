@@ -326,6 +326,14 @@ public sealed partial class LibraryViewModel : ObservableObject
         // this, a mod imported from Downloads (a different page, sharing the same
         // ILibraryRepository) wouldn't show up here until the user happened to trigger some
         // unrelated reload (a search edit, or this page's own Refresh button).
+        // Settings installed or removed UE4SS: re-read the loader and the rows, and say so here too.
+        WeakReferenceMessenger.Default.Register<Ue4ssLoaderChangedMessage>(this, (recipient, message) =>
+        {
+            var self = (LibraryViewModel)recipient;
+            self.ReloadInstalledUe4ssMods();
+            self.Ue4ssStatusMessage = message.StatusMessage;
+        });
+
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) =>
         {
             var self = (LibraryViewModel)recipient;
@@ -614,6 +622,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         {
             Ue4ssMods.Clear();
             HasPendingUe4ssChanges = false;
+            IsUe4ssLoaderInstalled = true; // nothing to check against yet, so nothing to warn about
             Ue4ssStatusMessage = "Set the Icarus Content folder in Settings first.";
             return;
         }
@@ -626,7 +635,9 @@ public sealed partial class LibraryViewModel : ObservableObject
             // Read once per reload, not once per mod below — it's the same installed loader
             // regardless of which mod row is asking, same as SettingsViewModel.RefreshUe4ssStatus's
             // own single call.
-            var installedLoaderVersion = _ue4ssLoaderInstallService.GetStatus(_settingsService.Current.IcarusContentPath!).InstalledVersion;
+            var loaderStatus = _ue4ssLoaderInstallService.GetStatus(_settingsService.Current.IcarusContentPath!);
+            var installedLoaderVersion = loaderStatus.InstalledVersion;
+            IsUe4ssLoaderInstalled = loaderStatus.IsInstalled;
 
             // This reload also runs on every LibraryChangedMessage (an unrelated import/delete/link
             // elsewhere in the app, not just this page's own Refresh/Apply) — rebuilding every row
@@ -671,6 +682,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                     _bulkSelectionAnchor = row;
                 }
 
+                row.LoaderMissing = !IsUe4ssLoaderInstalled;
                 Ue4ssMods.Add(row);
             }
             RecomputeHasPendingUe4ssChanges();
@@ -894,7 +906,25 @@ public sealed partial class LibraryViewModel : ObservableObject
         PendingChangesSummary = parts.Count == 0
             ? ""
             : $"{pendingLua + pendingPak} change(s) not in the game yet: {string.Join(" and ", parts)}";
+
+        // A ticked Lua mod (on its own, or the Lua half of a pak mod) with no UE4SS in the game can't run.
+        ShowUe4ssLoaderMissing = !IsUe4ssLoaderInstalled
+            && (Ue4ssMods.Any(m => m.IsEnabled) || _itemsByFolderName.Values.Any(i => i.IsEnabled && i.LinkedUe4ssNames.Count > 0));
     }
+
+    /// <summary>Whether the game has the UE4SS loader. True until the first read, and when no game folder is set, so nothing warns before there's anything to check.</summary>
+    [ObservableProperty]
+    private bool _isUe4ssLoaderInstalled = true;
+
+    /// <summary>The "UE4SS isn't installed" bar under the list.</summary>
+    [ObservableProperty]
+    private bool _showUe4ssLoaderMissing;
+
+    public string BundledUe4ssVersion => BundledUe4ss.Version;
+
+    /// <summary>The bar's Install button: Settings owns installing the loader (confirmation, game-running check, backup), so it is asked to do it.</summary>
+    [RelayCommand]
+    private void InstallUe4ssLoader() => WeakReferenceMessenger.Default.Send(new InstallUe4ssRequestedMessage());
 
     /// <summary>The pending bar's "Merge &amp; Install" button — hands over to that page rather than building here, since conflicts are reviewed there.</summary>
     [RelayCommand]

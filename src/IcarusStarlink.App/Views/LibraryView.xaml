@@ -83,25 +83,27 @@
                                   CommandParameter="{Binding}"
                                   ToolTip="Opens this mod's folder — in the game's Mods folder when enabled, in this app's staging when disabled"/>
                         <Separator/>
+                        <!-- Built-in UE4SS mods have no Nexus page and come back with UE4SS, so these
+                             are greyed out for them (not hidden, which left the menu as two stray
+                             separators). -->
                         <MenuItem Header="Open on Nexus" Command="{Binding OpenOnNexusCommand}" IsEnabled="{Binding HasNexusLink}"
-                                  Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
-                                  ToolTip="Open this mod's Nexus page in your browser"/>
+                                  ToolTip="Open this mod's Nexus page in your browser" ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="{Binding NexusLinkActionLabel}"
                                   Command="{Binding PlacementTarget.Tag.LinkUe4ssModToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                  CommandParameter="{Binding}"
-                                  Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
-                                  ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates"/>
+                                  CommandParameter="{Binding}" IsEnabled="{Binding IsUserAdded}"
+                                  ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates. Not for UE4SS's own built-in mods."
+                                  ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="Set minimum UE4SS version…"
                                   Command="{Binding PlacementTarget.Tag.SetMinUe4ssVersionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                  CommandParameter="{Binding}"
-                                  Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
-                                  ToolTip="Declare the minimum UE4SS loader version this mod needs, so this app can warn you if your installed loader is older"/>
+                                  CommandParameter="{Binding}" IsEnabled="{Binding IsUserAdded}"
+                                  ToolTip="Declare the minimum UE4SS loader version this mod needs, so this app can warn you if your installed loader is older"
+                                  ToolTipService.ShowOnDisabled="True"/>
                         <Separator/>
                         <MenuItem Header="Delete"
                                   Command="{Binding PlacementTarget.Tag.DeleteUe4ssModCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                  CommandParameter="{Binding}"
-                                  Visibility="{Binding IsUserAdded, Converter={StaticResource BoolToVisibilityConverter}}"
-                                  ToolTip="Removes this mod from the game's Mods folder (backed up first) and from staging — asks first"/>
+                                  CommandParameter="{Binding}" IsEnabled="{Binding IsUserAdded}"
+                                  ToolTip="Removes this mod from the game's Mods folder (backed up first) and from staging — asks first. UE4SS's own built-in mods can only be turned off."
+                                  ToolTipService.ShowOnDisabled="True"/>
                     </ContextMenu>
                 </Grid.ContextMenu>
 
@@ -877,7 +879,26 @@
                          sentence, with the two actions that make it so. Apply moves UE4SS folders;
                          Merge & Install is where paks go in (its own page, since conflicts are
                          reviewed there). Hidden when nothing is pending. -->
-                    <Border Grid.Row="6" Margin="0,8,0,0" Padding="12,8" CornerRadius="6"
+                    <StackPanel Grid.Row="6">
+                    <!-- A ticked UE4SS mod with no UE4SS in the game: it can't run. One click installs
+                         the UE4SS that ships with Starlink (Settings does the work and asks first). -->
+                    <Border Margin="0,8,0,0" Padding="12,8" CornerRadius="6"
+                            Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1"
+                            Visibility="{Binding ShowUe4ssLoaderMissing, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Command="{Binding InstallUe4ssLoaderCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"
+                                    ToolTip="Installs the UE4SS that comes with Starlink into the game. Asks first and backs up anything it replaces.">
+                                <TextBlock>
+                                    <Run Text="Install UE4SS v"/><Run Text="{Binding BundledUe4ssVersion, Mode=OneWay}"/>
+                                </TextBlock>
+                            </Button>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="UE4SS MISSING" Style="{StaticResource FieldLabelStyle}" Foreground="{DynamicResource DangerBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBlock Text="UE4SS mods are ticked, but UE4SS itself isn't installed in the game, so they won't run." VerticalAlignment="Center" FontSize="13" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                    <Border Margin="0,8,0,0" Padding="12,8" CornerRadius="6"
                             Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
                             Visibility="{Binding HasPendingChanges, Converter={StaticResource BoolToVisibilityConverter}}">
                         <DockPanel>
@@ -895,6 +916,7 @@
                             </StackPanel>
                         </DockPanel>
                     </Border>
+                    </StackPanel>
 
                 </Grid>
             </TabItem>

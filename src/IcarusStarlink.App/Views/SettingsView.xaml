@@ -247,7 +247,7 @@
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <Button Command="{Binding InstallOrUpdateUe4ssCommand}"
                                     IsEnabled="{Binding CanInstallOrUpdateUe4ss}"
-                                    ToolTip="Downloads the latest stable UE4SS release from GitHub and installs it into Binaries\Win64 — backs up what's there first, asks for confirmation before writing anything"
+                                    ToolTip="Installs the UE4SS that comes with Starlink (or GitHub's latest stable when that is newer) into Binaries\Win64. Backs up what's there first and asks before writing anything."
                                     AutomationProperties.Name="{Binding Ue4ssInstallButtonLabel}">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
@@ -266,6 +266,9 @@
                                     <TextBlock Text="Uninstall UE4SS" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
+                            <Button Content="Install from zip…" Command="{Binding InstallUe4ssFromZipCommand}" Margin="8,0,0,0"
+                                    IsEnabled="{Binding CanInstallOrUpdateUe4ss}"
+                                    ToolTip="Install a UE4SS release zip you downloaded yourself, for a specific version or a PC without internet"/>
                             <TextBlock Text="{Binding Ue4ssStatusText}" VerticalAlignment="Center" Margin="12,0,0,0"
                                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
                         </StackPanel>
