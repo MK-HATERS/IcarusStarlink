@@ -403,7 +403,7 @@ public partial class App : Application
             new DedicatedServerProfileStore(appDataDirectory, sp.GetRequiredService<ILogger<DedicatedServerProfileStore>>()));
         builder.Services.AddSingleton<IDedicatedServerProcessService, DedicatedServerProcessService>();
         builder.Services.AddSingleton<ISteamCmdService>(sp =>
-            new SteamCmdService(sp.GetRequiredService<HttpClient>(), Path.Combine(appDataDirectory, "Tools")));
+            new SteamCmdService(sp.GetRequiredService<HttpClient>(), sp.GetRequiredService<ISettingsService>(), appDataDirectory));
         builder.Services.AddSingleton(sp => new LocalServerViewModel(
             sp.GetRequiredService<IDedicatedServerProfileStore>(),
             sp.GetRequiredService<IDedicatedServerProcessService>(),

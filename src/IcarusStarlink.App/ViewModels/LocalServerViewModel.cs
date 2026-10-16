@@ -30,6 +30,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
     private readonly IDialogService _dialogService;
     private readonly IActivityLog _activityLog;
     private readonly Func<string, string?> _pickFolder;
+    private readonly Func<string?> _pickSteamCmdExe;
     private readonly ISteamCmdService? _steamCmd;
     private readonly Core.Settings.ISettingsService? _settings;
     private readonly string? _mergedPakPath;
@@ -41,7 +42,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
     public LocalServerViewModel(
         IDedicatedServerProfileStore store, IDedicatedServerProcessService processes, IDialogService dialogService,
         IActivityLog activityLog, ISteamCmdService? steamCmd = null, Core.Settings.ISettingsService? settings = null,
-        string? mergedPakPath = null, string? backupsRoot = null, Func<string, string?>? pickFolder = null, bool startTimer = true)
+        string? mergedPakPath = null, string? backupsRoot = null, Func<string, string?>? pickFolder = null, Func<string?>? pickSteamCmdExe = null, bool startTimer = true)
     {
         _steamCmd = steamCmd;
         _settings = settings;
@@ -52,6 +53,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         _dialogService = dialogService;
         _activityLog = activityLog;
         _pickFolder = pickFolder ?? PickFolderWithDialog;
+        _pickSteamCmdExe = pickSteamCmdExe ?? PickSteamCmdWithDialog;
 
         foreach (var profile in store.GetAll())
         {
@@ -231,9 +233,11 @@ public sealed partial class LocalServerViewModel : ObservableObject
         _store.Save(profile);
         Profiles.Add(profile);
         SelectedProfile = profile;
-        StatusMessage = File.Exists(SettingsIniPath)
+        var adoptedSteamCmd = AdoptInstallingSteamCmd(root);
+        StatusMessage = (File.Exists(SettingsIniPath)
             ? $"Added '{profile.Name}' — settings read from its ServerSettings.ini."
-            : $"Added '{profile.Name}'. It has no ServerSettings.ini yet; Save (or Start) writes one, so the first-launch bug where the file never appears doesn't apply.";
+            : $"Added '{profile.Name}'. It has no ServerSettings.ini yet; Save (or Start) writes one, so the first-launch bug where the file never appears doesn't apply.")
+            + (adoptedSteamCmd is null ? "" : $" Using the SteamCMD that installed it: {adoptedSteamCmd}.");
         _activityLog.Log($"Added dedicated server '{profile.Name}' ({root}).", ActivityEntryKind.Info);
     }
 
@@ -707,6 +711,12 @@ public sealed partial class LocalServerViewModel : ObservableObject
         line.Length > 0
         && (!HideNoise || !ServerLogFilter.IsNoise(line))
         && (string.IsNullOrWhiteSpace(LogFilter) || line.Contains(LogFilter.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private static string? PickSteamCmdWithDialog()
+    {
+        var dialog = new OpenFileDialog { Title = "Select your steamcmd.exe", Filter = "steamcmd.exe|steamcmd.exe|Programs (*.exe)|*.exe" };
+        return dialog.ShowDialog() == true ? dialog.FileName : null;
+    }
 
     private static string? PickFolderWithDialog(string title)
     {

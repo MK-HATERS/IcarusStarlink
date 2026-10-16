@@ -8,28 +8,32 @@ using IcarusStarlink.Core.Server;
 namespace IcarusStarlink.App.Services;
 
 /// <summary>
-/// See ISteamCmdService. SteamCMD lives in this app's own Tools\steamcmd folder (portable, like
-/// UnrealPak), is downloaded from Valve's official URL on first use, and runs hidden with its
-/// output streamed line by line so the Server page can show progress.
+/// See ISteamCmdService. Uses the steamcmd.exe the user pointed at (AppSettings.SteamCmdExePath)
+/// when it exists, otherwise Starlink's own copy in a SteamCMD folder in Starlink's own folder —
+/// downloaded from Valve's official URL only when the user asks for it. Runs hidden with its output
+/// streamed line by line so the Server page can show progress.
 /// </summary>
-public sealed class SteamCmdService(HttpClient httpClient, string toolsDirectory) : ISteamCmdService
+public sealed class SteamCmdService(HttpClient httpClient, Core.Settings.ISettingsService settings, string appRoot) : ISteamCmdService
 {
     private readonly SemaphoreSlim _oneAtATime = new(1, 1);
 
-    public string SteamCmdFolder => Path.Combine(toolsDirectory, "steamcmd");
+    public string OwnInstallFolder => Path.Combine(appRoot, "SteamCMD");
 
-    public string SteamCmdExe => Path.Combine(SteamCmdFolder, "steamcmd.exe");
+    private string OwnExe => Path.Combine(OwnInstallFolder, "steamcmd.exe");
 
-    public async Task EnsureInstalledAsync(Action<string> onLine, CancellationToken cancellationToken = default)
+    public string? CurrentExePath =>
+        settings.Current.SteamCmdExePath is { Length: > 0 } chosen && File.Exists(chosen) ? chosen
+        : File.Exists(OwnExe) ? OwnExe
+        : null;
+
+    private string RequireExe() =>
+        CurrentExePath ?? throw new InvalidOperationException("SteamCMD isn't set up — install it or point Starlink at your steamcmd.exe on the Server page.");
+
+    public async Task InstallOwnCopyAsync(Action<string> onLine, CancellationToken cancellationToken = default)
     {
-        if (File.Exists(SteamCmdExe))
-        {
-            return;
-        }
-
         onLine("[Starlink] Downloading SteamCMD from Valve…");
-        Directory.CreateDirectory(SteamCmdFolder);
-        var zipPath = Path.Combine(SteamCmdFolder, "steamcmd.zip");
+        Directory.CreateDirectory(OwnInstallFolder);
+        var zipPath = Path.Combine(OwnInstallFolder, "steamcmd.zip");
         using (var response = await httpClient.GetAsync(SteamCmd.WindowsDownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
         {
             response.EnsureSuccessStatusCode();
@@ -37,22 +41,22 @@ public sealed class SteamCmdService(HttpClient httpClient, string toolsDirectory
             await response.Content.CopyToAsync(file, cancellationToken);
         }
 
-        ZipFile.ExtractToDirectory(zipPath, SteamCmdFolder, overwriteFiles: true);
+        ZipFile.ExtractToDirectory(zipPath, OwnInstallFolder, overwriteFiles: true);
         File.Delete(zipPath);
 
         // The first run only updates SteamCMD itself (and can exit with a non-zero code doing so).
         onLine("[Starlink] Letting SteamCMD update itself (first run only)…");
-        await RunAsync("+quit", onLine, cancellationToken);
+        await RunAsync(OwnExe, "+quit", onLine, cancellationToken);
     }
 
     public async Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, Action<string> onLine, CancellationToken cancellationToken = default)
     {
-        await EnsureInstalledAsync(onLine, cancellationToken);
+        var exe = RequireExe();
         Directory.CreateDirectory(installFolder);
 
         string? lastError = null;
         var sawSuccess = false;
-        var exitCode = await RunAsync(SteamCmd.BuildInstallArguments(installFolder, branch), line =>
+        var exitCode = await RunAsync(exe, SteamCmd.BuildInstallArguments(installFolder, branch), line =>
         {
             if (SteamCmd.IsErrorLine(line))
             {
@@ -76,14 +80,14 @@ public sealed class SteamCmdService(HttpClient httpClient, string toolsDirectory
 
     public async Task<int?> GetLatestBuildIdAsync(string branch, CancellationToken cancellationToken = default)
     {
-        await EnsureInstalledAsync(_ => { }, cancellationToken);
+        var exe = RequireExe();
         var output = new StringBuilder();
-        await RunAsync(SteamCmd.BuildAppInfoArguments(), line => output.AppendLine(line), cancellationToken);
+        await RunAsync(exe, SteamCmd.BuildAppInfoArguments(), line => output.AppendLine(line), cancellationToken);
         return SteamCmd.ParseLatestBuildId(output.ToString(), branch);
     }
 
     /// <summary>Runs steamcmd.exe hidden; every line (split on \r or \n — progress lines rewrite in place) goes to onLine. One run at a time: SteamCMD locks its own folder.</summary>
-    private async Task<int> RunAsync(string arguments, Action<string> onLine, CancellationToken cancellationToken)
+    private async Task<int> RunAsync(string exe, string arguments, Action<string> onLine, CancellationToken cancellationToken)
     {
         await _oneAtATime.WaitAsync(cancellationToken);
         try
@@ -92,9 +96,9 @@ public sealed class SteamCmdService(HttpClient httpClient, string toolsDirectory
             {
                 StartInfo = new ProcessStartInfo
                 {
-                    FileName = SteamCmdExe,
+                    FileName = exe,
                     Arguments = arguments,
-                    WorkingDirectory = SteamCmdFolder,
+                    WorkingDirectory = Path.GetDirectoryName(exe)!,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,

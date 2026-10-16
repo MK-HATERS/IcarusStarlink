@@ -4,6 +4,9 @@ public sealed class AppSettings
 {
     public string? IcarusContentPath { get; set; }
     public string? UnrealPakExePath { get; set; }
+
+    /// <summary>A steamcmd.exe the user already has, chosen on the Server page (or picked up from an adopted server's Steam manifest). Null = Starlink's own copy in its SteamCMD folder, installed on request.</summary>
+    public string? SteamCmdExePath { get; set; }
     public string ThemeName { get; set; } = "Icarus";
     public bool PerformanceTrackingEnabled { get; set; }
 

@@ -57,6 +57,15 @@ public sealed class ServerPhase23Tests : IDisposable
         Assert.Equal((25621760, "experimental"), SteamCmd.ReadAppManifest(experimental));
     }
 
+    /// <summary>The real manifest line: VDF doubles every backslash.</summary>
+    [Fact]
+    public void LauncherPath_IsReadAndUnescaped()
+    {
+        const string realLine = "\"AppState\"\n{\n\t\"LauncherPath\"\t\t\"C:\\\\Personal\\\\steamcmd\\\\steamcmd.exe\"\n}";
+        Assert.Equal(@"C:\Personal\steamcmd\steamcmd.exe", SteamCmd.ReadLauncherPath(realLine));
+        Assert.Null(SteamCmd.ReadLauncherPath("\"AppState\" { }"));
+    }
+
     [Fact]
     public void AppInfo_GivesTheLatestBuildPerBranch()
     {

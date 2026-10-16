@@ -86,6 +86,16 @@ public static partial class SteamCmd
         return match.Success && int.TryParse(match.Groups["id"].Value, out var id) ? id : null;
     }
 
+    /// <summary>The steamcmd.exe that installed this server, from the manifest's "LauncherPath" (VDF-escaped backslashes undone); null when absent.</summary>
+    public static string? ReadLauncherPath(string acfText)
+    {
+        var match = LauncherPathPattern().Match(acfText);
+        return match.Success && match.Groups["p"].Value.Length > 0 ? match.Groups["p"].Value.Replace(@"\\", @"\") : null;
+    }
+
+    [GeneratedRegex("\"LauncherPath\"\\s+\"(?<p>[^\"]*)\"", RegexOptions.IgnoreCase)]
+    private static partial Regex LauncherPathPattern();
+
     [GeneratedRegex(@"Update state \(0x[0-9a-fA-F]+\)\s*(?<phase>[^,]*),\s*progress:\s*(?<pct>[0-9]+(?:\.[0-9]+)?)", RegexOptions.IgnoreCase)]
     private static partial Regex ProgressPattern();
 

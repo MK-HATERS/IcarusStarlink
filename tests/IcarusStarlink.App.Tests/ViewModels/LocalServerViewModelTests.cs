@@ -39,12 +39,13 @@ public sealed class LocalServerViewModelTests : IDisposable
 
     private string MergedPakPath => Path.Combine(_root, "Staged_Build", "ISL-Merged_P.pak");
 
-    private (LocalServerViewModel Vm, FakeStore Store, FakeProcesses Processes, FakeDialogs Dialogs) Build(string? pick = null, bool confirm = true)
+    private (LocalServerViewModel Vm, FakeStore Store, FakeProcesses Processes, FakeDialogs Dialogs) Build(string? pick = null, bool confirm = true, string? pickExe = null)
     {
         var store = new FakeStore();
         var processes = new FakeProcesses();
         var dialogs = new FakeDialogs(confirm);
-        var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, startTimer: false);
+        var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, () => pickExe, startTimer: false);
+        SteamCmd.Chosen = () => Settings.Current.SteamCmdExePath;
         return (vm, store, processes, dialogs);
     }
 
@@ -296,6 +297,83 @@ public sealed class LocalServerViewModelTests : IDisposable
         Assert.Contains("before-update", backup.Name);
     }
 
+    // ---- Which SteamCMD ----
+
+    /// <summary>No SteamCMD yet: installing a server first asks to put Starlink's copy in its own folder, then carries on.</summary>
+    [Fact]
+    public async Task InstallNewServer_WithNoSteamCmd_AsksToInstallItFirst()
+    {
+        SteamCmd.OwnExe = null;
+        SteamCmd.CreateServerOnInstall = true;
+        var (vm, store, _, dialogs) = Build(pick: Path.Combine(_root, "NewServer"));
+        Assert.False(vm.HasSteamCmd);
+
+        await vm.InstallNewServerCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, dialogs.Messages.Count);
+        Assert.Contains("SteamCMD isn't set up yet", dialogs.Messages[1]);
+        Assert.Equal(1, SteamCmd.OwnInstalls);
+        Assert.True(vm.HasSteamCmd);
+        Assert.Single(store.Profiles);
+    }
+
+    [Fact]
+    public async Task CheckForUpdate_WithNoSteamCmdAndTheOfferDeclined_DoesNothing()
+    {
+        SteamCmd.OwnExe = null;
+        var (vm, _, _, _) = Build(pick: _install, confirm: false);
+        vm.AddExistingServerCommand.Execute(null);
+
+        await vm.CheckForUpdateCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, SteamCmd.OwnInstalls);
+        Assert.Contains("Use my SteamCMD", vm.StatusMessage);
+    }
+
+    /// <summary>"Use my SteamCMD…" stores the user's own steamcmd.exe and only accepts a file actually called steamcmd.exe.</summary>
+    [Fact]
+    public void UseExistingSteamCmd_StoresTheChosenExe()
+    {
+        var own = Path.Combine(_root, "steamcmd", "steamcmd.exe");
+        var wrong = Path.Combine(_root, "steamcmd", "notepad.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(own)!);
+        File.WriteAllText(own, "");
+        File.WriteAllText(wrong, "");
+        SteamCmd.OwnExe = null;
+
+        var (refused, _, _, _) = Build(pickExe: wrong);
+        refused.UseExistingSteamCmdCommand.Execute(null);
+        Assert.Null(Settings.Current.SteamCmdExePath);
+        Assert.Contains("isn't steamcmd.exe", refused.StatusMessage);
+
+        var (vm, _, _, _) = Build(pickExe: own);
+        vm.UseExistingSteamCmdCommand.Execute(null);
+
+        Assert.Equal(own, Settings.Current.SteamCmdExePath);
+        Assert.True(vm.HasSteamCmd);
+        Assert.True(vm.UsingOwnSteamCmd);
+        Assert.Equal($"SteamCMD: {own}", vm.SteamCmdSummary);
+    }
+
+    /// <summary>The user's real server manifest records "LauncherPath" — adopting the server reuses that SteamCMD when none is set up.</summary>
+    [Fact]
+    public void AddExistingServer_ReusesTheSteamCmdThatInstalledIt()
+    {
+        var theirs = Path.Combine(_root, "Personal", "steamcmd", "steamcmd.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(theirs)!);
+        File.WriteAllText(theirs, "");
+        var manifest = DedicatedServerLayout.AppManifestPath(_install);
+        Directory.CreateDirectory(Path.GetDirectoryName(manifest)!);
+        File.WriteAllText(manifest, $"\"AppState\"\n{{\n\t\"appid\"\t\t\"2089300\"\n\t\"LauncherPath\"\t\t\"{theirs.Replace(@"\", @"\\")}\"\n\t\"buildid\"\t\t\"25621760\"\n}}\n");
+        SteamCmd.OwnExe = null;
+        var (vm, _, _, _) = Build(pick: _install);
+
+        vm.AddExistingServerCommand.Execute(null);
+
+        Assert.Equal(theirs, Settings.Current.SteamCmdExePath);
+        Assert.Contains("Using the SteamCMD that installed it", vm.StatusMessage);
+    }
+
     // ---- Phase 3: mods, backups, admins, players ----
 
     [Fact]
@@ -445,7 +523,19 @@ public sealed class LocalServerViewModelTests : IDisposable
         public string? FailWith { get; set; }
         public int? LatestBuild { get; set; }
 
-        public Task EnsureInstalledAsync(Action<string> onLine, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        /// <summary>Starlink's own copy (null = not installed yet); Chosen mirrors AppSettings.SteamCmdExePath like the real service.</summary>
+        public string? OwnExe { get; set; } = @"C:\fake\steamcmd.exe";
+        public Func<string?>? Chosen { get; set; }
+        public string? CurrentExePath => Chosen?.Invoke() is { } chosen && File.Exists(chosen) ? chosen : OwnExe;
+        public string OwnInstallFolder => @"C:\Starlink\SteamCMD";
+        public int OwnInstalls { get; private set; }
+
+        public Task InstallOwnCopyAsync(Action<string> onLine, CancellationToken cancellationToken = default)
+        {
+            OwnInstalls++;
+            OwnExe = OwnInstallFolder + @"\steamcmd.exe";
+            return Task.CompletedTask;
+        }
 
         public Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, Action<string> onLine, CancellationToken cancellationToken = default)
         {

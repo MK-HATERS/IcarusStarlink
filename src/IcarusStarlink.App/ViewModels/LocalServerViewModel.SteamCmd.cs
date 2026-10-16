@@ -102,6 +102,151 @@ public sealed partial class LocalServerViewModel
 
     private bool CanUpdate() => CanUseSteamCmd() && SelectedProfile is not null;
 
+    // ---- Which SteamCMD: Starlink's own copy (installed on request) or one the user already has ----
+
+    public bool HasSteamCmd => _steamCmd?.CurrentExePath is not null;
+
+    /// <summary>True when the setting points at the user's own steamcmd.exe rather than Starlink's copy.</summary>
+    public bool UsingOwnSteamCmd =>
+        _steamCmd?.CurrentExePath is { } exe && _settings?.Current.SteamCmdExePath is { Length: > 0 } chosen
+        && string.Equals(exe, chosen, StringComparison.OrdinalIgnoreCase);
+
+    public string SteamCmdSummary => _steamCmd?.CurrentExePath is { } exe
+        ? $"SteamCMD: {exe}"
+        : "SteamCMD isn't set up yet — install it into Starlink's folder, or point at one you already have.";
+
+    private void RaiseSteamCmdChanged()
+    {
+        OnPropertyChanged(nameof(HasSteamCmd));
+        OnPropertyChanged(nameof(UsingOwnSteamCmd));
+        OnPropertyChanged(nameof(SteamCmdSummary));
+    }
+
+    /// <summary>Downloads SteamCMD from Valve into a SteamCMD folder in Starlink's own folder.</summary>
+    [RelayCommand(CanExecute = nameof(CanUseSteamCmd))]
+    private async Task InstallSteamCmdAsync()
+    {
+        if (_steamCmd is null)
+        {
+            return;
+        }
+
+        if (!_dialogService.Confirm(
+                $"Download SteamCMD from Valve into\n{_steamCmd.OwnInstallFolder}?\n\nIt is small (a few MB) and updates itself on first run. To use a SteamCMD you already have instead, click 'Use my SteamCMD…'.",
+                "Install SteamCMD", ThemedConfirmSeverity.Question))
+        {
+            return;
+        }
+
+        await InstallOwnSteamCmdCoreAsync();
+    }
+
+    private async Task<bool> InstallOwnSteamCmdCoreAsync()
+    {
+        IsSteamCmdBusy = true;
+        SteamCmdProgress = 0;
+        SteamCmdStatus = "Downloading SteamCMD…";
+        try
+        {
+            if (_settings is { } settings && settings.Current.SteamCmdExePath is not null)
+            {
+                settings.Current.SteamCmdExePath = null;
+                settings.Save();
+            }
+
+            await _steamCmd!.InstallOwnCopyAsync(OnSteamCmdLine);
+            StatusMessage = $"SteamCMD installed in {_steamCmd.OwnInstallFolder}.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't install SteamCMD: {ex.Message}";
+            return false;
+        }
+        finally
+        {
+            IsSteamCmdBusy = false;
+            SteamCmdStatus = null;
+            RaiseSteamCmdChanged();
+        }
+    }
+
+    /// <summary>Points Starlink at a steamcmd.exe the user already has (for example the one their update scripts use).</summary>
+    [RelayCommand]
+    private void UseExistingSteamCmd()
+    {
+        var picked = _pickSteamCmdExe();
+        if (string.IsNullOrWhiteSpace(picked))
+        {
+            return;
+        }
+
+        SetSteamCmdPath(picked, $"Using your SteamCMD: {picked}");
+    }
+
+    private bool SetSteamCmdPath(string exePath, string successMessage)
+    {
+        if (!File.Exists(exePath) || !string.Equals(Path.GetFileName(exePath), "steamcmd.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            StatusMessage = $"'{exePath}' isn't steamcmd.exe.";
+            return false;
+        }
+
+        if (_settings is null)
+        {
+            return false;
+        }
+
+        _settings.Current.SteamCmdExePath = exePath;
+        _settings.Save();
+        StatusMessage = successMessage;
+        RaiseSteamCmdChanged();
+        return true;
+    }
+
+    /// <summary>Before any SteamCMD action: if none is set up, ask to install Starlink's copy (the user can cancel and point at their own).</summary>
+    private async Task<bool> EnsureSteamCmdReadyAsync()
+    {
+        if (_steamCmd is null)
+        {
+            return false;
+        }
+
+        if (HasSteamCmd)
+        {
+            return true;
+        }
+
+        if (!_dialogService.Confirm(
+                $"SteamCMD isn't set up yet. Download it from Valve into\n{_steamCmd.OwnInstallFolder}?\n\nIf you already have SteamCMD, click No, then 'Use my SteamCMD…'.",
+                "SteamCMD needed", ThemedConfirmSeverity.Question))
+        {
+            StatusMessage = "SteamCMD isn't set up — install it or click 'Use my SteamCMD…'.";
+            return false;
+        }
+
+        return await InstallOwnSteamCmdCoreAsync();
+    }
+
+    /// <summary>An adopted server's Steam manifest names the steamcmd.exe that installed it — use that when none is chosen yet.</summary>
+    private string? AdoptInstallingSteamCmd(string installFolder)
+    {
+        if (_steamCmd is null || HasSteamCmd || !File.Exists(DedicatedServerLayout.AppManifestPath(installFolder)))
+        {
+            return null;
+        }
+
+        try
+        {
+            var launcher = SteamCmd.ReadLauncherPath(File.ReadAllText(DedicatedServerLayout.AppManifestPath(installFolder)));
+            return launcher is not null && File.Exists(launcher) && SetSteamCmdPath(launcher, "") ? launcher : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Downloads a brand-new server with SteamCMD into a folder you pick (a subfolder when it isn't empty), then adds it here.</summary>
     [RelayCommand(CanExecute = nameof(CanUseSteamCmd))]
     private async Task InstallNewServerAsync()
@@ -122,8 +267,9 @@ public sealed partial class LocalServerViewModel
             ? Path.Combine(picked, "IcarusServer")
             : picked;
         if (!_dialogService.Confirm(
-                $"Download the Icarus dedicated server into\n{target}\n\nIt is about 10 GB, free, and needs no Icarus licence (SteamCMD, app 2089300, anonymous login). SteamCMD itself is downloaded from Valve on first use.",
-                "Install a new server", ThemedConfirmSeverity.Question))
+                $"Download the Icarus dedicated server into\n{target}\n\nIt is about 10 GB, free, and needs no Icarus licence (SteamCMD, app 2089300, anonymous login).",
+                "Install a new server", ThemedConfirmSeverity.Question)
+            || !await EnsureSteamCmdReadyAsync())
         {
             return;
         }
@@ -147,7 +293,7 @@ public sealed partial class LocalServerViewModel
     [RelayCommand(CanExecute = nameof(CanUpdate))]
     private async Task CheckForUpdateAsync()
     {
-        if (_steamCmd is null)
+        if (_steamCmd is null || !await EnsureSteamCmdReadyAsync())
         {
             return;
         }
@@ -176,7 +322,7 @@ public sealed partial class LocalServerViewModel
     [RelayCommand(CanExecute = nameof(CanUpdate))]
     private async Task UpdateServerAsync()
     {
-        if (SelectedProfile is not { } profile || _steamCmd is null || !TrySave())
+        if (SelectedProfile is not { } profile || _steamCmd is null || !TrySave() || !await EnsureSteamCmdReadyAsync())
         {
             return;
         }
