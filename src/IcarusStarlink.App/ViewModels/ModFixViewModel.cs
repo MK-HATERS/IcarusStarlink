@@ -271,6 +271,12 @@ public sealed partial class ModFixViewModel : ObservableObject
     [ObservableProperty]
     private bool _isApplied;
 
+    /// <summary>How many fixes the last Apply made: 0 after "Keep all as they are" (the choices are remembered, the mod isn't touched).</summary>
+    public int AppliedCount { get; private set; }
+
+    /// <summary>Restore backup or Forget changed the mod or its remembered choices while the window was open: the Library re-checks it after.</summary>
+    public bool ChangedWithoutApply { get; private set; }
+
     /// <summary>Set by the window: closes it after a successful Apply.</summary>
     public Action? Close { get; set; }
 
@@ -320,6 +326,7 @@ public sealed partial class ModFixViewModel : ObservableObject
         try
         {
             var applied = _service.Apply(_folderName, [.. _all.Select(i => (i.Issue, i.SelectedChoice.Fix))]);
+            AppliedCount = applied;
             IsApplied = true;
             StatusMessage = applied == 0 ? "Nothing changed." : $"Fixed {applied} thing(s). The mod was backed up first: Restore backup in this window, or right-click the mod › Restore latest backup, undoes it.";
         }
@@ -354,6 +361,7 @@ public sealed partial class ModFixViewModel : ObservableObject
                 return;
             }
 
+            ChangedWithoutApply = true;
             Load(_service.Check(_folderName));
             StatusMessage = "Restored the mod as it was before its last change.";
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
@@ -371,6 +379,7 @@ public sealed partial class ModFixViewModel : ObservableObject
         try
         {
             _service.Forget(_folderName);
+            ChangedWithoutApply = true;
             Load(_service.Check(_folderName));
             StatusMessage = "Earlier choices forgotten: everything below is suggested afresh.";
         }

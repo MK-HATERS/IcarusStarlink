@@ -247,13 +247,16 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// mod's .EXMOD directly on disk — every other mutation site in this codebase (e.g.
     /// ExmodEditorViewModel.Save) follows a save with either Update(entry) or a full resync, but the
     /// batch staleness pass only ever wrote to disk and to the repository's own cache, never to this
-    /// bound row. Sets the ✎ badge immediately and clears the cached Changes tab content (same two
-    /// lines Update() already resets) so a currently-open Changes tab doesn't keep showing the
-    /// pre-repair item name until something unrelated triggers a full resync.
+    /// bound row. Takes the ✎ badge from the repository's entry (not forced on: a fix to a mod
+    /// converted from a prebuilt pak deliberately leaves it unedited, so it keeps re-converting
+    /// against new game data) and clears the cached Changes tab content (same lines Update()
+    /// already resets) so a currently-open Changes tab doesn't keep showing the pre-repair item
+    /// name until something unrelated triggers a full resync.
     /// </summary>
     public void NotifyRepairedFromDisk()
     {
-        IsLocallyEdited = true;
+        IsLocallyEdited = _repository.GetAll()
+            .FirstOrDefault(e => string.Equals(e.FolderName, FolderName, StringComparison.OrdinalIgnoreCase))?.IsLocallyEdited ?? IsLocallyEdited;
         ChangesContent = null;
         ChangesSummary = null;
         _changesSummaryRun++;
@@ -409,7 +412,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     private IReadOnlyList<ExmodStalenessChecker.StaleItem> _staleItems = [];
 
-    /// <summary>The first flagged item, if any — LibraryViewModel's OpenStaleItemCommand pre-selects this one in the editor when the row's warning badge is clicked.</summary>
+    /// <summary>The first flagged item, if any — the item to pre-select when this mod is opened in the editor for its stale items.</summary>
     public (string CurrentFile, string ItemName)? FirstStaleItem =>
         _staleItems.Count > 0 ? (_staleItems[0].CurrentFile, _staleItems[0].ItemName) : null;
 

@@ -16,18 +16,26 @@ namespace IcarusStarlink.App.Services;
 /// next time. A mod converted from a prebuilt pak isn't marked edited by a fix: it keeps being
 /// re-converted against each new game version, and its sure fixes and remembered choices are made
 /// again right after (ReapplyRemembered). Plain file work, safe off the UI thread.
+///
+/// One call at a time: the fix window, Fix sure problems, the whole-library check and the
+/// post-refresh ReapplyRemembered can all reach this one service from different threads. Every
+/// public call takes the same lock, so the lazily-filled table index is never filled by two
+/// threads at once, and two writers never back up and rewrite the same .EXMOD together.
 /// </summary>
 public sealed class ModFixService(
     ILibraryRepository repository, string dataFolder, Func<IEnumerable<FieldChange>>? gameHistory = null, string? decisionsDirectory = null)
 {
     private static readonly JsonSerializerOptions DecisionJson = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
 
+    /// <summary>Held by every public call. Re-entrant (FixSure calls Check on the same thread).</summary>
+    private readonly Lock _gate = new();
+
     public string DataFolder => dataFolder;
 
     private GameTableIndex? _gameIndex;
     private DateTime _gameIndexStamp;
 
-    /// <summary>One table index for every check (re-read after Refresh game data changes the folder).</summary>
+    /// <summary>One table index for every check (re-read after Refresh game data changes the folder). Only read under _gate.</summary>
     private GameTableIndex GameIndex
     {
         get
@@ -47,10 +55,13 @@ public sealed class ModFixService(
     public ModHealthReport Check(string folderName, IDictionary<string, JsonObject?>? baseTableCache = null, GameValueHistory? history = null,
         IReadOnlySet<string>? libraryAddedRows = null)
     {
-        var package = ExmodFolder.ReadPackageOnly(repository.GetFolderPath(folderName));
-        return ModHealthChecker.Check(package, dataFolder, baseTableCache, history ?? History(), repository.ListAssetPaths(folderName),
-            decisions: LoadDecisions(folderName), fromPrebuiltPak: Entry(folderName)?.ConvertedFromPrebuiltPak == true, gameIndex: GameIndex,
-            rowsOtherModsAdd: libraryAddedRows ?? LibraryAddedRows());
+        lock (_gate)
+        {
+            var package = ExmodFolder.ReadPackageOnly(repository.GetFolderPath(folderName));
+            return ModHealthChecker.Check(package, dataFolder, baseTableCache, history ?? History(), repository.ListAssetPaths(folderName),
+                decisions: LoadDecisions(folderName), fromPrebuiltPak: Entry(folderName)?.ConvertedFromPrebuiltPak == true, gameIndex: GameIndex,
+                rowsOtherModsAdd: libraryAddedRows ?? LibraryAddedRows());
+        }
     }
 
     /// <summary>The game's recorded old values from recent Refresh game data runs, indexed once (share it across a whole-library pass).</summary>
@@ -74,67 +85,95 @@ public sealed class ModFixService(
     /// </summary>
     public int Apply(string folderName, IReadOnlyCollection<(ModIssue Issue, ModIssueFix Fix)> fixes)
     {
-        var decisions = LoadDecisions(folderName);
-        var learned = 0;
-        foreach (var (issue, fix) in fixes.Where(f => !f.Issue.IsSure || f.Fix != f.Issue.DefaultFix))
+        lock (_gate)
         {
-            decisions.Remember(issue, fix);
-            learned++;
-        }
+            var decisions = LoadDecisions(folderName);
+            var learned = 0;
+            foreach (var (issue, fix) in fixes.Where(f => !f.Issue.IsSure || f.Fix != f.Issue.DefaultFix))
+            {
+                decisions.Remember(issue, fix);
+                learned++;
+            }
 
-        if (learned > 0)
-        {
-            SaveDecisions(folderName, decisions);
-        }
+            if (learned > 0)
+            {
+                SaveDecisions(folderName, decisions);
+            }
 
-        return Write(folderName, fixes);
+            return Write(folderName, fixes, backUp: true);
+        }
     }
 
     /// <summary>The automatic part for one mod: every sure fix, remembered choices included. Returns (applied, still to look over).</summary>
     public (int Applied, int ToReview) FixSure(string folderName, IDictionary<string, JsonObject?>? baseTableCache = null, GameValueHistory? history = null,
         IReadOnlySet<string>? libraryAddedRows = null)
     {
-        libraryAddedRows ??= LibraryAddedRows();
-        // A fix can reveal another (a renamed row whose value turns out to be the game's): a few
-        // rounds, each backed up, until nothing sure is left.
-        var applied = 0;
-        var report = Check(folderName, baseTableCache, history, libraryAddedRows);
-        for (var round = 0; round < 3 && report.SureCount > 0; round++)
+        lock (_gate)
         {
-            var thisRound = Write(folderName, [.. report.Issues.Where(i => i.IsSure).Select(i => (i, i.DefaultFix))]);
-            if (thisRound == 0)
+            libraryAddedRows ??= LibraryAddedRows();
+            // A fix can reveal another (a renamed row whose value turns out to be the game's): a few
+            // rounds until nothing sure is left. Backed up once, before the first round writes, so
+            // Restore latest backup undoes the whole click rather than only its last round.
+            var applied = 0;
+            var report = Check(folderName, baseTableCache, history, libraryAddedRows);
+            for (var round = 0; round < 3 && report.SureCount > 0; round++)
             {
-                break;
+                var thisRound = Write(folderName, [.. report.Issues.Where(i => i.IsSure).Select(i => (i, i.DefaultFix))], backUp: applied == 0);
+                if (thisRound == 0)
+                {
+                    break;
+                }
+
+                applied += thisRound;
+                report = Check(folderName, baseTableCache, history, libraryAddedRows);
             }
 
-            applied += thisRound;
-            report = Check(folderName, baseTableCache, history, libraryAddedRows);
+            return (applied, report.ReviewCount);
         }
-
-        return (applied, report.ReviewCount);
     }
 
     /// <summary>After a prebuilt pak was converted again: make the remembered choices (and sure fixes) again. Nothing remembered: nothing to do.</summary>
-    public int ReapplyRemembered(string folderName) =>
-        LoadDecisions(folderName).Count == 0 ? 0 : FixSure(folderName).Applied;
+    public int ReapplyRemembered(string folderName)
+    {
+        lock (_gate)
+        {
+            return LoadDecisions(folderName).Count == 0 ? 0 : FixSure(folderName).Applied;
+        }
+    }
 
-    public int RememberedCount(string folderName) => LoadDecisions(folderName).Count;
+    public int RememberedCount(string folderName)
+    {
+        lock (_gate)
+        {
+            return LoadDecisions(folderName).Count;
+        }
+    }
 
     public bool HasBackup(string folderName) => repository.HasModBackup(folderName);
 
     /// <summary>Puts the mod back as it was before its last change (each fix, rename or refresh backs it up first).</summary>
-    public bool RestoreBackup(string folderName) => repository.RestoreLatestModBackup(folderName);
+    public bool RestoreBackup(string folderName)
+    {
+        lock (_gate)
+        {
+            return repository.RestoreLatestModBackup(folderName);
+        }
+    }
 
     /// <summary>Forgets this mod's remembered choices: everything is suggested afresh next check.</summary>
     public void Forget(string folderName)
     {
-        if (DecisionsPath(folderName) is { } path && File.Exists(path))
+        lock (_gate)
         {
-            File.Delete(path);
+            if (DecisionsPath(folderName) is { } path && File.Exists(path))
+            {
+                File.Delete(path);
+            }
         }
     }
 
-    private int Write(string folderName, IReadOnlyCollection<(ModIssue Issue, ModIssueFix Fix)> fixes)
+    /// <param name="backUp">Back the mod up before writing (false for FixSure's later rounds: its first round already did).</param>
+    private int Write(string folderName, IReadOnlyCollection<(ModIssue Issue, ModIssueFix Fix)> fixes, bool backUp)
     {
         var changing = fixes.Where(f => f.Fix != ModIssueFix.KeepMod).ToList();
         if (changing.Count == 0)
@@ -150,7 +189,11 @@ public sealed class ModFixService(
             return 0;
         }
 
-        repository.BackupMod(folderName);
+        if (backUp)
+        {
+            repository.BackupMod(folderName);
+        }
+
         ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
 
         // A converted pak that hasn't been hand-edited stays "live": it keeps re-converting against
@@ -166,20 +209,23 @@ public sealed class ModFixService(
     /// <summary>Every row the mods in the Library add (not in the game): a link to one of them is a dependency, not a broken link.</summary>
     public IReadOnlySet<string> LibraryAddedRows()
     {
-        var rows = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var entry in repository.GetAll().Where(e => !e.IsOpaquePak))
+        lock (_gate)
         {
-            try
+            var rows = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var entry in repository.GetAll().Where(e => !e.IsOpaquePak))
             {
-                rows.UnionWith(ModHealthChecker.AddedRows(ExmodFolder.ReadPackageOnly(repository.GetFolderPath(entry.FolderName)), GameIndex));
+                try
+                {
+                    rows.UnionWith(ModHealthChecker.AddedRows(ExmodFolder.ReadPackageOnly(repository.GetFolderPath(entry.FolderName)), GameIndex));
+                }
+                catch (Exception)
+                {
+                    // An unreadable mod adds nothing to the set; it's reported when it's checked itself.
+                }
             }
-            catch (Exception)
-            {
-                // An unreadable mod adds nothing to the set; it's reported when it's checked itself.
-            }
-        }
 
-        return rows;
+            return rows;
+        }
     }
 
     private LibraryEntry? Entry(string folderName) =>
