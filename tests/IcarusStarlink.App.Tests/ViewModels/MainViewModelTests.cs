@@ -49,11 +49,11 @@ public class MainViewModelTests
     public void SelectDefaultPage_SomethingAlreadySelectedNavItem_DoesNotOverrideIt()
     {
         var vm = Build(icarusContentPath: null);
-        vm.SelectedNavItem = vm.NavItems.First(item => item.Id == "nexus");
+        vm.SelectedNavItem = vm.NavItems.First(item => item.Id == "database");
 
         vm.SelectDefaultPage();
 
-        Assert.Equal("nexus", vm.SelectedNavItem?.Id);
+        Assert.Equal("database", vm.SelectedNavItem?.Id);
     }
 
     private sealed class FakeServiceProvider : IServiceProvider

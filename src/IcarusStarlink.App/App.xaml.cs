@@ -58,6 +58,9 @@ namespace IcarusStarlink.App;
 public partial class App : Application
 {
     private IHost? _host;
+
+    /// <summary>The app's settings, for windows created outside DI (WindowSizeMemory); null in tests.</summary>
+    internal static ISettingsService? Settings { get; private set; }
     private SingleInstanceService? _singleInstanceService;
     private string _logsDirectory = string.Empty;
 
@@ -389,6 +392,7 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "settings.json"),
             Path.Combine(appDataDirectory, "Staged_UE4SS")));
         builder.Services.AddSingleton<WeeklyChangesViewModel>();
+        builder.Services.AddSingleton(sp => new DatabaseViewModel(sp.GetRequiredService<NexusCatalogViewModel>(), sp.GetRequiredService<LibraryViewModel>()));
         builder.Services.AddSingleton(sp => new GameEditorViewModel(sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data")));
         builder.Services.AddSingleton(sp => new ServerViewModel(
             sp.GetRequiredService<IFtpSiteStore>(),
@@ -414,7 +418,10 @@ public partial class App : Application
             sp.GetRequiredService<ISettingsService>(),
             Path.Combine(appDataDirectory, "Staged_Build", "ISL-Merged_P.pak"),
             Path.Combine(appDataDirectory, "Backups"),
-            firewall: sp.GetRequiredService<IFirewallService>()));
+            firewall: sp.GetRequiredService<IFirewallService>())
+        {
+            DataFolder = Path.Combine(appDataDirectory, "Data"),
+        });
         builder.Services.AddSingleton<IFirewallService, FirewallService>();
         builder.Services.AddSingleton<HelpViewModel>();
 
@@ -474,6 +481,7 @@ public partial class App : Application
 
             _host = builder.Build();
             _host.Start();
+            Settings = _host.Services.GetRequiredService<ISettingsService>();
 
             var logger = _host.Services.GetRequiredService<ILogger<App>>();
             var appVersion = Assembly.GetExecutingAssembly()

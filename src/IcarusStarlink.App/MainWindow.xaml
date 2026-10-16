@@ -13,6 +13,9 @@
         <DataTemplate DataType="{x:Type vm:LibraryViewModel}">
             <views:LibraryView/>
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:DatabaseViewModel}">
+            <views:DatabaseView/>
+        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:NexusCatalogViewModel}">
             <views:NexusCatalogView/>
         </DataTemplate>
@@ -144,7 +147,7 @@
                                      "brand" colors than as neutral-foreground-derived tones, and
                                      selection is already shown via the row's own background/accent
                                      bar, not the icon's color. -->
-                                <DataTrigger Binding="{Binding Id}" Value="nexus">
+                                <DataTrigger Binding="{Binding Id}" Value="database">
                                     <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconGlobeMeridian}"/>
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#E08A3C"/>
                                 </DataTrigger>

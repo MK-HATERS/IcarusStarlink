@@ -2001,7 +2001,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         var candidates = AllLibraryItems().Where(i => i.IsOpaquePak && !i.IsMergedPack && !i.IsPakBundle).ToList();
         if (candidates.Count == 0)
         {
-            StatusMessage = "No opaque mods to convert.";
+            StatusMessage = "No prebuilt paks left to make editable.";
             return;
         }
 
@@ -2046,8 +2046,8 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
 
             StatusMessage = stillOpaqueCount > 0
-                ? $"Converted {convertedCount} of {candidates.Count} opaque mod(s) — {stillOpaqueCount} couldn't convert right now (see Activity log)."
-                : $"Converted all {convertedCount} opaque mod(s) to real, editable EXMODs.";
+                ? $"Made {convertedCount} of {candidates.Count} prebuilt pak(s) editable — {stillOpaqueCount} couldn't convert right now (see Activity log)."
+                : $"Made all {convertedCount} prebuilt pak(s) editable.";
         }
         finally
         {
@@ -2235,7 +2235,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
     }
 
-    /// <summary>Takes the user to this mod in the community Database, pre-searched by name — the spec's "open DB from a library row". The IMM Database tab now lives on this same page, so this is just a tab switch, not a cross-page navigation.</summary>
+    /// <summary>Takes the user to this mod in the community Database (the Database page's IMM Database tab), pre-searched by name.</summary>
     [RelayCommand]
     private void FindInDatabase(LibraryItemViewModel? item)
     {
@@ -2245,7 +2245,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         Downloads.CatalogSearchText = item.Name;
-        SelectedTabIndex = 2;
+        WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("imm-database"));
     }
 
     /// <summary>
@@ -2511,7 +2511,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Couldn't open the editor: {ex.Message}";
+            StatusMessage = $"Couldn't open the mod editor: {ex.Message}";
         }
     }
 
@@ -2581,7 +2581,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Couldn't open the editor: {ex.Message}";
+            StatusMessage = $"Couldn't open the mod editor: {ex.Message}";
         }
     }
 
@@ -2751,7 +2751,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
             StatusMessage = entry.IsOpaquePak
                 ? $"Imported '{entry.Name}'."
-                : $"Imported '{entry.Name}' as a real, editable mod — its data changes are now visible in the editor.";
+                : $"Imported '{entry.Name}' as a real, editable mod — its data changes are now visible in the mod editor.";
             LogImportWarnings(pakFilePath, entry.ImportWarnings);
             StatusMessage += ExtractedModClassifier.WarningSummary(entry.ImportWarnings);
             Reload();
@@ -3147,7 +3147,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         // own game-data search already uses for the identical underlying condition.
         if (!Directory.Exists(_dataFolder) || !Directory.EnumerateFiles(_dataFolder, "*.json", SearchOption.AllDirectories).Any())
         {
-            StatusMessage = "No game data found — run Update data folder in Settings first.";
+            StatusMessage = "No game data found — run Refresh game data in Settings first.";
             return;
         }
 

@@ -59,7 +59,9 @@ public sealed partial class MainViewModel : ObservableObject
         [
             // Its own top-level item rather than a Downloads sub-tab, per explicit user request
             // (Phase 8.3).
-            new NavItem("nexus", "Nexus", typeof(NexusCatalogViewModel)),
+            // Nexus and the IMM Database together — everywhere mods can be found ("nexus" and
+            // "imm-database" hand-offs land on its tabs).
+            new NavItem("database", "Database", typeof(DatabaseViewModel)),
             // What was downloaded and what became of it — its own page, like every mod organizer.
             // It used to be a grid wedged into the Library page between the toolbar and the mod
             // list ("Downloads needing attention"), which is where a real user lost track of it.
@@ -93,11 +95,21 @@ public sealed partial class MainViewModel : ObservableObject
         WeakReferenceMessenger.Default.Register<NavigateToPageMessage>(this, (recipient, message) =>
         {
             var viewModel = (MainViewModel)recipient;
-            var target = viewModel.NavItems.FirstOrDefault(item => item.Id == message.NavItemId);
+            var id = message.NavItemId is "nexus" or "imm-database" ? "database" : message.NavItemId;
+            var target = viewModel.NavItems.FirstOrDefault(item => item.Id == id);
             if (target is not null)
             {
                 viewModel.SelectedNavItem = target;
             }
+        });
+
+        // "Turn on and go to Merge & Install" after a save: the shell owns both the page and the queue's VM.
+        WeakReferenceMessenger.Default.Register<TurnOnModMessage>(this, (recipient, message) =>
+        {
+            var viewModel = (MainViewModel)recipient;
+            viewModel._serviceProvider.GetRequiredService<MergeInstallViewModel>().AddToQueueByFolderNames([message.FolderName]);
+            viewModel.SelectedNavItem = viewModel.NavItems.First(item => item.Id == "merge");
+            System.Windows.Application.Current?.MainWindow?.Activate();
         });
 
         // Deliberately not selecting a default page here: the first page (Library) resolves a

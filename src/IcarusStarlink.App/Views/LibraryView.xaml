@@ -87,22 +87,22 @@
                              are greyed out for them (not hidden, which left the menu as two stray
                              separators). -->
                         <MenuItem Header="Open on Nexus" Command="{Binding OpenOnNexusCommand}" IsEnabled="{Binding HasNexusLink}"
-                                  ToolTip="Open this mod's Nexus page in your browser" ToolTipService.ShowOnDisabled="True"/>
+                                  ToolTip="Open this mod's Nexus page in your browser. Greyed out: this mod isn't linked to Nexus." ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="{Binding NexusLinkActionLabel}"
                                   Command="{Binding PlacementTarget.Tag.LinkUe4ssModToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding IsUserAdded}"
-                                  ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates. Not for UE4SS's own built-in mods."
+                                  ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates. Greyed out: one of UE4SS's own built-in mods."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="Set minimum UE4SS version…"
                                   Command="{Binding PlacementTarget.Tag.SetMinUe4ssVersionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding IsUserAdded}"
-                                  ToolTip="Declare the minimum UE4SS loader version this mod needs, so this app can warn you if your installed loader is older"
+                                  ToolTip="Declare the minimum UE4SS loader version this mod needs, so this app can warn you if your installed loader is older. Greyed out: one of UE4SS's own built-in mods."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <Separator/>
                         <MenuItem Header="Delete"
                                   Command="{Binding PlacementTarget.Tag.DeleteUe4ssModCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding IsUserAdded}"
-                                  ToolTip="Removes this mod from the game's Mods folder (backed up first) and from staging — asks first. UE4SS's own built-in mods can only be turned off."
+                                  ToolTip="Removes this mod from the game's Mods folder (backed up first) and from staging — asks first. Greyed out: one of UE4SS's own built-in mods, which can only be turned off."
                                   ToolTipService.ShowOnDisabled="True"/>
                     </ContextMenu>
                 </Grid.ContextMenu>
@@ -272,7 +272,7 @@
                         <MenuItem Header="Convert to EXMOD…"
                                   Command="{Binding PlacementTarget.Tag.ConvertToExmodCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding IsOpaquePak}"
-                                  ToolTip="Turns this prebuilt .pak import into a real, editable mod by diffing its own data against the current game data — backs up the original first. Only available for a prebuilt-pak import; a real EXMOD mod is already editable."
+                                  ToolTip="Turns this prebuilt .pak import into a real, editable mod by diffing its own data against the current game data — backs up the original first. Greyed out: this mod is already editable."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <Separator/>
                         <MenuItem Header="Create mod backup"
@@ -282,12 +282,12 @@
                         <MenuItem Header="Restore latest backup"
                                   Command="{Binding PlacementTarget.Tag.RestoreModBackupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding HasModBackup}"
-                                  ToolTip="Replaces this mod's current content with its most recent backup"
+                                  ToolTip="Replaces this mod's current content with its most recent backup. Greyed out: no backup yet (Create mod backup, or an update, makes one)."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="See what changed vs previous version…"
                                   Command="{Binding PlacementTarget.Tag.CompareToPreviousVersionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding HasModBackup}"
-                                  ToolTip="Shows exactly which values and files the author changed between your previous copy and the current one — read-only, nothing is restored"
+                                  ToolTip="Shows exactly which values and files the author changed between your previous copy and the current one — read-only, nothing is restored. Greyed out: no previous copy kept yet."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="Find in Database"
                                   Command="{Binding PlacementTarget.Tag.FindInDatabaseCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
@@ -298,17 +298,17 @@
                                   CommandParameter="{Binding}"
                                   ToolTip="Search Nexus for this mod by name — useful when it has no Nexus link yet"/>
                         <MenuItem Header="Open on Nexus" Command="{Binding OpenOnNexusCommand}" IsEnabled="{Binding HasNexusLink}"
-                                  ToolTip="Open this mod's Nexus page in your browser"
+                                  ToolTip="Open this mod's Nexus page in your browser. Greyed out: this mod isn't linked to Nexus."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="{Binding NexusLinkActionLabel}"
                                   Command="{Binding PlacementTarget.Tag.LinkToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
                                   ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates"/>
                         <MenuItem Header="Endorse" Command="{Binding EndorseCommand}"
-                                  ToolTip="Endorses this mod on Nexus, on your account's behalf"
+                                  ToolTip="Endorses this mod on Nexus, on your account's behalf. Greyed out: not linked to Nexus, or already endorsed."
                                   ToolTipService.ShowOnDisabled="True"/>
-                        <MenuItem Header="Abstain" Command="{Binding AbstainCommand}"
-                                  ToolTip="Marks this mod as abstained on Nexus — use if you don't want to endorse it but also don't want it counted against you either way"
+                        <MenuItem Header="Don't endorse (stop asking)" Command="{Binding AbstainCommand}"
+                                  ToolTip="Tells Nexus you've decided not to endorse this mod, so you aren't asked again (Nexus calls this &quot;abstain&quot;). Greyed out: not linked to Nexus, or already set."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <Separator/>
                         <MenuItem Header="Delete"
@@ -340,7 +340,7 @@
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
-                          ToolTip="Locally edited in the EXMOD editor"
+                          ToolTip="Changed in the mod editor"
                           Visibility="{Binding IsLocallyEdited, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <Path Data="{StaticResource IconPackage}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.4"
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
@@ -490,7 +490,7 @@
                             </Path.Style>
                         </Path>
                     </ToggleButton>
-                    <Button Style="{StaticResource IconButtonStyle}" Width="22" Height="22" ToolTip="Edit…" AutomationProperties.Name="Edit mod"
+                    <Button Style="{StaticResource IconButtonStyle}" Width="22" Height="22" ToolTip="Open in mod editor" AutomationProperties.Name="Open in mod editor"
                             Command="{Binding DataContext.EditItemCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
                             Visibility="{Binding CanEdit, Converter={StaticResource BoolToVisibilityConverter}}">
@@ -561,8 +561,7 @@
 
         <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
 
-        <TabControl Grid.Row="1" Margin="0,12,0,0" SelectedIndex="{Binding SelectedTabIndex}">
-            <TabItem Header="Mods">
+        <Border Grid.Row="1" Margin="0,12,0,0">
                 <!-- IsSharedSizeScope + SharedSizeGroup (on the header Grid below and on the row
                      DataTemplate's own Grid, in UserControl.Resources above) is the real fix for
                      column alignment — a Width="*" column plainly does NOT resolve to a shared,
@@ -623,7 +622,7 @@
                                               ToolTip="A .zip/.rar/.7z/.EXMODZ — automatically recognized as an EXMOD-shaped mod, a bare .pak, or a UE4SS mod, whatever's actually inside"/>
                                     <MenuItem Header="Import folder…" Command="{Binding ImportFolderCommand}"/>
                                     <MenuItem Header="Import .pak…" Command="{Binding ImportPakCommand}"
-                                              ToolTip="Import a prebuilt .pak as an opaque library entry — no .EXMOD, can't be browsed or edited"/>
+                                              ToolTip="Import a prebuilt .pak as it is — it installs, but can't be browsed or edited until it's made editable"/>
                                     <MenuItem Header="Import UE4SS mod…" Command="{Binding ImportUe4ssModCommand}"
                                               ToolTip="A UE4SS (Lua) mod archive — lands in the list unticked; tick it and click Apply"/>
                                 </ContextMenu>
@@ -645,15 +644,15 @@
                             <Button.ContextMenu>
                                 <ContextMenu Placement="Bottom">
                                     <MenuItem Header="Check for updates" Command="{Binding CheckForUpdatesCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Checks every Nexus- or Database-sourced mod against its real current version"/>
+                                              ToolTip="Checks every Nexus- or Database-sourced mod against its real current version (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Update all" Command="{Binding UpdateAllCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Updates every mod the last check found outdated — catalog mods in place, Nexus mods listed on the Nexus page for one-click download"/>
+                                              ToolTip="Updates every mod the last check found outdated — catalog mods in place, Nexus mods listed on the Nexus page for one-click download (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Check mods against game data" Command="{Binding CheckModsAgainstCurrentDataCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Diffs every mod against the currently-extracted game data — flags items that look like they're editing a row this game version no longer has, and auto-fixes any confident, unambiguous rename (each mod is backed up first)"/>
+                                              ToolTip="Diffs every mod against the currently-extracted game data — flags items that look like they're editing a row this game version no longer has, and auto-fixes any confident, unambiguous rename (each mod is backed up first) (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Check endorsements" Command="{Binding CheckEndorsementsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Fetches your Nexus account's own endorsement history and shows which of your Nexus-linked mods you haven't endorsed yet"/>
-                                    <MenuItem Header="Convert opaque mods…" Command="{Binding ConvertAllOpaqueModsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Retries Convert to EXMOD for every opaque .pak entry right now — useful right after setting up UnrealPak.exe or extracting game data, instead of waiting for the next automatic refresh (which runs quietly after every Update data folder)"/>
+                                              ToolTip="Fetches your Nexus account's own endorsement history and shows which of your Nexus-linked mods you haven't endorsed yet (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
+                                    <MenuItem Header="Make prebuilt paks editable…" Command="{Binding ConvertAllOpaqueModsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
+                                              ToolTip="Tries again to turn every prebuilt .pak mod into an editable mod — useful right after setting up UnrealPak.exe or refreshing game data (it also runs by itself after every Refresh game data) (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
                                 </ContextMenu>
                             </Button.ContextMenu>
                             <StackPanel Orientation="Horizontal">
@@ -919,258 +918,7 @@
                     </StackPanel>
 
                 </Grid>
-            </TabItem>
-            <!-- Last, per explicit placement request — folded in from the former standalone
-                 Downloads page. Every binding here targets Downloads (the nested DownloadsViewModel),
-                 not this page's own LibraryViewModel DataContext. -->
-            <TabItem Header="IMM Database">
-                <Grid Margin="0,12,0,0">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-
-                    <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="True">
-                        <Grid DockPanel.Dock="Right" Margin="8,0,0,0">
-                            <Button x:Name="ColumnsButton" Command="{Binding Downloads.ToggleColumnsMenuCommand}" AutomationProperties.Name="Columns">
-                                <StackPanel Orientation="Horizontal">
-                                    <Path Data="{StaticResource IconGearTeeth}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
-                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                                    <TextBlock Text="Columns" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <Popup PlacementTarget="{Binding ElementName=ColumnsButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
-                                   IsOpen="{Binding Downloads.IsColumnsMenuOpen, Mode=TwoWay}"
-                                   DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                                <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                                        BorderThickness="1" CornerRadius="4" Padding="10" MinWidth="170">
-                                    <StackPanel>
-                                        <TextBlock Text="Columns" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
-                                        <CheckBox Content="Author" IsChecked="{Binding Downloads.ShowAuthorColumn}" Margin="0,3"/>
-                                        <CheckBox Content="Version" IsChecked="{Binding Downloads.ShowVersionColumn}" Margin="0,3"/>
-                                        <CheckBox Content="Inst.Ver" IsChecked="{Binding Downloads.ShowInstalledVersionColumn}" Margin="0,3"/>
-                                        <CheckBox Content="Compat." IsChecked="{Binding Downloads.ShowCompatibilityColumn}" Margin="0,3"/>
-                                        <CheckBox Content="Category" IsChecked="{Binding Downloads.ShowCategoryColumn}" Margin="0,3"/>
-                                        <CheckBox Content="Status" IsChecked="{Binding Downloads.ShowStatusColumn}" Margin="0,3"/>
-                                        <CheckBox Content="Last Updated" IsChecked="{Binding Downloads.ShowLastUpdatedColumn}" Margin="0,3"/>
-                                    </StackPanel>
-                                </Border>
-                            </Popup>
-                        </Grid>
-                        <Button DockPanel.Dock="Right" Content="Clear filters" Command="{Binding Downloads.ClearCatalogFiltersCommand}" Margin="8,0,0,0"/>
-                        <Button DockPanel.Dock="Right" Command="{Binding Downloads.DownloadAndExtractSelectedCommand}" Margin="8,0,0,0"
-                                ToolTip="Downloads and imports every selected mod, one after another — Ctrl/Shift-click rows to select more than one"
-                                Visibility="{Binding Downloads.HasCatalogSelectionForBatch, Converter={StaticResource BoolToVisibilityConverter}}"
-                                AutomationProperties.Name="Download and extract selected">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                                <TextBlock Text="{Binding Downloads.SelectedCatalogEntryCount, StringFormat='Download selected ({0})'}" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Button DockPanel.Dock="Right" Command="{Binding Downloads.RefreshCatalogCommand}" Style="{StaticResource PrimaryButtonStyle}" AutomationProperties.Name="Refresh">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource AccentForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
-                                <TextBlock Text="Refresh" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Grid Margin="0,0,8,0">
-                            <TextBox Text="{Binding Downloads.CatalogSearchText, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="Search by name, author, or description"/>
-                            <TextBlock Text="Search mods by name, author, or description…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding Downloads.CatalogSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
-                    </DockPanel>
-
-                    <!-- WrapPanel, not a horizontal StackPanel — at a narrow window width this row has
-                         more controls than fit on one line, and a StackPanel would just clip the
-                         overflow off the right edge with no way to reach it; WrapPanel drops the
-                         overflow onto a second line instead. -->
-                    <WrapPanel Grid.Row="1" Margin="0,0,0,8">
-                        <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
-                            <TextBlock Text="Author:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                            <ComboBox ItemsSource="{Binding Downloads.AvailableAuthors}" SelectedItem="{Binding Downloads.SelectedAuthor}" Width="160"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
-                            <TextBlock Text="Category:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                            <ComboBox ItemsSource="{Binding Downloads.AvailableCategories}" SelectedItem="{Binding Downloads.SelectedCategory}" Width="160"/>
-                        </StackPanel>
-                        <CheckBox Content="Show updates only" IsChecked="{Binding Downloads.ShowUpdatesOnly}" VerticalAlignment="Center" Margin="0,0,12,4"/>
-                        <CheckBox Content="Extracted only" IsChecked="{Binding Downloads.ExtractedOnly}" VerticalAlignment="Center" Margin="0,0,12,4"/>
-                        <CheckBox Content="Not downloaded only" IsChecked="{Binding Downloads.NotDownloadedOnly}" VerticalAlignment="Center" Margin="0,0,0,4"/>
-                    </WrapPanel>
-
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Game week:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                        <TextBox Text="{Binding Downloads.GameWeek, UpdateSourceTrigger=PropertyChanged}" Width="60" Margin="0,0,12,0"
-                                 ToolTip="The Icarus game week to compare mods against. Higher = only mods made for newer weeks count as current; lower = older mods count too."/>
-                        <CheckBox Content="Hide older weeks" IsChecked="{Binding Downloads.HideOlderWeeks}" VerticalAlignment="Center" Margin="0,0,16,0"/>
-                        <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12">
-                            <Run Text="{Binding Downloads.CatalogShownCount, Mode=OneWay}"/><Run Text=" shown / "/><Run Text="{Binding Downloads.CatalogTotalCount, Mode=OneWay}"/><Run Text=" in catalog"/>
-                        </TextBlock>
-                        <TextBlock Text=" — loading…" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" FontSize="12"
-                                   Visibility="{Binding Downloads.IsLoadingCatalog, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                    </StackPanel>
-
-                    <Grid Grid.Row="3">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="16"/>
-                            <ColumnDefinition Width="280"/>
-                        </Grid.ColumnDefinitions>
-
-                        <!-- IsReadOnly is load-bearing, not cosmetic: without it, double-clicking any
-                             cell makes WPF's DataGrid try to enter edit mode on a TwoWay binding to a
-                             get-only CatalogEntryViewModel property, which throws an unhandled
-                             InvalidOperationException and crashes the whole app — confirmed live. -->
-                        <DataGrid Grid.Column="0" x:Name="CatalogGrid" ItemsSource="{Binding Downloads.CatalogEntries}" SelectedItem="{Binding Downloads.SelectedCatalogEntry}"
-                                  IsReadOnly="True" SelectionChanged="CatalogGrid_SelectionChanged" MouseDoubleClick="CatalogGrid_MouseDoubleClick">
-                            <DataGrid.RowStyle>
-                                <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsOutdated}" Value="True">
-                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding IsDownloaded}" Value="True">
-                                            <Setter Property="FontStyle" Value="Italic"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </DataGrid.RowStyle>
-                            <DataGrid.Columns>
-                                <!-- Fixed pixel widths on every column, not Star ("*"): a Star column
-                                     always redistributes space among its sibling Star columns on any
-                                     resize, so dragging one wider steals width from the others instead
-                                     of growing the grid's total content width — which is also why no
-                                     horizontal scrollbar could ever appear. Fixed widths let content
-                                     genuinely overflow the viewport, so resizing one column no longer
-                                     crunches the rest; the DataGrid's default ControlTemplate already
-                                     shows a horizontal scrollbar (HorizontalScrollBarVisibility="Auto"
-                                     is its own built-in default) once that happens. -->
-                                <DataGridTextColumn Header="Mod Name" Binding="{Binding Name}" Width="220"/>
-                                <DataGridTextColumn Header="Author" Binding="{Binding Author}" Width="120"
-                                                     Visibility="{Binding Data.ShowAuthorColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="70"
-                                                     Visibility="{Binding Data.ShowVersionColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                <DataGridTextColumn Header="Inst.Ver" Binding="{Binding InstalledVersion}" Width="70"
-                                                     Visibility="{Binding Data.ShowInstalledVersionColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                <DataGridTextColumn Header="Compat." Binding="{Binding CompatibilityDisplay}" Width="70"
-                                                     Visibility="{Binding Data.ShowCompatibilityColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                <DataGridTextColumn Header="Category" Binding="{Binding CategoryDisplay}" Width="150"
-                                                     Visibility="{Binding Data.ShowCategoryColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                <DataGridTemplateColumn Header="Status" Width="90"
-                                                         Visibility="{Binding Data.ShowStatusColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <!-- Phase 10: a small semantic badge instead of plain text — same
-                                                 pill treatment Merge & Install's conflict badge uses. -->
-                                            <Border CornerRadius="8" Padding="7,2" HorizontalAlignment="Left" VerticalAlignment="Center">
-                                                <Border.Style>
-                                                    <Style TargetType="Border">
-                                                        <Setter Property="Background" Value="{DynamicResource CardRaisedBackgroundBrush}"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsOutdated}" Value="True">
-                                                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
-                                                            </DataTrigger>
-                                                            <DataTrigger Binding="{Binding IsDownloaded}" Value="True">
-                                                                <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Border.Style>
-                                                <TextBlock Text="{Binding Status}" FontSize="10.5" FontFamily="Consolas">
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsOutdated}" Value="True">
-                                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                                                </DataTrigger>
-                                                                <DataTrigger Binding="{Binding IsDownloaded}" Value="True">
-                                                                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
-                                            </Border>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="Last Updated" Binding="{Binding LastUpdatedDisplay}" Width="90"
-                                                     Visibility="{Binding Data.ShowLastUpdatedColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
-
-                        <Grid Grid.Column="2">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-
-                            <TextBlock Grid.Row="0" Text="Select a mod to see its details and download it."
-                                       Style="{StaticResource PageBodyTextStyle}" Margin="0,8,0,0"
-                                       Visibility="{Binding Downloads.SelectedCatalogEntry, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-
-                            <StackPanel Grid.Row="0" Visibility="{Binding Downloads.SelectedCatalogEntry, Converter={StaticResource NullToVisibilityConverter}}">
-                                <Grid Height="120" Margin="0,0,0,8">
-                                    <Border Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                                            BorderThickness="1" CornerRadius="6">
-                                        <Path Data="{StaticResource IconMountains}" Stroke="{DynamicResource FaintForegroundBrush}" StrokeThickness="1.6"
-                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="30" Height="30" Stretch="Uniform"/>
-                                    </Border>
-                                    <!-- Sits on top of the placeholder above and only becomes visible
-                                         once a real ImageUrl exists — this panel never actually had a
-                                         real Image element before, just the placeholder unconditionally,
-                                         even though the same real per-mod image already renders
-                                         correctly in the "More details…" pop-out below. -->
-                                    <Image Source="{Binding Downloads.SelectedCatalogEntry.Entry.ImageUrl}" Stretch="UniformToFill"
-                                           Visibility="{Binding Downloads.SelectedCatalogEntry.Entry.ImageUrl, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                </Grid>
-                                <TextBlock Text="{Binding Downloads.SelectedCatalogEntry.Name}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                                <TextBlock Margin="0,2,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}">
-                                    <Run Text="{Binding Downloads.SelectedCatalogEntry.Author, Mode=OneWay}"/>
-                                    <Run Text=" · v"/>
-                                    <Run Text="{Binding Downloads.SelectedCatalogEntry.Version, Mode=OneWay}"/>
-                                </TextBlock>
-                                <TextBlock Text="{Binding Downloads.SelectedCatalogEntry.Entry.Description}" Style="{StaticResource PageBodyTextStyle}" MaxWidth="260" Margin="0,0,0,12"/>
-                                <Button Command="{Binding Downloads.DownloadAndExtractCommand}"
-                                        Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,0,8"
-                                        IsEnabled="{Binding Downloads.SelectedCatalogEntry.HasDownloadableFile}"
-                                        AutomationProperties.Name="Download and extract">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
-                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                                        <TextBlock Text="Download &amp; extract" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Command="{Binding Downloads.OpenCatalogReadmeCommand}" AutomationProperties.Name="Open readme" Margin="0,0,0,8">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
-                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                                        <TextBlock Text="Open readme" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Click="ShowCatalogEntryDetails_Click" AutomationProperties.Name="More details"
-                                        ToolTip="Opens a bigger pop-out with the full description, image, and catalog info for the selected mod">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource IconInfo}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
-                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
-                                        <TextBlock Text="More details…" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                            </StackPanel>
-                        </Grid>
-                    </Grid>
-
-                    <TextBlock Grid.Row="4" Margin="0,8,0,0" Text="{Binding Downloads.CatalogStatusMessage}"
-                               Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"/>
-                </Grid>
-            </TabItem>
-        </TabControl>
+        </Border>
 
         <TextBlock Grid.Row="2" Margin="0,8,0,0"
                     Text="{Binding StatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"/>
