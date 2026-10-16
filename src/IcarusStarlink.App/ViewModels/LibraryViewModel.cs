@@ -1460,6 +1460,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         {
             var entry = await _prebuiltPakImporter.ImportAsync(path, _dataFolder, _settingsService.Current.UnrealPakExePath);
             _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
+            LogImportWarnings(path, entry.ImportWarnings);
             return;
         }
 
@@ -2757,6 +2758,11 @@ public sealed partial class LibraryViewModel : ObservableObject
             StatusMessage = entry.IsOpaquePak
                 ? $"Imported '{entry.Name}'."
                 : $"Imported '{entry.Name}' as a real, editable mod — its data changes are now visible in the editor.";
+            LogImportWarnings(pakFilePath, entry.ImportWarnings);
+            if (entry.ImportWarnings.Count > 0)
+            {
+                StatusMessage += $" Warning: {entry.ImportWarnings[0]}" + (entry.ImportWarnings.Count > 1 ? $" (+{entry.ImportWarnings.Count - 1} more in the Activity panel)" : "");
+            }
             Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);

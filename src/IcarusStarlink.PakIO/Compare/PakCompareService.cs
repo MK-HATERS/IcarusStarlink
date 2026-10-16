@@ -30,8 +30,8 @@ public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPak
 
         try
         {
-            await unrealPakService.ExtractPakAsync(unrealPakExePath, firstPakPath, firstDirectory, cancellationToken);
-            await unrealPakService.ExtractPakAsync(unrealPakExePath, secondPakPath, secondDirectory, cancellationToken);
+            await unrealPakService.ExtractUnderGameContentAsync(unrealPakExePath, firstPakPath, firstDirectory, cancellationToken);
+            await unrealPakService.ExtractUnderGameContentAsync(unrealPakExePath, secondPakPath, secondDirectory, cancellationToken);
 
             // The comparison itself is pure CPU + file reads over potentially hundreds of files —
             // kept off the caller's thread the same way RebuildService's own merge phase is.

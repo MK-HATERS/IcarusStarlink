@@ -51,23 +51,20 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             {
                 var prebuiltScratchDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"PrebuiltPakScratch_{Guid.NewGuid():N}");
                 prebuiltPakScratchDirectories[prebuiltPakPath] = prebuiltScratchDirectory;
-                await unrealPakService.ExtractPakAsync(unrealPakExePath, prebuiltPakPath, prebuiltScratchDirectory, cancellationToken);
-
-                // UnrealPak -Extract writes a pak's files flat relative to ITS mount point, which can
-                // sit below the content root (found live: WirelessPower's model pak mounts at
-                // Content/Mods/WirelessPower/). Folding those files in at the staging root — the old
-                // behavior — mounted them at /Game/<file> in the merged pak, so the mod's models
-                // never loaded. The prefix restages them where the original pak had them; see
-                // PakMountPoints.
-                var mountPoint = await unrealPakService.TryGetMountPointAsync(unrealPakExePath, prebuiltPakPath, cancellationToken);
-                if (PakMountPoints.IsOutsideGameContent(mountPoint))
+                // UnrealPak -Extract writes a pak's files relative to ITS mount point, which can sit
+                // below the content root (WirelessPower's models at Content/Mods/WirelessPower/, a
+                // Nexus stack pak at Content/data/Traits/) or above it (a day/night pak at "../../../").
+                // Restaged under the content root right away, so the field-level diff below finds the
+                // pak's tables under data/ and the fold-in puts its assets where the original pak did.
+                var outsideContent = await unrealPakService.ExtractUnderGameContentAsync(unrealPakExePath, prebuiltPakPath, prebuiltScratchDirectory, cancellationToken);
+                if (outsideContent.Count > 0)
                 {
                     report.AddWarning(
-                        $"Prebuilt pak '{Path.GetFileName(prebuiltPakPath)}' mounts outside the game's Content folder ('{mountPoint}') — "
-                        + "the merged pak can't reproduce that, so its files are folded in at the content root and may not load.");
+                        $"Prebuilt pak '{Path.GetFileName(prebuiltPakPath)}' has {outsideContent.Count} file(s) outside the game's Content folder (e.g. '{outsideContent[0]}') — "
+                        + "the merged pak can't reproduce that, so they are folded in at the content root and may not load.");
                 }
 
-                prebuiltPakMountPrefixes[prebuiltPakPath] = PakMountPoints.RelativePrefixUnderGameContent(mountPoint);
+                prebuiltPakMountPrefixes[prebuiltPakPath] = "";
             }
 
             // The merge computation (reading every required base-game JSON file, resolving field
@@ -319,7 +316,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             var scratchDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"PrebuiltPakScratch_{Guid.NewGuid():N}");
             try
             {
-                await unrealPakService.ExtractPakAsync(unrealPakExePath, prebuiltPakPath, scratchDirectory, cancellationToken);
+                await unrealPakService.ExtractUnderGameContentAsync(unrealPakExePath, prebuiltPakPath, scratchDirectory, cancellationToken);
                 var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
                 var (changes, _) = await Task.Run(
                     () => PrebuiltPakFieldChangeExtractor.Extract(scratchDirectory, dataFolder, pakName, classifier, report), cancellationToken);

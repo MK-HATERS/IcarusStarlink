@@ -30,6 +30,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// The fixture zips mirror the layouts of real Nexus downloads (see the audit memory): a
 /// game-folder bundle with a UE4SS mod plus two paks, and a plain zip wrapping an EXMODZ.
 /// </summary>
+[Collection(MessengerCollection.Name)]
 public sealed class DownloadsViewModelTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests", $"Downloads_{Guid.NewGuid():N}");

@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>The editor's Scale rules view and the Quality of life template, on a real (temporary) library and game data folder.</summary>
+[Collection(MessengerCollection.Name)]
 public sealed class ExmodEditorScaleRulesTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "EditorScale_" + Guid.NewGuid().ToString("N"));

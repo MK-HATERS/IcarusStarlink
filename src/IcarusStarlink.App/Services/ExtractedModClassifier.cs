@@ -130,6 +130,7 @@ public static class ExtractedModClassifier
                 // download (WirelessPower); otherwise the upload's own file name does.
                 var modName = ue4ssModFolders.Count == 1 ? Path.GetFileName(ue4ssModFolders[0]) : downloadName;
                 var entry = await ImportPakSetAsync(bundlePaks, modName, libraryRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId);
+                warnings = [.. warnings, .. entry.ImportWarnings];
                 items.Add(new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library));
                 names.Add(entry.Name);
                 anyOpaque |= entry.IsOpaquePak;
@@ -146,7 +147,7 @@ public static class ExtractedModClassifier
         if (pakFiles.Length >= 1)
         {
             var entry = await ImportPakSetAsync(pakFiles, downloadName, libraryRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId);
-            return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, entry.IsOpaquePak, requirements, warnings);
+            return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, entry.IsOpaquePak, requirements, [.. warnings, .. entry.ImportWarnings]);
         }
 
         // A real bug found live (a user's own Nexus bug report, confirmed by inspecting the actual

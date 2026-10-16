@@ -45,6 +45,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// established convention in SavesViewModelTests/LibraryItemViewModelTests/ConflictRowViewModelTests
 /// rather than a mocking framework or a real DI container.
 /// </summary>
+[Collection(MessengerCollection.Name)]
 public sealed class LibraryViewModelTests
 {
     // ---------------------------------------------------------------------------------------

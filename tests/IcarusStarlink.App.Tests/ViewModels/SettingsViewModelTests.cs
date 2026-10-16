@@ -69,6 +69,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// own final report for why EnsureUnrealPakOnLaunchAsync's own dialog-driven first-launch-install
 /// path specifically is deliberately NOT covered here.
 /// </summary>
+[Collection(MessengerCollection.Name)]
 public sealed class SettingsViewModelTests
 {
     private static WeeklyChangeReport MakeReport(int changedFileCount) => new(

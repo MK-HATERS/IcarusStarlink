@@ -22,6 +22,44 @@ public static partial class ModChangeSummarizer
     [GeneratedRegex(@"^\(Value=""(.+)""\)$")]
     private static partial Regex StatKeyPattern();
 
+    /// <summary>
+    /// Summarises an EXMOD against current game data, counting only the fields its items actually
+    /// set. Not ExmodBaseDiffer.DiffAgainstBase: that treats a field an item doesn't list as a
+    /// removal (right for a whole table copied out of a pak, wrong for an EXMOD's sparse items),
+    /// which buried "MaxStack ×10" under thousands of phantom "DisplayName changed" lines.
+    /// </summary>
+    public static IReadOnlyList<string> SummarizePackage(ExmodPackage package, string dataFolder)
+    {
+        var changes = new List<FieldChange>();
+        foreach (var row in package.Rows)
+        {
+            if (ExmodSentinelFiles.IsEndOfModMarker(row.CurrentFile))
+            {
+                continue;
+            }
+
+            var file = DataChanges.BaseDataFileReader.ParseFile(dataFolder, row.CurrentFile, report: null);
+            var baseRows = file is null ? null : DataChanges.DataTableJson.RowsToKeyedObject(file, _ => { });
+            var defaults = file?["Defaults"] as JsonObject;
+            foreach (var item in row.FileItems)
+            {
+                var baseRow = baseRows?[item.Name] as JsonObject;
+                foreach (var (field, value) in item.Fields)
+                {
+                    var before = baseRow is null ? null : baseRow[field] ?? defaults?[field];
+                    if (baseRow is not null && JsonNode.DeepEquals(before, value))
+                    {
+                        continue;
+                    }
+
+                    changes.Add(new FieldChange(row.CurrentFile, item.Name, field, before?.DeepClone(), value?.DeepClone(), ValueSemantic.Scalar, IsNewItem: baseRows is not null && baseRow is null));
+                }
+            }
+        }
+
+        return Summarize(changes);
+    }
+
     public static IReadOnlyList<string> Summarize(IReadOnlyList<FieldChange> changes)
     {
         var groups = new Dictionary<(string Table, string Path), Group>();

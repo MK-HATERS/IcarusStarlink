@@ -44,7 +44,14 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
 
         try
         {
-            await unrealPakService.ExtractPakAsync(unrealPakExePath, pakFilePath, scratchDirectory, cancellationToken);
+            // Under the content root whatever the pak's mount point: a single-table pak mounted at
+            // ".../Content/data/Traits/" otherwise extracts as a bare D_Itemable.json, which nothing
+            // below finds — it used to convert into an EXMOD with no changes that did nothing in game.
+            var outsideContent = await unrealPakService.ExtractUnderGameContentAsync(unrealPakExePath, pakFilePath, scratchDirectory, cancellationToken);
+
+            // Packed right? (junk files, files outside Content, tables built for an older game,
+            // tables shipped unchanged) — reported with the import, see PakContentLints.
+            PakContentLints.Inspect(scratchDirectory, dataFolder, pakName, outsideContent, report);
 
             var embedded = TryReadEmbeddedExmod(scratchDirectory, pakName, report);
             if (embedded is { } bundled && UncoveredDataTables(scratchDirectory, bundled.Package) is { Count: > 0 } uncovered)
@@ -127,7 +134,7 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
             foreach (var file in Directory.EnumerateFiles(scratchDirectory, "*", SearchOption.AllDirectories))
             {
                 var relativePath = Path.GetRelativePath(scratchDirectory, file).Replace('\\', '/');
-                if (isSupersededByPackageData(relativePath))
+                if (isSupersededByPackageData(relativePath) || PakContentLints.IsBuildLeftover(relativePath))
                 {
                     continue;
                 }

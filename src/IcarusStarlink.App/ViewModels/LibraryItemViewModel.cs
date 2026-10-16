@@ -1221,8 +1221,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         ChangesSummary = "Working out what this mod changes…";
         try
         {
-            var lines = await Task.Run(() => PakIO.Exmod.ModChangeSummarizer.Summarize(
-                PakIO.Exmod.ExmodBaseDiffer.DiffAgainstBase(package, dataFolder, new Diffing.DefaultSemanticClassifier())));
+            var lines = await Task.Run(() => PakIO.Exmod.ModChangeSummarizer.SummarizePackage(package, dataFolder));
             ChangesSummary = lines.Count == 0 ? "Nothing differs from current game data." : string.Join(Environment.NewLine, lines);
         }
         catch (Exception ex)

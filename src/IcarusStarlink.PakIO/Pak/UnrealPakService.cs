@@ -220,7 +220,7 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
     // after "Display: " so this pattern naturally skips them without special-casing.
     private static readonly Regex ListEntryPattern = new("""^LogPakFile: Display: "(?<path>[^"]+)" offset:""", RegexOptions.Compiled);
 
-    private static readonly Regex MountPointPattern = new(@"Mount point (?<mount>S+)", RegexOptions.Compiled);
+    private static readonly Regex MountPointPattern = new(@"Mount point (?<mount>\S+)", RegexOptions.Compiled);
 
     public async Task<string?> TryGetMountPointAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default)
     {

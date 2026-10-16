@@ -29,7 +29,9 @@ public sealed class PrebuiltPakImporter(
 
         if (converted is null)
         {
-            return libraryRepository.ImportPak(pakFilePath, source, nexusModId, catalogEntryId);
+            var opaque = libraryRepository.ImportPak(pakFilePath, source, nexusModId, catalogEntryId);
+            opaque.ImportWarnings = [.. report.Warnings];
+            return opaque;
         }
 
         var entry = packageImporter.ImportPackage(converted.Contents, source, nexusModId, catalogEntryId);
@@ -46,6 +48,7 @@ public sealed class PrebuiltPakImporter(
         // Keeps the original pak around (see IPrebuiltPakSourceStore's own doc comment) so a later
         // game update can re-derive a fresher diff instead of this conversion being frozen forever.
         sourceStore.Save(entry.FolderName, pakFilePath);
+        entry.ImportWarnings = [.. report.Warnings];
         return entry;
     }
 }

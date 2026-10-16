@@ -1010,6 +1010,15 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
                 WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
                 statusMessage = $"Imported '{entry.Name}' into your Library.";
+                foreach (var warning in entry.ImportWarnings)
+                {
+                    _activityLog.Log($"{entry.Name}: {warning}", ActivityEntryKind.Warning);
+                }
+
+                if (entry.ImportWarnings.Count > 0)
+                {
+                    statusMessage += $" Warning: {entry.ImportWarnings[0]}" + (entry.ImportWarnings.Count > 1 ? $" (+{entry.ImportWarnings.Count - 1} more in the Activity panel)" : "");
+                }
                 activatedItems = [new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library)];
                 _activityLog.Log($"Activated pending download '{entry.Name}'.", ActivityEntryKind.Success);
             }

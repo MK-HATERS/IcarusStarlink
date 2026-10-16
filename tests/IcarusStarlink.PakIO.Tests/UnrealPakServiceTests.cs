@@ -237,6 +237,23 @@ public class UnrealPakServiceTests : IDisposable
         Assert.Equal("Amount", change.FieldName);
     }
 
+    /// <summary>
+    /// The mount point parsed from REAL UnrealPak -List output (captured from Nexus paks). The
+    /// pattern was missing its backslash ("S+" for "\S+") from the day it was written, so it never
+    /// matched anything real; every test faked TryGetMountPointAsync and none caught it.
+    /// </summary>
+    [Theory]
+    [InlineData("LogPakFile: Display: Mount point ../../../Icarus/Content/data/Traits/|LogPakFile: Display: \"D_Itemable.json\" offset: 0", "../../../Icarus/Content/data/Traits/")]
+    [InlineData("LogInit: Display: Loading text-based GConfig....|LogPakFile: Display: Mount point ../../../|LogPakFile: Display: 2 files (963 bytes)", "../../../")]
+    public async Task TryGetMountPointAsync_ParsesRealUnrealPakOutput(string output, string expected)
+    {
+        var pak = Path.Combine(_tempDir, "x_P.pak");
+        File.WriteAllText(pak, "pak");
+        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(0, output.Replace("|", Environment.NewLine), "")));
+
+        Assert.Equal(expected, await service.TryGetMountPointAsync(_unrealPakExePath, pak));
+    }
+
     private sealed class CapturingProcessRunner(ProcessRunResult result) : IProcessRunner
     {
         public string? LastFileName { get; private set; }

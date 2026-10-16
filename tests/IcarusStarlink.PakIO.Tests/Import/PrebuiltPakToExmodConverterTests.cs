@@ -34,6 +34,12 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
     private sealed class FakeUnrealPakService : IUnrealPakService
     {
         public Dictionary<string, string> FakeExtractedFiles { get; } = [];
+
+        /// <summary>What UnrealPak -List would report as the pak's mount point (null: unknown).</summary>
+        public string? MountPoint { get; set; }
+
+        public Task<string?> TryGetMountPointAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult(MountPoint);
         public Exception? ThrowOnExtract { get; set; }
         public List<string> ExtractedPakPaths { get; } = [];
         public string? LastScratchDirectory { get; private set; }
@@ -144,6 +150,29 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         // The diffed data file is represented as a real field change above — it must not ALSO be
         // duplicated as a raw asset, or the two representations of the same content could drift.
         Assert.DoesNotContain(result.Contents.Assets, a => a.RelativePath == "data/Crafting/D_ProcessorRecipes.json");
+    }
+
+    /// <summary>
+    /// Real Nexus "BiggerStacks-Week-253": a single-table pak mounted at ".../Content/data/Traits/",
+    /// so UnrealPak extracts it as a bare D_Itemable.json. It used to convert into an EXMOD with no
+    /// changes (the mod then did nothing in game); now its real field changes come through.
+    /// </summary>
+    [Fact]
+    public async Task TryConvertAsync_PakMountedAtItsTablesFolder_StillFindsItsChanges()
+    {
+        WriteBaseTable("Traits/D_Itemable.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Fiber","MaxStack":200}]}""");
+        var report = new MergeReport();
+        var pakService = new FakeUnrealPakService { MountPoint = "../../../Icarus/Content/data/Traits/" };
+        pakService.FakeExtractedFiles["D_Itemable.json"] = """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Fiber","MaxStack":1000}]}""";
+        var converter = new PrebuiltPakToExmodConverter(pakService);
+
+        var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Bigger Stacks", "Someone", report);
+
+        Assert.NotNull(result);
+        var row = Assert.Single(result.Contents.Package.Rows);
+        Assert.Equal("Traits-D_Itemable.json", row.CurrentFile);
+        Assert.Equal(1000, Assert.Single(row.FileItems).Fields["MaxStack"]!.GetValue<int>());
+        Assert.Empty(result.Contents.Assets);
     }
 
     [Fact]

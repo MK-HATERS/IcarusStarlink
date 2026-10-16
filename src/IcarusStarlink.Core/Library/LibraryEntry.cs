@@ -74,6 +74,9 @@ public sealed class LibraryEntry
     /// </summary>
     public bool ConvertedFromPrebuiltPak { get; set; }
 
+    /// <summary>What the import found wrong with the mod's packaging (junk files, outdated tables …) — set on the entry a pak import returns, for the caller to show. Not stored.</summary>
+    public IReadOnlyList<string> ImportWarnings { get; set; } = [];
+
     /// <summary>
     /// Set when this opaque pak was imported alongside a sibling ISL-Merged.txt manifest — meaning
     /// it's a previously-Rebuild-and-Installed IcarusStarlink pak, re-imported as its own Library
