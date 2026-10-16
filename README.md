@@ -66,6 +66,15 @@ so a later game update can re-derive a fresher diff instead of the conversion be
 whatever the game looked like the day it first converted; once a converted mod is hand-edited, it's
 never silently touched again.
 
+**Check mods against game data** — finds what a game update left behind in a mod: values copied
+from an old version of the game, rows the game renamed or removed, links to rows that no longer
+exist (the kind of thing that stops a canteen being drinkable), and lists that mix old and new.
+Each finding says how sure it is. **Fix sure problems** applies only the certain ones (backed up
+first); everything else opens in a fix window with a side-by-side, line-by-line view of the mod's
+value against the game's, where you choose what to keep. Your choices are remembered, so the same
+question isn't asked again after the next game update. A link to a row another Library mod adds
+counts as a dependency, not a problem.
+
 **Merge & Install** — a merge queue with proactive conflict detection (including two mods adding a
 same-named new item, and a queue-wide check for a mod referencing something only another queued mod
 declares) and a manual per-field conflict picker that shows the live base-game value plus a
@@ -78,6 +87,11 @@ real community mod's where classic IMM never covered one) that participate in th
 detection as regular mods, profiles (with their own backup/restore) with exportable/importable
 patches, and a rebuild → install pipeline that backs up whatever it's about to replace and
 independently re-reads the pak it just built to confirm nothing staged for packing went missing.
+Conflicts can be decided per line: pick the winning mod for each conflicting field, and the
+profile remembers it. The queue and your last merge are kept across restarts. Everything installs
+as one merged pak (`zz_zz_ISL-Merged_9999_P.pak`, named so it loads after other paks); a runtime
+data pak written by ArcFission Library is folded into the merge at low priority, so the two don't
+override each other.
 
 **Weekly Changes** — a real, row-by-row diff of what the game's own data changed between two
 "Update data folder" runs, so you can see exactly why a mod broke after a patch instead of guessing.
@@ -87,23 +101,31 @@ sortable/filterable columns, plus a native Nexus browsing/search view backed by 
 (images, live search, per-card local-status badges, tracking) with `nxm://` protocol handling for
 one-click downloads from the website.
 
-**UE4SS** — enable/disable installed UE4SS (Lua scripting framework) mods without touching the
-framework's own built-in ones, install/update/fully uninstall the loader itself (uninstall
+**UE4SS** — the official UE4SS loader ships inside the app (hash-checked) and installs in one
+click, no download needed. Enable/disable installed UE4SS (Lua scripting framework) mods without
+touching the framework's own built-in ones, install/update/fully uninstall the loader itself (uninstall
 correctly tells your own mods apart from the framework's bundled ones and only ever removes the
 latter), link a UE4SS mod to its real Nexus page so it participates in update-checking the same way
 Library mods do, and declare a mod's own minimum required UE4SS version (there's no per-mod manifest
 to read this from automatically) to get a warning if your installed loader is older.
 
-**Server** — FTP file management for a dedicated Icarus server (upload/download/browse/delete),
-with saved site credentials in Windows Credential Manager and FileZilla-style reconnect; one-click
-sync of a merged pak, the UE4SS loader, and UE4SS mods to a connected server, with per-site remote
-path overrides for a host whose folder layout differs from the built-in default.
+**Server** — run an Icarus dedicated server on this PC: install it with SteamCMD (or adopt one you
+already have), start/stop/restart/update, a live log, server settings, creating a world on start,
+automation (restart on crash, daily restart, update on restart, start with the app), Windows
+firewall rules, installing your merged pak and UE4SS mods, world backups and restore, admins and
+bans, and each world's custom settings. For a server hosted elsewhere there's FTP file management
+(upload/download/browse/delete), with saved site credentials in Windows Credential Manager and
+FileZilla-style reconnect; one-click sync of a merged pak, the UE4SS loader, and UE4SS mods to a
+connected server, with per-site remote path overrides for a host whose folder layout differs from
+the built-in default.
 
 **Saves** — a full player save editor: characters (name, XP, duplicate/delete a slot), currencies,
 talents (character and account-wide Workshop research), account/character/binary unlock flags,
 Bestiary encounter progress, Accolade completion, the account-wide item bank (with real item/
 creature icons resolved straight from the base game's own compiled content, not text-only), and
-tamed mounts (name, level, species, delete) — with mandatory automatic backups before every write
+tamed mounts (name, level, species, delete), and each world's custom world settings
+(Arachnophobia Mode, Mission Structure Cleanup and the rest of the game's own list; Difficulty and
+Hardcore are shown but never changed) — with mandatory automatic backups before every write
 and hard safety gates (refuses to touch a save while the game is running, re-checked immediately
 before the write itself).
 
@@ -120,27 +142,14 @@ whether it's on the UI thread, the background startup sequence, or inside any as
 Rebuild/Install/FTP/downloads/save-editing — writes a crash report with the full exception, app/OS
 version, and recent activity history to the Logs folder, instead of the app previously either
 hard-crashing with nothing recorded or silently freezing/doing-nothing with no trace at all),
-diagnostics export (now also bundling app/OS version info and any crash reports alongside the
-regular logs), and an in-app Help page covering every feature above.
+a Basic log that's always on and capped so it never bloats (an Advanced log can be switched on
+in Settings for troubleshooting and turns itself off after 24 hours), diagnostics export (now also
+bundling app/OS version info and any crash reports alongside the regular logs), and an in-app Help page covering every feature above.
 
 ## What it doesn't (yet)
 
 - **Nexus single-click SSO login** — Nexus's SSO flow needs an application slug only their staff
   can issue; the app uses a manual paste-your-API-key flow instead.
-- **UnrealPak.exe isn't bundled into the app's own release zip** — it's fetched on first launch
-  (Settings → UnrealPak → Install) from a small, fixed, dedicated GitHub release in this same repo
-  (not re-bundled into every app version, since it's pinned to one Unreal build and doesn't change
-  release to release), pinned to the UE4 build Icarus itself uses (4.27) rather than "whatever's
-  newest" — a newer UE5 UnrealPak writes pak formats Icarus's own engine can't load. Real, concrete
-  exposure here, not just an unverified worry: the Unreal Engine EULA defines "Engine Tools" as
-  editors/tools included in the Engine Code (UnrealPak.exe is exactly that) and states any public
-  Distribution of Engine Tools must go through Epic's own Marketplace (Fab) or a fork of Epic's
-  GitHub UnrealEngine Network — neither of which is what hosting it as a downloadable GitHub release
-  asset does, same underlying concern as bundling it directly would have been. Classic IMM has
-  bundled UnrealPak.exe (a different distribution mechanism, same underlying exe) for years with no
-  known enforcement action, which is real-world precedent this is tolerated in practice, not
-  evidence it's actually permitted. This isn't legal advice — get a human legal read on the exact
-  current EULA text before a wider public release.
 - Material preview's base-game fallback only actually recovers texture/color values when the
   resolved parent is a plain base-game material — a common case (confirmed live against real mods:
   28 real textures and 17 real colors recovered for a real modded material that came back completely
@@ -167,17 +176,19 @@ gathered from the feature descriptions above:
 
 - **Your Icarus game install folder** — reads/extracts the game's own data, and writes merged
   `.pak` files into `Content\Paks\mods`. Every write that replaces something is backed up first.
-- **Your save files** — reads and writes them only through the Save editor, always backing up
-  before a write, and refuses to touch a save while the game is running (checked again
-  immediately before the write itself).
+- **Your save files** — reads and writes them only through the Save editor (and the world settings
+  editor, on the Saves and Server pages), always backing up before a write, and refuses to touch a
+  save while the game (or that server) is running (checked again immediately before the write
+  itself).
 - **Windows Credential Manager** — your Nexus API key and any FTP site passwords you save (Server
   tab) are stored here, the same OS-level store Windows itself uses, never in a plain text file.
 - **The Windows `nxm://` protocol handler** (`HKEY_CURRENT_USER` only, no admin rights needed) —
   registered so "Download with Manager" on the Nexus website opens straight into this app.
 - **Network calls this app makes**: the Nexus API (only once you've entered an API key, for
   browsing/search/downloads); GitHub (this app's own release check on every launch, the community
-  mod catalog, and — only when you click Install/Update in Settings — the UE4SS loader and
-  UnrealPak.exe); and, only if you configure one, your own FTP server on the Server tab. Nothing
+  mod catalog, and — only when you click Install/Update in Settings — UnrealPak.exe and a newer
+  UE4SS loader); SteamCMD and Steam's own servers, only when you install or update a dedicated
+  server; and, only if you configure one, your own FTP server on the Server tab. Nothing
   else. There is no telemetry, analytics, or usage tracking of any kind anywhere in this app.
 - **Self-update** — downloads only from this project's own GitHub Releases
   (`github.com/MK-HATERS/IcarusStarlink`), verifies the download's SHA-256 against GitHub's own
