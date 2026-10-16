@@ -24,7 +24,9 @@ public sealed class ModHealthCheckerTests : IDisposable
             rows.Add(new JsonObject { ["Name"] = $"Copied_{i}", ["Manual_Tags"] = Tags("A", "B"), ["Weight"] = 10 });
         }
 
-        Write("Items/D_ItemsStatic.json", rows);
+        rows.Add(new JsonObject { ["Name"] = "Canteen", ["Consumable"] = new JsonObject { ["RowName"] = "BasicWater" } });
+        Write("Items/D_ItemsStatic.json", rows, new JsonObject { ["Consumable"] = new JsonObject { ["RowName"] = "None", ["DataTableName"] = "D_Consumable" } });
+        Write("Traits/D_Consumable.json", new JsonArray { new JsonObject { ["Name"] = "BasicWater" }, new JsonObject { ["Name"] = "Juice" } });
         Write("Crafting/D_ProcessorRecipes.json", new JsonArray
         {
             new JsonObject
@@ -108,6 +110,28 @@ public sealed class ModHealthCheckerTests : IDisposable
 
         Assert.DoesNotContain(report.Issues, i => i.Kind == ModIssueKind.MissingRow);
         Assert.Equal(1, report.AuthorChangeCount);
+    }
+
+    /// <summary>
+    /// laanp's old copies linked the Canteen's drink effect to a "Canteen" consumable the game no
+    /// longer has, so it couldn't be drunk from. A link to a row that doesn't exist is a sure fix in
+    /// any mod; a link to a real other row, or to a row the mod adds itself, is the author's choice.
+    /// </summary>
+    [Fact]
+    public void ALinkToARowTheGameDoesntHave_IsASureFix_ButARealOrOwnRowIsTheAuthors()
+    {
+        var broken = Mod((Items, "Canteen", "Consumable", new JsonObject { ["RowName"] = "Canteen" }));
+        var real = Mod((Items, "Canteen", "Consumable", new JsonObject { ["RowName"] = "Juice" }));
+        var own = Mod((Items, "Canteen", "Consumable", new JsonObject { ["RowName"] = "Canteen_Drink" }), ("Traits-D_Consumable.json", "Canteen_Drink", "Modifier", 5));
+
+        var issue = Assert.Single(ModHealthChecker.Check(broken, _data).Issues);
+        Assert.Equal(ModIssueKind.OldCopy, issue.Kind);
+        Assert.True(issue.IsSure);
+        Assert.Contains("'Canteen' in D_Consumable", issue.Why);
+        Assert.Contains("'BasicWater'", issue.Why);
+
+        Assert.False(ModHealthChecker.Check(real, _data).HasIssues);
+        Assert.DoesNotContain(ModHealthChecker.Check(own, _data).Issues, i => i.ItemName == "Canteen");
     }
 
     [Fact]
@@ -256,11 +280,11 @@ public sealed class ModHealthCheckerTests : IDisposable
         return package;
     }
 
-    private void Write(string relative, JsonArray rows)
+    private void Write(string relative, JsonArray rows, JsonObject? defaults = null)
     {
         var path = Path.Combine(_data, relative);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, new JsonObject { ["RowStruct"] = "S", ["Defaults"] = new JsonObject(), ["Rows"] = rows }.ToJsonString());
+        File.WriteAllText(path, new JsonObject { ["RowStruct"] = "S", ["Defaults"] = defaults ?? new JsonObject(), ["Rows"] = rows }.ToJsonString());
     }
 
     private static JsonObject Tags(params string[] tags) =>

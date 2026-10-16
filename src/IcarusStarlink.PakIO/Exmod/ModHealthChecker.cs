@@ -120,8 +120,11 @@ public static class ModHealthChecker
         IReadOnlyList<string>? ownAssetPaths = null,
         ISemanticClassifier? classifier = null,
         ModFixDecisions? decisions = null,
-        bool fromPrebuiltPak = false)
+        bool fromPrebuiltPak = false,
+        GameTableIndex? gameIndex = null)
     {
+        // Which table a link field points into, and whether a row is there (share one across a pass).
+        gameIndex ??= new GameTableIndex(dataFolder);
         baseTableCache ??= new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
         var history = gameHistory ?? GameValueHistory.Empty;
 
@@ -208,7 +211,19 @@ public static class ModHealthChecker
                                 ModIssueFix.Merge, IsSure: false, MixedWhy(value, gameValue)));
                             break;
                         default:
-                            changedOnRow.Add((item, field, value, gameValue!));
+                            if (BrokenLink(gameIndex, package, row.CurrentFile, field, value, gameValue) is { } broken)
+                            {
+                                // A link to a row the game doesn't have does nothing in game (an item that
+                                // can't be used, a recipe that never shows): never what anyone meant.
+                                tableIssues.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
+                                    ModIssueFix.UseGame, IsSure: true,
+                                    $"Links to '{broken.Row}' in {broken.Table}, which the game doesn't have (any more), so this does nothing in game. The game links it to '{broken.GameRow}'."));
+                                rowsWithOld.Add(item.Name);
+                            }
+                            else
+                            {
+                                changedOnRow.Add((item, field, value, gameValue!));
+                            }
                             break;
                     }
                 }
@@ -553,6 +568,33 @@ public static class ModHealthChecker
         }
 
         return (0, 0);
+    }
+
+    /// <summary>
+    /// The mod links this field to a row its target table doesn't have (and the mod doesn't add),
+    /// where the game's own link is to a real row: (the missing row, its table, the game's row).
+    /// The target table is the link's own DataTableName, else the field's in the table's Defaults.
+    /// </summary>
+    private static (string Row, string Table, string GameRow)? BrokenLink(
+        GameTableIndex index, ExmodPackage package, string currentFile, string field, JsonNode? mod, JsonNode? game)
+    {
+        if (mod is not JsonObject link || link["RowName"] is not JsonValue rowValue || !rowValue.TryGetValue<string>(out var rowName)
+            || rowName.Length == 0 || string.Equals(rowName, "None", StringComparison.OrdinalIgnoreCase)
+            || game is not JsonObject gameLink || gameLink["RowName"] is not JsonValue gameRowValue || !gameRowValue.TryGetValue<string>(out var gameRow))
+        {
+            return null;
+        }
+
+        var table = link["DataTableName"] is JsonValue t && t.TryGetValue<string>(out var named) && named.Length > 0 ? named : index.LinkTarget(currentFile, field);
+        if (table is null || index.CurrentFileFor(table) is not { } targetFile || index.Rows(targetFile) is null
+            || index.HasRow(targetFile, rowName) || !index.HasRow(targetFile, gameRow))
+        {
+            return null;
+        }
+
+        var modAddsIt = package.Rows.Any(r => string.Equals(r.CurrentFile, targetFile, StringComparison.OrdinalIgnoreCase)
+            && r.FileItems.Any(i => string.Equals(i.Name, rowName, StringComparison.OrdinalIgnoreCase)));
+        return modAddsIt ? null : (rowName, table, gameRow);
     }
 
     private static string OlderWhy(JsonNode? mod, JsonNode? game)

@@ -24,11 +24,30 @@ public sealed class ModFixService(
 
     public string DataFolder => dataFolder;
 
+    private GameTableIndex? _gameIndex;
+    private DateTime _gameIndexStamp;
+
+    /// <summary>One table index for every check (re-read after Refresh game data changes the folder).</summary>
+    private GameTableIndex GameIndex
+    {
+        get
+        {
+            var stamp = Directory.Exists(dataFolder) ? Directory.GetLastWriteTimeUtc(dataFolder) : default;
+            if (_gameIndex is null || stamp != _gameIndexStamp)
+            {
+                _gameIndex = new GameTableIndex(dataFolder);
+                _gameIndexStamp = stamp;
+            }
+
+            return _gameIndex;
+        }
+    }
+
     public ModHealthReport Check(string folderName, IDictionary<string, JsonObject?>? baseTableCache = null, GameValueHistory? history = null)
     {
         var package = ExmodFolder.ReadPackageOnly(repository.GetFolderPath(folderName));
         return ModHealthChecker.Check(package, dataFolder, baseTableCache, history ?? History(), repository.ListAssetPaths(folderName),
-            decisions: LoadDecisions(folderName), fromPrebuiltPak: Entry(folderName)?.ConvertedFromPrebuiltPak == true);
+            decisions: LoadDecisions(folderName), fromPrebuiltPak: Entry(folderName)?.ConvertedFromPrebuiltPak == true, gameIndex: GameIndex);
     }
 
     /// <summary>The game's recorded old values from recent Refresh game data runs, indexed once (share it across a whole-library pass).</summary>
