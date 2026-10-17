@@ -788,7 +788,7 @@
                              aren't sortable — STATUS and ENDORSED are computed badges, not a single
                              stable value; LATEST is a fetched-on-demand comparison value. -->
                         <Button Grid.Column="3" Style="{StaticResource ColumnHeaderButtonStyle}"
-                                Command="{Binding SortByColumnCommand}" CommandParameter="Name"
+                                Command="{Binding SortByColumnCommand}" CommandParameter="Name" HorizontalAlignment="Left"
                                 ToolTip="Sort by name" AutomationProperties.Name="Sort by name">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="NAME" Style="{StaticResource FieldLabelStyle}"/>

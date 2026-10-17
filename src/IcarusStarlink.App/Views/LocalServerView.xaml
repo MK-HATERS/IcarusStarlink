@@ -56,7 +56,8 @@
                 <DockPanel Margin="0,14,0,0" Visibility="{Binding ShowSteamCmdLine, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Button DockPanel.Dock="Right" Content="Set up…" Command="{Binding ExpandSteamCmdSetupCommand}" Padding="6,0" FontSize="11" Margin="6,0,0,0"
                             VerticalAlignment="Center" ToolTip="Install SteamCMD, or point at one you already have"/>
-                    <TextBlock Text="SteamCMD: not set up — needed to update." FontSize="11.5" TextWrapping="Wrap" VerticalAlignment="Center"
+                    <TextBlock Text="SteamCMD not set up" FontSize="11.5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                               ToolTip="SteamCMD is only needed to install or update a server. Set up… installs it, or points at one you already have."
                                Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                 </DockPanel>
                 <StackPanel Visibility="{Binding ShowSteamCmdBox, Converter={StaticResource BoolToVisibilityConverter}}">

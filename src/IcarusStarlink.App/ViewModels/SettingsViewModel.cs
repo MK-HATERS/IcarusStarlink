@@ -1553,7 +1553,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             BackupsStatusMessage = result.FailedCount > 0
                 ? $"Freed {BackupCleanup.FormatSize(result.FreedBytes)}. {result.FailedCount} backup(s) couldn't be deleted (in use?)."
                 : $"Freed {BackupCleanup.FormatSize(result.FreedBytes)}.";
-            _activityLog.Log($"Clean up backups: deleted {result.DeletedCount} old backup(s), freed {BackupCleanup.FormatSize(result.FreedBytes)}.");
+            _activityLog.Log($"Clean up backups: deleted {result.DeletedCount} old backup(s), freed {BackupCleanup.FormatSize(result.FreedBytes)}.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {

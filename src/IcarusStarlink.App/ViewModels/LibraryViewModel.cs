@@ -1901,10 +1901,12 @@ public sealed partial class LibraryViewModel : ObservableObject
             _repository.BackupMod(item.FolderName);
             item.NotifyBackupStateChanged();
             StatusMessage = $"Backed up '{item.Name}'.";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             StatusMessage = $"Backup failed: {ex.Message}";
+            _activityLog.Log($"Backing up '{item.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
     }
 
