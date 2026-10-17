@@ -72,12 +72,16 @@ public sealed class DownloadsViewModelTests : IDisposable
 
         public FakeDialogService? Dialogs { get; set; }
 
+        /// <summary>The game's Content folder for the built view model's settings — null leaves the game path unset.</summary>
+        public string? IcarusContentPath { get; set; }
+
         /// <summary>What any HTTP download returns — a catalog download test hands it the archive bytes.</summary>
         public byte[]? HttpResponseBytes { get; set; }
 
         public DownloadsViewModel Build()
         {
             var settings = new FakeSettingsService();
+            settings.Current.IcarusContentPath = IcarusContentPath;
             var httpClient = HttpResponseBytes is null ? new HttpClient() : new HttpClient(new FixedBytesHandler(HttpResponseBytes));
             return new DownloadsViewModel(
                 new FakeCatalogClient(), new FakeCatalogClient(), new FakeGitHubRepoDateClient(),
@@ -545,6 +549,47 @@ public sealed class DownloadsViewModelTests : IDisposable
         vm.ShowInstalledDownloads = true;
 
         Assert.Equal(2, vm.VisiblePendingDownloads.Count);
+    }
+
+    /// <summary>
+    /// The real Minimap V1.0.5 case: a Library mod plus a UE4SS mod, the UE4SS half ENABLED — so it
+    /// sits in the game's Mods folder, not staging. The row said "Removed from Library" because only
+    /// staging was checked.
+    /// </summary>
+    [Fact]
+    public void PendingRow_EnabledUe4ssHalfInTheGameFolder_CountsAsInstalled()
+    {
+        var harness = new Harness(_root) { IcarusContentPath = Path.Combine(_root, "Game", "Icarus", "Content") };
+        harness.AddDownload("Minimap V1.0.5.zip", a => WriteEntry(a, "README_EN.txt", "x"), modId: 345, fileId: 2737);
+        Directory.CreateDirectory(Path.Combine(_root, "Game", "Icarus", "Binaries", "Win64", "ue4ss", "Mods", "MiniMapa"));
+        harness.PendingStore.SetActivation(345, 2737, [new PendingDownloadActivatedItem("MiniMapa", PendingDownloadActivationKind.Ue4ssMod)], []);
+        var vm = harness.Build();
+
+        var item = Assert.Single(vm.PendingDownloads);
+        Assert.True(item.IsInstalled);
+        Assert.False(item.WasDeleted);
+        Assert.Equal("Installed", item.StateLabel);
+    }
+
+    [Fact]
+    public void RequirementsSummary_SkipsEmptyStoredLines()
+    {
+        var harness = new Harness(_root);
+        harness.AddDownload("Minimap V1.0.5.zip", a => WriteEntry(a, "README_EN.txt", "x"), modId: 345, fileId: 2737);
+        harness.PendingStore.SetActivation(345, 2737, [], ["", "UE4SS for Icarus (Lua mods).", "  "]);
+        var vm = harness.Build();
+
+        Assert.Equal("Needs: UE4SS for Icarus (Lua mods).", Assert.Single(vm.PendingDownloads).RequirementsSummary);
+    }
+
+    /// <summary>A website download's name keeps Nexus's "-modid-version-id-unixtime" tail; the row shows the upload name.</summary>
+    [Fact]
+    public void PendingRow_ManualNexusDownloadName_DropsTheNumericTail()
+    {
+        var harness = new Harness(_root);
+        var item = harness.AddDownload("Cheat S5-II and Larkwell Haulier underwears-59-2-3-25-146718-1767981001.zip", a => WriteEntry(a, "x.pak", "p"), modId: 59, fileId: 798);
+
+        Assert.Equal("Cheat S5-II and Larkwell Haulier underwears", item.DisplayName);
     }
 
     // --- Fakes: only the network and UnrealPak; everything else above is the real storage layer ---

@@ -45,7 +45,15 @@ public static partial class ModReadmeRequirements
                 continue;
             }
 
-            requirements.Add(line.TrimStart('-', '*', '•', ' ').Trim());
+            // A heading's "------------" / "====" underline trims to nothing — a real README stored
+            // it as an empty requirement and the row read "Needs: ; UE4SS for Icarus…".
+            var text = line.TrimStart('-', '*', '•', ' ').Trim();
+            if (text.Length == 0 || text.All(c => c is '=' or '_' or '~' or '-' or '*'))
+            {
+                continue;
+            }
+
+            requirements.Add(text);
         }
 
         return requirements;

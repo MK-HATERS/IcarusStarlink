@@ -132,6 +132,9 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     /// <summary>The version this mod's own file was at when downloaded/linked — compared against LatestVersion to decide HasUpdateAvailable.</summary>
     public string? KnownVersion { get; }
 
+    /// <summary>The Version column: "v1.0", or empty for a mod with no recorded version (every UE4SS built-in).</summary>
+    public string VersionText => VersionLabel.For(KnownVersion);
+
     [ObservableProperty]
     private string? _latestVersion;
 

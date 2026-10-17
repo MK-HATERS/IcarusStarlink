@@ -347,6 +347,7 @@ public sealed class LibraryViewModelTests
         harness.Ue4ssModStateService.States.Add(new Ue4ssModState("WirelessPower", IsEnabled: false));
         harness.Ue4ssModStateService.States.Add(new Ue4ssModState("ConsoleEnablerMod", IsEnabled: true));
         harness.Ue4ssLoaderInstallService.BuiltIns.Add("ConsoleEnablerMod");
+        harness.SettingsService.Current.LibraryShowUe4ssBuiltIns = true;
         var vm = harness.Build();
 
         vm.ReloadInstalledUe4ssModsCommand.Execute(null);
@@ -370,6 +371,41 @@ public sealed class LibraryViewModelTests
         var names = vm.RootItems.Select(r => r is Ue4ssModRowViewModel u ? u.Name : ((LibraryItemViewModel)r).Name).ToList();
         Assert.Equal(["ArcFissionLibrary", "ConsoleEnablerMod", "Steadfast Structures", "Wireless Power"], names);
     }
+
+    /// <summary>UE4SS's own built-ins (BPModLoaderMod, Keybinds…) cluttered the list with bare "v" versions — hidden by default, one remembered toggle brings them back.</summary>
+    [Fact]
+    public void Ue4ssBuiltIns_HiddenByDefault_ToggleShowsThemAndIsRemembered()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("ArcFissionLibrary", IsEnabled: true));
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("BPModLoaderMod", IsEnabled: true));
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("Keybinds", IsEnabled: true));
+        harness.Ue4ssLoaderInstallService.BuiltIns.Add("BPModLoaderMod");
+        harness.Ue4ssLoaderInstallService.BuiltIns.Add("Keybinds");
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+
+        Assert.False(vm.ShowUe4ssBuiltIns);
+        Assert.Equal(["ArcFissionLibrary"], vm.RootItems.OfType<Ue4ssModRowViewModel>().Select(r => r.Name));
+        Assert.Equal("Show UE4SS built-ins (2)", vm.ShowUe4ssBuiltInsLabel);
+
+        vm.ShowUe4ssBuiltIns = true;
+
+        Assert.Equal(["ArcFissionLibrary", "BPModLoaderMod", "Keybinds"], vm.RootItems.OfType<Ue4ssModRowViewModel>().Select(r => r.Name));
+        Assert.True(harness.SettingsService.Current.LibraryShowUe4ssBuiltIns);
+        Assert.Equal("", vm.RootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "Keybinds").VersionText);
+    }
+
+    [Theory]
+    [InlineData(null, "")]
+    [InlineData("", "")]
+    [InlineData("  ", "")]
+    [InlineData("1.2.0", "v1.2.0")]
+    [InlineData("v1.0", "v1.0")]
+    [InlineData("Beta", "vBeta")]
+    public void VersionLabel_NeverABareV(string? version, string expected) =>
+        Assert.Equal(expected, IcarusStarlink.App.Utilities.VersionLabel.For(version));
 
     [Fact]
     public void UntickingAUe4ssRow_ShowsNeedsApplyAndThePendingBar()

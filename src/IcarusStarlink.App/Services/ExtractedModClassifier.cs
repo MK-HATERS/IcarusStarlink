@@ -171,7 +171,7 @@ public static class ExtractedModClassifier
         }
 
         var pakFiles = allFiles.Where(f => f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToArray();
-        var downloadName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName));
+        var downloadName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName), nexusModId);
 
         // The game-folder layout (a real shape found live, see the class doc): every UE4SS mod
         // folder under a "…\ue4ss\Mods\" directory is staged under ITS OWN name (not the download's
@@ -316,7 +316,7 @@ public static class ExtractedModClassifier
         // Unreal asset content either — treat as a UE4SS mod, the one kind of mod this app handles
         // that carries no metadata file of its own to detect it by. Named after the upload, not
         // the full Nexus file name with its id/timestamp/hash tail (a real complaint).
-        var fallbackName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName));
+        var fallbackName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName), nexusModId);
         session.Writing();
         var stagedName = session.Wrote(ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName, ue4ssNamesAlreadyInstalledInGame), PendingDownloadActivationKind.Ue4ssMod);
         return Single(stagedName, stagedName, PendingDownloadActivationKind.Ue4ssMod, isOpaquePak: false, requirements, warnings);

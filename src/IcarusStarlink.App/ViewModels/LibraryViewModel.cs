@@ -302,6 +302,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         _ue4ssModMetaStore = ue4ssModMetaStore;
         _ue4ssLoaderInstallService = ue4ssLoaderInstallService;
         _settingsService = settingsService;
+        _showUe4ssBuiltIns = settingsService.Current.LibraryShowUe4ssBuiltIns;
         _unrealPakService = unrealPakService;
         _uassetTextureDecoder = uassetTextureDecoder;
         _uassetStaticMeshDecoder = uassetStaticMeshDecoder;
@@ -725,6 +726,30 @@ public sealed partial class LibraryViewModel : ObservableObject
     private string _typeFilter = "All";
 
     partial void OnTypeFilterChanged(string value) => Reload();
+
+    /// <summary>
+    /// UE4SS's own bundled mods (BPModLoaderMod, Keybinds, ConsoleEnablerMod…) — hidden unless asked
+    /// for: they come with the loader, every install has them, and a real Library was a third
+    /// built-ins. Remembered across restarts.
+    /// </summary>
+    [ObservableProperty]
+    private bool _showUe4ssBuiltIns;
+
+    partial void OnShowUe4ssBuiltInsChanged(bool value)
+    {
+        _settingsService.Current.LibraryShowUe4ssBuiltIns = value;
+        _settingsService.Save();
+        Reload();
+    }
+
+    /// <summary>How many UE4SS built-ins there are — the "(N)" on the Show UE4SS built-ins toggle.</summary>
+    [ObservableProperty]
+    private int _ue4ssBuiltInCount;
+
+    /// <summary>"Show UE4SS built-ins (6)".</summary>
+    public string ShowUe4ssBuiltInsLabel => $"Show UE4SS built-ins ({Ue4ssBuiltInCount})";
+
+    partial void OnUe4ssBuiltInCountChanged(int value) => OnPropertyChanged(nameof(ShowUe4ssBuiltInsLabel));
 
     /// <summary>How many UE4SS rows the list is showing (stand-alone Lua mods; a Lua half folded into a Mods-tab row doesn't count).</summary>
     [ObservableProperty]
@@ -3227,7 +3252,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         var ue4ssRows = TypeFilter is "All" or "UE4SS"
-            ? Ue4ssMods.Where(row => !row.IsLinkedToLibraryMod && MatchesSearch(row)).Select(row => (SortName: row.Name, Pinned: false, Row: (object)row)).ToList()
+            ? Ue4ssMods.Where(row => !row.IsLinkedToLibraryMod && (ShowUe4ssBuiltIns || !row.IsBuiltIn) && MatchesSearch(row)).Select(row => (SortName: row.Name, Pinned: false, Row: (object)row)).ToList()
             : [];
         if (SortColumn is null)
         {
@@ -3246,6 +3271,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         Ue4ssCount = ue4ssRows.Count;
+        Ue4ssBuiltInCount = Ue4ssMods.Count(row => row.IsBuiltIn && !row.IsLinkedToLibraryMod);
         SyncRootItems(targetRootItems);
         OnPropertyChanged(nameof(IsAllSelectedForBulk));
         EnsureMergeQueueSubscription();
