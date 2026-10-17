@@ -268,6 +268,52 @@ public sealed class ModHealthCheckerTests : IDisposable
         Assert.Equal(["Being_Built"], row.FileItems.Select(i => i.Name));
     }
 
+    private const string Consumables = "Traits-D_Consumable.json";
+
+    /// <summary>laanp's paks both carry Cobalt Ingot, Electric Motor…: rows the game removed, not new items.</summary>
+    [Fact]
+    public void InAPrebuiltPak_RowsTheGameRemoved_ThatAnotherModCarriesToo_AreOldGameRows_ToTidy()
+    {
+        var package = Mod(
+            (Items, "Cobalt_Ingot", "Consumable", new JsonObject { ["RowName"] = "Cobalt_Drink" }),
+            (Consumables, "Cobalt_Drink", "Stats", new JsonObject()),
+            (Items, "Old_Motor", "Weight", 10),
+            (Items, "Bread", "Weight", 5),
+            (Items, "Own_New_Item", "Weight", 1));
+        var several = new HashSet<string>
+        {
+            ModHealthChecker.AddedRowKey(Items, "Cobalt_Ingot"), ModHealthChecker.AddedRowKey(Consumables, "Cobalt_Drink"), ModHealthChecker.AddedRowKey(Items, "Old_Motor"),
+        };
+
+        var report = ModHealthChecker.Check(package, _data, fromPrebuiltPak: true, rowsSeveralModsAdd: several);
+
+        var old = report.Issues.Where(i => i.Kind == ModIssueKind.OldGameRow).Select(i => i.ItemName).Order().ToList();
+        Assert.Equal(["Cobalt_Drink", "Cobalt_Ingot", "Old_Motor"], old);
+        Assert.All(report.Issues.Where(i => i.Kind == ModIssueKind.OldGameRow), i => Assert.False(i.IsSure));
+        Assert.Equal(0, report.ProblemCount);
+
+        ModHealthChecker.Apply(package, report.Issues.Where(i => i.Kind == ModIssueKind.OldGameRow).Select(i => (i, ModIssueFix.RemoveRow)).ToList());
+        Assert.Equal(["Bread", "Own_New_Item"], package.Rows.Single(r => r.CurrentFile == Items).FileItems.Select(i => i.Name).Order());
+        Assert.DoesNotContain(package.Rows, r => r.CurrentFile == Consumables);
+    }
+
+    [Fact]
+    public void OldGameRows_AreNeverFlagged_WhenUsed_OrOnlyThisModHasThem_OrInAHandMadeMod()
+    {
+        var package = Mod(
+            (Items, "Bread", "Decayable", new JsonObject { ["RowName"] = "Old_Motor" }),
+            (Items, "Old_Motor", "Consumable", new JsonObject { ["RowName"] = "Cobalt_Drink" }),
+            (Consumables, "Cobalt_Drink", "Stats", new JsonObject()),
+            (Items, "Only_Mine", "Weight", 1));
+        var several = new HashSet<string> { ModHealthChecker.AddedRowKey(Items, "Old_Motor"), ModHealthChecker.AddedRowKey(Consumables, "Cobalt_Drink") };
+
+        // Bread (a real edit) uses Old_Motor, which uses Cobalt_Drink: both are real content. Only_Mine is in no other mod.
+        Assert.DoesNotContain(ModHealthChecker.Check(package, _data, fromPrebuiltPak: true, rowsSeveralModsAdd: several).Issues, i => i.Kind == ModIssueKind.OldGameRow);
+
+        var unused = Mod((Items, "Old_Motor", "Weight", 10));
+        Assert.DoesNotContain(ModHealthChecker.Check(unused, _data, fromPrebuiltPak: false, rowsSeveralModsAdd: several).Issues, i => i.Kind == ModIssueKind.OldGameRow);
+    }
+
     private void AddGameTagToCheese()
     {
         var path = Path.Combine(_data, "Items", "D_ItemsStatic.json");

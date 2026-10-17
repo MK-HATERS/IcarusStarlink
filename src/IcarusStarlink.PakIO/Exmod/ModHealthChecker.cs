@@ -28,6 +28,13 @@ public enum ModIssueKind
     /// Sure, but only made where every Library mod's new rows are known (not while converting a pak).
     /// </summary>
     BrokenLink,
+
+    /// <summary>
+    /// A whole row from an older game version that the game has since removed (laanp's paks carry
+    /// Cobalt Ingot, Electric Motor…): in a prebuilt pak, not in the game, carried by another
+    /// Library mod too, and used by nothing else in the mod. Harmless, so only tidying.
+    /// </summary>
+    OldGameRow,
 }
 
 /// <summary>How to handle one issue.</summary>
@@ -59,10 +66,14 @@ public sealed record ModIssue(
     public IReadOnlyList<ModIssueFix> Choices => Kind switch
     {
         ModIssueKind.MissingRow => SuggestedRow is null ? [ModIssueFix.RemoveRow, ModIssueFix.KeepMod] : [ModIssueFix.RenameRow, ModIssueFix.RemoveRow, ModIssueFix.KeepMod],
+        ModIssueKind.OldGameRow => [ModIssueFix.RemoveRow, ModIssueFix.KeepMod],
         _ when MergedValue is not null => [ModIssueFix.Merge, ModIssueFix.UseGame, ModIssueFix.KeepMod],
         ModIssueKind.SameAsGame => [ModIssueFix.UseGame, ModIssueFix.KeepMod],
         _ => [ModIssueFix.UseGame, ModIssueFix.KeepMod],
     };
+
+    /// <summary>Changes nothing in game either way: taking it out only makes the mod smaller.</summary>
+    public bool IsTidyOnly => Kind is ModIssueKind.SameAsGame or ModIssueKind.OldGameRow;
 }
 
 public sealed record ModHealthReport(IReadOnlyList<ModIssue> Issues, int AuthorChangeCount)
@@ -75,8 +86,8 @@ public sealed record ModHealthReport(IReadOnlyList<ModIssue> Issues, int AuthorC
 
     public bool HasIssues => Issues.Count > 0;
 
-    /// <summary>Findings that matter: everything but values that already match the game (those change nothing, so they're only tidying).</summary>
-    public int ProblemCount => Issues.Count(i => i.Kind != ModIssueKind.SameAsGame);
+    /// <summary>Findings that matter: everything but tidying (values that already match the game, and old game rows nothing uses), which changes nothing in game.</summary>
+    public int ProblemCount => Issues.Count(i => !i.IsTidyOnly);
 
     public bool HasProblems => ProblemCount > 0;
 
@@ -129,7 +140,8 @@ public static class ModHealthChecker
         ModFixDecisions? decisions = null,
         bool fromPrebuiltPak = false,
         GameTableIndex? gameIndex = null,
-        IReadOnlySet<string>? rowsOtherModsAdd = null)
+        IReadOnlySet<string>? rowsOtherModsAdd = null,
+        IReadOnlySet<string>? rowsSeveralModsAdd = null)
     {
         // Which table a link field points into, and whether a row is there (share one across a pass).
         gameIndex ??= new GameTableIndex(dataFolder);
@@ -284,6 +296,11 @@ public static class ModHealthChecker
             }
 
             issues.AddRange(tableIssues);
+        }
+
+        if (fromPrebuiltPak && rowsSeveralModsAdd is { Count: > 0 })
+        {
+            issues.AddRange(OldGameRows(package, gameIndex, rowsSeveralModsAdd));
         }
 
         // Small edits to rows the game no longer has, renamed since. A row the mod itself makes or
@@ -606,6 +623,67 @@ public static class ModHealthChecker
             && r.FileItems.Any(i => string.Equals(i.Name, rowName, StringComparison.OrdinalIgnoreCase)));
         var anotherModAddsIt = rowsOtherModsAdd?.Contains(AddedRowKey(targetFile, rowName)) == true;
         return modAddsIt || anotherModAddsIt ? null : (rowName, table, gameRow);
+    }
+
+    /// <summary>
+    /// Whole rows a prebuilt pak carries from an older game: not in the game, carried by another
+    /// Library mod too (two mods both "adding" Cobalt Ingot are both carrying the game's old row,
+    /// not making new content), and linked from nothing else in this mod. Rows that only link to
+    /// each other (an old item's ItemsStatic, Itemable and Template rows) go together; one the
+    /// mod's real content links to stays.
+    /// </summary>
+    private static IEnumerable<ModIssue> OldGameRows(ExmodPackage package, GameTableIndex index, IReadOnlySet<string> rowsSeveralModsAdd)
+    {
+        var candidates = new List<(string File, ExmodFileItem Item)>();
+        var others = new List<ExmodFileItem>();
+        foreach (var row in package.Rows.Where(r => !ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile)))
+        {
+            var known = index.Rows(row.CurrentFile) is not null;
+            foreach (var item in row.FileItems)
+            {
+                if (known && !index.HasRow(row.CurrentFile, item.Name) && rowsSeveralModsAdd.Contains(AddedRowKey(row.CurrentFile, item.Name)))
+                {
+                    candidates.Add((row.CurrentFile, item));
+                }
+                else
+                {
+                    others.Add(item);
+                }
+            }
+        }
+
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in others)
+        {
+            foreach (var value in item.Fields.Values)
+            {
+                CollectLinks(value, used);
+            }
+        }
+
+        // A candidate something real uses is real too, and so is whatever it links to.
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var (_, item) in candidates.Where(c => used.Contains(c.Item.Name)).ToList())
+            {
+                candidates.RemoveAll(c => ReferenceEquals(c.Item, item));
+                foreach (var value in item.Fields.Values)
+                {
+                    CollectLinks(value, used);
+                }
+
+                changed = true;
+            }
+        }
+        while (changed);
+
+        foreach (var (file, item) in candidates.GroupBy(c => (c.File.ToLowerInvariant(), c.Item.Name.ToLowerInvariant())).Select(g => g.Last()))
+        {
+            yield return new ModIssue(ModIssueKind.OldGameRow, file, item.Name, null, null, null, null, null, ModIssueFix.RemoveRow, IsSure: false,
+                "The game doesn't have this row any more. The mod carries a copy from an older game version (another mod in your Library carries the same one), and nothing else in the mod uses it.");
+        }
     }
 
     /// <summary>The key for <c>rowsOtherModsAdd</c>: a row a mod adds to a table ("Traits-D_Consumable.json|canteen_drink").</summary>

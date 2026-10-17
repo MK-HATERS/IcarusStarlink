@@ -60,7 +60,8 @@ public sealed class ModFixService(
             var package = ExmodFolder.ReadPackageOnly(repository.GetFolderPath(folderName));
             return ModHealthChecker.Check(package, dataFolder, baseTableCache, history ?? History(), repository.ListAssetPaths(folderName),
                 decisions: LoadDecisions(folderName), fromPrebuiltPak: Entry(folderName)?.ConvertedFromPrebuiltPak == true, gameIndex: GameIndex,
-                rowsOtherModsAdd: libraryAddedRows ?? LibraryAddedRows());
+                rowsOtherModsAdd: libraryAddedRows ??= LibraryAddedRows(),
+                rowsSeveralModsAdd: (libraryAddedRows as LibraryAddedRowSet)?.AddedBySeveral);
         }
     }
 
@@ -226,12 +227,18 @@ public sealed class ModFixService(
     {
         lock (_gate)
         {
-            var rows = new HashSet<string>(StringComparer.Ordinal);
+            var rows = new LibraryAddedRowSet();
             foreach (var entry in repository.GetAll().Where(e => !e.IsOpaquePak))
             {
                 try
                 {
-                    rows.UnionWith(ModHealthChecker.AddedRows(ExmodFolder.ReadPackageOnly(repository.GetFolderPath(entry.FolderName)), GameIndex));
+                    foreach (var key in ModHealthChecker.AddedRows(ExmodFolder.ReadPackageOnly(repository.GetFolderPath(entry.FolderName)), GameIndex).Distinct(StringComparer.Ordinal))
+                    {
+                        if (!rows.Add(key))
+                        {
+                            rows.AddedBySeveral.Add(key);
+                        }
+                    }
                 }
                 catch (Exception)
                 {
@@ -278,4 +285,10 @@ public sealed class ModFixService(
 
     private string? DecisionsPath(string folderName) =>
         decisionsDirectory is null ? null : Path.Combine(decisionsDirectory, string.Join("_", folderName.Split(Path.GetInvalidFileNameChars())) + ".json");
+}
+
+/// <summary>The rows every Library mod adds (AddedRowKey keys), and which of them more than one mod adds (old game rows two prebuilt paks both carry).</summary>
+public sealed class LibraryAddedRowSet() : HashSet<string>(StringComparer.Ordinal)
+{
+    public HashSet<string> AddedBySeveral { get; } = new(StringComparer.Ordinal);
 }

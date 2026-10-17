@@ -304,6 +304,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Probably old**: other changes on rows the mod copied wholesale. The suggestion is the game's value.
             - **Lists both changed**: the mod added to a list and the game has entries the mod lacks. **Merge** keeps both.
             - **Rows the game renamed**: offered when it's certain. A mod's own new rows (a new item's rows, anything the mod links to) are never renamed, and a check never changes a mod by itself.
+            - **Old game rows**: whole rows a prebuilt pak still carries from an older game version, which the game has since removed (two of your mods carrying the same rows gives it away). Nothing uses them, so they do nothing; removing them is only tidying, and is offered, never done by itself.
 
             Every one shows the mod's value next to the game's, with the suggested fix already chosen; change any, or set a whole kind at once. **Apply** backs the mod up first (**Restore latest backup** undoes it). The author's own changes are never listed or touched.
 
