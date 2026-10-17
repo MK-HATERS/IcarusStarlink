@@ -455,9 +455,16 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             }.Where(p => p is not null))
           + ". Click to see them and fix.";
 
+    /// <summary>"Made for an older game: between Week 222 and 4 Sep 2026" (the faint line under the name), or null when it fits today's game.</summary>
+    public string? BuiltForText => Health?.BuiltFor?.OlderText;
+
+    public bool HasBuiltForText => BuiltForText is not null;
+
     public void SetHealth(ModHealthReport? report)
     {
         Health = report;
+        OnPropertyChanged(nameof(BuiltForText));
+        OnPropertyChanged(nameof(HasBuiltForText));
         // Values that already match the game change nothing: no badge for those alone.
         ModIssueCount = report?.ProblemCount ?? 0;
         OnPropertyChanged(nameof(ModIssuesTooltip));

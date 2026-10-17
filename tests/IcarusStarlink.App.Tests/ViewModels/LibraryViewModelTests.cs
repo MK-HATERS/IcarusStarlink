@@ -1079,9 +1079,15 @@ public sealed class LibraryViewModelTests
     {
         var baseDataDir = Path.Combine(harness.DataFolder, "Items");
         Directory.CreateDirectory(baseDataDir);
+
+        // An earlier game version had the old name (so it's a real renamed game row, not the mod's own).
+        var history = GameRowHistory.LocalFileFor(harness.DataFolder);
+        File.WriteAllText(Path.Combine(baseDataDir, "D_ItemTemplate.json"), """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickax_MK2","RequiredMillijoules":100}]}""");
+        GameRowHistory.Record(harness.DataFolder, history, DateTimeOffset.UtcNow.AddDays(-14));
         File.WriteAllText(
             Path.Combine(baseDataDir, "D_ItemTemplate.json"),
             """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe_MK2","RequiredMillijoules":100}]}""");
+        GameRowHistory.Record(harness.DataFolder, history, DateTimeOffset.UtcNow.AddDays(-7));
 
         var modFolderPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(modFolderPath);
@@ -1502,7 +1508,8 @@ public sealed class LibraryViewModelTests
         public string ThumbnailCacheDirectory { get; } = UniqueTempPath("ThumbCache");
         public string PakPreviewCacheDirectory { get; } = UniqueTempPath("PakPreviewCache");
         public string BackupDirectory { get; } = UniqueTempPath("Backups");
-        public string DataFolder { get; } = UniqueTempPath("DataFolder");
+        // Its own parent: the game row history's per-user file sits beside the Data folder (in Cache).
+        public string DataFolder { get; } = Path.Combine(UniqueTempPath("DataRoot"), "Data");
         public string PendingDownloadsDirectory { get; } = UniqueTempPath("PendingDownloads");
         public string LogsDirectory { get; } = UniqueTempPath("Logs");
 

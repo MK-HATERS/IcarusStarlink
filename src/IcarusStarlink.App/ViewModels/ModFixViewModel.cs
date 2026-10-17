@@ -171,6 +171,7 @@ public sealed partial class ModFixViewModel : ObservableObject
     private void Load(ModHealthReport report)
     {
         AuthorChangeCount = report.AuthorChangeCount;
+        _builtFor = report.BuiltFor?.OlderText;
         RememberedCount = _service.RememberedCount(_folderName);
         HasBackup = _service.HasBackup(_folderName);
         _all.Clear();
@@ -228,7 +229,11 @@ public sealed partial class ModFixViewModel : ObservableObject
 
     public bool HasIssues => _all.Count > 0;
 
-    public string Summary
+    private string? _builtFor;
+
+    public string Summary => _builtFor is null ? Body : $"{_builtFor}. {Body}";
+
+    private string Body
     {
         get
         {

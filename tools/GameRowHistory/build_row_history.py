@@ -74,9 +74,18 @@ def versions_of(repo):
     log = git(repo, "log", "--reverse", "--format=%H%x09%aI%x09%s").decode("utf-8", "replace").splitlines()
     reader = BlobReader(repo)
     names_by_blob = {}
-    for line in log:
+
+    # A repo can hold one table at two paths: GODOFMINECRAFT4/IcarusData moved from data/ to the
+    # root in late 2025 and left the data/ copies behind, frozen. At each commit, a table is read
+    # from whichever of its paths was changed most recently, never from a leftover.
+    last_changed = {}
+    for index, line in enumerate(log):
         sha, when, subject = line.split("\t", 2)
-        tables = {}
+        changed = git(repo, "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", sha).decode("utf-8", "replace").splitlines()
+        for path in changed:
+            last_changed[path] = index
+
+        candidates = {}
         for entry in git(repo, "ls-tree", "-r", sha).decode("utf-8", "replace").splitlines():
             meta, path = entry.split("\t", 1)
             _, kind, blob = meta.split()
@@ -85,6 +94,12 @@ def versions_of(repo):
             file = current_file(path)
             if file is None:
                 continue
+            freshness = last_changed.get(path, -1)
+            if file not in candidates or freshness > candidates[file][0]:
+                candidates[file] = (freshness, blob)
+
+        tables = {}
+        for file, (_, blob) in candidates.items():
             if blob not in names_by_blob:
                 names_by_blob[blob] = row_names(reader.read(blob))
             if names_by_blob[blob] is not None:
@@ -101,12 +116,17 @@ def main():
         snapshots.extend(versions_of(repo))
     snapshots.sort(key=lambda s: s[0])
 
-    # Two repos can hold the same update: the same table contents on nearby dates add nothing.
-    versions, seen, last_tables = [], {}, None
+    # Two repos can hold the same update (GODOFMINECRAFT4's "Week 251" is IcarusWiki's 25 Sep):
+    # identical tables add no version, but a "Week N" label is what players know, so it's kept.
+    versions, seen, by_content = [], {}, {}
     for date, name, tables in snapshots:
-        if tables == last_tables:
+        fingerprint = hash(tuple(sorted((file, hash(frozenset(rows))) for file, rows in tables.items())))
+        if fingerprint in by_content:
+            same = versions[by_content[fingerprint]]
+            if name.startswith("Week") and not same["label"].startswith("Week"):
+                same["label"] = name
             continue
-        last_tables = tables
+        by_content[fingerprint] = len(versions)
         index = len(versions)
         versions.append({"label": name, "date": date})
         for file, rows in tables.items():

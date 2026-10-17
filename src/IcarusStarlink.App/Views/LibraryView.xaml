@@ -387,9 +387,15 @@
                      substituted BEFORE StringFormat, not instead of it) — confirmed live, every row
                      rendered a bare " — " suffix even with no VariantLabel at all until this was
                      fixed. -->
-                <TextBlock Grid.Column="3" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
-                    <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                </TextBlock>
+                <StackPanel Grid.Column="3" VerticalAlignment="Center">
+                    <TextBlock TextTrimming="CharacterEllipsis">
+                        <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    </TextBlock>
+                    <!-- Only for a mod made for an older game (its rows include ones the game removed since). -->
+                    <TextBlock Text="{Binding BuiltForText}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}" TextTrimming="CharacterEllipsis"
+                               ToolTip="Read from the game rows this mod carries: some were removed from the game after this. An older mod can still work; check it against the game to see what doesn't fit."
+                               Visibility="{Binding HasBuiltForText, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                </StackPanel>
 
                 <TextBlock Grid.Column="5" Text="{Binding Author}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="8,0,0,0"

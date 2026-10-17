@@ -77,7 +77,8 @@ public sealed record ModIssue(
     public bool IsTidyOnly => Kind is ModIssueKind.SameAsGame or ModIssueKind.OldGameRow;
 }
 
-public sealed record ModHealthReport(IReadOnlyList<ModIssue> Issues, int AuthorChangeCount)
+/// <param name="BuiltFor">Which game version the mod's rows come from (when the game's row history is known).</param>
+public sealed record ModHealthReport(IReadOnlyList<ModIssue> Issues, int AuthorChangeCount, ModGameVersion? BuiltFor = null)
 {
     public static ModHealthReport Healthy { get; } = new([], 0);
 
@@ -238,9 +239,12 @@ public static class ModHealthChecker
                             {
                                 // A link to a row the game doesn't have does nothing in game (an item that
                                 // can't be used, a recipe that never shows): never what anyone meant.
+                                var gone = rowHistory?.Find(broken.TargetFile, broken.Row) is { } seen
+                                    ? $"which the game removed after {seen.LastSeen}"
+                                    : "which the game doesn't have";
                                 tableIssues.Add(new(ModIssueKind.BrokenLink, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
                                     ModIssueFix.UseGame, IsSure: true,
-                                    $"Links to '{broken.Row}' in {broken.Table}, which the game doesn't have (any more), so this does nothing in game. The game links it to '{broken.GameRow}'."));
+                                    $"Links to '{broken.Row}' in {broken.Table}, {gone}, so this does nothing in game. The game links it to '{broken.GameRow}'."));
                                 rowsWithOld.Add(item.Name);
                             }
                             else
@@ -306,9 +310,14 @@ public static class ModHealthChecker
             issues.AddRange(tableIssues);
         }
 
+        var oldRows = new HashSet<string>(StringComparer.Ordinal);
         if ((fromPrebuiltPak || wholesaleFiles.Count > 0) && (rowsSeveralModsAdd is { Count: > 0 } || rowHistory is { VersionCount: > 0 }))
         {
-            issues.AddRange(OldGameRows(package, gameIndex, fromPrebuiltPak ? null : wholesaleFiles, rowsSeveralModsAdd, rowHistory));
+            foreach (var old in OldGameRows(package, gameIndex, fromPrebuiltPak ? null : wholesaleFiles, rowsSeveralModsAdd, rowHistory))
+            {
+                issues.Add(old);
+                oldRows.Add(AddedRowKey(old.CurrentFile, old.ItemName));
+            }
         }
 
         // Small edits to rows the game no longer has, renamed since. A row the mod itself makes or
@@ -319,7 +328,15 @@ public static class ModHealthChecker
         {
             // Row names ignore case in the game, so "Pickaxe_Mk2" already is the game's "Pickaxe_MK2".
             if (ownNames.Contains(stale.ItemName)
+                || oldRows.Contains(AddedRowKey(stale.CurrentFile, stale.ItemName))
                 || (Table(stale.CurrentFile, dataFolder, baseTableCache) is { } staleTable && RowsByName(staleTable).ContainsKey(stale.ItemName)))
+            {
+                continue;
+            }
+
+            // A row no game version ever had is the mod's own, never a renamed one.
+            var hadIt = rowHistory?.Find(stale.CurrentFile, stale.ItemName);
+            if (rowHistory is { VersionCount: > 0 } && hadIt is null)
             {
                 continue;
             }
@@ -332,12 +349,25 @@ public static class ModHealthChecker
                 continue;
             }
 
-            issues.Add(new(ModIssueKind.MissingRow, stale.CurrentFile, stale.ItemName, null, null, null, null, suggestion.SuggestedItemName,
-                suggestion.CanAutoApply ? ModIssueFix.RenameRow : ModIssueFix.KeepMod,
-                IsSure: suggestion.CanAutoApply,
-                suggestion.CanAutoApply
-                    ? $"The game no longer has this row: it was renamed to '{suggestion.SuggestedItemName}'."
-                    : $"The game no longer has this row. It may have been renamed to '{suggestion.SuggestedItemName}', or this is the mod's own new row."));
+            // The game's own history settles it: the old name gone in the very update the new one
+            // arrived is a rename; both there at once is two different rows.
+            var newName = suggestion.SuggestedItemName;
+            var hasNew = hadIt is not null ? rowHistory!.Find(stale.CurrentFile, newName) : null;
+            var renamedInOneUpdate = hadIt is not null && hasNew is not null && hasNew.First == hadIt.Last + 1;
+            var bothAtOnce = hadIt is not null && hasNew is not null && hasNew.First <= hadIt.Last;
+            // Made by itself only when the names match closely too: timing alone picks the fix, you confirm it.
+            var sure = suggestion.CanAutoApply && !bothAtOnce;
+            var why = renamedInOneUpdate
+                ? $"The game renamed this row to '{newName}' in the update after {hadIt!.LastSeen}."
+                : bothAtOnce
+                    ? $"The game removed this row after {hadIt!.LastSeen}. '{newName}' has a similar name, but the game had both at once, so it's probably a different thing."
+                    : sure
+                        ? $"The game no longer has this row: it was renamed to '{newName}'."
+                        : hadIt is not null
+                            ? $"The game removed this row after {hadIt.LastSeen}. It may have been renamed to '{newName}'."
+                            : $"The game no longer has this row. It may have been renamed to '{newName}', or this is the mod's own new row.";
+            issues.Add(new(ModIssueKind.MissingRow, stale.CurrentFile, stale.ItemName, null, null, null, null, newName,
+                sure || renamedInOneUpdate ? ModIssueFix.RenameRow : ModIssueFix.KeepMod, IsSure: sure, why));
         }
 
         // What the user decided before for this mod: a value they kept is theirs now (unless either
@@ -368,7 +398,7 @@ public static class ModHealthChecker
             issues = remembered;
         }
 
-        return new ModHealthReport(issues, authorChanges);
+        return new ModHealthReport(issues, authorChanges, rowHistory is null ? null : ModGameVersionEstimator.Estimate(package, rowHistory));
     }
 
     /// <summary>Applies the fixes to the package in memory; returns how many were applied. The caller backs the mod up and writes it.</summary>
@@ -608,7 +638,7 @@ public static class ModHealthChecker
     /// where the game's own link is to a real row: (the missing row, its table, the game's row).
     /// The target table is the link's own DataTableName, else the field's in the table's Defaults.
     /// </summary>
-    private static (string Row, string Table, string GameRow)? BrokenLink(
+    private static (string Row, string Table, string TargetFile, string GameRow)? BrokenLink(
         GameTableIndex index, ExmodPackage package, string currentFile, string field, JsonNode? mod, JsonNode? game,
         IReadOnlySet<string>? rowsOtherModsAdd)
     {
@@ -630,7 +660,7 @@ public static class ModHealthChecker
         var modAddsIt = package.Rows.Any(r => string.Equals(r.CurrentFile, targetFile, StringComparison.OrdinalIgnoreCase)
             && r.FileItems.Any(i => string.Equals(i.Name, rowName, StringComparison.OrdinalIgnoreCase)));
         var anotherModAddsIt = rowsOtherModsAdd?.Contains(AddedRowKey(targetFile, rowName)) == true;
-        return modAddsIt || anotherModAddsIt ? null : (rowName, table, gameRow);
+        return modAddsIt || anotherModAddsIt ? null : (rowName, table, targetFile, gameRow);
     }
 
     /// <summary>

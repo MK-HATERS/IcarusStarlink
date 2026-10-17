@@ -6,8 +6,11 @@ using System.Text.Json.Nodes;
 
 namespace IcarusStarlink.PakIO.Exmod;
 
-/// <summary>When the game had a row: the first and last game version it was seen in ("Week 142", "4 Sep 2026").</summary>
-public sealed record GameRowSighting(string FirstSeen, string LastSeen);
+/// <summary>
+/// When the game had a row: the first and last game version it was seen in ("Week 142", "4 Sep 2026"),
+/// and their positions in the history (0 = oldest) for comparing sightings.
+/// </summary>
+public sealed record GameRowSighting(string FirstSeen, string LastSeen, int First, int Last);
 
 /// <summary>
 /// Every data-table row name the game has ever had, with the first and last version it was in, so
@@ -36,6 +39,12 @@ public sealed class GameRowHistory
     }
 
     public int VersionCount => _versions.Count;
+
+    /// <summary>The newest version known (the user's last refresh, or the shipped history's newest).</summary>
+    public int Latest => _versions.Count - 1;
+
+    /// <summary>A version's label ("Week 251", "16 Oct 2026").</summary>
+    public string LabelOf(int version) => _versions[Math.Clamp(version, 0, Math.Max(0, _versions.Count - 1))];
 
     /// <summary>The user's own part, next to the app's Data folder (in its Cache).</summary>
     public static string LocalFileFor(string dataFolder) =>
@@ -77,7 +86,7 @@ public sealed class GameRowHistory
     /// <summary>When the game had this row, or null when no known game version had it.</summary>
     public GameRowSighting? Find(string currentFile, string rowName) =>
         _tables.TryGetValue(currentFile, out var rows) && rows.TryGetValue(rowName, out var seen)
-            ? new GameRowSighting(_versions[seen.First], _versions[seen.Last])
+            ? new GameRowSighting(_versions[seen.First], _versions[seen.Last], seen.First, seen.Last)
             : null;
 
     /// <summary>
