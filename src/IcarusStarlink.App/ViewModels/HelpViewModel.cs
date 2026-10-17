@@ -31,7 +31,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - If a download holds several alternatives of one mod (different sizes or presets), you're asked which one to install, since the author meant you to pick one. If Starlink can't work out how to install something, the **Install manually** window opens (see "When an install goes wrong").
             - Importing also checks how the mod was packed and warns in the Activity panel (the bell) about: leftover build files (a `.git` folder, editor session files), files outside the game's Content folder, data tables older than your game (missing rows the game has since added), and tables shipped without a single change.
             - **New mod…** creates a mod from a starting point (blank, Quality of life, a new item, or a classic IMM template; see "Making your own mods") and opens it in the mod editor.
-            - **Check ▾**: **Check for updates**, **Update all**, **Check mods against game data** and **Fix sure problems in every mod** (see "Making your own mods"), **Check endorsements**, **Make prebuilt paks editable…**.
+            - **Check ▾**: **Check for updates**, **Update all**, **Check mods against game data** and **Fix sure problems in every mod** (see "Making your own mods"), **Check endorsements**, **What the last game update changed…** (see "After a game update"), **Make prebuilt paks editable…**.
             - Right-click a mod: **Rename…**, **Convert to EXMOD…**, **Create mod backup** / **Restore latest backup**, **Reinstall original** (imports the mod again from the download ISL kept, exactly as its author made it; fixes and edits since are dropped, after a backup), **See what changed vs previous version…**, **Find in Database**, **Search Nexus for this**, **Open on Nexus**, **Link to Nexus ID…**, **Endorse** / **Don't endorse (stop asking)**, **Delete**. Right-click a UE4SS row for **Open folder**, **Set minimum UE4SS version…** and the Nexus link items.
             - Double-click a mod for its details. The **Changes** tab starts with **IN SHORT**: a few lines like "D_Itemable · MaxStack ×10 on 1337 rows", worked out against your current game data, before the full list.
             - Pin/Favorite/Notes are yours to organize with; none of them affect merging. ✎ means you changed it in the mod editor; the wrench means ISL's mod check fixed it (those fixes are made again after game updates); a faint "Made for an older game: between Week 222 and 4 Sep 2026" line under a mod's name is read from the game rows it carries (some were removed from the game after then); a **High risk** or **Medium risk** pill means the mod replaces game files with its own copies (hover it to see which): High is something the whole game builds on, like the player character or the base every building piece uses, so after a game update try without that mod first if things break; Medium is one blueprint or screen. It also names any other mod replacing the same file with a different copy, since only one can win; a warning badge means the mod doesn't fully fit the current game (click it to see what and fix it). Right-click › **Check against the game & fix…** does the same for one mod.
@@ -94,6 +94,33 @@ public sealed partial class HelpViewModel : ObservableObject
             - It shows every field two or more queued mods actually disagree on (fields they all happen to agree on aren't shown — there's nothing to pick between).
             - For each one, pick a specific mod's value from the dropdown, or leave it on **Default** to keep the usual last-mod-wins behavior.
             - Picks apply to your **next** Rebuild only, and reset automatically the moment you change the queue at all (add, remove, reorder, or clear) — a pick only means what it meant against the exact queue it was made from.
+            """),
+
+        new("After a game update", """
+            # After a game update
+
+            When Steam updates Icarus, the **PENDING** bar at the bottom of the **Library** says so ("Icarus updated (build …)") and a pop-up tells you once. Starlink reads the build number Steam keeps for the game, so it knows even if you haven't played yet.
+
+            Click **Update everything…** on that bar. It does, in order:
+
+            - **Saves your setup as it is now**, so you can roll back: what's ticked and in what order, merge options and conflict picks, the merged pak in the game, and which UE4SS mods are on. The newest 3 of these are kept (in Backups\LastKnownGood).
+            - **Notes the game files mods replace**, so Starlink can tell what the update changed in them.
+            - **Refreshes game data**, the same as the button in Settings.
+            - **Checks every mod** against the new game and **makes only the proven fixes** (old copies of game data, links to rows the game no longer has). Each mod is backed up first.
+            - **Checks for newer versions** of your mods on Nexus and the IMM Database.
+            - **Builds the merge and installs it.** Not while Icarus is running: then it builds it and tells you to close the game and click **Copy to game** on Merge & Install.
+
+            If a step doesn't work, it stops there and says why. The steps before it stay done.
+
+            At the end, **"Icarus updated — here's what changed"** shows:
+
+            - **Fixed for you**: each mod Starlink fixed, and how many proven fixes. **Open fix window** shows them.
+            - **Needs a look**: things Starlink wasn't sure enough to change by itself, and mods with a newer version out (**Update**).
+            - **High risk**: mods that replace a game file the update changed. When the mod still has the game's code from before the update, the pill says **out of date** and the reason is named ("the game changed GetCurrentProspectLocation in this update; this mod still has its own older copy"). Starlink only says this with proof: it needs to have seen the game's files from before the update, so the first update after you start using Starlink can't show it yet. **Keep off until updated** unticks the mod and installs the merge without it. Tick it again once its author updates it.
+
+            **Roll back to before the update** puts your mod setup back as it was: the merged pak, the ticks, order, options and picks, and which UE4SS mods are on. What's installed now is backed up first. The game itself can't be rolled back, only your mod setup, and fixes made to mods stay (right-click a mod › **Restore latest backup** undoes one).
+
+            You can open the review again any time: **Check ▾ › What the last game update changed…** in the Library. **Dismiss** on the bar hides it until the next update, without changing anything.
             """),
 
         new("Weekly Changes", """
