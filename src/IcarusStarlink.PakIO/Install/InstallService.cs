@@ -77,9 +77,13 @@ public sealed class InstallService : IInstallService
             // smaller queue than what's currently listed silently loses the previous manifest (and
             // its "installed mods" record GetInstalledStateAsync reads below) with no way to
             // recover what was previously installed.
-            FolderBackup.BackupFile(targetManifestPath, backupDirectory);
+            FolderBackup.BackupFile(targetManifestPath, backupDirectory, BackupCleanup.MergedPakBackupsKept);
             CopyViaTemp(stagedManifestPath, targetManifestPath);
         }
+
+        // The merged pak's backups counted across its current and earlier names, so a rename
+        // doesn't start another pile of ~130 MB copies.
+        BackupCleanup.PruneMergedPakBackups(backupDirectory);
 
         return new InstallResult(targetPakPath, backupPakPath);
     }, cancellationToken);
@@ -148,10 +152,12 @@ public sealed class InstallService : IInstallService
 
         if (File.Exists(targetManifestPath))
         {
-            FolderBackup.BackupFile(targetManifestPath, backupDirectory);
+            FolderBackup.BackupFile(targetManifestPath, backupDirectory, BackupCleanup.MergedPakBackupsKept);
             File.Delete(targetManifestPath);
             removedAnything = true;
         }
+
+        BackupCleanup.PruneMergedPakBackups(backupDirectory);
 
         return removedAnything;
     }, cancellationToken);

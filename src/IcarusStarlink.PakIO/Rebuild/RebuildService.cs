@@ -294,6 +294,28 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         }
     }
 
+    /// <summary>
+    /// The merged pak built under an earlier name (InstallManifestNames.LegacyMergedPakFileNames)
+    /// would otherwise sit next to the new one forever, ~130 MB each. Only those exact names go.
+    /// </summary>
+    private static void DeleteLegacyMergedPaks(string outputPakPath)
+    {
+        var outputDirectory = Path.GetDirectoryName(outputPakPath)!;
+        var outputName = Path.GetFileName(outputPakPath);
+        foreach (var legacyName in InstallManifestNames.LegacyMergedPakFileNames
+                     .Where(n => !n.Equals(outputName, StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                File.Delete(Path.Combine(outputDirectory, legacyName));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Left for the next build; never worth failing this one over.
+            }
+        }
+    }
+
     /// <summary>Packs the staged directory, runs both independent post-build verification passes, writes the manifest, and builds the final result.</summary>
     private async Task<RebuildResult> PackAndVerifyAsync(
         IReadOnlyList<ExmodPackageContents> queuedMods, IReadOnlyList<string> prebuiltPakFilePaths, GameplayOptions gameplayOptions, string unrealPakExePath,
@@ -307,6 +329,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         Directory.CreateDirectory(Path.GetDirectoryName(outputPakPath)!);
         File.Delete(outputPakPath);
         File.Delete(staleManifestPath);
+        DeleteLegacyMergedPaks(outputPakPath);
 
         var stagedRelativePaths = Directory.GetFiles(stagingDirectory, "*", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(stagingDirectory, f).Replace('\\', '/'))

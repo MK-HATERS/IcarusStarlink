@@ -89,23 +89,24 @@ public class InstallServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task InstallAsync_SixInstallsOverExistingTarget_KeepsOnlyFiveMostRecentBackups()
+    public async Task InstallAsync_FourInstallsOverExistingTarget_KeepsOnlyThreeMostRecentBackups()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(TargetPakPath)!);
         await File.WriteAllTextAsync(TargetPakPath, "initial pak bytes");
 
-        for (var i = 1; i <= 6; i++)
+        for (var i = 1; i <= 4; i++)
         {
             await File.WriteAllTextAsync(_stagedPakPath, $"staged pak v{i} bytes");
             await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
             // Backup filenames are timestamped to the second — without this, two installs in the
             // same second would collide on the same backup filename and silently overwrite each
-            // other instead of producing six distinct backups to prune from.
+            // other instead of producing four distinct backups to prune from.
             await Task.Delay(1100);
         }
 
         var backups = Directory.GetFiles(_backupDirectory, "zz_zz_ISL-Merged_9999_P_*.pak");
-        Assert.Equal(5, backups.Length);
+        Assert.Equal(3, backups.Length);
+        Assert.DoesNotContain(backups, b => File.ReadAllText(b) == "initial pak bytes");
     }
 
     [Fact]
@@ -239,6 +240,32 @@ public class InstallServiceTests : IDisposable
         Assert.True(removed);
         Assert.False(File.Exists(legacyPakPath));
         Assert.Equal("old merged pak", await File.ReadAllTextAsync(Directory.GetFiles(_backupDirectory, "ISL-Merged_P_*.pak").Single()));
+    }
+
+    [Fact]
+    public async Task InstallAsync_OldMergedPakBackupsUnderEarlierNames_KeepsOnlyTheNewestThreeOverall()
+    {
+        Directory.CreateDirectory(_backupDirectory);
+        foreach (var name in new[]
+                 {
+                     "ISL-Merged_P_20260101-100000.pak", "ISL-Merged_P_20260102-100000.pak", "ISL-Merged_P_20260103-100000.pak",
+                     "ISL-Merged_9999_P_20260104-100000.pak", "zz_zz_ISL-Merged_9999_P_20260105-100000.pak",
+                     "ISL-Merged_20260101-100000.txt", "ISL-Merged_20260102-100000.txt", "ISL-Merged_20260103-100000.txt",
+                 })
+        {
+            await File.WriteAllTextAsync(Path.Combine(_backupDirectory, name), "old backup");
+        }
+
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+        await File.WriteAllTextAsync(_stagedPakPath, "staged pak v2 bytes");
+        var result = await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+
+        var pakBackups = Directory.GetFiles(_backupDirectory, "*.pak").Select(Path.GetFileName).ToList();
+        Assert.Equal(3, pakBackups.Count);
+        Assert.Contains(Path.GetFileName(result.BackupPakPath), pakBackups);
+        Assert.Contains("ISL-Merged_9999_P_20260104-100000.pak", pakBackups);
+        Assert.Contains("zz_zz_ISL-Merged_9999_P_20260105-100000.pak", pakBackups);
+        Assert.Equal(3, Directory.GetFiles(_backupDirectory, "*.txt").Length);
     }
 
     [Fact]

@@ -335,6 +335,17 @@
                             <TextBlock Text="{Binding DiagnosticsStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                         </StackPanel>
+
+                        <TextBlock Text="Backups" Style="{StaticResource FieldLabelStyle}" Margin="0,20,0,0"/>
+                        <TextBlock Text="Starlink backs up your mods, the merged pak and your server before changing them. Clean up backups keeps the newest 2 of each and deletes the rest."
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding BackupsSizeText}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                            <Button Content="Clean up backups" Command="{Binding CleanUpBackupsCommand}" AutomationProperties.Name="Clean up backups"
+                                    ToolTip="Keeps the newest 2 backups of each mod, the merged pak and each server, and deletes older ones. The newest backup of anything is never deleted."/>
+                            <TextBlock Text="{Binding BackupsStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

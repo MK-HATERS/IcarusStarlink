@@ -240,6 +240,27 @@ public class RebuildServiceTests : IDisposable
         Assert.False(File.Exists(staleManifestPath));
     }
 
+    [Fact]
+    public async Task RebuildAsync_DeletesMergedPaksUnderEarlierNamesFromTheStagingFolder_AndNothingElse()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var stagedBuild = Path.Combine(_tempDir, "Staged_Build");
+        var outputPakPath = Path.Combine(stagedBuild, InstallManifestNames.MergedPakFileName);
+        Directory.CreateDirectory(stagedBuild);
+        foreach (var name in new[] { "ISL-Merged_P.pak", "ISL-Merged_9999_P.pak", "SomethingElse.pak" })
+        {
+            File.WriteAllText(Path.Combine(stagedBuild, name), "old");
+        }
+
+        await new RebuildService(new FakeUnrealPakService()).RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, outputPakPath, []);
+
+        Assert.False(File.Exists(Path.Combine(stagedBuild, "ISL-Merged_P.pak")));
+        Assert.False(File.Exists(Path.Combine(stagedBuild, "ISL-Merged_9999_P.pak")));
+        Assert.True(File.Exists(Path.Combine(stagedBuild, "SomethingElse.pak")));
+    }
+
     /// <summary>Audit finding: the prebuilt-pak extraction loop ran outside the try/finally, so the 2nd pak failing leaked the 1st pak's scratch folder in TEMP.</summary>
     [Fact]
     public async Task RebuildAsync_SecondPrebuiltPakFailsToExtract_FirstPaksScratchFolderIsStillCleanedUp()
