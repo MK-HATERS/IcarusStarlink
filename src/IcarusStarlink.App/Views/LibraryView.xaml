@@ -145,7 +145,7 @@
                 </TextBlock>
                 <Border Grid.Column="7"
                         Visibility="{Binding DataContext.ShowSourceColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" Background="{DynamicResource InfoBrush}"
+                    <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" HorizontalAlignment="Left" Background="{DynamicResource InfoBrush}"
                             ToolTip="Linked to a Nexus mod page for update-checking"
                             Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="Nexus" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>

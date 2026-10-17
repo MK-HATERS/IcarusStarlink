@@ -31,6 +31,18 @@ public sealed class ItemClonerTests : IDisposable
 
     private static string? RowName(JsonNode? link) => link?["RowName"]?.GetValue<string>();
 
+    /// <summary>The game writes quotes inside a name as \"; the Editor's list showed them that way (Larkwell \"Haulier\" Envirosuit).</summary>
+    [Fact]
+    public void ListItems_AndInspect_ShowNamesAsPlayersSeeThem()
+    {
+        var path = Path.Combine(_root, "Traits", "D_Itemable.json");
+        File.WriteAllText(path, File.ReadAllText(path).Replace(@"\""Xigo Envirosuit\""", @"\""Larkwell \\\""Haulier\\\"" Envirosuit\"""));
+        var game = new GameTableIndex(_root);
+
+        Assert.Equal("Larkwell \"Haulier\" Envirosuit", ItemCloner.ListItems(game).Single(i => i.Name == "Envirosuit").DisplayName);
+        Assert.Equal("Larkwell \"Haulier\" Envirosuit", ItemCloner.Inspect(game, "Envirosuit")!.DisplayName);
+    }
+
     [Fact]
     public void Inspect_FollowsLinksThroughTheTablesOwnDefaults_AndFindsHowItsObtained()
     {

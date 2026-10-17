@@ -110,7 +110,7 @@
                                                                 <TextBox Grid.Column="1" Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="{Binding Label}"
                                                                          AcceptsReturn="{Binding IsText}" TextWrapping="Wrap">
                                                                     <TextBox.Style>
-                                                                        <Style TargetType="TextBox">
+                                                                        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
                                                                             <Setter Property="BorderThickness" Value="1"/>
                                                                             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
                                                                             <Style.Triggers>

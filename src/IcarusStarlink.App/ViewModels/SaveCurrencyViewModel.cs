@@ -22,7 +22,7 @@ public sealed partial class SaveCurrencyViewModel : ObservableObject, IDirtyTrac
         _node = node;
         _onDirtyChanged = onDirtyChanged;
         Label = label;
-        _originalCount = node["Count"]?.GetValue<long>() ?? 0;
+        _originalCount = node["Count"] is System.Text.Json.Nodes.JsonValue count && count.TryGetValue<long>(out var countValue) ? countValue : 0;
         _countText = _originalCount.ToString();
     }
 

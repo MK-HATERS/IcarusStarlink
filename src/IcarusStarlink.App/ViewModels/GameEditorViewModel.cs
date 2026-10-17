@@ -191,6 +191,9 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
 public sealed record EditorSaveTarget(string? FolderName, string Display)
 {
     public bool IsNew => FolderName is null;
+
+    /// <summary>The closed dropdown shows this (the record's own text was "EditorSaveTarget { FolderName = … }").</summary>
+    public override string ToString() => Display;
 }
 
 /// <summary>

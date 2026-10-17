@@ -55,6 +55,24 @@ public class SaveCharacterViewModelTests
         Assert.Equal(1000, node["XP"]!.GetValue<long>());
     }
 
+    /// <summary>A game update added the on/off IsReworkedCharacter to Cosmetic; reading it as a number broke the whole Saves page.</summary>
+    [Fact]
+    public void Cosmetic_OnOffFieldFromTheGame_IsSkipped_AndKeptWhenSaving()
+    {
+        var node = new JsonObject
+        {
+            ["CharacterName"] = "TESTER", ["ChrSlot"] = 0, ["XP"] = 10, ["IsDead"] = false,
+            ["Cosmetic"] = new JsonObject { ["IsMale"] = true, ["Customization_Head"] = 12345, ["IsReworkedCharacter"] = false },
+        };
+
+        var vm = new SaveCharacterViewModel(node, EmptyNames, () => { });
+        vm.ApplyToNode();
+
+        Assert.Equal("Customization_Head", Assert.Single(vm.Cosmetics).Key);
+        Assert.False(node["Cosmetic"]!["IsReworkedCharacter"]!.GetValue<bool>());
+        Assert.Equal(12345, node["Cosmetic"]!["Customization_Head"]!.GetValue<long>());
+    }
+
     [Fact]
     public void MarkClean_ValidXpText_AdoptedAsBaseline_BecomesClean()
     {

@@ -451,8 +451,9 @@ public static partial class ItemCloner
         }
     }
 
+    /// <summary>What players see (escapes undone: Larkwell "Haulier", not Larkwell \"Haulier\").</summary>
     private static string? LocalizedText(JsonNode? node) =>
-        node is JsonValue v && v.TryGetValue<string>(out var s) && LocText().Match(s) is { Success: true } m ? m.Groups["text"].Value : null;
+        node is JsonValue v && v.TryGetValue<string>(out var s) ? NsLocText.TextOf(s) : null;
 
     private static string Escape(string text) => text.Replace("\\", "\\\\").Replace("\"", "\\\"");
 }

@@ -67,7 +67,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         _node = node;
         _onDirtyChanged = onDirtyChanged;
         _originalName = node["CharacterName"]?.GetValue<string>() ?? "";
-        _originalXp = node["XP"]?.GetValue<long>() ?? 0;
+        _originalXp = node["XP"] is JsonValue xp && xp.TryGetValue<long>(out var xpValue) ? xpValue : 0;
         _name = _originalName;
         _xpText = _originalXp.ToString();
         ChrSlot = node["ChrSlot"]?.GetValue<int>() ?? 0;
@@ -90,12 +90,15 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
 
         foreach (var (key, value) in cosmetic)
         {
-            if (key == "IsMale" || value is null)
+            // Only the number fields (the Customization_* hashes). Anything else, like the on/off
+            // IsReworkedCharacter a game update added, is kept exactly as it is when saving.
+            if (key == "IsMale" || value is not JsonValue number || number.GetValueKind() != System.Text.Json.JsonValueKind.Number
+                || !long.TryParse(number.ToJsonString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var hash))
             {
                 continue;
             }
 
-            Cosmetics.Add(new SaveCosmeticFieldViewModel(key, value.GetValue<long>().ToString(), _onDirtyChanged));
+            Cosmetics.Add(new SaveCosmeticFieldViewModel(key, hash.ToString(), _onDirtyChanged));
         }
     }
 
