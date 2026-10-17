@@ -1202,6 +1202,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         catch (Exception ex)
         {
             Ue4ssStatusMessage = $"Apply failed: {ex.Message}";
+            _activityLog.Log($"Applying UE4SS changes failed: {ex.Message}", ActivityEntryKind.Warning);
         }
     }
 
@@ -1570,6 +1571,10 @@ public sealed partial class LibraryViewModel : ObservableObject
             : $"Imported {importedCount} of {paths.Count} — {string.Join("; ", failures)}")
             + (_importNote is { } note ? " " + note : "");
         _importNote = null;
+        if (failures.Count > 0)
+        {
+            _activityLog.Log($"Import failed: {string.Join("; ", failures)}", ActivityEntryKind.Warning);
+        }
     }
 
     /// <summary>
@@ -1878,6 +1883,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             // Failures before the swap starts (catalog fetch, download) — the mod on disk is
             // untouched at this point; the swap itself has its own backup-and-restore path above.
             StatusMessage = $"Update failed: {ex.Message}";
+            _activityLog.Log($"Updating '{item.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
     }
 
@@ -1947,6 +1953,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             // Same UI boundary the whole-library sweep already has (an audit finding: without it a
             // locked .pak sent the exception to the crash-report handler and the click did nothing).
             StatusMessage = $"Couldn't convert '{item.Name}': {ex.Message}";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
         }
         finally
         {
@@ -2472,6 +2479,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             StatusMessage = restored ? $"Restored '{item.Name}' from its latest backup." : $"No backup exists yet for '{item.Name}'.";
             if (restored)
             {
+                _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
                 Reload();
                 WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             }
@@ -2479,6 +2487,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Restore failed: {ex.Message}";
+            _activityLog.Log($"Restoring '{item.Name}' from its backup failed: {ex.Message}", ActivityEntryKind.Warning);
         }
     }
 
@@ -2516,11 +2525,12 @@ public sealed partial class LibraryViewModel : ObservableObject
             await Task.Run(() => FixService.Forget(folderName));
             await Downloads.ActivatePendingDownloadCommand.ExecuteAsync(download);
             StatusMessage = Downloads.PendingDownloadStatusMessage is { Length: > 0 } result ? $"Reinstalled '{name}': {result}" : $"Reinstalled '{name}'.";
-            _activityLog.Log($"Reinstalled '{name}' from its original download.", ActivityEntryKind.Info);
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             StatusMessage = $"Reinstall failed: {ex.Message}";
+            _activityLog.Log($"Reinstall of '{name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
     }
 
@@ -3126,6 +3136,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             // Same UI-boundary catch TryImport itself uses — a user-initiated import can fail for
             // many reasons (malformed pak, permission denied, disk full, ...).
             StatusMessage = $"Import failed: {ex.Message}";
+            _activityLog.Log($"Import of '{Path.GetFileName(pakFilePath)}' failed: {ex.Message}", ActivityEntryKind.Warning);
             return null;
         }
     }
@@ -3154,6 +3165,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             // denied, disk full, ...) — this is the UI boundary where any of them should show a
             // friendly message instead of crashing the app.
             StatusMessage = $"Import failed: {ex.Message}";
+            _activityLog.Log($"Import of '{Path.GetFileName(sourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}' failed: {ex.Message}", ActivityEntryKind.Warning);
             return null;
         }
     }

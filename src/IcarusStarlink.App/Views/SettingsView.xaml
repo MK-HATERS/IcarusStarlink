@@ -354,6 +354,8 @@
             <TabItem Header="Appearance">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
                     <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Show pop-up messages" IsChecked="{Binding ShowPopUpMessages}" Margin="0,0,0,14"
+                                  ToolTip="When something finishes or goes wrong (a merge, an import, a save), a small message pops up under the bell for a few seconds. Click one to close it; hold the mouse over it to keep it. Everything is still listed under the bell either way."/>
                         <TextBlock Text="Make the app look however you want: edit any color below (hex, #RRGGBB or #AARRGGBB with transparency), then Save skin. Pick the Custom theme in the top-right corner to use it. The skin lives in a plain JSON file you can also edit by hand or share."
                                    Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,14" MaxWidth="640"/>
 

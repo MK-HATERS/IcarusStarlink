@@ -176,6 +176,7 @@ public partial class App : Application
             new LoggingActivityLog(sp.GetRequiredService<ActivityLog>(), sp.GetRequiredService<ILogger<LoggingActivityLog>>()));
         builder.Services.AddSingleton<IActiveDownloadsTracker, ActiveDownloadsTracker>();
         builder.Services.AddSingleton<ActivityPanelViewModel>();
+        builder.Services.AddSingleton<ToastsViewModel>();
         builder.Services.AddSingleton<ICustomSkinStore>(sp =>
             new CustomSkinStore(
                 Path.Combine(appDataDirectory, "custom_skin.json"),
@@ -415,7 +416,7 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Staged_UE4SS")));
         builder.Services.AddSingleton<WeeklyChangesViewModel>();
         builder.Services.AddSingleton(sp => new DatabaseViewModel(sp.GetRequiredService<NexusCatalogViewModel>(), sp.GetRequiredService<LibraryViewModel>()));
-        builder.Services.AddSingleton(sp => new GameEditorViewModel(sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data")));
+        builder.Services.AddSingleton(sp => new GameEditorViewModel(sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data"), sp.GetRequiredService<IActivityLog>()));
         builder.Services.AddSingleton(sp => new ServerViewModel(
             sp.GetRequiredService<IFtpSiteStore>(),
             sp.GetRequiredService<ICredentialStore>(),

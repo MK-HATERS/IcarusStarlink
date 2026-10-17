@@ -259,5 +259,10 @@
             <views:ActivityPanelView Grid.Column="2" Width="280" DataContext="{Binding ActivityPanel}"
                                       Visibility="{Binding IsOpen, Converter={StaticResource BoolToVisibilityConverter}}"/>
         </Grid>
+
+        <!-- Pop-up messages just under the bell, over whatever page is showing. Its DataContext
+             (ToastsViewModel) is set in code-behind. -->
+        <views:ToastHostView x:Name="ToastHost" Grid.Row="1" Panel.ZIndex="10" Margin="0,10,16,0"
+                             HorizontalAlignment="Right" VerticalAlignment="Top"/>
     </Grid>
 </Window>

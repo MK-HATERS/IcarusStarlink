@@ -1121,10 +1121,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 // just possibly larger than it needed to be.
                 PatchStatusMessage += $" ({string.Join(", ", failedSources)} couldn't be reached — affected mods were bundled rather than referenced.)";
             }
+
+            _activityLog.Log($"Exported '{profileName}' to '{dialog.FileName}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             PatchStatusMessage = $"Export failed: {ex.Message}";
+            _activityLog.Log(PatchStatusMessage, ActivityEntryKind.Warning);
         }
         finally
         {
@@ -1182,6 +1185,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // Same UI boundary as ImportPatchAsync below — an unreadable/locked file shows a
             // status message rather than crashing the app.
             StatusMessage = $"Couldn't import the list: {ex.Message}";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
         }
     }
 
@@ -1246,10 +1250,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             PatchStatusMessage = missing.Count > 0
                 ? $"Imported '{contents.Manifest.ProfileName}' — {missing.Count} mod(s) missing, get them from Library's IMM Database tab first: {string.Join(", ", missing)}."
                 : $"Imported '{contents.Manifest.ProfileName}'.";
+            _activityLog.Log(PatchStatusMessage, missing.Count > 0 ? ActivityEntryKind.Warning : ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             PatchStatusMessage = $"Import failed: {ex.Message}";
+            _activityLog.Log(PatchStatusMessage, ActivityEntryKind.Warning);
         }
     }
 
@@ -1919,6 +1925,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // UnrealPak failure, or a malformed queued mod should show a status message, not
             // crash the app.
             StatusMessage = $"Rebuild failed: {ex.Message}";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
             // Whatever is (or isn't) at _outputPakPath now is not a build the user asked for — the
             // standalone Copy to game must not offer it (an audit finding: it installed a stale or
             // partial pak after a failed rebuild).
@@ -2640,6 +2647,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             InstallStatusMessage =
                 $"Install failed — the pak is in use: {ex.Message} "
                 + "Close Icarus if it's running, then click 'Copy to game' (no need to rebuild).";
+            _activityLog.Log(InstallStatusMessage, ActivityEntryKind.Warning);
             CanCopyToGame = true;
         }
         catch (Exception ex)
@@ -2647,6 +2655,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // Same UI boundary as everywhere else — a missing/wrong Content path or a permissions
             // issue should show a status message, not crash the app.
             InstallStatusMessage = $"Install failed: {ex.Message}";
+            _activityLog.Log(InstallStatusMessage, ActivityEntryKind.Warning);
         }
     }
 
@@ -2723,6 +2732,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         catch (Exception ex)
         {
             InstallStatusMessage = $"Remove failed: {ex.Message}";
+            _activityLog.Log(InstallStatusMessage, ActivityEntryKind.Warning);
         }
     }
 }

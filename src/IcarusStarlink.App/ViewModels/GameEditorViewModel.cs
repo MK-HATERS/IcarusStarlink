@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
@@ -211,15 +212,18 @@ public sealed record EditorQuickStart(ItemChoice Item, string Hint)
 public sealed partial class GameEditorViewModel : ObservableObject
 {
     private readonly ILibraryRepository _repository;
+    private readonly IActivityLog? _activityLog;
     private readonly string _dataFolder;
     private GameTableIndex? _game;
     private IReadOnlyList<ItemChoice> _allItems = [];
     private IReadOnlyList<StatChoice>? _statChoices;
     private bool _refreshingFilter;
 
-    public GameEditorViewModel(ILibraryRepository repository, string dataFolder)
+    /// <param name="activityLog">Saves and failed saves also go to the app-wide activity feed (null in tests).</param>
+    public GameEditorViewModel(ILibraryRepository repository, string dataFolder, IActivityLog? activityLog = null)
     {
         _repository = repository;
+        _activityLog = activityLog;
         _dataFolder = dataFolder;
         NewModAuthor = Environment.UserName;
         // Game data changes under the page when Settings' Update data folder runs.
@@ -540,11 +544,13 @@ public sealed partial class GameEditorViewModel : ObservableObject
             RefreshTargets(selectFolder: folder);
             LoadItem();
             StatusMessage = $"Saved {lines.Count} change(s) to '{name}'. To use it in game: Turn on & go to Merge & Install, then Install.";
+            _activityLog?.Log($"Saved {lines.Count} change(s) to '{name}' in the Editor.", ActivityEntryKind.Success);
             SavedModFolder = folder;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException or System.Text.Json.JsonException)
         {
             StatusMessage = $"Couldn't save: {ex.Message}";
+            _activityLog?.Log($"Editor: couldn't save: {ex.Message}", ActivityEntryKind.Warning);
         }
     }
 
