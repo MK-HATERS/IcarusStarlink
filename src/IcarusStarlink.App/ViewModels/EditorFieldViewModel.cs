@@ -259,6 +259,12 @@ public sealed partial class EditorFieldViewModel : ObservableObject
                 throw new FormatException("needs a number");
             }
 
+            // Typed as JSON (a stats field, a raw value): stats are whole numbers in the game.
+            if (GameItemEditor.FractionalStat(parsed is JsonObject ? parsed : new JsonObject { [FieldName] = parsed?.DeepClone() }) is { } fractional)
+            {
+                throw new System.IO.InvalidDataException($"Stats are whole numbers in the game, so {fractional} would lose its fraction. Use a whole number.");
+            }
+
             if (!_fields.TryGetValue(FieldName, out var previous) || !JsonNode.DeepEquals(previous, parsed))
             {
                 BeforeWrite?.Invoke();
@@ -272,7 +278,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             // Deliberately doesn't write back — _fields keeps whatever the last successfully-
             // parsed value was until this becomes valid JSON again, so a mid-typing invalid state
             // never corrupts the in-memory package.
-            ParseError = Kind == EditorFieldKind.Number ? "Needs a number, like 50 or 0.5." : ex.Message;
+            ParseError = Kind == EditorFieldKind.Number && ex is not System.IO.InvalidDataException ? "Needs a number, like 50 or 0.5." : ex.Message;
         }
 
         RecomputeChanged();
@@ -424,19 +430,21 @@ public sealed partial class StatEntryViewModel : ObservableObject
 
     public bool IsChanged => !IsDropped && (_gameValue is null || !ScaleRules.TryReadNumber(_gameValue, out var game) || NumberValue() != game);
 
-    public string? Error => NumberValue() is null ? "Needs a number, like 15 or -50." : null;
+    /// <summary>Stats are whole numbers in the game (an int each), so 5.5 is refused, not rounded behind the user's back.</summary>
+    public string? Error => NumberValue() is null ? "Needs a whole number, like 15 or -50 (stats have no fractions)." : null;
 
     partial void OnValueTextChanged(string value)
     {
         if (NumberValue() is { } n)
         {
-            LastGoodValue = n == Math.Floor(n) && Math.Abs(n) < int.MaxValue ? JsonValue.Create((long)n) : JsonValue.Create(n);
+            LastGoodValue = JsonValue.Create((long)n);
             _owner.StatsChanged();
         }
     }
 
     internal double? NumberValue() =>
-        double.TryParse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) && double.IsFinite(n) ? n : null;
+        double.TryParse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) && double.IsFinite(n)
+            && n == Math.Floor(n) && n is >= int.MinValue and <= int.MaxValue ? n : null;
 
     [RelayCommand]
     private void Remove()

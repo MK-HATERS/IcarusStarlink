@@ -111,6 +111,49 @@ public sealed class EditorFieldKindsTests : IDisposable
         Assert.Equal("Item_Waterskin", link.SelectedOption);
     }
 
+    private ExmodEditorViewModel OpenArmourMod()
+    {
+        Write("Traits/D_Armour.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"IO_Undersuit","ArmourStats":{"(Value=\"BaseOxygenSlots_+\")":1}}]}""");
+        var entry = _library.CreateBlankMod("Suits", "Me", ModTemplate.Blank);
+        var package = ExmodFolder.Read(_library.GetFolderPath(entry.FolderName)).Package;
+        package.Rows.Add(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Armour.json",
+            FileItems = [new ExmodFileItem { Name = "IO_Undersuit", Fields = { ["ArmourStats"] = JsonNode.Parse("""{"(Value=\"BaseOxygenSlots_+\")":2}""") } }],
+        });
+        ExmodFolder.Write(_library.GetFolderPath(entry.FolderName), new ExmodPackageContents(package, []));
+        var editor = new ExmodEditorViewModel(entry.FolderName, _library, DataFolder, new GameDataIndexCache());
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "IO_Undersuit");
+        return editor;
+    }
+
+    /// <summary>Stats are whole numbers in the game (all 15,333 stat values in its tables are): a stat row, the stats JSON box and the raw file JSON all refuse 5.5.</summary>
+    [Fact]
+    public void Stats_NeedWholeNumbers_InEveryPlaceTheyCanBeTyped()
+    {
+        var editor = OpenArmourMod();
+        var stats = Field(editor, "ArmourStats");
+        Assert.Equal(EditorFieldKind.Stats, stats.Kind);
+        var oxygen = stats.Stats.Single();
+
+        oxygen.ValueText = "2.5";
+        Assert.Contains("whole number", oxygen.Error);
+        Assert.Equal(2, JsonNode.Parse(stats.ValueText)!["(Value=\"BaseOxygenSlots_+\")"]!.GetValue<long>());
+
+        oxygen.ValueText = "3";
+        Assert.Null(oxygen.Error);
+        Assert.Equal(3, JsonNode.Parse(stats.ValueText)!["(Value=\"BaseOxygenSlots_+\")"]!.GetValue<long>());
+
+        stats.ValueText = """{"(Value=\"BaseOxygenSlots_+\")": 4.5}""";
+        Assert.Contains("whole numbers", stats.ParseError);
+
+        editor.FileJsonText = """
+            {"CurrentFile": "Traits-D_Armour.json", "File_Items": [{"Name": "IO_Undersuit", "ArmourStats": {"(Value=\"BaseOxygenSlots_+\")": 3.5}}]}
+            """;
+        editor.ApplyFileJsonCommand.Execute(null);
+        Assert.StartsWith("Not applied", editor.RawJsonStatusMessage);
+    }
+
     [Fact]
     public void ATextFieldWithAFewGameValues_IsAChoice()
     {

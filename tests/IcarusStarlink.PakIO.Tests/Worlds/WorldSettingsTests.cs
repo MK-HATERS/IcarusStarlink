@@ -85,6 +85,22 @@ public sealed class WorldSettingsTests : IDisposable
         Assert.Contains("\"BinaryBlob\": \"BBBB\"", File.ReadAllText(path));
     }
 
+    /// <summary>The game rewrote the world after it was loaded: settings the user didn't touch keep the file's newer value.</summary>
+    [Fact]
+    public void Save_FileChangedSinceLoad_KeepsTheNewerValuesOfUntouchedSettings()
+    {
+        var path = Write("a.json", SaveWithSettings);
+        var world = WorldSave.Load(path)!;
+        File.WriteAllText(path, SaveWithSettings.Replace("\"SettingValue\": 1", "\"SettingValue\": 2"));
+
+        world.Save(new Dictionary<string, int> { ["Arachnophobia"] = 1 }, Path.Combine(_root, "bk"));
+
+        var reread = WorldSave.Load(path)!;
+        Assert.Equal(2, reread.Settings["SettingsVersion"]);
+        Assert.Equal(1, reread.Settings["Arachnophobia"]);
+        Assert.Equal(2, world.Settings["SettingsVersion"]);
+    }
+
     [Fact]
     public void Save_TwiceInARow_KeepsBothBackups()
     {

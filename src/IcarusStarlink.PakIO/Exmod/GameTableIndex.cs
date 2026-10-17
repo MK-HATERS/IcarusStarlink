@@ -66,6 +66,166 @@ public sealed class GameTableIndex(string dataFolder)
         }
     }
 
+    private const string ItemTemplateFile = "Items-D_ItemTemplate.json";
+    private Dictionary<string, List<string>>? _templatesByItem;
+
+    /// <summary>
+    /// The D_ItemTemplate rows that make this D_ItemsStatic item (their ItemStaticData.RowName),
+    /// compared ignoring case. Usually one, named like the item — but 389 game templates aren't
+    /// (template Stone_Furnace makes item Kit_Stone_Furnace, Envirosuit_Shengong2 makes
+    /// Envirosuit_Shengong_2), and recipes and workshop items hand out the TEMPLATE name, so
+    /// anything looking for "what makes this item" must go through here, not the item's name.
+    /// </summary>
+    public IReadOnlyList<string> TemplatesFor(string itemName)
+    {
+        lock (_gate)
+        {
+            if (_templatesByItem is null)
+            {
+                _templatesByItem = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (template, value) in Rows(ItemTemplateFile) ?? [])
+                {
+                    var item = (value?["ItemStaticData"] as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var s) && s is { Length: > 0 } and not "None" ? s : template;
+                    if (!_templatesByItem.TryGetValue(item, out var list))
+                    {
+                        list = [];
+                        _templatesByItem[item] = list;
+                    }
+
+                    list.Add(template);
+                }
+            }
+
+            return _templatesByItem.GetValueOrDefault(itemName) ?? [];
+        }
+    }
+
+    /// <summary>
+    /// The names a recipe output or workshop Item uses for this item: its templates (TemplatesFor),
+    /// plus the item's own name when no template is called that (older or modded data that points
+    /// straight at the item). Case-insensitive, like the game.
+    /// </summary>
+    public IReadOnlySet<string> ProductNamesFor(string itemName)
+    {
+        var names = new HashSet<string>(TemplatesFor(itemName), StringComparer.OrdinalIgnoreCase);
+        if (!HasRow(ItemTemplateFile, itemName))
+        {
+            names.Add(itemName);
+        }
+
+        return names;
+    }
+
+    /// <summary>A step in IsDecimalField's path that matches every element of a list.</summary>
+    public const string AnyElement = "[]";
+
+    /// <summary>A step in IsDecimalField's path that matches every key of an object.</summary>
+    public const string AnyKey = "*";
+
+    private readonly Dictionary<string, bool?> _decimalFields = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether a numeric field holds fractions anywhere in the game's table: true when any row (or
+    /// the table default) has a value like 0.5 or written as 1.0, false when every value is whole,
+    /// null when the game has no number there. Decided per FIELD, not per value: Weight 100 on one
+    /// row doesn't make Weight a whole-number field when another row has 0.5, and a multiplier the
+    /// game stores as 1 everywhere is still whole. Steps are object keys, AnyKey or AnyElement.
+    /// </summary>
+    public bool? IsDecimalField(string currentFile, string top, IReadOnlyList<string> steps)
+    {
+        var cacheKey = $"{currentFile}|{top}|{string.Join('\u001f', steps)}";
+        lock (_gate)
+        {
+            if (_decimalFields.TryGetValue(cacheKey, out var known))
+            {
+                return known;
+            }
+        }
+
+        bool? result = null;
+        void Visit(JsonNode? node, int index)
+        {
+            if (result == true || node is null)
+            {
+                return;
+            }
+
+            if (index == steps.Count)
+            {
+                if (node is JsonValue value && ScaleRules.TryReadNumber(value, out var number))
+                {
+                    var fraction = number != Math.Floor(number)
+                        || (value.TryGetValue<System.Text.Json.JsonElement>(out var element) && element.GetRawText().IndexOfAny(['.', 'e', 'E']) >= 0);
+                    result = fraction || result == true;
+                }
+
+                return;
+            }
+
+            var step = steps[index];
+            switch (node)
+            {
+                case JsonArray array when step == AnyElement:
+                    foreach (var element in array)
+                    {
+                        Visit(element, index + 1);
+                    }
+
+                    break;
+                case JsonObject obj when step == AnyKey:
+                    foreach (var (_, child) in obj)
+                    {
+                        Visit(child, index + 1);
+                    }
+
+                    break;
+                case JsonObject obj:
+                    Visit(obj[step], index + 1);
+                    break;
+            }
+        }
+
+        foreach (var (_, row) in Rows(currentFile) ?? [])
+        {
+            Visit((row as JsonObject)?[top], 0);
+        }
+
+        Visit(Defaults(currentFile)?[top], 0);
+
+        lock (_gate)
+        {
+            _decimalFields[cacheKey] = result;
+        }
+
+        return result;
+    }
+
+    /// <summary>IsDecimalField for a Scale-rule path ("Field", "Dict.*", "List[].Field").</summary>
+    public bool? IsDecimalField(string currentFile, string scalePath)
+    {
+        var segments = ScaleRules.SplitPath(scalePath);
+        if (segments.Length == 0)
+        {
+            return null;
+        }
+
+        var steps = new List<string>();
+        for (var i = 0; i < segments.Length; i++)
+        {
+            if (i > 0)
+            {
+                steps.Add(ScaleRules.StripList(segments[i]));
+            }
+
+            if (segments[i].EndsWith("[]", StringComparison.Ordinal))
+            {
+                steps.Add(AnyElement);
+            }
+        }
+
+        return IsDecimalField(currentFile, ScaleRules.StripList(segments[0]), steps);
+    }
+
     /// <summary>The table a top-level link field points into, from the table's own Defaults ("Itemable" in D_ItemsStatic → "D_Itemable").</summary>
     public string? LinkTarget(string currentFile, string field) =>
         (Defaults(currentFile)?[field] as JsonObject)?["DataTableName"]?.GetValue<string>();

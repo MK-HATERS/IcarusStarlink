@@ -154,21 +154,25 @@ public static partial class GameItemEditor
 
         // The recipe that makes it and its workshop price: rows of their own, found by what they produce.
         // Every recipe that makes it (wood walls, rope, glass have several: one per bench).
+        // Recipes and the workshop hand out the item's D_ItemTemplate row, which is often named
+        // differently (Kit_Stone_Furnace is made as "Stone_Furnace"): match through those names.
+        var products = game.ProductNamesFor(itemName);
+        bool Makes(JsonNode? element) => (element as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var s) && products.Contains(s);
         var recipes = (game.Rows(Recipes) ?? []).Where(kv => kv.Value?["Outputs"] is JsonArray outputs
-                && outputs.Any(o => string.Equals(o?["Element"]?["RowName"]?.GetValue<string>(), itemName, StringComparison.OrdinalIgnoreCase)))
+                && outputs.Any(o => Makes(o?["Element"])))
             .Select(kv => kv.Key).ToList();
         for (var i = 0; i < recipes.Count; i++)
         {
             var recipeRow = game.Row(Recipes, recipes[i]);
             var bench = recipeRow?["RecipeSets"]?[0]?["RowName"]?.GetValue<string>();
             // Butchering a carcass is one recipe making several things: its ingredients are all of theirs.
-            var others = (recipeRow?["Outputs"] as JsonArray)?.Count(o => !string.Equals(o?["Element"]?["RowName"]?.GetValue<string>(), itemName, StringComparison.OrdinalIgnoreCase)) ?? 0;
+            var others = (recipeRow?["Outputs"] as JsonArray)?.Count(o => !Makes(o?["Element"])) ?? 0;
             var title = (recipes.Count > 1 ? $"Recipe {i + 1} of {recipes.Count}" : "Recipe") + (bench is null ? "" : $" · {Humanize(bench)}")
                 + (others > 0 ? $" · also makes {others} other thing{(others == 1 ? "" : "s")}" : "");
             sections.Add(BuildSection(game, mod, $"{RecipeSection}:{recipes[i]}", title, Recipes, recipes[i], recipes[i], 1));
         }
 
-        if ((game.Rows(WorkshopItems) ?? []).FirstOrDefault(kv => string.Equals(kv.Value?["Item"]?["RowName"]?.GetValue<string>(), itemName, StringComparison.OrdinalIgnoreCase)) is { Key: { } workshop })
+        if ((game.Rows(WorkshopItems) ?? []).FirstOrDefault(kv => Makes(kv.Value?["Item"])) is { Key: { } workshop })
         {
             sections.Add(BuildSection(game, mod, WorkshopSection, "Workshop price", WorkshopItems, workshop, workshop, 1));
         }
@@ -259,6 +263,40 @@ public static partial class GameItemEditor
                 .Select(n => new StatChoice(n, StatLabel(n), StatKind(n)))
                 .OrderBy(c => c.Label, StringComparer.OrdinalIgnoreCase)]
             : [];
+
+    /// <summary>Whether a key is a stat key ("(Value=\"BaseOxygenSlots_+\")").</summary>
+    public static bool IsStatKey(string key) => StatKey().IsMatch(key);
+
+    /// <summary>
+    /// Stat values are whole numbers in the game (an int per stat: all 15,333 stat values in the
+    /// game's tables are), so 5.5 would lose its fraction or not load. Returns the first stat
+    /// anywhere under node with a fractional value ("Cold resistance: 5.5"), or null.
+    /// </summary>
+    public static string? FractionalStat(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var (key, value) in obj)
+                {
+                    if (IsStatKey(key) && value is JsonValue v && ScaleRules.TryReadNumber(v, out var n) && n != Math.Floor(n))
+                    {
+                        return $"{StatLabel(key)}: {n.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+                    }
+
+                    if (FractionalStat(value) is { } nested)
+                    {
+                        return nested;
+                    }
+                }
+
+                return null;
+            case JsonArray array:
+                return array.Select(FractionalStat).FirstOrDefault(found => found is not null);
+            default:
+                return null;
+        }
+    }
 
     /// <summary>The key a stat has in a stats object: "BaseColdResistance_%" → "(Value=\"BaseColdResistance_%\")".</summary>
     public static string StatKeyFor(string statName) => StatKey().IsMatch(statName) ? statName : $"(Value=\"{statName}\")";

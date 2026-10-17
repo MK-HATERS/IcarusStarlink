@@ -53,6 +53,38 @@ public class ExmodFolderTests : IDisposable
     }
 
     [Fact]
+    public void Write_Again_ReplacesTheExmodAndLeavesNoTempFile()
+    {
+        ExmodFolder.Write(_tempDir, BuildFixture());
+        var second = BuildFixture();
+        second.Package.Description = "Second";
+
+        ExmodFolder.Write(_tempDir, second);
+
+        Assert.Equal("Second", ExmodFolder.ReadPackageOnly(_tempDir).Description);
+        Assert.Empty(Directory.GetFiles(Path.Combine(_tempDir, "Extracted Mods"), "*.tmp"));
+    }
+
+    /// <summary>A write that can't finish (here: the .EXMOD is held open) must leave the previous file whole, not truncated.</summary>
+    [Fact]
+    public void Write_ExmodLocked_KeepsTheOldFileWhole()
+    {
+        ExmodFolder.Write(_tempDir, BuildFixture());
+        var exmodPath = Path.Combine(_tempDir, "Extracted Mods", "Faster_Processors.EXMOD");
+        var before = File.ReadAllText(exmodPath);
+        var second = BuildFixture();
+        second.Package.Description = "Second";
+
+        using (new FileStream(exmodPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Assert.ThrowsAny<Exception>(() => ExmodFolder.Write(_tempDir, second));
+        }
+
+        Assert.Equal(before, File.ReadAllText(exmodPath));
+        Assert.Empty(Directory.GetFiles(Path.Combine(_tempDir, "Extracted Mods"), "*.tmp"));
+    }
+
+    [Fact]
     public void Write_AssetCollidingWithReservedExmodPath_ThrowsInsteadOfOverwritingPackageMetadata()
     {
         var package = ExmodJson.Parse("""

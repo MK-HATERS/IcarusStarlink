@@ -21,15 +21,28 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
 
     private readonly bool _wholeNumber;
 
-    public GameItemFieldViewModel(EditableField field)
+    /// <param name="decimalField">Whether the game's table has fractions in this field anywhere (GameTableIndex.IsDecimalField); null: unknown, judge by this value.</param>
+    public GameItemFieldViewModel(EditableField field, bool? decimalField = null)
     {
         Field = field;
         _gameText = Display(field.GameValue);
         _startText = Display(field.CurrentValue ?? field.GameValue);
         _valueText = _startText;
-        // A stack size or slot count is a whole number in the game; 2.5 would be read as 2 or rejected.
-        _wholeNumber = (field.GameValue ?? field.CurrentValue) is JsonValue v && ScaleRules.TryReadNumber(v, out var n) && n == Math.Floor(n) && !v.ToJsonString().Contains('.');
+        // A stack size or slot count is a whole number in the game; 2.5 would be read as 2 or
+        // rejected. Stats always are (an int each). Otherwise it's the FIELD that decides: a
+        // Weight of 100 here is still a real number when other items weigh 0.5.
+        _wholeNumber = IsStat(field)
+            || (decimalField is { } isDecimal
+                ? !isDecimal
+                : (field.GameValue ?? field.CurrentValue) is JsonValue v && ScaleRules.TryReadNumber(v, out var n) && n == Math.Floor(n) && !v.ToJsonString().Contains('.'));
     }
+
+    private static bool IsStat(EditableField field) =>
+        field.Path.Steps.Count > 0 && field.Path.Steps[^1] is string key && GameItemEditor.IsStatKey(key);
+
+    /// <summary>The field's path in IsDecimalField's terms: list positions match any element.</summary>
+    internal static IReadOnlyList<string> DecimalSteps(EditPath path) =>
+        [.. path.Steps.Select(s => s is string key ? key : GameTableIndex.AnyElement)];
 
     /// <summary>Set by the card for a value the user added (a stat): "back to the game's" takes it out again.</summary>
     internal Action<GameItemFieldViewModel>? RemoveAdded { get; set; }
@@ -60,7 +73,7 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     public string? Error =>
         Field.Kind != EditableKind.Number || IsRemoved ? null
         : !double.TryParse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) || !double.IsFinite(n) ? "Needs a number, like 50 or 0.5."
-        : _wholeNumber && n != Math.Floor(n) ? "Needs a whole number here, like 50."
+        : _wholeNumber && n != Math.Floor(n) ? (IsStat(Field) ? "Needs a whole number: stats have no fractions in the game, like 15." : "Needs a whole number here, like 50.")
         : null;
 
     /// <summary>
@@ -110,14 +123,15 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
 {
     private readonly Action _changed;
 
-    public GameItemSectionViewModel(EditableSection section, IReadOnlyList<StatChoice> stats, Action changed)
+    public GameItemSectionViewModel(EditableSection section, IReadOnlyList<StatChoice> stats, Action changed, GameTableIndex? game = null)
     {
         Section = section;
         Picker = new StatPickerViewModel(stats, AddStat);
         _changed = changed;
         foreach (var field in section.Fields)
         {
-            Add(new GameItemFieldViewModel(field));
+            var decimalField = field.Kind == EditableKind.Number ? game?.IsDecimalField(section.CurrentFile, field.Path.Top, GameItemFieldViewModel.DecimalSteps(field.Path)) : null;
+            Add(new GameItemFieldViewModel(field, decimalField));
         }
     }
 
@@ -581,7 +595,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
         _statChoices ??= GameItemEditor.StatChoices(game);
         foreach (var section in view.Sections)
         {
-            Sections.Add(new GameItemSectionViewModel(section, _statChoices, UpdatePending));
+            Sections.Add(new GameItemSectionViewModel(section, _statChoices, UpdatePending, game));
         }
 
         UpdatePending();

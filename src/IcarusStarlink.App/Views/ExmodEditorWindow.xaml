@@ -13,6 +13,7 @@
         <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCommand}"/>
         <KeyBinding Key="D" Modifiers="Control" Command="{Binding DuplicateItemCommand}"/>
         <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoCommand}"/>
+        <KeyBinding Key="Y" Modifiers="Control" Command="{Binding RedoCommand}"/>
         <KeyBinding Key="F3" Command="{Binding SelectNextItemCommand}"/>
         <!-- Ctrl+F is handled in code-behind (focuses the filter box) — a pure-UI focus concern the ViewModel can't reach directly. -->
     </Window.InputBindings>
@@ -386,6 +387,9 @@
                         ToolTip="Ticks this mod ON (adds it to the merge queue) and opens Merge &amp; Install, where Install puts it in the game"/>
                 <Button Content="Undo (Ctrl+Z)" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" Margin="8,0,0,0"
                         ToolTip="Reverts the last Add/Remove field, Add item, Duplicate, mass edit, or raw-JSON Apply — not per-keystroke typing. Greyed out: nothing to undo yet."
+                        ToolTipService.ShowOnDisabled="True"/>
+                <Button Content="Redo (Ctrl+Y)" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" Margin="8,0,0,0"
+                        ToolTip="Puts back what Undo just took away. Greyed out: nothing undone, or a new change since."
                         ToolTipService.ShowOnDisabled="True"/>
                 <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{DynamicResource SecondaryForegroundBrush}"/>

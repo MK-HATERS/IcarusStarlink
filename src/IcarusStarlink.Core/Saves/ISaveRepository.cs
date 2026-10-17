@@ -88,4 +88,13 @@ public interface ISaveRepository
 
     /// <summary>Writes a pre_restore safety zip of the slot as it is RIGHT NOW, then replaces the slot's contents with the chosen backup. Returns the pre_restore zip path.</summary>
     string RestoreSlot(string steamId, string backupFilePath);
+
+    /// <summary>
+    /// Last-write time and size of every file the editor reads (Profile, Characters, Accolades,
+    /// Bestiary, MetaInventory, Mounts, flags_&lt;id&gt;.dat), keyed by file name; null for a file
+    /// that doesn't exist. The Saves page records these at load and compares before writing, so a
+    /// save the game rewrote in the meantime (the user played with the editor open) is never
+    /// overwritten by the older copy it read.
+    /// </summary>
+    IReadOnlyDictionary<string, SaveFileStamp?> GetFileStamps(string steamId);
 }

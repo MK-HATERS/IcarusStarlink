@@ -26,20 +26,26 @@ internal static class MiniGameData
              "Rows":[
               {"Name":"Envirosuit","Meshable":{"RowName":"Mesh_Generic_Workshop"},"Itemable":{"RowName":"Item_Envirosuit"},"Armour":{"RowName":"IO_Undersuit"},"Decayable":{"RowName":"Decay_General"},
                "Manual_Tags":{"GameplayTags":[{"TagName":"Item.Envirosuit"}]}},
-              {"Name":"Food_Bread","Meshable":{"RowName":"Mesh_Bread"},"Itemable":{"RowName":"Item_Bread"},"Consumable":{"RowName":"Food_Bread"},"Decayable":{"RowName":"Decay_General"}}
+              {"Name":"Food_Bread","Meshable":{"RowName":"Mesh_Bread"},"Itemable":{"RowName":"Item_Bread"},"Consumable":{"RowName":"Food_Bread"},"Decayable":{"RowName":"Decay_General"}},
+              {"Name":"Kit_Stone_Furnace","Meshable":{"RowName":"Firepit"},"Itemable":{"RowName":"Item_Kit_Stone_Furnace"}},
+              {"Name":"Meta_Carbon_Chest_Alpha","Meshable":{"RowName":"Firepit"},"Itemable":{"RowName":"Item_Carbon_Chest_Alpha"}}
             ]}
             """);
         W("Items/D_ItemTemplate.json", """
             {"RowStruct":"S","Defaults":{},"Rows":[
               {"Name":"Envirosuit","ItemStaticData":{"RowName":"Envirosuit"}},
-              {"Name":"Food_Bread","ItemStaticData":{"RowName":"Food_Bread"}}
+              {"Name":"Food_Bread","ItemStaticData":{"RowName":"Food_Bread"}},
+              {"Name":"Stone_Furnace","ItemStaticData":{"RowName":"Kit_Stone_Furnace"},"ItemDynamicData":[{"PropertyType":"Durability","Value":500}]},
+              {"Name":"Meta_Carbon_Armor_Chest_Alpha","ItemStaticData":{"RowName":"Meta_Carbon_Chest_Alpha"}}
             ]}
             """);
         W("Traits/D_Decayable.json", """{"RowStruct":"S","Defaults":{"DecayTime":0,"SpoilTime":0},"Rows":[{"Name":"Decay_General","DecayTime":300}]}""");
         W("Traits/D_Itemable.json", """
             {"RowStruct":"S","Defaults":{"Weight":0,"MaxStack":1},"Rows":[
               {"Name":"Item_Envirosuit","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Envirosuit-DisplayName\", \"Xigo Envirosuit\")","Description":"NSLOCTEXT(\"D_Itemable\", \"Item_Envirosuit-Description\", \"A suit.\")","Weight":100},
-              {"Name":"Item_Bread","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Bread-DisplayName\", \"Bread\")","Weight":50}
+              {"Name":"Item_Bread","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Bread-DisplayName\", \"Bread\")","Weight":50},
+              {"Name":"Item_Kit_Stone_Furnace","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Kit_Stone_Furnace-DisplayName\", \"Stone Furnace\")","Weight":2000},
+              {"Name":"Item_Carbon_Chest_Alpha","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Carbon_Chest_Alpha-DisplayName\", \"Carbon Chest\")","Weight":800}
             ]}
             """);
         W("Traits/D_Meshable.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Mesh_Generic_Workshop"},{"Name":"Mesh_Bread"},{"Name":"Firepit"}]}""");
@@ -59,7 +65,11 @@ internal static class MiniGameData
               {"Name":"Bread","Requirement":{"RowName":"Bread_Blueprint","DataTableName":"D_Talents"},
                "RecipeSets":[{"RowName":"Kitchen_Stove","DataTableName":"D_RecipeSets"}],
                "Inputs":[{"Element":{"RowName":"Dough_Bread","DataTableName":"D_ItemsStatic"},"Count":1}],
-               "Outputs":[{"Element":{"RowName":"Food_Bread","DataTableName":"D_ItemTemplate"},"Count":1}]}
+               "Outputs":[{"Element":{"RowName":"Food_Bread","DataTableName":"D_ItemTemplate"},"Count":1}]},
+              {"Name":"Stone_Furnace","Requirement":{"RowName":"Stone_Furnace_Blueprint","DataTableName":"D_Talents"},
+               "RecipeSets":[{"RowName":"Crafting_Bench","DataTableName":"D_RecipeSets"}],
+               "Inputs":[{"Element":{"RowName":"Stone","DataTableName":"D_ItemsStatic"},"Count":80}],
+               "Outputs":[{"Element":{"RowName":"stone_furnace","DataTableName":"D_ItemTemplate"},"Count":1}]}
             ]}
             """);
         W("Crafting/D_RecipeSets.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Character"},{"Name":"Crafting_Bench"},{"Name":"Kitchen_Stove"}]}""");
@@ -67,14 +77,18 @@ internal static class MiniGameData
             {"RowStruct":"S","Defaults":{},"Rows":[
               {"Name":"Meta_Envirosuit_Basic","Item":{"RowName":"Envirosuit"},
                "ResearchCost":[{"Meta":{"RowName":"Credits","DataTableName":"D_MetaCurrency"},"Amount":50}],
-               "ReplicationCost":[{"Meta":{"RowName":"Credits","DataTableName":"D_MetaCurrency"},"Amount":25}]}
+               "ReplicationCost":[{"Meta":{"RowName":"Credits","DataTableName":"D_MetaCurrency"},"Amount":25}]},
+              {"Name":"Meta_Carbon_Armor_Chest_Alpha","Item":{"RowName":"Meta_Carbon_Armor_Chest_Alpha"},
+               "ResearchCost":[{"Meta":{"RowName":"Credits","DataTableName":"D_MetaCurrency"},"Amount":120}],
+               "ReplicationCost":[{"Meta":{"RowName":"Credits","DataTableName":"D_MetaCurrency"},"Amount":60}]}
             ]}
             """);
         W("Talents/D_Talents.json", """
             {"RowStruct":"S","Defaults":{},"Rows":[
               {"Name":"Bread_Blueprint","TalentTree":{"RowName":"Blueprint_T1"}},
               {"Name":"Workshop_Envirosuit_1","ExtraData":{"RowName":"Meta_Envirosuit2","DataTableName":"D_WorkshopItems"},"TalentTree":{"RowName":"Workshop_Envirosuits"},"Position":{"X":1000,"Y":1150}},
-              {"Name":"Workshop_Envirosuit","ExtraData":{"RowName":"Meta_Envirosuit","DataTableName":"D_WorkshopItems"},"TalentTree":{"RowName":"Workshop_Envirosuits"},"Position":{"X":500,"Y":800}}
+              {"Name":"Workshop_Envirosuit","ExtraData":{"RowName":"Meta_Envirosuit","DataTableName":"D_WorkshopItems"},"TalentTree":{"RowName":"Workshop_Envirosuits"},"Position":{"X":500,"Y":800}},
+              {"Name":"Workshop_Carbon_Chest_Alpha","ExtraData":{"RowName":"Meta_Carbon_Armor_Chest_Alpha","DataTableName":"D_WorkshopItems"},"TalentTree":{"RowName":"Workshop_Envirosuits"},"Position":{"X":700,"Y":900}}
             ]}
             """);
         W("Talents/D_TalentTrees.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Workshop_Envirosuits","Archetype":{"RowName":"Workshop_Envirosuits"},"Icon":"/Game/Icon.Icon"},{"Name":"Blueprint_T1","Archetype":{"RowName":"Blueprints"}}]}""");

@@ -61,6 +61,66 @@ public sealed class ItemClonerTests : IDisposable
         Assert.Equal("Bread", bread.BuffName);
     }
 
+    /// <summary>
+    /// 389 game templates aren't named like their item (template Stone_Furnace makes Kit_Stone_Furnace;
+    /// Meta_Carbon_Armor_Chest_Alpha makes Meta_Carbon_Chest_Alpha), and recipes/workshop items name the
+    /// template: Inspect found neither, and Build wrote no template, so the new item couldn't be made.
+    /// </summary>
+    [Fact]
+    public void Inspect_TemplateNamedDifferently_FindsItsRecipeAndWorkshopItem()
+    {
+        var furnace = ItemCloner.Inspect(_game, "Kit_Stone_Furnace")!;
+        var chest = ItemCloner.Inspect(_game, "Meta_Carbon_Chest_Alpha")!;
+
+        Assert.True(furnace.HasTemplate);
+        Assert.Equal("Stone_Furnace", furnace.TemplateName);
+        Assert.Equal("Stone_Furnace", furnace.RecipeName);
+        Assert.Equal(["Crafting_Bench"], furnace.RecipeBenches);
+
+        Assert.Equal("Meta_Carbon_Armor_Chest_Alpha", chest.TemplateName);
+        Assert.Equal("Meta_Carbon_Armor_Chest_Alpha", chest.WorkshopItemName);
+        Assert.Equal((120, 60), (chest.ResearchCredits, chest.ReplicationCredits));
+        Assert.Equal("Workshop_Envirosuits", chest.WorkshopTree);
+    }
+
+    [Fact]
+    public void Build_TemplateNamedDifferently_CopiesItAndTheRecipeMakesTheNewItem()
+    {
+        var rows = ItemCloner.Build(_game, new ItemCloneRequest
+        {
+            SourceItem = "Kit_Stone_Furnace", NewName = "Kit_Lava_Furnace", DisplayName = "Lava Furnace",
+            Obtain = ObtainMethod.Recipe, RecipeBench = "Crafting_Bench",
+        });
+
+        var template = Row(rows, "Items-D_ItemTemplate.json", "Kit_Lava_Furnace");
+        Assert.Equal("Kit_Lava_Furnace", RowName(template["ItemStaticData"]));
+        // The source template's own fields come along.
+        Assert.Equal(500, template["ItemDynamicData"]![0]!["Value"]!.GetValue<int>());
+
+        var recipe = Row(rows, "Crafting-D_ProcessorRecipes.json", "Kit_Lava_Furnace");
+        Assert.Equal("Kit_Lava_Furnace", RowName(recipe["Outputs"]![0]!["Element"]));
+        Assert.Equal(80, recipe["Inputs"]![0]!["Count"]!.GetValue<int>());
+    }
+
+    /// <summary>An item with no template at all still gets one: recipes and the workshop can only hand out templates.</summary>
+    [Fact]
+    public void Build_SourceWithoutATemplate_WritesAMinimalOne()
+    {
+        var path = Path.Combine(_root, "Items", "D_ItemTemplate.json");
+        File.WriteAllText(path, """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var game = new GameTableIndex(_root);
+
+        var rows = ItemCloner.Build(game, new ItemCloneRequest
+        {
+            SourceItem = "Envirosuit", NewName = "Dragon_Suit", DisplayName = "Dragon Suit", Obtain = ObtainMethod.Workshop, WorkshopTree = "Workshop_Envirosuits",
+        });
+
+        var template = Row(rows, "Items-D_ItemTemplate.json", "Dragon_Suit");
+        Assert.Equal("Dragon_Suit", RowName(template["ItemStaticData"]));
+        Assert.Single(template);
+        Assert.Equal("Dragon_Suit", RowName(Row(rows, "MetaWorkshop-D_WorkshopItems.json", "Meta_Dragon_Suit")["Item"]));
+    }
+
     [Fact]
     public void Build_OwnCopiesAreRenamedAndRelinked_SharedLinksStayOnTheGamesRows()
     {

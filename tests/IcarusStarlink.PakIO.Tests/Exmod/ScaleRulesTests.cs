@@ -56,6 +56,40 @@ public sealed class ScaleRulesTests : IDisposable
     private static ExmodFileItem Item(ExmodPackage mod, string file, string name) =>
         mod.Rows.Single(r => r.CurrentFile == file).FileItems.Single(i => i.Name == name);
 
+    /// <summary>Whole-or-not is per field: Rate 3 on one row is still a real number when another row has 0.5, so 3 × 0.25 is 0.75, not rounded to 1.</summary>
+    [Fact]
+    public void Multiply_FieldWithFractionsElsewhere_KeepsTheResultReal()
+    {
+        Write("Traits/D_Fillable.json", """
+            {"RowStruct":"S","Defaults":{"Rate":1},"Rows":[
+              {"Name":"Canteen","Rate":3},
+              {"Name":"Bladder","Rate":0.5},
+              {"Name":"Barrel","Count":3}
+            ]}
+            """);
+        var mod = EmptyMod();
+
+        ScaleRules.ApplyToPackage(mod, [Rule("Traits-D_Fillable.json", "Rate", 0.25), Rule("Traits-D_Fillable.json", "Count", 0.25)], _data, new MergeReport());
+
+        Assert.Equal(0.75, Item(mod, "Traits-D_Fillable.json", "Canteen").Fields["Rate"]!.GetValue<double>());
+        // A field whole everywhere stays whole (and never rounds a real amount to 0).
+        Assert.Equal(1, Item(mod, "Traits-D_Fillable.json", "Barrel").Fields["Count"]!.GetValue<long>());
+    }
+
+    [Fact]
+    public void IsDecimalField_LooksAtEveryRowAndTheDefault_ThroughListsAndDictionaries()
+    {
+        var game = new GameTableIndex(_data);
+
+        Assert.False(game.IsDecimalField("Traits-D_Itemable.json", "Weight"));
+        Assert.False(game.IsDecimalField("Traits-D_Armour.json", "ArmourStats.*"));
+        Assert.False(game.IsDecimalField("MetaWorkshop-D_WorkshopItems.json", "ReplicationCost[].Amount"));
+        Assert.Null(game.IsDecimalField("Traits-D_Itemable.json", "NoSuchField"));
+
+        Write("Traits/D_Itemable.json", """{"RowStruct":"S","Defaults":{"Weight":0.5},"Rows":[{"Name":"Item_Fiber","Weight":10}]}""");
+        Assert.True(new GameTableIndex(_data).IsDecimalField("Traits-D_Itemable.json", "Weight"));
+    }
+
     [Fact]
     public void Multiply_ScalesEveryRow_IncludingOnesThatInheritTheTableDefault()
     {
