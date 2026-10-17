@@ -35,6 +35,26 @@ public sealed class ModFixService(
     private GameTableIndex? _gameIndex;
     private DateTime _gameIndexStamp;
 
+    private GameRowHistory? _rowHistory;
+    private DateTime _rowHistoryStamp;
+
+    /// <summary>Every row the game has ever had: shipped, plus the user's own refreshes (re-read when a refresh adds to it). Only read under _gate.</summary>
+    private GameRowHistory RowHistory
+    {
+        get
+        {
+            var local = GameRowHistory.LocalFileFor(dataFolder);
+            var stamp = File.Exists(local) ? File.GetLastWriteTimeUtc(local) : default;
+            if (_rowHistory is null || stamp != _rowHistoryStamp)
+            {
+                _rowHistory = GameRowHistory.Load(local);
+                _rowHistoryStamp = stamp;
+            }
+
+            return _rowHistory;
+        }
+    }
+
     /// <summary>One table index for every check (re-read after Refresh game data changes the folder). Only read under _gate.</summary>
     private GameTableIndex GameIndex
     {
@@ -61,7 +81,8 @@ public sealed class ModFixService(
             return ModHealthChecker.Check(package, dataFolder, baseTableCache, history ?? History(), repository.ListAssetPaths(folderName),
                 decisions: LoadDecisions(folderName), fromPrebuiltPak: Entry(folderName)?.ConvertedFromPrebuiltPak == true, gameIndex: GameIndex,
                 rowsOtherModsAdd: libraryAddedRows ??= LibraryAddedRows(),
-                rowsSeveralModsAdd: (libraryAddedRows as LibraryAddedRowSet)?.AddedBySeveral);
+                rowsSeveralModsAdd: (libraryAddedRows as LibraryAddedRowSet)?.AddedBySeveral,
+                rowHistory: RowHistory);
         }
     }
 

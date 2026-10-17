@@ -31,8 +31,9 @@ public enum ModIssueKind
 
     /// <summary>
     /// A whole row from an older game version that the game has since removed (laanp's paks carry
-    /// Cobalt Ingot, Electric Motor…): in a prebuilt pak, not in the game, carried by another
-    /// Library mod too, and used by nothing else in the mod. Harmless, so only tidying.
+    /// Cobalt Ingot, Electric Motor…): in a prebuilt pak (or a table copied wholesale), not in the
+    /// game, used by nothing else in the mod, and either known from the game's row history or
+    /// carried by another Library mod too. Harmless, so only tidying.
     /// </summary>
     OldGameRow,
 }
@@ -141,7 +142,8 @@ public static class ModHealthChecker
         bool fromPrebuiltPak = false,
         GameTableIndex? gameIndex = null,
         IReadOnlySet<string>? rowsOtherModsAdd = null,
-        IReadOnlySet<string>? rowsSeveralModsAdd = null)
+        IReadOnlySet<string>? rowsSeveralModsAdd = null,
+        GameRowHistory? rowHistory = null)
     {
         // Which table a link field points into, and whether a row is there (share one across a pass).
         gameIndex ??= new GameTableIndex(dataFolder);
@@ -150,6 +152,7 @@ public static class ModHealthChecker
 
         var issues = new List<ModIssue>();
         var authorChanges = 0;
+        var wholesaleFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var row in package.Rows)
         {
@@ -253,6 +256,11 @@ public static class ModHealthChecker
             // are otherwise old copies are almost certainly old values too, not the author's idea.
             // Measured in rows: most rows the mod touches here carry an old copy somewhere.
             var wholesale = rowsTouched.Count >= WholesaleCopyMinRows && rowsWithOld.Union(rowsWithMixed, StringComparer.OrdinalIgnoreCase).Count() >= WholesaleCopyOldShare * rowsTouched.Count;
+            if (wholesale)
+            {
+                wholesaleFiles.Add(row.CurrentFile);
+            }
+
             if (fromPrebuiltPak || wholesale)
             {
                 tableIssues.AddRange(oldByShape);
@@ -298,9 +306,9 @@ public static class ModHealthChecker
             issues.AddRange(tableIssues);
         }
 
-        if (fromPrebuiltPak && rowsSeveralModsAdd is { Count: > 0 })
+        if ((fromPrebuiltPak || wholesaleFiles.Count > 0) && (rowsSeveralModsAdd is { Count: > 0 } || rowHistory is { VersionCount: > 0 }))
         {
-            issues.AddRange(OldGameRows(package, gameIndex, rowsSeveralModsAdd));
+            issues.AddRange(OldGameRows(package, gameIndex, fromPrebuiltPak ? null : wholesaleFiles, rowsSeveralModsAdd, rowHistory));
         }
 
         // Small edits to rows the game no longer has, renamed since. A row the mod itself makes or
@@ -626,22 +634,27 @@ public static class ModHealthChecker
     }
 
     /// <summary>
-    /// Whole rows a prebuilt pak carries from an older game: not in the game, carried by another
-    /// Library mod too (two mods both "adding" Cobalt Ingot are both carrying the game's old row,
-    /// not making new content), and linked from nothing else in this mod. Rows that only link to
-    /// each other (an old item's ItemsStatic, Itemable and Template rows) go together; one the
-    /// mod's real content links to stays.
+    /// Whole rows a prebuilt pak (or a table a mod copied wholesale) carries from an older game: not
+    /// in the game, linked from nothing else in this mod, and with evidence it was the game's:
+    /// the game's row history shows it had the row (proof), or another Library mod carries the
+    /// same row (two mods both "adding" Cobalt Ingot are both carrying the game's old row). Rows
+    /// that only link to each other (an old item's ItemsStatic, Itemable and Template rows) go
+    /// together; one the mod's real content links to stays. Hand-made mods' own tables are never
+    /// judged: some deliberately bring a removed item back.
     /// </summary>
-    private static IEnumerable<ModIssue> OldGameRows(ExmodPackage package, GameTableIndex index, IReadOnlySet<string> rowsSeveralModsAdd)
+    /// <param name="onlyFiles">Null: every table (a prebuilt pak). Otherwise only these (tables copied wholesale).</param>
+    private static IEnumerable<ModIssue> OldGameRows(ExmodPackage package, GameTableIndex index, IReadOnlySet<string>? onlyFiles,
+        IReadOnlySet<string>? rowsSeveralModsAdd, GameRowHistory? rowHistory)
     {
         var candidates = new List<(string File, ExmodFileItem Item)>();
         var others = new List<ExmodFileItem>();
         foreach (var row in package.Rows.Where(r => !ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile)))
         {
-            var known = index.Rows(row.CurrentFile) is not null;
+            var known = index.Rows(row.CurrentFile) is not null && (onlyFiles is null || onlyFiles.Contains(row.CurrentFile));
             foreach (var item in row.FileItems)
             {
-                if (known && !index.HasRow(row.CurrentFile, item.Name) && rowsSeveralModsAdd.Contains(AddedRowKey(row.CurrentFile, item.Name)))
+                if (known && !index.HasRow(row.CurrentFile, item.Name)
+                    && (rowHistory?.Find(row.CurrentFile, item.Name) is not null || rowsSeveralModsAdd?.Contains(AddedRowKey(row.CurrentFile, item.Name)) == true))
                 {
                     candidates.Add((row.CurrentFile, item));
                 }
@@ -681,8 +694,14 @@ public static class ModHealthChecker
 
         foreach (var (file, item) in candidates.GroupBy(c => (c.File.ToLowerInvariant(), c.Item.Name.ToLowerInvariant())).Select(g => g.Last()))
         {
+            var seen = rowHistory?.Find(file, item.Name);
+            var shared = rowsSeveralModsAdd?.Contains(AddedRowKey(file, item.Name)) == true;
+            var why = seen is not null
+                ? $"The game had this row until {seen.LastSeen} and has since removed it; the mod still carries a copy from then."
+                    + (shared ? " Another mod in your Library carries the same copy." : "")
+                : "Most likely a copy from an older game version: another mod in your Library carries the same row, and the game doesn't have it.";
             yield return new ModIssue(ModIssueKind.OldGameRow, file, item.Name, null, null, null, null, null, ModIssueFix.RemoveRow, IsSure: false,
-                "The game doesn't have this row any more. The mod carries a copy from an older game version (another mod in your Library carries the same one), and nothing else in the mod uses it.");
+                why + " Nothing else in the mod uses it, so it does nothing in game.");
         }
     }
 

@@ -272,6 +272,11 @@ tool for:
   Toolkit](https://github.com/AgentKush/Icarus-Save-file-Toolkit) documented the real on-disk save
   file layout this app's Save editor is built against (studied as a format reference only — no
   code from that project is used here).
+- **[GODOFMINECRAFT4/IcarusData](https://github.com/GODOFMINECRAFT4/IcarusData)** and
+  **[IcarusWiki/Data](https://github.com/IcarusWiki/Data)**: public, update-by-update histories of
+  the game's extracted data. ISL's game row history (which rows the game has had and removed
+  since Week 9, so an old copy in a mod can be told from new content) is built from their commit
+  histories; only row names and version labels are kept, none of the files themselves.
 - **[Nexus Mods](https://www.nexusmods.com/icarus)** — the platform and the real API this app's
   Nexus integration talks to.
 - **[CUE4Parse](https://github.com/FabianFG/CUE4Parse)** — the Unreal Engine asset-parsing library

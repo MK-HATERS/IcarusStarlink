@@ -16,6 +16,7 @@ using IcarusStarlink.Catalog.GitHub;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Catalog.Ue4ss;
 using IcarusStarlink.Core.Activity;
+using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.Core.GameHealth;
 using IcarusStarlink.Core.Migration;
 using IcarusStarlink.Core.Nexus;
@@ -918,6 +919,18 @@ public sealed partial class SettingsViewModel : ObservableObject
             if (result.ChangeReport is { } report)
             {
                 _weeklyChangeReportStore.Save(report);
+            }
+
+            // This game version joins the row history, so rows a later update removes are known as
+            // the game's (an old copy a mod carries), not a mod's new content.
+            try
+            {
+                var dataFolder = _dataOutputDirectory;
+                await Task.Run(() => GameRowHistory.Record(dataFolder, GameRowHistory.LocalFileFor(dataFolder), DateTimeOffset.UtcNow));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _activityLog.Log($"Couldn't add this game version to the row history: {ex.Message}", ActivityEntryKind.Warning);
             }
 
             // Recorded regardless of whether a report was produced (also covers the first-ever

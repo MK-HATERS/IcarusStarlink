@@ -25,4 +25,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Every row name the game has ever had (tools/GameRowHistory builds it); see GameRowHistory. -->
+    <EmbeddedResource Include="Resources\game_row_history.json.gz" LogicalName="game_row_history.json.gz" />
+  </ItemGroup>
 </Project>
