@@ -95,6 +95,25 @@ public sealed class DedicatedServerTests : IDisposable
         Assert.Equal(["new run"], tailer.Poll());
     }
 
+    /// <summary>A new run that has already written MORE than the old one by the next poll: the file never shrank, but it starts differently, so it is read from the top.</summary>
+    [Fact]
+    public void LogTailer_NewRunThatGrewPastTheOldPosition_IsReadFromTheTop()
+    {
+        Directory.CreateDirectory(_root);
+        var path = Path.Combine(_root, "Icarus.log");
+        var tailer = new LogTailer(path);
+        File.WriteAllText(path, "Log file open, 10/16/26 17:18:04\r\nold run\r\n");
+        Assert.Equal(["Log file open, 10/16/26 17:18:04", "old run"], tailer.Poll());
+
+        File.WriteAllText(path, "Log file open, 10/16/26 21:35:10\r\nnew run line one\r\nnew run line two\r\nnew run line three\r\n");
+
+        Assert.Equal(["Log file open, 10/16/26 21:35:10", "new run line one", "new run line two", "new run line three"], tailer.Poll());
+
+        // Appending to the same run is still just the new lines.
+        File.AppendAllText(path, "four\r\n");
+        Assert.Equal(["four"], tailer.Poll());
+    }
+
     [Fact]
     public void LogTailer_SeekToEnd_SkipsTheBacklogAndTheMaxBytesCapKeepsTheNewestPart()
     {
