@@ -2,8 +2,11 @@ using IcarusStarlink.Catalog.GitHub;
 
 namespace IcarusStarlink.Catalog.Tests.GitHub;
 
+[Collection(GitHubApiCacheCollection.Name)]
 public class GitHubRepoDateClientTests
 {
+    public GitHubRepoDateClientTests() => IcarusStarlink.Catalog.GitHub.GitHubApiCache.Reset();
+
     private static GitHubRepoDateClient CreateClient(Dictionary<string, string> responsesByUrl) =>
         new(new HttpClient(new FakeHttpMessageHandler(responsesByUrl)));
 

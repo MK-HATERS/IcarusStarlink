@@ -54,9 +54,9 @@ public sealed class GitHubRepoDateClient : IGitHubRepoDateClient
         await gate.WaitAsync(cancellationToken);
         try
         {
-            var dto = await _httpClient.GetFromJsonAsync<GitHubRepoDto>(
-                $"https://api.github.com/repos/{repo.Owner}/{repo.Repo}", cancellationToken);
-            return (repo, dto?.PushedAt);
+            // A mod's "last updated" day doesn't need checking more than every few hours.
+            var body = await GitHubApiCache.GetAsync(_httpClient, $"https://api.github.com/repos/{repo.Owner}/{repo.Repo}", TimeSpan.FromHours(6), cancellationToken);
+            return (repo, body is null ? null : System.Text.Json.JsonSerializer.Deserialize<GitHubRepoDto>(body)?.PushedAt);
         }
         catch (Exception)
         {

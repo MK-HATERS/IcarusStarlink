@@ -132,6 +132,9 @@ public partial class App : Application
         }));
 
         var appDataDirectory = AppContext.BaseDirectory;
+
+        // GitHub answers are reused between runs: its 60-an-hour limit is shared by everything on the connection.
+        IcarusStarlink.Catalog.GitHub.GitHubApiCache.Configure(Path.Combine(appDataDirectory, "Cache", "github_cache.json"));
         var logsDirectory = _logsDirectory;
         Directory.CreateDirectory(logsDirectory);
 

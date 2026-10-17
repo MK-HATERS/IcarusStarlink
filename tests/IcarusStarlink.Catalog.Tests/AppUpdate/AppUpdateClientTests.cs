@@ -2,8 +2,11 @@ using IcarusStarlink.Catalog.AppUpdate;
 
 namespace IcarusStarlink.Catalog.Tests.AppUpdate;
 
+[Collection(IcarusStarlink.Catalog.Tests.GitHub.GitHubApiCacheCollection.Name)]
 public class AppUpdateClientTests
 {
+    public AppUpdateClientTests() => IcarusStarlink.Catalog.GitHub.GitHubApiCache.Reset();
+
     private const string LatestReleaseUrl = "https://api.github.com/repos/MK-HATERS/IcarusStarlink/releases/latest";
     private const string BrowserDownloadUrl = "https://github.com/MK-HATERS/IcarusStarlink/releases/download/v0.10.0/IcarusStarlink-0.10.0.zip";
 

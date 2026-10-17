@@ -34,7 +34,8 @@ public sealed partial class Ue4ssReleaseClient : IUe4ssReleaseClient
     {
         try
         {
-            var dto = await _httpClient.GetFromJsonAsync<Ue4ssReleaseDto>(LatestReleaseUrl, cancellationToken);
+            var body = await GitHubApiCache.GetAsync(_httpClient, LatestReleaseUrl, TimeSpan.FromHours(6), cancellationToken);
+            var dto = body is null ? null : System.Text.Json.JsonSerializer.Deserialize<Ue4ssReleaseDto>(body);
             var asset = dto?.Assets.FirstOrDefault(a => BasicAssetName().IsMatch(a.Name));
             if (dto is null || asset is null)
             {

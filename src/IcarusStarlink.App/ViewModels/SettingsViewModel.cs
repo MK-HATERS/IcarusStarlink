@@ -1622,7 +1622,9 @@ public sealed partial class SettingsViewModel : ObservableObject
             LatestAppUpdateRelease = await _appUpdateClient.GetLatestReleaseAsync();
             AppUpdateStatusMessage = LatestAppUpdateRelease switch
             {
-                null => "Couldn't check for updates — GitHub may be unreachable, or the check hit a rate limit.",
+                null => IcarusStarlink.Catalog.GitHub.GitHubApiCache.RateLimitMessage is { } limit
+                    ? $"Couldn't check for updates. {limit}"
+                    : "Couldn't check for updates: GitHub didn't answer (offline, or GitHub is down).",
                 { } r when IsAppUpdateAvailable => $"v{r.Version} is available (you have v{InstalledAppVersion}).",
                 _ => "You're up to date.",
             };

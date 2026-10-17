@@ -3,8 +3,11 @@ using IcarusStarlink.Catalog.Ue4ss;
 
 namespace IcarusStarlink.Catalog.Tests.Ue4ss;
 
+[Collection(IcarusStarlink.Catalog.Tests.GitHub.GitHubApiCacheCollection.Name)]
 public class Ue4ssReleaseClientTests
 {
+    public Ue4ssReleaseClientTests() => IcarusStarlink.Catalog.GitHub.GitHubApiCache.Reset();
+
     private const string ReleaseUrl = "https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases/latest";
 
     private static Ue4ssReleaseClient CreateClient(
