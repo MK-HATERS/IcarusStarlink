@@ -13,14 +13,18 @@ public interface IFirewallService
     /// <summary>Every inbound rule. Reading needs no administrator rights. Throws when the firewall can't be read.</summary>
     IReadOnlyList<FirewallRule> ReadInboundRules();
 
-    /// <summary>Runs the netsh commands in one elevated script, so Windows asks for administrator approval once.</summary>
+    /// <summary>The network type(s) this PC is on now (Public, Private, Domain) and whether the firewall is on for them.</summary>
+    FirewallNetwork ReadCurrentNetwork();
+
+    /// <summary>Runs the netsh commands in one elevated cmd.exe, so Windows asks for administrator approval once.</summary>
     Task<FirewallApplyResult> RunElevatedAsync(IReadOnlyList<string> netshCommands, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
 /// Reads through the firewall's own COM API (HNetCfg.FwPolicy2) rather than parsing netsh text,
 /// which is translated on non-English Windows. Writing needs administrator rights, so changes go
-/// through netsh in a script started with the "runas" verb.
+/// through netsh in a cmd.exe started with the "runas" verb, every command on its command line
+/// (no script file another program could swap before the elevated run reads it).
 /// </summary>
 public sealed class FirewallService : IFirewallService
 {
@@ -28,11 +32,16 @@ public sealed class FirewallService : IFirewallService
     private const int ActionAllow = 1;
     private const int ErrorCancelled = 1223;
 
-    public IReadOnlyList<FirewallRule> ReadInboundRules()
+    private static dynamic OpenPolicy()
     {
         var type = Type.GetTypeFromProgID("HNetCfg.FwPolicy2")
             ?? throw new InvalidOperationException("Windows Firewall isn't available on this PC.");
-        dynamic policy = Activator.CreateInstance(type)!;
+        return Activator.CreateInstance(type)!;
+    }
+
+    public IReadOnlyList<FirewallRule> ReadInboundRules()
+    {
+        var policy = OpenPolicy();
         var rules = new List<FirewallRule>();
         foreach (dynamic rule in policy.Rules)
         {
@@ -43,6 +52,16 @@ public sealed class FirewallService : IFirewallService
                     continue;
                 }
 
+                int profiles;
+                try
+                {
+                    profiles = (int)rule.Profiles;
+                }
+                catch (Exception ex) when (ex is Microsoft.CSharp.RuntimeBinder.RuntimeBinderException or System.Runtime.InteropServices.COMException or InvalidCastException)
+                {
+                    profiles = ServerFirewall.AllProfiles;
+                }
+
                 rules.Add(new FirewallRule(
                     (string?)rule.Name ?? "",
                     (bool)rule.Enabled,
@@ -50,7 +69,8 @@ public sealed class FirewallService : IFirewallService
                     Allow: (int)rule.Action == ActionAllow,
                     (int)rule.Protocol,
                     (string?)rule.LocalPorts ?? "*",
-                    (string?)rule.ApplicationName));
+                    (string?)rule.ApplicationName,
+                    profiles));
             }
             catch (Exception ex) when (ex is Microsoft.CSharp.RuntimeBinder.RuntimeBinderException or System.Runtime.InteropServices.COMException or InvalidCastException)
             {
@@ -61,16 +81,44 @@ public sealed class FirewallService : IFirewallService
         return rules;
     }
 
+    /// <summary>CurrentProfileTypes is a bit mask (several adapters can be on different network types); the firewall counts as on when it is on for any of them.</summary>
+    public FirewallNetwork ReadCurrentNetwork()
+    {
+        var policy = OpenPolicy();
+        var current = (int)policy.CurrentProfileTypes;
+        if (current == 0)
+        {
+            return FirewallNetwork.Unknown;
+        }
+
+        var on = false;
+        foreach (var bit in new[] { ServerFirewall.DomainProfile, ServerFirewall.PrivateProfile, ServerFirewall.PublicProfile })
+        {
+            if ((current & bit) != 0)
+            {
+                try
+                {
+                    on |= (bool)policy.FirewallEnabled[bit];
+                }
+                catch (Exception ex) when (ex is Microsoft.CSharp.RuntimeBinder.RuntimeBinderException or System.Runtime.InteropServices.COMException or InvalidCastException)
+                {
+                    on = true; // can't tell: assume it is on, so nothing is called open that isn't
+                }
+            }
+        }
+
+        return new FirewallNetwork(current, on);
+    }
+
     public async Task<FirewallApplyResult> RunElevatedAsync(IReadOnlyList<string> netshCommands, CancellationToken cancellationToken = default)
     {
-        var script = Path.Combine(Path.GetTempPath(), $"IcarusStarlink-firewall-{Guid.NewGuid():N}.cmd");
-        await File.WriteAllTextAsync(script, ServerFirewall.BuildScript(netshCommands), cancellationToken);
+        var arguments = ServerFirewall.BuildElevatedArguments(netshCommands);
         try
         {
             using var process = Process.Start(new ProcessStartInfo
             {
-                FileName = "cmd.exe",
-                Arguments = $"/c \"\"{script}\"\"",
+                FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+                Arguments = arguments,
                 Verb = "runas",
                 UseShellExecute = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
@@ -88,16 +136,6 @@ public sealed class FirewallService : IFirewallService
         catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorCancelled)
         {
             return new FirewallApplyResult(false, "Administrator approval was declined, so nothing changed.");
-        }
-        finally
-        {
-            try
-            {
-                File.Delete(script);
-            }
-            catch (IOException)
-            {
-            }
         }
     }
 }

@@ -206,12 +206,12 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     }
 
     [Fact]
-    public void RemoveProfile_RemovesOnlyTheListEntry()
+    public async Task RemoveProfile_RemovesOnlyTheListEntry()
     {
         var (vm, store, _, _) = Build(pick: _install);
         vm.AddExistingServerCommand.Execute(null);
 
-        vm.RemoveProfileCommand.Execute(null);
+        await vm.RemoveProfileCommand.ExecuteAsync(null);
 
         Assert.Empty(store.Profiles);
         Assert.Null(vm.SelectedProfile);

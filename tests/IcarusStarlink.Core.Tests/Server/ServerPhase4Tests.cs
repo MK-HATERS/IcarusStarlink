@@ -266,11 +266,60 @@ public sealed class ServerPhase4Tests
         Assert.Contains($"program=\"{Exe}\"", add);
         Assert.DoesNotContain("&", add);
 
-        var script = ServerFirewall.BuildScript(commands);
-        Assert.Contains("delete rule", script);
-        Assert.Contains(">nul 2>&1", script);
-        Assert.Contains("|| exit /b 1", script);
-        Assert.EndsWith("exit /b 0\r\n", script);
+        // One elevated cmd.exe with every command on its command line: no script file to swap.
+        var arguments = ServerFirewall.BuildElevatedArguments(commands);
+        Assert.StartsWith("/d /s /c \"netsh advfirewall firewall delete rule", arguments);
+        Assert.Contains(">nul 2>&1 & ", arguments);
+        Assert.Contains(" >nul || exit 1 & exit 0\"", arguments);
+    }
+
+    [Theory]
+    [InlineData(@"C:\Servers\100%\IcarusServer-Win64-Shipping.exe")]
+    [InlineData(@"C:\Servers\Hi!\IcarusServer-Win64-Shipping.exe")]
+    public void ElevatedArguments_RefuseCharactersCmdWouldExpand(string exe)
+    {
+        var commands = ServerFirewall.BuildNetshCommands(Profile(), exe, [("Game port", 17777, ServerFirewall.Udp)]);
+        Assert.Throws<ArgumentException>(() => ServerFirewall.BuildElevatedArguments(commands));
+    }
+
+    /// <summary>A renamed profile's old rules are still its own (matched by the id in the name), and are deleted by their real names.</summary>
+    [Fact]
+    public void OwnRules_AreMatchedByProfileId_NotName()
+    {
+        var p = Profile();
+        var id8 = p.Id.ToString("N")[..8];
+        List<FirewallRule> rules =
+        [
+            new($"Icarus Starlink - Old name ({id8}) - Game port UDP", true, true, true, ServerFirewall.Udp, "17777", Exe),
+            new("Icarus Starlink - Other (00000000) - Game port UDP", true, true, true, ServerFirewall.Udp, "17777", Exe),
+            new("Icarus Server UDP", true, true, true, ServerFirewall.Udp, "17777", Exe),
+        ];
+
+        var own = ServerFirewall.OwnRules(rules, p);
+
+        Assert.Equal([$"Icarus Starlink - Old name ({id8}) - Game port UDP"], own);
+        var commands = ServerFirewall.BuildNetshCommands(p, Exe, [], own);
+        Assert.Contains($"advfirewall firewall delete rule name=\"Icarus Starlink - Old name ({id8}) - Game port UDP\"", commands);
+    }
+
+    /// <summary>Rules only count on the network type the PC is on now; Windows' firewall being off there opens everything.</summary>
+    [Fact]
+    public void Check_UsesOnlyRulesForTheCurrentNetwork()
+    {
+        List<FirewallRule> rules = [new("Home only", true, true, true, ServerFirewall.Udp, "17777", Exe, ServerFirewall.PrivateProfile)];
+        var onPublic = new FirewallNetwork(ServerFirewall.PublicProfile, FirewallOn: true);
+
+        var status = ServerFirewall.Check(rules, Exe, "Game port", 17777, ServerFirewall.Udp, onPublic);
+        Assert.False(status.Open);
+        Assert.Equal("Game port 17777/UDP: blocked on your current network (Public). 'Home only' only covers Private networks", status.Summary);
+
+        Assert.True(ServerFirewall.Check(rules, Exe, "Game port", 17777, ServerFirewall.Udp, new FirewallNetwork(ServerFirewall.PrivateProfile, true)).Open);
+        Assert.True(ServerFirewall.Check([], Exe, "Game port", 17777, ServerFirewall.Udp, new FirewallNetwork(ServerFirewall.PublicProfile, FirewallOn: false)).Open);
+
+        // A block rule for the other network type doesn't shut this one.
+        rules.Add(new("Blocked at home", true, true, false, ServerFirewall.Udp, "*", Exe, ServerFirewall.PrivateProfile));
+        rules.Add(new("Open everywhere", true, true, true, ServerFirewall.Udp, "17777", Exe));
+        Assert.True(ServerFirewall.Check(rules, Exe, "Game port", 17777, ServerFirewall.Udp, onPublic).Open);
     }
 
     [Fact]

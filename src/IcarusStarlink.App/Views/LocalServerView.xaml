@@ -355,7 +355,9 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                                <TextBlock Text="{Binding FirewallSummary}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"/>
+                                <TextBlock Text="{Binding FirewallSummary}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,4"/>
+                                <TextBlock Text="{Binding FirewallNetworkText}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"
+                                           Visibility="{Binding FirewallNetworkText, Converter={StaticResource NullToVisibilityConverter}}"/>
                                 <StackPanel Orientation="Horizontal">
                                     <Button Content="Open these ports" Command="{Binding OpenFirewallPortsCommand}" Style="{StaticResource PrimaryButtonStyle}"
                                             ToolTip="Adds inbound allow rules for the ports that aren't open yet, only for this server's exe. Windows asks for administrator approval once."/>

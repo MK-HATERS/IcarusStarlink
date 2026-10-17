@@ -302,12 +302,83 @@ public sealed partial class LocalServerViewModelTests
         Assert.Equal(27100, vm.FirewallPorts[1].Port);
     }
 
+    /// <summary>Rules Starlink made before the profile was renamed are still its own: they count, and Remove deletes them by their real names.</summary>
+    [Fact]
+    public async Task Firewall_RulesMadeUnderAnOldProfileName_AreStillFoundAndRemoved()
+    {
+        var (vm, _, _, _) = BuildWithServer();
+        var id8 = vm.SelectedProfile!.Id.ToString("N")[..8];
+        var oldName = $"Icarus Starlink - Old name ({id8}) - Game port UDP";
+        Firewall.Rules.Add(new FirewallRule(oldName, true, true, true, ServerFirewall.Udp, "17777", ServerExe));
+        vm.ProfileName = "New name";
+        vm.SaveSettingsCommand.Execute(null);
+        await vm.RefreshFirewallAsync(detectTcp: false);
+
+        Assert.True(vm.FirewallPorts[0].Open);
+
+        await vm.RemoveFirewallRulesCommand.ExecuteAsync(null);
+
+        var commands = Assert.Single(Firewall.Runs);
+        Assert.Contains(commands, c => c == $"advfirewall firewall delete rule name=\"{oldName}\"");
+        Assert.DoesNotContain(commands, c => c.Contains(" add rule "));
+    }
+
+    /// <summary>A Private-only rule doesn't let players in while the PC is on a Public network.</summary>
+    [Fact]
+    public async Task Firewall_APrivateOnlyRule_IsNotOpenOnAPublicNetwork()
+    {
+        Firewall.Network = new FirewallNetwork(ServerFirewall.PublicProfile, FirewallOn: true);
+        Firewall.Rules.Add(new FirewallRule("Icarus Server UDP", true, true, true, ServerFirewall.Udp, "17777,27015", ServerExe, ServerFirewall.PrivateProfile));
+        var (vm, _, _, _) = BuildWithServer();
+        await vm.FirewallLoadTask;
+
+        Assert.All(vm.FirewallPorts, p => Assert.False(p.Open));
+        Assert.Contains("blocked on your current network (Public)", vm.FirewallPorts[0].Summary);
+        Assert.Contains("Public", vm.FirewallSummary);
+    }
+
+    /// <summary>Removing a server offers to remove the rules Starlink made for it; they'd be orphaned otherwise.</summary>
+    [Fact]
+    public async Task RemoveProfile_OffersToRemoveItsFirewallRules()
+    {
+        var (vm, store, _, dialogs) = BuildWithServer();
+        var profile = vm.SelectedProfile!;
+        Firewall.Rules.Add(new FirewallRule(ServerFirewall.RuleName(profile, "Game port", ServerFirewall.Udp), true, true, true, ServerFirewall.Udp, "17777", ServerExe));
+        Firewall.Rules.Add(new FirewallRule("Icarus Server UDP", true, true, true, ServerFirewall.Udp, "17777", ServerExe));
+
+        await vm.RemoveProfileCommand.ExecuteAsync(null);
+
+        Assert.Empty(store.Profiles);
+        Assert.Contains("Also remove the 1 firewall rule(s)", dialogs.Messages[1]);
+        var commands = Assert.Single(Firewall.Runs);
+        Assert.DoesNotContain(commands, c => c.Contains("Icarus Server UDP\""));
+        Assert.Contains("were removed too", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task RemoveProfile_KeepingItsFirewallRules_LeavesThemAlone()
+    {
+        var (vm, store, _, dialogs) = BuildWithServer();
+        Firewall.Rules.Add(new FirewallRule(ServerFirewall.RuleName(vm.SelectedProfile!, "Game port", ServerFirewall.Udp), true, true, true, ServerFirewall.Udp, "17777", ServerExe));
+        dialogs.Answers.Enqueue(true);
+        dialogs.Answers.Enqueue(false);
+
+        await vm.RemoveProfileCommand.ExecuteAsync(null);
+
+        Assert.Empty(store.Profiles);
+        Assert.Empty(Firewall.Runs);
+        Assert.Contains("were kept", vm.StatusMessage);
+    }
+
     private sealed class FakeFirewall : IFirewallService
     {
         public List<FirewallRule> Rules { get; } = [];
         public List<IReadOnlyList<string>> Runs { get; } = [];
+        public FirewallNetwork Network { get; set; } = FirewallNetwork.Unknown;
 
         public IReadOnlyList<FirewallRule> ReadInboundRules() => [.. Rules];
+
+        public FirewallNetwork ReadCurrentNetwork() => Network;
 
         public Task<FirewallApplyResult> RunElevatedAsync(IReadOnlyList<string> netshCommands, CancellationToken cancellationToken = default)
         {

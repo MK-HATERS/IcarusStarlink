@@ -292,8 +292,12 @@ public sealed partial class LocalServerViewModel : ObservableObject
         return false;
     }
 
+    /// <summary>
+    /// Removes the list entry only. Starlink's own firewall rules for it are offered for removal
+    /// in a second question: once the profile is gone nothing in Starlink could find them again.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanUseProfile))]
-    private void RemoveProfile()
+    private async Task RemoveProfileAsync()
     {
         if (SelectedProfile is not { } profile)
         {
@@ -307,10 +311,30 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
-        _store.Delete(profile.Id);
+        var rules = await ReadOwnFirewallRulesAsync(profile);
+        var removeRules = rules.Count > 0 && _dialogService.Confirm(
+            $"Also remove the {rules.Count} firewall rule(s) Starlink added for '{profile.Name}'?\n\n{string.Join("\n", rules.Select(r => "  " + r))}\n\nRules you made yourself are not touched. Windows asks for administrator approval once. Choose No to keep them (you can delete them later in Windows Defender Firewall).",
+            "Remove firewall rules too", ThemedConfirmSeverity.Question);
+
+        var deleted = _store.Delete(profile.Id);
         Profiles.Remove(profile);
+        _watches.Remove(profile.Id);
         SelectedProfile = Profiles.FirstOrDefault();
-        StatusMessage = $"Removed '{profile.Name}' from the list.";
+        var message = $"Removed '{profile.Name}' from the list.";
+        if (removeRules)
+        {
+            message += await RemoveOwnFirewallRulesAsync(profile, rules)
+                ? $" Its {rules.Count} firewall rule(s) were removed too."
+                : " Its firewall rules couldn't be removed; delete them in Windows Defender Firewall (wf.msc) if you no longer need them.";
+        }
+        else if (rules.Count > 0)
+        {
+            message += $" Its {rules.Count} firewall rule(s) were kept.";
+        }
+
+        StatusMessage = deleted
+            ? message
+            : $"{message} {_store.LoadProblem ?? "The server list couldn't be saved, so it is back in the list the next time Starlink opens."}";
     }
 
     [RelayCommand(CanExecute = nameof(CanUseProfile))]
