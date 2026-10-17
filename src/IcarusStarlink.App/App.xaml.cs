@@ -337,7 +337,25 @@ public partial class App : Application
             SharedFixService = sp.GetRequiredService<ModFixService>(),
             // The game's own files: a mod's copy of one is rated by how much can break (the risk pill).
             BaseGameContent = sp.GetRequiredService<IBaseGameContentProvider>(),
+            // After a game update: the bar, the game's files per build (proof a mod is out of date), Update everything.
+            GameUpdates = sp.GetRequiredService<GameUpdateDetector>(),
+            GameFileFingerprints = sp.GetRequiredService<GameFileFingerprintStore>(),
+            GameUpdateCoordinator = sp.GetRequiredService<GameUpdateCoordinator>,
         });
+        builder.Services.AddSingleton(sp => new GameUpdateDetector(sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<IUnrealPakService>()));
+        builder.Services.AddSingleton(_ => GameFileFingerprintStore.Load(Path.Combine(appDataDirectory, "Cache", "game_file_fingerprints.json")));
+        builder.Services.AddSingleton(sp => new GameUpdateCoordinator(
+            sp.GetRequiredService<LibraryViewModel>,
+            sp.GetRequiredService<MergeInstallViewModel>,
+            sp.GetRequiredService<SettingsViewModel>,
+            sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<IUe4ssModStateService>(),
+            new LastKnownGoodStore(Path.Combine(appDataDirectory, "Backups", "LastKnownGood")),
+            sp.GetRequiredService<GameUpdateDetector>(),
+            sp.GetRequiredService<IGameProcessChecker>(),
+            sp.GetRequiredService<IDialogService>(),
+            sp.GetRequiredService<IActivityLog>(),
+            Path.Combine(appDataDirectory, "Backups")));
         // One fix service for the whole app: every writer of a mod's .EXMOD takes its lock.
         builder.Services.AddSingleton(sp => new ModFixService(
             sp.GetRequiredService<ILibraryRepository>(),
@@ -588,6 +606,12 @@ public partial class App : Application
                     {
                         WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("settings"));
                     }
+                });
+
+                // Has Steam updated Icarus since the mods were last made ready? The Library's bar (and a pop-up) says so.
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
+                {
+                    _ = _host.Services.GetRequiredService<LibraryViewModel>().CheckForGameUpdateAsync();
                 });
 
                 // Dedicated servers: automation (crash restarts, the daily restart, auto-update,

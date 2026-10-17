@@ -77,4 +77,42 @@ public sealed class FileRiskAssessorTests : IDisposable
         // Files the game doesn't have are the mod's own: no risk at all.
         Assert.False(risks.ContainsKey(own.Folder));
     }
+
+    /// <summary>The game's player character, whose code changes between two builds.</summary>
+    private sealed class UpdatingGame : IBaseGameContentProvider
+    {
+        public Dictionary<string, string> Functions { get; set; } = new() { ["Drink"] = "old", ["Move"] = "same" };
+
+        public bool? HasAsset(string assetPath) => string.Equals(assetPath, "BP/Player/BP_IcarusPlayerCharacterSurvival.uasset", StringComparison.OrdinalIgnoreCase);
+
+        public BlueprintSummary? TrySummarizeBlueprint(string assetPath) =>
+            new(new HashSet<string>(), new HashSet<string>(), new Dictionary<string, string>(Functions), new Dictionary<string, string>());
+
+        public T? TryLoadExport<T>(string assetPath) where T : class => null;
+
+        public TResult? TryLoadExportAndProject<T, TResult>(string assetPath, Func<T, TResult> project) where T : class where TResult : class => null;
+    }
+
+    [Fact]
+    public void RecordsTheGamesFilesPerBuild_AndNamesWhatTheNextBuildChanged()
+    {
+        var mover = Mod("Mover", ("BP/Player/BP_IcarusPlayerCharacterSurvival.uasset", 1));
+        var store = GameFileFingerprintStore.Load(Path.Combine(_root, "Cache", "game_file_fingerprints.json"));
+        var game = new UpdatingGame();
+
+        // One build recorded: nothing is said about game updates.
+        var before = FileRiskAssessor.Assess(_library, [mover], game, store, "25900000")[mover.Folder];
+        Assert.True(store.Has("25900000", "BP/Player/BP_IcarusPlayerCharacterSurvival"));
+        Assert.False(before.IsChangedByGameUpdate);
+        Assert.Equal("High risk", before.Label);
+
+        // The game updates Drink: the file's line names it. The mod's copy can't be read here, so
+        // there's no proof it's out of date, and the pill doesn't say so.
+        game.Functions = new() { ["Drink"] = "new", ["Move"] = "same" };
+        var after = FileRiskAssessor.Assess(_library, [mover], game, store, "25956278")[mover.Folder];
+        Assert.True(after.IsChangedByGameUpdate);
+        Assert.Equal("the game changed Drink in this update", after.Files[0].ChangedByGame);
+        Assert.False(after.IsOutOfDate);
+        Assert.Equal("High risk", after.Label);
+    }
 }

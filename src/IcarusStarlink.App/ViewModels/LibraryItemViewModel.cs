@@ -429,7 +429,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// <summary>Low risk (art and sound only) gets no pill: it can only look or sound wrong.</summary>
     public bool HasFileRisk => FileRisk is { Level: > IcarusStarlink.PakIO.Exmod.FileRisk.Low };
 
-    public bool IsHighFileRisk => FileRisk is { Level: IcarusStarlink.PakIO.Exmod.FileRisk.High };
+    /// <summary>High risk, or proven out of date since the last game update: the pill is red.</summary>
+    public bool IsHighFileRisk => FileRisk is { Level: IcarusStarlink.PakIO.Exmod.FileRisk.High } or { IsOutOfDate: true };
 
     public string FileRiskLabel => FileRisk?.Label ?? "";
 

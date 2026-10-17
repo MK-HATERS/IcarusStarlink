@@ -102,13 +102,21 @@ public static class FileRiskAssessor
         }
     }
 
-    public static Dictionary<string, ModFileRisk> Assess(ILibraryRepository repository, IReadOnlyList<(string Folder, string Name)> mods, IBaseGameContentProvider game)
+    /// <param name="fingerprints">
+    /// The game's own files per game build: each Medium/High risk game file a mod replaces is
+    /// recorded for <paramref name="gameBuild"/> the first time it's read, and once an earlier
+    /// build is recorded too, what the game changed in the file feeds the explanation (and proves a
+    /// mod's copy out of date). Null: nothing recorded, nothing said about game updates.
+    /// </param>
+    public static Dictionary<string, ModFileRisk> Assess(
+        ILibraryRepository repository, IReadOnlyList<(string Folder, string Name)> mods, IBaseGameContentProvider game,
+        GameFileFingerprintStore? fingerprints = null, string? gameBuild = null)
     {
         var entries = repository.GetAll().ToDictionary(e => e.FolderName, StringComparer.OrdinalIgnoreCase);
         var sources = new Dictionary<string, ModFiles>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            return Assess(repository, mods, game, entries, sources);
+            return Assess(repository, mods, game, entries, sources, gameBuild is { Length: > 0 } ? fingerprints : null, gameBuild ?? "");
         }
         finally
         {
@@ -121,7 +129,8 @@ public static class FileRiskAssessor
 
     private static Dictionary<string, ModFileRisk> Assess(
         ILibraryRepository repository, IReadOnlyList<(string Folder, string Name)> mods, IBaseGameContentProvider game,
-        Dictionary<string, LibraryEntry> entries, Dictionary<string, ModFiles> sources)
+        Dictionary<string, LibraryEntry> entries, Dictionary<string, ModFiles> sources,
+        GameFileFingerprintStore? fingerprints, string gameBuild)
     {
         // Each mod's copies of game files (its own new files left out); unknown when the game can't be read.
         var replaced = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -195,9 +204,12 @@ public static class FileRiskAssessor
         // and whether the game's copy has things the mod's lacks (proof it's out of date). The
         // game's side is read once per pass, however many mods replace it.
         var gameSummaries = new Dictionary<string, BlueprintSummary?>(StringComparer.OrdinalIgnoreCase);
+        var gameChanges = new Dictionary<string, GameFileChange?>(StringComparer.OrdinalIgnoreCase);
         var result = new Dictionary<string, ModFileRisk>(StringComparer.OrdinalIgnoreCase);
         foreach (var (folder, paths) in replaced)
         {
+            // What the game changed in each file in its last update, and the proof this mod's copy predates it.
+            var updateFacts = new Dictionary<string, (string? Changed, string? Proof)>(StringComparer.OrdinalIgnoreCase);
             var withDifferences = paths.Select(path =>
             {
                 if (ReplacedFileRiskRater.Rate(path).Risk < FileRisk.Medium)
@@ -208,15 +220,34 @@ public static class FileRiskAssessor
                 if (!gameSummaries.TryGetValue(path, out var gameCopy))
                 {
                     gameSummaries[path] = gameCopy = game.TrySummarizeBlueprint(path + ".uasset");
+
+                    // This build's copy joins the record the first time it's read, so the next
+                    // game update has something to compare with.
+                    if (fingerprints is not null && gameCopy is not null)
+                    {
+                        fingerprints.Record(gameBuild, path, gameCopy, DateTimeOffset.UtcNow);
+                    }
+
+                    gameChanges[path] = fingerprints?.ChangeAt(gameBuild, path) is { IsEmpty: false } change ? change : null;
                 }
 
                 var modCopy = gameCopy is null ? null : Summarize(sources[folder], path + ".uasset");
+                if (gameChanges.GetValueOrDefault(path) is { } changed)
+                {
+                    updateFacts[path] = (changed.Describe(), modCopy is null ? null : changed.OutOfDateProof(modCopy));
+                }
+
                 return (path, gameCopy is not null && modCopy is not null ? BlueprintComparer.Compare(gameCopy, modCopy) : null);
             }).ToList();
 
             if (ReplacedFileRiskRater.AssessCompared(withDifferences, clashes.GetValueOrDefault(folder) ?? []) is { } risk)
             {
-                result[folder] = risk;
+                result[folder] = updateFacts.Count == 0
+                    ? risk
+                    : risk with
+                    {
+                        Files = [.. risk.Files.Select(f => updateFacts.TryGetValue(f.Path, out var facts) ? f with { ChangedByGame = facts.Changed, OutOfDateProof = facts.Proof } : f)],
+                    };
             }
         }
 

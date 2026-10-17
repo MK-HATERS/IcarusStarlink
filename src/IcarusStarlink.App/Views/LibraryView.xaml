@@ -693,6 +693,8 @@
                                               ToolTip="After Check mods against game data: makes every sure fix in every flagged mod (old copies of game data, values that already match the game), each mod backed up first. What needs a look stays flagged. (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Check endorsements" Command="{Binding CheckEndorsementsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
                                               ToolTip="Fetches your Nexus account's own endorsement history and shows which of your Nexus-linked mods you haven't endorsed yet (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
+                                    <MenuItem Header="What the last game update changed…" Command="{Binding ShowLastGameUpdateCommand}"
+                                              ToolTip="What the last Update everything fixed, what still needs a look, and which mods replace game files the update changed. Roll back is there too."/>
                                     <MenuItem Header="Make prebuilt paks editable…" Command="{Binding ConvertAllOpaqueModsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
                                               ToolTip="Tries again to turn every prebuilt .pak mod into an editable mod — useful right after setting up UnrealPak.exe or refreshing game data (it also runs by itself after every Refresh game data) (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
                                 </ContextMenu>
@@ -943,9 +945,16 @@
                     </Border>
                     <Border Margin="0,8,0,0" Padding="12,8" CornerRadius="6"
                             Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
-                            Visibility="{Binding HasPendingChanges, Converter={StaticResource BoolToVisibilityConverter}}">
+                            Visibility="{Binding ShowPendingBar, Converter={StaticResource BoolToVisibilityConverter}}">
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <!-- After a game update: one click gets every mod ready for it (and shows what changed). -->
+                                <Button Content="Dismiss" Command="{Binding DismissGameUpdateCommand}" Margin="8,0,0,0"
+                                        Visibility="{Binding HasGameUpdate, Converter={StaticResource BoolToVisibilityConverter}}"
+                                        ToolTip="Hide this until the next game update (nothing is changed)"/>
+                                <Button Content="Update everything…" Command="{Binding UpdateEverythingCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"
+                                        Visibility="{Binding HasGameUpdate, Converter={StaticResource BoolToVisibilityConverter}}"
+                                        ToolTip="Saves your setup (to roll back to), refreshes game data, checks and fixes every mod (proven fixes only), checks for mod updates, then builds and installs the merge. Shows what changed at the end."/>
                                 <Button Content="{Binding TickWhatsInTheGameLabel}" Command="{Binding TickWhatsInTheGameCommand}" Margin="8,0,0,0"
                                         Visibility="{Binding CanTickWhatsInTheGame, Converter={StaticResource BoolToVisibilityConverter}}"
                                         ToolTip="These mods are in the game but not ticked, so Merge &amp; Install would take them out. This ticks them again in the order they were merged (nothing changes in the game until Merge &amp; Install)."/>
@@ -958,6 +967,8 @@
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <TextBlock Text="PENDING" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBlock Text="{Binding GameUpdateText}" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" Margin="0,0,8,0"
+                                           Visibility="{Binding HasGameUpdate, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                 <TextBlock Text="{Binding PendingChangesSummary}" VerticalAlignment="Center" FontSize="13"/>
                             </StackPanel>
                         </DockPanel>
