@@ -244,6 +244,12 @@ public sealed partial class MainViewModel : ObservableObject
         {
             localServer.RefreshMergedPak();
         }
+
+        // Installs and fixes since it was last shown made new backups.
+        if (CurrentPage is SettingsViewModel settings)
+        {
+            settings.RefreshBackupsSize();
+        }
     }
 
     [RelayCommand]

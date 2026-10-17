@@ -1515,6 +1515,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string? _backupsStatusMessage;
 
+    /// <summary>Measures the Backups folder again (off the UI thread); Settings calls it each time it's shown.</summary>
+    public void RefreshBackupsSize() => _ = RefreshBackupsSizeAsync();
+
     private async Task RefreshBackupsSizeAsync()
     {
         try
