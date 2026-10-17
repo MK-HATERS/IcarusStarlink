@@ -1475,6 +1475,140 @@ public sealed class LibraryViewModelTests
     // this project's established convention.
     // =========================================================================================
 
+    // ---------------------------------------------------------------------------------------
+    // Library review fixes: Get update records the download, Reinstall original reports
+    // truthfully, sidecars survive a missing Mods folder, failed update checks are counted,
+    // and Delete backs the mod up.
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>A Database pak update used to land as "IcarusStarlink_&lt;guid&gt;" from %TEMP%, unrecorded — so Reinstall original reinstalled the previous version.</summary>
+    [Fact]
+    public async Task GetUpdateCommand_DatabasePak_DownloadsIntoPendingDownloadsUnderTheModsNameAndRecordsIt()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: false) };
+        harness.AddMod("Cool_Mod", name: "Cool Mod", version: "1.0", source: "Database", catalogEntryId: "cat9", isOpaquePak: true);
+        harness.DaedalusClient.Result =
+        [
+            new CatalogEntry(CatalogSource.Daedalus, "cat9", "Cool Mod", "Someone", "2.0", "d", "", null, null, null, "http://fake.test/files/Cool_Mod_P.pak", null, []),
+        ];
+        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler("pak-bytes"u8.ToArray()));
+        harness.PrebuiltPakImporter.Result = new LibraryEntry
+        {
+            FolderName = "Cool_Mod", Name = "Cool Mod", Author = "Someone", Version = "2.0", Description = "", FileName = "Cool_Mod", IsOpaquePak = true,
+            Source = "Database", CatalogEntryId = "cat9",
+        };
+        var vm = harness.Build();
+        await vm.Downloads.GetOrFetchCatalogAsync();
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Cool_Mod");
+
+        await vm.GetUpdateCommand.ExecuteAsync(item);
+
+        var pakPath = harness.PrebuiltPakImporter.LastPakFilePath!;
+        Assert.Equal("Cool Mod.pak", Path.GetFileName(pakPath));
+        Assert.StartsWith(harness.PendingDownloadsDirectory, pakPath);
+        var recorded = Assert.Single(harness.PendingDownloadStore.EntriesList);
+        Assert.Equal("cat9", recorded.CatalogEntryId);
+        Assert.Equal(pakPath, recorded.LocalFilePath);
+        Assert.Contains(vm.Downloads.PendingDownloads, d => d.ActivatedItems.Any(a => a.FolderName == "Cool_Mod"));
+        Assert.Contains("Updated 'Cool Mod' to v2.0.", vm.StatusMessage);
+    }
+
+    /// <summary>Reinstall original forgot the fix choices first and showed success even when the reinstall failed (Activate swallowed the error).</summary>
+    [Fact]
+    public async Task ReinstallOriginalCommand_WhenTheReinstallFails_SaysSoKeepsTheModAndItsFixChoices()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("ModA", source: "Nexus", nexusModId: 5, isOpaquePak: true);
+        Directory.CreateDirectory(harness.PendingDownloadsDirectory);
+        var pak = Path.Combine(harness.PendingDownloadsDirectory, "ModA.pak");
+        File.WriteAllText(pak, "pak");
+        harness.PendingDownloadStore.Add(new PendingDownloadEntry
+        {
+            ModId = 5, FileId = 9, FileName = "ModA.pak", LocalFilePath = pak, DownloadedAtUtc = DateTimeOffset.UtcNow,
+            ActivatedItems = [new PendingDownloadActivatedItem("ModA", PendingDownloadActivationKind.Library)],
+        });
+        harness.PrebuiltPakImporter.ImportException = new InvalidDataException("the pak is damaged");
+        Directory.CreateDirectory(harness.FixDecisionsDirectory);
+        var choices = Path.Combine(harness.FixDecisionsDirectory, "ModA.json");
+        File.WriteAllText(choices, "{}");
+        var vm = harness.Build();
+        vm.Downloads.ManualInstall = (_, _, _, _) => null;
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
+
+        await vm.ReinstallOriginalCommand.ExecuteAsync(item);
+
+        Assert.Contains("failed", vm.StatusMessage);
+        Assert.Contains("the pak is damaged", vm.StatusMessage);
+        Assert.DoesNotContain(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Success && e.Message.Contains("Reinstalled"));
+        Assert.True(File.Exists(choices));
+        Assert.Contains("ModA", harness.Repository.RestoreLatestModBackupCalls);
+        Assert.Contains(harness.Repository.GetAll(), e => e.FolderName == "ModA");
+    }
+
+    /// <summary>With the game's Mods folder missing (drive unplugged), every enabled mod read as gone and all their Nexus links were purged.</summary>
+    [Fact]
+    public void ReloadInstalledUe4ssMods_GameModsFolderMissing_KeepsEverySidecar()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"), "Icarus", "Content");
+        harness.Ue4ssModMetaStore.Metas["MiniMapa"] = new Ue4ssModMeta { NexusModId = 345 };
+        var vm = harness.Build();
+
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+
+        Assert.Empty(harness.Ue4ssModMetaStore.DeleteCalls);
+    }
+
+    [Fact]
+    public void ReloadInstalledUe4ssMods_GameModsFolderPresent_StillPurgesASidecarWithNoMod()
+    {
+        var harness = new TestHarness();
+        var content = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"), "Icarus", "Content");
+        Directory.CreateDirectory(Ue4ssGamePaths.ResolveModsFolder(content));
+        harness.SettingsService.Current.IcarusContentPath = content;
+        harness.Ue4ssModMetaStore.Metas["Gone"] = new Ue4ssModMeta { NexusModId = 1 };
+        var vm = harness.Build();
+
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+
+        Assert.Contains("Gone", harness.Ue4ssModMetaStore.DeleteCalls);
+    }
+
+    [Fact]
+    public async Task CheckForUpdates_WhenLookupsFail_SaysHowManyCouldNotBeChecked()
+    {
+        var harness = new TestHarness();
+        harness.CredentialStore.ApiKey = "key";
+        // No file recorded: the mod-level lookup, which this fake fails (a network error / the Nexus limit).
+        harness.AddMod("A", source: "Nexus", nexusModId: 11);
+        harness.AddMod("B", source: "Nexus", nexusModId: 12);
+        var vm = harness.Build();
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        Assert.DoesNotContain("Everything checked is up to date", vm.UpdateCheckStatusMessage);
+        Assert.Contains("Couldn't check 2 mod(s)", vm.UpdateCheckStatusMessage);
+    }
+
+    [Fact]
+    public void DeleteItemCommand_BacksTheModUpFirst_AndForgetsItsFixChoices()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("ModA");
+        Directory.CreateDirectory(harness.FixDecisionsDirectory);
+        var choices = Path.Combine(harness.FixDecisionsDirectory, "ModA.json");
+        File.WriteAllText(choices, "{}");
+        var vm = harness.Build();
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
+
+        vm.DeleteItemCommand.Execute(item);
+
+        Assert.Equal(["ModA"], harness.Repository.BackupModCalls);
+        Assert.Contains("ModA", harness.Repository.DeleteCalls);
+        Assert.False(File.Exists(choices));
+        Assert.Contains("backup", harness.DialogService.ConfirmMessages.Single());
+    }
+
     private sealed class TestHarness
     {
         public FakeLibraryRepository Repository { get; } = new();
@@ -1512,6 +1646,7 @@ public sealed class LibraryViewModelTests
         public string DataFolder { get; } = Path.Combine(UniqueTempPath("DataRoot"), "Data");
         public string PendingDownloadsDirectory { get; } = UniqueTempPath("PendingDownloads");
         public string LogsDirectory { get; } = UniqueTempPath("Logs");
+        public string FixDecisionsDirectory { get; } = UniqueTempPath("FixChoices");
 
         public TestHarness() => PrebuiltPakImporter = new FakePrebuiltPakImporter(Repository);
 
@@ -1534,13 +1669,21 @@ public sealed class LibraryViewModelTests
             return entry;
         }
 
+        /// <summary>The fix service Library and the replacement share (as the app wires them).</summary>
+        public ModFixService? FixService { get; private set; }
+
         public LibraryViewModel Build()
         {
+            FixService = new ModFixService(Repository, DataFolder, decisionsDirectory: FixDecisionsDirectory);
+            var replacement = new ModReplacementService(
+                Repository, Ue4ssModRepository, Ue4ssModMetaStore, Ue4ssModStateService, SettingsService, BackupDirectory,
+                DialogService, FixService, PrebuiltPakSourceStore);
+            // The same download client as Library's own: a Database update downloads through Downloads.
             var downloads = new DownloadsViewModel(
                 DaedalusClient, Jimk72Client, GitHubRepoDateClient, Repository, Ue4ssModRepository, Ue4ssModMetaStore,
-                SettingsService, NexusApiClient, CredentialStore, PendingDownloadStore, new HttpClient(),
+                SettingsService, NexusApiClient, CredentialStore, PendingDownloadStore, DownloadHttpClient,
                 new PerformanceTracker(SettingsService, LogsDirectory), ActivityLog, ActiveDownloadsTracker,
-                PendingDownloadsDirectory, PrebuiltPakImporter, DataFolder);
+                PendingDownloadsDirectory, PrebuiltPakImporter, DataFolder, dialogService: DialogService, modReplacement: replacement);
 
             return new LibraryViewModel(
                 Repository, Ue4ssModRepository, Ue4ssModStateService, Ue4ssModMetaStore, Ue4ssLoaderInstallService,
@@ -1552,7 +1695,10 @@ public sealed class LibraryViewModelTests
                 ActiveDownloadsTracker,
                 () => throw new NotSupportedException("Not exercised by these tests — no test adds to the merge queue."),
                 BackupDirectory, DataFolder, PrebuiltPakImporter, PrebuiltPakToExmodConverter, PrebuiltPakSourceStore,
-                ThumbnailCacheDirectory, PakPreviewCacheDirectory, DialogService);
+                ThumbnailCacheDirectory, PakPreviewCacheDirectory, DialogService)
+            {
+                SharedFixService = FixService,
+            };
         }
     }
 
@@ -1861,7 +2007,8 @@ public sealed class LibraryViewModelTests
         public IReadOnlyList<string> ListFolderNames() => [.. Metas.Keys];
         public Ue4ssModMeta Load(string folderName) => Metas.GetValueOrDefault(folderName) ?? new();
         public void Save(string folderName, Ue4ssModMeta meta) { }
-        public void Delete(string folderName) { }
+        public List<string> DeleteCalls { get; } = [];
+        public void Delete(string folderName) => DeleteCalls.Add(folderName);
     }
 
     private sealed class FakeUe4ssLoaderInstallService : IUe4ssLoaderInstallService
@@ -2015,6 +2162,9 @@ public sealed class LibraryViewModelTests
         public int ImportCallCount { get; private set; }
         public string? LastPakFilePath { get; private set; }
 
+        /// <summary>Thrown by ImportAsync when set (a damaged download).</summary>
+        public Exception? ImportException { get; set; }
+
         public Task<LibraryEntry> ImportAsync(
             string pakFilePath, string dataFolder, string? unrealPakExePath,
             string? source = null, int? nexusModId = null, string? catalogEntryId = null,
@@ -2022,6 +2172,11 @@ public sealed class LibraryViewModelTests
         {
             ImportCallCount++;
             LastPakFilePath = pakFilePath;
+            if (ImportException is not null)
+            {
+                throw ImportException;
+            }
+
             repository.Seed(Result);
             return Task.FromResult(Result);
         }

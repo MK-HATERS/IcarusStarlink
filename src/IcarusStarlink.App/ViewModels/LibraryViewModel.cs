@@ -361,7 +361,12 @@ public sealed partial class LibraryViewModel : ObservableObject
         // already applies for the exact same "Content path changed after construction" staleness.
         WeakReferenceMessenger.Default.Register<SettingsSavedMessage>(this, (recipient, _) =>
         {
-            ((LibraryViewModel)recipient).ReloadInstalledUe4ssMods();
+            var self = (LibraryViewModel)recipient;
+            // The game path may have just been set or changed: the risk pill can read the game now
+            // (the base-game mount tries again for a new path), so the files are rated again.
+            self._fileRisksStale = true;
+            self.ReloadInstalledUe4ssMods();
+            self.OnPageShown(); // a no-op when the reload above already ran the pass
         });
 
         // Every successful "Update data folder" run means fresher base game data exists — worth
@@ -691,11 +696,16 @@ public sealed partial class LibraryViewModel : ObservableObject
 
             // A sidecar whose mod folder is gone (deleted by hand, renamed) is dead weight that can
             // attach a stale Nexus link to an unrelated mod landing under the same name later —
-            // found live as two orphaned "ArcFissionLibrary … _2.json" files.
-            var liveNames = new HashSet<string>(states.Select(s => s.Name), StringComparer.OrdinalIgnoreCase);
-            foreach (var stale in _ue4ssModMetaStore.ListFolderNames().Where(n => !liveNames.Contains(n)).ToList())
+            // found live as two orphaned "ArcFissionLibrary … _2.json" files. Only when the game's
+            // Mods folder is really there: with the game drive unplugged (or UE4SS just removed)
+            // every enabled mod reads as gone, and purging then wiped all their Nexus links.
+            if (Directory.Exists(modsFolder))
             {
-                _ue4ssModMetaStore.Delete(stale);
+                var liveNames = new HashSet<string>(states.Select(s => s.Name), StringComparer.OrdinalIgnoreCase);
+                foreach (var stale in _ue4ssModMetaStore.ListFolderNames().Where(n => !liveNames.Contains(n)).ToList())
+                {
+                    _ue4ssModMetaStore.Delete(stale);
+                }
             }
 
             _packagesByNexusModId = BuildPackages();
@@ -1752,131 +1762,73 @@ public sealed partial class LibraryViewModel : ObservableObject
             downloadUrl = GitHubBlobUrl.ToRawContentUrl(downloadUrl);
 
             var isExmodz = catalogEntry.ExmodzUrl is not null;
-            var tempPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_{Guid.NewGuid():N}{(isExmodz ? ".EXMODZ" : ".pak")}");
-            try
-            {
-                var bytes = await _downloadHttpClient.GetByteArrayAsync(downloadUrl);
-                await File.WriteAllBytesAsync(tempPath, bytes);
 
-                // Captured before the delete so the swap doesn't silently drop them; cancel any
-                // pending debounced notes save first, same reasoning DeleteSelected documents.
-                var (folderName, isPinned, isFavorite, notes) = (item.FolderName, item.IsPinned, item.IsFavorite, item.Notes);
-                var originalEntry = _repository.GetAll()
-                    .FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
-                var displayNameOverride = originalEntry?.DisplayNameOverride;
-                var originalCatalogEntryId = originalEntry?.CatalogEntryId;
-                item.CancelPendingSave();
+            // Into Pending_Downloads and recorded like any download, named after the catalog entry
+            // (an audit finding): a %TEMP%\IcarusStarlink_<guid>.pak named an opaque mod after the
+            // guid, and with nothing recorded, Reinstall original reinstalled the PREVIOUS version.
+            var download = await Downloads.DownloadCatalogFileAsync(catalogEntry);
+            var downloadedPath = download.LocalFilePath;
+            var folderName = item.FolderName;
+            // Cancel any pending debounced notes save first, same reasoning DeleteSelected documents.
+            item.CancelPendingSave();
 
-                // Snapshot first, so the delete-then-reimport below can genuinely roll back — a
-                // download that parsed as bytes can still fail import validation, and without this
-                // that failure would lose the working old copy.
-                _repository.BackupMod(folderName);
-                _repository.Delete(folderName);
-
-                try
+            // The shared replacement: backed up first, an edited copy only after asking, pin/notes/
+            // rename carried over, remembered fixes made again, the old copy put back on failure.
+            LibraryEntry? imported = null;
+            var result = await Downloads.ModReplacement.ReplaceAsync(
+                new ModReplacementRequest(item.Name, [folderName], []),
+                async removeOld =>
                 {
-                    var imported = isExmodz
-                        ? _repository.Import(tempPath, source: "Database", catalogEntryId: catalogEntry.Id)
+                    removeOld();
+                    var entry = isExmodz
+                        ? _repository.Import(downloadedPath, source: "Database", catalogEntryId: catalogEntry.Id)
                         : await _prebuiltPakImporter.ImportAsync(
-                            tempPath, _dataFolder, _settingsService.Current.UnrealPakExePath,
+                            downloadedPath, _dataFolder, _settingsService.Current.UnrealPakExePath,
                             source: "Database", catalogEntryId: catalogEntry.Id, name: catalogEntry.Name, author: catalogEntry.Author);
+                    imported = entry;
+                    return [new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library)];
+                });
 
-                    // The saved source pak is only dropped once the new copy is in (an audit finding:
-                    // deleting it up front meant a FAILED update restored the old mod but left it with
-                    // no source pak to ever re-derive from). The pak route's own Save already overwrote it.
-                    if (isExmodz)
-                    {
-                        _prebuiltPakSourceStore.Delete(folderName);
-                    }
-                    if (isPinned || isFavorite || !string.IsNullOrEmpty(notes))
-                    {
-                        _repository.UpdateMetadata(imported.FolderName, isPinned, isFavorite, notes);
-                    }
-
-                    if (displayNameOverride is not null)
-                    {
-                        _repository.SetDisplayNameOverride(imported.FolderName, displayNameOverride);
-                    }
-
-                    StatusMessage = $"Updated '{imported.Name}' to v{imported.Version}.";
-                    _activityLog.Log($"Updated '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
-
-                    // A real bug found live: HasUpdateAvailable compares Version against LatestVersion
-                    // (set by CheckForUpdatesAsync from the CATALOG's own listed version string), but
-                    // imported.Version comes from the downloaded file's OWN internal metadata — a mod
-                    // author can bump one and not the other (e.g. catalog says "2.0", the .EXMODZ
-                    // itself still declares "2.0.0"), so even a fully successful update could leave
-                    // the two permanently unequal and the "Update available" badge stuck forever. The
-                    // file we just fetched and installed is, by definition, current as of right now —
-                    // syncing LatestVersion straight to what we actually just installed (rather than
-                    // whatever string the catalog separately happens to use) clears the badge
-                    // regardless of any such mismatch in the source data.
-                    item.LatestVersion = imported.Version;
-
-                    // The backup taken above is the mod's own previous version, so "what did the
-                    // author actually change?" is answerable right now — offered rather than shown
-                    // automatically, since an update the user just wanted applied shouldn't force a
-                    // window open. Passes BOTH folder names, since a reimport can land on a
-                    // different one than it started with (e.g. the mod's own declared fileName
-                    // changed between versions): the OLD folderName is where BackupMod above
-                    // actually saved the backup, but imported.FolderName is where the just-reimported
-                    // CURRENT copy now lives on disk — using the old name for both would find the
-                    // backup but then fail to find the current folder (already deleted under that
-                    // name), and using the new name for both would fail to find the backup instead.
-                    await OfferVersionComparisonAsync(imported.Name, folderName, imported.FolderName);
-                }
-                catch (Exception importEx)
-                {
-                    var restored = _repository.RestoreLatestModBackup(folderName);
-                    if (restored)
-                    {
-                        // RestoreLatestModBackup only brings back the mod's own EXMOD/asset folder —
-                        // BackupMod never captured the .immmeta.json sidecar (it's scoped to the
-                        // mod's own folder, and the sidecar lives elsewhere), and Delete() above
-                        // deleted that sidecar outright with nothing to recreate it. Without this, a
-                        // failed update silently reset Pin/Favorite/Notes/display name/Source/catalog
-                        // link to blank even though the mod's real content came back fine — a real
-                        // bug found live ("the source was forgotten").
-                        if (isPinned || isFavorite || !string.IsNullOrEmpty(notes))
-                        {
-                            _repository.UpdateMetadata(folderName, isPinned, isFavorite, notes);
-                        }
-
-                        if (displayNameOverride is not null)
-                        {
-                            _repository.SetDisplayNameOverride(folderName, displayNameOverride);
-                        }
-
-                        if (originalCatalogEntryId is not null)
-                        {
-                            _repository.SetCatalogEntry(folderName, originalCatalogEntryId);
-                        }
-                    }
-
-                    StatusMessage = restored
-                        ? $"Update failed ({importEx.Message}) — your previous copy was restored from its backup."
-                        : $"Update failed: {importEx.Message}";
-                }
-
-                // Plain Reload(), not fullResync — the LibraryChangedMessage sent right below is
-                // handled by this same VM's own registration (see the constructor), which itself
-                // calls Reload(fullResync: true) on every such message, so the cached row's
-                // Version/Notes/etc. still get resynced from the reimported entry without paying
-                // for a second one here.
-                Reload();
-                WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-            }
-            finally
+            if (result.Succeeded && imported is not null)
             {
-                try
+                Downloads.RecordActivation(download, result.Items);
+                StatusMessage = $"Updated '{imported.Name}' to v{imported.Version}.{result.Summary}";
+                _activityLog.Log($"Updated '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
+
+                // A real bug found live: HasUpdateAvailable compares Version against LatestVersion
+                // (set by CheckForUpdatesAsync from the CATALOG's own listed version string), but
+                // imported.Version comes from the downloaded file's OWN internal metadata — a mod
+                // author can bump one and not the other (e.g. catalog says "2.0", the .EXMODZ
+                // itself still declares "2.0.0"), so even a fully successful update could leave
+                // the two permanently unequal and the "Update available" badge stuck forever. The
+                // file we just fetched and installed is, by definition, current as of right now —
+                // syncing LatestVersion straight to what we actually just installed (rather than
+                // whatever string the catalog separately happens to use) clears the badge
+                // regardless of any such mismatch in the source data.
+                item.LatestVersion = imported.Version;
+
+                // The backup taken by the replacement is the mod's own previous version, so "what
+                // did the author actually change?" is answerable right now — offered rather than
+                // shown automatically. Passes BOTH folder names, since a reimport can land on a
+                // different one than it started with (e.g. the mod's own declared fileName changed
+                // between versions): the OLD folderName is where the backup was saved, but
+                // imported.FolderName is where the CURRENT copy now lives on disk.
+                await OfferVersionComparisonAsync(imported.Name, folderName, imported.FolderName);
+            }
+            else
+            {
+                StatusMessage = result.Cancelled ? result.Message : $"Update failed: {result.Message}";
+                if (!result.Cancelled)
                 {
-                    File.Delete(tempPath);
-                }
-                catch (Exception)
-                {
-                    // Best-effort temp cleanup, same as Downloads' own download path.
+                    _activityLog.Log($"Updating '{item.Name}' failed: {result.Message}", ActivityEntryKind.Warning);
                 }
             }
+
+            // Plain Reload(), not fullResync — the LibraryChangedMessage sent right below is
+            // handled by this same VM's own registration (see the constructor), which itself
+            // calls Reload(fullResync: true) on every such message.
+            Reload();
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         }
         catch (Exception ex)
         {
@@ -2522,12 +2474,20 @@ public sealed partial class LibraryViewModel : ObservableObject
         var name = item.Name;
         try
         {
-            _repository.BackupMod(item.FolderName);
-            var folderName = item.FolderName;
-            await Task.Run(() => FixService.Forget(folderName));
-            await Downloads.ActivatePendingDownloadCommand.ExecuteAsync(download);
-            StatusMessage = Downloads.PendingDownloadStatusMessage is { Length: > 0 } result ? $"Reinstalled '{name}': {result}" : $"Reinstalled '{name}'.";
-            _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
+            // Pristine: backed up first, nothing carried over but pin/notes, and the remembered fix
+            // choices forgotten — only once it worked (a failed reinstall puts the old copy back and
+            // keeps them).
+            var result = await Downloads.ActivateAsync(download, pristine: true);
+            if (result.Succeeded)
+            {
+                StatusMessage = Downloads.PendingDownloadStatusMessage is { Length: > 0 } detail ? $"Reinstalled '{name}': {detail}" : $"Reinstalled '{name}'.";
+                _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
+            }
+            else
+            {
+                StatusMessage = result.Cancelled ? result.Message : $"Reinstall of '{name}' failed: {result.Message}";
+                _activityLog.Log(StatusMessage ?? $"Reinstall of '{name}' didn't finish.", result.Cancelled ? ActivityEntryKind.Info : ActivityEntryKind.Warning);
+            }
         }
         catch (Exception ex)
         {
@@ -2740,6 +2700,12 @@ public sealed partial class LibraryViewModel : ObservableObject
     public Func<IEnumerable<FieldChange>>? GameHistory { get; init; }
 
     private ModFixService? _modFixService;
+
+    /// <summary>The app's one fix service (shared with the replacement that re-applies fixes after an update); set by the app (null: made here on first use).</summary>
+    public ModFixService? SharedFixService
+    {
+        init => _modFixService = value;
+    }
 
     /// <summary>Where each mod's remembered fix choices are kept; set by the app (null: nothing remembered).</summary>
     public string? FixDecisionsDirectory { get; init; }
@@ -3069,13 +3035,13 @@ public sealed partial class LibraryViewModel : ObservableObject
             var package = packages[0];
             var partLines = items.Select(i => $"  • {i.Name} (Library)")
                 .Concat(ue4ssParts.Select(n => $"  • {n} (UE4SS mod)"));
-            message = $"Delete '{package.DisplayName}' and all {package.PartCount} of its parts?\n\n{string.Join("\n", partLines)}\n\nThe folders are removed from disk; an enabled UE4SS part is taken out of the game's Mods folder (backed up first). Run Merge & Install afterwards to drop the paks from the game. This can't be undone (unless you made a backup first).";
+            message = $"Delete '{package.DisplayName}' and all {package.PartCount} of its parts?\n\n{string.Join("\n", partLines)}\n\nThe folders are removed from disk; an enabled UE4SS part is taken out of the game's Mods folder (backed up first). Run Merge & Install afterwards to drop the paks from the game. Each Library part is backed up first (Backups\\Mods).";
         }
         else
         {
             message = items.Count == 1
-                ? $"Delete '{items[0].Name}' from your Library?\n\nIts folder is removed from disk. Run Merge & Install afterwards to drop it from the game. This can't be undone (unless you made a backup first)."
-                : $"Delete {items.Count} mods from your Library?\n\nTheir folders are removed from disk. Run Merge & Install afterwards to drop them from the game. This can't be undone (unless you made a backup first).";
+                ? $"Delete '{items[0].Name}' from your Library?\n\nIts folder is removed from disk (a backup is kept under Backups\\Mods). Run Merge & Install afterwards to drop it from the game."
+                : $"Delete {items.Count} mods from your Library?\n\nTheir folders are removed from disk (each is backed up first, under Backups\\Mods). Run Merge & Install afterwards to drop them from the game.";
             if (ue4ssParts.Count > 0)
             {
                 message += $"\n\nThese came with UE4SS mods from the same download, which are removed too: {string.Join(", ", ue4ssParts)}.";
@@ -3111,7 +3077,13 @@ public sealed partial class LibraryViewModel : ObservableObject
             item.CancelPendingSave();
             try
             {
+                // Backed up first, so a delete (an easy right-click to hit by accident) isn't
+                // permanent — a mod that can't be backed up isn't deleted.
+                _repository.BackupMod(item.FolderName);
                 _repository.Delete(item.FolderName);
+                // Its remembered fix choices too: a different mod later imported under the same
+                // folder name must not have them made for it.
+                FixService.Forget(item.FolderName);
                 // Purges this mod's saved original pak (if it has one — a no-op otherwise) so a
                 // deleted mod doesn't leave an orphaned copy under PrebuiltPakSources forever; mirrors
                 // how the repository already purges its own LibraryMeta sidecar record on Delete.
@@ -3866,6 +3838,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             var updatedCount = 0;
+            // Mods whose check itself failed (no network, the Nexus rate limit) — "up to date" would be a guess for them.
+            var failedCount = 0;
             var messages = new List<string>();
 
             if (nexusItems.Count > 0 || ue4ssItems.Count > 0)
@@ -3890,13 +3864,17 @@ public sealed partial class LibraryViewModel : ObservableObject
                     updatedCount += perFileUpdates;
                     nexusItems = [.. nexusItems.Where(i => !resolvedItems.Contains(i))];
                     ue4ssItems = [.. ue4ssItems.Where(r => !resolvedRows.Contains(r.Name))];
-                    updatedCount += await ApplyNexusVersionsAsync(nexusItems, apiKey, i => i.NexusModId!.Value, (i, v) => i.LatestVersion = v, i => i.HasUpdateAvailable);
+                    var (libraryUpdates, libraryFailures) = await ApplyNexusVersionsAsync(nexusItems, apiKey, i => i.NexusModId!.Value, (i, v) => i.LatestVersion = v, i => i.HasUpdateAvailable);
+                    updatedCount += libraryUpdates;
+                    failedCount += libraryFailures;
                     // Resolved against the LIVE row by name at apply time: a reload of the UE4SS list while
                     // the Nexus lookups were in flight replaces every row, and stamping the version onto
                     // the captured (now orphaned) instance left no badge until the next manual check.
-                    updatedCount += await ApplyNexusVersionsAsync(ue4ssItems, apiKey, r => r.NexusModId!.Value,
+                    var (ue4ssUpdates, ue4ssFailures) = await ApplyNexusVersionsAsync(ue4ssItems, apiKey, r => r.NexusModId!.Value,
                         (r, v) => (Ue4ssMods.FirstOrDefault(m => m.Name == r.Name) ?? r).LatestVersion = v,
                         r => (Ue4ssMods.FirstOrDefault(m => m.Name == r.Name) ?? r).HasUpdateAvailable);
+                    updatedCount += ue4ssUpdates;
+                    failedCount += ue4ssFailures;
                 }
             }
 
@@ -3942,13 +3920,22 @@ public sealed partial class LibraryViewModel : ObservableObject
                 catch (Exception)
                 {
                     // Best-effort — a catalog fetch failure just means Database-sourced mods don't
-                    // get checked this time, not a reason to fail the whole update check.
+                    // get checked this time, not a reason to fail the whole update check. Counted,
+                    // so the result doesn't claim they're up to date.
+                    failedCount += databaseItems.Count;
                 }
             }
 
             if (!isAutomatic)
             {
-                messages.Add(updatedCount > 0 ? $"{updatedCount} mod(s) have an update available." : "Everything checked is up to date.");
+                messages.Add(updatedCount > 0
+                    ? $"{updatedCount} mod(s) have an update available."
+                    : failedCount > 0 ? "No updates found among the mods that could be checked." : "Everything checked is up to date.");
+                if (failedCount > 0)
+                {
+                    messages.Add($"Couldn't check {failedCount} mod(s) (network or Nexus limit) — try again later.");
+                }
+
                 UpdateCheckStatusMessage = string.Join(" ", messages);
             }
         }
@@ -4024,7 +4011,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// property/type they touched. Returns how many of the checked items now have an update
     /// available, for the caller's own running total.
     /// </summary>
-    private async Task<int> ApplyNexusVersionsAsync<T>(
+    private async Task<(int Updates, int Failures)> ApplyNexusVersionsAsync<T>(
         IReadOnlyList<T> items, string apiKey, Func<T, int> getNexusModId, Action<T, string> setLatestVersion, Func<T, bool> hasUpdateAvailable)
     {
         var results = await Task.WhenAll(items.Select(async item =>
@@ -4032,18 +4019,19 @@ public sealed partial class LibraryViewModel : ObservableObject
             try
             {
                 var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", getNexusModId(item));
-                return (Item: item, Version: info?.Version);
+                return (Item: item, Version: info?.Version, Failed: info is null);
             }
             catch (Exception)
             {
                 // Best-effort per-mod — one bad lookup (rate limit, a since-removed mod) shouldn't
-                // stop the rest of the batch from checking.
-                return (Item: item, Version: (string?)null);
+                // stop the rest of the batch from checking. Counted as not checked.
+                return (Item: item, Version: (string?)null, Failed: true);
             }
         }));
 
         var updatedCount = 0;
-        foreach (var (item, version) in results)
+        var failedCount = results.Count(r => r.Failed);
+        foreach (var (item, version, _) in results)
         {
             if (string.IsNullOrEmpty(version))
             {
@@ -4057,6 +4045,6 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
         }
 
-        return updatedCount;
+        return (updatedCount, failedCount);
     }
 }

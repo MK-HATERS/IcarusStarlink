@@ -203,6 +203,21 @@ public sealed class ModFixService(
         }
     }
 
+    /// <summary>A replaced mod that landed under a different folder name keeps its remembered choices (they're stored by folder name).</summary>
+    public void CarryOver(string fromFolderName, string toFolderName)
+    {
+        lock (_gate)
+        {
+            if (string.Equals(fromFolderName, toFolderName, StringComparison.OrdinalIgnoreCase)
+                || DecisionsPath(fromFolderName) is not { } from || DecisionsPath(toFolderName) is not { } to || !File.Exists(from))
+            {
+                return;
+            }
+
+            File.Copy(from, to, overwrite: true);
+        }
+    }
+
     /// <param name="backUp">Back the mod up before writing (false for FixSure's later rounds: its first round already did).</param>
     private int Write(string folderName, IReadOnlyCollection<(ModIssue Issue, ModIssueFix Fix)> fixes, bool backUp)
     {

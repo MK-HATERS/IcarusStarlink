@@ -333,9 +333,29 @@ public partial class App : Application
                 .SelectMany(report => report.ChangedFiles).SelectMany(file => file.FieldChanges),
             // Each mod's fix-window choices, so they're made by themselves next time.
             FixDecisionsDirectory = Path.Combine(appDataDirectory, "Library_Meta", "Fix_Choices"),
+            // The same instance the replacement uses to make fixes again after an update (one lock for every writer).
+            SharedFixService = sp.GetRequiredService<ModFixService>(),
             // The game's own files: a mod's copy of one is rated by how much can break (the risk pill).
             BaseGameContent = sp.GetRequiredService<IBaseGameContentProvider>(),
         });
+        // One fix service for the whole app: every writer of a mod's .EXMOD takes its lock.
+        builder.Services.AddSingleton(sp => new ModFixService(
+            sp.GetRequiredService<ILibraryRepository>(),
+            Path.Combine(appDataDirectory, "Data"),
+            () => sp.GetRequiredService<IWeeklyChangeReportStore>().History
+                .SelectMany(report => report.ChangedFiles).SelectMany(file => file.FieldChanges),
+            Path.Combine(appDataDirectory, "Library_Meta", "Fix_Choices")));
+        // How every copy of a mod is replaced: Downloads' Activate/Reinstall, Library's Get update and Reinstall original.
+        builder.Services.AddSingleton(sp => new ModReplacementService(
+            sp.GetRequiredService<ILibraryRepository>(),
+            sp.GetRequiredService<IUe4ssModRepository>(),
+            sp.GetRequiredService<IUe4ssModMetaStore>(),
+            sp.GetRequiredService<IUe4ssModStateService>(),
+            sp.GetRequiredService<ISettingsService>(),
+            Path.Combine(appDataDirectory, "Backups"),
+            sp.GetRequiredService<IDialogService>(),
+            sp.GetRequiredService<ModFixService>(),
+            sp.GetRequiredService<IPrebuiltPakSourceStore>()));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IRebuildService>(),
@@ -372,7 +392,8 @@ public partial class App : Application
             sp.GetRequiredService<IPrebuiltPakImporter>(),
             Path.Combine(appDataDirectory, "Data"),
             new JsonCatalogSnapshotStore(Path.Combine(appDataDirectory, "Cache", "catalog_snapshot.json")),
-            sp.GetRequiredService<IDialogService>()));
+            sp.GetRequiredService<IDialogService>(),
+            sp.GetRequiredService<ModReplacementService>()));
         builder.Services.AddSingleton<NexusCatalogViewModel>();
         builder.Services.AddSingleton<ISaveRepository>(sp =>
             new SaveRepository(

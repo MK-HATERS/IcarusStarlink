@@ -15,6 +15,7 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Import;
 using IcarusStarlink.Storage.Library;
 using IcarusStarlink.Storage.Nexus;
@@ -590,6 +591,113 @@ public sealed class DownloadsViewModelTests : IDisposable
         var item = harness.AddDownload("Cheat S5-II and Larkwell Haulier underwears-59-2-3-25-146718-1767981001.zip", a => WriteEntry(a, "x.pak", "p"), modId: 59, fileId: 798);
 
         Assert.Equal("Cheat S5-II and Larkwell Haulier underwears", item.DisplayName);
+    }
+
+    // --- Replacing a mod (ModReplacementService through Activate/Reinstall) ---
+
+    private static void WriteSinglePak(ZipArchive archive) => WriteEntry(archive, "Ferani_Homestead_Expanded_P.pak", "pak v1");
+
+    /// <summary>The real Ferani_Homestead_Expanded case: it was edited (✎) and Nexus mod 223, and a Reinstall replaced it without a word.</summary>
+    [Fact]
+    public async Task Reinstall_OfAnEditedMod_AsksFirst_AndNoKeepsTheEditedCopy()
+    {
+        var harness = new Harness(_root) { Dialogs = new FakeDialogService(confirmResult: false) };
+        var vm = harness.Build();
+        var item = harness.AddDownload("Ferani_Homestead_Expanded_EXMODZ 223 1.7.zip", WriteSinglePak, modId: 223, fileId: 900);
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+        var folder = Assert.Single(harness.Library.GetAll()).FolderName;
+        harness.Library.MarkLocallyEdited(folder);
+
+        var result = await vm.ActivateAsync(item);
+
+        Assert.True(result.Cancelled);
+        Assert.Contains(harness.Dialogs!.ConfirmMessages, m => m.Contains("changes made in Starlink"));
+        var kept = Assert.Single(harness.Library.GetAll());
+        Assert.Equal(folder, kept.FolderName);
+        Assert.True(kept.IsLocallyEdited);
+        Assert.Contains("Kept your edited copy", vm.PendingDownloadStatusMessage);
+    }
+
+    [Fact]
+    public async Task Reinstall_KeepsPinNotesAndRename_AndBacksTheOldCopyUp()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        var item = harness.AddDownload("Homestead.zip", WriteSinglePak, modId: 223, fileId: 900);
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+        var folder = Assert.Single(harness.Library.GetAll()).FolderName;
+        harness.Library.UpdateMetadata(folder, isPinned: true, isFavorite: false, notes: "mine");
+        harness.Library.SetDisplayNameOverride(folder, "Homestead (mine)");
+
+        var result = await vm.ActivateAsync(item);
+
+        Assert.True(result.Succeeded);
+        var replaced = Assert.Single(harness.Library.GetAll());
+        Assert.True(replaced.IsPinned);
+        Assert.Equal("mine", replaced.Notes);
+        Assert.Equal("Homestead (mine)", replaced.Name);
+        Assert.True(harness.Library.HasModBackup(folder));
+    }
+
+    /// <summary>Reinstalling an ENABLED UE4SS mod used to leave the old copy running in the game; a later Disable then made "MiniMapa_2".</summary>
+    [Fact]
+    public async Task Reinstall_OfAnEnabledUe4ssMod_ReplacesTheCopyInTheGame()
+    {
+        var harness = new Harness(_root) { IcarusContentPath = Path.Combine(_root, "Game", "Icarus", "Content") };
+        var vm = harness.Build();
+        var item = harness.AddDownload("MiniMapa.zip", a => WriteEntry(a, "MiniMapa/Scripts/main.lua", "new"), modId: 345, fileId: 2737);
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+        Assert.Equal(["MiniMapa"], harness.Ue4ss.GetAll());
+
+        // Enabled: moved into the game's Mods folder (what Apply does), holding an older script.
+        var gameMods = Ue4ssGamePaths.ResolveModsFolder(harness.IcarusContentPath);
+        Directory.CreateDirectory(Path.Combine(gameMods, "MiniMapa", "Scripts"));
+        File.WriteAllText(Path.Combine(gameMods, "MiniMapa", "Scripts", "main.lua"), "old");
+        harness.Ue4ss.Delete("MiniMapa");
+
+        var result = await vm.ActivateAsync(item);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("new", File.ReadAllText(Path.Combine(gameMods, "MiniMapa", "Scripts", "main.lua")));
+        Assert.Equal(["MiniMapa"], harness.Ue4ss.ListInstalledInGame(gameMods));
+        Assert.Empty(harness.Ue4ss.GetAll());
+        Assert.Equal(345, harness.Ue4ssMeta.Load("MiniMapa").NexusModId);
+    }
+
+    /// <summary>The real Minimap README asks for "Icarus Mod Manager", and its heading underline was stored as a blank requirement — neither is a download to get.</summary>
+    [Fact]
+    public async Task Activate_ModManagerRequirement_IsSatisfiedAndNotOffered()
+    {
+        var harness = new Harness(_root) { Dialogs = new FakeDialogService(confirmResult: true) };
+        var vm = harness.Build();
+        var item = harness.AddDownload("Minimap V1.0.5.zip", a =>
+        {
+            WriteEntry(a, "README_EN.txt", "Minimap\n\nREQUIREMENTS\n-------------\n- UE4SS for Icarus (Lua mods).\n- Icarus Mod Manager (for the .EXMODZ file with the map icon rows).\n\nINSTALL\n1. etc\n");
+            WriteEntry(a, "MiniMapa/Scripts/main.lua", "x");
+        }, modId: 345, fileId: 2737);
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        Assert.Empty(item.MissingRequirementNames);
+        Assert.False(item.CanGetRequirement);
+        Assert.Contains("Icarus Mod Manager (for the .EXMODZ file with the map icon rows). ✓", vm.PendingDownloadStatusMessage);
+        Assert.DoesNotContain("NOT installed", vm.PendingDownloadStatusMessage);
+        Assert.Empty(harness.Dialogs!.ConfirmMessages);
+        Assert.DoesNotContain(harness.PendingStore.Entries.Single().Requirements, string.IsNullOrWhiteSpace);
+    }
+
+    [Fact]
+    public void StoredBlankRequirements_AreDroppedWhenTheStoreLoads()
+    {
+        var harness = new Harness(_root);
+        harness.AddDownload("Minimap V1.0.5.zip", a => WriteEntry(a, "README_EN.txt", "x"), modId: 345, fileId: 2737);
+        harness.PendingStore.SetActivation(345, 2737, [], ["UE4SS for Icarus (Lua mods)."]);
+        var json = Path.Combine(_root, "pending_downloads.json");
+        File.WriteAllText(json, File.ReadAllText(json).Replace("\"UE4SS for Icarus (Lua mods).\"", "\"\", \"UE4SS for Icarus (Lua mods).\", \"  \""));
+
+        var reloaded = new PendingDownloadStore(_root, NullLogger<PendingDownloadStore>.Instance);
+
+        Assert.Equal(["UE4SS for Icarus (Lua mods)."], reloaded.Entries.Single().Requirements);
     }
 
     // --- Fakes: only the network and UnrealPak; everything else above is the real storage layer ---

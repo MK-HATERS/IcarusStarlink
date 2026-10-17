@@ -55,6 +55,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
     /// <summary>Null in tests and headless use — then a missing requirement is only reported, never offered for download.</summary>
     private readonly IDialogService? _dialogService;
+    private readonly ModReplacementService _modReplacement;
+
+    /// <summary>How every copy of a mod is replaced (this page's Activate/Reinstall, and Library's Get update and Reinstall original).</summary>
+    public ModReplacementService ModReplacement => _modReplacement;
 
     private IReadOnlyList<CatalogEntry> _allCatalogEntries = [];
 
@@ -178,8 +182,15 @@ public sealed partial class DownloadsViewModel : ObservableObject
         IActiveDownloadsTracker activeDownloadsTracker,
         string pendingDownloadsDirectory, IPrebuiltPakImporter prebuiltPakImporter, string dataFolder,
         ICatalogSnapshotStore? catalogSnapshotStore = null,
-        IDialogService? dialogService = null)
+        IDialogService? dialogService = null,
+        ModReplacementService? modReplacement = null)
     {
+        // The app passes the shared one (with the fix service and the saved source paks); a
+        // default is enough to replace copies safely when nothing else is wired up.
+        _modReplacement = modReplacement ?? new ModReplacementService(
+            libraryRepository, ue4ssModRepository, ue4ssModMetaStore, new IcarusStarlink.PakIO.Install.Ue4ssModStateService(ue4ssModRepository),
+            settingsService, Path.Combine(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(pendingDownloadsDirectory)) ?? pendingDownloadsDirectory, "Backups"),
+            dialogService);
         _catalogSnapshotStore = catalogSnapshotStore;
         _dialogService = dialogService;
         _prebuiltPakImporter = prebuiltPakImporter;
@@ -585,11 +596,38 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private async Task<(bool Success, string Message)> DownloadAndExtractEntryAsync(CatalogEntryViewModel entry)
     {
         var catalogEntry = entry.Entry;
-        var downloadUrl = catalogEntry.ExmodzUrl ?? catalogEntry.PakUrl;
-        if (downloadUrl is null)
+        if ((catalogEntry.ExmodzUrl ?? catalogEntry.PakUrl) is null)
         {
             return (false, $"'{catalogEntry.Name}' has no downloadable file listed.");
         }
+
+        try
+        {
+            var justDownloaded = await DownloadCatalogFileAsync(catalogEntry);
+            var result = await ActivateAsync(justDownloaded);
+            if (!result.Succeeded)
+            {
+                return (false, PendingDownloadStatusMessage ?? $"'{catalogEntry.Name}' downloaded but didn't import — see the Downloads page.");
+            }
+
+            _activityLog.Log($"Downloaded and imported '{catalogEntry.Name}' from the catalog.", ActivityEntryKind.Success);
+            return (true, $"Downloaded and imported '{catalogEntry.Name}'.");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"'{catalogEntry.Name}' failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Downloads a catalog entry's file into Pending_Downloads and records it like any other
+    /// download (not installed yet) — so Reinstall original and the Downloads page know the file
+    /// a Database mod came from, Library's Get update included. Throws when it can't.
+    /// </summary>
+    public async Task<PendingDownloadItemViewModel> DownloadCatalogFileAsync(CatalogEntry catalogEntry)
+    {
+        var downloadUrl = catalogEntry.ExmodzUrl ?? catalogEntry.PakUrl
+            ?? throw new InvalidOperationException($"'{catalogEntry.Name}' has no downloadable file listed.");
 
         // A real catalog entry can point at a github.com "view this file" page instead of its raw
         // content (a common submission mistake — see GitHubBlobUrl's own doc comment) — downloading
@@ -642,24 +680,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
             });
             ReloadPendingDownloads();
 
-            var justDownloaded = PendingDownloads.FirstOrDefault(p => p.ModId == 0 && p.FileId == fileId);
-            if (justDownloaded is null)
-            {
-                return (false, $"'{catalogEntry.Name}' downloaded but couldn't be recorded.");
-            }
-
-            await ActivatePendingDownloadAsync(justDownloaded);
-            if (!justDownloaded.IsInstalled)
-            {
-                return (false, PendingDownloadStatusMessage ?? $"'{catalogEntry.Name}' downloaded but didn't import — see the Downloads page.");
-            }
-
-            _activityLog.Log($"Downloaded and imported '{catalogEntry.Name}' from the catalog.", ActivityEntryKind.Success);
-            return (true, $"Downloaded and imported '{catalogEntry.Name}'.");
-        }
-        catch (Exception ex)
-        {
-            return (false, $"'{catalogEntry.Name}' failed: {ex.Message}");
+            return PendingDownloads.FirstOrDefault(p => p.ModId == 0 && p.FileId == fileId)
+                ?? throw new InvalidOperationException($"'{catalogEntry.Name}' downloaded but couldn't be recorded.");
         }
         finally
         {
@@ -958,23 +980,27 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
     /// <summary>
     /// MO2-style: never removes the entry from Pending Downloads (only Discard does that) — a
-    /// second click on an already-installed entry is a Reinstall, which first deletes whatever
-    /// its last activation produced (mirroring the "delete existing Library entry by folder name
-    /// before re-importing" pattern MergeInstallViewModel's own InstallAsync already established,
-    /// so re-Activating doesn't leave a "_2"-suffixed duplicate next to the one it's replacing).
-    /// Deleting happens before the new import is attempted, same as that existing pattern — if the
-    /// new import then fails, the entry is left correctly showing "deleted from Library" rather
-    /// than silently keeping a stale, no-longer-accurate "installed" state.
+    /// second click on an already-installed entry is a Reinstall, which replaces whatever its last
+    /// activation produced (so re-Activating doesn't leave a "_2"-suffixed duplicate next to the one
+    /// it's replacing). The swap goes through ModReplacementService: backed up first, an edited copy
+    /// only after asking, pin/notes/rename carried over, remembered fixes made again, an enabled
+    /// UE4SS mod replaced in the game too, and the old copy put back if the new one fails.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
-    private async Task ActivatePendingDownloadAsync(PendingDownloadItemViewModel? item)
+    private Task ActivatePendingDownloadAsync(PendingDownloadItemViewModel? item) => ActivateAsync(item);
+
+    /// <summary>
+    /// The Activate/Reinstall behind the button, returning how it went (Library's Reinstall original
+    /// reports this rather than assuming success). pristine: put the download back exactly as it
+    /// came — no rename carried over, no fixes made again, the remembered fix choices forgotten.
+    /// </summary>
+    public async Task<ModReplacementResult> ActivateAsync(PendingDownloadItemViewModel? item, bool pristine = false)
     {
         if (item is null)
         {
-            return;
+            return ModReplacementResult.Cancel("Nothing to install.");
         }
 
-        string? tempExtractDirectory = null;
         try
         {
             var previous = FindPreviousCopies(item);
@@ -982,54 +1008,40 @@ public sealed partial class DownloadsViewModel : ObservableObject
             var source = item.IsCatalog ? PendingDownloadEntry.DatabaseSource : PendingDownloadEntry.NexusSource;
             int? nexusModId = item.IsCatalog ? null : item.ModId;
 
-            string statusMessage;
-            IReadOnlyList<PendingDownloadActivatedItem> activatedItems;
-            IReadOnlyList<string> requirements = [];
-
             // Resolved at use (an audit finding): the stored path is absolute, so moving the app
             // folder — the "unzip anywhere" portable install — broke every pending entry; the file
             // name is always under this app's own Pending_Downloads folder.
             var localFilePath = ResolveLocalFilePath(item);
-            if (string.Equals(Path.GetExtension(localFilePath), ".pak", StringComparison.OrdinalIgnoreCase))
-            {
-                RemoveCopies(previous);
-                var entry = await _prebuiltPakImporter.ImportAsync(
-                    localFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath, source: source, nexusModId: nexusModId,
-                    catalogEntryId: item.CatalogEntryId, name: item.IsCatalog ? item.DisplayName : null);
-                if (nexusModId is { } && (entry.IsOpaquePak || entry.ConvertedFromPrebuiltPak))
+            (string Status, IReadOnlyList<string> Requirements) installed = ("", []);
+            var replaced = await _modReplacement.ReplaceAsync(
+                new ModReplacementRequest(item.DisplayName, previous.LibraryFolders, previous.Ue4ssFolders, pristine),
+                async removeOld =>
                 {
-                    // A converted entry's own Name/Author are still just placeholders (the pak's
-                    // filename, "Unknown") — ConvertedFromPrebuiltPak is what lets
-                    // FolderLibraryRepository.SetNexusMetadata's cached-entry update (and ToEntry's
-                    // own NexusName/NexusAuthor fallback, on the next rescan) actually apply to it,
-                    // unlike an ordinary EXMOD import.
-                    await RecordNexusMetadataAsync(entry.FolderName, item.ModId);
-                }
+                    var (items, status, requirementLines) = await InstallDownloadAsync(item, localFilePath, source, nexusModId, previous, removeOld);
+                    installed = (status, requirementLines);
+                    return items;
+                });
+            var statusMessage = installed.Status;
+            var requirements = installed.Requirements;
 
+            if (!replaced.Succeeded)
+            {
+                // Same UI boundary as Library's own ImportFolder/ImportFile — a malformed archive or
+                // a locked file shows a status message instead of crashing the app. Deliberately
+                // leaves the entry in Pending Downloads (and the file on disk) on failure, so
+                // nothing is lost and the user can retry or Discard explicitly.
+                PendingDownloadStatusMessage = replaced.Cancelled ? replaced.Message : $"Import failed: {replaced.Message}";
                 WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-                statusMessage = $"Imported '{entry.Name}' into your Library.";
-                foreach (var warning in entry.ImportWarnings)
+                if (replaced.Cancelled || replaced.Error is null)
                 {
-                    _activityLog.Log($"{entry.Name}: {warning}", ActivityEntryKind.Warning);
+                    return replaced;
                 }
 
-                statusMessage += ExtractedModClassifier.WarningSummary(entry.ImportWarnings);
-                activatedItems = [new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library)];
-                _activityLog.Log($"Activated pending download '{entry.Name}'.", ActivityEntryKind.Success);
-            }
-            else
-            {
-                // A real Nexus download's own extension can't be trusted (a mod author might
-                // upload a zip, rar, or 7z, and it could contain an EXMOD-shaped mod, a prebuilt
-                // .pak, or a UE4SS mod) — unlike every other import path in this app, there's no
-                // dialog filter or button choice telling us which kind this is, so it has to be
-                // extracted first and classified from its actual content.
-                tempExtractDirectory = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Activate_{Guid.NewGuid():N}");
-                AnyArchiveExtractor.ExtractToDirectory(localFilePath, tempExtractDirectory);
-                (statusMessage, activatedItems, requirements) =
-                    await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, source, nexusModId, item.CatalogEntryId, previous);
+                // Mod Organizer's answer to a download it can't sort out: let the user say what's what.
+                return await InstallManuallyAfterFailureAsync(item, replaced.Error.Message, pristine) ?? replaced;
             }
 
+            var activatedItems = replaced.Items;
             if (!item.IsCatalog)
             {
                 await RecordNexusFileAsync(item.ModId, item.FileId, activatedItems);
@@ -1038,38 +1050,81 @@ public sealed partial class DownloadsViewModel : ObservableObject
             _pendingDownloadStore.SetActivation(item.ModId, item.FileId, activatedItems, requirements);
             item.SetActivated(activatedItems, requirements);
             RefreshVisiblePendingDownloads();
-            PendingDownloadStatusMessage = statusMessage;
+            PendingDownloadStatusMessage = statusMessage + replaced.Summary;
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
 
             // A mod organizer resolves a dependency at download time, with a question — not a
             // warning buried in a status line after the fact.
             await OfferMissingRequirementsAsync(item);
+            return replaced;
         }
         catch (Exception ex)
         {
-            // Same UI boundary as Library's own ImportFolder/ImportFile — a malformed archive or a
-            // locked file shows a status message instead of crashing the app. Deliberately leaves
-            // the entry in Pending Downloads (and the file on disk) on failure, so nothing is lost
-            // and the user can retry or Discard explicitly.
+            // What's left outside the replacement itself (recording the activation, the
+            // requirement offer) — the mod is in; say what went wrong rather than crash.
             PendingDownloadStatusMessage = $"Import failed: {ex.Message}";
-            if (ex is not ImportCancelledException)
+            return ModReplacementResult.Failure(ex.Message, ex, rolledBack: false);
+        }
+    }
+
+    /// <summary>
+    /// Imports the download itself (the install step ModReplacementService runs): a .pak straight
+    /// through the pak importer, anything else unpacked and classified. Calls removeOld right
+    /// before the first write. Returns what landed, the status line and the README requirements.
+    /// </summary>
+    private async Task<(IReadOnlyList<PendingDownloadActivatedItem> Items, string Status, IReadOnlyList<string> Requirements)> InstallDownloadAsync(
+        PendingDownloadItemViewModel item, string localFilePath, string source, int? nexusModId, PreviousCopies previous, Action removeOld)
+    {
+        if (string.Equals(Path.GetExtension(localFilePath), ".pak", StringComparison.OrdinalIgnoreCase))
+        {
+            removeOld();
+            var entry = await _prebuiltPakImporter.ImportAsync(
+                localFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath, source: source, nexusModId: nexusModId,
+                catalogEntryId: item.CatalogEntryId, name: item.IsCatalog ? item.DisplayName : null);
+            if (nexusModId is { } && (entry.IsOpaquePak || entry.ConvertedFromPrebuiltPak))
             {
-                // Mod Organizer's answer to a download it can't sort out: let the user say what's what.
-                await InstallManuallyAfterFailureAsync(item, ex.Message);
+                // A converted entry's own Name/Author are still just placeholders (the pak's
+                // filename, "Unknown") — ConvertedFromPrebuiltPak is what lets
+                // FolderLibraryRepository.SetNexusMetadata's cached-entry update (and ToEntry's
+                // own NexusName/NexusAuthor fallback, on the next rescan) actually apply to it,
+                // unlike an ordinary EXMOD import.
+                await RecordNexusMetadataAsync(entry.FolderName, item.ModId);
             }
+
+            var statusMessage = $"Imported '{entry.Name}' into your Library.";
+            foreach (var warning in entry.ImportWarnings)
+            {
+                _activityLog.Log($"{entry.Name}: {warning}", ActivityEntryKind.Warning);
+            }
+
+            statusMessage += ExtractedModClassifier.WarningSummary(entry.ImportWarnings);
+            _activityLog.Log($"Activated pending download '{entry.Name}'.", ActivityEntryKind.Success);
+            return ([new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library)], statusMessage, []);
+        }
+
+        // A real Nexus download's own extension can't be trusted (a mod author might
+        // upload a zip, rar, or 7z, and it could contain an EXMOD-shaped mod, a prebuilt
+        // .pak, or a UE4SS mod) — unlike every other import path in this app, there's no
+        // dialog filter or button choice telling us which kind this is, so it has to be
+        // extracted first and classified from its actual content.
+        var tempExtractDirectory = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Activate_{Guid.NewGuid():N}");
+        try
+        {
+            AnyArchiveExtractor.ExtractToDirectory(localFilePath, tempExtractDirectory);
+            var (classifiedStatus, classifiedItems, classifiedRequirements) =
+                await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, source, nexusModId, item.CatalogEntryId, previous, removeOld);
+            return (classifiedItems, classifiedStatus, classifiedRequirements);
         }
         finally
         {
-            if (tempExtractDirectory is not null)
+            try
             {
-                try
-                {
-                    Directory.Delete(tempExtractDirectory, recursive: true);
-                }
-                catch (Exception)
-                {
-                    // Best-effort scratch cleanup — a locked file here (e.g. antivirus mid-scan)
-                    // shouldn't turn a successful import into a reported failure.
-                }
+                Directory.Delete(tempExtractDirectory, recursive: true);
+            }
+            catch (Exception)
+            {
+                // Best-effort scratch cleanup — a locked file here (e.g. antivirus mid-scan)
+                // shouldn't turn a successful import into a reported failure.
             }
         }
     }
@@ -1084,8 +1139,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// <summary>
     /// Before (re)installing a download: what this row installed last time, or — the first time —
     /// any copy of the same Nexus mod / Database entry installed some other way, so an update
-    /// replaces the mod instead of adding a "_2" copy. Only finds them; RemoveCopies deletes, as
-    /// late as possible (after any "which one?" question, so cancelling it changes nothing).
+    /// replaces the mod instead of adding a "_2" copy. Only finds them; ModReplacementService removes
+    /// them, as late as possible (after any "which one?" question, so cancelling it changes nothing).
     /// </summary>
     private PreviousCopies FindPreviousCopies(PendingDownloadItemViewModel item)
     {
@@ -1109,26 +1164,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
             : _libraryRepository.GetAll().Where(e => e.NexusModId == item.ModId);
         var ue4ss = item.IsCatalog
             ? []
-            : _ue4ssModRepository.GetAll().Where(folderName => _ue4ssModMetaStore.Load(folderName).NexusModId == item.ModId);
+            // Enabled ones too: an enabled UE4SS mod lives in the game's Mods folder, not staging.
+            : _ue4ssModRepository.GetAll().Concat(Ue4ssNamesInGame()).Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(folderName => _ue4ssModMetaStore.Load(folderName).NexusModId == item.ModId);
         return new PreviousCopies([.. library.Select(e => e.FolderName)], [.. ue4ss]);
-    }
-
-    private void RemoveCopies(PreviousCopies copies)
-    {
-        var libraryFolders = _libraryRepository.GetAll().Select(e => e.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var folder in copies.LibraryFolders.Where(libraryFolders.Contains))
-        {
-            _libraryRepository.Delete(folder);
-        }
-
-        var ue4ssFolders = _ue4ssModRepository.GetAll().ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var folder in copies.Ue4ssFolders.Where(ue4ssFolders.Contains))
-        {
-            _ue4ssModRepository.Delete(folder);
-            // Otherwise the Nexus-link sidecar is orphaned, and a stale link if an unrelated mod
-            // later lands under the same folder name.
-            _ue4ssModMetaStore.Delete(folder);
-        }
     }
 
     /// <summary>
@@ -1141,7 +1180,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// (Library's UE4SS tab has its own reload path, never wired to this pipeline before this).
     /// </summary>
     private async Task<(string StatusMessage, IReadOnlyList<PendingDownloadActivatedItem> Items, IReadOnlyList<string> Requirements)> ClassifyAndImportExtractedModAsync(
-        string extractedDirectory, string originalFileName, string source, int? nexusModId, string? catalogEntryId, PreviousCopies previous)
+        string extractedDirectory, string originalFileName, string source, int? nexusModId, string? catalogEntryId, PreviousCopies previous,
+        Action removeOld)
     {
         // Only meaningful if the game path is actually configured — with nothing to check against,
         // this degrades to the same "no collision avoidance" behavior importing already had. This
@@ -1153,7 +1193,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
             extractedDirectory, originalFileName, _libraryRepository, _ue4ssModRepository,
             _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, source: source, nexusModId: nexusModId,
             ue4ssNamesAlreadyInstalledInGame: installedUe4ssNames, catalogEntryId: catalogEntryId, chooseArchive: ChooseArchive,
-            beforeFirstWrite: () => RemoveCopies(previous));
+            beforeFirstWrite: removeOld);
 
         var landed = await FollowUpImportedAsync(classified.Items, nexusModId);
 
@@ -1230,8 +1270,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// unpack it, let the user choose what to keep and what each piece is (starting from
     /// Starlink's guesses), then install exactly that — with the same earlier-copy replacement,
     /// Nexus follow-up and file tracking as Activate. Cancelling leaves the failure message.
+    /// Returns how the manual install went, or null when the user cancelled it.
     /// </summary>
-    private async Task InstallManuallyAfterFailureAsync(PendingDownloadItemViewModel item, string reason)
+    private async Task<ModReplacementResult?> InstallManuallyAfterFailureAsync(PendingDownloadItemViewModel item, string reason, bool pristine)
     {
         string? scratch = null;
         try
@@ -1239,31 +1280,48 @@ public sealed partial class DownloadsViewModel : ObservableObject
             scratch = ManualInstaller.UnpackForManualInstall(ResolveLocalFilePath(item));
             if (ManualInstall(scratch, item.DisplayName, reason, ManualInstaller.Suggest(scratch)) is not { Count: > 0 } plan)
             {
-                return; // the "Import failed: …" message stays
+                return null; // the "Import failed: …" message stays
             }
 
             var previous = FindPreviousCopies(item);
-            RemoveCopies(previous);
             var source = item.IsCatalog ? PendingDownloadEntry.DatabaseSource : PendingDownloadEntry.NexusSource;
             int? nexusModId = item.IsCatalog ? null : item.ModId;
-            var installed = await ManualInstaller.InstallAsync(
-                plan, _libraryRepository, _ue4ssModRepository, _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath,
-                source, nexusModId, item.CatalogEntryId, InstalledUe4ssNamesExcept(previous.Ue4ssNames));
-            var landed = await FollowUpImportedAsync(installed, nexusModId);
-            if (!item.IsCatalog)
+            var landed = new List<string>();
+            // The edited-copy question was already answered by the attempt that failed.
+            var replaced = await _modReplacement.ReplaceAsync(
+                new ModReplacementRequest(item.DisplayName, previous.LibraryFolders, previous.Ue4ssFolders, pristine, AskBeforeReplacingEdits: false),
+                async removeOld =>
+                {
+                    var namesInGame = InstalledUe4ssNamesExcept(previous.Ue4ssNames);
+                    removeOld();
+                    var installed = await ManualInstaller.InstallAsync(
+                        plan, _libraryRepository, _ue4ssModRepository, _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath,
+                        source, nexusModId, item.CatalogEntryId, namesInGame);
+                    landed = await FollowUpImportedAsync(installed, nexusModId);
+                    return installed;
+                });
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            if (!replaced.Succeeded)
             {
-                await RecordNexusFileAsync(item.ModId, item.FileId, installed);
+                PendingDownloadStatusMessage = replaced.Cancelled ? replaced.Message : $"Manual install failed: {replaced.Message}";
+                return replaced;
             }
 
-            _pendingDownloadStore.SetActivation(item.ModId, item.FileId, installed, []);
-            item.SetActivated(installed, []);
+            if (!item.IsCatalog)
+            {
+                await RecordNexusFileAsync(item.ModId, item.FileId, replaced.Items);
+            }
+
+            _pendingDownloadStore.SetActivation(item.ModId, item.FileId, replaced.Items, []);
+            item.SetActivated(replaced.Items, []);
             RefreshVisiblePendingDownloads();
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-            PendingDownloadStatusMessage = $"Installed manually: {string.Join(", ", landed)}.";
+            PendingDownloadStatusMessage = $"Installed manually: {string.Join(", ", landed)}.{replaced.Summary}";
+            return replaced;
         }
         catch (Exception ex)
         {
             PendingDownloadStatusMessage = $"Manual install failed: {ex.Message}";
+            return ModReplacementResult.Failure(ex.Message, ex, rolledBack: false);
         }
         finally
         {
@@ -1288,11 +1346,15 @@ public sealed partial class DownloadsViewModel : ObservableObject
         var installedNames = _ue4ssModRepository.GetAll().Concat(Ue4ssNamesInGame()).Concat(_libraryRepository.GetAll().Select(e => e.Name)).ToList();
         var parts = new List<string>();
         var missing = new List<string>();
-        foreach (var requirement in requirements)
+        foreach (var requirement in requirements.Where(r => !string.IsNullOrWhiteSpace(r)))
         {
             if (ModReadmeRequirements.IsLoaderRequirement(requirement))
             {
                 parts.Add($"{requirement} (the UE4SS loader — Settings → UE4SS)");
+            }
+            else if (ModReadmeRequirements.IsModManagerRequirement(requirement))
+            {
+                parts.Add($"{requirement} ✓");
             }
             else if (ModReadmeRequirements.IsSatisfiedBy(requirement, installedNames))
             {
@@ -1612,6 +1674,14 @@ public sealed partial class DownloadsViewModel : ObservableObject
         _pendingDownloadStore.Remove(item.ModId, item.FileId);
         ReloadPendingDownloads();
         PendingDownloadStatusMessage = $"Discarded '{item.FileName}'.";
+    }
+
+    /// <summary>Records that a download was installed by something other than Activate (Library's Get update imports the catalog file itself).</summary>
+    public void RecordActivation(PendingDownloadItemViewModel item, IReadOnlyList<PendingDownloadActivatedItem> items)
+    {
+        _pendingDownloadStore.SetActivation(item.ModId, item.FileId, items, []);
+        item.SetActivated(items, []);
+        RefreshVisiblePendingDownloads();
     }
 
     /// <summary>The kept download a Library mod was installed from (its file still on disk), or null.</summary>
