@@ -16,7 +16,9 @@ public enum FileRisk
 }
 
 /// <summary>One game file a mod replaces, how risky that is, what it is in plain words, and (a blueprint) how the mod's copy differs from the game's.</summary>
-public sealed record ReplacedFile(string Path, FileRisk Risk, string What, BlueprintDifference? Difference = null);
+/// <param name="ChangedByGame">What the game itself changed in this file in its last update ("the game changed X in this update"); null when not known (fewer than two game builds recorded) or nothing changed.</param>
+/// <param name="OutOfDateProof">Proof the mod's copy predates that update ("out of date: the game changed X in this update; this mod still has its own older copy"); null without proof.</param>
+public sealed record ReplacedFile(string Path, FileRisk Risk, string What, BlueprintDifference? Difference = null, string? ChangedByGame = null, string? OutOfDateProof = null);
 
 /// <summary>Another mod replacing the same game file with different content: only one of them can win.</summary>
 public sealed record FileClash(string Path, IReadOnlyList<string> OtherMods);
@@ -24,12 +26,24 @@ public sealed record FileClash(string Path, IReadOnlyList<string> OtherMods);
 /// <summary>Everything a mod replaces, rated, plus the files it fights over with other mods.</summary>
 public sealed record ModFileRisk(FileRisk Level, IReadOnlyList<ReplacedFile> Files, IReadOnlyList<FileClash> Clashes)
 {
-    public string Label => Level switch
+    /// <summary>"High risk", and " · out of date" only with proof (see ReplacedFile.OutOfDateProof).</summary>
+    public string Label => (Level switch
     {
         FileRisk.High => "High risk",
         FileRisk.Medium => "Medium risk",
         _ => "Low risk",
-    };
+    }) + (IsOutOfDate ? " · out of date" : "");
+
+    /// <summary>Proven: one of the replaced files is the game's code from before its last update.</summary>
+    public bool IsOutOfDate => Files.Any(f => f.OutOfDateProof is not null);
+
+    /// <summary>The game changed at least one of the files this mod replaces in its last update.</summary>
+    public bool IsChangedByGameUpdate => Files.Any(f => f.ChangedByGame is not null);
+
+    /// <summary>One line per replaced file the last game update changed: the proof when there is one, otherwise what the game changed.</summary>
+    public IReadOnlyList<string> GameUpdateLines =>
+        [.. Files.Where(f => f.ChangedByGame is not null || f.OutOfDateProof is not null)
+            .Select(f => $"{FileName(f.Path)} — {f.OutOfDateProof ?? f.ChangedByGame}.")];
 
     /// <summary>The plain explanation: what it replaces (riskiest first) and what it clashes with.</summary>
     public string Explanation
@@ -47,6 +61,8 @@ public sealed record ModFileRisk(FileRisk Level, IReadOnlyList<ReplacedFile> Fil
                     lines.Add($"• and {top.Count - 5} more");
                 }
             }
+
+            lines.AddRange(GameUpdateLines);
 
             if (Level == FileRisk.High)
             {
