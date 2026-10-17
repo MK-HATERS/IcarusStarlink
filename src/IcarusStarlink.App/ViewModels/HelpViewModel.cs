@@ -331,13 +331,14 @@ public sealed partial class HelpViewModel : ObservableObject
 
             A few things this app is deliberately careful about:
 
-            - **Install** (the one action that writes into your real game folder) always asks for confirmation, and always backs up whatever pak is already there first (last 5 kept).
+            - **Install** (the one action that writes into your real game folder) always asks for confirmation, and always backs up whatever pak is already there first (last 3 kept).
             - The **UE4SS loader install/update/uninstall**, the **nxm:// protocol registration**, and **Update now** (this app updating itself) all work the same way — each touches something more sensitive than a normal mod folder, so each asks first too.
             - Every Rebuild independently re-reads the pak it just built and confirms every file it staged for packing is actually retrievable from it — not just trusting how many files it handed to UnrealPak.exe. If UnrealPak itself ever silently dropped something, this is what would catch it, and it shows up as a warning under Build & install rather than a quietly incomplete pak.
             - Profiles back themselves up on every Save, the same as mods — **Profile ▾ › Restore profile backup** in Merge & Install undoes a bad one.
             - Your library is just the **Extracted_Mods** folder plus a small per-mod notes/pin sidecar — nothing about it is locked into a database only this app can read. If you ever stop using this app, your mods are still just files.
             - If the app ever hits an unexpected error — on the UI thread, during background startup, or inside an async action like Rebuild/Install/FTP/downloads/save-editing — it writes a crash report (the full exception, your app/OS version, and what you'd been doing right before it) to the **Logs** folder automatically, instead of the app previously either hard-crashing with nothing recorded or silently freezing with no trace at all.
             - If something goes wrong, **Export diagnostics zip…** (Settings) is the fastest way to get logs into a bug report.
+            - Backups add up over time. **Settings › Maintenance › Clean up backups** shows how much space they take and keeps only the newest 2 of each mod, the merged pak and each server. The newest backup of anything is never deleted.
             """),
     ];
 

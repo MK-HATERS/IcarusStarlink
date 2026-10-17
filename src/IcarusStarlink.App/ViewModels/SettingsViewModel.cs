@@ -269,6 +269,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         // "Update available" accepted mid-setup shut the app down over a running data extraction.
         _ = CheckForAppUpdatesAfterSetupAsync();
         CheckForGameCrashesSinceLastInstall();
+        _ = RefreshBackupsSizeAsync();
 
         LoadSkinTokens();
     }
@@ -1488,6 +1489,68 @@ public sealed partial class SettingsViewModel : ObservableObject
             // diagnose a crash.
             DiagnosticsStatusMessage = $"Export failed: {ex.Message}";
         }
+    }
+
+    // --- Backups folder size + Clean up backups ---
+
+    /// <summary>"Backups: 1.6 GB" — the size of the app's own Backups folder, worked out off the UI thread.</summary>
+    [ObservableProperty]
+    private string _backupsSizeText = "Backups: …";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CleanUpBackupsCommand))]
+    private bool _isCleaningBackups;
+
+    [ObservableProperty]
+    private string? _backupsStatusMessage;
+
+    private async Task RefreshBackupsSizeAsync()
+    {
+        try
+        {
+            var bytes = await Task.Run(() => BackupCleanup.MeasureBytes(_backupDirectory));
+            BackupsSizeText = $"Backups: {BackupCleanup.FormatSize(bytes)}";
+        }
+        catch (Exception ex)
+        {
+            BackupsSizeText = "Backups: size unknown";
+            BackupsStatusMessage = $"Couldn't measure the Backups folder: {ex.Message}";
+        }
+    }
+
+    private bool CanCleanUpBackups() => !IsCleaningBackups;
+
+    [RelayCommand(CanExecute = nameof(CanCleanUpBackups), FlowExceptionsToTaskScheduler = true)]
+    private async Task CleanUpBackupsAsync()
+    {
+        if (!_dialogService.Confirm(
+                $"Keep only the newest {BackupCleanup.KeptPerSetOnCleanUp} backups of each mod, the merged pak and each server, and delete the rest?\n\n" +
+                "The newest backup of everything is always kept. Nothing outside the Backups folder is touched.",
+                "Clean up backups", ThemedConfirmSeverity.Question))
+        {
+            return;
+        }
+
+        IsCleaningBackups = true;
+        BackupsStatusMessage = "Cleaning up…";
+        try
+        {
+            var result = await Task.Run(() => BackupCleanup.CleanUp(_backupDirectory));
+            BackupsStatusMessage = result.FailedCount > 0
+                ? $"Freed {BackupCleanup.FormatSize(result.FreedBytes)}. {result.FailedCount} backup(s) couldn't be deleted (in use?)."
+                : $"Freed {BackupCleanup.FormatSize(result.FreedBytes)}.";
+            _activityLog.Log($"Clean up backups: deleted {result.DeletedCount} old backup(s), freed {BackupCleanup.FormatSize(result.FreedBytes)}.");
+        }
+        catch (Exception ex)
+        {
+            BackupsStatusMessage = $"Clean up failed: {ex.Message}";
+        }
+        finally
+        {
+            IsCleaningBackups = false;
+        }
+
+        await RefreshBackupsSizeAsync();
     }
 
     // --- App updates (Phase 9) ---
