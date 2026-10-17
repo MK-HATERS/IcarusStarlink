@@ -16,6 +16,34 @@ public sealed record ConflictWinnerChoice(string? ModName, string Label)
     public override string ToString() => Label;
 }
 
+/// <summary>
+/// The one count of conflicts the Merge &amp; Install bar, the queue badge and the review window all
+/// show, so they can't disagree. NeedsDecision is every value two or more mods change differently
+/// (exactly the lines the review window lists); CombinedAutomatically is new items two mods add
+/// under the same name, which the merge joins into one with nothing to pick. The bar used to add
+/// the two together, so 1 real conflict plus 21 same-name new items read as "22".
+/// </summary>
+public sealed record MergeConflictTally(int NeedsDecision, int CombinedAutomatically, bool AllBetweenTwoMods)
+{
+    public static MergeConflictTally None { get; } = new(0, 0, true);
+
+    public static MergeConflictTally From(IReadOnlyList<FieldConflict> conflicts, IReadOnlyList<NewItemNameCollision> collisions) =>
+        new(conflicts.Count, collisions.Count, conflicts.All(c => c.Candidates.Count == 2));
+
+    /// <summary>The bar's main line, e.g. "1 value is changed differently by two mods — pick a winner, or the mod lower in the queue wins."</summary>
+    public string BannerText =>
+        $"{NeedsDecision} {(NeedsDecision == 1 ? "value is" : "values are")} changed differently by {(AllBetweenTwoMods ? "two mods" : "more than one mod")}"
+        + " — pick a winner, or the mod lower in the queue wins.";
+
+    /// <summary>The bar's quiet second part; empty when nothing was combined.</summary>
+    public string CombinedText => CombinedAutomatically switch
+    {
+        0 => "",
+        1 => "1 new item added by two mods under the same name was combined automatically.",
+        _ => $"{CombinedAutomatically} new items added by two mods under the same name were combined automatically.",
+    };
+}
+
 /// <summary>How a cell in the side-by-side comparison compares with the game's own value.</summary>
 public enum ConflictCellState
 {
@@ -239,6 +267,7 @@ public sealed partial class MergeConflictsViewModel : ObservableObject
 
         Groups = [.. _all.GroupBy(c => string.Join("|", c.ModNames)).OrderByDescending(g => g.Count())
             .Select(g => new MergeConflictGroupViewModel(g.First().ModNames, [.. g]))];
+        Tally = MergeConflictTally.From(conflicts, collisions);
         Collisions = [.. collisions.Select(c => $"'{c.ItemName}' ({GameTableIndex.TableNameOf(c.CurrentFile)}) is a new item in {string.Join(", ", c.ModNames)}: both are merged into one.")];
         ConflictsView = CollectionViewSource.GetDefaultView(_all);
         ConflictsView.Filter = o => o is MergeConflictViewModel c
@@ -257,13 +286,19 @@ public sealed partial class MergeConflictsViewModel : ObservableObject
 
     public bool HasCollisions => Collisions.Count > 0;
 
+    /// <summary>The same count the Merge &amp; Install bar shows (see MergeConflictTally).</summary>
+    public MergeConflictTally Tally { get; }
+
+    /// <summary>Every conflict line in the window, whatever the filter.</summary>
+    public IReadOnlyList<MergeConflictViewModel> AllConflicts => _all;
+
     public ICollectionView ConflictsView { get; }
 
     public int PickedCount => _all.Count(c => c.IsPicked);
 
-    public string Summary => _all.Count == 0
+    public string Summary => Tally.NeedsDecision == 0
         ? "No conflicts: every changed value is changed by one mod only, or the mods agree."
-        : $"{_all.Count} value(s) are changed differently by more than one queued mod. Each shows who wins now: by default the mod lower in the queue, "
+        : $"{Tally.NeedsDecision} {(Tally.NeedsDecision == 1 ? "value is" : "values are")} changed differently by more than one queued mod. Each shows who wins now: by default the mod lower in the queue, "
           + "except lists that can take everyone's additions. Pick a winner per line, or a whole group at once on the left. "
           + $"{PickedCount} picked by you. Picks are saved with the profile and kept when the queue changes.";
 

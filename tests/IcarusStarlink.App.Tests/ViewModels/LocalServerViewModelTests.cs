@@ -353,6 +353,30 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Contains("Use my SteamCMD", vm.StatusMessage);
     }
 
+    /// <summary>The SteamCMD box: full with no server yet; one "not set up" line once a server exists (Set up… opens it); a declined update opens it too.</summary>
+    [Fact]
+    public async Task SteamCmdBox_FoldsToOneLineOnceAServerExists_AndOpensWhenNeeded()
+    {
+        SteamCmd.OwnExe = null;
+        var (vm, _, _, _) = Build(pick: _install, confirm: false);
+        Assert.True(vm.ShowSteamCmdBox);
+        Assert.False(vm.ShowSteamCmdLine);
+
+        vm.AddExistingServerCommand.Execute(null);
+        Assert.False(vm.ShowSteamCmdBox);
+        Assert.True(vm.ShowSteamCmdLine);
+
+        vm.ExpandSteamCmdSetupCommand.Execute(null);
+        Assert.True(vm.ShowSteamCmdBox);
+
+        var (again, _, _, _) = Build(pick: _install, confirm: false);
+        again.AddExistingServerCommand.Execute(null);
+        Assert.False(again.ShowSteamCmdBox);
+        await again.UpdateServerCommand.ExecuteAsync(null);
+        Assert.True(again.ShowSteamCmdBox);
+        Assert.Contains("needed to install or update", again.StatusMessage);
+    }
+
     /// <summary>"Use my SteamCMD…" stores the user's own steamcmd.exe and only accepts a file actually called steamcmd.exe.</summary>
     [Fact]
     public void UseExistingSteamCmd_StoresTheChosenExe()

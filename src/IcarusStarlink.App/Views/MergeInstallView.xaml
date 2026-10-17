@@ -131,10 +131,22 @@
                                     AutomationProperties.Name="Review conflicts from banner"/>
                             <Path DockPanel.Dock="Left" Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}"
                                   StrokeThickness="1.6" StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Top"/>
-                            <TextBlock Margin="0,0,10,0" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Center">
-                                <Run Text="{Binding ConflictCount, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"/>
-                                <Run Text=" queued mod(s) change the same field differently — Rebuild will use last-mod-wins unless you pick a winner."/>
-                            </TextBlock>
+                            <!-- Counted by MergeConflictTally, the same count Review conflicts lists. -->
+                            <StackPanel Margin="0,0,10,0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding ConflictTally.BannerText}" TextWrapping="Wrap" FontSize="11.5"/>
+                                <TextBlock Text="{Binding ConflictTally.CombinedText}" TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0"
+                                           Foreground="{DynamicResource SecondaryForegroundBrush}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding ConflictTally.CombinedAutomatically}" Value="0">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </StackPanel>
                         </DockPanel>
                     </Border>
                     <!-- Same banner treatment as the conflict one above, for validation findings —
@@ -172,33 +184,49 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal">
-                                    <Path Data="{StaticResource IconPackage}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.4"
-                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"
-                                          Margin="0,0,5,0" VerticalAlignment="Center"
-                                          ToolTip="Prebuilt .pak — no field-level merge; its files are folded into the merged pak as-is on Rebuild"
-                                          Visibility="{Binding IsOpaquePak, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                    <TextBlock Text="{Binding Name}"/>
+                                    <!-- Type tag, the same look as the Library's Type column. The queue only
+                                         holds Library mods, so it's EXMOD or Pak. -->
+                                    <Border CornerRadius="8" Padding="6,0" Margin="0,0,7,0" VerticalAlignment="Center" MinWidth="44"
+                                            Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                                        <TextBlock FontSize="10" FontFamily="Consolas" HorizontalAlignment="Center" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="EXMOD"/>
+                                                    <Setter Property="ToolTip" Value="EXMOD: an editable data mod, merged field by field"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsOpaquePak}" Value="True">
+                                                            <Setter Property="Text" Value="Pak"/>
+                                                            <Setter Property="ToolTip" Value="Prebuilt .pak — no field-level merge; its files are folded into the merged pak as-is on Rebuild"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Border>
+                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
                                     <!-- Per-row conflict indicator — shows without needing to open Review
                                          conflicts first. Both bindings reach the page-level ViewModel's own
                                          ConflictingModNamesByMod from inside this per-row DataTemplate, the
                                          same AncestorType=UserControl relay this app already uses elsewhere
-                                         to reach a page ViewModel from inside a nested template. -->
-                                    <Path Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.4"
-                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"
-                                          Margin="5,0,0,0" VerticalAlignment="Center">
-                                        <Path.Visibility>
+                                         to reach a page ViewModel from inside a nested template. The tooltip
+                                         sits on a transparent Border: a Path with no fill only takes the mouse
+                                         on its thin stroke, so the reason hardly ever showed. -->
+                                    <Border Background="Transparent" Padding="3,0" Margin="2,0,0,0" VerticalAlignment="Center">
+                                        <Border.Visibility>
                                             <MultiBinding Converter="{StaticResource QueueConflictVisibilityConverter}">
                                                 <Binding Path="Name"/>
                                                 <Binding Path="DataContext.ConflictingModNamesByMod" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
                                             </MultiBinding>
-                                        </Path.Visibility>
-                                        <Path.ToolTip>
+                                        </Border.Visibility>
+                                        <Border.ToolTip>
                                             <MultiBinding Converter="{StaticResource QueueConflictTooltipConverter}">
                                                 <Binding Path="Name"/>
                                                 <Binding Path="DataContext.ConflictingModNamesByMod" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
                                             </MultiBinding>
-                                        </Path.ToolTip>
-                                    </Path>
+                                        </Border.ToolTip>
+                                        <Path Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.4"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform"/>
+                                    </Border>
                                 </StackPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>

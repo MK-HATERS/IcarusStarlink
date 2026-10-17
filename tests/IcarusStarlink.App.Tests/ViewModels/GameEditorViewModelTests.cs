@@ -72,6 +72,38 @@ public sealed class GameEditorViewModelTests : IDisposable
 
     private static ExmodPackage Read(FolderLibraryRepository library, string folder) => ExmodFolder.Read(library.GetFolderPath(folder)).Package;
 
+    /// <summary>The empty state offers only common items the loaded game data has; one opens that item.</summary>
+    [Fact]
+    public void QuickStarts_AreOnlyItemsInTheGameData_AndOpenTheItem()
+    {
+        var vm = Open();
+
+        var quickStart = Assert.Single(vm.QuickStarts);
+        Assert.Equal("Envirosuit", quickStart.Item.Name);
+        Assert.Equal("Xigo Envirosuit", quickStart.Label);
+        Assert.True(vm.ShowPickPrompt);
+
+        vm.OpenQuickStartCommand.Execute(quickStart);
+
+        Assert.Equal("Envirosuit", vm.SelectedItem?.Name);
+        Assert.True(vm.HasItem);
+        Assert.False(vm.ShowPickPrompt);
+    }
+
+    /// <summary>The item list's two lines: the in-game name, then the row name (none when they're the same).</summary>
+    [Fact]
+    public void ItemList_ShowsTheInGameNameThenTheRowName()
+    {
+        var vm = Open();
+
+        var suit = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        Assert.Equal("Xigo Envirosuit", suit.Title);
+        Assert.Equal("Envirosuit", suit.Subtitle);
+        var stone = vm.FilteredItems.Single(i => i.Name == "Stone");
+        Assert.Equal("Stone", stone.Title);
+        Assert.Null(stone.Subtitle);
+    }
+
     [Fact]
     public void SaveTargets_AreANewModAndOnlyModsMadeInStarlink()
     {

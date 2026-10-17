@@ -36,7 +36,7 @@ public sealed class QueueConflictTooltipConverter : IMultiValueConverter
     public object? Convert(object[] values, Type targetType, object? parameter, CultureInfo culture)
     {
         var others = QueueConflictLookup.Resolve(values);
-        return others is null ? null : $"Changes the same field differently as: {string.Join(", ", others)}";
+        return others is null ? null : $"Changes a value differently from {string.Join(", ", others)}. Pick a winner in Review conflicts, or the mod lower in the queue wins.";
     }
 
     public object[] ConvertBack(object value, Type[] targetTypes, object? parameter, CultureInfo culture) =>

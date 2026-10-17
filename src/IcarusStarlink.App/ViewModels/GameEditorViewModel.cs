@@ -196,6 +196,12 @@ public sealed record EditorSaveTarget(string? FolderName, string Display)
     public override string ToString() => Display;
 }
 
+/// <summary>A quick-start button on the Editor's empty state: a common item to change, and what people usually change on it.</summary>
+public sealed record EditorQuickStart(ItemChoice Item, string Hint)
+{
+    public string Label => Item.Title;
+}
+
 /// <summary>
 /// The Editor page: change the game's OWN items (the default Envirosuit's weight, Bread's buff) —
 /// the counterpart of New mod, which only ever adds new things. Pick an item, change values, and
@@ -230,6 +236,29 @@ public sealed partial class GameEditorViewModel : ObservableObject
     public ObservableCollection<GameItemSectionViewModel> Sections { get; } = [];
 
     public ObservableCollection<EditorSaveTarget> Targets { get; } = [];
+
+    /// <summary>Row names (D_ItemsStatic) offered on the empty state, checked against the 2026 game data; one missing from the loaded data is just left out.</summary>
+    internal static readonly IReadOnlyList<(string Name, string Hint)> QuickStartItems =
+    [
+        ("Envirosuit", "weight, armour, temperature"),
+        ("Canteen", "how much water it holds"),
+        ("Food_Bread", "its food buff"),
+        ("Wood_Crate_Medium", "storage slots"),
+        ("Metal_Pickaxe", "durability, mining"),
+        ("Basic_Backpack", "inventory slots"),
+    ];
+
+    /// <summary>The quick starts present in the loaded game data.</summary>
+    public ObservableCollection<EditorQuickStart> QuickStarts { get; } = [];
+
+    [RelayCommand]
+    private void OpenQuickStart(EditorQuickStart? quickStart)
+    {
+        if (quickStart is not null)
+        {
+            Open(quickStart.Item.Name);
+        }
+    }
 
     [ObservableProperty]
     private string _filterText = "";
@@ -323,6 +352,15 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
         NoDataMessage = null;
         _allItems = ItemCloner.ListItems(game);
+        QuickStarts.Clear();
+        foreach (var (name, hint) in QuickStartItems)
+        {
+            if (_allItems.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase)) is { } item)
+            {
+                QuickStarts.Add(new EditorQuickStart(item, hint));
+            }
+        }
+
         RefreshFilter();
     }
 
@@ -520,7 +558,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
         {
             UpdatePending();
             OnPropertyChanged(nameof(HasItem));
-        OnPropertyChanged(nameof(ShowPickPrompt));
+            OnPropertyChanged(nameof(ShowPickPrompt));
             return;
         }
 
@@ -617,6 +655,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
         _game = null;
         _allItems = [];
         _statChoices = null;
+        QuickStarts.Clear();
         EnsureLoaded();
         LoadItem();
     }
