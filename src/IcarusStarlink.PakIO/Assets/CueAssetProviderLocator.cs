@@ -57,4 +57,29 @@ internal static class CueAssetProviderLocator
         var export = package.ExportsLazy.Select(e => e.Value).OfType<T>().FirstOrDefault();
         return export is null ? null : project(export);
     }
+
+    /// <summary>A mod's own copy of a blueprint, summarised (function code read) for comparing with the game's.</summary>
+    public static BlueprintSummary? TrySummarizeBlueprint(string modFolderPath, string relativeAssetPath)
+    {
+        try
+        {
+            using var provider = new DefaultFileProvider(modFolderPath, SearchOption.AllDirectories, Versions, StringComparer.OrdinalIgnoreCase);
+            provider.ReadScriptData = true;
+            provider.Initialize();
+            var normalized = relativeAssetPath.Replace('\\', '/').TrimStart('/');
+            var key = provider.Files.Keys.FirstOrDefault(k => PathBoundaryMatch.EndsWithSegmentBoundary(k, normalized));
+            return key is null ? null : BlueprintComparer.Summarize(provider.LoadPackage(key));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+}
+
+/// <summary>The public way in for the app: a mod's own copy of a blueprint, summarised.</summary>
+public static class ModBlueprintReader
+{
+    public static BlueprintSummary? TrySummarize(string modFolderPath, string relativeAssetPath) =>
+        CueAssetProviderLocator.TrySummarizeBlueprint(modFolderPath, relativeAssetPath);
 }

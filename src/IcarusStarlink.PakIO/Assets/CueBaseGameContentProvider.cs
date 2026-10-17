@@ -65,6 +65,32 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
         return mounted.ContentPathIndex.ContainsKey(assetPath.Replace('\\', '/').TrimStart('/'));
     }
 
+    public BlueprintSummary? TrySummarizeBlueprint(string assetPath)
+    {
+        var mounted = GetOrMountProvider();
+        if (mounted is null)
+        {
+            return null;
+        }
+
+        lock (_lock)
+        {
+            if (!mounted.ContentPathIndex.TryGetValue(assetPath.Replace('\\', '/').TrimStart('/'), out var matchedKey))
+            {
+                return null;
+            }
+
+            try
+            {
+                return BlueprintComparer.Summarize(mounted.Provider.LoadPackage(matchedKey));
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+    }
+
     public TResult? TryLoadExportAndProject<T, TResult>(string assetPath, Func<T, TResult> project)
         where T : class where TResult : class
     {
@@ -159,6 +185,8 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
         try
         {
             var provider = new DefaultFileProvider(paksPath, SearchOption.TopDirectoryOnly, Versions, StringComparer.OrdinalIgnoreCase);
+            // Function code too, for comparing a mod's copy of a game blueprint with the game's.
+            provider.ReadScriptData = true;
             provider.Initialize();
             provider.Mount();
 

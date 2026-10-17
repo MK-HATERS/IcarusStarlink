@@ -38,6 +38,9 @@ public interface IBaseGameContentProvider
     /// </summary>
     bool? HasAsset(string assetPath) => null;
 
+    /// <summary>The game's own copy of a blueprint, summarised for comparing with a mod's copy (BlueprintComparer); null when it can't be read.</summary>
+    BlueprintSummary? TrySummarizeBlueprint(string assetPath) => null;
+
     /// <summary>
     /// Same lookup as TryLoadExport, but runs <paramref name="project"/> under the SAME lock that
     /// protects the load itself — required for any consumer that reads a lazily-resolved

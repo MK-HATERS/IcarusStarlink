@@ -89,10 +89,30 @@ public static class FileRiskAssessor
             }
         }
 
+        // A replaced blueprint or screen is compared with the game's own copy: what the mod changes,
+        // and whether the game's copy has things the mod's lacks (proof it's out of date). The
+        // game's side is read once per pass, however many mods replace it.
+        var gameSummaries = new Dictionary<string, BlueprintSummary?>(StringComparer.OrdinalIgnoreCase);
         var result = new Dictionary<string, ModFileRisk>(StringComparer.OrdinalIgnoreCase);
         foreach (var (folder, paths) in replaced)
         {
-            if (ReplacedFileRiskRater.Assess(paths, clashes.GetValueOrDefault(folder) ?? []) is { } risk)
+            var withDifferences = paths.Select(path =>
+            {
+                if (ReplacedFileRiskRater.Rate(path).Risk < FileRisk.Medium)
+                {
+                    return (path, (BlueprintDifference?)null);
+                }
+
+                if (!gameSummaries.TryGetValue(path, out var gameCopy))
+                {
+                    gameSummaries[path] = gameCopy = game.TrySummarizeBlueprint(path + ".uasset");
+                }
+
+                var modCopy = gameCopy is null ? null : ModBlueprintReader.TrySummarize(repository.GetFolderPath(folder), path + ".uasset");
+                return (path, gameCopy is not null && modCopy is not null ? BlueprintComparer.Compare(gameCopy, modCopy) : null);
+            }).ToList();
+
+            if (ReplacedFileRiskRater.AssessCompared(withDifferences, clashes.GetValueOrDefault(folder) ?? []) is { } risk)
             {
                 result[folder] = risk;
             }

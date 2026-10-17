@@ -1,3 +1,5 @@
+using IcarusStarlink.PakIO.Assets;
+
 namespace IcarusStarlink.PakIO.Exmod;
 
 /// <summary>How much can break when a mod replaces a game file with its own copy.</summary>
@@ -13,8 +15,8 @@ public enum FileRisk
     High,
 }
 
-/// <summary>One game file a mod replaces, how risky that is, and what it is in plain words.</summary>
-public sealed record ReplacedFile(string Path, FileRisk Risk, string What);
+/// <summary>One game file a mod replaces, how risky that is, what it is in plain words, and (a blueprint) how the mod's copy differs from the game's.</summary>
+public sealed record ReplacedFile(string Path, FileRisk Risk, string What, BlueprintDifference? Difference = null);
 
 /// <summary>Another mod replacing the same game file with different content: only one of them can win.</summary>
 public sealed record FileClash(string Path, IReadOnlyList<string> OtherMods);
@@ -39,7 +41,7 @@ public sealed record ModFileRisk(FileRisk Level, IReadOnlyList<ReplacedFile> Fil
             if (top.Count > 0)
             {
                 lines.Add($"Replaces {(top.Count == 1 ? "a game file" : $"{top.Count} game files")} with its own copy:");
-                lines.AddRange(top.Take(5).Select(f => $"• {f.What}: {FileName(f.Path)}"));
+                lines.AddRange(top.Take(5).Select(f => $"• {f.What}: {FileName(f.Path)}" + (f.Difference is { } d ? $". Compared with the game's copy, it {d.Describe()}" : "")));
                 if (top.Count > 5)
                 {
                     lines.Add($"• and {top.Count - 5} more");
@@ -151,9 +153,13 @@ public static class ReplacedFileRiskRater
 
     /// <param name="replacedPaths">The game files the mod ships a copy of (ones the game already has; its own new files left out).</param>
     /// <param name="clashes">Other mods replacing one of these with a different copy.</param>
-    public static ModFileRisk? Assess(IEnumerable<string> replacedPaths, IReadOnlyList<FileClash> clashes)
+    public static ModFileRisk? Assess(IEnumerable<string> replacedPaths, IReadOnlyList<FileClash> clashes) =>
+        AssessCompared(replacedPaths.Select(p => (p, (BlueprintDifference?)null)), clashes);
+
+    /// <param name="replaced">Each replaced game file, with how the mod's copy differs from the game's (blueprints) where known.</param>
+    public static ModFileRisk? AssessCompared(IEnumerable<(string Path, BlueprintDifference? Difference)> replaced, IReadOnlyList<FileClash> clashes)
     {
-        var files = replacedPaths.Distinct(StringComparer.OrdinalIgnoreCase).Select(Rate).ToList();
+        var files = replaced.DistinctBy(r => r.Path, StringComparer.OrdinalIgnoreCase).Select(r => Rate(r.Path) with { Difference = r.Difference }).ToList();
         if (files.Count == 0 && clashes.Count == 0)
         {
             return null;
