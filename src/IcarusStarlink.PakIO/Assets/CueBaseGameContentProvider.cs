@@ -28,8 +28,10 @@ namespace IcarusStarlink.PakIO.Assets;
 ///
 /// Never throws out of construction (it does no I/O at all until the first TryLoadExport call) or
 /// out of a failed mount (IcarusContentPath unset, the Paks folder missing, or the mount itself
-/// throwing all collapse to a cached null task, so a failed first attempt doesn't retry a doomed
-/// mount on every later call either — same "settle once" contract as the success case).
+/// throwing all collapse to a cached null task). A failed mount isn't final, though (an audit
+/// finding: at first launch the game path is still empty, and the risk pill then never appeared
+/// all session): it's tried again once the Content path changes, or after RetryFailedMountAfter —
+/// never on every call, so a doomed mount isn't redone per lookup.
 /// </summary>
 public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
 {
@@ -44,9 +46,16 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
     // already constructs, with zero collisions across the whole real key set.
     private const string ContentKeyPrefix = "Icarus/Content/";
 
+    /// <summary>How long a failed mount stands before a lookup tries again (the game drive plugged in, Icarus installed).</summary>
+    private static readonly TimeSpan RetryFailedMountAfter = TimeSpan.FromSeconds(30);
+
     private readonly ISettingsService _settingsService;
     private readonly object _lock = new();
     private Task<MountedContent?>? _mountTask;
+
+    /// <summary>The Content path the current mount was made for, and when it was started.</summary>
+    private string? _mountedForPath;
+    private DateTime _mountStartedUtc;
 
     public CueBaseGameContentProvider(ISettingsService settingsService) => _settingsService = settingsService;
 
@@ -80,14 +89,25 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
                 return null;
             }
 
+            // The game's files don't change while it's mounted: each blueprint is read once per
+            // mount, not on every risk pass (one runs after every Library change).
+            if (mounted.Summaries.TryGetValue(matchedKey, out var known))
+            {
+                return known;
+            }
+
+            BlueprintSummary? summary;
             try
             {
-                return BlueprintComparer.Summarize(mounted.Provider.LoadPackage(matchedKey));
+                summary = BlueprintComparer.Summarize(mounted.Provider.LoadPackage(matchedKey));
             }
             catch (Exception)
             {
-                return null;
+                summary = null;
             }
+
+            mounted.Summaries[matchedKey] = summary;
+            return summary;
         }
     }
 
@@ -155,7 +175,15 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
         Task<MountedContent?> mountTask;
         lock (_lock)
         {
-            mountTask = _mountTask ??= Task.Run(Mount);
+            var contentPath = _settingsService.Current.IcarusContentPath;
+            if (_mountTask is null || NeedsRemount(_mountTask, contentPath))
+            {
+                _mountedForPath = contentPath;
+                _mountStartedUtc = DateTime.UtcNow;
+                _mountTask = Task.Run(Mount);
+            }
+
+            mountTask = _mountTask;
         }
 
         try
@@ -166,6 +194,19 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
         {
             return null;
         }
+    }
+
+    /// <summary>A different Content path than the mount was made for, or a failed mount that has stood long enough to try again. Under _lock.</summary>
+    private bool NeedsRemount(Task<MountedContent?> mountTask, string? contentPath)
+    {
+        if (!string.Equals(_mountedForPath, contentPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return mountTask.IsCompleted
+            && (mountTask.IsFaulted || mountTask.Result is null)
+            && DateTime.UtcNow - _mountStartedUtc >= RetryFailedMountAfter;
     }
 
     private MountedContent? Mount()
@@ -218,5 +259,9 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
         }
     }
 
-    private sealed record MountedContent(DefaultFileProvider Provider, IReadOnlyDictionary<string, string> ContentPathIndex);
+    private sealed record MountedContent(DefaultFileProvider Provider, IReadOnlyDictionary<string, string> ContentPathIndex)
+    {
+        /// <summary>Blueprint summaries read so far (under _lock).</summary>
+        public Dictionary<string, BlueprintSummary?> Summaries { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
 }
