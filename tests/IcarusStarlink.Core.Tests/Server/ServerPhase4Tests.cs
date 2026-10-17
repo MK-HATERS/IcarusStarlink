@@ -198,6 +198,24 @@ public sealed class ServerPhase4Tests
         Assert.Equal(AutomationActionKind.CheckForUpdate, a.Evaluate(p, Up(Day.AddHours(13).AddMinutes(1))).Kind);
     }
 
+    /// <summary>Once a day while it runs, counted from the newest daily backup on disk.</summary>
+    [Fact]
+    public void DailyBackup_RunsOnceADayWhileRunning()
+    {
+        var p = Profile(x => x.DailyBackup = true);
+        var a = new ServerAutomation();
+        a.NoteDailyBackup(Day.AddHours(-23));
+
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Up(Day)).Kind);
+        Assert.Equal(AutomationActionKind.DailyBackup, a.Evaluate(p, Up(Day.AddHours(1))).Kind);
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Up(Day.AddHours(2))).Kind);
+        Assert.Contains(a.DescribeUpcoming(p, Day.AddHours(2), 0), l => l.StartsWith("Next daily backup", StringComparison.Ordinal));
+
+        a.Evaluate(p, Down(Day.AddHours(30), clean: true));
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Down(Day.AddHours(30), clean: true)).Kind);
+        Assert.Equal(AutomationActionKind.DailyBackup, a.Evaluate(p, Up(Day.AddHours(31))).Kind);
+    }
+
     [Fact]
     public void Automation_AllOff_SaysSo()
     {

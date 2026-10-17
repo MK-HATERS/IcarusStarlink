@@ -49,6 +49,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, () => pickExe, startTimer: false, firewall: Firewall)
         {
             StartPollDelay = TimeSpan.Zero,
+            RunWorkInline = true,
         };
         SteamCmd.Chosen = () => Settings.Current.SteamCmdExePath;
         return (vm, store, processes, dialogs);
@@ -502,6 +503,49 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Equal("{\"v\":1}", File.ReadAllText(Path.Combine(DedicatedServerLayout.ProspectsFolder(_install, null), "World A.json")));
         Assert.Equal(2, vm.Backups.Count);
         Assert.Contains(vm.Backups, b => b.Name.Contains("before-restore"));
+    }
+
+    /// <summary>The backups folder carries the profile's name; renaming the profile renames the folder instead of starting an empty one.</summary>
+    [Fact]
+    public async Task RenamingAProfile_KeepsItsBackups()
+    {
+        WriteProspect("World A");
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        await vm.BackUpNowCommand.ExecuteAsync(null);
+        var oldFolder = vm.BackupsFolderPath;
+
+        vm.ProfileName = "Friends & family";
+        vm.SaveSettingsCommand.Execute(null);
+        vm.SelectedProfile = null;
+        vm.SelectedProfile = vm.Profiles.Single();
+
+        Assert.Single(vm.Backups);
+        Assert.NotEqual(oldFolder, vm.BackupsFolderPath);
+        Assert.EndsWith("Friendsfamily_" + vm.SelectedProfile.Id.ToString("N")[..8], vm.BackupsFolderPath);
+        Assert.False(Directory.Exists(oldFolder));
+    }
+
+    /// <summary>Only the newest N of each kind are kept.</summary>
+    [Fact]
+    public async Task BackUpNow_KeepsOnlyTheNewestOfEachKind()
+    {
+        WriteProspect("World A");
+        var (vm, store, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        vm.BackupsToKeepText = "2";
+        Assert.Equal(2, store.Profiles.Single().BackupsToKeep);
+        Directory.CreateDirectory(vm.BackupsFolderPath);
+        var before = Path.Combine(vm.BackupsFolderPath, "2026-01-01_000000_before-update.zip");
+        File.WriteAllText(before, "");
+
+        for (var i = 0; i < 3; i++)
+        {
+            await vm.BackUpNowCommand.ExecuteAsync(null);
+        }
+
+        Assert.Equal(2, vm.Backups.Count(b => b.Name.Contains("manual")));
+        Assert.True(File.Exists(before), "other kinds keep their own count");
     }
 
     [Fact]

@@ -292,6 +292,12 @@
                                 <TextBlock Style="{StaticResource OptionHintStyle}"
                                            Text="While it runs, checks Steam every hour. A newer build installs the next time nobody is online."/>
 
+                                <CheckBox IsChecked="{Binding DailyBackup}" Margin="0,0,0,2">
+                                    <TextBlock Text="Back up every day" FontWeight="SemiBold"/>
+                                </CheckBox>
+                                <TextBlock Style="{StaticResource OptionHintStyle}"
+                                           Text="While it runs, zips its worlds and settings once a day (Backups tab). Older daily backups are tidied by the keep count there."/>
+
                                 <CheckBox IsChecked="{Binding StartWithApp}" Margin="0,0,0,2">
                                     <TextBlock Text="Start with Starlink" FontWeight="SemiBold"/>
                                 </CheckBox>
@@ -672,6 +678,15 @@
                                 </StackPanel>
                                 <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0"
                                            Text="Made automatically before every Update, mod change and restore."/>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock Text="Keep the newest" VerticalAlignment="Center" FontSize="12"/>
+                                    <TextBox Text="{Binding BackupsToKeepText, UpdateSourceTrigger=PropertyChanged}" Width="44" Margin="6,0,6,0" Padding="2,0"
+                                             AutomationProperties.Name="Backups to keep of each kind"
+                                             ToolTip="Older backups of the same kind (manual, daily, before-update, before-mods, before-restore) are deleted after each new one. 0 keeps every backup."/>
+                                    <TextBlock Text="of each kind (0 keeps all)" VerticalAlignment="Center" FontSize="12"/>
+                                </StackPanel>
+                                <TextBlock Text="{Binding BackupsToKeepError}" Foreground="{DynamicResource DangerBrush}" FontSize="11.5" TextWrapping="Wrap"
+                                           Visibility="{Binding BackupsToKeepError, Converter={StaticResource NullToVisibilityConverter}}"/>
                             </StackPanel>
                             <ListBox ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
                                 <ListBox.ItemTemplate>

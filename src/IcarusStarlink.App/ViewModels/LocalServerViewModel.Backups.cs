@@ -34,10 +34,68 @@ public sealed partial class LocalServerViewModel
         LoadAccessLists();
     }
 
-    private string ServerBackupsFolder(DedicatedServerProfile profile)
+    /// <summary>Found by the profile's id, so a renamed profile keeps (and renames) its backups folder.</summary>
+    private string ServerBackupsFolder(DedicatedServerProfile profile) => ServerBackups.ResolveFolder(Path.Combine(_backupsRoot, "Server"), profile);
+
+    /// <summary>"Keep the newest N of each kind" (Backups tab), saved straight into the profile. Blank or 0 keeps every backup.</summary>
+    [ObservableProperty] private string _backupsToKeepText = "10";
+
+    [ObservableProperty] private string? _backupsToKeepError;
+
+    /// <summary>The once-a-day automatic backup (Overview, Automation).</summary>
+    [ObservableProperty] private bool _dailyBackup;
+
+    partial void OnDailyBackupChanged(bool value) => SaveAutomation(p => p.DailyBackup = value);
+
+    partial void OnBackupsToKeepTextChanged(string value)
     {
-        var safeName = new string([.. profile.Name.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_')]);
-        return Path.Combine(_backupsRoot, "Server", $"{(safeName.Length > 0 ? safeName : "server")}_{profile.Id.ToString("N")[..8]}");
+        if (_loadingAutomation)
+        {
+            return;
+        }
+
+        var text = value.Trim();
+        var keep = 0;
+        if (text.Length > 0
+            && (!int.TryParse(text, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out keep) || keep < 0))
+        {
+            BackupsToKeepError = "A whole number: how many of each kind to keep (0 keeps all).";
+            return;
+        }
+
+        BackupsToKeepError = null;
+        SaveAutomation(p => p.BackupsToKeep = keep);
+        if (SelectedProfile is { } profile && keep > 0)
+        {
+            PruneBackups(profile, ServerBackupsFolder(profile));
+            RefreshBackups();
+        }
+    }
+
+    /// <summary>Deletes backups beyond the profile's keep count (never the one just made). A failure only costs disk space, so it is logged, not shown.</summary>
+    private void PruneBackups(DedicatedServerProfile profile, string folder, params string[] keep)
+    {
+        try
+        {
+            var deleted = ServerBackups.Prune(folder, profile.BackupsToKeep, keep);
+            if (deleted.Count > 0)
+            {
+                _activityLog.Log($"Deleted {deleted.Count} old backup(s) of '{profile.Name}' (keeping the newest {profile.BackupsToKeep} of each kind).", ActivityEntryKind.Info);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _activityLog.Log($"Couldn't tidy old backups of '{profile.Name}': {ex.Message}", ActivityEntryKind.Warning);
+        }
+    }
+
+    /// <summary>Makes a backup and applies the keep count; the zip itself is written off the UI thread.</summary>
+    private async Task<string> CreateBackupAsync(DedicatedServerProfile p, string reason)
+    {
+        var folder = ServerBackupsFolder(p);
+        var path = await OffUiThread(() => ServerBackups.CreateBackup(p.InstallFolder, p.SavedDirSuffix, folder, reason));
+        PruneBackups(p, folder, path);
+        return path;
     }
 
     public string BackupsFolderPath => SelectedProfile is { } p ? ServerBackupsFolder(p) : "";
@@ -64,7 +122,10 @@ public sealed partial class LocalServerViewModel
     {
         try
         {
-            return ServerBackups.CreateBackup(p.InstallFolder, p.SavedDirSuffix, ServerBackupsFolder(p), reason);
+            var folder = ServerBackupsFolder(p);
+            var path = ServerBackups.CreateBackup(p.InstallFolder, p.SavedDirSuffix, folder, reason);
+            PruneBackups(p, folder, path);
+            return path;
         }
         catch (Exception ex)
         {
@@ -73,31 +134,57 @@ public sealed partial class LocalServerViewModel
         }
     }
 
-    [RelayCommand]
-    private void BackUpNow()
+    /// <summary>The same, with the zip written off the UI thread (worlds can be hundreds of MB).</summary>
+    private async Task<string?> TryBackupAsync(DedicatedServerProfile p, string reason)
+    {
+        try
+        {
+            return await CreateBackupAsync(p, reason);
+        }
+        catch (Exception ex)
+        {
+            _activityLog.Log($"Couldn't back up '{p.Name}' before {reason}: {ex.Message}", ActivityEntryKind.Warning);
+            return null;
+        }
+    }
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(BackUpNowCommand), nameof(RestoreSelectedBackupCommand))]
+    private bool _isBackupBusy;
+
+    private bool CanBackUp() => !IsBackupBusy;
+
+    [RelayCommand(CanExecute = nameof(CanBackUp))]
+    private async Task BackUpNowAsync()
     {
         if (SelectedProfile is not { } p)
         {
             return;
         }
 
+        IsBackupBusy = true;
+        StatusMessage = $"Backing up '{p.Name}'...";
         try
         {
-            var path = ServerBackups.CreateBackup(p.InstallFolder, p.SavedDirSuffix, ServerBackupsFolder(p), "manual");
+            var path = await CreateBackupAsync(p, "manual");
             StatusMessage = $"Backed up '{p.Name}' to {Path.GetFileName(path)}.";
         }
         catch (Exception ex)
         {
             StatusMessage = $"Backup failed: {ex.Message}";
         }
+        finally
+        {
+            IsBackupBusy = false;
+        }
 
         RefreshBackups();
     }
 
-    private bool CanRestore() => SelectedBackup is not null;
+    private bool CanRestore() => SelectedBackup is not null && !IsBackupBusy;
 
     [RelayCommand(CanExecute = nameof(CanRestore))]
-    private void RestoreSelectedBackup()
+    private async Task RestoreSelectedBackupAsync()
     {
         if (SelectedProfile is not { } p || SelectedBackup is not { } backup || !EnsureStoppedFor("restore a backup"))
         {
@@ -111,15 +198,23 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        IsBackupBusy = true;
+        StatusMessage = $"Restoring '{backup.Name}'...";
         try
         {
-            var safety = ServerBackups.Restore(backup.Path, p.InstallFolder, p.SavedDirSuffix, ServerBackupsFolder(p));
+            var folder = ServerBackupsFolder(p);
+            var safety = await OffUiThread(() => ServerBackups.Restore(backup.Path, p.InstallFolder, p.SavedDirSuffix, folder));
+            PruneBackups(p, folder, safety, backup.Path);
             StatusMessage = $"Restored '{backup.Name}'. The state before it is in {Path.GetFileName(safety)}.";
             _activityLog.Log($"Restored server backup '{backup.Name}' to '{p.Name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             StatusMessage = $"Restore failed: {ex.Message}";
+        }
+        finally
+        {
+            IsBackupBusy = false;
         }
 
         LoadForm();

@@ -108,6 +108,9 @@ public sealed partial class LocalServerViewModel
             DailyRestartTime = p?.DailyRestartTime ?? "05:00";
             UpdateOnRestart = p?.UpdateOnRestart ?? false;
             AutoUpdate = p?.AutoUpdate ?? false;
+            DailyBackup = p?.DailyBackup ?? false;
+            BackupsToKeepText = p is null || p.BackupsToKeep <= 0 ? "0" : p.BackupsToKeep.ToString(CultureInfo.InvariantCulture);
+            BackupsToKeepError = null;
             DailyRestartTimeError = null;
         }
         finally
@@ -126,6 +129,8 @@ public sealed partial class LocalServerViewModel
         to.DailyRestartTime = from.DailyRestartTime;
         to.UpdateOnRestart = from.UpdateOnRestart;
         to.AutoUpdate = from.AutoUpdate;
+        to.DailyBackup = from.DailyBackup;
+        to.BackupsToKeep = from.BackupsToKeep;
     }
 
     // ---- Overview tiles (selected server) ----
@@ -247,6 +252,14 @@ public sealed partial class LocalServerViewModel
         {
             watch = new ServerWatch(profile);
             _watches[profile.Id] = watch;
+            try
+            {
+                watch.Automation.NoteDailyBackup(ServerBackups.LastDailyBackup(ServerBackupsFolder(profile)));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // No backups folder to look in: the first daily backup happens soon.
+            }
         }
 
         watch.Profile = profile;
@@ -375,6 +388,24 @@ public sealed partial class LocalServerViewModel
                 ReportAutomation(watch, $"'{p.Name}': {action.Reason}. Updating.", ActivityEntryKind.Info);
                 await AutomatedRestartAsync(watch, checkForUpdate: true);
                 break;
+
+            case AutomationActionKind.DailyBackup:
+                var made = await TryBackupAsync(p, ServerBackups.DailyReason);
+                if (made is null)
+                {
+                    ReportAutomation(watch, $"'{p.Name}': the daily backup failed (see the activity log). It tries again tomorrow.", ActivityEntryKind.Warning);
+                }
+                else
+                {
+                    watch.LastAutomationEvent = $"{Clock():HH:mm}  Daily backup made: {Path.GetFileName(made)}";
+                    _activityLog.Log($"'{p.Name}': daily backup made ({Path.GetFileName(made)}).", ActivityEntryKind.Info);
+                    if (SelectedProfile?.Id == p.Id)
+                    {
+                        RefreshBackups();
+                    }
+                }
+
+                break;
         }
     }
 
@@ -465,7 +496,7 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        var backup = TryBackup(p, "before-update");
+        var backup = await TryBackupAsync(p, "before-update");
         var result = await RunSteamCmdAsync(() => _steamCmd.InstallOrUpdateAsync(p.InstallFolder, SteamCmd.NormalizeBranch(p.Branch), line => OnSteamCmdLineFor(p.Id, line)));
         watch.Automation.NoteUpdateFinished();
         ReportAutomation(watch,

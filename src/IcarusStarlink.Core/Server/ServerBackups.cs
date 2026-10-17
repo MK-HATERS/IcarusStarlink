@@ -12,6 +12,111 @@ public sealed record ServerBackupInfo(string Path, string Name, DateTime Created
 /// </summary>
 public static class ServerBackups
 {
+    /// <summary>The reason a daily automatic backup is filed under.</summary>
+    public const string DailyReason = "daily";
+
+    /// <summary>
+    /// The profile's backups folder under <paramref name="serverBackupsRoot"/>: "&lt;name&gt;_&lt;id8&gt;".
+    /// The name part follows the profile's CURRENT name, but the folder is found by its id: a folder
+    /// made under an older name ("*_&lt;id8&gt;") is renamed to the current one, so renaming a profile
+    /// never orphans its backups. When that rename can't happen (a file in it is open) the old
+    /// folder is used as it is.
+    /// </summary>
+    public static string ResolveFolder(string serverBackupsRoot, DedicatedServerProfile profile)
+    {
+        var key = ServerFirewall.ProfileKey(profile);
+        var safeName = new string([.. profile.Name.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_')]);
+        var wanted = Path.Combine(serverBackupsRoot, $"{(safeName.Length > 0 ? safeName : "server")}_{key}");
+        if (Directory.Exists(wanted) || !Directory.Exists(serverBackupsRoot))
+        {
+            return wanted;
+        }
+
+        var older = Directory.EnumerateDirectories(serverBackupsRoot, $"*_{key}")
+            .Where(d => Path.GetFileName(d).EndsWith("_" + key, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(Directory.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+        if (older is null)
+        {
+            return wanted;
+        }
+
+        try
+        {
+            Directory.Move(older, wanted);
+            return wanted;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return older;
+        }
+    }
+
+    /// <summary>"2026-10-16_171804_before-update_2" → "before-update"; null for a name that isn't one of these backups.</summary>
+    public static string? ReasonOf(string backupName)
+    {
+        // yyyy-MM-dd_HHmmss_ is 18 characters.
+        if (backupName.Length <= 18 || backupName[10] != '_' || backupName[17] != '_')
+        {
+            return null;
+        }
+
+        var reason = backupName[18..];
+        var underscore = reason.LastIndexOf('_');
+        if (underscore > 0 && reason[(underscore + 1)..].All(char.IsDigit))
+        {
+            reason = reason[..underscore];
+        }
+
+        return reason;
+    }
+
+    /// <summary>
+    /// Keeps the newest <paramref name="keepPerReason"/> backups of each kind (manual, daily,
+    /// before-update, before-mods, before-restore…) and deletes older ones; 0 keeps everything.
+    /// The newest before-restore backup — the undo for the last restore — and anything named in
+    /// <paramref name="neverDelete"/> are always kept. Zips this app didn't name are left alone.
+    /// Returns the deleted paths.
+    /// </summary>
+    public static IReadOnlyList<string> Prune(string backupsFolder, int keepPerReason, IEnumerable<string>? neverDelete = null)
+    {
+        if (keepPerReason <= 0 || !Directory.Exists(backupsFolder))
+        {
+            return [];
+        }
+
+        var keep = new HashSet<string>(neverDelete ?? [], StringComparer.OrdinalIgnoreCase);
+        var deleted = new List<string>();
+        foreach (var group in List(backupsFolder).GroupBy(b => ReasonOf(b.Name), StringComparer.OrdinalIgnoreCase).Where(g => g.Key is not null))
+        {
+            foreach (var old in group.OrderByDescending(b => b.CreatedLocal).Skip(Math.Max(1, keepPerReason)))
+            {
+                if (keep.Contains(old.Path))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    File.Delete(old.Path);
+                    deleted.Add(old.Path);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Open in another program: tried again after the next backup.
+                }
+            }
+        }
+
+        return deleted;
+    }
+
+    /// <summary>When the newest daily backup was made, or null when there is none.</summary>
+    public static DateTime? LastDailyBackup(string backupsFolder) =>
+        List(backupsFolder).Where(b => string.Equals(ReasonOf(b.Name), DailyReason, StringComparison.OrdinalIgnoreCase))
+            .Select(b => (DateTime?)b.CreatedLocal)
+            .Max();
+
     public static string CreateBackup(string installFolder, string? savedDirSuffix, string backupsFolder, string reason)
     {
         Directory.CreateDirectory(backupsFolder);

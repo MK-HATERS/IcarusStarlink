@@ -102,6 +102,25 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Tests run the file and process work inline so every step is deterministic; the app runs it on
+    /// the thread pool so a 9 MB log, a world zip or a process scan never stalls the window.
+    /// </summary>
+    internal bool RunWorkInline { get; set; }
+
+    private Task<T> OffUiThread<T>(Func<T> work) => RunWorkInline ? Task.FromResult(work()) : Task.Run(work);
+
+    private Task OffUiThread(Action work)
+    {
+        if (!RunWorkInline)
+        {
+            return Task.Run(work);
+        }
+
+        work();
+        return Task.CompletedTask;
+    }
+
     public ObservableCollection<DedicatedServerProfile> Profiles { get; } = [];
 
     [ObservableProperty]

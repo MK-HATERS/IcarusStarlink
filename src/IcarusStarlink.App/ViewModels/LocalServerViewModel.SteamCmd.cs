@@ -361,7 +361,7 @@ public sealed partial class LocalServerViewModel
             }
         }
 
-        var backup = TryBackup("before-update");
+        var backup = await TryBackupAsync(profile, "before-update");
         var result = await RunSteamCmdAsync(() => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, OnSteamCmdLine));
         ReadInstalledBuild();
         if (result.Success)

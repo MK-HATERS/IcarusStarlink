@@ -20,6 +20,9 @@ public enum AutomationActionKind
 
     /// <summary>A newer build is known and nobody is online: stop, update, start.</summary>
     UpdateNow,
+
+    /// <summary>The once-a-day backup of a running server's worlds and settings is due.</summary>
+    DailyBackup,
 }
 
 public sealed record AutomationAction(AutomationActionKind Kind, string Reason)
@@ -42,6 +45,7 @@ public sealed class ServerAutomation
     public static readonly TimeSpan CrashWindow = TimeSpan.FromMinutes(10);
     public static readonly TimeSpan RestartWaitForEmpty = TimeSpan.FromMinutes(60);
     public static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(1);
+    public static readonly TimeSpan DailyBackupInterval = TimeSpan.FromHours(24);
 
     /// <summary>A daily slot the app wasn't open for (or that is long past) is skipped, never run hours late.</summary>
     private static readonly TimeSpan MissedSlotGrace = TimeSpan.FromMinutes(5);
@@ -61,6 +65,11 @@ public sealed class ServerAutomation
     public bool UpdatePending { get; private set; }
 
     public DateTime? LastUpdateCheck { get; private set; }
+
+    /// <summary>When the last daily backup was made (the app seeds it from the newest one on disk).</summary>
+    public DateTime? LastDailyBackup { get; private set; }
+
+    public void NoteDailyBackup(DateTime? madeLocal) => LastDailyBackup = madeLocal;
 
     public int RecentCrashRestarts => _crashRestarts.Count;
 
@@ -111,6 +120,13 @@ public sealed class ServerAutomation
                 LastUpdateCheck = now.NowLocal;
                 return new AutomationAction(AutomationActionKind.CheckForUpdate, "hourly update check");
             }
+        }
+
+        if (profile.DailyBackup && (LastDailyBackup is null || now.NowLocal - LastDailyBackup >= DailyBackupInterval))
+        {
+            // Stamped now: a backup that fails waits a day rather than retrying every beat.
+            LastDailyBackup = now.NowLocal;
+            return new AutomationAction(AutomationActionKind.DailyBackup, "daily backup");
         }
 
         return AutomationAction.None;
@@ -227,6 +243,13 @@ public sealed class ServerAutomation
                 : LastUpdateCheck is { } last
                     ? $"Next update check at {last + UpdateCheckInterval:HH:mm}."
                     : "Checks for an update shortly.");
+        }
+
+        if (profile.DailyBackup)
+        {
+            lines.Add(LastDailyBackup is { } backedUp && nowLocal - backedUp < DailyBackupInterval
+                ? $"Next daily backup around {backedUp + DailyBackupInterval:ddd HH:mm}, while it runs."
+                : "Backs up its worlds shortly (daily backup), while it runs.");
         }
 
         if (profile.AutoRestartOnCrash)
