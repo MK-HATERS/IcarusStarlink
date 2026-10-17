@@ -89,10 +89,25 @@ bool Relaunch()
     }
 }
 
+// Left for the relaunched app to read, so a rolled-back update is reported instead of silently
+// bringing back the old version (see UpdateOutcomeFile).
+void RecordOutcome(UpdateRunner.Outcome outcome, string message)
+{
+    var inLogs = Path.Combine(logDirectory, UpdateOutcomeFile.FileName);
+    try
+    {
+        UpdateOutcomeFile.Write(inLogs, outcome, $"{message} Details: {logPath}");
+    }
+    catch (Exception)
+    {
+        UpdateOutcomeFile.Write(Path.Combine(Path.GetTempPath(), UpdateOutcomeFile.TempFileName), outcome, $"{message} Details: {logPath}");
+    }
+}
+
 UpdateRunner.Result result;
 try
 {
-    result = UpdateRunner.Run(installDirectory, newFilesDirectory, Log, Relaunch);
+    result = UpdateRunner.Run(installDirectory, newFilesDirectory, Log, Relaunch, RecordOutcome);
 }
 catch (Exception ex)
 {

@@ -85,6 +85,15 @@ public sealed partial class LocalServerViewModel : ObservableObject
         // Refresh game data re-extracts D_ProspectList — rebuild the prospect choices from it.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((LocalServerViewModel)recipient).ReloadProspectChoices());
 
+        // An app update must not close Starlink in the middle of server work.
+        WeakReferenceMessenger.Default.Register<BackgroundWorkRequestMessage>(this, (recipient, message) =>
+        {
+            foreach (var work in ((LocalServerViewModel)recipient).DescribeWorkInProgress())
+            {
+                message.Reply(work);
+            }
+        });
+
         // A new merged pak was built — "Install my merged pak" and its summary follow it.
         WeakReferenceMessenger.Default.Register<MergedPakBuiltMessage>(this, (recipient, _) => ((LocalServerViewModel)recipient).RefreshMergedPak());
 
@@ -298,6 +307,30 @@ public sealed partial class LocalServerViewModel : ObservableObject
     }
 
     private bool CanUseProfile() => SelectedProfile is not null;
+
+    /// <summary>What closing the app now would cut off (asked before an app update).</summary>
+    internal IEnumerable<string> DescribeWorkInProgress()
+    {
+        if (IsSteamCmdBusy)
+        {
+            yield return "SteamCMD (installing, updating or checking a server)";
+        }
+
+        if (AnyAutomationBusy)
+        {
+            yield return "the automatic server restart or update";
+        }
+
+        if (IsBusy)
+        {
+            yield return "the server starting or stopping";
+        }
+
+        if (IsBackupBusy)
+        {
+            yield return "the server backup or restore";
+        }
+    }
 
     /// <summary>Writes the profile list; when the store refuses (its file couldn't be read at startup) or the write fails, the status line says so.</summary>
     private bool SaveToStore(DedicatedServerProfile profile)

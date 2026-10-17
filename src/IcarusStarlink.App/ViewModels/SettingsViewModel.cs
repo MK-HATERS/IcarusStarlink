@@ -271,6 +271,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         // "Update available" accepted mid-setup shut the app down over a running data extraction.
         _ = CheckForAppUpdatesAfterSetupAsync();
         CheckForGameCrashesSinceLastInstall();
+        ReportLastAppUpdateOutcome();
         _ = RefreshBackupsSizeAsync();
 
         LoadSkinTokens();
@@ -1673,6 +1674,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        // The same for the Server page: closing mid-way would leave a half-updated server, a
+        // server automation had stopped and not yet started again, or a half-uploaded pak.
+        if (DescribeBackgroundWork() is { } busy)
+        {
+            AppUpdateStatusMessage = busy;
+            return;
+        }
+
         IsInstallingAppUpdate = true;
         try
         {
@@ -1750,6 +1759,13 @@ public sealed partial class SettingsViewModel : ObservableObject
                 }
             }
 
+            // Looked at again: the download took a while, and server work may have started meanwhile.
+            if (DescribeBackgroundWork() is { } startedMeanwhile)
+            {
+                AppUpdateStatusMessage = startedMeanwhile;
+                return;
+            }
+
             var appExePath = Path.Combine(installDirectory, "IcarusStarlink.App.exe");
             Process.Start(new ProcessStartInfo(Path.Combine(updaterStaging, "IcarusStarlink.Updater.exe"))
             {
@@ -1767,6 +1783,40 @@ public sealed partial class SettingsViewModel : ObservableObject
         finally
         {
             IsInstallingAppUpdate = false;
+        }
+    }
+
+    /// <summary>"Wait until SteamCMD is updating a server has finished…" when a page has work that closing the app would cut off; null when it is safe to close.</summary>
+    private static string? DescribeBackgroundWork()
+    {
+        var running = WeakReferenceMessenger.Default.Send(new BackgroundWorkRequestMessage()).Responses.Distinct().ToList();
+        return running.Count == 0 ? null : $"Wait until {string.Join(" and ", running)} has finished, then click Update again.";
+    }
+
+    /// <summary>
+    /// Once, at launch: the updater leaves a note before it relaunches the app. A rolled-back or
+    /// failed update used to bring the old version back without a word; now it says what happened
+    /// (a warning also pops up), and a good update says so too.
+    /// </summary>
+    private void ReportLastAppUpdateOutcome()
+    {
+        var outcome = AppUpdateOutcome.TakeLast(
+            Path.Combine(_logsDirectory, AppUpdateOutcome.FileName),
+            Path.Combine(Path.GetTempPath(), AppUpdateOutcome.TempFileName));
+        if (outcome is null)
+        {
+            return;
+        }
+
+        if (outcome.Installed)
+        {
+            AppUpdateStatusMessage = $"Updated to v{InstalledAppVersion}.";
+            _activityLog.Log($"Icarus Starlink was updated to v{InstalledAppVersion}.", ActivityEntryKind.Success);
+        }
+        else
+        {
+            AppUpdateStatusMessage = outcome.Message;
+            _activityLog.Log($"The last Icarus Starlink update didn't install. {outcome.Message}", ActivityEntryKind.Warning);
         }
     }
 

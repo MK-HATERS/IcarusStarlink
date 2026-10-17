@@ -1,4 +1,5 @@
 using System.IO;
+using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.App.Views;
@@ -354,6 +355,11 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         var update = vm.UpdateServerCommand.ExecuteAsync(null);
         Assert.True(vm.IsSteamCmdBusy);
         Assert.True(vm.CancelSteamCmdCommand.CanExecute(null));
+
+        // An app update asks first, and is told to wait.
+        var replies = WeakReferenceMessenger.Default.Send(new IcarusStarlink.App.Messages.BackgroundWorkRequestMessage()).Responses;
+        Assert.Contains(replies, r => r.StartsWith("SteamCMD", StringComparison.Ordinal));
+
         vm.CancelSteamCmdCommand.Execute(null);
         await update;
 

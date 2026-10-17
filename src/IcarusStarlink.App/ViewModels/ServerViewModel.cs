@@ -3,6 +3,8 @@ using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
@@ -206,6 +208,15 @@ public sealed partial class ServerViewModel : ObservableObject
         _pakManifestPath = Path.Combine(Path.GetDirectoryName(outputPakPath)!, InstallManifestNames.PakManifest);
 
         ReloadSites();
+
+        // An app update must not close Starlink in the middle of an upload to the server.
+        WeakReferenceMessenger.Default.Register<BackgroundWorkRequestMessage>(this, (recipient, message) =>
+        {
+            if (((ServerViewModel)recipient).IsBusy)
+            {
+                message.Reply("the transfer to your FTP server");
+            }
+        });
     }
 
     private void ReloadSites()
