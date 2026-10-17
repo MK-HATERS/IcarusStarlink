@@ -445,6 +445,67 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.True(vm.ConflictingModNamesByMod.ContainsKey("ModB"));
     }
 
+    /// <summary>Two mods that disagree on one value AND both add a new item under the same name (that part merges itself, nothing to pick).</summary>
+    private static string BuildCraftTimeAndNewItemExmodJson(string fileName, int craftTime, string newItemField) => $$"""
+        {
+            "name": "{{fileName}}", "author": "Test", "version": "1", "description": "D",
+            "fileName": "{{fileName}}",
+            "Rows": [
+                {"CurrentFile": "Crafting-D_ProcessorRecipes.json",
+                 "File_Items": [{"Name": "SmelterRecipe", "CraftTime": {{craftTime}}},
+                                {"Name": "BrandNewRecipe", "{{newItemField}}": 1}]}
+            ]
+        }
+        """;
+
+    /// <summary>
+    /// The real 22-vs-1 bug: the bar counted conflicts plus same-name new items (1 + 21 = 22) while
+    /// Review conflicts listed only the 1 conflict. Now the bar's count is the window's own list,
+    /// and the same-name new items are mentioned on their own as combined automatically.
+    /// </summary>
+    [Fact]
+    public async Task ConflictBar_CountsExactlyWhatReviewConflictsLists_AndNamesWhatWasCombined()
+    {
+        var libraryRepository = new FakeLibraryRepository();
+        libraryRepository.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeAndNewItemExmodJson("ModA", craftTime: 5, newItemField: "Speed"), out _);
+        libraryRepository.FolderPaths["ModB"] = CreateExmodFolder("ModB", BuildCraftTimeAndNewItemExmodJson("ModB", craftTime: 99, newItemField: "Power"), out _);
+        var rebuildService = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables() };
+        var vm = CreateViewModel(libraryRepository: libraryRepository, rebuildService: rebuildService);
+        vm.Queue.Add(MakeEntry("ModA"));
+        vm.Queue.Add(MakeEntry("ModB"));
+
+        await vm.RecomputeConflictCountAsync();
+
+        var review = vm.CreateConflictReviewForTesting();
+        Assert.Equal(1, vm.ConflictCount);
+        Assert.Equal(review.AllConflicts.Count, vm.ConflictCount);
+        Assert.Equal(review.ConflictsView.Cast<object>().Count(), vm.ConflictCount);
+        Assert.Equal(review.Tally, vm.ConflictTally);
+        Assert.Equal(1, vm.ConflictTally.CombinedAutomatically);
+        Assert.Equal("1 value is changed differently by two mods — pick a winner, or the mod lower in the queue wins.", vm.ConflictTally.BannerText);
+        Assert.Contains("combined automatically", vm.ConflictTally.CombinedText);
+        Assert.StartsWith("1 value is changed differently", review.Summary);
+    }
+
+    /// <summary>Only a same-name new item: nothing to decide, so no bar and no ⚠ on the rows.</summary>
+    [Fact]
+    public async Task ConflictBar_OnlySameNameNewItems_ShowsNoConflict()
+    {
+        var libraryRepository = new FakeLibraryRepository();
+        libraryRepository.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeAndNewItemExmodJson("ModA", craftTime: 5, newItemField: "Speed"), out _);
+        libraryRepository.FolderPaths["ModB"] = CreateExmodFolder("ModB", BuildCraftTimeAndNewItemExmodJson("ModB", craftTime: 5, newItemField: "Power"), out _);
+        var rebuildService = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables() };
+        var vm = CreateViewModel(libraryRepository: libraryRepository, rebuildService: rebuildService);
+        vm.Queue.Add(MakeEntry("ModA"));
+        vm.Queue.Add(MakeEntry("ModB"));
+
+        await vm.RecomputeConflictCountAsync();
+
+        Assert.False(vm.HasConflicts);
+        Assert.Equal(1, vm.ConflictTally.CombinedAutomatically);
+        Assert.Empty(vm.ConflictingModNamesByMod);
+    }
+
     [Fact]
     public async Task RemovingTheConflictingMod_RecomputeReportsZeroConflictsAgain()
     {

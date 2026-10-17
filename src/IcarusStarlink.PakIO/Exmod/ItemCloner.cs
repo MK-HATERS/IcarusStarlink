@@ -16,6 +16,12 @@ public sealed record ItemCloneSource(
 public sealed record ItemChoice(string Name, string? DisplayName)
 {
     public string Display => DisplayName is { Length: > 0 } d && d != Name ? $"{d}  ({Name})" : Name;
+
+    /// <summary>The in-game name when there is one, else the row name (a list's first line).</summary>
+    public string Title => DisplayName is { Length: > 0 } d ? d : Name;
+
+    /// <summary>The row name under Title, or null when Title already is the row name.</summary>
+    public string? Subtitle => Title != Name ? Name : null;
 }
 
 /// <summary>How an item template starts the new-item wizard (ModTemplateContent.ItemPresetFor). A null source lets the user pick.</summary>

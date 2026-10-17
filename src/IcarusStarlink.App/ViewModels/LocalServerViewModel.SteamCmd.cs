@@ -115,11 +115,30 @@ public sealed partial class LocalServerViewModel
         ? $"SteamCMD: {exe}"
         : "SteamCMD isn't set up yet — install it into Starlink's folder, or point at one you already have.";
 
+    /// <summary>
+    /// SteamCMD is only needed to install or update a server. With no server yet the full box
+    /// (summary + Install SteamCMD / Use my SteamCMD…) shows, since installing one is the next
+    /// step; once servers exist and SteamCMD still isn't set up, it folds to one line that opens
+    /// the box (Set up…). Set up, the box shows which steamcmd.exe is used.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowSteamCmdBox), nameof(ShowSteamCmdLine))]
+    private bool _steamCmdSetupExpanded;
+
+    public bool ShowSteamCmdBox => HasSteamCmd || Profiles.Count == 0 || SteamCmdSetupExpanded;
+
+    public bool ShowSteamCmdLine => !ShowSteamCmdBox;
+
+    [RelayCommand]
+    private void ExpandSteamCmdSetup() => SteamCmdSetupExpanded = true;
+
     private void RaiseSteamCmdChanged()
     {
         OnPropertyChanged(nameof(HasSteamCmd));
         OnPropertyChanged(nameof(UsingOwnSteamCmd));
         OnPropertyChanged(nameof(SteamCmdSummary));
+        OnPropertyChanged(nameof(ShowSteamCmdBox));
+        OnPropertyChanged(nameof(ShowSteamCmdLine));
     }
 
     /// <summary>Downloads SteamCMD from Valve into a SteamCMD folder in Starlink's own folder.</summary>
@@ -222,7 +241,9 @@ public sealed partial class LocalServerViewModel
                 $"SteamCMD isn't set up yet. Download it from Valve into\n{_steamCmd.OwnInstallFolder}?\n\nIf you already have SteamCMD, click No, then 'Use my SteamCMD…'.",
                 "SteamCMD needed", ThemedConfirmSeverity.Question))
         {
-            StatusMessage = "SteamCMD isn't set up — install it or click 'Use my SteamCMD…'.";
+            // The box under the server list opens so both ways to set it up are right there.
+            SteamCmdSetupExpanded = true;
+            StatusMessage = "SteamCMD is needed to install or update a server. Set it up under the server list: Install SteamCMD, or Use my SteamCMD… for one you already have.";
             return false;
         }
 

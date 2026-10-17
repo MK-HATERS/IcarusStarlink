@@ -42,7 +42,21 @@
                                Visibility="{Binding FilterText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                 </Grid>
                 <Border Grid.Row="1" Margin="0,6,0,0" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
-                    <ListBox ItemsSource="{Binding FilteredItems}" SelectedItem="{Binding SelectedItem}" DisplayMemberPath="Display" Background="Transparent" BorderThickness="0"/>
+                    <!-- No sideways scrolling: the in-game name on top, the row name smaller under it,
+                         both cut with … and shown in full on hover. -->
+                    <ListBox ItemsSource="{Binding FilteredItems}" SelectedItem="{Binding SelectedItem}" Background="Transparent" BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,1" ToolTip="{Binding Display}">
+                                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding Subtitle}" TextTrimming="CharacterEllipsis" FontSize="10.5" FontFamily="Consolas"
+                                               Foreground="{DynamicResource FaintForegroundBrush}"
+                                               Visibility="{Binding Subtitle, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </Border>
             </Grid>
 
@@ -51,8 +65,32 @@
                 <Grid>
                     <TextBlock Text="{Binding NoDataMessage}" TextWrapping="Wrap" Margin="16" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                Visibility="{Binding NoDataMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-                    <TextBlock Text="Pick a game item on the left." Margin="16" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                               Visibility="{Binding ShowPickPrompt, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <!-- Empty state: what the page is for, and a few common items to start from
+                         (only those in the loaded game data). -->
+                    <StackPanel Margin="20,18" VerticalAlignment="Top" MaxWidth="560" HorizontalAlignment="Left"
+                                Visibility="{Binding ShowPickPrompt, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   Text="Pick a game item on the left to change its numbers, or start with a common one:"/>
+                        <ItemsControl ItemsSource="{Binding QuickStarts}" Margin="0,10,0,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:EditorQuickStart}">
+                                    <Button Margin="0,0,8,8" Padding="10,5" Width="170" HorizontalContentAlignment="Left"
+                                            Command="{Binding DataContext.OpenQuickStartCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                            ToolTip="{Binding Item.Display}" AutomationProperties.Name="{Binding Label, StringFormat='Edit {0}'}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Hint}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding HasItem, Converter={StaticResource BoolToVisibilityConverter}}">
                         <StackPanel Margin="14">
                             <TextBlock Text="{Binding ItemTitle}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>

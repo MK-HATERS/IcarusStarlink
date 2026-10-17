@@ -24,13 +24,16 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="SERVERS ON THIS PC" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+            <!-- No sideways scrolling: a long name or path is cut with … and shown in full on hover. -->
             <ListBox Grid.Row="1" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}"
-                     BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
+                     BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Margin="0,3">
-                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
-                            <TextBlock Text="{Binding InstallFolder}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
+                            <TextBlock Text="{Binding InstallFolder}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}" TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding InstallFolder}"/>
                             <TextBlock FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}">
                                 <Run Text="port "/><Run Text="{Binding Port, Mode=OneWay}"/><Run Text=" · query "/><Run Text="{Binding QueryPort, Mode=OneWay}"/>
                             </TextBlock>
@@ -48,13 +51,23 @@
                             ToolTip="Removes the entry from this list only — the server's files are not touched"/>
                 </StackPanel>
 
-                <TextBlock Text="STEAMCMD" Style="{StaticResource FieldLabelStyle}" Margin="0,14,0,4"/>
-                <TextBlock Text="{Binding SteamCmdSummary}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                    <Button Content="Install SteamCMD" Command="{Binding InstallSteamCmdCommand}"
-                            ToolTip="Downloads SteamCMD from Valve into a SteamCMD folder inside Starlink's own folder"/>
-                    <Button Content="Use my SteamCMD…" Command="{Binding UseExistingSteamCmdCommand}" Margin="8,0,0,0"
-                            ToolTip="Point at a steamcmd.exe you already have — your own update scripts and Starlink then share it"/>
+                <!-- SteamCMD is only needed to install or update a server: with servers and no
+                     SteamCMD this is one line that opens the full box (see ShowSteamCmdBox). -->
+                <DockPanel Margin="0,14,0,0" Visibility="{Binding ShowSteamCmdLine, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Button DockPanel.Dock="Right" Content="Set up…" Command="{Binding ExpandSteamCmdSetupCommand}" Padding="6,0" FontSize="11" Margin="6,0,0,0"
+                            VerticalAlignment="Center" ToolTip="Install SteamCMD, or point at one you already have"/>
+                    <TextBlock Text="SteamCMD: not set up — needed to update." FontSize="11.5" TextWrapping="Wrap" VerticalAlignment="Center"
+                               Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                </DockPanel>
+                <StackPanel Visibility="{Binding ShowSteamCmdBox, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <TextBlock Text="STEAMCMD" Style="{StaticResource FieldLabelStyle}" Margin="0,14,0,4"/>
+                    <TextBlock Text="{Binding SteamCmdSummary}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Button Content="Install SteamCMD" Command="{Binding InstallSteamCmdCommand}"
+                                ToolTip="Downloads SteamCMD from Valve into a SteamCMD folder inside Starlink's own folder"/>
+                        <Button Content="Use my SteamCMD…" Command="{Binding UseExistingSteamCmdCommand}" Margin="8,0,0,0"
+                                ToolTip="Point at a steamcmd.exe you already have — your own update scripts and Starlink then share it"/>
+                    </StackPanel>
                 </StackPanel>
             </StackPanel>
             <Border Grid.Row="3" Margin="0,10,0,0" Padding="10,8" CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}"

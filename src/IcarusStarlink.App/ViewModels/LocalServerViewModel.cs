@@ -75,6 +75,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
 
         SelectedProfile = Profiles.FirstOrDefault();
+        Profiles.CollectionChanged += (_, _) => RaiseSteamCmdChanged();
 
         // Refresh game data re-extracts D_ProspectList — rebuild the prospect choices from it.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((LocalServerViewModel)recipient).ReloadProspectChoices());

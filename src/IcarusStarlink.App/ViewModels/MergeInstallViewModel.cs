@@ -181,12 +181,17 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     partial void OnConflictCountChanged(int value) => OnPropertyChanged(nameof(HasConflicts));
 
+    /// <summary>The bar's counts and wording; ConflictCount is its NeedsDecision. Set only through ApplyConflicts, which the review window's own count comes from too.</summary>
+    [ObservableProperty]
+    private MergeConflictTally _conflictTally = MergeConflictTally.None;
+
     /// <summary>
     /// Keyed by LibraryEntry.Name (matching ConflictCandidate.ModName's own "display text, not a
     /// folder identifier" convention — see FieldConflict's doc comment) — lets a queue row's own
     /// DataTemplate show which OTHER queued mods it conflicts with, without needing to open Review
     /// conflicts first. Recomputed alongside ConflictCount everywhere that already runs
-    /// FindQueueConflictsAsync, so it never drifts out of sync with the badge/banner.
+    /// FindQueueConflictsAsync, so it never drifts out of sync with the badge/banner. Only values
+    /// needing a decision mark a row: same-name new items are combined with nothing to pick.
     /// </summary>
     [ObservableProperty]
     private IReadOnlyDictionary<string, IReadOnlyList<string>> _conflictingModNamesByMod = new Dictionary<string, IReadOnlyList<string>>();
@@ -2205,7 +2210,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         if (Queue.Count == 0)
         {
-            ConflictCount = 0;
+            ApplyConflicts([], []);
             return;
         }
 
@@ -2214,8 +2219,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             var (conflicts, newItemCollisions, _) = await FindQueueConflictsAsync();
             if (version == _conflictCountVersion)
             {
-                ConflictCount = conflicts.Count + newItemCollisions.Count;
-                ConflictingModNamesByMod = MergeEngine.GroupConflictsByMod(conflicts, newItemCollisions);
+                ApplyConflicts(conflicts, newItemCollisions);
             }
         }
         catch (Exception)
@@ -2224,6 +2228,22 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // "the conflict is gone" the moment a queued mod's file was briefly locked mid-save.
         }
     }
+
+    private IReadOnlyList<FieldConflict> _lastConflicts = [];
+    private IReadOnlyList<NewItemNameCollision> _lastCollisions = [];
+
+    /// <summary>The bar, the badge and the ⚠ rows from one conflict check — counted by MergeConflictTally, the same as the review window.</summary>
+    private void ApplyConflicts(IReadOnlyList<FieldConflict> conflicts, IReadOnlyList<NewItemNameCollision> newItemCollisions)
+    {
+        _lastConflicts = conflicts;
+        _lastCollisions = newItemCollisions;
+        ConflictTally = MergeConflictTally.From(conflicts, newItemCollisions);
+        ConflictCount = ConflictTally.NeedsDecision;
+        ConflictingModNamesByMod = MergeEngine.GroupConflictsByMod(conflicts);
+    }
+
+    /// <summary>Test-only: the review window Review conflicts would open for the last conflict check.</summary>
+    internal MergeConflictsViewModel CreateConflictReviewForTesting() => new(_lastConflicts, _lastCollisions, _winners);
 
     /// <summary>Keeps the winners with the selected profile at once (only the winners: its queue and options stay as saved).</summary>
     private void SaveWinnersToProfile()
@@ -2301,8 +2321,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         try
         {
             var (conflicts, newItemCollisions, modNames) = await FindQueueConflictsAsync(includePrebuiltPaks: true);
-            ConflictCount = conflicts.Count + newItemCollisions.Count;
-            ConflictingModNamesByMod = MergeEngine.GroupConflictsByMod(conflicts, newItemCollisions);
+            // The window and the bar count from the same tally (the window's own), so they agree.
+            var conflictsViewModel = new MergeConflictsViewModel(conflicts, newItemCollisions, _winners);
+            ApplyConflicts(conflicts, newItemCollisions);
 
             if (conflicts.Count == 0 && newItemCollisions.Count == 0)
             {
@@ -2311,10 +2332,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 return;
             }
 
-            var collisionNote = newItemCollisions.Count > 0 ? $", {newItemCollisions.Count} new-item name collision(s)" : "";
+            var collisionNote = newItemCollisions.Count > 0 ? $" ({newItemCollisions.Count} same-name new item(s) combined automatically)" : "";
             _activityLog.Log($"{conflicts.Count} conflict(s){collisionNote} found among {modNames.Count} queued mod(s).", ActivityEntryKind.Warning);
 
-            var conflictsViewModel = new MergeConflictsViewModel(conflicts, newItemCollisions, _winners);
             var window = new MergeConflictsWindow(conflictsViewModel) { Owner = Application.Current.MainWindow };
             if (window.ShowDialog() == true)
             {
