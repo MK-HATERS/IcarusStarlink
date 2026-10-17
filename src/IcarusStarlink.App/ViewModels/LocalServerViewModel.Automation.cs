@@ -34,23 +34,6 @@ public sealed partial class LocalServerViewModel
     /// <summary>Gap between "is it up yet" checks after a start. Tests set it to zero.</summary>
     internal TimeSpan StartPollDelay { get; set; } = TimeSpan.FromMilliseconds(500);
 
-    private sealed class ServerWatch(DedicatedServerProfile profile)
-    {
-        public DedicatedServerProfile Profile { get; set; } = profile;
-        public LogTailer? Tailer { get; set; }
-        public string? TailerPath { get; set; }
-        public ServerLogEvents Events { get; } = new();
-        public ServerAutomation Automation { get; } = new();
-        public bool CleanExitSeen { get; set; }
-        public RunningServer? Running { get; set; }
-        public int MissingBeats { get; set; }
-        public DateTime? MinimizeUntil { get; set; }
-        public string? LastAutomationEvent { get; set; }
-
-        /// <summary>Automation is stopping, updating or starting this server right now.</summary>
-        public bool AutomationBusy { get; set; }
-    }
-
     // ---- Automation settings (saved straight into the profile, no Save button) ----
 
     [ObservableProperty] private bool _autoRestartOnCrash;
@@ -177,8 +160,7 @@ public sealed partial class LocalServerViewModel
         {
             UptimeTile = FormatUptime(DateTime.Now - r.StartTime);
             UptimeHint = $"started {r.StartTime:HH:mm}";
-            var bytes = _processes.GetMemoryBytes(r.ProcessId);
-            MemoryTile = bytes is { } b ? $"{b / (1024.0 * 1024 * 1024):0.0} GB" : "-";
+            MemoryTile = _memoryBytes is { } b ? $"{b / (1024.0 * 1024 * 1024):0.0} GB" : "-";
             MemoryHint = $"PID {r.ProcessId}";
         }
         else
@@ -226,9 +208,9 @@ public sealed partial class LocalServerViewModel
     /// <summary>Called by Tick every second: minimizes consoles still waiting for it, and runs the automation beat every few seconds.</summary>
     internal void AutomationTick()
     {
-        foreach (var watch in _watches.Values.Where(w => w.MinimizeUntil is not null).ToList())
+        foreach (var watch in _watches.Values.Where(w => w.MinimizeUntil is not null && !w.Minimizing).ToList())
         {
-            TryMinimize(watch);
+            _ = TryMinimizeAsync(watch);
         }
 
         if (++_tickCount % AutomationEveryTicks == 0)
@@ -237,7 +219,8 @@ public sealed partial class LocalServerViewModel
         }
     }
 
-    private void TryMinimize(ServerWatch watch)
+    /// <summary>The process lookup runs off the UI thread; one attempt per server at a time.</summary>
+    private async Task TryMinimizeAsync(ServerWatch watch)
     {
         if (watch.MinimizeUntil is not { } until || Clock() > until)
         {
@@ -245,9 +228,11 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        watch.Minimizing = true;
         try
         {
-            if (_processes.FindRunning(watch.Profile) is { } running && _processes.TryMinimizeConsole(running.ProcessId))
+            var profile = watch.Profile;
+            if (await OffUiThread(() => _processes.FindRunning(profile) is { } running && _processes.TryMinimizeConsole(running.ProcessId)))
             {
                 watch.MinimizeUntil = null;
             }
@@ -256,47 +241,9 @@ public sealed partial class LocalServerViewModel
         {
             // Not there yet; try again next second until the deadline.
         }
-    }
-
-    private ServerWatch GetWatch(DedicatedServerProfile profile)
-    {
-        if (!_watches.TryGetValue(profile.Id, out var watch))
+        finally
         {
-            watch = new ServerWatch(profile);
-            _watches[profile.Id] = watch;
-            try
-            {
-                watch.Automation.NoteDailyBackup(ServerBackups.LastDailyBackup(ServerBackupsFolder(profile)));
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // No backups folder to look in: the first daily backup happens soon.
-            }
-        }
-
-        watch.Profile = profile;
-        var path = DedicatedServerLayout.LogPath(profile.InstallFolder, profile.SavedDirSuffix, profile.LogFileName);
-        if (!string.Equals(watch.TailerPath, path, StringComparison.OrdinalIgnoreCase))
-        {
-            watch.TailerPath = path;
-            watch.Tailer = new LogTailer(path);
-            watch.Events.Reset();
-            FeedWatch(watch, watch.Tailer.Poll(WatchFirstReadBytes));
-        }
-
-        return watch;
-    }
-
-    private static void FeedWatch(ServerWatch watch, IReadOnlyList<string> lines)
-    {
-        foreach (var line in lines)
-        {
-            if (ServerLogFilter.IsCleanExit(line))
-            {
-                watch.CleanExitSeen = true;
-            }
-
-            watch.Events.Feed(line);
+            watch.Minimizing = false;
         }
     }
 
@@ -320,13 +267,14 @@ public sealed partial class LocalServerViewModel
                 }
 
                 var watch = GetWatch(profile);
-                FeedWatch(watch, watch.Tailer!.Poll());
-                watch.Events.ExpireStale(DateTime.UtcNow);
+                await EnsureFirstReadAsync(watch);
+                await PollWatchAsync(watch);
+                ExpireStalePlayers(watch);
 
                 RunningServer? found;
                 try
                 {
-                    found = _processes.FindRunning(profile);
+                    found = await OffUiThread(() => _processes.FindRunning(profile));
                 }
                 catch (Exception)
                 {
@@ -347,7 +295,7 @@ public sealed partial class LocalServerViewModel
 
                 if (found is null && watch.Running is not null)
                 {
-                    watch.Events.Reset();
+                    ResetWatchEvents(watch);
                 }
 
                 watch.Running = found;
@@ -425,10 +373,10 @@ public sealed partial class LocalServerViewModel
     {
         watch.LastAutomationEvent = $"{Clock():HH:mm}  {text}";
         _activityLog.Log(text, kind);
+        RecordEventLine(watch, $"{Clock():HH:mm}  {text}");
         if (SelectedProfile?.Id == watch.Profile.Id)
         {
             StatusMessage = text;
-            Events.Insert(0, $"{Clock():HH:mm}  {text}");
         }
     }
 
@@ -503,10 +451,10 @@ public sealed partial class LocalServerViewModel
             watch.Automation.NoteIntentionalStop(running.ProcessId);
             await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
             watch.Running = null;
-            watch.Events.Reset();
+            ResetWatchEvents(watch);
             if (SelectedProfile?.Id == watch.Profile.Id)
             {
-                Tick();
+                await TickAsync();
             }
         }
 
@@ -597,12 +545,7 @@ public sealed partial class LocalServerViewModel
     {
         var p = watch.Profile;
         var selected = SelectedProfile?.Id == p.Id;
-        if (selected)
-        {
-            _tailer?.SeekToEnd();
-            _allLogLines.Clear();
-            LogLines.Clear();
-        }
+        await StartLogAfreshAsync(watch);
 
         try
         {
@@ -622,7 +565,7 @@ public sealed partial class LocalServerViewModel
 
         for (var i = 0; i < 20; i++)
         {
-            if (_processes.FindRunning(p) is not null)
+            if (await OffUiThread(() => _processes.FindRunning(p)) is not null)
             {
                 break;
             }
@@ -632,7 +575,7 @@ public sealed partial class LocalServerViewModel
 
         if (selected)
         {
-            Tick();
+            await TickAsync();
         }
 
         return true;
@@ -651,7 +594,7 @@ public sealed partial class LocalServerViewModel
         {
             foreach (var profile in Profiles.Where(p => p.StartWithApp).ToList())
             {
-                if (_processes.FindRunning(profile) is not null)
+                if (await OffUiThread(() => _processes.FindRunning(profile)) is not null)
                 {
                     continue;
                 }

@@ -40,7 +40,6 @@ public sealed partial class LocalServerViewModel : ObservableObject
     private readonly DispatcherTimer? _timer;
     private readonly IFirewallService? _firewall;
     private readonly List<string> _allLogLines = [];
-    private LogTailer? _tailer;
 
     public LocalServerViewModel(
         IDedicatedServerProfileStore store, IDedicatedServerProcessService processes, IDialogService dialogService,
@@ -94,7 +93,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
             _timer = new DispatcherTimer(DispatcherPriority.Normal, System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher) { Interval = TimeSpan.FromSeconds(1) };
             _timer.Tick += (_, _) =>
             {
-                Tick();
+                _ = TickAsync(skipIfBusy: true);
                 AutomationTick();
             };
             _timer.Start();
@@ -376,11 +375,9 @@ public sealed partial class LocalServerViewModel : ObservableObject
         try
         {
             // Skip what's already in the log: the new run's file replaces it (LogTailer starts over
-            // when the file shrinks), so the panel shows only this run.
-            _tailer?.SeekToEnd();
-            _allLogLines.Clear();
-            LogLines.Clear();
+            // when the file is replaced), so the panel shows only this run.
             var watch = GetWatch(profile);
+            await StartLogAfreshAsync(watch);
             watch.Automation.NoteManualStart();
             _processes.Start(profile);
             watch.CleanExitSeen = false;
@@ -396,7 +393,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
             for (var i = 0; i < 20 && Running is null; i++)
             {
                 await Task.Delay(StartPollDelay);
-                Tick();
+                await TickAsync();
             }
 
             StatusMessage = Running is null
@@ -457,7 +454,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
             StatusMessage = $"Stopping '{profile.Name}'…";
             GetWatch(profile).Automation.NoteOwnerStop(running.ProcessId);
             var clean = await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
-            Tick();
+            await TickAsync();
             StatusMessage = clean ? $"'{profile.Name}' stopped." : $"'{profile.Name}' didn't close within 60 seconds and was ended. The last autosave is intact.";
             _activityLog.Log(StatusMessage, clean ? ActivityEntryKind.Info : ActivityEntryKind.Warning);
             return true;
@@ -516,47 +513,6 @@ public sealed partial class LocalServerViewModel : ObservableObject
     {
         _allLogLines.Clear();
         LogLines.Clear();
-    }
-
-    /// <summary>One heartbeat (every second from the timer): is the server running, and what did it log since last time.</summary>
-    public void Tick()
-    {
-        if (SelectedProfile is not { } profile)
-        {
-            Running = null;
-            return;
-        }
-
-        try
-        {
-            var found = _processes.FindRunning(profile);
-            if (found?.ProcessId != Running?.ProcessId)
-            {
-                var startedOrStopped = (found is null) != (Running is null);
-                Running = found;
-                if (startedOrStopped)
-                {
-                    // The server writes its worlds and LastProspectName as it runs and on exit.
-                    RefreshProspectList(profile);
-                }
-            }
-            else
-            {
-                OnPropertyChanged(nameof(RunStateText));
-            }
-        }
-        catch (Exception)
-        {
-            // Process enumeration hiccup — keep the last known state.
-        }
-
-        if (_tailer is not null)
-        {
-            AppendLog(_tailer.Poll());
-        }
-
-        ExpireStalePlayers();
-        RefreshOverview();
     }
 
     // ---- Internals ----
@@ -821,23 +777,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
         };
     }
 
-    private void AttachLog()
-    {
-        _allLogLines.Clear();
-        LogLines.Clear();
-        _tailer = SelectedProfile is null ? null : new LogTailer(LogPath);
-        ResetPlayersAndEvents();
-        if (_tailer is not null)
-        {
-            // Read the whole current run so the player list is right (someone who joined hours ago
-            // is still online), but only put its newest lines in the panel.
-            var lines = _tailer.Poll(maxBytes: 64 << 20).Select(ServerLogFilter.Redact).ToList();
-            FeedPlayersAndEvents(lines);
-            AppendLog(lines.Count > MaxLogLines ? lines.GetRange(lines.Count - MaxLogLines, MaxLogLines) : lines, feedEvents: false);
-        }
-    }
-
-    private void AppendLog(IReadOnlyList<string> lines, bool feedEvents = true)
+    /// <summary>Puts lines in the Log panel (the server's own lines come from its watch, already read and fed to the players list).</summary>
+    private void AppendLog(IReadOnlyList<string> lines)
     {
         if (lines.Count == 0)
         {
@@ -846,10 +787,6 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
         // The server logs the join password in plain text on every login — never show or keep it.
         lines = [.. lines.Select(ServerLogFilter.Redact)];
-        if (feedEvents)
-        {
-            FeedPlayersAndEvents(lines);
-        }
         _allLogLines.AddRange(lines);
         if (_allLogLines.Count > MaxLogLines)
         {

@@ -612,6 +612,32 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Contains(vm.LogLines, l => l.Contains("password=***"));
     }
 
+    /// <summary>The app's real path: the log is read off the UI thread (once, shared with automation) and the panels fill when it is in.</summary>
+    [Fact]
+    public async Task Log_IsReadOffTheUiThread_AndSharedWithAutomation()
+    {
+        var log = DedicatedServerLayout.LogPath(_install, null, null);
+        Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+        File.WriteAllText(log, "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: MK-HATERS\r\n");
+        var (vm, _, processes, _) = Build(pick: _install);
+        vm.RunWorkInline = false;
+
+        vm.AddExistingServerCommand.Execute(null);
+        await vm.LogLoadTask;
+
+        Assert.Equal("MK-HATERS", Assert.Single(vm.OnlinePlayers).Name);
+        Assert.Single(vm.LogLines);
+
+        processes.Running = new RunningServer(5, DateTime.Now);
+        await vm.RunAutomationBeatAsync(); // reads through the same watch: no second copy of the line
+        File.AppendAllText(log, "[2026.08.12-17.40.00:000][117]LogNet: Join succeeded: Friend\r\n");
+        await vm.TickAsync();
+
+        Assert.Equal(2, vm.OnlinePlayers.Count);
+        Assert.Equal(2, vm.LogLines.Count);
+        Assert.True(vm.IsRunning);
+    }
+
     private void WriteManifest(int buildId, string? betaKey = null)
     {
         var path = DedicatedServerLayout.AppManifestPath(_install);
