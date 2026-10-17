@@ -396,6 +396,18 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         return FolderBackup.EnumerateFolderBackups(_modBackupsDirectory, folderName).FirstOrDefault();
     }
 
+    public string? ReadMetaSnapshot(string folderName) =>
+        JsonSerializer.Serialize(LoadMetaForWrite(folderName));
+
+    public void WriteMetaSnapshot(string folderName, string snapshot)
+    {
+        ResolveFolder(folderName);
+        var meta = JsonSerializer.Deserialize<LibraryMeta>(snapshot) ?? throw new InvalidDataException($"The saved Library info for '{folderName}' is empty.");
+        _metaStore.Save(folderName, meta);
+        // Source, links, marks and name all come from the sidecar: a rescan rebuilds the entry from it.
+        RescanAll();
+    }
+
     public void SetNexusFile(string folderName, int fileId, string? fileVersion) =>
         UpdateMeta(folderName,
             meta =>

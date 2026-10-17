@@ -17,6 +17,12 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
         Directory.CreateDirectory(appDataDirectory);
         _filePath = Path.Combine(appDataDirectory, "pending_downloads.json");
         _entries = JsonFileStore.LoadList<PendingDownloadEntry>(_filePath, _logger);
+
+        // Older builds stored a README heading's underline as a blank requirement ("Needs: ; UE4SS…").
+        foreach (var entry in _entries.Where(e => e.Requirements.Any(string.IsNullOrWhiteSpace)))
+        {
+            entry.Requirements = [.. entry.Requirements.Where(r => !string.IsNullOrWhiteSpace(r))];
+        }
     }
 
     public void Add(PendingDownloadEntry entry)
@@ -57,7 +63,7 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
         entry.ActivatedItems = [.. items];
         entry.ActivatedFolderName = items.Count > 0 ? items[0].FolderName : null;
         entry.ActivatedKind = items.Count > 0 ? items[0].Kind : null;
-        entry.Requirements = [.. requirements];
+        entry.Requirements = [.. requirements.Where(r => !string.IsNullOrWhiteSpace(r))];
         Save();
     }
 

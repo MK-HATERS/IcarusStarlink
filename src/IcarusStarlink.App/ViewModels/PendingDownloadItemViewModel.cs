@@ -101,7 +101,7 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
 
             var installed = AllUe4ssNames().Concat(_libraryRepository.GetAll().Select(e => e.Name)).ToList();
             return Requirements
-                .Where(r => !string.IsNullOrWhiteSpace(r) && !ModReadmeRequirements.IsLoaderRequirement(r) && !ModReadmeRequirements.IsSatisfiedBy(r, installed))
+                .Where(r => !ModReadmeRequirements.NeedsNoDownload(r) && !ModReadmeRequirements.IsSatisfiedBy(r, installed))
                 .Select(ModReadmeRequirements.ExtractName)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();

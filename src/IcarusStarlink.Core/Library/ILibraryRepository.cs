@@ -96,6 +96,19 @@ public interface ILibraryRepository
     string? TryGetLatestModBackupPath(string folderName);
 
     /// <summary>
+    /// Everything the Library keeps about this mod outside its folder (source, Nexus/Database link,
+    /// pin, notes, rename, marks) as an opaque snapshot — taken before a replacement deletes the
+    /// mod, so a failed one can put it back exactly with WriteMetaSnapshot (BackupMod only copies
+    /// the folder). Null when the repository keeps no such record.
+    /// </summary>
+    string? ReadMetaSnapshot(string folderName) => null;
+
+    /// <summary>Puts back what ReadMetaSnapshot returned, for a mod restored from its backup.</summary>
+    void WriteMetaSnapshot(string folderName, string snapshot)
+    {
+    }
+
+    /// <summary>
     /// Creates a genuinely new mod under a fresh Extracted_Mods folder — for the "New mod…" action,
     /// which doesn't read from an existing folder/zip the way every other Import does. name becomes
     /// both the display Name and (sanitized) the EXMOD's own FileName/folder name; author is

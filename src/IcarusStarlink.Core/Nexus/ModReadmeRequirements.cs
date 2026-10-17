@@ -97,5 +97,22 @@ public static partial class ModReadmeRequirements
     /// <summary>True for the loader itself ("UE4SS (experimental build)…") — not a mod, so not something the Library can tick off; shown but never flagged as missing.</summary>
     public static bool IsLoaderRequirement(string requirement) => Normalize(ExtractName(requirement)).Contains("ue4ss");
 
+    /// <summary>
+    /// True for the mod manager itself ("Icarus Mod Manager (for the .EXMODZ file …)", IMM, Icarus
+    /// Starlink) — the app installing the mod already is one, so it's never a missing download (a
+    /// real Minimap README offered "Get 'Icarus Mod Manager'").
+    /// </summary>
+    public static bool IsModManagerRequirement(string requirement)
+    {
+        var name = Normalize(ExtractName(requirement));
+        return name is "imm" or "icarusmodmanager" or "icarusstarlink" or "starlink" or "isl"
+            || name.StartsWith("icarusmodmanager", StringComparison.Ordinal)
+            || name.StartsWith("icarusstarlink", StringComparison.Ordinal);
+    }
+
+    /// <summary>Requirements nothing has to be downloaded for: blank lines, the UE4SS loader (installed from Settings) and the mod manager itself.</summary>
+    public static bool NeedsNoDownload(string requirement) =>
+        string.IsNullOrWhiteSpace(requirement) || IsLoaderRequirement(requirement) || IsModManagerRequirement(requirement);
+
     private static string Normalize(string value) => NonAlphanumeric().Replace(value.ToLowerInvariant(), "");
 }
