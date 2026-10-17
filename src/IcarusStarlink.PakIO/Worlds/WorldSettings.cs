@@ -74,13 +74,25 @@ public sealed class WorldSave
         Difficulty = info["Difficulty"]?.ToString() ?? "";
         Hardcore = info["NoRespawns"] is JsonValue h && h.TryGetValue<bool>(out var hardcore) && hardcore;
         State = info["ProspectState"]?.ToString() ?? "";
+        foreach (var (setting, value) in ReadSettings(info))
+        {
+            Settings[setting] = value;
+        }
+    }
+
+    /// <summary>ProspectInfo.CustomSettings as name/value pairs, in the file's own order.</summary>
+    private static List<KeyValuePair<string, int>> ReadSettings(JsonObject info)
+    {
+        var settings = new List<KeyValuePair<string, int>>();
         foreach (var entry in (info["CustomSettings"] as JsonArray ?? []).OfType<JsonObject>())
         {
             if (entry["SettingRowName"]?.ToString() is { Length: > 0 } setting && entry["SettingValue"] is JsonValue v && v.TryGetValue<double>(out var value))
             {
-                Settings[setting] = (int)value;
+                settings.Add(new(setting, (int)value));
             }
         }
+
+        return settings;
     }
 
     public string Path { get; }
@@ -121,19 +133,28 @@ public sealed class WorldSave
 
     /// <summary>
     /// Writes these setting values into the save (settings not given keep theirs; ones the save
-    /// doesn't list yet are added). Copies the file into <paramref name="backupFolder"/> first and
+    /// doesn't list yet are added). Settings not given keep the value the file holds NOW, read
+    /// fresh here, not the one from when this was loaded: the game (or a server) may have rewritten
+    /// the world since. Copies the file into <paramref name="backupFolder"/> first and
     /// writes through a temp file, so a failed write never leaves half a world.
     /// Returns the backup's path.
     /// </summary>
     public string Save(IReadOnlyDictionary<string, int> values, string backupFolder)
     {
         var text = File.ReadAllText(Path);
+        var current = JsonNode.Parse(text) is JsonObject root && root["ProspectInfo"] is JsonObject info
+            ? ReadSettings(info)
+            : throw new FormatException("Not a world save: no ProspectInfo.");
         var merged = new List<KeyValuePair<string, int>>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, value) in Settings)
+        foreach (var (name, value) in current)
         {
+            if (!seen.Add(name))
+            {
+                continue;
+            }
+
             merged.Add(new(name, values.TryGetValue(name, out var changed) ? changed : value));
-            seen.Add(name);
         }
 
         merged.AddRange(values.Where(kv => !seen.Contains(kv.Key)));
@@ -146,6 +167,7 @@ public sealed class WorldSave
         File.WriteAllText(temp, updated, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         File.Move(temp, Path, overwrite: true);
 
+        Settings.Clear();
         foreach (var (name, value) in merged)
         {
             Settings[name] = value;

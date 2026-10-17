@@ -129,17 +129,50 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
         ? "Pick a save slot (or a server) to see its worlds."
         : "No saved worlds here yet.";
 
+    /// <summary>Bumped by every reload, so an older one still parsing in the background doesn't overwrite a newer list.</summary>
+    private int _reloadGeneration;
+
     /// <summary>Reads the worlds again (the slot or server changed, or a world was saved elsewhere).</summary>
     public void Reload()
     {
+        var folder = _prospectsFolder();
+        Show(++_reloadGeneration, folder is null ? [] : WorldSave.LoadFolder(folder));
+    }
+
+    /// <summary>
+    /// Same as Reload, but parses the world files on a background thread: a slot with many big
+    /// worlds took seconds on the UI thread. The list fills in once they're read.
+    /// </summary>
+    public async Task ReloadAsync()
+    {
+        var generation = ++_reloadGeneration;
+        var folder = _prospectsFolder();
+        IReadOnlyList<WorldSave> saves;
+        try
+        {
+            saves = folder is null ? [] : await Task.Run(() => WorldSave.LoadFolder(folder));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            saves = [];
+            StatusMessage = $"Couldn't read the worlds: {ex.Message}";
+        }
+
+        Show(generation, saves);
+    }
+
+    private void Show(int generation, IReadOnlyList<WorldSave> saves)
+    {
+        if (generation != _reloadGeneration)
+        {
+            return;
+        }
+
         var keep = SelectedWorld?.Save.Path;
         Worlds.Clear();
-        if (_prospectsFolder() is { } folder)
+        foreach (var save in saves)
         {
-            foreach (var save in WorldSave.LoadFolder(folder))
-            {
-                Worlds.Add(new WorldItemViewModel(save));
-            }
+            Worlds.Add(new WorldItemViewModel(save));
         }
 
         SelectedWorld = Worlds.FirstOrDefault(w => string.Equals(w.Save.Path, keep, StringComparison.OrdinalIgnoreCase)) ?? Worlds.FirstOrDefault();
