@@ -342,6 +342,26 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Contains("before-update", backup.Name);
     }
 
+    /// <summary>Cancel in the SteamCMD box stops a long download; the page says how to finish later.</summary>
+    [Fact]
+    public async Task UpdateServer_CanBeCancelled()
+    {
+        WriteManifest(buildId: 1);
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        SteamCmd.WaitForCancel = true;
+
+        var update = vm.UpdateServerCommand.ExecuteAsync(null);
+        Assert.True(vm.IsSteamCmdBusy);
+        Assert.True(vm.CancelSteamCmdCommand.CanExecute(null));
+        vm.CancelSteamCmdCommand.Execute(null);
+        await update;
+
+        Assert.False(vm.IsSteamCmdBusy);
+        Assert.Contains("Cancelled", vm.StatusMessage);
+        Assert.False(vm.CancelSteamCmdCommand.CanExecute(null));
+    }
+
     /// <summary>The user's first install: no server in the list yet, so no Log tab — the SteamCMD box itself must show the output and keep it after the run until dismissed.</summary>
     [Fact]
     public async Task InstallNewServer_ShowsSteamCmdOutputInItsOwnBoxWithNoServerListed()
@@ -696,14 +716,27 @@ public sealed partial class LocalServerViewModelTests : IDisposable
             return Task.CompletedTask;
         }
 
-        public Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, Action<string> onLine, CancellationToken cancellationToken = default)
+        /// <summary>Makes the next install run until it is cancelled, like a long download.</summary>
+        public bool WaitForCancel { get; set; }
+
+        public async Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, Action<string> onLine, CancellationToken cancellationToken = default)
         {
             Installs.Add((installFolder, branch));
             onLine(" Update state (0x61) downloading, progress: 50.00 (1 / 2)");
+            if (WaitForCancel)
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+
+            return Finish(installFolder, onLine);
+        }
+
+        private SteamCmdResult Finish(string installFolder, Action<string> onLine)
+        {
             if (FailWith is not null)
             {
                 onLine(FailWith);
-                return Task.FromResult(new SteamCmdResult(false, FailWith));
+                return new SteamCmdResult(false, FailWith);
             }
 
             if (CreateServerOnInstall)
@@ -712,7 +745,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
                 File.WriteAllText(Path.Combine(installFolder, "IcarusServer.exe"), "");
             }
 
-            return Task.FromResult(new SteamCmdResult(true, "ok"));
+            return new SteamCmdResult(true, "ok");
         }
 
         public Task<int?> GetLatestBuildIdAsync(string branch, CancellationToken cancellationToken = default) => Task.FromResult(LatestBuild);

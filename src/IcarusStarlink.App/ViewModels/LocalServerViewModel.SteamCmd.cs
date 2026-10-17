@@ -34,8 +34,31 @@ public sealed partial class LocalServerViewModel
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand), nameof(UpdateServerCommand),
-        nameof(CheckForUpdateCommand), nameof(InstallNewServerCommand))]
+        nameof(CheckForUpdateCommand), nameof(InstallNewServerCommand), nameof(CancelSteamCmdCommand))]
     private bool _isSteamCmdBusy;
+
+    /// <summary>Cancels the SteamCMD run in progress (Cancel in the SteamCMD box); a new one per run.</summary>
+    private CancellationTokenSource? _steamCmdCancel;
+
+    private CancellationToken BeginSteamCmdRun()
+    {
+        _steamCmdCancel?.Dispose();
+        _steamCmdCancel = new CancellationTokenSource();
+        return _steamCmdCancel.Token;
+    }
+
+    private bool CanCancelSteamCmd() => IsSteamCmdBusy && _steamCmdCancel is { IsCancellationRequested: false };
+
+    /// <summary>Stops SteamCMD (it is ended, the way closing its window would). An install or update can be run again later; SteamCMD carries on from what it already downloaded.</summary>
+    [RelayCommand(CanExecute = nameof(CanCancelSteamCmd))]
+    private void CancelSteamCmd()
+    {
+        _steamCmdCancel?.Cancel();
+        SteamCmdStatus = "Cancelling…";
+        CancelSteamCmdCommand.NotifyCanExecuteChanged();
+    }
+
+    private const string SteamCmdCancelledMessage = "Cancelled: SteamCMD was stopped. Run it again to finish; it carries on from what it already downloaded.";
 
     /// <summary>0-100 while SteamCMD reports progress.</summary>
     [ObservableProperty]
@@ -174,9 +197,14 @@ public sealed partial class LocalServerViewModel
                 settings.Save();
             }
 
-            await _steamCmd!.InstallOwnCopyAsync(OnSteamCmdLine);
+            await _steamCmd!.InstallOwnCopyAsync(OnSteamCmdLine, BeginSteamCmdRun());
             StatusMessage = $"SteamCMD installed in {_steamCmd.OwnInstallFolder}.";
             return true;
+        }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = SteamCmdCancelledMessage;
+            return false;
         }
         catch (Exception ex)
         {
@@ -296,7 +324,7 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        var result = await RunSteamCmdAsync(() => _steamCmd.InstallOrUpdateAsync(target, "public", OnSteamCmdLine));
+        var result = await RunSteamCmdAsync(token => _steamCmd.InstallOrUpdateAsync(target, "public", OnSteamCmdLine, token));
         if (!result.Success)
         {
             StatusMessage = $"Install failed: {result.Message}";
@@ -322,12 +350,18 @@ public sealed partial class LocalServerViewModel
 
         ReadInstalledBuild();
         SteamCmdStatus = "Asking Steam for the latest build…";
+        var token = BeginSteamCmdRun();
         IsSteamCmdBusy = true;
         try
         {
-            LatestBuildId = await _steamCmd.GetLatestBuildIdAsync(Branch);
+            LatestBuildId = await _steamCmd.GetLatestBuildIdAsync(Branch, token);
             SteamCmdStatus = null;
             StatusMessage = LatestBuildId is null ? "Steam didn't list a build for that branch — try again in a moment." : BuildSummary;
+        }
+        catch (OperationCanceledException)
+        {
+            SteamCmdStatus = null;
+            StatusMessage = SteamCmdCancelledMessage;
         }
         catch (Exception ex)
         {
@@ -362,7 +396,7 @@ public sealed partial class LocalServerViewModel
         }
 
         var backup = await TryBackupAsync(profile, "before-update");
-        var result = await RunSteamCmdAsync(() => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, OnSteamCmdLine));
+        var result = await RunSteamCmdAsync(token => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, OnSteamCmdLine, token));
         ReadInstalledBuild();
         if (result.Success)
         {
@@ -404,16 +438,21 @@ public sealed partial class LocalServerViewModel
         OnPropertyChanged(nameof(ShowSteamCmdPanel));
     }
 
-    private async Task<SteamCmdResultView> RunSteamCmdAsync(Func<Task<Services.SteamCmdResult>> run)
+    private async Task<SteamCmdResultView> RunSteamCmdAsync(Func<CancellationToken, Task<Services.SteamCmdResult>> run)
     {
         StartSteamCmdOutput();
+        var token = BeginSteamCmdRun();
         IsSteamCmdBusy = true;
         SteamCmdProgress = 0;
         SteamCmdStatus = "Starting SteamCMD…";
         try
         {
-            var result = await run();
+            var result = await run(token);
             return new SteamCmdResultView(result.Success, result.Message);
+        }
+        catch (OperationCanceledException)
+        {
+            return new SteamCmdResultView(false, SteamCmdCancelledMessage);
         }
         catch (Exception ex)
         {

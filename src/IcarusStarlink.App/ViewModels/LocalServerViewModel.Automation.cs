@@ -480,7 +480,7 @@ public sealed partial class LocalServerViewModel
         IsSteamCmdBusy = true;
         try
         {
-            var latest = await _steamCmd.GetLatestBuildIdAsync(SteamCmd.NormalizeBranch(p.Branch));
+            var latest = await _steamCmd.GetLatestBuildIdAsync(SteamCmd.NormalizeBranch(p.Branch), BeginSteamCmdRun());
             var (installedBuild, installedBranch) = ReadManifest(p);
             var available = latest is not null
                 && (installedBuild != latest
@@ -520,7 +520,7 @@ public sealed partial class LocalServerViewModel
         }
 
         var backup = await TryBackupAsync(p, "before-update");
-        var result = await RunSteamCmdAsync(() => _steamCmd.InstallOrUpdateAsync(p.InstallFolder, SteamCmd.NormalizeBranch(p.Branch), line => OnSteamCmdLineFor(p.Id, line)));
+        var result = await RunSteamCmdAsync(token => _steamCmd.InstallOrUpdateAsync(p.InstallFolder, SteamCmd.NormalizeBranch(p.Branch), line => OnSteamCmdLineFor(p.Id, line), token));
         watch.Automation.NoteUpdateFinished();
         ReportAutomation(watch,
             result.Success

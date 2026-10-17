@@ -78,6 +78,9 @@
                     <DockPanel>
                         <Button DockPanel.Dock="Right" Content="Hide" Command="{Binding DismissSteamCmdOutputCommand}" Padding="6,0" FontSize="11"
                                 Visibility="{Binding IsSteamCmdIdle, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding CancelSteamCmdCommand}" Padding="6,0" FontSize="11"
+                                Visibility="{Binding IsSteamCmdBusy, Converter={StaticResource BoolToVisibilityConverter}}"
+                                ToolTip="Stops SteamCMD. Run the install or update again later; it carries on from what it already downloaded."/>
                         <TextBlock Text="STEAMCMD" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center"/>
                     </DockPanel>
                     <ProgressBar Value="{Binding SteamCmdProgress}" Maximum="100" Height="6" Margin="0,6,0,6"/>
