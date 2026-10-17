@@ -116,6 +116,116 @@ public sealed class GameTableIndex(string dataFolder)
         return names;
     }
 
+    /// <summary>A step in IsDecimalField's path that matches every element of a list.</summary>
+    public const string AnyElement = "[]";
+
+    /// <summary>A step in IsDecimalField's path that matches every key of an object.</summary>
+    public const string AnyKey = "*";
+
+    private readonly Dictionary<string, bool?> _decimalFields = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether a numeric field holds fractions anywhere in the game's table: true when any row (or
+    /// the table default) has a value like 0.5 or written as 1.0, false when every value is whole,
+    /// null when the game has no number there. Decided per FIELD, not per value: Weight 100 on one
+    /// row doesn't make Weight a whole-number field when another row has 0.5, and a multiplier the
+    /// game stores as 1 everywhere is still whole. Steps are object keys, AnyKey or AnyElement.
+    /// </summary>
+    public bool? IsDecimalField(string currentFile, string top, IReadOnlyList<string> steps)
+    {
+        var cacheKey = $"{currentFile}|{top}|{string.Join('\u001f', steps)}";
+        lock (_gate)
+        {
+            if (_decimalFields.TryGetValue(cacheKey, out var known))
+            {
+                return known;
+            }
+        }
+
+        bool? result = null;
+        void Visit(JsonNode? node, int index)
+        {
+            if (result == true || node is null)
+            {
+                return;
+            }
+
+            if (index == steps.Count)
+            {
+                if (node is JsonValue value && ScaleRules.TryReadNumber(value, out var number))
+                {
+                    var fraction = number != Math.Floor(number)
+                        || (value.TryGetValue<System.Text.Json.JsonElement>(out var element) && element.GetRawText().IndexOfAny(['.', 'e', 'E']) >= 0);
+                    result = fraction || result == true;
+                }
+
+                return;
+            }
+
+            var step = steps[index];
+            switch (node)
+            {
+                case JsonArray array when step == AnyElement:
+                    foreach (var element in array)
+                    {
+                        Visit(element, index + 1);
+                    }
+
+                    break;
+                case JsonObject obj when step == AnyKey:
+                    foreach (var (_, child) in obj)
+                    {
+                        Visit(child, index + 1);
+                    }
+
+                    break;
+                case JsonObject obj:
+                    Visit(obj[step], index + 1);
+                    break;
+            }
+        }
+
+        foreach (var (_, row) in Rows(currentFile) ?? [])
+        {
+            Visit((row as JsonObject)?[top], 0);
+        }
+
+        Visit(Defaults(currentFile)?[top], 0);
+
+        lock (_gate)
+        {
+            _decimalFields[cacheKey] = result;
+        }
+
+        return result;
+    }
+
+    /// <summary>IsDecimalField for a Scale-rule path ("Field", "Dict.*", "List[].Field").</summary>
+    public bool? IsDecimalField(string currentFile, string scalePath)
+    {
+        var segments = ScaleRules.SplitPath(scalePath);
+        if (segments.Length == 0)
+        {
+            return null;
+        }
+
+        var steps = new List<string>();
+        for (var i = 0; i < segments.Length; i++)
+        {
+            if (i > 0)
+            {
+                steps.Add(ScaleRules.StripList(segments[i]));
+            }
+
+            if (segments[i].EndsWith("[]", StringComparison.Ordinal))
+            {
+                steps.Add(AnyElement);
+            }
+        }
+
+        return IsDecimalField(currentFile, ScaleRules.StripList(segments[0]), steps);
+    }
+
     /// <summary>The table a top-level link field points into, from the table's own Defaults ("Itemable" in D_ItemsStatic → "D_Itemable").</summary>
     public string? LinkTarget(string currentFile, string field) =>
         (Defaults(currentFile)?[field] as JsonObject)?["DataTableName"]?.GetValue<string>();

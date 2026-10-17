@@ -757,6 +757,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
+        if (FractionalStatIn([newRow]) is { } fractional)
+        {
+            RawJsonStatusMessage = $"Not applied: stats are whole numbers in the game, so {fractional} would lose its fraction.";
+            return;
+        }
+
         PushUndoSnapshot();
         var existingIndex = _package.Rows.FindIndex(r => r.CurrentFile == SelectedItem.CurrentFile);
         if (existingIndex >= 0)
@@ -773,6 +779,23 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         ReloadItems();
         SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == previousFile) ?? Items.FirstOrDefault();
         RawJsonStatusMessage = "Applied.";
+    }
+
+    /// <summary>The first stat with a fractional value in these rows ("Cold resistance: 5.5", with its row), or null.</summary>
+    private static string? FractionalStatIn(IEnumerable<ExmodFileRow> rows)
+    {
+        foreach (var item in rows.SelectMany(r => r.FileItems))
+        {
+            foreach (var (_, value) in item.Fields)
+            {
+                if (GameItemEditor.FractionalStat(value) is { } found)
+                {
+                    return $"{found} (in {item.Name})";
+                }
+            }
+        }
+
+        return null;
     }
 
     [RelayCommand]
@@ -796,6 +819,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         if (parsed.FileName != _package.FileName)
         {
             RawJsonStatusMessage = $"Can't change \"fileName\" here (would leave two .EXMOD files on disk) — it must stay \"{_package.FileName}\".";
+            return;
+        }
+
+        if (FractionalStatIn(parsed.Rows) is { } fractional)
+        {
+            RawJsonStatusMessage = $"Not applied: stats are whole numbers in the game, so {fractional} would lose its fraction.";
             return;
         }
 

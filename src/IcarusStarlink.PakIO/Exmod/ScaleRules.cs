@@ -184,6 +184,9 @@ public static class ScaleRules
             var byRow = generated.TryGetValue(rule.CurrentFile, out var existing) ? existing : null;
             var path = SplitPath(rule.Field);
             var top = StripList(path[0]);
+            // Whole or not is decided for the FIELD across the game's table, not per value: a
+            // Weight of 100 in a field where another row has 0.5 is still a real number.
+            var decimalField = game.IsDecimalField(rule.CurrentFile, rule.Field);
             int rowCount = 0, valueCount = 0;
             string? example = null;
 
@@ -212,7 +215,7 @@ public static class ScaleRules
 
                 var changed = 0;
                 string? firstChange = null;
-                var updated = ApplyAt(current, path, 0, rule, ref changed, ref firstChange);
+                var updated = ApplyAt(current, path, 0, rule, decimalField, ref changed, ref firstChange);
                 if (changed == 0)
                 {
                     continue;
@@ -239,7 +242,7 @@ public static class ScaleRules
     }
 
     /// <summary>Applies the rule at path[index..] inside node; returns the (possibly replaced) node.</summary>
-    private static JsonNode? ApplyAt(JsonNode? node, string[] path, int index, ScaleRule rule, ref int changed, ref string? firstChange)
+    private static JsonNode? ApplyAt(JsonNode? node, string[] path, int index, ScaleRule rule, bool? decimalField, ref int changed, ref string? firstChange)
     {
         var segment = path[index];
         var isList = segment.EndsWith("[]", StringComparison.Ordinal);
@@ -247,7 +250,7 @@ public static class ScaleRules
         // index 0 names the top-level field itself, which `node` already is.
         if (index == 0)
         {
-            return isList ? ApplyToList(node, path, index, rule, ref changed, ref firstChange) : ApplyNext(node, path, index, rule, ref changed, ref firstChange);
+            return isList ? ApplyToList(node, path, index, rule, decimalField, ref changed, ref firstChange) : ApplyNext(node, path, index, rule, decimalField, ref changed, ref firstChange);
         }
 
         if (node is not JsonObject obj)
@@ -260,7 +263,7 @@ public static class ScaleRules
         foreach (var k in keys)
         {
             var child = obj[k];
-            var replaced = isList ? ApplyToList(child, path, index, rule, ref changed, ref firstChange) : ApplyNext(child, path, index, rule, ref changed, ref firstChange);
+            var replaced = isList ? ApplyToList(child, path, index, rule, decimalField, ref changed, ref firstChange) : ApplyNext(child, path, index, rule, decimalField, ref changed, ref firstChange);
             if (!ReferenceEquals(replaced, child))
             {
                 obj[k] = replaced;
@@ -270,7 +273,7 @@ public static class ScaleRules
         return node;
     }
 
-    private static JsonNode? ApplyToList(JsonNode? node, string[] path, int index, ScaleRule rule, ref int changed, ref string? firstChange)
+    private static JsonNode? ApplyToList(JsonNode? node, string[] path, int index, ScaleRule rule, bool? decimalField, ref int changed, ref string? firstChange)
     {
         if (node is not JsonArray array)
         {
@@ -280,7 +283,7 @@ public static class ScaleRules
         for (var i = 0; i < array.Count; i++)
         {
             var element = array[i];
-            var replaced = ApplyNext(element, path, index, rule, ref changed, ref firstChange);
+            var replaced = ApplyNext(element, path, index, rule, decimalField, ref changed, ref firstChange);
             if (!ReferenceEquals(replaced, element))
             {
                 array[i] = replaced;
@@ -290,17 +293,21 @@ public static class ScaleRules
         return node;
     }
 
-    private static JsonNode? ApplyNext(JsonNode? node, string[] path, int index, ScaleRule rule, ref int changed, ref string? firstChange)
+    private static JsonNode? ApplyNext(JsonNode? node, string[] path, int index, ScaleRule rule, bool? decimalField, ref int changed, ref string? firstChange)
     {
         if (index + 1 < path.Length)
         {
-            return ApplyAt(node, path, index + 1, rule, ref changed, ref firstChange);
+            return ApplyAt(node, path, index + 1, rule, decimalField, ref changed, ref firstChange);
         }
 
-        if (!TryGetNumber(node, out var before, out var isInteger))
+        if (!TryGetNumber(node, out var before, out var valueIsInteger))
         {
             return node;
         }
+
+        // The field's own kind when the game has numbers there; the value's only for a field the
+        // game doesn't fill (then a value written "100" is whole, one made in code is real).
+        var isInteger = decimalField is { } isDecimal ? !isDecimal : valueIsInteger;
 
         var after = rule.Operation == ScaleOperation.Set ? rule.Value : before * rule.Value;
         JsonNode result;

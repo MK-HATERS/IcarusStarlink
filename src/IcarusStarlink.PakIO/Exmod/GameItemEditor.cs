@@ -264,6 +264,40 @@ public static partial class GameItemEditor
                 .OrderBy(c => c.Label, StringComparer.OrdinalIgnoreCase)]
             : [];
 
+    /// <summary>Whether a key is a stat key ("(Value=\"BaseOxygenSlots_+\")").</summary>
+    public static bool IsStatKey(string key) => StatKey().IsMatch(key);
+
+    /// <summary>
+    /// Stat values are whole numbers in the game (an int per stat: all 15,333 stat values in the
+    /// game's tables are), so 5.5 would lose its fraction or not load. Returns the first stat
+    /// anywhere under node with a fractional value ("Cold resistance: 5.5"), or null.
+    /// </summary>
+    public static string? FractionalStat(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var (key, value) in obj)
+                {
+                    if (IsStatKey(key) && value is JsonValue v && ScaleRules.TryReadNumber(v, out var n) && n != Math.Floor(n))
+                    {
+                        return $"{StatLabel(key)}: {n.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+                    }
+
+                    if (FractionalStat(value) is { } nested)
+                    {
+                        return nested;
+                    }
+                }
+
+                return null;
+            case JsonArray array:
+                return array.Select(FractionalStat).FirstOrDefault(found => found is not null);
+            default:
+                return null;
+        }
+    }
+
     /// <summary>The key a stat has in a stats object: "BaseColdResistance_%" → "(Value=\"BaseColdResistance_%\")".</summary>
     public static string StatKeyFor(string statName) => StatKey().IsMatch(statName) ? statName : $"(Value=\"{statName}\")";
 

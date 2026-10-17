@@ -284,6 +284,46 @@ public sealed class GameEditorViewModelTests : IDisposable
         Assert.Equal("Needs a whole number here, like 50.", Weight(vm).Error);
     }
 
+    /// <summary>Stats are whole numbers in the game: an added stat and a game stat both refuse 5.5.</summary>
+    [Fact]
+    public void Stats_NeedWholeNumbers()
+    {
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        var armour = vm.Sections.Single(s => s.Section.Key == "Armour");
+        armour.Picker.StatSearch = "cold";
+        armour.Picker.SelectedStat = armour.Picker.MatchingStats.Single();
+        armour.Picker.AddStatCommand.Execute(null);
+        var cold = armour.Fields.Single(f => f.Label == "Cold resistance %");
+        var oxygen = armour.Fields.Single(f => f != cold);
+
+        cold.ValueText = "5.5";
+        oxygen.ValueText = "1.5";
+
+        Assert.Contains("whole number", cold.Error);
+        Assert.Contains("whole number", oxygen.Error);
+        cold.ValueText = "5";
+        Assert.Null(cold.Error);
+    }
+
+    /// <summary>Whole-or-not is per field: Weight 100 on this item is still a real number when another item weighs 0.5.</summary>
+    [Fact]
+    public void Number_WholeHereButDecimalElsewhereInTheTable_TakesAFraction()
+    {
+        Write("Traits/D_Itemable.json", """
+            {"RowStruct":"S","Defaults":{"Weight":0,"MaxStack":1},"Rows":[
+              {"Name":"Item_Envirosuit","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Envirosuit-DisplayName\", \"Xigo Envirosuit\")","Weight":100},
+              {"Name":"Item_Stone","Weight":0.5}
+            ]}
+            """);
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+
+        Weight(vm).ValueText = "2.5";
+
+        Assert.Null(Weight(vm).Error);
+    }
+
     /// <summary>A review finding: every Library change rebuilt the targets and reloaded the item, dropping a stat added here and not saved yet.</summary>
     [Fact]
     public void AnAddedStat_SurvivesALibraryChange()
