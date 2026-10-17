@@ -250,6 +250,12 @@ public sealed partial class MainViewModel : ObservableObject
             library.OnPageShown();
         }
 
+        // The game may have written newer progress while another page was open.
+        if (CurrentPage is SavesViewModel saves)
+        {
+            saves.OnPageShown();
+        }
+
         // Installs and fixes since it was last shown made new backups.
         if (CurrentPage is SettingsViewModel settings)
         {

@@ -94,6 +94,23 @@ public sealed partial class SavesViewModel : ObservableObject
     private bool _charactersListDirty;
     private bool _mountsListDirty;
 
+    /// <summary>Profile.json fields changed outside the tracked collections (Duplicate character advances NextChrSlot).</summary>
+    private bool _profileFieldsDirty;
+
+    /// <summary>
+    /// Each read file's last-write time and size when this slot was loaded (null: not loaded, or
+    /// unreadable). Compared before every write: if the game rewrote the save since (the user
+    /// played with this page open), writing would put this older copy over the newer progress.
+    /// </summary>
+    private IReadOnlyDictionary<string, SaveFileStamp?>? _loadedStamps;
+
+    /// <summary>Sections whose data couldn't be read this load. Each stays empty and its file is left exactly as it is.</summary>
+    private readonly List<string> _skippedSections = [];
+
+    /// <summary>A quiet note naming the sections that couldn't be read, or null when everything loaded.</summary>
+    [ObservableProperty]
+    private string? _skippedSectionsNote;
+
     private SaveSlot? _lastLoadedSlot;
     private bool _suppressSlotChangeGuard;
 
@@ -156,7 +173,12 @@ public sealed partial class SavesViewModel : ObservableObject
     public WorldSettingsViewModel WorldSettings { get; }
 
     public bool HasUnsavedChanges =>
-        !_loadFailed && (DirtyTrackedCollections.Any(c => c.Any(x => x.IsDirty)) || _metaInventoryDirty || _charactersListDirty || _mountsListDirty);
+        !_loadFailed && (DirtyTrackedCollections.Any(c => c.Any(x => x.IsDirty)) || _metaInventoryDirty || _charactersListDirty || _mountsListDirty || _profileFieldsDirty);
+
+    private bool CharactersDirty => _charactersListDirty || Characters.Any(c => c.IsDirty);
+
+    private bool ProfileDirty =>
+        _profileFieldsDirty || Currencies.Any(c => c.IsDirty) || AccountFlags.Any(f => f.IsDirty) || WorkshopTalents.Any(t => t.IsDirty);
 
     public SavesViewModel(
         ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames,
@@ -352,11 +374,135 @@ public sealed partial class SavesViewModel : ObservableObject
         _pendingSlotLoad = LoadSlotAsync();
     }
 
+    /// <summary>
+    /// Called each time the page is shown (MainViewModel). The game may have saved newer progress
+    /// while another page was open: with nothing unsaved here the slot is simply read again; with
+    /// unsaved edits it only says so (Save refuses anyway, see SaveFilesChangedOnDisk).
+    /// </summary>
+    public void OnPageShown()
+    {
+        if (SelectedSlot is null || !_pendingSlotLoad.IsCompleted || _loadedStamps is null || !SaveFilesChangedOnDisk())
+        {
+            return;
+        }
+
+        if (HasUnsavedChanges)
+        {
+            StatusMessage = "This save changed on disk since it was read (Icarus saved it). Saving is blocked so it can't undo that progress. Reload to see the newer copy; your edits here would be lost.";
+            return;
+        }
+
+        _pendingSlotLoad = ReloadAfterOutsideChangeAsync();
+    }
+
+    private async Task ReloadAfterOutsideChangeAsync()
+    {
+        await LoadSlotAsync();
+        if (!_loadFailed)
+        {
+            StatusMessage = "Read the save again: it changed on disk since this page last showed it.";
+        }
+    }
+
+    /// <summary>Reads the slot from disk again. Unsaved edits are lost, so it asks first when there are some.</summary>
+    [RelayCommand]
+    private void Reload()
+    {
+        if (SelectedSlot is null)
+        {
+            return;
+        }
+
+        if (HasUnsavedChanges && !_dialogService.Confirm(
+                "Read this save from disk again?\n\nYour unsaved edits on this page will be lost.",
+                "Reload save", ThemedConfirmSeverity.Warning))
+        {
+            return;
+        }
+
+        _pendingSlotLoad = LoadSlotAsync();
+    }
+
+    /// <summary>True when a file this page read was rewritten (or created, or deleted) since the load.</summary>
+    private bool SaveFilesChangedOnDisk()
+    {
+        if (SelectedSlot is null || _loadedStamps is null)
+        {
+            return false;
+        }
+
+        IReadOnlyDictionary<string, SaveFileStamp?> now;
+        try
+        {
+            now = _repository.GetFileStamps(SelectedSlot.SteamId);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        return now.Count != _loadedStamps.Count
+            || now.Any(kv => !_loadedStamps.TryGetValue(kv.Key, out var then) || !Equals(then, kv.Value));
+    }
+
+    /// <summary>Save found newer files on disk: nothing is written. Offers to read them (losing the edits here).</summary>
+    private void RefuseStaleSave()
+    {
+        var reload = _dialogService.Confirm(
+            "This save changed on disk after it was read here, most likely because Icarus saved while you played. "
+            + "Saving now would put the older copy back and undo that progress, so nothing was written.\n\n"
+            + "Read the newer save now? Your unsaved edits on this page will be lost.",
+            "Save changed on disk", ThemedConfirmSeverity.Warning);
+        if (reload)
+        {
+            _pendingSlotLoad = LoadSlotAsync();
+            return;
+        }
+
+        StatusMessage = "Not saved: the save changed on disk since it was read. Reload to see the newer copy (your edits here would be lost).";
+    }
+
     /// <summary>Test seam only — see _pendingSlotLoad's own doc comment for why this exists.</summary>
     internal Task WaitForPendingSlotLoadAsync() => _pendingSlotLoad;
 
     /// <summary>Test seam only — see _pendingIconLoad's own doc comment for why this exists.</summary>
     internal Task WaitForPendingIconLoadAsync() => _pendingIconLoad;
+
+    /// <summary>One file's load result: its value, or why it couldn't be read (that section is then skipped, not the slot).</summary>
+    private readonly record struct Loaded<T>(T? Value, Exception? Error)
+    {
+        public T Require() => Error is null ? Value! : throw Error;
+    }
+
+    private static Loaded<T> TryLoad<T>(Func<T> load)
+    {
+        try
+        {
+            return new Loaded<T>(load(), null);
+        }
+        catch (Exception ex)
+        {
+            return new Loaded<T>(default, ex);
+        }
+    }
+
+    /// <summary>
+    /// Builds one section; if its data can't be read (a game update changed a field's shape, a file
+    /// is damaged), resets it to empty and names it in SkippedSectionsNote instead of failing the
+    /// whole slot. An empty section is never dirty, so its file is left exactly as it is on Save.
+    /// </summary>
+    private void LoadSection(string name, Action build, Action reset)
+    {
+        try
+        {
+            build();
+        }
+        catch (Exception)
+        {
+            reset();
+            _skippedSections.Add(name);
+        }
+    }
 
     private async Task LoadSlotAsync()
     {
@@ -365,6 +511,7 @@ public sealed partial class SavesViewModel : ObservableObject
         Backups.Clear();
         BinaryFlags.Clear();
         AccountFlags.Clear();
+        WorkshopTalents.Clear();
         Accolades.Clear();
         BestiaryEntries.Clear();
         MetaInventoryItems.Clear();
@@ -379,6 +526,10 @@ public sealed partial class SavesViewModel : ObservableObject
         _mountsRoot = null;
         _charactersListDirty = false;
         _mountsListDirty = false;
+        _profileFieldsDirty = false;
+        _loadedStamps = null;
+        _skippedSections.Clear();
+        SkippedSectionsNote = null;
         SelectedCharacter = null;
 
         // Bumped here, not just once icons are actually about to be queued below — a slot switch
@@ -388,12 +539,16 @@ public sealed partial class SavesViewModel : ObservableObject
 
         _lastLoadedSlot = SelectedSlot;
         _loadFailed = false;
-        WorldSettings.Reload();
+
+        // Started before the await below, so the world files (often many MB each) are parsed on a
+        // background thread alongside the player files instead of on the UI thread first.
+        var worldsLoad = WorldSettings.ReloadAsync();
 
         if (SelectedSlot is null)
         {
             LastBackupDisplay = null;
             RefreshFlagFilter();
+            await worldsLoad;
             return;
         }
 
@@ -406,67 +561,123 @@ public sealed partial class SavesViewModel : ObservableObject
 
         try
         {
-            // The five real JSON files a slot load reads (worse for a character-heavy save), off
-            // the UI thread — same reasoning LibraryViewModel.CheckModsAgainstCurrentDataAsync
-            // already applies to its own whole-library diff pass. Every ObservableCollection
+            // The real JSON files a slot load reads, off the UI thread. Stamps are taken FIRST: a
+            // write that lands between stamping and reading then looks like a change at Save time
+            // (a needless refusal) rather than slipping through unnoticed. Each file is read on its
+            // own, so one unreadable file only hides its own section. Every ObservableCollection
             // mutation below still runs back on this (UI) thread, since that's not safe off it.
-            var (profile, characterNodes, accoladesRoot, bestiaryRoot, metaInventoryRoot, mountsRoot) = await Task.Run(() => (
-                _repository.LoadProfile(steamId),
-                _repository.LoadCharacters(steamId),
-                _repository.LoadAccolades(steamId),
-                _repository.LoadBestiary(steamId),
-                _repository.LoadMetaInventory(steamId),
-                _repository.LoadMounts(steamId)));
+            var files = await Task.Run(() => (
+                Stamps: TryLoad(() => _repository.GetFileStamps(steamId)),
+                Profile: _repository.LoadProfile(steamId),
+                Characters: TryLoad(() => _repository.LoadCharacters(steamId)),
+                Accolades: TryLoad(() => _repository.LoadAccolades(steamId)),
+                Bestiary: TryLoad(() => _repository.LoadBestiary(steamId)),
+                MetaInventory: TryLoad(() => _repository.LoadMetaInventory(steamId)),
+                Mounts: TryLoad(() => _repository.LoadMounts(steamId))));
 
             if (!ReferenceEquals(SelectedSlot, slotBeingLoaded))
             {
                 return;
             }
 
-            _profile = profile;
-            _characterNodes = [.. characterNodes];
+            _loadedStamps = files.Stamps.Value;
+            _profile = files.Profile;
 
-            foreach (var node in _characterNodes)
+            LoadSection("characters", () =>
             {
-                Characters.Add(new SaveCharacterViewModel(node, _gameNames, NotifyDirtyChanged));
-            }
-
-            if (_profile["MetaResources"] is JsonArray resources)
-            {
-                foreach (var resource in resources.OfType<JsonObject>())
+                _characterNodes = [.. files.Characters.Require()];
+                foreach (var node in _characterNodes)
                 {
-                    var key = resource["MetaRow"]?.GetValue<string>() ?? "?";
-                    Currencies.Add(new SaveCurrencyViewModel(resource, CurrencyLabels.GetValueOrDefault(key, key), NotifyDirtyChanged));
+                    Characters.Add(new SaveCharacterViewModel(node, _gameNames, NotifyDirtyChanged));
                 }
-            }
+            }, () =>
+            {
+                Characters.Clear();
+                _characterNodes = [];
+            });
 
-            BuildAccountFlags();
-            BuildBinaryFlags();
-            BuildWorkshopTalents();
+            LoadSection("currencies", () =>
+            {
+                if (_profile["MetaResources"] is JsonArray resources)
+                {
+                    foreach (var resource in resources.OfType<JsonObject>())
+                    {
+                        var key = SaveJson.String(resource["MetaRow"]) ?? "?";
+                        Currencies.Add(new SaveCurrencyViewModel(resource, CurrencyLabels.GetValueOrDefault(key, key), NotifyDirtyChanged));
+                    }
+                }
+            }, Currencies.Clear);
 
-            _accoladesRoot = accoladesRoot;
-            BuildAccolades();
-            _bestiaryRoot = bestiaryRoot;
-            BuildBestiaryEntries();
-            _metaInventoryRoot = metaInventoryRoot;
-            BuildMetaInventoryItems();
-            _mountsRoot = mountsRoot;
-            BuildMounts();
+            LoadSection("account flags", BuildAccountFlags, AccountFlags.Clear);
+            LoadSection("unlocks (flags file)", BuildBinaryFlags, () =>
+            {
+                BinaryFlags.Clear();
+                _binaryFlagIds = null;
+                OnPropertyChanged(nameof(HasBinaryFlags));
+            });
+            LoadSection("workshop research", BuildWorkshopTalents, WorkshopTalents.Clear);
+
+            LoadSection("accolades", () =>
+            {
+                _accoladesRoot = files.Accolades.Require();
+                BuildAccolades();
+            }, () =>
+            {
+                _accoladesRoot = null;
+                Accolades.Clear();
+                RefreshAccoladeFilter();
+            });
+            LoadSection("bestiary", () =>
+            {
+                _bestiaryRoot = files.Bestiary.Require();
+                BuildBestiaryEntries();
+            }, () =>
+            {
+                _bestiaryRoot = null;
+                BestiaryEntries.Clear();
+                RefreshBestiaryFilter();
+            });
+            LoadSection("items", () =>
+            {
+                _metaInventoryRoot = files.MetaInventory.Require();
+                BuildMetaInventoryItems();
+            }, () =>
+            {
+                _metaInventoryRoot = null;
+                MetaInventoryItems.Clear();
+                RefreshItemFilter();
+            });
+            LoadSection("mounts", () =>
+            {
+                _mountsRoot = files.Mounts.Require();
+                BuildMounts();
+            }, () =>
+            {
+                _mountsRoot = null;
+                Mounts.Clear();
+                RefreshMountFilter();
+            });
 
             QueueIconResolution();
 
             SelectedCharacter = Characters.FirstOrDefault();
             RefreshBackupsList();
             StatusMessage = null;
+            SkippedSectionsNote = _skippedSections.Count == 0
+                ? null
+                : $"Couldn't read: {string.Join(", ", _skippedSections)}. Those parts are hidden and their files are left exactly as they are when you save.";
         }
         catch (Exception ex)
         {
             // A load that threw partway left a half-populated but fully SAVEABLE state (an audit
             // finding): Save rebuilt Profile.json's Talents/UnlockedFlags from the (empty)
             // collections and wiped the account's research. Nothing from a failed load is writable.
+            // Only Profile.json itself (or the backups list) gets here now; every other section
+            // skips itself (LoadSection).
             _loadFailed = true;
             _profile = null;
             _characterNodes = [];
+            _loadedStamps = null;
             StatusMessage = $"Couldn't read this save: {ex.Message}";
         }
 
@@ -474,6 +685,7 @@ public sealed partial class SavesViewModel : ObservableObject
         // leaves it null (unchanged), so the account and binary flags kept the previous slot's.
         RefreshFlagFilter();
         OnPropertyChanged(nameof(HasUnsavedChanges));
+        await worldsLoad;
     }
 
     private void NotifyDirtyChanged() => OnPropertyChanged(nameof(HasUnsavedChanges));
@@ -481,9 +693,7 @@ public sealed partial class SavesViewModel : ObservableObject
     private void BuildAccountFlags()
     {
         AccountFlags.Clear();
-        var unlocked = _profile?["UnlockedFlags"] is JsonArray array
-            ? array.Select(n => n?.GetValue<int>() ?? -1).Where(i => i >= 0).ToHashSet()
-            : [];
+        var unlocked = SaveJson.IdArray(_profile?["UnlockedFlags"]).ToHashSet();
         foreach (var id in SaveFlagIds.KnownThenExtra(_gameNames.AccountFlagNames.Count, unlocked))
         {
             AccountFlags.Add(new SaveFlagViewModel(id, _gameNames.AccountFlagName(id), unlocked.Contains(id), NotifyDirtyChanged));
@@ -540,9 +750,9 @@ public sealed partial class SavesViewModel : ObservableObject
         {
             foreach (var entry in talentArray.OfType<JsonObject>())
             {
-                if (entry["RowName"]?.GetValue<string>() is { } rowName)
+                if (SaveJson.String(entry["RowName"]) is { } rowName)
                 {
-                    ranks[rowName] = entry["Rank"]?.GetValue<int>() ?? 0;
+                    ranks[rowName] = SaveJson.Int(entry["Rank"]) ?? 0;
                 }
             }
         }
@@ -585,7 +795,7 @@ public sealed partial class SavesViewModel : ObservableObject
         Accolades.Clear();
         var completed = _accoladesRoot?["CompletedAccolades"] is JsonArray array
             ? array.OfType<JsonObject>()
-                .Select(entry => entry["Accolade"]?["RowName"]?.GetValue<string>())
+                .Select(entry => SaveJson.String((entry["Accolade"] as JsonObject)?["RowName"]))
                 .Where(name => name is not null)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase)!
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -631,9 +841,9 @@ public sealed partial class SavesViewModel : ObservableObject
         {
             foreach (var entry in array.OfType<JsonObject>())
             {
-                if (entry["BestiaryGroup"]?["RowName"]?.GetValue<string>() is { } rowName)
+                if (SaveJson.String((entry["BestiaryGroup"] as JsonObject)?["RowName"]) is { } rowName)
                 {
-                    points[rowName] = entry["NumPoints"]?.GetValue<int>() ?? 0;
+                    points[rowName] = SaveJson.Int(entry["NumPoints"]) ?? 0;
                 }
             }
         }
@@ -672,7 +882,7 @@ public sealed partial class SavesViewModel : ObservableObject
             {
                 // Kept exactly as the game wrote it (TimeCompleted/ProspectID preserved) — only
                 // whether it stays in the list changes here, never its own fields.
-                if (entry["Accolade"]?["RowName"]?.GetValue<string>() is { } rowName && nowCompleted.Contains(rowName))
+                if (SaveJson.String((entry["Accolade"] as JsonObject)?["RowName"]) is { } rowName && nowCompleted.Contains(rowName))
                 {
                     newArray.Add(entry.DeepClone());
                 }
@@ -680,7 +890,7 @@ public sealed partial class SavesViewModel : ObservableObject
         }
 
         var alreadyWritten = newArray.OfType<JsonObject>()
-            .Select(e => e["Accolade"]?["RowName"]?.GetValue<string>())
+            .Select(e => SaveJson.String((e["Accolade"] as JsonObject)?["RowName"]))
             .Where(n => n is not null)
             .ToHashSet(StringComparer.OrdinalIgnoreCase)!;
         foreach (var accolade in Accolades)
@@ -749,7 +959,7 @@ public sealed partial class SavesViewModel : ObservableObject
         {
             foreach (var entry in array.OfType<JsonObject>())
             {
-                var rowName = entry["ItemStaticData"]?["RowName"]?.GetValue<string>() ?? "?";
+                var rowName = SaveJson.String((entry["ItemStaticData"] as JsonObject)?["RowName"]) ?? "?";
                 var info = _gameNames.Items.GetValueOrDefault(rowName);
                 MetaInventoryItems.Add(new SaveInventoryItemViewModel(entry, info?.DisplayName ?? rowName, rowName, info?.Weight ?? 0, info?.MaxStack ?? 1, info?.IconPath));
             }
@@ -803,28 +1013,19 @@ public sealed partial class SavesViewModel : ObservableObject
     private void RefreshMountFilter() =>
         RefreshFilter(Mounts, FilteredMounts, MountSearchText, null, m => m.Name, m => m.TypeDisplayName);
 
-    /// <summary>Name/Level/Type only — RecorderBlob (the mount's real stats/stomach/saddle state, a raw Unreal binary blob, not JSON) is preserved untouched on each mount's own live Node. See SaveMountViewModel's own doc comment for why a mount has no natural key to rebuild an array by, unlike Bestiary/Accolades.</summary>
+    /// <summary>Name/Level editable, Type shown only — RecorderBlob (the mount's real stats/stomach/saddle state, a raw Unreal binary blob, not JSON) is preserved untouched on each mount's own live Node. See SaveMountViewModel's own doc comment for why a mount has no natural key to rebuild an array by, unlike Bestiary/Accolades.</summary>
     private void BuildMounts()
     {
         Mounts.Clear();
-        var availableTypes = _gameNames.MountTypeRowNames;
         if (_mountsRoot?["SavedMounts"] is JsonArray array)
         {
             foreach (var entry in array.OfType<JsonObject>())
             {
-                var name = entry["MountName"]?.GetValue<string>() ?? "";
-                var level = entry["MountLevel"]?.GetValue<int>() ?? 0;
-                var typeRowName = entry["MountType"]?.GetValue<string>() ?? "";
-                // Guarantee the mount's own current type is always in its own picker list — the
-                // game data folder may not be extracted yet (empty availableTypes) or may no
-                // longer carry this exact row, and the value should stay visible either way,
-                // matching how a talent rank above its documented cap is kept as-is rather than
-                // silently dropped.
-                var typesForThisMount = availableTypes.Contains(typeRowName) || typeRowName.Length == 0
-                    ? availableTypes
-                    : [.. availableTypes, typeRowName];
+                var name = SaveJson.String(entry["MountName"]) ?? "";
+                var level = SaveJson.Int(entry["MountLevel"]) ?? 0;
+                var typeRowName = SaveJson.String(entry["MountType"]) ?? "";
                 var iconPath = _gameNames.MountTypeIcons.GetValueOrDefault(typeRowName);
-                Mounts.Add(new SaveMountViewModel(entry, name, level, typeRowName, typesForThisMount, iconPath, NotifyDirtyChanged));
+                Mounts.Add(new SaveMountViewModel(entry, name, level, typeRowName, iconPath, NotifyDirtyChanged));
             }
         }
 
@@ -970,7 +1171,12 @@ public sealed partial class SavesViewModel : ObservableObject
         }
     }
 
-    /// <summary>Writes AccountFlags/WorkshopTalents back into the profile node — the profile-level counterpart of SaveCharacterViewModel.ApplyToNode, same minimal-diff rules.</summary>
+    /// <summary>
+    /// Writes AccountFlags/WorkshopTalents back into the profile node — the profile-level
+    /// counterpart of SaveCharacterViewModel.ApplyToNode, same minimal-diff rules. Each list is
+    /// rebuilt only when it was edited, so a section that couldn't be read (empty, see LoadSection)
+    /// can never wipe the save's own list.
+    /// </summary>
     private void ApplyProfileEdits()
     {
         if (_profile is null)
@@ -978,9 +1184,20 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        var originallyUnlocked = _profile["UnlockedFlags"] is JsonArray array
-            ? array.Select(n => n?.GetValue<int>() ?? -1).Where(i => i >= 0).ToList()
-            : [];
+        if (AccountFlags.Any(f => f.IsDirty))
+        {
+            ApplyAccountFlagEdits(_profile);
+        }
+
+        if (WorkshopTalents.Any(t => t.IsDirty))
+        {
+            ApplyWorkshopTalentEdits(_profile);
+        }
+    }
+
+    private void ApplyAccountFlagEdits(JsonObject profile)
+    {
+        var originallyUnlocked = SaveJson.IdArray(profile["UnlockedFlags"]);
         var nowUnlocked = AccountFlags.Where(f => f.IsUnlocked).Select(f => f.Id).ToHashSet();
         var flagArray = new JsonArray();
         foreach (var id in originallyUnlocked.Where(nowUnlocked.Contains))
@@ -993,16 +1210,19 @@ public sealed partial class SavesViewModel : ObservableObject
             flagArray.Add(id);
         }
 
-        _profile["UnlockedFlags"] = flagArray;
+        profile["UnlockedFlags"] = flagArray;
+    }
 
+    private void ApplyWorkshopTalentEdits(JsonObject profile)
+    {
         var byRow = WorkshopTalents.ToDictionary(t => t.RowName, t => t.Rank, StringComparer.OrdinalIgnoreCase);
         var talentArrayNew = new JsonArray();
         var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (_profile["Talents"] is JsonArray existing)
+        if (profile["Talents"] is JsonArray existing)
         {
             foreach (var entry in existing.OfType<JsonObject>())
             {
-                if (entry["RowName"]?.GetValue<string>() is { } rowName && byRow.GetValueOrDefault(rowName) > 0)
+                if (SaveJson.String(entry["RowName"]) is { } rowName && byRow.GetValueOrDefault(rowName) > 0)
                 {
                     talentArrayNew.Add(new JsonObject { ["RowName"] = rowName, ["Rank"] = byRow[rowName] });
                     written.Add(rowName);
@@ -1018,7 +1238,7 @@ public sealed partial class SavesViewModel : ObservableObject
             }
         }
 
-        _profile["Talents"] = talentArrayNew;
+        profile["Talents"] = talentArrayNew;
     }
 
     private void RefreshBackupsList()
@@ -1092,7 +1312,7 @@ public sealed partial class SavesViewModel : ObservableObject
         _charactersListDirty = true;
         SelectedCharacter = newCharacter;
         NotifyDirtyChanged();
-        StatusMessage = $"Duplicated '{character.Name}' as '{newName}' (slot {clone["ChrSlot"]!.GetValue<int>()}) — click Save player data to make it permanent.";
+        StatusMessage = $"Duplicated '{character.Name}' as '{newName}' (slot {SaveJson.Int(clone["ChrSlot"])}) — click Save player data to make it permanent.";
     }
 
     /// <summary>
@@ -1106,8 +1326,8 @@ public sealed partial class SavesViewModel : ObservableObject
     /// </summary>
     private int AllocateNextChrSlot()
     {
-        var used = _characterNodes.Select(n => n["ChrSlot"]?.GetValue<int>() ?? -1).Where(id => id >= 0).ToHashSet();
-        var candidate = _profile?["NextChrSlot"]?.GetValue<int>() ?? (used.Count == 0 ? 0 : used.Max() + 1);
+        var used = _characterNodes.Select(n => SaveJson.Int(n["ChrSlot"]) ?? -1).Where(id => id >= 0).ToHashSet();
+        var candidate = SaveJson.Int(_profile?["NextChrSlot"]) ?? (used.Count == 0 ? 0 : used.Max() + 1);
         while (used.Contains(candidate))
         {
             candidate++;
@@ -1116,6 +1336,7 @@ public sealed partial class SavesViewModel : ObservableObject
         if (_profile is not null)
         {
             _profile["NextChrSlot"] = candidate + 1;
+            _profileFieldsDirty = true;
         }
 
         return candidate;
@@ -1254,6 +1475,14 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
+        // The page is a singleton that read the save once: if the user played since, writing now
+        // would put that older copy over their newer progress (a review finding).
+        if (SaveFilesChangedOnDisk())
+        {
+            RefuseStaleSave();
+            return;
+        }
+
         // Via IDialogService, not ThemedMessageBox.Show directly — same reasoning as
         // RestoreBackupAsync's own confirm: this method's real write needs to be testable without
         // a live WPF Dispatcher, including the late re-check immediately below.
@@ -1267,12 +1496,17 @@ public sealed partial class SavesViewModel : ObservableObject
 
         try
         {
-            foreach (var character in Characters)
+            // Each file is written only when its own section changed: Characters.json for the
+            // characters, Profile.json for currencies, account flags, workshop research (and the
+            // NextChrSlot a duplicate advances). Only edited characters/currencies touch their nodes.
+            var writeCharacters = CharactersDirty;
+            var writeProfile = ProfileDirty;
+            foreach (var character in Characters.Where(c => c.IsDirty))
             {
                 character.ApplyToNode();
             }
 
-            foreach (var currency in Currencies)
+            foreach (var currency in Currencies.Where(c => c.IsDirty))
             {
                 currency.ApplyToNode();
             }
@@ -1293,6 +1527,13 @@ public sealed partial class SavesViewModel : ObservableObject
                 return;
             }
 
+            // Same late re-check for an outside write while the confirm dialog was up.
+            if (SaveFilesChangedOnDisk())
+            {
+                RefuseStaleSave();
+                return;
+            }
+
             // ONE backup for the whole save pass, taken up front — every SaveXxx call below passes
             // takeBackup: false. A single click used to be able to zip the same slot up to 6 times
             // back-to-back (Characters/Profile always, plus BinaryFlags/Accolades/Bestiary/
@@ -1302,8 +1543,16 @@ public sealed partial class SavesViewModel : ObservableObject
 
             // Characters first, then profile — keeps write ORDER consistent with before, even
             // though backup ordering no longer matters now that there's just the one upfront zip.
-            _repository.SaveCharacters(SelectedSlot.SteamId, _characterNodes, takeBackup: false);
-            _repository.SaveProfile(SelectedSlot.SteamId, _profile!, takeBackup: false);
+            if (writeCharacters)
+            {
+                _repository.SaveCharacters(SelectedSlot.SteamId, _characterNodes, takeBackup: false);
+            }
+
+            if (writeProfile)
+            {
+                _repository.SaveProfile(SelectedSlot.SteamId, _profile!, takeBackup: false);
+                _profileFieldsDirty = false;
+            }
 
             // The binary flags file is written only when actually edited — same minimal-diff
             // philosophy as the JSON arrays: the file's own ordering is kept for flags that stay
@@ -1358,11 +1607,17 @@ public sealed partial class SavesViewModel : ObservableObject
                 }
             }
 
-            // Characters (unlike Mounts above) always writes unconditionally via _characterNodes,
-            // so no write-gating is needed for _charactersListDirty — it only ever gated whether
-            // the Save button itself was enabled, so it's cleared here alongside every other
-            // dirty-tracking reset now that the write has actually happened.
             _charactersListDirty = false;
+
+            // These writes changed the files' stamps; the new ones are the baseline for the next Save.
+            try
+            {
+                _loadedStamps = _repository.GetFileStamps(SelectedSlot.SteamId);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _loadedStamps = null;
+            }
 
             OnPropertyChanged(nameof(HasUnsavedChanges));
             RefreshBackupsList();

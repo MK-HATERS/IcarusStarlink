@@ -6,6 +6,9 @@ public sealed record SaveSlot(string SteamId, string FolderPath, string? Persona
     public string Display => PersonaName is null ? SteamId : $"{PersonaName} ({SteamId})";
 }
 
+/// <summary>A file's last-write time and size: enough to tell that something rewrote it.</summary>
+public sealed record SaveFileStamp(DateTime LastWriteTimeUtc, long Length);
+
 /// <summary>One backup zip of a whole slot, newest-first in listings.</summary>
 public sealed record SaveBackupInfo(string FilePath, DateTimeOffset TakenAtUtc)
 {

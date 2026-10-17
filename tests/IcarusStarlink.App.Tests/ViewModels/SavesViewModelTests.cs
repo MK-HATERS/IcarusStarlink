@@ -556,6 +556,238 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.Contains("running", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
     }
 
+    // --- Played with the page open: the save changed on disk after it was read ---
+
+    private static void SimulateGameSaved(FakeSaveRepository repository, string newName)
+    {
+        repository.Characters = [MakeCharacter(newName, 0)];
+        repository.Stamps["Characters.json"] = new SaveFileStamp(new DateTime(2026, 2, 2, 0, 0, 0, DateTimeKind.Utc), 999);
+    }
+
+    /// <summary>The review finding: Save wrote the pre-play copy over newer progress. Now it refuses, and (when the user agrees) reads the newer save.</summary>
+    [Fact]
+    public async Task SaveChangesCommand_SaveChangedOnDiskSinceLoad_WritesNothingAndReloads()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository, dialogService: new FakeDialogService(confirmResult: true));
+        await vm.WaitForPendingSlotLoadAsync();
+
+        vm.Characters.Single().Name = "Edited";
+        SimulateGameSaved(repository, "AfterPlaying");
+        vm.SaveChangesCommand.Execute(null);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        Assert.Equal(0, repository.SaveCharactersCallCount);
+        Assert.Equal(0, repository.SaveProfileCallCount);
+        Assert.Equal(0, repository.BackupSlotCallCount);
+        Assert.Equal("AfterPlaying", vm.Characters.Single().Name);
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task SaveChangesCommand_SaveChangedOnDisk_ReloadDeclined_KeepsTheEditsAndWritesNothing()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository, dialogService: new FakeDialogService(confirmResult: false));
+        await vm.WaitForPendingSlotLoadAsync();
+
+        vm.Characters.Single().Name = "Edited";
+        SimulateGameSaved(repository, "AfterPlaying");
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal(0, repository.SaveCharactersCallCount);
+        Assert.Equal("Edited", vm.Characters.Single().Name);
+        Assert.True(vm.HasUnsavedChanges);
+        Assert.Contains("changed on disk", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task OnPageShown_SaveChangedOnDisk_NothingUnsaved_ReadsItAgain()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        vm.OnPageShown();
+        await vm.WaitForPendingSlotLoadAsync();
+        Assert.Equal("Alpha", vm.Characters.Single().Name);
+
+        SimulateGameSaved(repository, "AfterPlaying");
+        vm.OnPageShown();
+        await vm.WaitForPendingSlotLoadAsync();
+
+        Assert.Equal("AfterPlaying", vm.Characters.Single().Name);
+    }
+
+    [Fact]
+    public async Task OnPageShown_SaveChangedOnDisk_WithUnsavedEdits_KeepsThemAndSaysSo()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        vm.Characters.Single().Name = "Edited";
+        SimulateGameSaved(repository, "AfterPlaying");
+        vm.OnPageShown();
+        await vm.WaitForPendingSlotLoadAsync();
+
+        Assert.Equal("Edited", vm.Characters.Single().Name);
+        Assert.Contains("changed on disk", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task SaveChangesCommand_AfterASave_TheNextSaveIsNotMistakenForAnOutsideChange()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        // Our own write changes the file's stamp; the page must take the new one as its baseline.
+        repository.BumpStampOnWrite = true;
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        vm.Characters.Single().Name = "One";
+        vm.SaveChangesCommand.Execute(null);
+        vm.Characters.Single().Name = "Two";
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal(2, repository.SaveCharactersCallCount);
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task ReloadCommand_WithUnsavedEdits_AsksFirstAndReadsTheSaveAgain()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var dialogService = new FakeDialogService(confirmResult: true);
+        var vm = CreateViewModel(repository, dialogService: dialogService);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        vm.Characters.Single().Name = "Edited";
+        vm.ReloadCommand.Execute(null);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        Assert.Equal(1, dialogService.ConfirmCallCount);
+        Assert.Equal("Alpha", vm.Characters.Single().Name);
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    // --- Each file is written only when its own section changed ---
+
+    [Fact]
+    public async Task SaveChangesCommand_OnlyACharacterEdited_WritesCharactersNotProfile()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        vm.Characters.Single().Name = "Edited";
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal(1, repository.SaveCharactersCallCount);
+        Assert.Equal(0, repository.SaveProfileCallCount);
+    }
+
+    [Fact]
+    public async Task SaveChangesCommand_OnlyACurrencyEdited_WritesProfileNotCharacters()
+    {
+        var profile = MakeProfile(nextChrSlot: 1);
+        profile["MetaResources"] = new JsonArray(new JsonObject { ["MetaRow"] = "Credits", ["Count"] = 100 });
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = profile };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        vm.Currencies.Single().CountText = "250";
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal(0, repository.SaveCharactersCallCount);
+        Assert.Equal(1, repository.SaveProfileCallCount);
+        Assert.Equal(250, repository.Profile["MetaResources"]![0]!["Count"]!.GetValue<long>());
+    }
+
+    [Fact]
+    public async Task SaveChangesCommand_AfterDuplicate_WritesProfileTooForTheAdvancedNextChrSlot()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        vm.DuplicateCharacterCommand.Execute(vm.Characters.Single());
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal(1, repository.SaveCharactersCallCount);
+        Assert.Equal(1, repository.SaveProfileCallCount);
+        Assert.Equal(2, repository.Profile["NextChrSlot"]!.GetValue<int>());
+    }
+
+    // --- Tolerant reads: a changed field shape hides one section, not the slot ---
+
+    [Fact]
+    public async Task LoadSlot_NumbersAndBoolsInOtherShapes_StillRead()
+    {
+        var character = MakeCharacter("Alpha", 0);
+        character["XP"] = 1500.0;
+        character["ChrSlot"] = "0";
+        character["IsDead"] = 1;
+        var profile = MakeProfile(nextChrSlot: 1);
+        profile["UnlockedFlags"] = new JsonArray(3.0, "4", 5);
+        var repository = new FakeSaveRepository
+        {
+            Characters = [character],
+            Profile = profile,
+            Mounts = MakeMountsRoot(new JsonObject { ["MountName"] = "Rex", ["MountLevel"] = "7", ["MountType"] = "Wolf" }),
+        };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        var loaded = vm.Characters.Single();
+        Assert.Equal("1500", loaded.XpText);
+        Assert.True(loaded.IsDead);
+        Assert.Equal("7", vm.Mounts.Single().LevelText);
+        Assert.Equal([3, 4, 5], vm.AccountFlags.Where(f => f.IsUnlocked).Select(f => f.Id));
+        Assert.Null(vm.SkippedSectionsNote);
+    }
+
+    [Fact]
+    public async Task LoadSlot_OneUnreadableFile_HidesOnlyThatSection_AndSaveLeavesItAlone()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            MountsLoadError = new FormatException("Mounts.json isn't a JSON object."),
+        };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        Assert.Single(vm.Characters);
+        Assert.Empty(vm.Mounts);
+        Assert.Contains("mounts", vm.SkippedSectionsNote);
+        Assert.Null(vm.StatusMessage);
+
+        vm.Characters.Single().Name = "Edited";
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal(1, repository.SaveCharactersCallCount);
+        Assert.Equal(0, repository.SaveMountsCallCount);
+    }
+
+    /// <summary>Profile.json lists are rebuilt only when edited: a section that failed to load (empty) or simply wasn't touched keeps the save's own list exactly (here, a duplicate entry a rebuild would merge).</summary>
+    [Fact]
+    public async Task SaveChangesCommand_CurrencyEdited_LeavesTheResearchListExactlyAsItWas()
+    {
+        var profile = MakeProfile(nextChrSlot: 1);
+        profile["MetaResources"] = new JsonArray(new JsonObject { ["MetaRow"] = "Credits", ["Count"] = 100 });
+        var research = new JsonArray(new JsonObject { ["RowName"] = "Workshop_Envirosuit", ["Rank"] = 1 }, new JsonObject { ["RowName"] = "Workshop_Envirosuit", ["Rank"] = 1 });
+        profile["Talents"] = research;
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = profile };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        vm.Currencies.Single().CountText = "250";
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal(2, repository.Profile["Talents"]!.AsArray().Count);
+    }
+
     private sealed class FakeSaveRepository : ISaveRepository
     {
         public SaveSlot Slot { get; set; } = new(SteamId, $@"C:\fake\PlayerData\{SteamId}", "Tester");
@@ -569,7 +801,17 @@ public sealed class SavesViewModelTests : IDisposable
         public IReadOnlyList<int>? BinaryFlags { get; set; }
 
         public int SaveCharactersCallCount { get; private set; }
+        public int SaveProfileCallCount { get; private set; }
+        public int SaveMountsCallCount { get; private set; }
         public int BackupSlotCallCount { get; private set; }
+
+        /// <summary>What GetFileStamps returns; a test changes it to stand in for the game rewriting a file.</summary>
+        public Dictionary<string, SaveFileStamp?> Stamps { get; set; } = new() { ["Profile.json"] = new(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), 100) };
+
+        /// <summary>When set, LoadMounts throws it (an unreadable Mounts.json).</summary>
+        public Exception? MountsLoadError { get; set; }
+
+        public IReadOnlyDictionary<string, SaveFileStamp?> GetFileStamps(string steamId) => new Dictionary<string, SaveFileStamp?>(Stamps);
         public int RestoreSlotCallCount { get; private set; }
         public IReadOnlyList<JsonObject>? LastSavedCharacters { get; private set; }
         public JsonObject? LastSavedMounts { get; private set; }
@@ -582,13 +824,22 @@ public sealed class SavesViewModelTests : IDisposable
 
         public string? SaveProfile(string steamId, JsonObject profile, bool takeBackup = true)
         {
+            SaveProfileCallCount++;
             Profile = profile;
             return null;
         }
 
+        /// <summary>SaveCharacters changes the Characters.json stamp, like a real write does.</summary>
+        public bool BumpStampOnWrite { get; set; }
+
         public string? SaveCharacters(string steamId, IReadOnlyList<JsonObject> characters, bool takeBackup = true)
         {
             SaveCharactersCallCount++;
+            if (BumpStampOnWrite)
+            {
+                Stamps["Characters.json"] = new SaveFileStamp(DateTime.UtcNow, SaveCharactersCallCount);
+            }
+
             LastSavedCharacters = characters;
             return null;
         }
@@ -617,10 +868,11 @@ public sealed class SavesViewModelTests : IDisposable
             return null;
         }
 
-        public JsonObject LoadMounts(string steamId) => Mounts;
+        public JsonObject LoadMounts(string steamId) => MountsLoadError is { } error ? throw error : Mounts;
 
         public string? SaveMounts(string steamId, JsonObject mounts, bool takeBackup = true)
         {
+            SaveMountsCallCount++;
             LastSavedMounts = mounts;
             Mounts = mounts;
             return null;
@@ -651,14 +903,15 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
-    private sealed class FakeDialogService(bool confirmResult) : IDialogService
+    /// <summary>Answers confirmResult to every question, or the given answers in order (then the last one again).</summary>
+    private sealed class FakeDialogService(bool confirmResult, params bool[] answers) : IDialogService
     {
         public int ConfirmCallCount { get; private set; }
 
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {
             ConfirmCallCount++;
-            return confirmResult;
+            return answers.Length == 0 ? confirmResult : answers[Math.Min(ConfirmCallCount - 1, answers.Length - 1)];
         }
 
         public RenamePromptResult PromptRename(

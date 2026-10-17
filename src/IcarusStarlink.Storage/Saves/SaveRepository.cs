@@ -287,6 +287,19 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
             .OrderByDescending(b => b.TakenAtUtc)];
     }
 
+    public IReadOnlyDictionary<string, SaveFileStamp?> GetFileStamps(string steamId)
+    {
+        var slotFolder = ResolveSlot(steamId);
+        var stamps = new Dictionary<string, SaveFileStamp?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var fileName in new[] { ProfileFileName, CharactersFileName, AccoladesFileName, BestiaryFileName, MetaInventoryFileName, MountsFileName, $"flags_{steamId}.dat" })
+        {
+            var info = new FileInfo(Path.Combine(slotFolder, fileName));
+            stamps[fileName] = info.Exists ? new SaveFileStamp(info.LastWriteTimeUtc, info.Length) : null;
+        }
+
+        return stamps;
+    }
+
     public string RestoreSlot(string steamId, string backupFilePath)
     {
         if (!File.Exists(backupFilePath))

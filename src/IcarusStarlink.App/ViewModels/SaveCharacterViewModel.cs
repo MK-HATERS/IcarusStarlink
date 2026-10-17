@@ -66,14 +66,14 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
     {
         _node = node;
         _onDirtyChanged = onDirtyChanged;
-        _originalName = node["CharacterName"]?.GetValue<string>() ?? "";
-        _originalXp = node["XP"] is JsonValue xp && xp.TryGetValue<long>(out var xpValue) ? xpValue : 0;
+        _originalName = SaveJson.String(node["CharacterName"]) ?? "";
+        _originalXp = SaveJson.Long(node["XP"]) ?? 0;
         _name = _originalName;
         _xpText = _originalXp.ToString();
-        ChrSlot = node["ChrSlot"]?.GetValue<int>() ?? 0;
-        Location = node["Location"]?.GetValue<string>() ?? "";
-        IsDead = node["IsDead"]?.GetValue<bool>() ?? false;
-        _originalIsMale = node["Cosmetic"]?["IsMale"]?.GetValue<bool>() ?? true;
+        ChrSlot = SaveJson.Int(node["ChrSlot"]) ?? 0;
+        Location = SaveJson.String(node["Location"]) ?? "";
+        IsDead = SaveJson.Bool(node["IsDead"]) ?? false;
+        _originalIsMale = SaveJson.Bool((node["Cosmetic"] as JsonObject)?["IsMale"]) ?? true;
         _isMale = _originalIsMale;
 
         BuildFlags(names);
@@ -123,14 +123,16 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         {
             foreach (var entry in talentArray.OfType<JsonObject>())
             {
-                if (entry["RowName"]?.GetValue<string>() is { } rowName)
+                if (SaveJson.String(entry["RowName"]) is { } rowName)
                 {
-                    ranks[rowName] = entry["Rank"]?.GetValue<int>() ?? 0;
+                    ranks[rowName] = SaveJson.Int(entry["Rank"]) ?? 0;
                 }
             }
         }
 
-        // Learned first (the save's own order), then everything else the game defines at rank 0.
+        // Learned first (the save's own order), then everything else a CHARACTER can learn at rank
+        // 0 — only the character trees (SaveGameNames.CharacterTalentTrees), never workshop,
+        // prospect or mount talents, which live elsewhere and do nothing on a character.
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (rowName, rank) in ranks)
         {
@@ -138,9 +140,10 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
             seen.Add(rowName);
         }
 
+        var characterTrees = names.CharacterTalentTrees;
         foreach (var (rowName, info) in names.Talents.OrderBy(kv => kv.Value.Tree, StringComparer.OrdinalIgnoreCase).ThenBy(kv => kv.Value.DisplayName, StringComparer.OrdinalIgnoreCase))
         {
-            if (!seen.Contains(rowName))
+            if (!seen.Contains(rowName) && (characterTrees.Count == 0 || characterTrees.Contains(info.Tree)))
             {
                 Talents.Add(new SaveTalentViewModel(rowName, new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank, info.IsDefaultUnlocked), 0, _onDirtyChanged));
             }
@@ -200,7 +203,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         {
             foreach (var entry in existing.OfType<JsonObject>())
             {
-                if (entry["RowName"]?.GetValue<string>() is { } rowName && byRow.GetValueOrDefault(rowName) > 0)
+                if (SaveJson.String(entry["RowName"]) is { } rowName && byRow.GetValueOrDefault(rowName) > 0)
                 {
                     talentArrayNew.Add(new JsonObject { ["RowName"] = rowName, ["Rank"] = byRow[rowName] });
                     written.Add(rowName);
@@ -269,5 +272,5 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
     }
 
     private static List<int> ReadIntArray(JsonNode? node) =>
-        node is JsonArray array ? [.. array.Select(n => n?.GetValue<int>() ?? -1).Where(i => i >= 0)] : [];
+        SaveJson.IdArray(node);
 }

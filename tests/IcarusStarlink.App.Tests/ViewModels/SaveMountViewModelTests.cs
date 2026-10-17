@@ -8,7 +8,7 @@ public class SaveMountViewModelTests
     private static (SaveMountViewModel ViewModel, JsonObject Node) Make(int initialLevel = 5)
     {
         var node = new JsonObject { ["MountName"] = "Rex", ["MountLevel"] = initialLevel, ["MountType"] = "Moa" };
-        var vm = new SaveMountViewModel(node, "Rex", initialLevel, "Moa", availableTypeRowNames: ["Moa", "Wolf"], iconPath: null, onDirtyChanged: () => { });
+        var vm = new SaveMountViewModel(node, "Rex", initialLevel, "Moa", iconPath: null, onDirtyChanged: () => { });
         return (vm, node);
     }
 

@@ -20,6 +20,7 @@ public sealed class SaveGameNames(string dataFolder)
     private IReadOnlyList<string>? _characterFlagNames;
     private IReadOnlyList<string>? _accountFlagNames;
     private IReadOnlyDictionary<string, TalentInfo>? _talents;
+    private IReadOnlySet<string>? _characterTalentTrees;
     private IReadOnlyDictionary<string, AccoladeInfo>? _accolades;
     private IReadOnlyDictionary<string, BestiaryCreatureInfo>? _bestiaryCreatures;
     private IReadOnlyDictionary<string, ItemInfo>? _items;
@@ -32,6 +33,16 @@ public sealed class SaveGameNames(string dataFolder)
 
     /// <summary>Everything the save editor wants to know about each talent, keyed by the RowName the save stores. MaxRank comes from the row's own Rewards tier count (a reward-less row — blueprint/workshop unlocks, 1312 of 2227 — is a single-rank unlock).</summary>
     public IReadOnlyDictionary<string, TalentInfo> Talents => _talents ??= LoadTalents();
+
+    /// <summary>
+    /// Talent trees a CHARACTER learns in: D_TalentTrees' Archetype → D_TalentArchetypes' Model
+    /// "Player" (Survival, Combat, ...), "Blueprint" (the blueprint trees) or "Solo". Checked
+    /// against a real 1,000-talent character: every talent it had that the game still defines sat
+    /// in one of these. The other models (Workshop, Prospect, Creature, Great_Hunt, Outpost) belong
+    /// to the account or to mounts, so offering them on a character would write talents the game
+    /// never reads there. Empty when the tables aren't extracted (then nothing is filtered).
+    /// </summary>
+    public IReadOnlySet<string> CharacterTalentTrees => _characterTalentTrees ??= LoadCharacterTalentTrees();
 
     /// <summary>Every accolade, keyed by the RowName Accolades.json's CompletedAccolades[].Accolade.RowName stores.</summary>
     public IReadOnlyDictionary<string, AccoladeInfo> Accolades => _accolades ??= LoadAccolades();
@@ -58,6 +69,7 @@ public sealed class SaveGameNames(string dataFolder)
         _characterFlagNames = null;
         _accountFlagNames = null;
         _talents = null;
+        _characterTalentTrees = null;
         _accolades = null;
         _bestiaryCreatures = null;
         _items = null;
@@ -121,6 +133,56 @@ public sealed class SaveGameNames(string dataFolder)
         }
 
         return icons;
+    }
+
+    private static readonly HashSet<string> CharacterTalentModels = new(StringComparer.OrdinalIgnoreCase) { "Player", "Blueprint", "Solo" };
+
+    private IReadOnlySet<string> LoadCharacterTalentTrees()
+    {
+        var trees = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var archetypesPath = Path.Combine(dataFolder, "Talents", "D_TalentArchetypes.json");
+            var treesPath = Path.Combine(dataFolder, "Talents", "D_TalentTrees.json");
+            if (!File.Exists(archetypesPath) || !File.Exists(treesPath))
+            {
+                return trees;
+            }
+
+            var characterArchetypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var archetypes = JsonDocument.Parse(File.ReadAllText(archetypesPath)))
+            {
+                foreach (var row in archetypes.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (row.TryGetProperty("Name", out var name) && name.GetString() is { } archetypeName
+                        && row.TryGetProperty("Model", out var model) && model.ValueKind == JsonValueKind.Object
+                        && model.TryGetProperty("RowName", out var modelName) && modelName.GetString() is { } modelRow
+                        && CharacterTalentModels.Contains(modelRow))
+                    {
+                        characterArchetypes.Add(archetypeName);
+                    }
+                }
+            }
+
+            using var treeDocument = JsonDocument.Parse(File.ReadAllText(treesPath));
+            foreach (var row in treeDocument.RootElement.GetProperty("Rows").EnumerateArray())
+            {
+                if (row.TryGetProperty("Name", out var name) && name.GetString() is { } treeName
+                    && row.TryGetProperty("Archetype", out var archetype) && archetype.ValueKind == JsonValueKind.Object
+                    && archetype.TryGetProperty("RowName", out var archetypeName) && archetypeName.GetString() is { } archetypeRow
+                    && characterArchetypes.Contains(archetypeRow))
+                {
+                    trees.Add(treeName);
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Missing/corrupt tables: no filter, every talent shows (the old behaviour).
+            trees.Clear();
+        }
+
+        return trees;
     }
 
     private IReadOnlyDictionary<string, TalentInfo> LoadTalents()

@@ -24,6 +24,45 @@ public class SaveCharacterViewModelTests
         return (new SaveCharacterViewModel(node, EmptyNames, () => { }), node);
     }
 
+    /// <summary>The character's talent list offers character trees only (D_TalentTrees Archetype → D_TalentArchetypes Model Player/Blueprint/Solo), never workshop or mount talents — but a learned one stays whatever its tree.</summary>
+    [Fact]
+    public void Talents_OfferOnlyCharacterTrees_ButKeepWhatTheSaveHas()
+    {
+        var data = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "Talents_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(data, "Talents"));
+        try
+        {
+            File.WriteAllText(Path.Combine(data, "Talents", "D_TalentArchetypes.json"), """
+                { "Rows": [ { "Name": "Survival", "Model": { "RowName": "Player" } }, { "Name": "Blueprint_Crafting", "Model": { "RowName": "Blueprint" } },
+                            { "Name": "Workshop_Armor", "Model": { "RowName": "Workshop" } }, { "Name": "Creature_Wolf", "Model": { "RowName": "Creature" } } ] }
+                """);
+            File.WriteAllText(Path.Combine(data, "Talents", "D_TalentTrees.json"), """
+                { "Rows": [ { "Name": "Survival_Resources", "Archetype": { "RowName": "Survival" } }, { "Name": "Crafting_T1", "Archetype": { "RowName": "Blueprint_Crafting" } },
+                            { "Name": "Workshop_Armor", "Archetype": { "RowName": "Workshop_Armor" } }, { "Name": "Wolf_Tree", "Archetype": { "RowName": "Creature_Wolf" } } ] }
+                """);
+            File.WriteAllText(Path.Combine(data, "Talents", "D_Talents.json"), """
+                { "Rows": [ { "Name": "Survival_Gather", "TalentTree": { "RowName": "Survival_Resources" } },
+                            { "Name": "Bp_Bench", "TalentTree": { "RowName": "Crafting_T1" } },
+                            { "Name": "Workshop_Suit", "TalentTree": { "RowName": "Workshop_Armor" } },
+                            { "Name": "Wolf_Bite", "TalentTree": { "RowName": "Wolf_Tree" } },
+                            { "Name": "Wolf_Howl", "TalentTree": { "RowName": "Wolf_Tree" } } ] }
+                """);
+            var node = new JsonObject
+            {
+                ["CharacterName"] = "TESTER",
+                ["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "Wolf_Howl", ["Rank"] = 1 }),
+            };
+
+            var vm = new SaveCharacterViewModel(node, new SaveGameNames(data), () => { });
+
+            Assert.Equal(["Wolf_Howl", "Bp_Bench", "Survival_Gather"], vm.Talents.Select(t => t.RowName));
+        }
+        finally
+        {
+            Directory.Delete(data, recursive: true);
+        }
+    }
+
     /// <summary>
     /// Regression guard: MarkClean() used to adopt a negative XpText as the new "clean" baseline
     /// even though ApplyToNode() (Save's actual write) rejects negative XP and leaves the node's XP
