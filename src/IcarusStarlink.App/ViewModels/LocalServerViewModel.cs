@@ -445,7 +445,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
 
         if (ask && !_dialogService.Confirm(
-                $"Stop '{profile.Name}'?\n\nConnected players are disconnected. The server is asked to shut down cleanly (it saves on exit); if it hasn't closed after 60 seconds it is ended.",
+                $"Stop '{profile.Name}'?\n\nConnected players are disconnected. The server is asked to shut down cleanly; if it hasn't closed after 60 seconds it is ended.\n\n{ServerShutdownNotes.DescribeSaving(ReadIniSettings(profile))}",
                 "Stop server", ThemedConfirmSeverity.Warning))
         {
             return false;
@@ -560,6 +560,19 @@ public sealed partial class LocalServerViewModel : ObservableObject
     }
 
     // ---- Internals ----
+
+    /// <summary>The server's ServerSettings.ini as it is on disk now (not the form, which may hold unsaved edits); null when it can't be read.</summary>
+    private static DedicatedServerSettings? ReadIniSettings(DedicatedServerProfile p)
+    {
+        try
+        {
+            return ServerSettingsIni.Load(DedicatedServerLayout.SettingsIniPath(p.InstallFolder, p.SavedDirSuffix)).Read();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
 
     private void LoadForm()
     {

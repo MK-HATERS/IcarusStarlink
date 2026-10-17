@@ -353,7 +353,7 @@ public sealed partial class LocalServerViewModel
         if (Running is not null)
         {
             if (!_dialogService.Confirm(
-                    $"'{profile.Name}' is running. Stop it to update?\n\nConnected players are disconnected; the world saves on exit.",
+                    $"'{profile.Name}' is running. Stop it to update?\n\nConnected players are disconnected. {ServerShutdownNotes.DescribeSaving(ReadIniSettings(profile))}",
                     "Update server", ThemedConfirmSeverity.Warning)
                 || !await StopCoreAsync(ask: false))
             {

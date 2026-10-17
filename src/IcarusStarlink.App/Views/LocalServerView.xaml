@@ -114,7 +114,7 @@
                         <Button Content="Start" Command="{Binding StartCommand}" Style="{StaticResource PrimaryButtonStyle}"
                                 ToolTip="Saves the settings below, then launches IcarusServer.exe in its own console window"/>
                         <Button Content="Stop" Command="{Binding StopCommand}" Margin="8,0,0,0"
-                                ToolTip="Asks the server to shut down cleanly (it saves on exit); ends it after 60 seconds if it hasn't closed"/>
+                                ToolTip="Asks the server to shut down cleanly (it saves then only if 'Save on exit' is on in Settings); ends it after 60 seconds if it hasn't closed"/>
                         <Button Content="Restart" Command="{Binding RestartCommand}" Margin="8,0,0,0"/>
                         <Button Content="Open folder" Command="{Binding OpenInstallFolderCommand}" Margin="16,0,0,0"/>
                         <Button Content="Open Saved" Command="{Binding OpenSavedFolderCommand}" Margin="8,0,0,0"
@@ -315,6 +315,8 @@
                             </StackPanel>
 
                             <StackPanel Grid.Column="2">
+                                <TextBlock Text="{Binding SaveOnExitWarning}" Foreground="{DynamicResource DangerBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,10"
+                                           Visibility="{Binding SaveOnExitWarning, Converter={StaticResource NullToVisibilityConverter}}"/>
                                 <TextBlock Text="NEXT UP" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
                                 <ItemsControl ItemsSource="{Binding NextUp}" Margin="0,0,0,14">
                                     <ItemsControl.ItemTemplate>

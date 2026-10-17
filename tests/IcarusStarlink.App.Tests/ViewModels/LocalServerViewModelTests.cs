@@ -171,6 +171,31 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.False(vm.IsRunning);
     }
 
+    /// <summary>Like the developer's own server (SaveGameOnExit=False, GameSaveFrequency=3): Stop must not promise a save, and automation that restarts it on its own is flagged.</summary>
+    [Fact]
+    public async Task Stop_WithSaveOnExitOff_WarnsThatProgressSinceTheAutosaveIsLost()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(IniPath)!);
+        File.WriteAllText(IniPath, "[/Script/Icarus.DedicatedServerSettings]\r\nGameSaveFrequency=3.000000\r\nSaveGameOnExit=False\r\n");
+        var (vm, _, processes, dialogs) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        processes.Running = new RunningServer(1234, DateTime.Now);
+        vm.Tick();
+
+        await vm.StopCommand.ExecuteAsync(null);
+
+        var message = Assert.Single(dialogs.Messages);
+        Assert.DoesNotContain("saves on exit", message);
+        Assert.Contains("'Save on exit' is OFF", message);
+        Assert.Contains("every 3 minutes", message);
+
+        Assert.Null(vm.SaveOnExitWarning);
+        vm.DailyRestartEnabled = true;
+        Assert.Contains("every automatic restart", vm.SaveOnExitWarning);
+        vm.SaveGameOnExit = true;
+        Assert.Null(vm.SaveOnExitWarning);
+    }
+
     [Fact]
     public async Task Stop_Declined_LeavesTheServerAlone()
     {

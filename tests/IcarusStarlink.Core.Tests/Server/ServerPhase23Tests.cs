@@ -16,6 +16,22 @@ public sealed class ServerPhase23Tests : IDisposable
         }
     }
 
+    // ---- Saving on stop ----
+
+    [Fact]
+    public void ShutdownNotes_SayWhatAStopDoesToTheWorld()
+    {
+        Assert.Equal("It saves the world as it shuts down.", ServerShutdownNotes.DescribeSaving(new DedicatedServerSettings { SaveGameOnExit = true }));
+        Assert.Contains("is lost", ServerShutdownNotes.DescribeSaving(new DedicatedServerSettings { SaveGameOnExit = false, GameSaveFrequency = 3 }));
+        Assert.Contains("game's default", ServerShutdownNotes.DescribeSaving(new DedicatedServerSettings()));
+        Assert.Contains("game's default", ServerShutdownNotes.DescribeSaving(null));
+
+        var restarts = new DedicatedServerProfile { AutoUpdate = true };
+        Assert.NotNull(ServerShutdownNotes.AutomationWarning(restarts, new DedicatedServerSettings { SaveGameOnExit = false }));
+        Assert.Null(ServerShutdownNotes.AutomationWarning(new DedicatedServerProfile(), new DedicatedServerSettings { SaveGameOnExit = false }));
+        Assert.Null(ServerShutdownNotes.AutomationWarning(restarts, new DedicatedServerSettings { SaveGameOnExit = true }));
+    }
+
     // ---- Backup folders and retention ----
 
     /// <summary>The user's real folder is "Server1_dc7ea824" for "Server #1": renaming the profile must find it by the id and carry it over.</summary>

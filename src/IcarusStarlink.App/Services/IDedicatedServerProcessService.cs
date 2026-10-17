@@ -16,7 +16,7 @@ public interface IDedicatedServerProcessService
 
     /// <summary>
     /// Asks the server to shut down the way a person pressing Ctrl+C in its console would (Unreal
-    /// treats that as a clean exit and the game saves on exit), waits up to <paramref name="timeout"/>,
+    /// treats that as a clean exit; the game saves then only if SaveGameOnExit is on), waits up to <paramref name="timeout"/>,
     /// then kills it. Returns true when it exited cleanly, false when it had to be killed.
     /// </summary>
     Task<bool> StopAsync(RunningServer server, TimeSpan timeout, CancellationToken cancellationToken = default);

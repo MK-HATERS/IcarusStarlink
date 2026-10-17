@@ -153,6 +153,11 @@ public sealed partial class LocalServerViewModel
 
     public ObservableCollection<string> NextUp { get; } = [];
 
+    /// <summary>Automation restarts this server on its own while 'Save on exit' is off: each restart loses progress since the last autosave.</summary>
+    [ObservableProperty] private string? _saveOnExitWarning;
+
+    partial void OnSaveGameOnExitChanged(bool? value) => RefreshOverview();
+
     private void RefreshOverview()
     {
         if (SelectedProfile is not { } p)
@@ -193,6 +198,10 @@ public sealed partial class LocalServerViewModel
         var newest = Backups.OrderByDescending(b => b.CreatedLocal).FirstOrDefault();
         BackupTile = newest is null ? "None" : newest.CreatedLocal.Date == DateTime.Today ? newest.CreatedLocal.ToString("HH:mm", CultureInfo.CurrentCulture) : newest.CreatedLocal.ToString("d MMM", CultureInfo.CurrentCulture);
         BackupHint = $"{Backups.Count} kept";
+
+        // The form's values: what the Settings tab shows (saved or about to be).
+        var saveFrequency = double.TryParse(GameSaveFrequencyText, NumberStyles.Float, CultureInfo.InvariantCulture, out var f) ? f : (double?)null;
+        SaveOnExitWarning = ServerShutdownNotes.AutomationWarning(p, new DedicatedServerSettings { SaveGameOnExit = SaveGameOnExit, GameSaveFrequency = saveFrequency });
 
         var watch = _watches.GetValueOrDefault(p.Id);
         var players = watch?.Events.Online.Count ?? OnlinePlayers.Count;
