@@ -157,6 +157,21 @@ public sealed class FluentFtpClient : CoreIFtpClient
         }
     }
 
+    public async Task RenameFileAsync(string fromRemotePath, string toRemotePath, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (!await RequireClient().MoveFile(fromRemotePath, toRemotePath, FtpRemoteExists.Overwrite, cancellationToken))
+            {
+                throw new FtpOperationRejectedException($"The server didn't rename '{fromRemotePath}' to '{toRemotePath}'.");
+            }
+        }
+        catch (FtpCommandException ex)
+        {
+            throw new FtpOperationRejectedException(ex.Message);
+        }
+    }
+
     public async Task DisconnectAsync()
     {
         if (_client is not null)

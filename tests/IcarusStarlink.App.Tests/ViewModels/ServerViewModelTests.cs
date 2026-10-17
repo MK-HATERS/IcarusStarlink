@@ -32,7 +32,7 @@ public sealed class ServerViewModelTests
         ModsPath = modsPath, Win64Path = win64Path,
     };
 
-    private static ServerViewModel CreateViewModel(FakeFtpSiteStore siteStore, IFtpClient ftpClient, FakeDialogService? dialogService = null) => new(
+    private static ServerViewModel CreateViewModel(FakeFtpSiteStore siteStore, IFtpClient ftpClient, FakeDialogService? dialogService = null, string? outputPakPath = null) => new(
         siteStore,
         new FakeCredentialStore(),
         () => ftpClient,
@@ -40,7 +40,88 @@ public sealed class ServerViewModelTests
         new FakeSettingsService(),
         new FakeUe4ssModRepository(),
         dialogService ?? new FakeDialogService(confirmResult: true),
-        Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"), "ISL-Merged_P.pak"));
+        outputPakPath ?? Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"), "ISL-Merged_P.pak"));
+
+    private static async Task<(ServerViewModel Vm, string Folder)> ConnectedWithBuiltPakAsync(RecordingFtpClient ftp)
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "ISL-Merged_9999_P.pak"), "pak");
+        File.WriteAllText(Path.Combine(folder, "ISL-Merged.txt"), "manifest");
+        var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), ftp, outputPakPath: Path.Combine(folder, "ISL-Merged_9999_P.pak"));
+        vm.SelectedSite = vm.Sites.Single();
+        vm.PasswordInput = "irrelevant-password";
+        await vm.ConnectCommand.ExecuteAsync(null);
+        return (vm, folder);
+    }
+
+    private const string Mods = "Icarus/Content/Paks/mods/";
+
+    /// <summary>The new pak goes up under a temporary name first; only then are the old paks deleted and the new one renamed into place.</summary>
+    [Fact]
+    public async Task InstallPakToServer_UploadsUnderATempNameBeforeDeletingTheOldPak()
+    {
+        var ftp = new RecordingFtpClient("IMM_Merged_Mod_P.pak", "ISL-Merged_9999_P.pak");
+        var (vm, folder) = await ConnectedWithBuiltPakAsync(ftp);
+        try
+        {
+            await vm.InstallPakToServerCommand.ExecuteAsync(null);
+
+            var firstDelete = ftp.Operations.FindIndex(o => o.StartsWith("delete ", StringComparison.Ordinal));
+            var lastUpload = ftp.Operations.FindLastIndex(o => o.StartsWith("upload ", StringComparison.Ordinal));
+            Assert.True(lastUpload < firstDelete, string.Join("\n", ftp.Operations));
+            Assert.All(ftp.Operations.Where(o => o.StartsWith("upload ", StringComparison.Ordinal)), o => Assert.EndsWith(".uploading", o));
+            Assert.Equal(
+                [Mods + "ISL-Merged.txt", Mods + "ISL-Merged_9999_P.pak"],
+                ftp.Files.OrderBy(f => f, StringComparer.Ordinal));
+            Assert.Contains("Installed the merged pak", vm.ConnectionStatusMessage);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>A connection that drops mid-upload leaves the server's old pak in place (it used to be deleted first).</summary>
+    [Fact]
+    public async Task InstallPakToServer_UploadFails_LeavesTheOldPakAlone()
+    {
+        var ftp = new RecordingFtpClient("IMM_Merged_Mod_P.pak") { FailUploadOf = "ISL-Merged_9999_P.pak" };
+        var (vm, folder) = await ConnectedWithBuiltPakAsync(ftp);
+        try
+        {
+            await vm.InstallPakToServerCommand.ExecuteAsync(null);
+
+            Assert.Contains(Mods + "IMM_Merged_Mod_P.pak", ftp.Files);
+            Assert.DoesNotContain(ftp.Operations, o => o.StartsWith("delete ", StringComparison.Ordinal));
+            Assert.DoesNotContain(Mods + "ISL-Merged_9999_P.pak", ftp.Files);
+            Assert.Contains("failed", vm.ConnectionStatusMessage);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>A server that refuses renames still ends up with the new pak under its real name and no temporary copy.</summary>
+    [Fact]
+    public async Task InstallPakToServer_RenameRefused_UploadsUnderTheRealNameAndTidiesUp()
+    {
+        var ftp = new RecordingFtpClient("IMM_Merged_Mod_P.pak") { RefuseRename = true };
+        var (vm, folder) = await ConnectedWithBuiltPakAsync(ftp);
+        try
+        {
+            await vm.InstallPakToServerCommand.ExecuteAsync(null);
+
+            Assert.Equal(
+                [Mods + "ISL-Merged.txt", Mods + "ISL-Merged_9999_P.pak"],
+                ftp.Files.OrderBy(f => f, StringComparer.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
 
     [Fact]
     public async Task ConnectAsync_SiteWithNoPathOverrides_ResolvesTheFixedSurvivalServersDefaults()
@@ -293,6 +374,9 @@ public sealed class ServerViewModelTests
         public Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
 
+        public Task RenameFileAsync(string fromRemotePath, string toRemotePath, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("Not exercised by these tests.");
+
         public Task DisconnectAsync() => Task.CompletedTask;
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -313,6 +397,9 @@ public sealed class ServerViewModelTests
             throw new NotSupportedException("Not exercised by these tests.");
 
         public Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task RenameFileAsync(string fromRemotePath, string toRemotePath, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("Not exercised by these tests.");
 
         public Task DisconnectAsync() => Task.CompletedTask;
 
@@ -342,11 +429,69 @@ public sealed class ServerViewModelTests
         public Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
 
+        public Task RenameFileAsync(string fromRemotePath, string toRemotePath, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("Not exercised by these tests.");
+
         public async Task DisconnectAsync()
         {
             EnteredDisconnect.SetResult();
             await ReleaseDisconnect.Task;
         }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    /// <summary>An FTP server in memory: records every operation in order, and can fail an upload part-way or refuse renames.</summary>
+    private sealed class RecordingFtpClient(params string[] filesInMods) : IFtpClient
+    {
+        public HashSet<string> Files { get; } = new(filesInMods.Select(f => "Icarus/Content/Paks/mods/" + f), StringComparer.OrdinalIgnoreCase);
+        public List<string> Operations { get; } = [];
+        public string? FailUploadOf { get; set; }
+        public bool RefuseRename { get; set; }
+
+        public Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<FtpEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<FtpEntry>>([.. Files.Where(f => f.StartsWith(remotePath + "/", StringComparison.OrdinalIgnoreCase))
+                .Select(f => new FtpEntry(f[(remotePath.Length + 1)..], false, 1, null))]);
+
+        public Task UploadFileAsync(string localPath, string remotePath, CancellationToken cancellationToken = default)
+        {
+            Operations.Add("upload " + remotePath);
+            if (FailUploadOf is { } failing && remotePath.Contains(failing, StringComparison.OrdinalIgnoreCase))
+            {
+                Files.Add(remotePath); // a partial file is left behind
+                throw new IOException("Connection reset mid-upload.");
+            }
+
+            Files.Add(remotePath);
+            return Task.CompletedTask;
+        }
+
+        public Task DownloadFileAsync(string remotePath, string localPath, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("Not exercised by these tests.");
+
+        public Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default)
+        {
+            Operations.Add("delete " + remotePath);
+            Files.Remove(remotePath);
+            return Task.CompletedTask;
+        }
+
+        public Task RenameFileAsync(string fromRemotePath, string toRemotePath, CancellationToken cancellationToken = default)
+        {
+            Operations.Add($"rename {fromRemotePath} -> {toRemotePath}");
+            if (RefuseRename)
+            {
+                throw new FtpOperationRejectedException("550 Rename not allowed");
+            }
+
+            Files.Remove(fromRemotePath);
+            Files.Add(toRemotePath);
+            return Task.CompletedTask;
+        }
+
+        public Task DisconnectAsync() => Task.CompletedTask;
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
