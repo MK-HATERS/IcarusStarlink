@@ -154,21 +154,25 @@ public static partial class GameItemEditor
 
         // The recipe that makes it and its workshop price: rows of their own, found by what they produce.
         // Every recipe that makes it (wood walls, rope, glass have several: one per bench).
+        // Recipes and the workshop hand out the item's D_ItemTemplate row, which is often named
+        // differently (Kit_Stone_Furnace is made as "Stone_Furnace"): match through those names.
+        var products = game.ProductNamesFor(itemName);
+        bool Makes(JsonNode? element) => (element as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var s) && products.Contains(s);
         var recipes = (game.Rows(Recipes) ?? []).Where(kv => kv.Value?["Outputs"] is JsonArray outputs
-                && outputs.Any(o => string.Equals(o?["Element"]?["RowName"]?.GetValue<string>(), itemName, StringComparison.OrdinalIgnoreCase)))
+                && outputs.Any(o => Makes(o?["Element"])))
             .Select(kv => kv.Key).ToList();
         for (var i = 0; i < recipes.Count; i++)
         {
             var recipeRow = game.Row(Recipes, recipes[i]);
             var bench = recipeRow?["RecipeSets"]?[0]?["RowName"]?.GetValue<string>();
             // Butchering a carcass is one recipe making several things: its ingredients are all of theirs.
-            var others = (recipeRow?["Outputs"] as JsonArray)?.Count(o => !string.Equals(o?["Element"]?["RowName"]?.GetValue<string>(), itemName, StringComparison.OrdinalIgnoreCase)) ?? 0;
+            var others = (recipeRow?["Outputs"] as JsonArray)?.Count(o => !Makes(o?["Element"])) ?? 0;
             var title = (recipes.Count > 1 ? $"Recipe {i + 1} of {recipes.Count}" : "Recipe") + (bench is null ? "" : $" · {Humanize(bench)}")
                 + (others > 0 ? $" · also makes {others} other thing{(others == 1 ? "" : "s")}" : "");
             sections.Add(BuildSection(game, mod, $"{RecipeSection}:{recipes[i]}", title, Recipes, recipes[i], recipes[i], 1));
         }
 
-        if ((game.Rows(WorkshopItems) ?? []).FirstOrDefault(kv => string.Equals(kv.Value?["Item"]?["RowName"]?.GetValue<string>(), itemName, StringComparison.OrdinalIgnoreCase)) is { Key: { } workshop })
+        if ((game.Rows(WorkshopItems) ?? []).FirstOrDefault(kv => Makes(kv.Value?["Item"])) is { Key: { } workshop })
         {
             sections.Add(BuildSection(game, mod, WorkshopSection, "Workshop price", WorkshopItems, workshop, workshop, 1));
         }

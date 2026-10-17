@@ -10,7 +10,7 @@ public sealed record ItemLink(string Field, string CurrentFile, string RowName, 
 public sealed record ItemCloneSource(
     string ItemName, string? DisplayName, IReadOnlyList<ItemLink> Links, bool HasTemplate,
     string? RecipeName, IReadOnlyList<string> RecipeBenches, string? WorkshopItemName, int? ResearchCredits, int? ReplicationCredits, string? WorkshopTree,
-    string? BuffName = null, bool RecipeHasUnlock = false);
+    string? BuffName = null, bool RecipeHasUnlock = false, string? TemplateName = null);
 
 /// <summary>A game item for the wizard's picker.</summary>
 public sealed record ItemChoice(string Name, string? DisplayName)
@@ -147,7 +147,12 @@ public static partial class ItemCloner
         var itemable = links.FirstOrDefault(l => l.Field == "Itemable");
         var displayName = itemable is null ? null : LocalizedText(game.Row(itemable.CurrentFile, itemable.RowName)?["DisplayName"]);
 
-        var recipe = (game.Rows(Recipes) ?? []).FirstOrDefault(kv => OutputsItem(kv.Value, itemName));
+        // Recipes and workshop items hand out the item's D_ItemTemplate row, which is often named
+        // differently (Kit_Stone_Furnace is made as "Stone_Furnace"): match through those names.
+        var templates = game.TemplatesFor(itemName);
+        var templateName = templates.FirstOrDefault(t => string.Equals(t, itemName, StringComparison.OrdinalIgnoreCase)) ?? templates.FirstOrDefault();
+        var products = game.ProductNamesFor(itemName);
+        var recipe = (game.Rows(Recipes) ?? []).FirstOrDefault(kv => OutputsItem(kv.Value, products));
         var benches = recipe.Value?["RecipeSets"] is JsonArray sets
             ? sets.Select(s => s?["RowName"]?.GetValue<string>()).OfType<string>().ToList()
             : [];
@@ -156,16 +161,17 @@ public static partial class ItemCloner
         var buff = consumable is null ? null : game.Row(consumable.CurrentFile, consumable.RowName)?["Modifier"]?["Modifier"]?["RowName"]?.GetValue<string>();
         var unlock = recipe.Value?["Requirement"]?["RowName"]?.GetValue<string>();
 
-        var workshop = (game.Rows(WorkshopItems) ?? []).FirstOrDefault(kv => kv.Value?["Item"]?["RowName"]?.GetValue<string>() == itemName);
-        var talent = workshop.Key is null ? default : (game.Rows(Talents) ?? []).FirstOrDefault(kv => kv.Value?["ExtraData"]?["RowName"]?.GetValue<string>() == workshop.Key);
+        var workshop = (game.Rows(WorkshopItems) ?? []).FirstOrDefault(kv => RowNameOf(kv.Value?["Item"]) is { } item && products.Contains(item));
+        var talent = workshop.Key is null ? default : (game.Rows(Talents) ?? []).FirstOrDefault(kv => string.Equals(RowNameOf(kv.Value?["ExtraData"]), workshop.Key, StringComparison.OrdinalIgnoreCase));
 
         return new ItemCloneSource(
-            itemName, displayName, links, game.Row(ItemTemplate, itemName) is not null,
+            itemName, displayName, links, templateName is not null,
             recipe.Key, benches, workshop.Key,
             Credits(workshop.Value?["ResearchCost"]), Credits(workshop.Value?["ReplicationCost"]),
             talent.Value?["TalentTree"]?["RowName"]?.GetValue<string>(),
             buff is { Length: > 0 } and not "None" ? buff : null,
-            unlock is { Length: > 0 } and not "None");
+            unlock is { Length: > 0 } and not "None",
+            templateName);
     }
 
     /// <summary>Every row the new item needs, as EXMOD rows (complete rows: they're new). Also used to know what to add to a mod.</summary>
@@ -233,13 +239,17 @@ public static partial class ItemCloner
 
         Add(ItemsStatic, newName, staticRow);
 
-        // Recipes and workshop items hand out the D_ItemTemplate row, not the static one.
-        if (source.HasTemplate)
-        {
-            var template = (JsonObject)game.Row(ItemTemplate, source.ItemName)!.DeepClone();
-            ReplaceRowName(template, source.ItemName, newName);
-            Add(ItemTemplate, newName, template);
-        }
+        // Recipes and workshop items hand out the D_ItemTemplate row, not the static one, so the new
+        // item always gets one (named like it): a copy of the source's template (found through its
+        // ItemStaticData, since many aren't named like their item), or a minimal one.
+        var template = source.TemplateName is { } sourceTemplate && game.Row(ItemTemplate, sourceTemplate) is { } templateRow
+            ? (JsonObject)templateRow.DeepClone()
+            : [];
+        ReplaceRowName(template, source.ItemName, newName);
+        template["ItemStaticData"] = template["ItemStaticData"] is JsonObject staticLink
+            ? new JsonObject(staticLink.Select(kv => KeyValuePair.Create(kv.Key, kv.Key == "RowName" ? JsonValue.Create(newName) : kv.Value?.DeepClone())))
+            : new JsonObject { ["RowName"] = newName };
+        Add(ItemTemplate, newName, template);
 
         switch (request.Obtain)
         {
@@ -287,7 +297,12 @@ public static partial class ItemCloner
         if (source.RecipeName is { } sourceRecipe && game.Row(Recipes, sourceRecipe) is { } existing)
         {
             recipe = (JsonObject)existing.DeepClone();
-            ReplaceRowName(recipe["Outputs"], source.ItemName, newName);
+            // The output names the source's template (maybe not its item name); the new item's own
+            // template is called newName.
+            foreach (var product in new[] { source.TemplateName, source.ItemName }.OfType<string>())
+            {
+                ReplaceRowName(recipe["Outputs"], product, newName);
+            }
         }
         else
         {
@@ -382,8 +397,11 @@ public static partial class ItemCloner
         costs is JsonArray list && list.FirstOrDefault(c => c?["Meta"]?["RowName"]?.GetValue<string>() == "Credits") is { } credits
             && credits["Amount"]?.GetValue<int>() is { } amount ? amount : null;
 
-    private static bool OutputsItem(JsonNode? recipe, string itemName) =>
-        recipe?["Outputs"] is JsonArray outputs && outputs.Any(o => o?["Element"]?["RowName"]?.GetValue<string>() == itemName);
+    private static bool OutputsItem(JsonNode? recipe, IReadOnlySet<string> productNames) =>
+        recipe?["Outputs"] is JsonArray outputs && outputs.Any(o => RowNameOf((o as JsonObject)?["Element"]) is { } name && productNames.Contains(name));
+
+    private static string? RowNameOf(JsonNode? link) =>
+        (link as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
 
     /// <summary>Item_Envirosuit → Item_Dragon_Suit; a shared row ("IO_Undersuit") → the item's own name (Itemable keeps the game's "Item_" convention).</summary>
     private static string CopyName(ItemLink link, string sourceItem, string newName) =>
@@ -412,7 +430,7 @@ public static partial class ItemCloner
         switch (node)
         {
             case JsonObject obj:
-                if (obj["RowName"] is JsonValue v && v.TryGetValue<string>(out var current) && current == oldName)
+                if (obj["RowName"] is JsonValue v && v.TryGetValue<string>(out var current) && string.Equals(current, oldName, StringComparison.OrdinalIgnoreCase))
                 {
                     obj["RowName"] = newName;
                 }

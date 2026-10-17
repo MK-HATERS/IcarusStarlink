@@ -66,6 +66,56 @@ public sealed class GameTableIndex(string dataFolder)
         }
     }
 
+    private const string ItemTemplateFile = "Items-D_ItemTemplate.json";
+    private Dictionary<string, List<string>>? _templatesByItem;
+
+    /// <summary>
+    /// The D_ItemTemplate rows that make this D_ItemsStatic item (their ItemStaticData.RowName),
+    /// compared ignoring case. Usually one, named like the item — but 389 game templates aren't
+    /// (template Stone_Furnace makes item Kit_Stone_Furnace, Envirosuit_Shengong2 makes
+    /// Envirosuit_Shengong_2), and recipes and workshop items hand out the TEMPLATE name, so
+    /// anything looking for "what makes this item" must go through here, not the item's name.
+    /// </summary>
+    public IReadOnlyList<string> TemplatesFor(string itemName)
+    {
+        lock (_gate)
+        {
+            if (_templatesByItem is null)
+            {
+                _templatesByItem = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (template, value) in Rows(ItemTemplateFile) ?? [])
+                {
+                    var item = (value?["ItemStaticData"] as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var s) && s is { Length: > 0 } and not "None" ? s : template;
+                    if (!_templatesByItem.TryGetValue(item, out var list))
+                    {
+                        list = [];
+                        _templatesByItem[item] = list;
+                    }
+
+                    list.Add(template);
+                }
+            }
+
+            return _templatesByItem.GetValueOrDefault(itemName) ?? [];
+        }
+    }
+
+    /// <summary>
+    /// The names a recipe output or workshop Item uses for this item: its templates (TemplatesFor),
+    /// plus the item's own name when no template is called that (older or modded data that points
+    /// straight at the item). Case-insensitive, like the game.
+    /// </summary>
+    public IReadOnlySet<string> ProductNamesFor(string itemName)
+    {
+        var names = new HashSet<string>(TemplatesFor(itemName), StringComparer.OrdinalIgnoreCase);
+        if (!HasRow(ItemTemplateFile, itemName))
+        {
+            names.Add(itemName);
+        }
+
+        return names;
+    }
+
     /// <summary>The table a top-level link field points into, from the table's own Defaults ("Itemable" in D_ItemsStatic → "D_Itemable").</summary>
     public string? LinkTarget(string currentFile, string field) =>
         (Defaults(currentFile)?[field] as JsonObject)?["DataTableName"]?.GetValue<string>();

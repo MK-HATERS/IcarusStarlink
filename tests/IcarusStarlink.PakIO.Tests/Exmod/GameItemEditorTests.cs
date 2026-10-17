@@ -54,6 +54,18 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.Equal(50, Field(view.Sections.Single(s => s.Key == GameItemEditor.WorkshopSection), "Research cost (Credits)").GameValue!.GetValue<int>());
     }
 
+    /// <summary>Recipes and workshop items name the item's template, often not the item (Stone_Furnace makes Kit_Stone_Furnace): the Editor showed neither.</summary>
+    [Fact]
+    public void Describe_TemplateNamedDifferently_FindsTheRecipeAndWorkshopPrice()
+    {
+        var furnace = GameItemEditor.Describe(_game, null, "Kit_Stone_Furnace")!;
+        var chest = GameItemEditor.Describe(_game, null, "Meta_Carbon_Chest_Alpha")!;
+
+        Assert.Contains(furnace.Sections, s => s.Key == $"{GameItemEditor.RecipeSection}:Stone_Furnace");
+        Assert.DoesNotContain("also makes", furnace.Sections.Single(s => s.Key.StartsWith(GameItemEditor.RecipeSection)).Title);
+        Assert.Equal(120, Field(chest.Sections.Single(s => s.Key == GameItemEditor.WorkshopSection), "Research cost (Credits)").GameValue!.GetValue<int>());
+    }
+
     [Fact]
     public void Describe_AConsumable_IncludesItsBuffAndItsRecipe()
     {
