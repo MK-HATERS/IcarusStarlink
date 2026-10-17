@@ -5,6 +5,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
              xmlns:utilities="clr-namespace:IcarusStarlink.App.Utilities"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
              mc:Ignorable="d">
 
     <UserControl.Resources>
@@ -14,6 +15,14 @@
              column-visibility properties live on DownloadsViewModel, folded in from the former
              standalone Downloads page along with the IMM Database tab itself. -->
         <utilities:BindingProxy x:Key="ViewModelProxy" Data="{Binding Downloads}"/>
+
+        <!-- The Name column's width, shared by the header and both row templates. A shared-size
+             column can't be star-sized, so code-behind (UpdateNameColumnWidth) sets both of these
+             to whatever width the other columns leave free — Name takes the spare width on a wide
+             window instead of everything sitting in the left two-thirds. These are the starting
+             values before the first layout. -->
+        <sys:Double x:Key="LibraryNameColumnWidth">220</sys:Double>
+        <sys:Double x:Key="LibraryNameColumnMaxWidth">360</sys:Double>
 
         <HierarchicalDataTemplate DataType="{x:Type vm:LibraryGroupViewModel}" ItemsSource="{Binding Items}">
             <StackPanel Orientation="Horizontal" Margin="0,2">
@@ -61,7 +70,7 @@
                     <ColumnDefinition Width="Auto" MinWidth="6" SharedSizeGroup="ColCheckbox"/>
                     <ColumnDefinition Width="Auto" MinWidth="34" SharedSizeGroup="ColEnabled"/>
                     <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
-                    <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
+                    <ColumnDefinition Width="Auto" MinWidth="{DynamicResource LibraryNameColumnWidth}" MaxWidth="{DynamicResource LibraryNameColumnMaxWidth}" SharedSizeGroup="ColName"/>
                     <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColType"/>
                     <ColumnDefinition Width="Auto" MinWidth="110" SharedSizeGroup="ColAuthor"/>
                     <ColumnDefinition Width="Auto" MinWidth="60" SharedSizeGroup="ColVersion"/>
@@ -139,10 +148,8 @@
 
                 <TextBlock Grid.Column="5" Text="—" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource FaintForegroundBrush}" Margin="8,0,0,0"
                            Visibility="{Binding DataContext.ShowAuthorColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <TextBlock Grid.Column="6" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
-                           Visibility="{Binding DataContext.ShowVersionColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <Run Text="v"/><Run Text="{Binding KnownVersion, Mode=OneWay}"/>
-                </TextBlock>
+                <TextBlock Grid.Column="6" Text="{Binding VersionText}" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
+                           Visibility="{Binding DataContext.ShowVersionColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                 <Border Grid.Column="7"
                         Visibility="{Binding DataContext.ShowSourceColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" HorizontalAlignment="Left" Background="{DynamicResource InfoBrush}"
@@ -220,7 +227,7 @@
                     <ColumnDefinition Width="Auto" MinWidth="6" SharedSizeGroup="ColCheckbox"/>
                     <ColumnDefinition Width="Auto" MinWidth="34" SharedSizeGroup="ColEnabled"/>
                     <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
-                    <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
+                    <ColumnDefinition Width="Auto" MinWidth="{DynamicResource LibraryNameColumnWidth}" MaxWidth="{DynamicResource LibraryNameColumnMaxWidth}" SharedSizeGroup="ColName"/>
                     <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColType"/>
                     <ColumnDefinition Width="Auto" MinWidth="110" SharedSizeGroup="ColAuthor"/>
                     <ColumnDefinition Width="Auto" MinWidth="60" SharedSizeGroup="ColVersion"/>
@@ -388,11 +395,9 @@
                            Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="8,0,0,0"
                            Visibility="{Binding DataContext.ShowAuthorColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
-                <TextBlock Grid.Column="6" VerticalAlignment="Center" FontSize="12"
+                <TextBlock Grid.Column="6" Text="{Binding VersionText}" VerticalAlignment="Center" FontSize="12"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
-                           Visibility="{Binding DataContext.ShowVersionColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <Run Text="v"/><Run Text="{Binding Version, Mode=OneWay}"/>
-                </TextBlock>
+                           Visibility="{Binding DataContext.ShowVersionColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
                 <!-- Clickable: both jump to this app's own native catalogue instead of straight out
                      to a website — "Nexus" to its card on the Nexus page (SearchNexusForCommand,
@@ -707,16 +712,18 @@
                             <TextBlock Text="Type" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                             <ComboBox ItemsSource="{Binding TypeFilterOptions}" SelectedItem="{Binding TypeFilter}" Width="110"
                                       ToolTip="Show only one kind of mod: EXMOD (editable data mods), Pak (prebuilt paks), UE4SS (Lua script mods)"/>
+                            <CheckBox Content="{Binding ShowUe4ssBuiltInsLabel}" IsChecked="{Binding ShowUe4ssBuiltIns}" VerticalAlignment="Center" Margin="12,0,0,0" FontSize="12"
+                                      ToolTip="The mods that come with UE4SS itself (BPModLoaderMod, Keybinds, ConsoleEnablerMod…). Hidden by default — every UE4SS install has them."/>
                             <TextBlock Text="{Binding Ue4ssStatusMessage}" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" VerticalAlignment="Center" Margin="12,0,0,0"
                                        Visibility="{Binding Ue4ssStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                         </StackPanel>
 
-                        <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}">
-                            <Run Text="{Binding ModCount, Mode=OneWay}"/><Run Text=" mod(s) · "/><Run Text="{Binding GroupCount, Mode=OneWay}"/><Run Text=" group(s)"/>
-                            <Run Text=" — double-click a mod for details, hover a row for quick actions" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                        <!-- One short line; the rest of the how-to sits in its tooltip (two lines of
+                             instructions above the list were too much for every visit). -->
+                        <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   ToolTip="Click to select, Ctrl-click to add, Shift-click for a range. Ticking ON on a selected mod ticks every selected mod. Hover a row for quick actions. Right-click for more (Select all, Add to merge queue, Delete).">
+                            <Run Text="{Binding ModCount, Mode=OneWay}"/><Run Text=" mod(s) · "/><Run Text="{Binding GroupCount, Mode=OneWay}"/><Run Text=" group(s)"/><Run Text=" — Double-click for details, right-click for more." Foreground="{DynamicResource FaintForegroundBrush}"/>
                         </TextBlock>
-                        <TextBlock Margin="0,2,0,0" FontSize="12" Foreground="{DynamicResource FaintForegroundBrush}"
-                                   Text="Click to select, Ctrl-click to add, Shift-click for a range. Ticking ON on a selected mod ticks every selected mod. Right-click for more (Select all, Add to merge queue, Delete)."/>
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding UpdateCheckStatusMessage}"
                                    Visibility="{Binding UpdateCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                         <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding StalenessCheckStatusMessage}"
@@ -741,7 +748,7 @@
                          toolbar button, since the header bar is exactly where a user already expects
                          "configure these columns" to live (the standard spreadsheet/file-manager
                          convention), and the toolbar was just decluttered down to 4 groups. -->
-                    <Grid Grid.Row="4" Margin="4,0,4,4">
+                    <Grid x:Name="ColumnHeaderGrid" Grid.Row="4" Margin="4,0,4,4">
                         <Grid.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Author" IsCheckable="True" IsChecked="{Binding ShowAuthorColumn}"/>
@@ -758,7 +765,7 @@
                             <ColumnDefinition Width="Auto" MinWidth="6" SharedSizeGroup="ColCheckbox"/>
                             <ColumnDefinition Width="Auto" MinWidth="34" SharedSizeGroup="ColEnabled"/>
                             <ColumnDefinition Width="Auto" SharedSizeGroup="ColIcons"/>
-                            <ColumnDefinition Width="Auto" MinWidth="220" MaxWidth="360" SharedSizeGroup="ColName"/>
+                            <ColumnDefinition Width="Auto" MinWidth="{DynamicResource LibraryNameColumnWidth}" MaxWidth="{DynamicResource LibraryNameColumnMaxWidth}" SharedSizeGroup="ColName"/>
                             <ColumnDefinition Width="Auto" MinWidth="90" SharedSizeGroup="ColType"/>
                             <ColumnDefinition Width="Auto" MinWidth="110" SharedSizeGroup="ColAuthor"/>
                             <ColumnDefinition Width="Auto" MinWidth="60" SharedSizeGroup="ColVersion"/>

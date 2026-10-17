@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel;
 using System.Linq;
 using System.Windows;
@@ -23,6 +24,60 @@ public partial class LibraryView : UserControl
                 newVm.PropertyChanged += ViewModel_PropertyChanged;
             }
         };
+        LayoutUpdated += (_, _) => UpdateNameColumnWidth();
+    }
+
+    // What a row loses to the TreeViewItem template before its own Grid starts: the 19px expander
+    // column, the 2px padding either side (Themes/Styles.xaml), plus a few px so rounding never
+    // tips the row into a horizontal scroll.
+    private const double RowChromeWidth = 19 + 4 + 6;
+    private const double MinNameColumnWidth = 220;
+    private ScrollViewer? _libraryTreeScrollViewer;
+
+    /// <summary>
+    /// Name is the column that should take spare width, but a SharedSizeGroup column can't be
+    /// star-sized (see the Mods tab Grid's own comment) — so its width is set here instead: whatever
+    /// the list's visible width leaves after every other column's real (shared) width. The header
+    /// and both row templates read it as a DynamicResource, so they stay aligned; hiding a column
+    /// from the header's right-click menu frees its width for Name on the next layout pass.
+    /// </summary>
+    private void UpdateNameColumnWidth()
+    {
+        _libraryTreeScrollViewer ??= FindDescendant<ScrollViewer>(LibraryTree);
+        var visibleWidth = _libraryTreeScrollViewer?.ViewportWidth ?? 0;
+        if (visibleWidth <= 0 || ColumnHeaderGrid.ColumnDefinitions.Count < 4)
+        {
+            return;
+        }
+
+        var otherColumns = ColumnHeaderGrid.ColumnDefinitions.Where((_, index) => index != 3).Sum(c => c.ActualWidth);
+        var width = Math.Max(MinNameColumnWidth, Math.Floor(visibleWidth - RowChromeWidth - otherColumns));
+        if (Resources["LibraryNameColumnWidth"] is double current && Math.Abs(current - width) < 1)
+        {
+            return;
+        }
+
+        Resources["LibraryNameColumnWidth"] = width;
+        Resources["LibraryNameColumnMaxWidth"] = width;
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            if (FindDescendant<T>(child) is { } nested)
+            {
+                return nested;
+            }
+        }
+
+        return null;
     }
 
     // TreeView.SelectedItem has no setter (see LibraryTree_SelectedItemChanged's own comment), so

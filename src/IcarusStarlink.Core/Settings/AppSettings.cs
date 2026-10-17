@@ -33,6 +33,10 @@ public sealed class AppSettings
     public bool CatalogShowStatusColumn { get; set; } = true;
     public bool CatalogShowLastUpdatedColumn { get; set; } = true;
 
+    // Library: whether UE4SS's own built-in mods (BPModLoaderMod, Keybinds…) are listed. Off by
+    // default — they come with the loader and only cluttered the list.
+    public bool LibraryShowUe4ssBuiltIns { get; set; }
+
     // Main window bounds — all four null until the first real close, so a fresh install still gets
     // MainWindow.xaml's own WindowStartupLocation="CenterScreen" default rather than snapping to 0,0.
     public double? WindowLeft { get; set; }

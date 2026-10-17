@@ -18,6 +18,10 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     private readonly ILibraryRepository _libraryRepository;
     private readonly IUe4ssModRepository _ue4ssModRepository;
 
+    // An ENABLED UE4SS mod lives in the game's own Mods folder, not in staging — GetAll alone said
+    // every enabled Lua half was gone, so a fully installed download read "Removed from Library".
+    private readonly Func<IReadOnlyList<string>> _ue4ssNamesInGame;
+
     public int ModId { get; }
     public int FileId { get; }
     public string FileName { get; }
@@ -25,7 +29,7 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     public DateTimeOffset DownloadedAtUtc { get; }
 
     /// <summary>The mod's name as its source listed it (a catalog entry's Name), else the upload's own file name without Nexus's id/timestamp/hash tail or the extension — what a person recognizes the file as.</summary>
-    public string DisplayName => _displayName ?? NexusDownloadFileName.StripNexusSuffix(System.IO.Path.GetFileNameWithoutExtension(FileName));
+    public string DisplayName => _displayName ?? NexusDownloadFileName.StripNexusSuffix(System.IO.Path.GetFileNameWithoutExtension(FileName), IsCatalog ? null : ModId);
 
     private readonly string? _displayName;
 
@@ -48,10 +52,11 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<string> _requirements = [];
 
-    public PendingDownloadItemViewModel(PendingDownloadEntry entry, ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository)
+    public PendingDownloadItemViewModel(PendingDownloadEntry entry, ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository, Func<IReadOnlyList<string>>? ue4ssNamesInGame = null)
     {
         _libraryRepository = libraryRepository;
         _ue4ssModRepository = ue4ssModRepository;
+        _ue4ssNamesInGame = ue4ssNamesInGame ?? (() => []);
         ModId = entry.ModId;
         FileId = entry.FileId;
         FileName = entry.FileName;
@@ -75,7 +80,14 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     public string ActionLabel => ActivatedItems.Count > 0 ? "Reinstall" : "Activate";
 
     /// <summary>"Needs: ArcFission Library 1.2.0 or newer; UE4SS (experimental build)" — the README's own requirement lines, for the row.</summary>
-    public string? RequirementsSummary => Requirements.Count == 0 ? null : $"Needs: {string.Join("; ", Requirements)}";
+    public string? RequirementsSummary
+    {
+        get
+        {
+            var lines = Requirements.Where(r => !string.IsNullOrWhiteSpace(r)).Select(r => r.Trim()).ToList();
+            return lines.Count == 0 ? null : $"Needs: {string.Join("; ", lines)}";
+        }
+    }
 
     /// <summary>The requirement NAMES (see ModReadmeRequirements.ExtractName) nothing staged or in the Library satisfies right now — the loader itself excluded. Drives the row's "Find on Nexus".</summary>
     public IReadOnlyList<string> MissingRequirementNames
@@ -87,9 +99,9 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
                 return [];
             }
 
-            var installed = _ue4ssModRepository.GetAll().Concat(_libraryRepository.GetAll().Select(e => e.Name)).ToList();
+            var installed = AllUe4ssNames().Concat(_libraryRepository.GetAll().Select(e => e.Name)).ToList();
             return Requirements
-                .Where(r => !ModReadmeRequirements.IsLoaderRequirement(r) && !ModReadmeRequirements.IsSatisfiedBy(r, installed))
+                .Where(r => !string.IsNullOrWhiteSpace(r) && !ModReadmeRequirements.IsLoaderRequirement(r) && !ModReadmeRequirements.IsSatisfiedBy(r, installed))
                 .Select(ModReadmeRequirements.ExtractName)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -150,10 +162,13 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     {
         PendingDownloadActivationKind.Library => _libraryRepository.GetAll()
             .Any(e => string.Equals(e.FolderName, item.FolderName, StringComparison.OrdinalIgnoreCase)),
-        PendingDownloadActivationKind.Ue4ssMod => _ue4ssModRepository.GetAll()
+        PendingDownloadActivationKind.Ue4ssMod => AllUe4ssNames()
             .Any(f => string.Equals(f, item.FolderName, StringComparison.OrdinalIgnoreCase)),
         _ => false,
     };
+
+    /// <summary>Staged (disabled) plus in the game's Mods folder (enabled) — a UE4SS mod is in exactly one of the two.</summary>
+    private IEnumerable<string> AllUe4ssNames() => _ue4ssModRepository.GetAll().Concat(_ue4ssNamesInGame());
 
     public void Refresh()
     {

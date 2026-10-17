@@ -27,6 +27,16 @@ public sealed class ModReadmeRequirementsTests
         Assert.Equal("ArcFission Library 1.2.0 or newer (separate download)", requirements[1]);
     }
 
+    /// <summary>Minimap V1.0.5's README underlines its headings — the underline used to become an empty first requirement ("Needs: ; UE4SS…").</summary>
+    [Fact]
+    public void Parse_UnderlinedHeading_SkipsTheUnderline()
+    {
+        var requirements = ModReadmeRequirements.Parse(
+            "REQUIREMENTS\n------------\n- UE4SS for Icarus (Lua mods).\n- Icarus Mod Manager (for the .EXMODZ file).\n\nINSTALLATION\n------------\n1. Copy it.");
+
+        Assert.Equal(["UE4SS for Icarus (Lua mods).", "Icarus Mod Manager (for the .EXMODZ file)."], requirements);
+    }
+
     [Fact]
     public void Parse_NoRequirementsSection_IsEmpty() =>
         Assert.Empty(ModReadmeRequirements.Parse("Just a mod.\n\nINSTALL\n1. Copy it."));

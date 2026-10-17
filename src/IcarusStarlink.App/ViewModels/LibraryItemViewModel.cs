@@ -204,7 +204,14 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         OnPropertyChanged(nameof(HasUpdateAvailable));
     }
 
-    partial void OnVersionChanged(string value) => OnPropertyChanged(nameof(HasUpdateAvailable));
+    partial void OnVersionChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasUpdateAvailable));
+        OnPropertyChanged(nameof(VersionText));
+    }
+
+    /// <summary>The Version column: "v1.2.0", or empty when the mod declares no version.</summary>
+    public string VersionText => VersionLabel.For(Version);
 
     /// <summary>The real Nexus mod ID — only meaningful when Source == "Nexus", needed by LibraryViewModel.CheckForUpdatesAsync to look up this mod's current version.</summary>
     public int? NexusModId { get; private set; }

@@ -875,7 +875,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
             // (a real complaint: it rode into staged mod names). The (ModId, FileId) pair below is
             // what keeps same-named files apart, not the hash.
             fileName = DownloadFileNameSanitizer.Sanitize(
-                NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(fileName)) + Path.GetExtension(fileName));
+                NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(fileName), nxmUrl.ModId) + Path.GetExtension(fileName));
 
             Directory.CreateDirectory(_pendingDownloadsDirectory);
             // See DownloadFileNameSanitizer.ResolveUniqueFileName's own doc comment: disambiguates
@@ -1284,7 +1284,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
             return "";
         }
 
-        var installedNames = _ue4ssModRepository.GetAll().Concat(_libraryRepository.GetAll().Select(e => e.Name)).ToList();
+        // Enabled UE4SS mods sit in the game's Mods folder, not staging — both count as installed.
+        var installedNames = _ue4ssModRepository.GetAll().Concat(Ue4ssNamesInGame()).Concat(_libraryRepository.GetAll().Select(e => e.Name)).ToList();
         var parts = new List<string>();
         var missing = new List<string>();
         foreach (var requirement in requirements)
@@ -1624,10 +1625,19 @@ public sealed partial class DownloadsViewModel : ObservableObject
         PendingDownloads.Clear();
         foreach (var entry in _pendingDownloadStore.Entries.OrderByDescending(e => e.DownloadedAtUtc))
         {
-            PendingDownloads.Add(new PendingDownloadItemViewModel(entry, _libraryRepository, _ue4ssModRepository));
+            PendingDownloads.Add(new PendingDownloadItemViewModel(entry, _libraryRepository, _ue4ssModRepository, Ue4ssNamesInGame));
         }
 
         RefreshVisiblePendingDownloads();
+    }
+
+    /// <summary>UE4SS mods currently enabled (sitting in the game's Mods folder rather than staging) — empty when the game path isn't set.</summary>
+    private IReadOnlyList<string> Ue4ssNamesInGame()
+    {
+        var icarusContentPath = _settingsService.Current.IcarusContentPath;
+        return !string.IsNullOrWhiteSpace(icarusContentPath)
+            ? _ue4ssModRepository.ListInstalledInGame(Ue4ssGamePaths.ResolveModsFolder(icarusContentPath))
+            : [];
     }
 
     /// <summary>
