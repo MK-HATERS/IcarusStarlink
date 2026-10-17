@@ -53,6 +53,11 @@ public interface ILibraryRepository
     /// <summary>Sets the ✎ "locally edited" flag — called once by the EXMOD editor's own Save action, never toggled directly by the user the way Pin/Favorite/Notes are.</summary>
     void MarkLocallyEdited(string folderName);
 
+    /// <summary>Records that the mod fixer changed this mod (the first time only; see LibraryEntry.FixedByIslAtUtc).</summary>
+    void MarkFixedByIsl(string folderName)
+    {
+    }
+
     /// <summary>See LibraryEntry.ConvertedFromPrebuiltPak — called once, either automatically right after a prebuilt-pak import successfully converts to a real EXMOD, or by the manual "Convert to EXMOD…" action.</summary>
     void MarkConvertedFromPrebuiltPak(string folderName);
 

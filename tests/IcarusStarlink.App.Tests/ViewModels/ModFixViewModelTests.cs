@@ -69,6 +69,49 @@ public sealed class ModFixViewModelTests : IDisposable
     private ExmodFileItem Item(string name) =>
         ExmodFolder.ReadPackageOnly(_library.GetFolderPath(_folder)).Rows.Single(r => r.CurrentFile == "Items-D_ItemsStatic.json").FileItems.Single(i => i.Name == name);
 
+    private LibraryEntry Entry => _library.GetAll().Single(e => e.FolderName == _folder);
+
+    [Fact]
+    public void FixSure_MarksTheModFixed_ButKeepsAConvertedPakUnedited()
+    {
+        Assert.Null(Entry.FixedByIslAtUtc);
+
+        var (applied, _) = Service.FixSure(_folder);
+
+        Assert.True(applied > 0);
+        Assert.NotNull(Entry.FixedByIslAtUtc);
+        Assert.False(Entry.IsLocallyEdited);
+    }
+
+    /// <summary>Sure fixes aren't remembered as choices: a re-conversion after a game update used to drop them (a broken canteen link came back).</summary>
+    [Fact]
+    public void ReapplyRemembered_AfterReconversion_MakesSureFixesAgain_WithNoChoicesRemembered()
+    {
+        var exmod = Directory.GetFiles(_library.GetFolderPath(_folder), "*.EXMOD", SearchOption.AllDirectories).Single();
+        var original = File.ReadAllText(exmod);
+        var service = Service;
+        Assert.Equal(0, service.ReapplyRemembered(_folder));
+
+        service.FixSure(_folder);
+        Assert.Equal(0, service.RememberedCount(_folder));
+        File.WriteAllText(exmod, original);
+
+        Assert.True(service.ReapplyRemembered(_folder) > 0);
+        Assert.Equal(0, service.Check(_folder).SureCount);
+    }
+
+    /// <summary>A mod fixed before the fixed mark existed: the fresh conversion has sure problems the replaced copy didn't.</summary>
+    [Fact]
+    public void ReapplyRemembered_MoreSureProblemsThanTheReplacedCopy_FixesAgain_AndMarksIt()
+    {
+        var sure = Service.Check(_folder).SureCount;
+        Assert.True(sure > 0);
+        Assert.Equal(0, Service.ReapplyRemembered(_folder, sureBefore: sure));
+
+        Assert.True(Service.ReapplyRemembered(_folder, sureBefore: 0) > 0);
+        Assert.NotNull(Entry.FixedByIslAtUtc);
+    }
+
     [Fact]
     public void TheWindow_SortsByKind_WithTheSuggestedFixChosen()
     {

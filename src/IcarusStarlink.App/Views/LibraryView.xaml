@@ -289,6 +289,10 @@
                                   CommandParameter="{Binding}" IsEnabled="{Binding HasModBackup}"
                                   ToolTip="Replaces this mod's current content with its most recent backup. Greyed out: no backup yet (Create mod backup, or an update, makes one)."
                                   ToolTipService.ShowOnDisabled="True"/>
+                        <MenuItem Header="Reinstall original"
+                                  Command="{Binding PlacementTarget.Tag.ReinstallOriginalCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  ToolTip="Imports the mod again from the download ISL kept, exactly as its author made it. Fixes and edits made since are dropped (backed up first)."/>
                         <MenuItem Header="See what changed vs previous version…"
                                   Command="{Binding PlacementTarget.Tag.CompareToPreviousVersionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding HasModBackup}"
@@ -347,6 +351,10 @@
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
                           ToolTip="Changed in the mod editor"
                           Visibility="{Binding IsLocallyEdited, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <Path Data="{StaticResource IconWrench}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.4"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
+                          ToolTip="{Binding FixedByIslToolTip}" AutomationProperties.Name="Fixed by ISL"
+                          Visibility="{Binding IsFixedByIsl, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <Path Data="{StaticResource IconPackage}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.4"
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
                           ToolTip="A rebuilt merged pak, re-imported as its own mod"

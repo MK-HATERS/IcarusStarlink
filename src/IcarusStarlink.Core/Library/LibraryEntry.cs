@@ -63,6 +63,9 @@ public sealed class LibraryEntry
     /// <summary>Set once the EXMOD editor's own Save action runs against this mod — the ✎ glyph.</summary>
     public bool IsLocallyEdited { get; set; }
 
+    /// <summary>When the mod fixer (Check against the game &amp; fix) first changed this mod — the wrench glyph. Null: never fixed, or reinstalled or restored to before the first fix since.</summary>
+    public DateTimeOffset? FixedByIslAtUtc { get; set; }
+
     /// <summary>Created in Starlink (New mod…, or Save as a new mod on the Editor page) rather than downloaded or imported.</summary>
     public bool MadeInStarlink { get; set; }
 

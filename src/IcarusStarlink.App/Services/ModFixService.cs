@@ -132,12 +132,21 @@ public sealed class ModFixService(
         }
     }
 
-    /// <summary>After a prebuilt pak was converted again: make the remembered choices (and sure fixes) again. Nothing remembered: nothing to do.</summary>
-    public int ReapplyRemembered(string folderName)
+    /// <summary>
+    /// After a prebuilt pak was converted again: make the remembered choices (and sure fixes) again.
+    /// Sure fixes aren't remembered as choices, so a mod counts as fixed before when it's marked so,
+    /// or when the fresh conversion has more sure problems than the copy it replaced
+    /// (<paramref name="sureBefore"/>: that copy's count) — which also catches mods fixed before the
+    /// mark existed. Without this a broken link fixed with Fix sure problems came back on the next refresh.
+    /// </summary>
+    public int ReapplyRemembered(string folderName, int? sureBefore = null)
     {
         lock (_gate)
         {
-            return LoadDecisions(folderName).Count == 0 ? 0 : FixSure(folderName).Applied;
+            var fixedBefore = LoadDecisions(folderName).Count > 0
+                || Entry(folderName)?.FixedByIslAtUtc is not null
+                || (sureBefore is { } before && Check(folderName).SureCount > before);
+            return fixedBefore ? FixSure(folderName).Applied : 0;
         }
     }
 
@@ -200,6 +209,7 @@ public sealed class ModFixService(
         }
 
         ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
+        repository.MarkFixedByIsl(folderName);
 
         // A converted pak that hasn't been hand-edited stays "live": it keeps re-converting against
         // new game data, with these fixes made again each time. Anything else shows the ✎.

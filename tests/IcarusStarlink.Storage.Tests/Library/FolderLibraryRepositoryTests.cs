@@ -1002,6 +1002,45 @@ public class FolderLibraryRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void MarkFixedByIsl_KeepsTheFirstTime_AndSurvivesARescan()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+
+        repo.MarkFixedByIsl(folderName);
+        var first = repo.GetAll().Single(e => e.FolderName == folderName).FixedByIslAtUtc;
+        Thread.Sleep(20);
+        repo.MarkFixedByIsl(folderName);
+        repo.Refresh();
+
+        Assert.NotNull(first);
+        Assert.Equal(first, repo.GetAll().Single(e => e.FolderName == folderName).FixedByIslAtUtc);
+    }
+
+    [Fact]
+    public void RestoreLatestModBackup_FromBeforeTheFirstFix_ClearsTheFixedMark_FromAfter_KeepsIt()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+
+        repo.BackupMod(folderName);
+        Thread.Sleep(20);
+        repo.MarkFixedByIsl(folderName);
+        Thread.Sleep(20);
+        repo.BackupMod(folderName);
+        Assert.True(repo.RestoreLatestModBackup(folderName));
+        Assert.NotNull(repo.GetAll().Single(e => e.FolderName == folderName).FixedByIslAtUtc);
+
+        // Drop the after-the-fix backup: the latest left is the one from before it.
+        Directory.Delete(repo.TryGetLatestModBackupPath(folderName)!, recursive: true);
+
+        Assert.True(repo.RestoreLatestModBackup(folderName));
+        Assert.Null(repo.GetAll().Single(e => e.FolderName == folderName).FixedByIslAtUtc);
+    }
+
+    [Fact]
     public void HasModBackup_NoBackupYet_ReturnsFalse()
     {
         ExmodFolder.Write(_sourceDir, BuildFixture());

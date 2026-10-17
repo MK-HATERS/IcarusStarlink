@@ -1613,6 +1613,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
         PendingDownloadStatusMessage = $"Discarded '{item.FileName}'.";
     }
 
+    /// <summary>The kept download a Library mod was installed from (its file still on disk), or null.</summary>
+    public PendingDownloadItemViewModel? FindOriginalDownload(string libraryFolderName) =>
+        PendingDownloads.FirstOrDefault(d =>
+            d.ActivatedItems.Any(i => i.Kind == PendingDownloadActivationKind.Library && string.Equals(i.FolderName, libraryFolderName, StringComparison.OrdinalIgnoreCase))
+            && File.Exists(ResolveLocalFilePath(d)));
+
     private void ReloadPendingDownloads()
     {
         PendingDownloads.Clear();

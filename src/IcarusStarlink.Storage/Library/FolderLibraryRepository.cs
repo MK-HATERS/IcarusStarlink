@@ -251,6 +251,12 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     public void MarkLocallyEdited(string folderName) =>
         UpdateMeta(folderName, meta => meta.IsLocallyEdited = true, entry => entry.IsLocallyEdited = true);
 
+    public void MarkFixedByIsl(string folderName)
+    {
+        var now = DateTimeOffset.UtcNow;
+        UpdateMeta(folderName, meta => meta.FixedByIslAtUtc ??= now, entry => entry.FixedByIslAtUtc ??= now);
+    }
+
     /// <summary>See LibraryEntry.ConvertedFromPrebuiltPak — same shape as MarkLocallyEdited.</summary>
     public void MarkConvertedFromPrebuiltPak(string folderName) =>
         UpdateMeta(folderName, meta => meta.ConvertedFromPrebuiltPak = true, entry => entry.ConvertedFromPrebuiltPak = true);
@@ -365,6 +371,15 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         }
 
         FolderBackup.CopyDirectory(backupPath, folder);
+
+        // A backup taken before the mod fixer first changed this mod holds none of its fixes. The
+        // Library info lives outside the mod's folder, so the restore itself doesn't undo it.
+        var meta = LoadMetaForWrite(folderName);
+        if (meta.FixedByIslAtUtc is { } fixedAt && Directory.GetCreationTimeUtc(backupPath) <= fixedAt.UtcDateTime)
+        {
+            meta.FixedByIslAtUtc = null;
+            _metaStore.Save(folderName, meta);
+        }
 
         RescanAll();
         return true;
@@ -578,6 +593,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         Notes = meta.Notes,
         ImportedAtUtc = meta.ImportedAtUtc,
         IsLocallyEdited = meta.IsLocallyEdited,
+        FixedByIslAtUtc = meta.FixedByIslAtUtc,
         MadeInStarlink = meta.MadeInStarlink,
         ConvertedFromPrebuiltPak = meta.ConvertedFromPrebuiltPak,
         Source = meta.Source,

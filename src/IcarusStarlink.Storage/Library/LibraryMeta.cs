@@ -11,6 +11,9 @@ internal sealed class LibraryMeta
     /// <summary>Set once, by the EXMOD editor's own Save action — unlike Pin/Favorite/Notes, never toggled directly in the Library UI.</summary>
     public bool IsLocallyEdited { get; set; }
 
+    /// <summary>See LibraryEntry.FixedByIslAtUtc.</summary>
+    public DateTimeOffset? FixedByIslAtUtc { get; set; }
+
     /// <summary>Created in Starlink rather than downloaded or imported (see LibraryEntry.IsOwnMod).</summary>
     public bool MadeInStarlink { get; set; }
 

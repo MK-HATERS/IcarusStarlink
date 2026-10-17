@@ -2158,6 +2158,19 @@ public sealed partial class LibraryViewModel : ObservableObject
                 // .EXMOD" on the next rescan (an audit finding). Keep the existing package's own name.
                 converted.Contents.Package.FileName = ExmodFolder.ReadPackageOnly(folder).FileName;
 
+                // How many sure problems the copy being replaced has: more in the fresh conversion
+                // means fixes were made to it, so they're made again below.
+                var folderName = item.FolderName;
+                int? sureBefore;
+                try
+                {
+                    sureBefore = await Task.Run(() => FixService.Check(folderName).SureCount);
+                }
+                catch (Exception)
+                {
+                    sureBefore = null;
+                }
+
                 _repository.BackupMod(item.FolderName);
                 try
                 {
@@ -2181,11 +2194,10 @@ public sealed partial class LibraryViewModel : ObservableObject
                 // The fixes the user chose for this mod in the fix window, made again on the fresh
                 // conversion (its sure ones the converter already left out).
                 // Off the UI thread: the service is shared with any check or fix pass and waits its turn.
-                var folderName = item.FolderName;
-                var reapplied = await Task.Run(() => FixService.ReapplyRemembered(folderName));
+                var reapplied = await Task.Run(() => FixService.ReapplyRemembered(folderName, sureBefore));
                 if (reapplied > 0)
                 {
-                    _activityLog.Log($"Made your {reapplied} earlier fix choice(s) again in '{item.Name}' after refreshing it.", ActivityEntryKind.Info);
+                    _activityLog.Log($"Made {reapplied} earlier fix(es) again in '{item.Name}' after refreshing it.", ActivityEntryKind.Info);
                 }
 
                 // The fresh conversion (and those fixes) can change what the row's badge says.
@@ -2442,6 +2454,48 @@ public sealed partial class LibraryViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Restore failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Puts the mod back exactly as it was downloaded: the same Reinstall the Downloads page offers
+    /// (delete the Library copy, import the kept download again), so fixes, edits and renames made
+    /// since are gone, and its remembered fix choices are forgotten so the next check starts fresh.
+    /// </summary>
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task ReinstallOriginal(LibraryItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        if (Downloads.FindOriginalDownload(item.FolderName) is not { } download)
+        {
+            StatusMessage = $"ISL doesn't have the original download for '{item.Name}' (it was imported from a file, or the download was discarded). Import that file again, or use Restore latest backup.";
+            return;
+        }
+
+        if (!_dialogService.Confirm(
+                $"Reinstall '{item.Name}' from its original download ({download.FileName})?\n\nThis replaces the Library copy: fixes, edits and a rename made since are lost, and its remembered fix choices are forgotten. It's backed up first, so Restore latest backup can bring this copy back.",
+                "Reinstall original", ThemedConfirmSeverity.Warning))
+        {
+            return;
+        }
+
+        var name = item.Name;
+        try
+        {
+            _repository.BackupMod(item.FolderName);
+            var folderName = item.FolderName;
+            await Task.Run(() => FixService.Forget(folderName));
+            await Downloads.ActivatePendingDownloadCommand.ExecuteAsync(download);
+            StatusMessage = Downloads.PendingDownloadStatusMessage is { Length: > 0 } result ? $"Reinstalled '{name}': {result}" : $"Reinstalled '{name}'.";
+            _activityLog.Log($"Reinstalled '{name}' from its original download.", ActivityEntryKind.Info);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Reinstall failed: {ex.Message}";
         }
     }
 

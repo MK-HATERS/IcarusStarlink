@@ -255,8 +255,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// </summary>
     public void NotifyRepairedFromDisk()
     {
-        IsLocallyEdited = _repository.GetAll()
-            .FirstOrDefault(e => string.Equals(e.FolderName, FolderName, StringComparison.OrdinalIgnoreCase))?.IsLocallyEdited ?? IsLocallyEdited;
+        var entry = _repository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, FolderName, StringComparison.OrdinalIgnoreCase));
+        IsLocallyEdited = entry?.IsLocallyEdited ?? IsLocallyEdited;
+        FixedByIslAtUtc = entry is null ? FixedByIslAtUtc : entry.FixedByIslAtUtc;
         ChangesContent = null;
         ChangesSummary = null;
         _changesSummaryRun++;
@@ -464,6 +465,17 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isLocallyEdited;
 
+    /// <summary>See LibraryEntry.FixedByIslAtUtc — the wrench glyph.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsFixedByIsl), nameof(FixedByIslToolTip))]
+    private DateTimeOffset? _fixedByIslAtUtc;
+
+    public bool IsFixedByIsl => FixedByIslAtUtc is not null;
+
+    public string FixedByIslToolTip => FixedByIslAtUtc is { } at
+        ? $"Fixed by ISL's mod check (first on {at.ToLocalTime():d MMM yyyy}). The fixes are made again after game updates. Right-click › Reinstall original or Restore latest backup to undo."
+        : "";
+
     /// <summary>True once this mod's own EXMOD was derived from a prebuilt pak (automatically at import, or via Convert to EXMOD…) rather than authored directly — the candidate set LibraryViewModel's own silent post-data-update refresh re-derives from its saved source pak, as long as IsLocallyEdited hasn't since gone true.</summary>
     public bool ConvertedFromPrebuiltPak { get; private set; }
 
@@ -586,6 +598,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         PakCount = entry.IsOpaquePak ? Math.Max(1, entry.PakFileNames.Count) : 0;
         PakFileNames = entry.PakFileNames;
         _isLocallyEdited = entry.IsLocallyEdited;
+        _fixedByIslAtUtc = entry.FixedByIslAtUtc;
         ConvertedFromPrebuiltPak = entry.ConvertedFromPrebuiltPak;
         _source = entry.Source;
         NexusModId = entry.NexusModId;
@@ -629,6 +642,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         VariantLabel = entry.Variant;
         IsOpaquePak = entry.IsOpaquePak;
         IsLocallyEdited = entry.IsLocallyEdited;
+        FixedByIslAtUtc = entry.FixedByIslAtUtc;
         ConvertedFromPrebuiltPak = entry.ConvertedFromPrebuiltPak;
         Source = entry.Source;
         NexusModId = entry.NexusModId;
