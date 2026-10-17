@@ -333,6 +333,8 @@ public partial class App : Application
                 .SelectMany(report => report.ChangedFiles).SelectMany(file => file.FieldChanges),
             // Each mod's fix-window choices, so they're made by themselves next time.
             FixDecisionsDirectory = Path.Combine(appDataDirectory, "Library_Meta", "Fix_Choices"),
+            // The game's own files: a mod's copy of one is rated by how much can break (the risk pill).
+            BaseGameContent = sp.GetRequiredService<IBaseGameContentProvider>(),
         });
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),

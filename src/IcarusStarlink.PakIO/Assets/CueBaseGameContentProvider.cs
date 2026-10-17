@@ -53,6 +53,18 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
     public T? TryLoadExport<T>(string assetPath) where T : class =>
         TryLoadExportAndProject<T, T>(assetPath, static export => export);
 
+    public bool? HasAsset(string assetPath)
+    {
+        var mounted = GetOrMountProvider();
+        if (mounted is null)
+        {
+            return null;
+        }
+
+        // The index is built once at mount and never changed after, so reading it needs no lock.
+        return mounted.ContentPathIndex.ContainsKey(assetPath.Replace('\\', '/').TrimStart('/'));
+    }
+
     public TResult? TryLoadExportAndProject<T, TResult>(string assetPath, Func<T, TResult> project)
         where T : class where TResult : class
     {

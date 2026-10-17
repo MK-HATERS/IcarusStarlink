@@ -2744,6 +2744,58 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// <summary>Where each mod's remembered fix choices are kept; set by the app (null: nothing remembered).</summary>
     public string? FixDecisionsDirectory { get; init; }
 
+    /// <summary>The game's own content, to tell a mod's copy of a game file from a file of its own; set by the app (null: not checked).</summary>
+    public IBaseGameContentProvider? BaseGameContent { get; init; }
+
+    private bool _fileRiskPassRunning;
+    private bool _fileRiskPassAgain;
+
+    /// <summary>
+    /// Rates the game files every mod replaces (the risk pill) and finds mods replacing the same
+    /// file with different copies. In the background after the Library loads and after mods
+    /// change; the first call mounts the game's content (about a second), every later one is
+    /// quick. A pass asked for while one runs runs once more after it.
+    /// </summary>
+    private async Task RefreshFileRisksAsync()
+    {
+        if (BaseGameContent is not { } game)
+        {
+            return;
+        }
+
+        if (_fileRiskPassRunning)
+        {
+            _fileRiskPassAgain = true;
+            return;
+        }
+
+        _fileRiskPassRunning = true;
+        try
+        {
+            do
+            {
+                _fileRiskPassAgain = false;
+                var items = AllLibraryItems().Where(i => !i.IsMergedPack).ToList();
+                var folders = items.Select(i => (i.FolderName, i.Name)).ToList();
+                var risks = await Task.Run(() => FileRiskAssessor.Assess(_repository, folders, game));
+                foreach (var item in items)
+                {
+                    item.FileRisk = risks.GetValueOrDefault(item.FolderName);
+                }
+            }
+            while (_fileRiskPassAgain);
+        }
+        catch (Exception ex)
+        {
+            _activityLog.Log($"Couldn't rate the game files mods replace: {ex.Message}", ActivityEntryKind.Warning);
+        }
+        finally
+        {
+            _fileRiskPassRunning = false;
+        }
+    }
+
+
     private ModFixService FixService => _modFixService ??= new ModFixService(_repository, _dataFolder, GameHistory, FixDecisionsDirectory);
 
     /// <summary>
@@ -3324,7 +3376,29 @@ public sealed partial class LibraryViewModel : ObservableObject
         // resets _detailsLoaded) actually reloads the still-selected mod's details right away,
         // rather than only the next time the user reselects it.
         SelectedItem?.EnsureDetailsLoaded();
+
+        // New rows, or mods that may have changed on disk: rate the game files they replace again.
+        // Not from the constructor's first load: the app sets BaseGameContent just after it.
+        _fileRisksStale |= fullResync;
+        if (_fileRisksStale && BaseGameContent is not null)
+        {
+            _fileRisksStale = false;
+            _ = RefreshFileRisksAsync();
+        }
     }
+
+    /// <summary>The Library page is showing (MainViewModel): rates the game files mods replace, if not done since mods changed.</summary>
+    public void OnPageShown()
+    {
+        if (_fileRisksStale && BaseGameContent is not null)
+        {
+            _fileRisksStale = false;
+            _ = RefreshFileRisksAsync();
+        }
+    }
+
+    /// <summary>A row was added since the last risk pass (set in GetOrCreateItem).</summary>
+    private bool _fileRisksStale = true;
 
     /// <summary>
     /// Updates RootItems to match `target` via targeted Remove/Insert/Move rather than
@@ -3382,6 +3456,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             status => StatusMessage = status, () => Reload());
         created.EnabledToggled += OnItemEnabledToggled;
         created.DataFolder = _dataFolder;
+        _fileRisksStale = true;
         _itemsByFolderName[entry.FolderName] = created;
         return created;
     }

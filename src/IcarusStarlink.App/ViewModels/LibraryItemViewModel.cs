@@ -455,6 +455,20 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             }.Where(p => p is not null))
           + ". Click to see them and fix.";
 
+    /// <summary>The game files this mod replaces, rated (the risk pill); null: it replaces none, or not checked yet.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFileRisk), nameof(IsHighFileRisk), nameof(FileRiskLabel), nameof(FileRiskTooltip))]
+    private ModFileRisk? _fileRisk;
+
+    /// <summary>Low risk (art and sound only) gets no pill: it can only look or sound wrong.</summary>
+    public bool HasFileRisk => FileRisk is { Level: > IcarusStarlink.PakIO.Exmod.FileRisk.Low };
+
+    public bool IsHighFileRisk => FileRisk is { Level: IcarusStarlink.PakIO.Exmod.FileRisk.High };
+
+    public string FileRiskLabel => FileRisk?.Label ?? "";
+
+    public string FileRiskTooltip => FileRisk?.Explanation ?? "";
+
     /// <summary>"Made for an older game: between Week 222 and 4 Sep 2026" (the faint line under the name), or null when it fits today's game.</summary>
     public string? BuiltForText => Health?.BuiltFor?.OlderText;
 

@@ -388,9 +388,31 @@
                      rendered a bare " — " suffix even with no VariantLabel at all until this was
                      fixed. -->
                 <StackPanel Grid.Column="3" VerticalAlignment="Center">
-                    <TextBlock TextTrimming="CharacterEllipsis">
-                        <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                    </TextBlock>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock TextTrimming="CharacterEllipsis">
+                            <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        </TextBlock>
+                        <!-- The game files this mod replaces: High (the player character, a shared base) or Medium (one blueprint or screen). -->
+                        <Border Grid.Column="1" Margin="8,0,8,0" CornerRadius="8" Padding="7,1" VerticalAlignment="Center"
+                                ToolTip="{Binding FileRiskTooltip}" ToolTipService.ShowDuration="30000"
+                                Visibility="{Binding HasFileRisk, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsHighFileRisk}" Value="True">
+                                            <Setter Property="Background" Value="{DynamicResource DangerBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Text="{Binding FileRiskLabel}" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource WindowBackgroundBrush}"/>
+                        </Border>
+                    </Grid>
                     <!-- Only for a mod made for an older game (its rows include ones the game removed since). -->
                     <TextBlock Text="{Binding BuiltForText}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}" TextTrimming="CharacterEllipsis"
                                ToolTip="Read from the game rows this mod carries: some were removed from the game after this. An older mod can still work; check it against the game to see what doesn't fit."

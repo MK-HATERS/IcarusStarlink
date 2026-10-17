@@ -33,6 +33,12 @@ public interface IBaseGameContentProvider
     T? TryLoadExport<T>(string assetPath) where T : class;
 
     /// <summary>
+    /// Whether the base game has a file at this /Game/-relative path ("BP/Player/BP_IcarusPlayerCharacterSurvival.uasset"):
+    /// a mod's copy of it replaces the game's. Null when the game's content can't be read (no game folder set).
+    /// </summary>
+    bool? HasAsset(string assetPath) => null;
+
+    /// <summary>
     /// Same lookup as TryLoadExport, but runs <paramref name="project"/> under the SAME lock that
     /// protects the load itself — required for any consumer that reads a lazily-resolved
     /// cross-package reference off the export (CueUassetMaterialDecoder's GetParams call resolving

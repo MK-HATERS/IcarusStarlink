@@ -245,6 +245,11 @@ public sealed partial class MainViewModel : ObservableObject
             localServer.RefreshMergedPak();
         }
 
+        if (CurrentPage is LibraryViewModel library)
+        {
+            library.OnPageShown();
+        }
+
         // Installs and fixes since it was last shown made new backups.
         if (CurrentPage is SettingsViewModel settings)
         {
