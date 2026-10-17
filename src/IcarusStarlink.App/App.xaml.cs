@@ -352,7 +352,8 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Staged_Build", IcarusStarlink.PakIO.InstallManifestNames.MergedPakFileName),
             Path.Combine(appDataDirectory, "Backups"),
             messenger: null,
-            gameProcessChecker: sp.GetRequiredService<IGameProcessChecker>()));
+            gameProcessChecker: sp.GetRequiredService<IGameProcessChecker>(),
+            gameDataFreshness: new GameDataFreshness(sp.GetRequiredService<IUnrealPakService>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<SettingsViewModel>)));
         builder.Services.AddSingleton(sp => new DownloadsViewModel(
             sp.GetRequiredService<IDaedalusCatalogClient>(),
             sp.GetRequiredService<IJimk72CatalogClient>(),

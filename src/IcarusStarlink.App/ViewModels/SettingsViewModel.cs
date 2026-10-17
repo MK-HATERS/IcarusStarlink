@@ -894,6 +894,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         WeakReferenceMessenger.Default.Send(new SettingsSavedMessage());
     }
 
+    /// <summary>Refresh game data, for Merge &amp; Install's "Refresh game data, then build" (a no-op while one is already running).</summary>
+    public Task RefreshGameDataAsync() => IsUpdatingDataFolder ? Task.CompletedTask : UpdateDataFolderAsync();
+
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task UpdateDataFolderAsync()
     {
