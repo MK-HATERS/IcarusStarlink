@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using IcarusStarlink.Core.Server;
+using IcarusStarlink.Core.Ue4ss;
 
 namespace IcarusStarlink.PakIO;
 
@@ -40,6 +42,47 @@ public static class InstallManifestNames
     /// and its rows are merged in, so the merge outranking it loses nothing.
     /// </summary>
     public static bool IsArcFissionDataPak(string fileName) => ArcFissionDataPak.IsMatch(fileName);
+
+    /// <summary>
+    /// Whether ArcFission Library itself (the UE4SS mod that writes the data pak) is installed in
+    /// the game and turned on: an "ArcFissionLibrary…" folder in ue4ss\Mods that has an enabled.txt
+    /// or that mods.txt lists as on (either makes UE4SS load it). Its data pak is only folded into the merge
+    /// and kept while this is true: a pak left behind after the library is removed holds whole
+    /// tables from the game version it was written for, and folding it in would put old values back.
+    /// </summary>
+    public static bool IsArcFissionLibraryActive(string icarusContentPath)
+    {
+        try
+        {
+            var modsFolder = Ue4ssGamePaths.ResolveModsFolder(icarusContentPath);
+            if (!Directory.Exists(modsFolder))
+            {
+                return false;
+            }
+
+            var modsTxt = Ue4ssModsTxt.Load(Path.Combine(modsFolder, "mods.txt"));
+            foreach (var folder in Directory.GetDirectories(modsFolder))
+            {
+                var name = Path.GetFileName(folder);
+                var letters = new string([.. name.Where(char.IsLetterOrDigit)]);
+                if (!letters.StartsWith("ArcFissionLibrary", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (modsTxt.IsEnabled(name) == true || File.Exists(Path.Combine(folder, "enabled.txt")))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>The newest ArcFission data pak in a mods folder (the highest number is the one the game uses), or null.</summary>
     public static string? NewestArcFissionDataPak(string modsFolder)

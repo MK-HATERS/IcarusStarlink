@@ -1,3 +1,4 @@
+using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
@@ -835,6 +836,74 @@ public class RebuildServiceTests : IDisposable
 
         row = System.Text.Json.Nodes.JsonNode.Parse(pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"])!["Rows"]![0]!;
         Assert.Equal(999, (int)row["CraftTime"]!);
+    }
+
+    /// <summary>
+    /// A prebuilt pak merges at its own queue position: one queued before an EXMOD mod loses a clash
+    /// to it (it used to come after every EXMOD mod, whatever its position), a pick's index counts
+    /// it in that order, and the manifest lists everything in merge order.
+    /// </summary>
+    [Fact]
+    public async Task RebuildAsync_PrebuiltPakQueuedBeforeAMod_LosesTheClashToIt()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json",
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Mod A", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var prebuiltPakPath = Path.Combine(_tempDir, "SomeMod_P.pak");
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFilesByPakPath[prebuiltPakPath] = new()
+        {
+            ["data/Crafting/D_ProcessorRecipes.json"] =
+                """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":999}]}""",
+        };
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync(
+            [mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath],
+            prebuiltPakQueuePositions: [0]);
+
+        var row = System.Text.Json.Nodes.JsonNode.Parse(pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"])!["Rows"]![0]!;
+        Assert.Equal(1, (int)row["CraftTime"]!);
+        Assert.Equal(["SomeMod_P", "Mod A"], ModListText.ParseNames(await File.ReadAllTextAsync(result.ManifestPath)));
+
+        // Index 0 is the pak now, the first in queue order.
+        await service.RebuildAsync(
+            [mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath],
+            manualPicks: new Dictionary<(string CurrentFile, string ItemName, string FieldName), int>
+            {
+                [("Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe", "CraftTime")] = 0,
+            },
+            prebuiltPakQueuePositions: [0]);
+        row = System.Text.Json.Nodes.JsonNode.Parse(pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"])!["Rows"]![0]!;
+        Assert.Equal(999, (int)row["CraftTime"]!);
+    }
+
+    /// <summary>
+    /// A prebuilt pak built for an older game copies that game's lists: the copies (the game's list
+    /// minus what it added since) are left out of the merge, as at import, so the game's current
+    /// list stays while the author's real change still merges.
+    /// </summary>
+    [Fact]
+    public async Task RebuildAsync_PrebuiltPakOldCopiesAreLeftOut_TheAuthorsChangeStays()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json",
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5,"Tags":["A","B","C"]}]}""");
+        var prebuiltPakPath = Path.Combine(_tempDir, "OldMod_P.pak");
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFilesByPakPath[prebuiltPakPath] = new()
+        {
+            ["data/Crafting/D_ProcessorRecipes.json"] =
+                """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":999,"Tags":["A","B"]}]}""",
+        };
+        var service = new RebuildService(pakService);
+
+        var result = await service.RebuildAsync([], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath]);
+
+        var row = System.Text.Json.Nodes.JsonNode.Parse(pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"])!["Rows"]![0]!;
+        Assert.Equal(999, (int)row["CraftTime"]!);
+        Assert.Equal(["A", "B", "C"], row["Tags"]!.AsArray().Select(t => (string)t!));
+        Assert.Contains(result.Warnings, w => w.Contains("older game version") && w.Contains("OldMod_P"));
     }
 
     [Fact]

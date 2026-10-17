@@ -176,6 +176,62 @@ public class BackupCleanupTests : IDisposable
         }
     }
 
+    /// <summary>A world backup made before a restore isn't lost behind newer before-mods ones: the newest of each reason stays.</summary>
+    [Fact]
+    public void CleanUp_ServerZips_KeepsTheNewestOfEachReasonToo()
+    {
+        var server = Path.Combine("Server", "Server1_dc7ea824");
+        WriteFile(Path.Combine(server, "2026-10-14_100000_before-restore.zip"));
+        WriteFile(Path.Combine(server, "2026-10-14_090000_before-restore.zip"));
+        WriteFile(Path.Combine(server, "2026-10-15_100000_before-mods.zip"));
+        WriteFile(Path.Combine(server, "2026-10-16_100000_before-mods.zip"));
+        WriteFile(Path.Combine(server, "2026-10-16_110000_before-mods_2.zip"));
+        WriteFile(Path.Combine(server, "2026-10-16_120000_manual.zip"));
+
+        BackupCleanup.CleanUp(_backups, keepPerSet: 2);
+
+        Assert.Equal(
+            ["2026-10-14_100000_before-restore.zip", "2026-10-16_110000_before-mods_2.zip", "2026-10-16_120000_manual.zip"],
+            Directory.GetFiles(Path.Combine(_backups, server)).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>The merged pak's mod list backups are pruned with the paks, to the same count.</summary>
+    [Fact]
+    public void PruneMergedPakBackups_PrunesTheModListBackupsToTheSameCount()
+    {
+        foreach (var stamp in new[] { "20261016-100000", "20261016-110000", "20261016-120000", "20261016-130000" })
+        {
+            WriteFile($"zz_zz_ISL-Merged_9999_P_{stamp}.pak");
+            WriteFile($"ISL-Merged_{stamp}.txt");
+        }
+
+        BackupCleanup.PruneMergedPakBackups(_backups, keep: 2);
+
+        Assert.Equal(
+            ["ISL-Merged_20261016-120000.txt", "ISL-Merged_20261016-130000.txt",
+             "zz_zz_ISL-Merged_9999_P_20261016-120000.pak", "zz_zz_ISL-Merged_9999_P_20261016-130000.pak"],
+            RootFileNames().Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>The newest pak backup pairs with the mod list backed up a few seconds after it, as the user's real backups show (214049 / 214051).</summary>
+    [Fact]
+    public void FindNewestMergedPakBackup_PairsTheModListMadeRightAfterThePak()
+    {
+        WriteFile("zz_zz_ISL-Merged_9999_P_20261016-214049.pak");
+        var newest = WriteFile("zz_zz_ISL-Merged_9999_P_20261016-220125.pak");
+        WriteFile("ISL-Merged_20261016-214051.txt");
+        var paired = WriteFile("ISL-Merged_20261016-220127.txt");
+        WriteFile("ISL-Merged_20261016-235959.txt");
+
+        var found = BackupCleanup.FindNewestMergedPakBackup(_backups);
+
+        Assert.NotNull(found);
+        Assert.Equal(newest, found.PakBackupPath);
+        Assert.Equal(paired, found.ManifestBackupPath);
+        Assert.Equal(new DateTime(2026, 10, 16, 22, 1, 25, DateTimeKind.Utc), found.BackedUpAtUtc);
+        Assert.Null(BackupCleanup.FindNewestMergedPakBackup(Path.Combine(_tempDir, "nowhere")));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))

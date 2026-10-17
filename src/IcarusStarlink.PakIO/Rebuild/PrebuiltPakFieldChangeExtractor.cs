@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.DataChanges;
+using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.PakIO.Rebuild;
 
@@ -102,5 +103,45 @@ public static class PrebuiltPakFieldChangeExtractor
         }
 
         return (changes, diffedPaths);
+    }
+
+    /// <summary>
+    /// The merge's version of what PrebuiltPakToExmodConverter does at import: a prebuilt pak ships
+    /// whole tables from the game version it was built for, so beside the author's changes its diff
+    /// "changes" every row the game has updated since. The sure old copies (ModHealthChecker's
+    /// OldCopy/SameAsGame, judged as a prebuilt pak) are left out, so the game's current values stay;
+    /// without this, a pak queued as-is put old values back that the same pak converted to an EXMOD
+    /// would not.
+    /// </summary>
+    public static IReadOnlyList<FieldChange> WithoutOldCopies(
+        IReadOnlyList<FieldChange> changes, string dataFolder, string pakName, ISemanticClassifier classifier, MergeReport report)
+    {
+        if (changes.Count == 0)
+        {
+            return changes;
+        }
+
+        var package = new ExmodPackage
+        {
+            Name = pakName,
+            Author = "",
+            Version = "1.0",
+            Description = "",
+            FileName = pakName,
+            Rows = ExmodFieldChangeMapper.FromFieldChanges(changes),
+        };
+        var health = ModHealthChecker.Check(package, dataFolder, fromPrebuiltPak: true, classifier: classifier);
+        var oldCopies = ModHealthChecker.Apply(package, health.Issues
+            .Where(i => i.IsSure && i.Kind is ModIssueKind.OldCopy or ModIssueKind.SameAsGame)
+            .Select(i => (i, i.DefaultFix))
+            .ToList());
+        if (oldCopies == 0)
+        {
+            return changes;
+        }
+
+        report.AddWarning(
+            $"'{pakName}' was made for an older game version: {oldCopies} value(s) it copied from that version were left out of the merge, so the game's current ones stay.");
+        return ExmodFieldChangeMapper.ToFieldChanges(package, classifier);
     }
 }

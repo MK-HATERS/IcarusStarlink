@@ -1027,6 +1027,11 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public IReadOnlyList<ExmodPackageContents>? LastQueuedMods { get; private set; }
         public IReadOnlyList<string>? LastPrebuiltPakFilePaths { get; private set; }
         public IReadOnlyList<string>? LastLowPriorityPrebuiltPakFilePaths { get; private set; }
+        public IReadOnlyList<int>? LastPrebuiltPakQueuePositions { get; private set; }
+        public GameplayOptions? LastGameplayOptions { get; private set; }
+
+        /// <summary>Runs inside RebuildAsync, before it returns — a test edits the page here, as a user would mid-build.</summary>
+        public Func<Task>? DuringRebuild { get; set; }
         public IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? LastManualPicks { get; private set; }
         public RebuildResult Result { get; set; } = new(0, 0, "out.pak", "out.manifest", [], []);
         public Exception? ExceptionToThrow { get; set; }
@@ -1037,19 +1042,31 @@ public sealed class MergeInstallViewModelTests : IDisposable
             string outputPakPath, IReadOnlyList<string> prebuiltPakFilePaths,
             IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
             IProgress<RebuildStageProgress>? progress = null, CancellationToken cancellationToken = default,
-            IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null)
+            IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null, IReadOnlyList<int>? prebuiltPakQueuePositions = null)
         {
             RebuildCallCount++;
             LastQueuedMods = queuedMods;
             LastPrebuiltPakFilePaths = prebuiltPakFilePaths;
             LastLowPriorityPrebuiltPakFilePaths = lowPriorityPrebuiltPakFilePaths;
+            LastPrebuiltPakQueuePositions = prebuiltPakQueuePositions;
             LastManualPicks = manualPicks;
+            LastGameplayOptions = gameplayOptions;
             if (ExceptionToThrow is not null)
             {
                 throw ExceptionToThrow;
             }
 
-            return Task.FromResult(Result);
+            return RunAsync();
+
+            async Task<RebuildResult> RunAsync()
+            {
+                if (DuringRebuild is not null)
+                {
+                    await DuringRebuild();
+                }
+
+                return Result;
+            }
         }
 
         /// <summary>Per pak path, the changes ComputePrebuiltPakFieldChangesAsync reports for it (none by default).</summary>
@@ -1071,12 +1088,29 @@ public sealed class MergeInstallViewModelTests : IDisposable
     private sealed class FakeInstallService : IInstallService
     {
         public int InstallCallCount { get; private set; }
+        public bool? LastKeepArcFissionDataPak { get; private set; }
         public InstallResult Result { get; set; } = new("installed.pak", null);
 
-        public Task<InstallResult> InstallAsync(string stagedPakPath, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default)
+        public Task<InstallResult> InstallAsync(string stagedPakPath, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default, bool keepArcFissionDataPak = true)
         {
             InstallCallCount++;
+            LastKeepArcFissionDataPak = keepArcFissionDataPak;
             return Task.FromResult(Result);
+        }
+
+        public int RemoveCallCount { get; private set; }
+
+        public PreviousInstall? Previous { get; set; }
+
+        public int RestoreCallCount { get; private set; }
+
+        public Task<PreviousInstall?> FindPreviousInstallAsync(string backupDirectory, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Previous);
+
+        public Task<PreviousInstall?> RestorePreviousInstallAsync(string stagedPakFileName, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default)
+        {
+            RestoreCallCount++;
+            return Task.FromResult(Previous);
         }
 
         public IReadOnlyList<string> InstalledModNames { get; set; } = [];
@@ -1084,8 +1118,11 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default) =>
             Task.FromResult(new InstalledState(InstalledModNames));
 
-        public Task<bool> RemoveInstalledPakAsync(string stagedPakFileName, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default) =>
-            Task.FromResult(false);
+        public Task<bool> RemoveInstalledPakAsync(string stagedPakFileName, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default)
+        {
+            RemoveCallCount++;
+            return Task.FromResult(false);
+        }
     }
 
     private sealed class FakeProfileStore : IProfileStore
