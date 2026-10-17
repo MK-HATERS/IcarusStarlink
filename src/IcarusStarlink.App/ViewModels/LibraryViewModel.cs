@@ -842,6 +842,15 @@ public sealed partial class LibraryViewModel : ObservableObject
             mergeInstall.RemoveFromQueueByFolderNames([item.FolderName]);
         }
 
+        // Refused either way (a build is running, or ISL's own pack can't be ticked): the tick goes
+        // back, the Lua half stays as it was, and the queue's reason shows.
+        if (mergeInstall.IsQueued(item.FolderName) != enabled)
+        {
+            StatusMessage = mergeInstall.StatusMessage;
+            RefreshEnabledAndStatus();
+            return;
+        }
+
         foreach (var luaRow in Ue4ssMods.Where(r => item.LinkedUe4ssNames.Contains(r.Name, StringComparer.OrdinalIgnoreCase)))
         {
             luaRow.IsEnabled = enabled;

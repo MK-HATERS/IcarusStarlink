@@ -108,4 +108,11 @@ public sealed class LibraryEntry
     /// sourced prebuilt .pak import.
     /// </summary>
     public IReadOnlyList<string>? MergedPackOptionDescriptions { get; set; }
+
+    /// <summary>
+    /// Never read from disk: true only for the stand-in Merge &amp; Install puts in its queue for a
+    /// profile's mod that isn't in the Library (any more). The row shows greyed as missing, keeps its
+    /// place and its name in the profile, and is skipped by a build.
+    /// </summary>
+    public bool IsMissingFromLibrary { get; init; }
 }

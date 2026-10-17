@@ -19,10 +19,11 @@
 
         <DockPanel Grid.Row="1" Margin="0,16,0,0" LastChildFill="True">
             <TextBlock DockPanel.Dock="Left" Text="Profile:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-            <ComboBox DockPanel.Dock="Left" Width="160" ItemsSource="{Binding ProfileNames}" SelectedItem="{Binding SelectedProfileName}" Margin="0,0,12,0"/>
-            <Button DockPanel.Dock="Left" Content="Save profile" Command="{Binding SaveProfileCommand}" Margin="0,0,8,0"
+            <ComboBox DockPanel.Dock="Left" Width="160" ItemsSource="{Binding ProfileNames}" SelectedItem="{Binding SelectedProfileName}" Margin="0,0,12,0"
+                      IsEnabled="{Binding IsNotRebuilding}"/>
+            <Button DockPanel.Dock="Left" Content="Save profile" Command="{Binding SaveProfileCommand}" Margin="0,0,8,0" IsEnabled="{Binding IsNotRebuilding}"
                     ToolTip="Saves the queue and merge options under this profile (the previous version is kept as a backup)"/>
-            <Button DockPanel.Dock="Left" x:Name="ProfileMenuButton" Content="Profile ▾" Click="DropdownButton_Click" Margin="0,0,8,0"
+            <Button DockPanel.Dock="Left" x:Name="ProfileMenuButton" Content="Profile ▾" Click="DropdownButton_Click" Margin="0,0,8,0" IsEnabled="{Binding IsNotRebuilding}"
                     ToolTip="New, rename, restore a backup, delete">
                 <Button.ContextMenu>
                     <ContextMenu>
@@ -176,7 +177,7 @@
                         </TextBlock>
                     </Border>
                     <ListBox ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueEntry}" MinHeight="100"
-                             ToolTip="Drag a row to reorder the queue"
+                             ToolTip="Drag a row to reorder the queue" IsEnabled="{Binding IsNotRebuilding}"
                              AllowDrop="True"
                              PreviewMouseLeftButtonDown="QueueList_PreviewMouseLeftButtonDown"
                              PreviewMouseMove="QueueList_PreviewMouseMove"
@@ -203,7 +204,22 @@
                                             </TextBlock.Style>
                                         </TextBlock>
                                     </Border>
-                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <!-- A profile's mod that isn't in the Library: kept in its place, skipped by a build. -->
+                                                    <DataTrigger Binding="{Binding IsMissingFromLibrary}" Value="True">
+                                                        <Setter Property="Opacity" Value="0.5"/>
+                                                        <Setter Property="ToolTip" Value="Not in your Library any more, so it's left out of the build. Import it again and it takes this place back."/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <TextBlock Text="missing — skipped" FontSize="10.5" Margin="6,0,0,0" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource SecondaryForegroundBrush}" FontStyle="Italic"
+                                               Visibility="{Binding IsMissingFromLibrary, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                     <!-- Per-row conflict indicator — shows without needing to open Review
                                          conflicts first. Both bindings reach the page-level ViewModel's own
                                          ConflictingModNamesByMod from inside this per-row DataTemplate, the
@@ -240,6 +256,8 @@
                      ones, per the user's own request. Their per-action status text moved out to its
                      own row underneath (Grid.Row="3"), since it no longer fits beside each button. -->
                 <WrapPanel Grid.Row="2" Margin="0,8,0,0">
+                    <!-- The queue edits are off while a build runs (it builds what was queued when it started). -->
+                    <StackPanel Orientation="Horizontal" IsEnabled="{Binding IsNotRebuilding}">
                     <Button Command="{Binding MoveQueueEntryUpCommand}" Style="{StaticResource IconButtonStyle}"
                             Width="30" ToolTip="Move up" AutomationProperties.Name="Move up" Margin="0,0,4,0">
                         <Path Data="{StaticResource IconArrowUp}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
@@ -268,6 +286,7 @@
                             </ContextMenu>
                         </Button.ContextMenu>
                     </Button>
+                    </StackPanel>
 
                     <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Margin="0,4,10,4"/>
 
@@ -359,6 +378,8 @@
                                     <TextBlock Text="Remove from game" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
+                            <Button Command="{Binding RestorePreviousInstallCommand}" Content="Restore previous install" Margin="8,0,0,0"
+                                    ToolTip="Puts back the merged pak that was installed before the current one, with its mod list. What's installed now is backed up first, so you can switch back."/>
                             <TextBlock Text="{Binding InstallStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                         </StackPanel>
@@ -371,7 +392,7 @@
                  Collapsed by default (redesign-round-2 pilot): a new user landing on this page
                  doesn't need to parse 8 controls across 3 groups just to find Install, but the
                  collapsed header's own summary keeps whatever IS active from being hidden. -->
-            <Expander Grid.Column="2" VerticalAlignment="Top" IsExpanded="False" AutomationProperties.Name="Merge options">
+            <Expander Grid.Column="2" VerticalAlignment="Top" IsExpanded="False" AutomationProperties.Name="Merge options" IsEnabled="{Binding IsNotRebuilding}">
                 <Expander.Header>
                     <DockPanel LastChildFill="False">
                         <TextBlock DockPanel.Dock="Left" Text="Merge options" Style="{StaticResource ExpanderHeaderTitleStyle}"/>

@@ -16,7 +16,7 @@ public sealed class InstallService : IInstallService
 {
     public Task<InstallResult> InstallAsync(
         string stagedPakPath, string icarusContentPath, string backupDirectory,
-        CancellationToken cancellationToken = default) => Task.Run(() =>
+        CancellationToken cancellationToken = default, bool keepArcFissionDataPak = true) => Task.Run(() =>
     {
         if (!File.Exists(stagedPakPath))
         {
@@ -46,8 +46,9 @@ public sealed class InstallService : IInstallService
             }
 
             // ArcFission Library's own data pak: its rows are in the merge, which outranks it, and
-            // deleting it only makes the library write it again (and ask for a restart).
-            if (InstallManifestNames.IsArcFissionDataPak(existingFileName))
+            // deleting it only makes the library write it again (and ask for a restart). Only while
+            // the library is installed: a leftover one is old data and goes like any other file.
+            if (keepArcFissionDataPak && InstallManifestNames.IsArcFissionDataPak(existingFileName))
             {
                 continue;
             }
@@ -160,5 +161,58 @@ public sealed class InstallService : IInstallService
         BackupCleanup.PruneMergedPakBackups(backupDirectory);
 
         return removedAnything;
+    }, cancellationToken);
+
+    public Task<PreviousInstall?> FindPreviousInstallAsync(string backupDirectory, CancellationToken cancellationToken = default) =>
+        Task.Run(() => BackupCleanup.FindNewestMergedPakBackup(backupDirectory), cancellationToken);
+
+    public Task<PreviousInstall?> RestorePreviousInstallAsync(
+        string stagedPakFileName, string icarusContentPath, string backupDirectory,
+        CancellationToken cancellationToken = default) => Task.Run(() =>
+    {
+        // Chosen before anything below is backed up, or the copy of what's installed now would be
+        // the newest backup and "restore" would put the same build straight back.
+        if (BackupCleanup.FindNewestMergedPakBackup(backupDirectory) is not { } previous)
+        {
+            return null;
+        }
+
+        var modsDirectory = Path.Combine(icarusContentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsDirectory);
+        var targetPakPath = Path.Combine(modsDirectory, Path.GetFileName(stagedPakFileName));
+        var targetManifestPath = Path.Combine(modsDirectory, InstallManifestNames.PakManifest);
+
+        // What's installed now is backed up first, so the restore itself can be undone.
+        var pakPaths = InstallManifestNames.LegacyMergedPakFileNames
+            .Select(name => Path.Combine(modsDirectory, name))
+            .Prepend(targetPakPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var pakPath in pakPaths.Where(File.Exists))
+        {
+            FolderBackup.BackupFile(pakPath, backupDirectory);
+            if (!pakPath.Equals(targetPakPath, StringComparison.OrdinalIgnoreCase))
+            {
+                File.Delete(pakPath);
+            }
+        }
+
+        FolderBackup.BackupFile(targetManifestPath, backupDirectory, BackupCleanup.MergedPakBackupsKept);
+
+        CopyViaTemp(previous.PakBackupPath, targetPakPath);
+        if (previous.ManifestBackupPath is { } manifestBackup)
+        {
+            CopyViaTemp(manifestBackup, targetManifestPath);
+        }
+        else if (File.Exists(targetManifestPath))
+        {
+            // The current build's list would describe a pak that's no longer there.
+            File.Delete(targetManifestPath);
+        }
+
+        // The restored pair is still the second newest (after the copy of what was installed just
+        // now), so it's kept.
+        BackupCleanup.PruneMergedPakBackups(backupDirectory);
+
+        return previous;
     }, cancellationToken);
 }

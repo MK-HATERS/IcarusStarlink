@@ -38,6 +38,11 @@ public interface IRebuildService
     /// pak, which copies whole tables from the game, so any queued mod or gameplay option wins a
     /// clash with it. A manualPicks index counts these first, ahead of the queued mods.
     /// </param>
+    /// <param name="prebuiltPakQueuePositions">
+    /// Where each prebuilt pak sits in the queue: one entry per prebuiltPakFilePaths entry, the number
+    /// of queuedMods ahead of it. The merge takes mods and paks in that true order (later wins), and
+    /// a manualPicks index counts them in it. Null puts every pak after the queued mods.
+    /// </param>
     Task<RebuildResult> RebuildAsync(
         IReadOnlyList<ExmodPackageContents> queuedMods,
         GameplayOptions gameplayOptions,
@@ -48,7 +53,8 @@ public interface IRebuildService
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
         IProgress<RebuildStageProgress>? progress = null,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null);
+        IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null,
+        IReadOnlyList<int>? prebuiltPakQueuePositions = null);
 
     /// <summary>
     /// Extracts and diffs each prebuilt pak against real base game data (the same

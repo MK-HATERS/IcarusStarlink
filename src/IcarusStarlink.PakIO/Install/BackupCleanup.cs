@@ -6,6 +6,9 @@ namespace IcarusStarlink.PakIO.Install;
 /// <summary>What Settings › Clean up backups removed.</summary>
 public sealed record BackupCleanupResult(int DeletedCount, long FreedBytes, int FailedCount);
 
+/// <summary>A merged pak backup and the backup of its mod list (ISL-Merged.txt) made with it, if there is one.</summary>
+public sealed record PreviousInstall(string PakBackupPath, string? ManifestBackupPath, DateTime BackedUpAtUtc);
+
 /// <summary>
 /// Keeps the app's Backups folder from growing without end. Two jobs: the merged pak's backups
 /// are counted across its current AND earlier names (each rename used to start a fresh keep-5 of
@@ -26,6 +29,7 @@ public static class BackupCleanup
     private const int MaxDepth = 4;
 
     private const string MergedPakSetKey = "\u0000merged-pak";
+    private const string MergedManifestSetKey = "\u0000merged-manifest";
     private const string ServerZipSetKey = "\u0000server-zip";
 
     // FolderBackup's own names: "{base}_yyyyMMdd-HHmmss", an optional "_N" collision suffix, then the extension (files only).
@@ -45,7 +49,11 @@ public static class BackupCleanup
         AttributesToSkip = FileAttributes.ReparsePoint,
     };
 
-    private sealed record BackupEntry(string Path, bool IsFolder, string SetKey, string SortStamp, int Suffix);
+    /// <summary>A manifest backup this long after a pak backup was made by the same install (the pak copy in between takes a few seconds).</summary>
+    private static readonly TimeSpan ManifestPairWindow = TimeSpan.FromMinutes(10);
+
+    /// <param name="Reason">A server zip's reason ("before-mods", "before-restore"…); null for everything else.</param>
+    private sealed record BackupEntry(string Path, bool IsFolder, string SetKey, string SortStamp, int Suffix, string? Reason = null);
 
     /// <summary>Total size of every file under the folder (0 when it doesn't exist). Slow on a big folder — call it off the UI thread.</summary>
     public static long MeasureBytes(string folder)
@@ -117,12 +125,56 @@ public static class BackupCleanup
             return;
         }
 
-        var mergedPakBackups = ParseEntries(backupDirectory).Where(e => e.SetKey == MergedPakSetKey);
-        foreach (var stale in StaleEntries(mergedPakBackups, Math.Max(1, keep)))
+        // The pak and its mod list are pruned together, to the same count, so the newest pak
+        // backups keep the lists made with them (Restore previous install puts both back).
+        var entries = ParseEntries(backupDirectory);
+        foreach (var setKey in new[] { MergedPakSetKey, MergedManifestSetKey })
         {
-            TryDelete(stale);
+            foreach (var stale in StaleEntries(entries.Where(e => e.SetKey == setKey), Math.Max(1, keep)))
+            {
+                TryDelete(stale);
+            }
         }
     }
+
+    /// <summary>
+    /// The newest merged pak backup in backupDirectory (under its current or an earlier name) and
+    /// the ISL-Merged.txt backup made by the same install or remove, paired by time: the list is
+    /// backed up a few seconds after the pak. Null when there's no pak backup.
+    /// </summary>
+    public static PreviousInstall? FindNewestMergedPakBackup(string backupDirectory)
+    {
+        if (!Directory.Exists(backupDirectory))
+        {
+            return null;
+        }
+
+        var entries = ParseEntries(backupDirectory);
+        var newestPak = Newest(entries.Where(e => e.SetKey == MergedPakSetKey));
+        if (newestPak is null || !TryParseStamp(newestPak.SortStamp, out var pakTime))
+        {
+            return null;
+        }
+
+        var manifest = entries
+            .Where(e => e.SetKey == MergedManifestSetKey)
+            .Select(e => (Entry: e, Ok: TryParseStamp(e.SortStamp, out var t), Time: t))
+            .Where(m => m.Ok && m.Time >= pakTime - TimeSpan.FromMinutes(1) && m.Time <= pakTime + ManifestPairWindow)
+            .OrderBy(m => (m.Time - pakTime).Duration())
+            .Select(m => m.Entry.Path)
+            .FirstOrDefault();
+        return new PreviousInstall(newestPak.Path, manifest, pakTime);
+    }
+
+    private static BackupEntry? Newest(IEnumerable<BackupEntry> entries) =>
+        entries
+            .OrderByDescending(e => e.SortStamp, StringComparer.Ordinal)
+            .ThenByDescending(e => e.Suffix)
+            .ThenByDescending(e => Path.GetFileName(e.Path), StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+
+    private static bool TryParseStamp(string sortStamp, out DateTime time) =>
+        DateTime.TryParseExact(sortStamp, "yyyyMMddHHmmss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out time);
 
     /// <summary>"572 MB", "1.6 GB" — the size the Settings Backups line shows.</summary>
     public static string FormatSize(long bytes)
@@ -199,9 +251,10 @@ public static class BackupCleanup
         {
             var baseName = timestamped.Groups["base"].Value;
             var extension = timestamped.Groups["ext"].Value;
-            var setKey = !isFolder && IsMergedPakName(baseName + extension)
-                ? MergedPakSetKey
-                : $"{(isFolder ? "dir" : "file")}|{baseName}{extension}".ToUpperInvariant();
+            var setKey = isFolder ? $"dir|{baseName}".ToUpperInvariant()
+                : IsMergedPakName(baseName + extension) ? MergedPakSetKey
+                : (baseName + extension).Equals(InstallManifestNames.PakManifest, StringComparison.OrdinalIgnoreCase) ? MergedManifestSetKey
+                : $"file|{baseName}{extension}".ToUpperInvariant();
             var suffix = timestamped.Groups["n"].Success && int.TryParse(timestamped.Groups["n"].Value, out var n) ? n : 1;
             return new BackupEntry(path, isFolder, setKey, timestamped.Groups["stamp"].Value.Replace("-", ""), suffix);
         }
@@ -209,14 +262,17 @@ public static class BackupCleanup
         var dated = DatedPrefix.Match(name);
         if (dated.Success)
         {
-            // Every zip in a server's folder is one set (one per reason would keep far more than asked);
-            // a removed pak or UE4SS mod is a set of its own name.
+            // Every zip in a server's folder is one set (one per reason would keep far more than asked),
+            // but the newest of each reason is always kept too (see StaleEntries): a before-restore
+            // world backup must not go just because newer before-mods ones were made since. A removed
+            // pak or UE4SS mod is a set of its own name.
             var rest = dated.Groups["rest"].Value;
-            var setKey = !isFolder && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+            var isServerZip = !isFolder && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
+            var setKey = isServerZip
                 ? ServerZipSetKey
                 : $"{(isFolder ? "dir" : "file")}|{rest}".ToUpperInvariant();
             var stamp = dated.Groups["date"].Value.Replace("-", "") + dated.Groups["time"].Value;
-            return new BackupEntry(path, isFolder, setKey, stamp, 1);
+            return new BackupEntry(path, isFolder, setKey, stamp, 1, isServerZip ? ZipReason(rest) : null);
         }
 
         return null;
@@ -226,15 +282,35 @@ public static class BackupCleanup
         fileName.Equals(InstallManifestNames.MergedPakFileName, StringComparison.OrdinalIgnoreCase)
         || InstallManifestNames.LegacyMergedPakFileNames.Contains(fileName, StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Every entry beyond the newest keep of its set (entries all come from one folder).</summary>
+    /// <summary>"before-mods_2.zip" → "BEFORE-MODS": the reason a server zip was made, without its collision number.</summary>
+    private static string ZipReason(string rest)
+    {
+        var reason = Path.GetFileNameWithoutExtension(rest);
+        var collision = Regex.Match(reason, @"^(?<reason>.+)_\d+$", RegexOptions.CultureInvariant);
+        return (collision.Success ? collision.Groups["reason"].Value : reason).ToUpperInvariant();
+    }
+
+    /// <summary>
+    /// Every entry beyond the newest keep of its set (entries all come from one folder). In a set
+    /// of server zips the newest one of each reason is never stale, whatever keep is.
+    /// </summary>
     private static IEnumerable<BackupEntry> StaleEntries(IEnumerable<BackupEntry> entries, int keep) =>
         entries
             .GroupBy(e => e.SetKey)
-            .SelectMany(set => set
-                .OrderByDescending(e => e.SortStamp, StringComparer.Ordinal)
-                .ThenByDescending(e => e.Suffix)
-                .ThenByDescending(e => Path.GetFileName(e.Path), StringComparer.OrdinalIgnoreCase)
-                .Skip(keep))
+            .SelectMany(set =>
+            {
+                var newestFirst = set
+                    .OrderByDescending(e => e.SortStamp, StringComparer.Ordinal)
+                    .ThenByDescending(e => e.Suffix)
+                    .ThenByDescending(e => Path.GetFileName(e.Path), StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var newestOfEachReason = newestFirst
+                    .Where(e => e.Reason is not null)
+                    .GroupBy(e => e.Reason)
+                    .Select(g => g.First())
+                    .ToHashSet();
+                return newestFirst.Skip(keep).Where(e => !newestOfEachReason.Contains(e));
+            })
             .ToList();
 
     private static bool TryDelete(BackupEntry entry)

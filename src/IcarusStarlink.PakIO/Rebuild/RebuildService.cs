@@ -30,13 +30,15 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
         IProgress<RebuildStageProgress>? progress = null,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null)
+        IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null,
+        IReadOnlyList<int>? prebuiltPakQueuePositions = null)
     {
         var report = new MergeReport();
         var lowPriorityPaks = lowPriorityPrebuiltPakFilePaths ?? [];
-        // Every prebuilt pak, lowest priority first: extracted, folded in (a later pak wins a literal
-        // file collision) and listed in the manifest in this order.
-        IReadOnlyList<string> allPrebuiltPaks = [.. lowPriorityPaks, .. prebuiltPakFilePaths];
+        var order = MergeOrder(queuedMods.Count, prebuiltPakFilePaths, prebuiltPakQueuePositions);
+        // Every prebuilt pak, lowest priority first (in queue order among themselves): extracted,
+        // folded in (a later pak wins a literal file collision) and listed in the manifest in this order.
+        IReadOnlyList<string> allPrebuiltPaks = [.. lowPriorityPaks, .. order.Where(o => o.PakIndex >= 0).Select(o => prebuiltPakFilePaths[o.PakIndex])];
         progress?.Report(new RebuildStageProgress("Merging queued mods…", 0));
 
         // Each prebuilt/opaque pak is extracted to its own scratch folder exactly once, up front —
@@ -74,7 +76,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             // offloaded via Task.Run so it doesn't block the calling (UI) thread the way running it
             // bare ahead of this method's first real await used to.
             var (mergedTables, originalFileJsonByFile, prebuiltPakDiffedPaths) = await Task.Run(
-                () => ComputeMergedTables(queuedMods, gameplayOptions, dataFolder, lowPriorityPaks, prebuiltPakFilePaths, prebuiltPakScratchDirectories, manualPicks, report),
+                () => ComputeMergedTables(queuedMods, gameplayOptions, dataFolder, lowPriorityPaks, prebuiltPakFilePaths, order, prebuiltPakScratchDirectories, manualPicks, report),
                 cancellationToken);
 
             var stagingDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"Rebuild_{Guid.NewGuid():N}");
@@ -101,8 +103,16 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                 FoldInUnmergedPrebuiltPakFiles(allPrebuiltPaks, prebuiltPakScratchDirectories, prebuiltPakDiffedPaths, stagingDirectory, report);
 
                 progress?.Report(new RebuildStageProgress("Packing…", 75));
+                // The manifest lists everything in merge order (Restore queue from game reads it back).
+                IReadOnlyList<string> manifestNames =
+                [
+                    .. lowPriorityPaks.Select(p => Path.GetFileNameWithoutExtension(p)!),
+                    .. order.Select(o => o.PakIndex >= 0
+                        ? Path.GetFileNameWithoutExtension(prebuiltPakFilePaths[o.PakIndex])!
+                        : queuedMods[o.ModIndex].Package.Name),
+                ];
                 var result = await PackAndVerifyAsync(
-                    queuedMods, allPrebuiltPaks, gameplayOptions, unrealPakExePath, outputPakPath, stagingDirectory, mergedTables.Count, report, cancellationToken);
+                    manifestNames, gameplayOptions, unrealPakExePath, outputPakPath, stagingDirectory, mergedTables.Count, report, cancellationToken);
 
                 progress?.Report(new RebuildStageProgress("Done.", 100));
                 return result;
@@ -131,10 +141,45 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     /// Category 2 gameplay options as a final pass. Split out of RebuildAsync purely for
     /// readability — same body, same closures-turned-parameters, no behavior change.
     /// </summary>
+    /// <summary>
+    /// The queue's true order: each prebuilt pak sits after the number of queued EXMOD mods its
+    /// position says (prebuiltPakQueuePositions, one per pak; null puts every pak after the mods,
+    /// the order before positions were passed). One entry per participant, lowest priority first:
+    /// ModIndex into queuedMods, or PakIndex into prebuiltPakFilePaths (the other is -1).
+    /// </summary>
+    internal static IReadOnlyList<(int ModIndex, int PakIndex)> MergeOrder(
+        int queuedModCount, IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyList<int>? prebuiltPakQueuePositions)
+    {
+        if (prebuiltPakQueuePositions is not null && prebuiltPakQueuePositions.Count != prebuiltPakFilePaths.Count)
+        {
+            throw new ArgumentException("prebuiltPakQueuePositions must have exactly one entry per prebuilt pak.", nameof(prebuiltPakQueuePositions));
+        }
+
+        var order = new List<(int ModIndex, int PakIndex)>();
+        var nextPak = 0;
+        int PositionOf(int pak) => prebuiltPakQueuePositions?[pak] ?? int.MaxValue;
+        for (var mod = 0; mod <= queuedModCount; mod++)
+        {
+            // Paks are taken in their own list order; a position lower than an earlier pak's is clamped up to it.
+            while (nextPak < prebuiltPakFilePaths.Count && (mod == queuedModCount || PositionOf(nextPak) <= mod))
+            {
+                order.Add((-1, nextPak++));
+            }
+
+            if (mod < queuedModCount)
+            {
+                order.Add((mod, -1));
+            }
+        }
+
+        return order;
+    }
+
     private static (Dictionary<string, JsonObject> Merged, Dictionary<string, JsonObject> Original, Dictionary<string, IReadOnlySet<string>> PrebuiltPakDiffedPaths) ComputeMergedTables(
         IReadOnlyList<ExmodPackageContents> queuedMods, GameplayOptions gameplayOptions, string dataFolder,
         IReadOnlyList<string> lowPriorityPrebuiltPakFilePaths,
-        IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyDictionary<string, string> prebuiltPakScratchDirectories,
+        IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyList<(int ModIndex, int PakIndex)> order,
+        IReadOnlyDictionary<string, string> prebuiltPakScratchDirectories,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks, MergeReport report)
     {
         var prebuiltPakDiffedPaths = new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase);
@@ -150,28 +195,32 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             var (changes, diffedPaths) = PrebuiltPakFieldChangeExtractor.Extract(
                 prebuiltPakScratchDirectories[prebuiltPakPath], dataFolder, pakName, classifier, report);
             prebuiltPakDiffedPaths[prebuiltPakPath] = diffedPaths;
+            changes = PrebuiltPakFieldChangeExtractor.WithoutOldCopies(changes, dataFolder, pakName, classifier, report);
             if (changes.Count > 0)
             {
                 orderedModChanges.Add(changes);
             }
         }
 
-        orderedModChanges.AddRange(queuedMods.Select(mod => ExmodFieldChangeMapper.ToFieldChanges(mod.Package, classifier)));
-
-        // A prebuilt pak carries no EXMOD-style declared changes, so its own DataTable JSON
-        // is reverse-engineered into real FieldChanges by diffing it against current base
-        // game data — the same technique ExmodBaseDiffer/PakCompareService/ModVersionComparer
-        // already use elsewhere for "diff against base"/"diff pak vs pak". Appended after
-        // EXMOD mods' own changes: this preserves the app's prior "a prebuilt pak always
-        // wins on collision" precedent (previously an unconditional whole-file overwrite;
-        // now a genuine field-level last-mod-wins, still overridable via manualPicks)
-        // rather than silently changing which side wins a conflict.
-        foreach (var prebuiltPakPath in prebuiltPakFilePaths)
+        // The queue in its true order (MergeOrder): a prebuilt pak carries no EXMOD-style declared
+        // changes, so its own DataTable JSON is reverse-engineered into real FieldChanges by diffing
+        // it against current base game data, then merged at its own queue position like any mod —
+        // lower in the queue wins, the same as for EXMOD mods (it used to come after every EXMOD mod
+        // whatever its position). Its sure old copies are left out first, as at import.
+        foreach (var (modIndex, pakIndex) in order)
         {
+            if (modIndex >= 0)
+            {
+                orderedModChanges.Add(ExmodFieldChangeMapper.ToFieldChanges(queuedMods[modIndex].Package, classifier));
+                continue;
+            }
+
+            var prebuiltPakPath = prebuiltPakFilePaths[pakIndex];
             var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
             var (changes, diffedPaths) = PrebuiltPakFieldChangeExtractor.Extract(
                 prebuiltPakScratchDirectories[prebuiltPakPath], dataFolder, pakName, classifier, report);
             prebuiltPakDiffedPaths[prebuiltPakPath] = diffedPaths;
+            changes = PrebuiltPakFieldChangeExtractor.WithoutOldCopies(changes, dataFolder, pakName, classifier, report);
             if (changes.Count > 0)
             {
                 orderedModChanges.Add(changes);
@@ -318,7 +367,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
 
     /// <summary>Packs the staged directory, runs both independent post-build verification passes, writes the manifest, and builds the final result.</summary>
     private async Task<RebuildResult> PackAndVerifyAsync(
-        IReadOnlyList<ExmodPackageContents> queuedMods, IReadOnlyList<string> prebuiltPakFilePaths, GameplayOptions gameplayOptions, string unrealPakExePath,
+        IReadOnlyList<string> manifestNames, GameplayOptions gameplayOptions, string unrealPakExePath,
         string outputPakPath, string stagingDirectory, int mergedTableCount, MergeReport report, CancellationToken cancellationToken)
     {
         // A failed -Create can leave a partial pak at outputPakPath, and the PREVIOUS build's manifest
@@ -337,7 +386,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         var packedFileCount = await unrealPakService.CreatePakAsync(unrealPakExePath, stagingDirectory, outputPakPath, cancellationToken);
         await VerifyEveryStagedFileWasActuallyPackedAsync(unrealPakExePath, outputPakPath, stagedRelativePaths, report, cancellationToken);
         await VerifyPakIntegrityAsync(unrealPakExePath, outputPakPath, report, cancellationToken);
-        var manifestPath = WriteManifest(queuedMods, prebuiltPakFilePaths, gameplayOptions, outputPakPath);
+        var manifestPath = WriteManifest(manifestNames, gameplayOptions, outputPakPath);
 
         return new RebuildResult(mergedTableCount, packedFileCount, outputPakPath, manifestPath, report.Warnings, report.Notes);
     }
@@ -356,8 +405,13 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             {
                 await unrealPakService.ExtractUnderGameContentAsync(unrealPakExePath, prebuiltPakPath, scratchDirectory, cancellationToken);
                 var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
-                var (changes, _) = await Task.Run(
-                    () => PrebuiltPakFieldChangeExtractor.Extract(scratchDirectory, dataFolder, pakName, classifier, report), cancellationToken);
+                // Old copies left out the same way RebuildAsync leaves them out, so a preview's
+                // candidates (and a pick's index into them) match the real merge.
+                var changes = await Task.Run(
+                    () => PrebuiltPakFieldChangeExtractor.WithoutOldCopies(
+                        PrebuiltPakFieldChangeExtractor.Extract(scratchDirectory, dataFolder, pakName, classifier, report).Changes,
+                        dataFolder, pakName, classifier, report),
+                    cancellationToken);
                 if (changes.Count > 0)
                 {
                     results.Add((pakName, changes));
@@ -627,8 +681,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     /// since an option description ("Stacks x2") isn't a mod name and must never be fed into that
     /// diffing logic (ParseNames stops at OptionsHeader for exactly this reason).
     /// </summary>
-    private static string WriteManifest(
-        IReadOnlyList<ExmodPackageContents> queuedMods, IReadOnlyList<string> prebuiltPakFilePaths, GameplayOptions gameplayOptions, string outputPakPath)
+    private static string WriteManifest(IReadOnlyList<string> manifestNames, GameplayOptions gameplayOptions, string outputPakPath)
     {
         var outputDirectory = Path.GetDirectoryName(outputPakPath)!;
         // Not relying on CreatePakAsync having already created this as a side effect — that's an
@@ -638,20 +691,15 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         var manifestPath = Path.Combine(outputDirectory, InstallManifestNames.PakManifest);
 
         var text = new StringBuilder();
-        if (queuedMods.Count + prebuiltPakFilePaths.Count > 0)
+        if (manifestNames.Count > 0)
         {
+            // Queued mods by name and prebuilt paks (genuinely part of this same pak, folded in
+            // above) by file name, in merge order — GetInstalledStateAsync reads this back for the
+            // "Compare to installed" diff, which would otherwise not know the paks are there.
             text.AppendLine(ModListText.Header);
-            foreach (var mod in queuedMods)
+            foreach (var name in manifestNames)
             {
-                text.AppendLine(mod.Package.Name);
-            }
-
-            // Now genuinely part of this same pak (folded in via ExtractPakAsync above), so they belong
-            // in the "what's actually installed" record the same way a queued mod does — GetInstalledStateAsync
-            // reads this back for the "Compare to installed" diff, which would otherwise not know they're there.
-            foreach (var prebuiltPakPath in prebuiltPakFilePaths)
-            {
-                text.AppendLine(Path.GetFileNameWithoutExtension(prebuiltPakPath));
+                text.AppendLine(name);
             }
         }
 

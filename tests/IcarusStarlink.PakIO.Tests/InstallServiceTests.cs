@@ -298,6 +298,73 @@ public class InstallServiceTests : IDisposable
         Assert.Equal(["Mod A"], state.ModNames);
     }
 
+    /// <summary>A leftover ArcFission data pak (the library itself is gone) is backed up and removed when asked.</summary>
+    [Fact]
+    public async Task InstallAsync_NotKeepingArcFissionsDataPak_BacksItUpAndRemovesIt()
+    {
+        var modsDirectory = Path.Combine(_fakeContentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsDirectory);
+        var arcFission = Path.Combine(modsDirectory, "ZZ_ArcFission_Data_3_P.pak");
+        await File.WriteAllTextAsync(arcFission, "old library data");
+
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory, keepArcFissionDataPak: false);
+
+        Assert.False(File.Exists(arcFission));
+        Assert.Single(Directory.GetFiles(_backupDirectory, "ZZ_ArcFission_Data_3_P_*.pak"));
+    }
+
+    /// <summary>ArcFission Library counts as installed while its folder is in ue4ss\Mods with enabled.txt, or listed on in mods.txt.</summary>
+    [Fact]
+    public void IsArcFissionLibraryActive_NeedsTheLibraryFolderTurnedOn()
+    {
+        var modsFolder = Path.Combine(_tempDir, "Binaries", "Win64", "ue4ss", "Mods");
+        Assert.False(InstallManifestNames.IsArcFissionLibraryActive(_fakeContentPath));
+
+        Directory.CreateDirectory(Path.Combine(modsFolder, "ArcFissionLibrary"));
+        Assert.False(InstallManifestNames.IsArcFissionLibraryActive(_fakeContentPath));
+
+        File.WriteAllText(Path.Combine(modsFolder, "mods.txt"), "ArcFissionLibrary : 1\r\nKeybinds : 1\r\n");
+        Assert.True(InstallManifestNames.IsArcFissionLibraryActive(_fakeContentPath));
+
+        File.WriteAllText(Path.Combine(modsFolder, "mods.txt"), "ArcFissionLibrary : 0\r\n");
+        Assert.False(InstallManifestNames.IsArcFissionLibraryActive(_fakeContentPath));
+
+        File.WriteAllText(Path.Combine(modsFolder, "ArcFissionLibrary", "enabled.txt"), "");
+        Assert.True(InstallManifestNames.IsArcFissionLibraryActive(_fakeContentPath));
+    }
+
+    /// <summary>Restore previous install puts the last pak and its mod list back, after backing up what's installed now, and can be undone the same way.</summary>
+    [Fact]
+    public async Task RestorePreviousInstallAsync_PutsTheLastBuildBack_AndBacksUpTheCurrentOne()
+    {
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+        await File.WriteAllTextAsync(_stagedPakPath, "staged pak v2 bytes");
+        await File.WriteAllTextAsync(_stagedManifestPath, "Includes the following mods:\nMod B");
+        // Backups are named by the second; a new second keeps the two installs apart.
+        await Task.Delay(1100);
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+        await Task.Delay(1100);
+
+        var restored = await _service.RestorePreviousInstallAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory);
+
+        Assert.NotNull(restored);
+        Assert.NotNull(restored.ManifestBackupPath);
+        Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(TargetPakPath));
+        Assert.Equal(["Mod A"], (await _service.GetInstalledStateAsync(_fakeContentPath)).ModNames);
+
+        // Again: the copy of v2 made just now is the newest backup, so it comes back.
+        await _service.RestorePreviousInstallAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory);
+        Assert.Equal("staged pak v2 bytes", await File.ReadAllTextAsync(TargetPakPath));
+        Assert.Equal(["Mod B"], (await _service.GetInstalledStateAsync(_fakeContentPath)).ModNames);
+    }
+
+    [Fact]
+    public async Task RestorePreviousInstallAsync_NoBackup_ReturnsNullAndTouchesNothing()
+    {
+        Assert.Null(await _service.RestorePreviousInstallAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory));
+        Assert.False(File.Exists(TargetPakPath));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))

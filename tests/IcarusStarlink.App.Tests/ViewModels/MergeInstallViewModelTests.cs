@@ -86,7 +86,8 @@ public sealed class MergeInstallViewModelTests : IDisposable
         FakeInstallService? installService = null,
         FakeProfileStore? profileStore = null,
         FakeSettingsService? settingsService = null,
-        bool gameRunning = false)
+        bool gameRunning = false,
+        FakeGameDataFreshness? gameDataFreshness = null)
     {
         settingsService ??= new FakeSettingsService();
 
@@ -120,13 +121,60 @@ public sealed class MergeInstallViewModelTests : IDisposable
             outputPakPath,
             Path.Combine(_tempRoot, "Backups"),
             _messenger,
-            new FakeGameProcessChecker(gameRunning));
+            new FakeGameProcessChecker(gameRunning),
+            gameDataFreshness);
     }
 
     private sealed class FakeGameProcessChecker(bool running) : IGameProcessChecker
     {
         public bool IsRunning() => running;
     }
+
+    private sealed class FakeGameDataFreshness : IGameDataFreshness
+    {
+        public bool Outdated { get; set; }
+        public bool RefreshSucceeds { get; set; } = true;
+        public int RefreshCallCount { get; private set; }
+
+        public Task<bool> IsGameDataOutdatedAsync(CancellationToken cancellationToken = default) => Task.FromResult(Outdated);
+
+        public Task<bool> RefreshGameDataAsync()
+        {
+            RefreshCallCount++;
+            if (RefreshSucceeds)
+            {
+                Outdated = false;
+            }
+
+            return Task.FromResult(RefreshSucceeds);
+        }
+    }
+
+    /// <summary>ArcFission Library as the game has it installed: its folder in ue4ss\Mods, turned on.</summary>
+    private static void InstallArcFissionLibrary(string contentPath)
+    {
+        var folder = Path.Combine(Path.GetDirectoryName(contentPath)!, "Binaries", "Win64", "ue4ss", "Mods", "ArcFissionLibrary");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "enabled.txt"), "");
+    }
+
+    private (FakeLibraryRepository Library, FakeSettingsService Settings) TwoConflictingMods(string nameA = "ModA", string nameB = "ModB")
+    {
+        var settings = new FakeSettingsService();
+        settings.Current.UnrealPakExePath = Path.Combine(_tempRoot, "UnrealPak.exe");
+        var a = MakeEntry("ModA");
+        a.Name = nameA;
+        var b = MakeEntry("ModB");
+        b.Name = nameB;
+        var library = new FakeLibraryRepository { AllEntries = [a, b] };
+        library.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        library.FolderPaths["ModB"] = CreateExmodFolder("ModB", BuildCraftTimeExmodJson("ModB", craftTime: 99), out _);
+        return (library, settings);
+    }
+
+    private static readonly (string, string, string) CraftTimeKey = ("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime");
+
+    private static string CraftTimeWinnerKey => MergeConflictsViewModel.WinnerKey(CraftTimeKey.Item1, CraftTimeKey.Item2, CraftTimeKey.Item3);
 
     private static LibraryEntry MakeEntry(string folderName, bool isOpaquePak = false) => new()
     {
@@ -349,6 +397,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var modsFolder = Path.Combine(contentPath, "Paks", "mods");
         Directory.CreateDirectory(modsFolder);
         File.WriteAllBytes(Path.Combine(modsFolder, "ZZ_ArcFission_Data_3_P.pak"), []);
+        InstallArcFissionLibrary(contentPath);
         var settings = new FakeSettingsService();
         settings.Current.IcarusContentPath = contentPath;
         var install = new FakeInstallService();
@@ -378,6 +427,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Directory.CreateDirectory(modsFolder);
         var arcFissionPak = Path.Combine(modsFolder, "ZZ_ArcFission_Data_3_P.pak");
         File.WriteAllBytes(arcFissionPak, []);
+        InstallArcFissionLibrary(contentPath);
         var settings = new FakeSettingsService();
         settings.Current.IcarusContentPath = contentPath;
         settings.Current.UnrealPakExePath = Path.Combine(_tempRoot, "UnrealPak.exe");
@@ -936,6 +986,338 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Single(rebuildService.LastQueuedMods!);
     }
 
+
+    // ---------------------------------------------------------------------------------------
+    // Review fixes: game-update guard, build snapshot, queue order, ISL packs, missing mods,
+    // winners by folder, ArcFission leftovers, install texts, Restore previous install
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>After a game update, a build without Refresh game data first would put old tables back: declining the refresh builds nothing.</summary>
+    [Fact]
+    public async Task Rebuild_GameUpdatedSinceTheLastRefresh_DecliningTheRefreshBuildsNothing()
+    {
+        var (library, settings) = TwoConflictingMods();
+        var rebuild = new FakeRebuildService();
+        var freshness = new FakeGameDataFreshness { Outdated = true };
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, settingsService: settings, gameDataFreshness: freshness);
+        vm.Queue.Add(library.AllEntries[0]);
+        string? asked = null;
+        vm.Confirm = (message, _) => { asked = message; return false; };
+
+        Assert.False(await vm.RebuildAsync());
+
+        Assert.Contains("Refresh game data", asked);
+        Assert.Equal(0, rebuild.RebuildCallCount);
+        Assert.Equal(0, freshness.RefreshCallCount);
+        Assert.Contains("Refresh game data", vm.StatusMessage);
+        Assert.False(vm.IsRebuilding);
+    }
+
+    /// <summary>Yes refreshes the game data first and then builds; a refresh that fails builds nothing.</summary>
+    [Fact]
+    public async Task Rebuild_GameUpdatedSinceTheLastRefresh_YesRefreshesThenBuilds()
+    {
+        var (library, settings) = TwoConflictingMods();
+        var rebuild = new FakeRebuildService();
+        var freshness = new FakeGameDataFreshness { Outdated = true, RefreshSucceeds = false };
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, settingsService: settings, gameDataFreshness: freshness);
+        vm.Queue.Add(library.AllEntries[0]);
+        vm.Confirm = (_, _) => true;
+
+        Assert.False(await vm.RebuildAsync());
+        Assert.Equal(1, freshness.RefreshCallCount);
+        Assert.Equal(0, rebuild.RebuildCallCount);
+
+        freshness.RefreshSucceeds = true;
+        Assert.True(await vm.RebuildAsync());
+        Assert.Equal(2, freshness.RefreshCallCount);
+        Assert.Equal(1, rebuild.RebuildCallCount);
+
+        // Up to date now: no question, no refresh.
+        vm.Confirm = (_, _) => throw new InvalidOperationException("Nothing to ask.");
+        Assert.True(await vm.RebuildAsync());
+        Assert.Equal(2, freshness.RefreshCallCount);
+    }
+
+    /// <summary>
+    /// What's built is what was queued when the build started: queue edits arriving mid-build (the
+    /// Library's ON box) are refused with a reason, and a profile switch mid-build doesn't change
+    /// which profile the built pack is filed under.
+    /// </summary>
+    [Fact]
+    public async Task Rebuild_EditsWhileBuilding_AreRefused_AndTheBuildUsesItsSnapshot()
+    {
+        var (library, settings) = TwoConflictingMods();
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModA"] });
+        store.Save(new Profile { Name = "Solo", MergeQueueFolderNames = ["ModB"] });
+        var rebuild = new FakeRebuildService();
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, profileStore: store, settingsService: settings);
+        vm.SelectedProfileName = "Coop";
+        string? refusal = null;
+        rebuild.DuringRebuild = () =>
+        {
+            Assert.True(vm.IsRebuilding);
+            Assert.False(vm.IsNotRebuilding);
+            vm.AddToQueueByFolderNames(["ModB"]);
+            refusal = vm.StatusMessage;
+            vm.RemoveFromQueueByFolderNames(["ModA"]);
+            vm.SelectedProfileName = "Solo";
+            return Task.CompletedTask;
+        };
+
+        Assert.True(await vm.RebuildAsync());
+
+        Assert.Contains("building", refusal);
+        Assert.Equal("ModA", Assert.Single(rebuild.LastQueuedMods!).Package.Name);
+        Assert.Equal("Coop", library.LastMergedPackProfileName);
+        Assert.True(vm.IsNotRebuilding);
+    }
+
+    /// <summary>A prebuilt pak's queue position reaches Rebuild (how many EXMOD mods come before it), so it merges in true queue order.</summary>
+    [Fact]
+    public async Task Rebuild_PassesEachPrebuiltPaksQueuePosition()
+    {
+        var (library, settings) = TwoConflictingMods();
+        library.FolderPaths["SomePak"] = CreateOpaquePakFolder("SomePak");
+        var rebuild = new FakeRebuildService();
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, settingsService: settings);
+        vm.Queue.Add(library.AllEntries[0]);
+        vm.Queue.Add(MakeEntry("SomePak", isOpaquePak: true));
+        vm.Queue.Add(library.AllEntries[1]);
+
+        Assert.True(await vm.RebuildAsync());
+
+        Assert.Equal([1], rebuild.LastPrebuiltPakQueuePositions);
+        Assert.Equal(["ModA", "ModB"], rebuild.LastQueuedMods!.Select(m => m.Package.Name));
+    }
+
+    /// <summary>
+    /// The badge counts the same set the review window and the build do: a prebuilt pak's clash
+    /// with an EXMOD mod shows without opening Review conflicts, and a pak before a mod in the queue
+    /// is the earlier candidate.
+    /// </summary>
+    [Fact]
+    public async Task ConflictBadge_CountsPrebuiltPaksInQueueOrder_LikeTheReviewWindow()
+    {
+        var (library, settings) = TwoConflictingMods();
+        var pakFolder = CreateOpaquePakFolder("SomePak");
+        library.FolderPaths["SomePak"] = pakFolder;
+        var rebuild = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables() };
+        rebuild.PrebuiltPakChanges[Path.Combine(pakFolder, "Prebuilt.pak")] =
+            [new FieldChange("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime", JsonValue.Create(3), JsonValue.Create(42), ValueSemantic.Scalar)];
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, settingsService: settings);
+        vm.Queue.Add(MakeEntry("SomePak", isOpaquePak: true));
+        vm.Queue.Add(library.AllEntries[0]);
+
+        await vm.RecomputeConflictCountAsync();
+
+        Assert.Equal(1, vm.ConflictCount);
+        var review = vm.CreateConflictReviewForTesting();
+        Assert.Equal(["Prebuilt", "ModA"], Assert.Single(review.AllConflicts).ModNames);
+    }
+
+    /// <summary>ISL's own merged pack can't be ticked: it would fold the old merge into the new one and apply the options twice.</summary>
+    [Fact]
+    public void AddToQueue_IslBuiltPack_IsRefusedWithAReason()
+    {
+        var builtPack = MakeEntry("zz_zz_ISL-Merged_9999_P", isOpaquePak: true);
+        var importedPack = MakeEntry("SomeonesBuild", isOpaquePak: true);
+        importedPack.MergedPackModNames = ["ModA"];
+        var library = new FakeLibraryRepository { AllEntries = [builtPack, importedPack, MakeEntry("ModA")] };
+        var vm = CreateViewModel(libraryRepository: library);
+
+        vm.AddToQueueByFolderNames(["zz_zz_ISL-Merged_9999_P", "SomeonesBuild"]);
+
+        Assert.Empty(vm.Queue);
+        Assert.Contains("Merge & Install built", vm.StatusMessage);
+        Assert.True(vm.IsIslBuiltPack(builtPack));
+        Assert.False(vm.IsIslBuiltPack(library.AllEntries[2]));
+    }
+
+    /// <summary>
+    /// A profile's mod that isn't in the Library stays in the profile (the auto-save writes it back),
+    /// shows as a greyed row in its place, is left out of the build with a warning, and takes its
+    /// place back once it's imported again.
+    /// </summary>
+    [Fact]
+    public async Task MissingProfileMods_AreKept_ShownGreyed_AndSkippedByTheBuild()
+    {
+        var (library, settings) = TwoConflictingMods();
+        library.AllEntries.RemoveAt(1); // ModB is gone from the Library
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModB", "ModA"] });
+        var rebuild = new FakeRebuildService();
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, profileStore: store, settingsService: settings);
+        vm.SelectedProfileName = "Coop";
+
+        Assert.Equal(["ModB", "ModA"], vm.Queue.Select(e => e.FolderName));
+        Assert.True(vm.Queue[0].IsMissingFromLibrary);
+        Assert.Contains("no longer in your Library", vm.ProfileStatusMessage);
+
+        vm.RemoveLevelCap = true;
+        vm.SaveWorkingState();
+        Assert.Equal(["ModB", "ModA"], store.Load("Coop").MergeQueueFolderNames);
+
+        Assert.True(await vm.RebuildAsync());
+        Assert.Equal("ModA", Assert.Single(rebuild.LastQueuedMods!).Package.Name);
+        Assert.Contains(vm.Warnings, w => w.Contains("'ModB'") && w.Contains("NOT part of this build"));
+
+        // Imported again: the row is the real mod, in the same place.
+        library.AllEntries.Add(MakeEntry("ModB"));
+        _messenger.Send(new LibraryChangedMessage());
+        Assert.False(vm.Queue[0].IsMissingFromLibrary);
+        Assert.Equal(["ModB", "ModA"], vm.Queue.Select(e => e.FolderName));
+    }
+
+    /// <summary>
+    /// Winners are kept by folder name: one saved by display name moves to the folder of the one
+    /// mod with that name, and a pick still means that mod when another queued mod has the same
+    /// display name. Winners for mods gone from the Library are dropped.
+    /// </summary>
+    [Fact]
+    public async Task SavedWinners_MoveToFolderNames_AndPickTheRightModAmongSameNames()
+    {
+        var (library, settings) = TwoConflictingMods(nameA: "Shared Name", nameB: "Other");
+        var store = new FakeProfileStore();
+        store.Save(new Profile
+        {
+            Name = "Default",
+            MergeQueueFolderNames = ["ModA", "ModB"],
+            ConflictWinners = new()
+            {
+                [CraftTimeWinnerKey] = "Shared Name",
+                ["crafting-d_other.json|Row|Field"] = "A mod that's gone",
+            },
+        });
+        var rebuild = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables() };
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, profileStore: store, settingsService: settings);
+
+        Assert.Equal("ModA", vm.WinnersForTesting[CraftTimeWinnerKey]);
+        Assert.Single(vm.WinnersForTesting);
+        Assert.Contains("1 saved conflict pick(s)", vm.ProfileStatusMessage);
+
+        // ModB renamed to the same display name: the pick still means ModA (first in the queue).
+        library.AllEntries[1].Name = "Shared Name";
+        Assert.True(await vm.RebuildAsync());
+        Assert.Equal(0, rebuild.LastManualPicks![CraftTimeKey]);
+        Assert.DoesNotContain(vm.Warnings, w => w.Contains("no longer match"));
+    }
+
+    /// <summary>A saved pick for a mod in the build that no longer matches a conflict is reported before building.</summary>
+    [Fact]
+    public async Task SavedWinners_NoLongerMatching_AreReported()
+    {
+        var (library, settings) = TwoConflictingMods();
+        library.FolderPaths["ModB"] = CreateExmodFolder("ModB2", BuildCraftTimeExmodJson("ModB", craftTime: 5), out _); // agrees with ModA now
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Default", MergeQueueFolderNames = ["ModA", "ModB"], ConflictWinners = new() { [CraftTimeWinnerKey] = "ModB" } });
+        var rebuild = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables() };
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, profileStore: store, settingsService: settings);
+
+        Assert.True(await vm.RebuildAsync());
+
+        Assert.Null(rebuild.LastManualPicks);
+        Assert.Contains(vm.Warnings, w => w.StartsWith("1 saved conflict pick(s) no longer match"));
+    }
+
+    /// <summary>ArcFission's data pak is only merged in while ArcFission Library itself is installed and on.</summary>
+    [Fact]
+    public async Task Rebuild_ArcFissionPakWithoutTheLibrary_IsNotMergedIn()
+    {
+        var contentPath = Path.Combine(_tempRoot, "Content");
+        var modsFolder = Path.Combine(contentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsFolder);
+        File.WriteAllBytes(Path.Combine(modsFolder, "ZZ_ArcFission_Data_3_P.pak"), []);
+        var (library, settings) = TwoConflictingMods();
+        settings.Current.IcarusContentPath = contentPath;
+        var rebuild = new FakeRebuildService();
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, settingsService: settings);
+        vm.Queue.Add(library.AllEntries[0]);
+
+        Assert.Null(vm.ArcFissionDataPakPath());
+        Assert.True(await vm.RebuildAsync());
+        Assert.Empty(rebuild.LastLowPriorityPrebuiltPakFilePaths!);
+    }
+
+    /// <summary>
+    /// Install's confirmation says what really happens: ArcFission's pak (library installed) isn't
+    /// listed as removed, the backup count is the real one; a leftover pak (library gone) is
+    /// offered for removal and goes when that's accepted.
+    /// </summary>
+    [Fact]
+    public async Task Install_ConfirmationListsWhatReallyGoes_AndOffersToRemoveALeftoverArcFissionPak()
+    {
+        var contentPath = Path.Combine(_tempRoot, "Content");
+        var modsFolder = Path.Combine(contentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsFolder);
+        File.WriteAllBytes(Path.Combine(modsFolder, "ZZ_ArcFission_Data_3_P.pak"), []);
+        File.WriteAllBytes(Path.Combine(modsFolder, "Stray_P.pak"), []);
+        var (library, settings) = TwoConflictingMods();
+        settings.Current.IcarusContentPath = contentPath;
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(libraryRepository: library, installService: install, settingsService: settings);
+        vm.Queue.Add(library.AllEntries[0]);
+
+        // Library gone: asked about the leftover first; Yes removes it.
+        var asked = new List<string>();
+        vm.Confirm = (message, title) => { asked.Add($"{title}: {message}"); return true; };
+        await vm.RebuildAndInstallCommand.ExecuteAsync(null);
+        Assert.Equal(2, asked.Count);
+        Assert.StartsWith("Leftover ArcFission data", asked[0]);
+        Assert.Contains("ZZ_ArcFission_Data_3_P.pak", asked[1]);
+        Assert.Contains($"last {BackupCleanup.MergedPakBackupsKept} kept", asked[1]);
+        Assert.False(install.LastKeepArcFissionDataPak);
+
+        // Library installed: nothing to ask about it, and it isn't listed as removed.
+        InstallArcFissionLibrary(contentPath);
+        asked.Clear();
+        await vm.RebuildAndInstallCommand.ExecuteAsync(null);
+        Assert.Single(asked);
+        Assert.DoesNotContain("ZZ_ArcFission_Data_3_P.pak", asked[0]);
+        Assert.Contains("Stray_P.pak", asked[0]);
+        Assert.True(install.LastKeepArcFissionDataPak);
+    }
+
+    /// <summary>Remove from game refuses while Icarus runs, before asking anything.</summary>
+    [Fact]
+    public async Task RemoveFromGame_IcarusRunning_RefusesWithoutAsking()
+    {
+        var settings = new FakeSettingsService();
+        settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(installService: install, settingsService: settings, gameRunning: true);
+        vm.Confirm = (_, _) => throw new InvalidOperationException("Must not ask.");
+
+        await vm.RemoveFromGameCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, install.RemoveCallCount);
+        Assert.Contains("Icarus is running", vm.InstallStatusMessage);
+    }
+
+    /// <summary>Restore previous install asks first, then puts the backup back.</summary>
+    [Fact]
+    public async Task RestorePreviousInstall_AsksThenRestores()
+    {
+        var settings = new FakeSettingsService();
+        settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(installService: install, settingsService: settings);
+
+        await vm.RestorePreviousInstallCommand.ExecuteAsync(null);
+        Assert.Contains("no earlier install", vm.InstallStatusMessage);
+
+        install.Previous = new PreviousInstall("old.pak", "old.txt", DateTime.UtcNow);
+        vm.Confirm = (_, _) => false;
+        await vm.RestorePreviousInstallCommand.ExecuteAsync(null);
+        Assert.Equal(0, install.RestoreCallCount);
+
+        vm.Confirm = (_, _) => true;
+        await vm.RestorePreviousInstallCommand.ExecuteAsync(null);
+        Assert.Equal(1, install.RestoreCallCount);
+        Assert.Contains("Restored", vm.InstallStatusMessage);
+    }
+
     // ---------------------------------------------------------------------------------------
     // Fakes — one per constructor dependency, following this project's established
     // fake-per-interface convention (SavesViewModelTests/LibraryItemViewModelTests) rather than a
@@ -950,6 +1332,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public List<LibraryEntry> AllEntries { get; set; } = [];
         public int ImportPakCallCount { get; private set; }
         public string? LastImportPakPath { get; private set; }
+        public string? LastMergedPackProfileName { get; private set; }
 
         public IReadOnlyList<LibraryEntry> GetAll() => AllEntries;
 
@@ -966,6 +1349,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         {
             ImportPakCallCount++;
             LastImportPakPath = pakFilePath;
+            LastMergedPackProfileName = mergedPackProfileName;
             return new LibraryEntry
             {
                 FolderName = Path.GetFileNameWithoutExtension(pakFilePath), Name = "Built pak", Author = "IcarusStarlink", Version = "1",
@@ -1027,6 +1411,11 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public IReadOnlyList<ExmodPackageContents>? LastQueuedMods { get; private set; }
         public IReadOnlyList<string>? LastPrebuiltPakFilePaths { get; private set; }
         public IReadOnlyList<string>? LastLowPriorityPrebuiltPakFilePaths { get; private set; }
+        public IReadOnlyList<int>? LastPrebuiltPakQueuePositions { get; private set; }
+        public GameplayOptions? LastGameplayOptions { get; private set; }
+
+        /// <summary>Runs inside RebuildAsync, before it returns — a test edits the page here, as a user would mid-build.</summary>
+        public Func<Task>? DuringRebuild { get; set; }
         public IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? LastManualPicks { get; private set; }
         public RebuildResult Result { get; set; } = new(0, 0, "out.pak", "out.manifest", [], []);
         public Exception? ExceptionToThrow { get; set; }
@@ -1037,19 +1426,31 @@ public sealed class MergeInstallViewModelTests : IDisposable
             string outputPakPath, IReadOnlyList<string> prebuiltPakFilePaths,
             IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
             IProgress<RebuildStageProgress>? progress = null, CancellationToken cancellationToken = default,
-            IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null)
+            IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null, IReadOnlyList<int>? prebuiltPakQueuePositions = null)
         {
             RebuildCallCount++;
             LastQueuedMods = queuedMods;
             LastPrebuiltPakFilePaths = prebuiltPakFilePaths;
             LastLowPriorityPrebuiltPakFilePaths = lowPriorityPrebuiltPakFilePaths;
+            LastPrebuiltPakQueuePositions = prebuiltPakQueuePositions;
             LastManualPicks = manualPicks;
+            LastGameplayOptions = gameplayOptions;
             if (ExceptionToThrow is not null)
             {
                 throw ExceptionToThrow;
             }
 
-            return Task.FromResult(Result);
+            return RunAsync();
+
+            async Task<RebuildResult> RunAsync()
+            {
+                if (DuringRebuild is not null)
+                {
+                    await DuringRebuild();
+                }
+
+                return Result;
+            }
         }
 
         /// <summary>Per pak path, the changes ComputePrebuiltPakFieldChangesAsync reports for it (none by default).</summary>
@@ -1071,12 +1472,29 @@ public sealed class MergeInstallViewModelTests : IDisposable
     private sealed class FakeInstallService : IInstallService
     {
         public int InstallCallCount { get; private set; }
+        public bool? LastKeepArcFissionDataPak { get; private set; }
         public InstallResult Result { get; set; } = new("installed.pak", null);
 
-        public Task<InstallResult> InstallAsync(string stagedPakPath, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default)
+        public Task<InstallResult> InstallAsync(string stagedPakPath, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default, bool keepArcFissionDataPak = true)
         {
             InstallCallCount++;
+            LastKeepArcFissionDataPak = keepArcFissionDataPak;
             return Task.FromResult(Result);
+        }
+
+        public int RemoveCallCount { get; private set; }
+
+        public PreviousInstall? Previous { get; set; }
+
+        public int RestoreCallCount { get; private set; }
+
+        public Task<PreviousInstall?> FindPreviousInstallAsync(string backupDirectory, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Previous);
+
+        public Task<PreviousInstall?> RestorePreviousInstallAsync(string stagedPakFileName, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default)
+        {
+            RestoreCallCount++;
+            return Task.FromResult(Previous);
         }
 
         public IReadOnlyList<string> InstalledModNames { get; set; } = [];
@@ -1084,8 +1502,11 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default) =>
             Task.FromResult(new InstalledState(InstalledModNames));
 
-        public Task<bool> RemoveInstalledPakAsync(string stagedPakFileName, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default) =>
-            Task.FromResult(false);
+        public Task<bool> RemoveInstalledPakAsync(string stagedPakFileName, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default)
+        {
+            RemoveCallCount++;
+            return Task.FromResult(false);
+        }
     }
 
     private sealed class FakeProfileStore : IProfileStore

@@ -15,9 +15,25 @@ public interface IInstallService
     /// opaque/prebuilt paks (LibraryEntry.IsOpaquePak) are already folded into this one staged pak
     /// by RebuildService itself, not installed separately — see its own doc comment. UE4SS mods are
     /// a separate concern — see IUe4ssModStateService.
-    /// </summary>
+    /// <param name="keepArcFissionDataPak">
+    /// True (the default) leaves ArcFission Library's own ZZ_ArcFission_Data_&lt;n&gt;_P.pak in the
+    /// mods folder; false backs it up and removes it like any other file there — for a pak left
+    /// behind after the library itself was uninstalled or turned off.
+    /// </param>
     Task<InstallResult> InstallAsync(
         string stagedPakPath, string icarusContentPath, string backupDirectory,
+        CancellationToken cancellationToken = default, bool keepArcFissionDataPak = true);
+
+    /// <summary>The newest backup of the installed merged pak and its mod list, as Restore previous install would put back; null when there's none.</summary>
+    Task<PreviousInstall?> FindPreviousInstallAsync(string backupDirectory, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Puts the newest merged pak backup (and the ISL-Merged.txt backup made with it) back into
+    /// Content\Paks\mods, after backing up what's installed now, so it can be undone the same way.
+    /// Returns what was restored, or null when there's no backup to restore.
+    /// </summary>
+    Task<PreviousInstall?> RestorePreviousInstallAsync(
+        string stagedPakFileName, string icarusContentPath, string backupDirectory,
         CancellationToken cancellationToken = default);
 
     /// <summary>Reads this app's own manifest back from the real game folder — mod names from the pak's ISL-Merged.txt — for the "installed vs this list" comparison. Empty (never throws) if the manifest, or the game folder itself, doesn't exist yet.</summary>

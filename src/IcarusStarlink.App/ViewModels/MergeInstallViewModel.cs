@@ -125,8 +125,27 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [ObservableProperty]
     private LibraryEntry? _selectedQueueEntry;
 
+    /// <summary>
+    /// While a build runs the queue, profile and merge options can't be changed (the build works from
+    /// a snapshot taken when it starts, see BuildSnapshot; this keeps what's on screen matching it).
+    /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsNotRebuilding))]
     private bool _isRebuilding;
+
+    public bool IsNotRebuilding => !IsRebuilding;
+
+    /// <summary>A queue/profile edit arriving while a build runs: refused with a status line (true), so what's built is what's shown.</summary>
+    private bool RefuseWhileRebuilding()
+    {
+        if (!IsRebuilding)
+        {
+            return false;
+        }
+
+        StatusMessage = "Merge & Install is building — wait for it to finish before changing the queue or profile.";
+        return true;
+    }
 
     [ObservableProperty]
     private int _rebuildProgressPercent;
@@ -157,8 +176,22 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     // index now refers to, or whether the field is even still a conflict at all.
     private IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? _manualPicks;
 
-    /// <summary>Conflict winners by mod name (see Profile.ConflictWinners), loaded and saved with the profile.</summary>
+    /// <summary>
+    /// Conflict winners (see Profile.ConflictWinners), loaded and saved with the profile: "file|row|field"
+    /// → the winner's id, its Library folder name (FolderName/pak name for one pak of a prebuilt
+    /// entry; OptionsWinnerId / ArcFissionWinnerId for those two). A winner still saved by display
+    /// name (before ids) is moved to its id when the profile loads, where that's unambiguous.
+    /// </summary>
     private Dictionary<string, string> _winners = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The winner id of the built-in gameplay options (also their name in the conflict window).</summary>
+    internal const string OptionsWinnerId = "Built-in gameplay options";
+
+    /// <summary>The winner id of ArcFission Library's data pak (its file name's number changes with every rebuild it does).</summary>
+    internal const string ArcFissionWinnerId = "ArcFission Library data";
+
+    /// <summary>Test-only: the saved winners as the profile will store them.</summary>
+    internal IReadOnlyDictionary<string, string> WinnersForTesting => _winners;
 
     /// <summary>How many conflict winners the user has picked for this profile.</summary>
     public int SavedWinnerCount => _winners.Count;
@@ -365,16 +398,25 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// <summary>Null only in tests that don't care; the app always wires the real checker — see InstallAsync.</summary>
     private readonly IGameProcessChecker? _gameProcessChecker;
 
+    /// <summary>Null only in tests that don't care; the app always wires it — see RebuildAsync's game-update guard.</summary>
+    private readonly IGameDataFreshness? _gameDataFreshness;
+
+    /// <summary>A Yes/No question (message, title) → Yes. Tests swap in an answer.</summary>
+    internal Func<string, string, bool> Confirm { get; set; } =
+        (message, title) => ThemedMessageBox.Show(message, title, ThemedConfirmSeverity.Question);
+
     public MergeInstallViewModel(
         ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
         IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
         ISettingsService settingsService, IPakCompareService pakCompareService, PerformanceTracker performanceTracker, IActivityLog activityLog,
-        string dataFolder, string outputPakPath, string backupDirectory, IMessenger? messenger = null, IGameProcessChecker? gameProcessChecker = null)
+        string dataFolder, string outputPakPath, string backupDirectory, IMessenger? messenger = null, IGameProcessChecker? gameProcessChecker = null,
+        IGameDataFreshness? gameDataFreshness = null)
     {
         // Injectable so tests can give each view model its own messenger — the shared Default one
         // made this class's tests interfere with each other under the parallel runner.
         _messenger = messenger ?? WeakReferenceMessenger.Default;
         _gameProcessChecker = gameProcessChecker;
+        _gameDataFreshness = gameDataFreshness;
         _libraryRepository = libraryRepository;
         _rebuildService = rebuildService;
         _installService = installService;
@@ -474,6 +516,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             var viewModel = (MergeInstallViewModel)recipient;
             viewModel.InvalidatePackageCache();
             viewModel.InvalidateManualPicks();
+            // A profile's missing mod imported again under its folder name takes its row back.
+            viewModel.ResolveMissingQueueEntries();
         });
 
         // _dataFolder's own contents only ever change via a real "Update data folder" run — the
@@ -489,6 +533,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             lock (viewModel._packageCacheLock)
             {
                 viewModel._cachedBaseDataTableIndex = null;
+                // A prebuilt pak's changes are its diff against the game data, which just changed.
+                viewModel._prebuiltPakChangesCache.Clear();
             }
 
             viewModel.InvalidateManualPicks();
@@ -588,6 +634,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// </summary>
     public int RestoreQueueFromGame()
     {
+        if (RefuseWhileRebuilding())
+        {
+            return 0;
+        }
+
         var library = _libraryRepository.GetAll();
         var restored = new List<LibraryEntry>();
         var opaqueByPak = library.Where(e => e.IsOpaquePak && e.PakFileNames.Count > 0 && e.MergedPackModNames is null).ToList();
@@ -745,35 +796,164 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             var profile = _profileStore.Load(name);
             LoadGameplayOptionsIntoUi(profile.Options);
-            _winners = new Dictionary<string, string>(profile.ConflictWinners ?? [], StringComparer.OrdinalIgnoreCase);
+            var (winners, prunedWinners) = MigrateWinners(profile.ConflictWinners ?? []);
+            _winners = winners;
             OnPropertyChanged(nameof(SavedWinnerCount));
 
             Queue.Clear();
             var missingCount = 0;
+            var islPacks = new List<string>();
+            var byFolder = LibraryByFolder();
             foreach (var folderName in profile.MergeQueueFolderNames)
             {
-                var entry = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
-                if (entry is not null)
+                if (!byFolder.TryGetValue(folderName, out var entry))
                 {
-                    Queue.Add(entry);
+                    // Kept as a greyed row, so the profile keeps the name (the next auto-save writes
+                    // it back) and the mod takes its place again once it's back in the Library.
+                    Queue.Add(MissingEntry(folderName));
+                    missingCount++;
+                }
+                else if (IsIslBuiltPack(entry))
+                {
+                    islPacks.Add(entry.Name);
                 }
                 else
                 {
-                    missingCount++;
+                    Queue.Add(entry);
                 }
             }
 
             PrependBaselineMods();
 
-            ProfileStatusMessage = missingCount > 0
-                ? $"{verb} '{name}' — {missingCount} mod(s) from this profile are no longer in your Library."
-                : $"{verb} '{name}'.";
+            var notes = new List<string>();
+            if (missingCount > 0)
+            {
+                notes.Add($"{missingCount} mod(s) from this profile are no longer in your Library (shown greyed, left out of the build until they're back)");
+            }
+
+            if (islPacks.Count > 0)
+            {
+                notes.Add($"left out {string.Join(", ", islPacks)}: a pack Merge & Install built, which can't be merged into a new one");
+            }
+
+            if (prunedWinners > 0)
+            {
+                notes.Add($"{prunedWinners} saved conflict pick(s) for mods no longer in your Library were removed");
+            }
+
+            ProfileStatusMessage = notes.Count > 0 ? $"{verb} '{name}' — {string.Join("; ", notes)}." : $"{verb} '{name}'.";
         }
         catch (Exception ex)
         {
             // Same UI boundary as everywhere else: a corrupt/unreadable profile file shows a
             // status message rather than crashing the app out of a ComboBox selection change.
             ProfileStatusMessage = $"Couldn't load profile: {ex.Message}";
+        }
+    }
+
+    private Dictionary<string, LibraryEntry> LibraryByFolder() =>
+        _libraryRepository.GetAll()
+            .GroupBy(e => e.FolderName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The greyed queue row for a profile's mod that isn't in the Library.</summary>
+    private static LibraryEntry MissingEntry(string folderName) => new()
+    {
+        FolderName = folderName,
+        Name = folderName,
+        Author = "",
+        Version = "",
+        Description = "",
+        FileName = folderName,
+        IsMissingFromLibrary = true,
+    };
+
+    /// <summary>
+    /// A pack Merge &amp; Install itself built (its Library entry came with an ISL-Merged.txt, or it
+    /// has the merged pak's name). It can't go into the queue: it would fold the previous merge into
+    /// the new one, and apply the merge options (Stacks x2…) a second time on top of the first.
+    /// </summary>
+    internal bool IsIslBuiltPack(LibraryEntry entry) =>
+        entry.MergedPackModNames is not null
+        || entry.MergedPackOptionDescriptions is not null
+        || InstallManifestNames.LegacyMergedPakFileNames
+            .Prepend(Path.GetFileName(_outputPakPath))
+            .Prepend(InstallManifestNames.MergedPakFileName)
+            .Any(n => string.Equals(entry.FolderName, Path.GetFileNameWithoutExtension(n), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Saved winners moved to ids (see _winners): a winner already an id is kept, one saved by display
+    /// name becomes the folder name of the one Library mod (or prebuilt pak) with that name. A name
+    /// several mods share is kept as it is (it still works by name while that's unambiguous in the
+    /// queue); a winner that matches nothing in the Library any more is dropped and counted. With an
+    /// empty Library (not loaded yet) nothing is dropped.
+    /// </summary>
+    private (Dictionary<string, string> Winners, int Pruned) MigrateWinners(IReadOnlyDictionary<string, string> saved)
+    {
+        var library = _libraryRepository.GetAll();
+        var migrated = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var pruned = 0;
+        foreach (var (key, winner) in saved)
+        {
+            if (library.Count == 0 || winner is OptionsWinnerId or ArcFissionWinnerId)
+            {
+                migrated[key] = winner;
+                continue;
+            }
+
+            if (InstallManifestNames.IsArcFissionDataPak(winner + ".pak"))
+            {
+                migrated[key] = ArcFissionWinnerId;
+                continue;
+            }
+
+            var slash = winner.IndexOf('/');
+            if (library.Any(e => !e.IsOpaquePak && string.Equals(e.FolderName, winner, StringComparison.OrdinalIgnoreCase))
+                || (slash > 0 && library.Any(e => e.IsOpaquePak && string.Equals(e.FolderName, winner[..slash], StringComparison.OrdinalIgnoreCase))))
+            {
+                migrated[key] = winner;
+                continue;
+            }
+
+            var byName = library.Where(e => !e.IsOpaquePak && string.Equals(e.Name, winner, StringComparison.Ordinal)).ToList();
+            var pakOwners = library.Where(e => e.IsOpaquePak
+                && e.PakFileNames.Any(p => string.Equals(Path.GetFileNameWithoutExtension(p), winner, StringComparison.OrdinalIgnoreCase))).ToList();
+            if (byName.Count == 1 && pakOwners.Count == 0)
+            {
+                migrated[key] = byName[0].FolderName;
+            }
+            else if (pakOwners.Count == 1 && byName.Count == 0)
+            {
+                migrated[key] = $"{pakOwners[0].FolderName}/{winner}";
+            }
+            else if (byName.Count + pakOwners.Count > 1)
+            {
+                migrated[key] = winner;
+            }
+            else
+            {
+                pruned++;
+            }
+        }
+
+        return (migrated, pruned);
+    }
+
+    /// <summary>Replaces each greyed missing row whose mod is in the Library again with the real entry, in place.</summary>
+    private void ResolveMissingQueueEntries()
+    {
+        if (!Queue.Any(e => e.IsMissingFromLibrary))
+        {
+            return;
+        }
+
+        var byFolder = LibraryByFolder();
+        for (var i = 0; i < Queue.Count; i++)
+        {
+            if (Queue[i].IsMissingFromLibrary && byFolder.TryGetValue(Queue[i].FolderName, out var entry) && !IsIslBuiltPack(entry))
+            {
+                Queue[i] = entry;
+            }
         }
     }
 
@@ -791,6 +971,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand]
     private void NewProfile()
     {
+        if (RefuseWhileRebuilding())
+        {
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(ProfileNameInput) && PromptForProfileName("New profile", "") is { } typed)
         {
             ProfileNameInput = typed.Trim();
@@ -833,6 +1018,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand]
     private void SaveProfile()
     {
+        if (RefuseWhileRebuilding())
+        {
+            return;
+        }
+
         if (SelectedProfileName is not { } name)
         {
             ProfileStatusMessage = "Select or create a profile first.";
@@ -861,6 +1051,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand]
     private void RenameProfile()
     {
+        if (RefuseWhileRebuilding())
+        {
+            return;
+        }
+
         if (SelectedProfileName is not { } oldName)
         {
             ProfileStatusMessage = "Select a profile first.";
@@ -921,6 +1116,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand]
     private void DeleteProfile()
     {
+        if (RefuseWhileRebuilding())
+        {
+            return;
+        }
+
         if (SelectedProfileName is not { } name)
         {
             ProfileStatusMessage = "Select a profile first.";
@@ -988,6 +1188,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand]
     private void RestoreProfileBackup()
     {
+        if (RefuseWhileRebuilding())
+        {
+            return;
+        }
+
         if (SelectedProfileName is not { } name)
         {
             ProfileStatusMessage = "Select a profile first.";
@@ -1063,7 +1268,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             var skippedPaks = Queue.Where(e => e.IsOpaquePak).Select(e => e.Name).ToList();
             foreach (var entry in Queue)
             {
-                if (entry.IsOpaquePak)
+                if (entry.IsOpaquePak || entry.IsMissingFromLibrary)
                 {
                     continue;
                 }
@@ -1151,6 +1356,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// </summary>
     public void LoadModListFromFile(string modListPath)
     {
+        if (RefuseWhileRebuilding())
+        {
+            return;
+        }
+
         try
         {
             var names = ModListText.ParseNames(File.ReadAllText(modListPath));
@@ -1163,7 +1373,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             var result = ModListMatcher.Match(names, _libraryRepository.GetAll());
 
             Queue.Clear();
-            foreach (var entry in result.Matched)
+            foreach (var entry in result.Matched.Where(e => !IsIslBuiltPack(e)))
             {
                 Queue.Add(entry);
             }
@@ -1172,6 +1382,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             foreach (var name in result.Unmatched)
             {
                 Warnings.Add($"No Library match for '{name}' — import it first, then re-import this list.");
+            }
+
+            foreach (var pack in result.Matched.Where(IsIslBuiltPack))
+            {
+                Warnings.Add($"'{pack.Name}' is a pack Merge & Install built, so it wasn't ticked — tick the mods it was built from instead.");
             }
 
             StatusMessage = result.Unmatched.Count == 0
@@ -1203,6 +1418,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportPatchAsync()
     {
+        if (RefuseWhileRebuilding())
+        {
+            return;
+        }
+
         var dialog = new OpenFileDialog
         {
             Title = "Import a patch",
@@ -1290,6 +1510,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand]
     private void SetBaseline()
     {
+        if (RefuseWhileRebuilding())
+        {
+            return;
+        }
+
         _settingsService.Current.BaselineModFolderNames = [.. Queue.Select(e => e.FolderName)];
         _settingsService.Save();
         StatusMessage = Queue.Count == 0
@@ -1315,10 +1540,15 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task SuggestQueueOrderAsync()
     {
+        if (RefuseWhileRebuilding())
+        {
+            return;
+        }
+
         // A synchronous, no-I/O count (IsOpaquePak is a plain LibraryEntry field) rather than
         // LoadQueuedPackagesAsync's own real disk read — that happens exactly once, inside
         // ComputeSuggestedQueueOrderAsync below, not a second time redundantly just for this gate.
-        if (Queue.Count(e => !e.IsOpaquePak) < 2)
+        if (Queue.Count(e => !e.IsOpaquePak && !e.IsMissingFromLibrary) < 2)
         {
             StatusMessage = "Nothing to reorder — need at least 2 real (non-prebuilt-pak) mods in the queue.";
             return;
@@ -1381,7 +1611,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// </summary>
     internal async Task<(List<LibraryEntry> NewOrder, bool Changed)> ComputeSuggestedQueueOrderAsync()
     {
-        var (entries, packages, _) = await LoadQueuedPackagesAsync();
+        var loaded = await LoadQueuedPackagesAsync();
+        var (entries, packages) = (loaded.Entries, loaded.Packages);
         var classifier = new DefaultSemanticClassifier();
         var currentQueue = Queue.ToList();
 
@@ -1435,9 +1666,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// <summary>
     /// Inserts baseline mods missing from the queue at its front, preserving the baseline's own
     /// stored order (index 0 = lowest merge priority, so the queue's own mods override a baseline
-    /// mod on any conflicting field). A baseline mod no longer in the Library, or already covered
-    /// by a queued merged pack, is skipped silently — the queue rows themselves are the visible
-    /// truth of what will merge.
+    /// mod on any conflicting field). A baseline mod no longer in the Library, or a pack Merge &amp;
+    /// Install built (see IsIslBuiltPack), is skipped silently — the queue rows themselves are the
+    /// visible truth of what will merge.
     /// </summary>
     private void PrependBaselineMods()
     {
@@ -1450,7 +1681,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             }
 
             var entry = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
-            if (entry is null || Queue.Any(q => q.MergedPackModNames?.Contains(entry.Name, StringComparer.OrdinalIgnoreCase) == true))
+            if (entry is null || IsIslBuiltPack(entry))
             {
                 continue;
             }
@@ -1469,24 +1700,35 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// </summary>
     public void AddToQueueByFolderNames(IReadOnlyList<string> folderNames)
     {
-        if (folderNames.Count == 0)
+        if (folderNames.Count == 0 || RefuseWhileRebuilding())
         {
             return;
         }
 
         var byFolder = _libraryRepository.GetAll().ToDictionary(e => e.FolderName, StringComparer.OrdinalIgnoreCase);
         var addedCount = 0;
+        string? lastRefusal = null;
         foreach (var folderName in folderNames)
         {
-            if (byFolder.TryGetValue(folderName, out var entry) && AddEntryToQueue(entry))
+            if (byFolder.TryGetValue(folderName, out var entry))
             {
-                addedCount++;
+                if (AddEntryToQueue(entry))
+                {
+                    addedCount++;
+                }
+                else
+                {
+                    lastRefusal = StatusMessage;
+                }
             }
         }
 
+        // The reason a mod wasn't added stays readable (it used to be overwritten right here).
         StatusMessage = addedCount == folderNames.Count
             ? $"Added {addedCount} mod(s) to the merge queue."
-            : $"Added {addedCount} of {folderNames.Count} mod(s) to the merge queue — see status for the rest.";
+            : addedCount == 0 && lastRefusal is not null
+                ? lastRefusal
+                : $"Added {addedCount} of {folderNames.Count} mod(s) to the merge queue.{(lastRefusal is null ? "" : $" {lastRefusal}")}";
         _activityLog.Log($"Added {addedCount} mod(s) to the merge queue from Library.", ActivityEntryKind.Info);
     }
 
@@ -1502,6 +1744,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// <summary>The Library's "On" checkbox unticked: the mod leaves the queue (the next Merge &amp; Install drops it from the game).</summary>
     public void RemoveFromQueueByFolderNames(IReadOnlyList<string> folderNames)
     {
+        if (RefuseWhileRebuilding())
+        {
+            return;
+        }
+
         foreach (var entry in Queue.Where(q => folderNames.Contains(q.FolderName, StringComparer.OrdinalIgnoreCase)).ToList())
         {
             Queue.Remove(entry);
@@ -1519,12 +1766,26 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     /// <summary>
     /// ArcFission Library's newest data pak in the game's mods folder, if any: written by the game
-    /// at start from the game's data plus its mods' rows (WirelessPower…). Merged in at each build.
+    /// at start from the game's data plus its mods' rows (WirelessPower…). Merged in at each build,
+    /// but only while ArcFission Library itself is installed and on: a pak it left behind holds
+    /// whole tables from the game version it was written for (see LeftoverArcFissionDataPaks).
     /// </summary>
     internal string? ArcFissionDataPakPath() =>
-        _settingsService.Current.IcarusContentPath is { Length: > 0 } content
+        _settingsService.Current.IcarusContentPath is { Length: > 0 } content && InstallManifestNames.IsArcFissionLibraryActive(content)
             ? InstallManifestNames.NewestArcFissionDataPak(Path.Combine(content, "Paks", "mods"))
             : null;
+
+    /// <summary>ArcFission data paks in the game's mods folder while ArcFission Library isn't installed or is off: old data nothing writes again, offered for removal at Install.</summary>
+    private static List<string> LeftoverArcFissionDataPaks(string contentPath)
+    {
+        var modsDirectory = Path.Combine(contentPath, "Paks", "mods");
+        if (!Directory.Exists(modsDirectory) || InstallManifestNames.IsArcFissionLibraryActive(contentPath))
+        {
+            return [];
+        }
+
+        return [.. Directory.GetFiles(modsDirectory).Select(Path.GetFileName).OfType<string>().Where(InstallManifestNames.IsArcFissionDataPak)];
+    }
 
     /// <summary>
     /// ArcFission Library rebuilt its data since the installed merge (an ArcFission mod added or
@@ -1570,37 +1831,27 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
     private bool AddEntryToQueue(LibraryEntry entry)
     {
-        if (Queue.Any(q => string.Equals(q.FolderName, entry.FolderName, StringComparison.OrdinalIgnoreCase)))
+        // ISL's own merged pack (the Library keeps a copy of every build): queuing it folded the
+        // previous merge into the new one and applied the merge options a second time on top.
+        if (IsIslBuiltPack(entry))
         {
+            StatusMessage = $"'{entry.Name}' is a pack Merge & Install built from your queue, so it can't be ticked itself: "
+                + "tick the mods it was built from (merging it would put the old build into the new one and apply the merge options twice).";
+            return false;
+        }
+
+        var existingIndex = Queue.ToList().FindIndex(q => string.Equals(q.FolderName, entry.FolderName, StringComparison.OrdinalIgnoreCase));
+        if (existingIndex >= 0)
+        {
+            if (Queue[existingIndex].IsMissingFromLibrary)
+            {
+                // The profile's missing mod is back: it takes its old place.
+                Queue[existingIndex] = entry;
+                return true;
+            }
+
             StatusMessage = $"'{entry.Name}' is already in the queue.";
             return false;
-        }
-
-        // Adding a mod that's already folded into a merged pack sitting in the queue is a no-op —
-        // the pack already covers it, and merging it again would be redundant, not additive.
-        var coveringPack = Queue.FirstOrDefault(q =>
-            q.MergedPackModNames?.Contains(entry.Name, StringComparer.OrdinalIgnoreCase) == true);
-        if (coveringPack is not null)
-        {
-            StatusMessage = $"'{entry.Name}' is already inside '{coveringPack.Name}', which is already queued.";
-            return false;
-        }
-
-        // Adding a merged pack replaces whichever of its own constituent mods are already queued
-        // individually — the pack folds their contents in on its own, so keeping both would merge
-        // the same mod's fields twice.
-        if (entry.MergedPackModNames is { Count: > 0 } names)
-        {
-            var replaced = Queue.Where(q => names.Contains(q.Name, StringComparer.OrdinalIgnoreCase)).ToList();
-            foreach (var individual in replaced)
-            {
-                Queue.Remove(individual);
-            }
-
-            if (replaced.Count > 0)
-            {
-                StatusMessage = $"'{entry.Name}' replaces {replaced.Count} individually-queued mod(s) it already contains.";
-            }
         }
 
         Queue.Add(entry);
@@ -1610,19 +1861,25 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand]
     private void RemoveFromQueue()
     {
-        if (SelectedQueueEntry is { } entry)
+        if (!RefuseWhileRebuilding() && SelectedQueueEntry is { } entry)
         {
             Queue.Remove(entry);
         }
     }
 
     [RelayCommand]
-    private void ClearQueue() => Queue.Clear();
+    private void ClearQueue()
+    {
+        if (!RefuseWhileRebuilding())
+        {
+            Queue.Clear();
+        }
+    }
 
     [RelayCommand]
     private void MoveQueueEntryUp()
     {
-        if (SelectedQueueEntry is not { } entry)
+        if (RefuseWhileRebuilding() || SelectedQueueEntry is not { } entry)
         {
             return;
         }
@@ -1637,7 +1894,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     [RelayCommand]
     private void MoveQueueEntryDown()
     {
-        if (SelectedQueueEntry is not { } entry)
+        if (RefuseWhileRebuilding() || SelectedQueueEntry is not { } entry)
         {
             return;
         }
@@ -1655,6 +1912,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// for free.</summary>
     public void ReorderQueueEntry(LibraryEntry entry, int targetIndex)
     {
+        if (RefuseWhileRebuilding())
+        {
+            return;
+        }
+
         var currentIndex = Queue.IndexOf(entry);
         if (currentIndex < 0 || targetIndex < 0 || targetIndex >= Queue.Count || currentIndex == targetIndex)
         {
@@ -1706,7 +1968,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // the real manifest on disk says, so opaque entries need that same derivation here.
             // An opaque entry can hold several paks (a bundle) — the manifest lists each one, so
             // the comparison expands the entry the same way.
-            var currentList = Queue.SelectMany(entry =>
+            var currentList = Queue.Where(e => !e.IsMissingFromLibrary).SelectMany(entry =>
             {
                 if (!entry.IsOpaquePak)
                 {
@@ -1781,7 +2043,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// <remarks>Internal, not private — RebuildAndInstallAsync's own orchestration (does Install only run when Rebuild really succeeded, does it never run when Rebuild guards out or throws) is exactly the thing worth testing directly against fakes for IRebuildService/IInstallService, without ever reaching InstallAsync's own ThemedMessageBox confirmation (a real blocking WPF dialog with no live Application in a test host).</remarks>
     internal async Task<bool> RebuildAsync()
     {
-        var gameplayOptions = BuildGameplayOptionsFromUi();
         // Gameplay options can apply on their own, with an empty queue, per the spec ("the ability
         // to add merge options to game with no mods selected") — only block if there's genuinely
         // nothing to do at all. Queue can hold opaque pak entries too now (folded into the same
@@ -1790,10 +2051,17 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // classification GenerateFixedFieldChanges/RequiredCurrentFiles conceptually mirror, so
         // this guard can't miss an option the way it once did (Category 2's RequiredCurrentFiles
         // alone used to miss a Category-1-only option enabled with an empty queue, silently
-        // skipping the rebuild those options needed).
-        if (Queue.Count == 0 && !gameplayOptions.IsAnyActive)
+        // skipping the rebuild those options needed). A greyed missing row is nothing to build.
+        if (IsRebuilding)
         {
-            StatusMessage = "Add at least one mod to the queue, or enable a gameplay option, first.";
+            return false;
+        }
+
+        if (!Queue.Any(IsBuildable) && !BuildGameplayOptionsFromUi().IsAnyActive)
+        {
+            StatusMessage = Queue.Count > 0
+                ? "None of the queued mods are in your Library — add mods to the queue, or enable a gameplay option, first."
+                : "Add at least one mod to the queue, or enable a gameplay option, first.";
             return false;
         }
 
@@ -1803,51 +2071,76 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             return false;
         }
 
-        // A queue never saved under a real profile lives only as this ViewModel's own in-memory
-        // Queue — nothing on disk records it at all, so an app crash or a forgotten "Save" loses
-        // it outright, with only the last INSTALLED pak's own flat manifest (names, no options) as
-        // any record of what produced it. Snapshotting into a real, reloadable "Default" profile
-        // right before every Rebuild — not on every queue edit, which would mean saving on every
-        // keystroke-equivalent — ties this to an actual checkpoint ("this queue really did get
-        // built") without ever overriding a profile the user picked themselves. Best-effort: a
-        // failure here must never block the real Rebuild the user actually asked for.
-        if (SelectedProfileName is null)
-        {
-            try
-            {
-                _profileStore.Save(new Profile { Name = "Default", MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = gameplayOptions, ConflictWinners = new(_winners) });
-                ReloadProfileNames();
-            }
-            catch (Exception)
-            {
-            }
-        }
-
+        // From here on the queue, profile and options are locked (RefuseWhileRebuilding, and the
+        // page's controls), including while game data refreshes below.
         IsRebuilding = true;
-        StatusMessage = "Rebuilding…";
-        RebuildProgressPercent = 0;
-        RebuildStageText = null;
-        Warnings.Clear();
-
-        // A mod folder that exists on disk but can't be read never becomes a Library entry at all,
-        // so it can't be queued and silently contributes nothing to the merge. Until now the only
-        // hint was a line on the Library page — meaning a user could rebuild and install a pack
-        // quietly missing a mod they believe is included. Surfaced here, where it actually matters.
-        // Added after the Clear above, or it would be wiped before anyone saw it.
-        foreach (var folderName in _libraryRepository.UnreadableFolders)
-        {
-            Warnings.Add(
-                $"'{folderName}' is in your mods folder but couldn't be read, so it is NOT part of this build. "
-                + "Check that mod's own files (a corrupt .EXMOD is the usual cause).");
-        }
-
         try
         {
+            // The merge writes whole tables from the extracted game data: built after a game update
+            // but before Refresh game data, it puts the old version of every table a mod touches back
+            // into the game, undoing the update there.
+            if (!await EnsureGameDataCurrentAsync())
+            {
+                return false;
+            }
+
+            // Everything this build is made from, taken once: a queue, profile or option change made
+            // while it runs (from the Library's ON box, say) can't change which mod a conflict pick
+            // means, what's merged, what's logged or which profile the built pack is filed under.
+            var snapshot = TakeSnapshot();
+            if (snapshot.Queue.Count == 0 && !snapshot.Options.IsAnyActive)
+            {
+                StatusMessage = "Add at least one mod to the queue, or enable a gameplay option, first.";
+                return false;
+            }
+
+            // A queue never saved under a real profile lives only as this ViewModel's own in-memory
+            // Queue — nothing on disk records it at all, so an app crash or a forgotten "Save" loses
+            // it outright, with only the last INSTALLED pak's own flat manifest (names, no options) as
+            // any record of what produced it. Snapshotting into a real, reloadable "Default" profile
+            // right before every Rebuild — not on every queue edit, which would mean saving on every
+            // keystroke-equivalent — ties this to an actual checkpoint ("this queue really did get
+            // built") without ever overriding a profile the user picked themselves. Best-effort: a
+            // failure here must never block the real Rebuild the user actually asked for.
+            if (SelectedProfileName is null)
+            {
+                try
+                {
+                    _profileStore.Save(new Profile { Name = "Default", MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = snapshot.Options, ConflictWinners = new(snapshot.Winners) });
+                    ReloadProfileNames();
+                }
+                catch (Exception)
+                {
+                }
+            }
+
+            StatusMessage = "Rebuilding…";
+            RebuildProgressPercent = 0;
+            RebuildStageText = null;
+            Warnings.Clear();
+
+            // A mod folder that exists on disk but can't be read never becomes a Library entry at all,
+            // so it can't be queued and silently contributes nothing to the merge. Until now the only
+            // hint was a line on the Library page — meaning a user could rebuild and install a pack
+            // quietly missing a mod they believe is included. Surfaced here, where it actually matters.
+            // Added after the Clear above, or it would be wiped before anyone saw it.
+            foreach (var folderName in _libraryRepository.UnreadableFolders)
+            {
+                Warnings.Add(
+                    $"'{folderName}' is in your mods folder but couldn't be read, so it is NOT part of this build. "
+                    + "Check that mod's own files (a corrupt .EXMOD is the usual cause).");
+            }
+
+            foreach (var missing in snapshot.SkippedMissing)
+            {
+                Warnings.Add($"'{missing}' is in this profile but not in your Library, so it is NOT part of this build. Import it again, or remove it from the queue.");
+            }
+
             using var perfScope = _performanceTracker.Track("Rebuild");
-            var (_, packages, prebuiltPakFilePaths) = await LoadQueuedPackagesAsync();
+            var loaded = await LoadQueuedPackagesAsync(snapshot.Queue);
             // ArcFission Library's data pak: its rows go into the merge (which outranks its pak),
             // as the lowest-priority input so any queued mod or option wins a clash with it.
-            List<string> lowPriorityPaks = ArcFissionDataPakPath() is { } arcFission ? [arcFission] : [];
+            List<string> lowPriorityPaks = snapshot.ArcFissionPakPath is { } arcFission ? [arcFission] : [];
 
             // Progress<T>'s own callback marshals back through the SynchronizationContext captured
             // at construction time — safe to update these bound properties directly from it since
@@ -1859,16 +2152,24 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 RebuildProgressPercent = p.PercentComplete;
             });
 
-            var picks = await ResolveWinnerPicksAsync();
-            // Advanced log: exactly what this build was made from.
-            Serilog.Log.Debug("Merge & Install build: queue (lowest priority first) {Queue}; prebuilt paks {Paks}; ArcFission/low-priority {Low}; {Picks} conflict pick(s) {PickList}; options {Options}",
-                string.Join(" > ", Queue.Select(e => e.Name)), prebuiltPakFilePaths.Select(Path.GetFileName), lowPriorityPaks.Select(Path.GetFileName),
-                picks?.Count ?? 0, picks?.Select(p => $"{p.Key.CurrentFile}/{p.Key.ItemName}.{p.Key.FieldName}=#{p.Value}"), ActiveOptionsSummary);
-            var result = await _rebuildService.RebuildAsync(
-                packages, gameplayOptions, _dataFolder, _settingsService.Current.UnrealPakExePath!, _outputPakPath, prebuiltPakFilePaths, picks, progress,
-                lowPriorityPrebuiltPakFilePaths: lowPriorityPaks);
+            var (picks, unmatchedPicks) = await ResolveWinnerPicksAsync(snapshot, loaded);
+            if (unmatchedPicks > 0)
+            {
+                Warnings.Add(
+                    $"{unmatchedPicks} saved conflict pick(s) no longer match what the queued mods change (a mod was updated or reordered into agreement), so they weren't used. "
+                    + "Review conflicts to pick again.");
+            }
 
-            var foldedInCount = prebuiltPakFilePaths.Count + lowPriorityPaks.Count;
+            // Advanced log: exactly what this build was made from.
+            Serilog.Log.Debug("Merge & Install build: queue (lowest priority first) {Queue}; prebuilt paks {Paks} at {Positions}; ArcFission/low-priority {Low}; {Picks} conflict pick(s) {PickList}; options {Options}",
+                string.Join(" > ", snapshot.Queue.Select(e => e.Name)), loaded.PrebuiltPakFilePaths.Select(Path.GetFileName), loaded.PrebuiltPakQueuePositions,
+                lowPriorityPaks.Select(Path.GetFileName),
+                picks?.Count ?? 0, picks?.Select(p => $"{p.Key.CurrentFile}/{p.Key.ItemName}.{p.Key.FieldName}=#{p.Value}"), snapshot.OptionsSummary);
+            var result = await _rebuildService.RebuildAsync(
+                loaded.Packages, snapshot.Options, _dataFolder, snapshot.UnrealPakExePath, _outputPakPath, loaded.PrebuiltPakFilePaths, picks, progress,
+                lowPriorityPrebuiltPakFilePaths: lowPriorityPaks, prebuiltPakQueuePositions: loaded.PrebuiltPakQueuePositions);
+
+            var foldedInCount = loaded.PrebuiltPakFilePaths.Count + lowPriorityPaks.Count;
             var prebuiltNote = foldedInCount > 0 ? $", {foldedInCount} prebuilt pak(s) folded in" : "";
             StatusMessage = $"Built '{result.OutputPakPath}' — {result.PackedFileCount} files packed, "
                 + $"{result.MergedFileCount} data table(s) merged{prebuiltNote}.";
@@ -1903,7 +2204,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             var pickStatusBeforeImport = ConflictStatusMessage;
             try
             {
-                ImportBuiltPakIntoLibrary();
+                ImportBuiltPakIntoLibrary(snapshot.ProfileName);
             }
             catch (Exception ex)
             {
@@ -1916,7 +2217,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             }
 
             var pickNote = picks is { Count: > 0 } ? $", {picks.Count} conflict(s) won by your pick" : "";
-            _activityLog.Log($"Rebuilt pack with {Queue.Count} mod(s) — {result.PackedFileCount} files packed{pickNote}.", ActivityEntryKind.Success);
+            _activityLog.Log($"Rebuilt pack with {snapshot.Queue.Count} mod(s) — {result.PackedFileCount} files packed{pickNote}.", ActivityEntryKind.Success);
             return true;
         }
         catch (Exception ex)
@@ -1939,6 +2240,97 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     }
 
     /// <summary>
+    /// The game-update guard before a build: when Icarus was updated since the last Refresh game
+    /// data, asks to refresh first (Yes runs it, then the build goes on with the fresh data) and
+    /// stops with the reason otherwise. True when the build can go ahead.
+    /// </summary>
+    private async Task<bool> EnsureGameDataCurrentAsync()
+    {
+        if (_gameDataFreshness is null)
+        {
+            return true;
+        }
+
+        bool outdated;
+        try
+        {
+            outdated = await _gameDataFreshness.IsGameDataOutdatedAsync();
+        }
+        catch (Exception)
+        {
+            // Can't tell: not a reason to refuse a build.
+            return true;
+        }
+
+        if (!outdated)
+        {
+            return true;
+        }
+
+        var refresh = Confirm(
+            "Icarus has been updated since your last Refresh game data.\n\n"
+            + "Building now would put the old version of every game table your mods change back into the game, undoing the update there.\n\n"
+            + "Refresh game data now, then build?",
+            "Game data is out of date");
+        if (!refresh)
+        {
+            StatusMessage = "Not built: Icarus was updated since your last Refresh game data. Refresh game data (Settings), then Install again.";
+            return false;
+        }
+
+        StatusMessage = "Refreshing game data…";
+        RebuildStageText = "Refreshing game data…";
+        bool refreshed;
+        try
+        {
+            refreshed = await _gameDataFreshness.RefreshGameDataAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Not built: Refresh game data failed ({ex.Message}).";
+            return false;
+        }
+
+        if (!refreshed)
+        {
+            StatusMessage = "Not built: Refresh game data didn't finish — see Settings for why, then Install again.";
+            return false;
+        }
+
+        _activityLog.Log("Refreshed game data before building (Icarus had been updated).", ActivityEntryKind.Info);
+        return true;
+    }
+
+    /// <summary>
+    /// Everything one build or conflict check is made from, taken at once from the page: the queue
+    /// in order (only rows that can build — no greyed missing rows, no ISL-built packs), the options,
+    /// the conflict winners, ArcFission's data pak and the profile name.
+    /// </summary>
+    internal sealed record BuildSnapshot(
+        IReadOnlyList<LibraryEntry> Queue,
+        IReadOnlyList<string> SkippedMissing,
+        GameplayOptions Options,
+        string OptionsSummary,
+        IReadOnlyDictionary<string, string> Winners,
+        IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? ManualPicks,
+        string? ArcFissionPakPath,
+        string ProfileName,
+        string UnrealPakExePath);
+
+    private bool IsBuildable(LibraryEntry entry) => !entry.IsMissingFromLibrary && !IsIslBuiltPack(entry);
+
+    private BuildSnapshot TakeSnapshot() => new(
+        [.. Queue.Where(IsBuildable)],
+        [.. Queue.Where(e => e.IsMissingFromLibrary).Select(e => e.Name)],
+        BuildGameplayOptionsFromUi(),
+        ActiveOptionsSummary,
+        new Dictionary<string, string>(_winners, StringComparer.OrdinalIgnoreCase),
+        _manualPicks,
+        ArcFissionDataPakPath(),
+        SelectedProfileName ?? "Default",
+        _settingsService.Current.UnrealPakExePath ?? "");
+
+    /// <summary>
     /// Imports the just-built pak into Library so it's a real, inspectable, re-mountable entry the
     /// moment it exists — not only after a full Install. Build and Install (Copy to game) are two
     /// genuinely separate steps under the hood already (RebuildAsync only ever writes to this app's
@@ -1952,7 +2344,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// name every time (its own collision-avoidance rule), leaving one stale Library entry behind
     /// per build instead of one that stays current.
     /// </summary>
-    private void ImportBuiltPakIntoLibrary()
+    private void ImportBuiltPakIntoLibrary(string profileName)
     {
         // The built pack under the merged pak's earlier name is replaced too.
         foreach (var legacy in InstallManifestNames.LegacyMergedPakFileNames.Select(Path.GetFileNameWithoutExtension))
@@ -1970,62 +2362,70 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             _libraryRepository.Delete(existing.FolderName);
         }
-        // Falls back to "Default" rather than the possibly-still-null SelectedProfileName directly:
-        // RebuildAsync's own auto-save (right above, in the caller) already used "Default" as the
-        // effective profile name whenever none was selected, without changing SelectedProfileName
-        // itself (so the ComboBox doesn't silently jump to a profile the user never picked) — this
-        // mirrors that same effective name rather than the UI-facing selection, which could still
-        // read null at this exact point.
-        _libraryRepository.ImportPak(_outputPakPath, mergedPackProfileName: SelectedProfileName ?? "Default");
+        // profileName is "Default" when none was selected (RebuildAsync's own auto-save uses the same
+        // effective name, without changing SelectedProfileName itself), and for a build it's the
+        // profile the build started from, not whatever is selected by the time it finishes.
+        _libraryRepository.ImportPak(_outputPakPath, mergedPackProfileName: profileName);
         _messenger.Send(new LibraryChangedMessage());
     }
 
     /// <summary>
-    /// Queue order = merge priority (index 0 lowest, matching MergeEngine's own convention). Each
-    /// EXMOD entry's own package is served from _packageCache when that folder's own on-disk
-    /// fingerprint hasn't changed since it was last read (see GetOrReadPackage) — still effectively
-    /// "fresh" for an edit made outside the app or via the EXMOD editor, since the fingerprint check
-    /// itself is real (if cheap) disk I/O done every call, not a time-based assumption. The snapshot
-    /// itself is taken synchronously on the UI thread (cheap, no I/O) so a user edit to Queue
-    /// (Add/Remove) mid-read can't race with the actual disk reads, which are the slow part and run
-    /// off-thread on that fixed snapshot instead. Shared by RebuildAsync and ReviewConflictsAsync,
-    /// which both need the exact same materialization.
-    ///
-    /// Queue can hold opaque pak entries (LibraryEntry.IsOpaquePak) alongside real EXMOD mods —
-    /// split apart here since RebuildService needs them as two separate parameters. Entries stays
-    /// EXMOD-only, kept 1:1 with Packages (FindQueueConflictsAsync zips them by index), so conflict
-    /// checking naturally only ever considers mods that can actually have a field-level conflict.
+    /// A queue's mods read from disk. Entries/Packages are the EXMOD mods, 1:1; each prebuilt pak
+    /// file (an opaque entry can hold several) comes with its queue position (how many EXMOD mods
+    /// are ahead of it) and its entry. Ordered is every participant in true queue order:
+    /// PackageIndex into Packages for an EXMOD mod, or PakIndex into PrebuiltPakFilePaths.
     /// </summary>
-    private async Task<(List<LibraryEntry> Entries, List<ExmodPackageContents> Packages, List<string> PrebuiltPakFilePaths)> LoadQueuedPackagesAsync()
+    internal sealed record LoadedQueue(
+        List<LibraryEntry> Entries,
+        List<ExmodPackageContents> Packages,
+        List<string> PrebuiltPakFilePaths,
+        List<int> PrebuiltPakQueuePositions,
+        List<LibraryEntry> PrebuiltPakEntries,
+        List<(int PackageIndex, int PakIndex)> Ordered);
+
+    /// <summary>
+    /// The live queue's buildable rows (see BuildSnapshot), read from disk. Queue order = merge
+    /// priority (index 0 lowest, matching MergeEngine's own convention). Each EXMOD entry's own
+    /// package is served from _packageCache when that folder's own on-disk fingerprint hasn't
+    /// changed since it was last read (see GetOrReadPackage); the queue itself is copied on the UI
+    /// thread first, so an edit mid-read can't race with the disk reads, which run off-thread.
+    /// </summary>
+    private Task<LoadedQueue> LoadQueuedPackagesAsync() => LoadQueuedPackagesAsync([.. Queue.Where(IsBuildable)]);
+
+    private async Task<LoadedQueue> LoadQueuedPackagesAsync(IReadOnlyList<LibraryEntry> queueSnapshot)
     {
-        var queueSnapshot = Queue.ToList();
-        var exmodEntries = queueSnapshot.Where(e => !e.IsOpaquePak).ToList();
-        var prebuiltEntries = queueSnapshot.Where(e => e.IsOpaquePak).ToList();
-
-        var (packages, prebuiltPakFilePaths) = await Task.Run(() =>
+        return await Task.Run(() =>
         {
-            var packages = exmodEntries
-                .Select(GetOrReadPackage)
-                .ToList();
-
-            // An opaque pak folder holds one .pak (ImportPak) or several (ImportPaks — one download
-            // that shipped a bundle); every one of them is folded in. A folder whose paks vanished
-            // since being queued (Library entry deleted/moved) is silently skipped rather than
-            // failing the whole rebuild.
-            var prebuiltPakFilePaths = prebuiltEntries
-                .SelectMany(entry =>
+            var loaded = new LoadedQueue([], [], [], [], [], []);
+            foreach (var entry in queueSnapshot)
+            {
+                if (!entry.IsOpaquePak)
                 {
-                    var folder = _libraryRepository.GetFolderPath(entry.FolderName);
-                    return Directory.Exists(folder)
-                        ? Directory.GetFiles(folder, "*.pak").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList()
-                        : new List<string>();
-                })
-                .ToList();
+                    loaded.Ordered.Add((loaded.Packages.Count, -1));
+                    loaded.Entries.Add(entry);
+                    loaded.Packages.Add(GetOrReadPackage(entry));
+                    continue;
+                }
 
-            return (packages, prebuiltPakFilePaths);
+                // An opaque pak folder holds one .pak (ImportPak) or several (ImportPaks — one
+                // download that shipped a bundle); every one of them is folded in. A folder whose
+                // paks vanished since being queued (Library entry deleted/moved) is silently skipped
+                // rather than failing the whole rebuild.
+                var folder = _libraryRepository.GetFolderPath(entry.FolderName);
+                var paks = Directory.Exists(folder)
+                    ? Directory.GetFiles(folder, "*.pak").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList()
+                    : [];
+                foreach (var pak in paks)
+                {
+                    loaded.Ordered.Add((-1, loaded.PrebuiltPakFilePaths.Count));
+                    loaded.PrebuiltPakFilePaths.Add(pak);
+                    loaded.PrebuiltPakQueuePositions.Add(loaded.Packages.Count);
+                    loaded.PrebuiltPakEntries.Add(entry);
+                }
+            }
+
+            return loaded;
         });
-
-        return (exmodEntries, packages, prebuiltPakFilePaths);
     }
 
     /// <summary>
@@ -2113,68 +2513,131 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
     }
 
+    /// <summary>One conflict check: what it found, and who took part, in merge order (Ids[i] is the winner id of the mod shown as Names[i]).</summary>
+    internal sealed record QueueConflicts(
+        IReadOnlyList<FieldConflict> Conflicts,
+        IReadOnlyList<NewItemNameCollision> NewItemCollisions,
+        IReadOnlyList<string> Names,
+        IReadOnlyList<string> Ids)
+    {
+        public static QueueConflicts None { get; } = new([], [], [], []);
+
+        public string? NameOf(string id) => Ids.ToList().IndexOf(id) is >= 0 and var i ? Names[i] : null;
+
+        public string? IdOf(string name) => Names.ToList().IndexOf(name) is >= 0 and var i ? Ids[i] : null;
+    }
+
     /// <summary>
-    /// Shared by ReviewConflictsAsync and the background badge computation — both need the exact
-    /// same (queued packages) -&gt; (conflicts) pipeline. Also folds in the same "Built-in gameplay
-    /// options" synthetic entry RebuildService itself appends (GameplayOptionsFieldChangeGenerator)
-    /// so a Speed/Player/XP Boost or Disable Temperatures conflict against a queued mod shows up
-    /// here too, not just in the real Rebuild — this is a preview, so any warnings the generator
-    /// would log (e.g. a missing base file) are discarded rather than surfaced.
-    ///
-    /// includePrebuiltPaks additionally folds in each attached opaque pak's own field-level changes
-    /// (diffed against real base data — the same technique the real Rebuild itself now uses,
-    /// closing the gap where an opaque pak's conflicts were invisible to this preview) — real
-    /// UnrealPak.exe process work per pak, so it's opt-in: ReviewConflictsAsync (an explicit,
-    /// user-initiated action) turns it on; the background badge recompute leaves it off so adding a
-    /// mod to a queue that already has prebuilt paks attached doesn't silently re-launch UnrealPak
-    /// on every single queue mutation.
+    /// Per prebuilt pak (and ArcFission's data pak): its field changes as last extracted, keyed by
+    /// path, with the file's size and write time — so the background conflict badge counts the same
+    /// set the review window and the build do without unpacking every pak on every queue change.
+    /// Cleared when the game data changes (a pak's changes are its diff against it).
+    /// </summary>
+    private readonly Dictionary<string, (long Length, DateTime WriteUtc, IReadOnlyList<FieldChange> Changes)> _prebuiltPakChangesCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private async Task<IReadOnlyList<FieldChange>> GetPrebuiltPakChangesAsync(string pakPath, string unrealPakExePath)
+    {
+        var file = new FileInfo(pakPath);
+        var stamp = (file.Exists ? file.Length : -1, file.Exists ? file.LastWriteTimeUtc : DateTime.MinValue);
+        lock (_packageCacheLock)
+        {
+            if (_prebuiltPakChangesCache.TryGetValue(pakPath, out var cached) && (cached.Length, cached.WriteUtc) == stamp)
+            {
+                return cached.Changes;
+            }
+        }
+
+        var results = await _rebuildService.ComputePrebuiltPakFieldChangesAsync([pakPath], _dataFolder, unrealPakExePath, new MergeReport());
+        IReadOnlyList<FieldChange> changes = results.Count > 0 ? results[0].Changes : [];
+        lock (_packageCacheLock)
+        {
+            _prebuiltPakChangesCache[pakPath] = (stamp.Item1, stamp.Item2, changes);
+        }
+
+        return changes;
+    }
+
+    /// <summary>
+    /// The one conflict check behind the badge, the review window, and the build's saved-winner
+    /// picks, so all three count the same set: every queued EXMOD mod and prebuilt pak in true queue
+    /// order (the order RebuildService merges in, see its prebuiltPakQueuePositions), ArcFission
+    /// Library's data pak first (lowest priority) and the "Built-in gameplay options" synthetic entry
+    /// last, so a candidate's index here is the index Rebuild uses. A pak's changes are its diff
+    /// against the game data with its sure old copies left out, as Rebuild does
+    /// (ComputePrebuiltPakFieldChangesAsync; cached per pak). Paks are left out only when UnrealPak
+    /// isn't set up, which a build can't run without either. Display names are made unique (a
+    /// " (folder)" suffix) so a pick by name always means one mod.
     ///
     /// Also runs MergeEngine.FindNewItemNameCollisions over the exact same (names, orderedModChanges,
     /// baseTablesByFile) — a genuinely different question from FieldConflict's own "do two mods
     /// disagree on one field's value" (see NewItemNameCollision's own doc comment), surfaced through
     /// the same picker rather than a parallel mechanism.
     /// </summary>
-    private async Task<(IReadOnlyList<FieldConflict> Conflicts, IReadOnlyList<NewItemNameCollision> NewItemCollisions, List<string> ModNames)> FindQueueConflictsAsync(bool includePrebuiltPaks = false)
+    private async Task<QueueConflicts> FindQueueConflictsAsync(BuildSnapshot snapshot, LoadedQueue loaded)
     {
-        var (entries, packages, prebuiltPakFilePaths) = await LoadQueuedPackagesAsync();
-        var gameplayOptions = BuildGameplayOptionsFromUi();
-
         var classifier = new DefaultSemanticClassifier();
-        var orderedModChanges = await Task.Run(
-            () => packages.Select(p => ExmodFieldChangeMapper.ToFieldChanges(p.Package, classifier)).ToList());
-        var names = entries.Select(e => e.Name).ToList();
+        var unrealPak = snapshot.UnrealPakExePath;
+        var canUnpack = !string.IsNullOrWhiteSpace(unrealPak);
+        var orderedModChanges = new List<IReadOnlyList<FieldChange>>();
+        var names = new List<string>();
+        var ids = new List<string>();
 
-        // ArcFission Library's data pak goes FIRST (lowest priority), the same place Rebuild puts
-        // it (lowPriorityPrebuiltPakFilePaths), so a candidate index here is the index Rebuild uses.
-        if (includePrebuiltPaks && ArcFissionDataPakPath() is { } arcFission
-            && !string.IsNullOrWhiteSpace(_settingsService.Current.UnrealPakExePath))
+        if (snapshot.ArcFissionPakPath is { } arcFission && canUnpack)
         {
-            var arcFissionChanges = await _rebuildService.ComputePrebuiltPakFieldChangesAsync(
-                [arcFission], _dataFolder, _settingsService.Current.UnrealPakExePath!, new MergeReport());
-            foreach (var (pakName, changes) in arcFissionChanges)
-            {
-                orderedModChanges.Insert(0, changes);
-                names.Insert(0, pakName);
-            }
-        }
-
-        if (includePrebuiltPaks && prebuiltPakFilePaths.Count > 0
-            && !string.IsNullOrWhiteSpace(_settingsService.Current.UnrealPakExePath))
-        {
-            var prebuiltPakChanges = await _rebuildService.ComputePrebuiltPakFieldChangesAsync(
-                prebuiltPakFilePaths, _dataFolder, _settingsService.Current.UnrealPakExePath!, new MergeReport());
-            foreach (var (pakName, changes) in prebuiltPakChanges)
+            var changes = await GetPrebuiltPakChangesAsync(arcFission, unrealPak);
+            if (changes.Count > 0)
             {
                 orderedModChanges.Add(changes);
-                names.Add(pakName);
+                names.Add(Path.GetFileNameWithoutExtension(arcFission));
+                ids.Add(ArcFissionWinnerId);
             }
         }
 
-        var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(gameplayOptions, _dataFolder, new MergeReport());
+        var exmodChanges = await Task.Run(
+            () => loaded.Packages.Select(p => ExmodFieldChangeMapper.ToFieldChanges(p.Package, classifier)).ToList());
+        foreach (var (packageIndex, pakIndex) in loaded.Ordered)
+        {
+            if (packageIndex >= 0)
+            {
+                orderedModChanges.Add(exmodChanges[packageIndex]);
+                names.Add(loaded.Entries[packageIndex].Name);
+                ids.Add(loaded.Entries[packageIndex].FolderName);
+                continue;
+            }
+
+            if (!canUnpack)
+            {
+                continue;
+            }
+
+            var pakPath = loaded.PrebuiltPakFilePaths[pakIndex];
+            var pakChanges = await GetPrebuiltPakChangesAsync(pakPath, unrealPak);
+            if (pakChanges.Count > 0)
+            {
+                var pakName = Path.GetFileNameWithoutExtension(pakPath);
+                orderedModChanges.Add(pakChanges);
+                names.Add(pakName);
+                ids.Add($"{loaded.PrebuiltPakEntries[pakIndex].FolderName}/{pakName}");
+            }
+        }
+
+        var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(snapshot.Options, _dataFolder, new MergeReport());
         if (fixedOptionChanges.Count > 0)
         {
             orderedModChanges.Add(fixedOptionChanges);
-            names.Add("Built-in gameplay options");
+            names.Add(OptionsWinnerId);
+            ids.Add(OptionsWinnerId);
+        }
+
+        // Two mods with the same display name would make a pick by name ambiguous.
+        var duplicateNames = names.GroupBy(n => n, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
+        for (var i = 0; i < names.Count; i++)
+        {
+            if (duplicateNames.Contains(names[i]))
+            {
+                names[i] = $"{names[i]} ({ids[i]})";
+            }
         }
 
         var (conflicts, newItemCollisions) = await Task.Run(() =>
@@ -2184,8 +2647,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // best-effort: a report here is thrown away, not surfaced, and any read failure (a
             // locked/permission-denied base file — ReadBaseTables' own File.ReadAllText has no
             // catch for that, unlike a merely-missing file) falls back to no filtering rather than
-            // blocking the conflict badge/picker entirely, matching what this comment already
-            // promised before this try/catch actually backed it. The same baseTablesByFile is what
+            // blocking the conflict badge/picker entirely. The same baseTablesByFile is what
             // lets FindNewItemNameCollisions tell a genuinely new item apart from an existing one
             // every real EXMOD-sourced FieldChange otherwise always marks IsNewItem: true (see its
             // own doc comment) — without it, this would fall back to that unreliable raw flag.
@@ -2204,7 +2666,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 MergeEngine.FindConflicts(names, orderedModChanges, baseTablesByFile),
                 MergeEngine.FindNewItemNameCollisions(names, orderedModChanges, baseTablesByFile));
         });
-        return (conflicts, newItemCollisions, names);
+        return new QueueConflicts(conflicts, newItemCollisions, names, ids);
     }
 
     /// <summary>Guards RecomputeConflictCountAsync against two overlapping runs (the queue/options changing again while a previous background recompute is still in flight) finishing out of order — same "only the newest request's result is applied" shape as NexusCatalogViewModel's own _loadVersion.</summary>
@@ -2215,18 +2677,19 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     {
         var version = ++_conflictCountVersion;
 
-        if (Queue.Count == 0)
+        var snapshot = TakeSnapshot();
+        if (snapshot.Queue.Count == 0)
         {
-            ApplyConflicts([], []);
+            ApplyConflicts(QueueConflicts.None);
             return;
         }
 
         try
         {
-            var (conflicts, newItemCollisions, _) = await FindQueueConflictsAsync();
+            var conflicts = await FindQueueConflictsAsync(snapshot, await LoadQueuedPackagesAsync(snapshot.Queue));
             if (version == _conflictCountVersion)
             {
-                ApplyConflicts(conflicts, newItemCollisions);
+                ApplyConflicts(conflicts);
             }
         }
         catch (Exception)
@@ -2236,21 +2699,72 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
     }
 
-    private IReadOnlyList<FieldConflict> _lastConflicts = [];
-    private IReadOnlyList<NewItemNameCollision> _lastCollisions = [];
+    private QueueConflicts _lastConflicts = QueueConflicts.None;
 
     /// <summary>The bar, the badge and the ⚠ rows from one conflict check — counted by MergeConflictTally, the same as the review window.</summary>
-    private void ApplyConflicts(IReadOnlyList<FieldConflict> conflicts, IReadOnlyList<NewItemNameCollision> newItemCollisions)
+    private void ApplyConflicts(QueueConflicts found)
     {
-        _lastConflicts = conflicts;
-        _lastCollisions = newItemCollisions;
-        ConflictTally = MergeConflictTally.From(conflicts, newItemCollisions);
+        _lastConflicts = found;
+        ConflictTally = MergeConflictTally.From(found.Conflicts, found.NewItemCollisions);
         ConflictCount = ConflictTally.NeedsDecision;
-        ConflictingModNamesByMod = MergeEngine.GroupConflictsByMod(conflicts);
+        ConflictingModNamesByMod = MergeEngine.GroupConflictsByMod(found.Conflicts);
     }
 
     /// <summary>Test-only: the review window Review conflicts would open for the last conflict check.</summary>
-    internal MergeConflictsViewModel CreateConflictReviewForTesting() => new(_lastConflicts, _lastCollisions, _winners);
+    internal MergeConflictsViewModel CreateConflictReviewForTesting() =>
+        new(_lastConflicts.Conflicts, _lastConflicts.NewItemCollisions, ToDisplayWinners(_winners, _lastConflicts));
+
+    /// <summary>
+    /// The saved winners (by id) as the review window shows them (by the name in this check). A
+    /// winner still saved by display name (ambiguous at migration) works while one mod here has it.
+    /// Winners for mods not in this check are left out (kept aside by FromDisplayWinners).
+    /// </summary>
+    private static Dictionary<string, string> ToDisplayWinners(IReadOnlyDictionary<string, string> winners, QueueConflicts found)
+    {
+        var display = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, winner) in winners)
+        {
+            if (found.NameOf(winner) is { } name)
+            {
+                display[key] = name;
+            }
+            else if (found.IdOf(winner) is not null)
+            {
+                display[key] = winner;
+            }
+        }
+
+        return display;
+    }
+
+    /// <summary>
+    /// The review window's winners (by name) back to ids, plus the saved winners it wasn't shown
+    /// (a mod out of the queue for a while) for values not in conflict right now. A value in
+    /// conflict now was decided in the window, so an unshown old pick for it goes.
+    /// </summary>
+    private static Dictionary<string, string> FromDisplayWinners(
+        IReadOnlyDictionary<string, string> result, IReadOnlyDictionary<string, string> previous,
+        IReadOnlyDictionary<string, string> shown, QueueConflicts found)
+    {
+        var inConflictNow = found.Conflicts
+            .Select(c => MergeConflictsViewModel.WinnerKey(c.CurrentFile, c.ItemName, c.FieldName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var winners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, winner) in previous)
+        {
+            if (!shown.ContainsKey(key) && !inConflictNow.Contains(key))
+            {
+                winners[key] = winner;
+            }
+        }
+
+        foreach (var (key, name) in result)
+        {
+            winners[key] = found.IdOf(name) ?? name;
+        }
+
+        return winners;
+    }
 
     /// <summary>Keeps the winners with the selected profile at once (only the winners: its queue and options stay as saved).</summary>
     private void SaveWinnersToProfile()
@@ -2273,53 +2787,54 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     }
 
     /// <summary>
-    /// The winners by mod name, turned into the merge's per-field picks for the queue as it is now
-    /// (a pick's position among the mods changing that value). Prebuilt paks are only unpacked for
-    /// this when a winner is one of them or the built-in options, whose positions come after the
-    /// EXMOD mods', or when ArcFission Library's data pak is present: it comes before every queued
-    /// mod, so it shifts every position of a field it also changes. A test's ManualPicksForTesting
-    /// is used when nothing was picked by name.
+    /// The snapshot's winners turned into the merge's per-field picks for its queue (a pick's
+    /// position among the mods changing that value, counted the way Rebuild merges: see
+    /// FindQueueConflictsAsync), plus how many saved winners for mods in this build no longer match
+    /// a conflict (the value isn't changed differently any more, or that mod doesn't change it). A
+    /// test's ManualPicksForTesting is used when nothing was picked.
     /// </summary>
-    private async Task<IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>?> ResolveWinnerPicksAsync()
+    private async Task<(IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? Picks, int Unmatched)> ResolveWinnerPicksAsync(
+        BuildSnapshot snapshot, LoadedQueue loaded)
     {
-        if (_winners.Count == 0)
+        if (snapshot.Winners.Count == 0)
         {
-            return _manualPicks;
+            return (snapshot.ManualPicks, 0);
         }
 
-        var exmodNames = Queue.Where(e => !e.IsOpaquePak).Select(e => e.Name).ToHashSet(StringComparer.Ordinal);
-        var needsPaks = ArcFissionDataPakPath() is not null || _winners.Values.Any(w => !exmodNames.Contains(w));
-        var (conflicts, _, _) = await FindQueueConflictsAsync(includePrebuiltPaks: needsPaks);
+        var found = await FindQueueConflictsAsync(snapshot, loaded);
         var picks = new Dictionary<(string CurrentFile, string ItemName, string FieldName), int>(FieldChangeKeyComparer.Instance);
-        foreach (var conflict in conflicts)
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var conflict in found.Conflicts)
         {
-            if (_winners.TryGetValue(MergeConflictsViewModel.WinnerKey(conflict.CurrentFile, conflict.ItemName, conflict.FieldName), out var winner))
+            var key = MergeConflictsViewModel.WinnerKey(conflict.CurrentFile, conflict.ItemName, conflict.FieldName);
+            if (snapshot.Winners.TryGetValue(key, out var winner)
+                && (found.NameOf(winner) ?? (found.IdOf(winner) is not null ? winner : null)) is { } name)
             {
-                var index = conflict.Candidates.ToList().FindIndex(c => string.Equals(c.ModName, winner, StringComparison.Ordinal));
+                var index = conflict.Candidates.ToList().FindIndex(c => string.Equals(c.ModName, name, StringComparison.Ordinal));
                 if (index >= 0)
                 {
                     picks[(conflict.CurrentFile, conflict.ItemName, conflict.FieldName)] = index;
+                    used.Add(key);
                 }
             }
         }
 
-        return picks.Count > 0 ? picks : null;
+        var unmatched = snapshot.Winners.Count(w => !used.Contains(w.Key) && (found.NameOf(w.Value) is not null || found.IdOf(w.Value) is not null));
+        return (picks.Count > 0 ? picks : null, unmatched);
     }
 
     /// <summary>
     /// The advanced conflict picker's own entry point — computes which fields two or more queued
     /// mods change differently and, if any, opens a window to let the user pick a winner per field
     /// (or leave it on Default — usually last-mod-wins, but a combine rule instead unions every
-    /// candidate's own value for some field shapes; see MergeConflictViewModel).
-    /// Picks are stored in _manualPicks and used by the next Rebuild; they're invalidated the
-    /// moment the queue changes at all (or a queued mod's own content or the base data changes —
-    /// see the LibraryChangedMessage/WeeklyChangeReportUpdatedMessage handlers above), so this
-    /// needs re-running after any of those if the user wants to review again.
+    /// candidate's own value for some field shapes; see MergeConflictViewModel). Winners are saved
+    /// with the profile by mod (folder) id and used by every later build.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ReviewConflictsAsync()
     {
-        if (Queue.Count == 0)
+        var snapshot = TakeSnapshot();
+        if (snapshot.Queue.Count == 0)
         {
             ConflictStatusMessage = "Add mods to the queue first.";
             return;
@@ -2327,10 +2842,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         try
         {
-            var (conflicts, newItemCollisions, modNames) = await FindQueueConflictsAsync(includePrebuiltPaks: true);
+            var found = await FindQueueConflictsAsync(snapshot, await LoadQueuedPackagesAsync(snapshot.Queue));
+            var (conflicts, newItemCollisions, modNames) = (found.Conflicts, found.NewItemCollisions, found.Names);
             // The window and the bar count from the same tally (the window's own), so they agree.
-            var conflictsViewModel = new MergeConflictsViewModel(conflicts, newItemCollisions, _winners);
-            ApplyConflicts(conflicts, newItemCollisions);
+            var shownWinners = ToDisplayWinners(snapshot.Winners, found);
+            var conflictsViewModel = new MergeConflictsViewModel(conflicts, newItemCollisions, shownWinners);
+            ApplyConflicts(found);
 
             if (conflicts.Count == 0 && newItemCollisions.Count == 0)
             {
@@ -2345,7 +2862,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             var window = new MergeConflictsWindow(conflictsViewModel) { Owner = Application.Current.MainWindow };
             if (window.ShowDialog() == true)
             {
-                _winners = new Dictionary<string, string>(window.ResultWinners!, StringComparer.OrdinalIgnoreCase);
+                _winners = FromDisplayWinners(window.ResultWinners!, snapshot.Winners, shownWinners, found);
                 OnPropertyChanged(nameof(SavedWinnerCount));
                 SaveWinnersToProfile();
                 var pickedNow = conflictsViewModel.PickedCount;
@@ -2381,7 +2898,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
     /// </summary>
     private async Task<IReadOnlyList<ValidationIssueRowViewModel>> FindQueueValidationIssuesAsync()
     {
-        var (entries, packages, _) = await LoadQueuedPackagesAsync();
+        var loaded = await LoadQueuedPackagesAsync();
+        var (entries, packages) = (loaded.Entries, loaded.Packages);
 
         return await Task.Run(() =>
         {
@@ -2581,11 +3099,25 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // "Install merged pak to server" action already established.
         var modsDirectory = Path.Combine(_settingsService.Current.IcarusContentPath!, "Paks", "mods");
         var targetPakFileName = Path.GetFileName(_outputPakPath);
+
+        // ArcFission Library's data pak is kept (its rows are in the merge, and the library would
+        // only write it again) — unless the library itself is gone or off: then nothing rewrites it,
+        // and it holds whole tables from an older game, so removing it is offered.
+        var leftoverArcFission = LeftoverArcFissionDataPaks(_settingsService.Current.IcarusContentPath!);
+        var keepArcFission = leftoverArcFission.Count == 0 || !Confirm(
+            $"ArcFission Library isn't installed (or is turned off), but its data pak is still in the mods folder:\n"
+            + string.Join('\n', leftoverArcFission.Select(n => $"  - {n}"))
+            + "\n\nNothing updates it any more: it holds whole game tables from the game version it was written for, so it can put old values back in game.\n\n"
+            + "Back it up and remove it?",
+            "Leftover ArcFission data");
+
         var otherFilesToClear = Directory.Exists(modsDirectory)
             ? Directory.GetFiles(modsDirectory)
                 .Select(Path.GetFileName)
+                .OfType<string>()
                 .Where(name => !string.Equals(name, targetPakFileName, StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(name, InstallManifestNames.PakManifest, StringComparison.OrdinalIgnoreCase))
+                    && !string.Equals(name, InstallManifestNames.PakManifest, StringComparison.OrdinalIgnoreCase)
+                    && !(keepArcFission && InstallManifestNames.IsArcFissionDataPak(name)))
                 .ToList()
             : [];
         var clearNote = otherFilesToClear.Count > 0
@@ -2597,11 +3129,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         // registry registration, the UE4SS loader install) — this one specifically overwrites the
         // user's actual installed mod pack, so it shouldn't ever be reachable via a single
         // accidental click.
-        var confirmResult = ThemedMessageBox.Show(
+        if (!Confirm(
             $"This copies the staged pak into '{_settingsService.Current.IcarusContentPath}\\Paks\\mods', overwriting whatever's currently installed there.\n\n" +
-            $"The existing pak is backed up first (last 5 kept).{clearNote}\n\nContinue?",
-            "Install to Icarus", ThemedConfirmSeverity.Question);
-        if (!(confirmResult))
+            $"The existing pak is backed up first (last {BackupCleanup.MergedPakBackupsKept} kept).{clearNote}\n\nContinue?",
+            "Install to Icarus"))
         {
             return;
         }
@@ -2618,14 +3149,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         {
             using var perfScope = _performanceTracker.Track("Install");
             var result = await _installService.InstallAsync(
-                _outputPakPath, _settingsService.Current.IcarusContentPath!, _backupDirectory);
+                _outputPakPath, _settingsService.Current.IcarusContentPath!, _backupDirectory, keepArcFissionDataPak: keepArcFission);
 
             // Also done right after a successful RebuildAsync now, so this is redundant when
             // reached through the combined Install button (nothing about the pak's own content
             // changes between the two) — but InstallAsync is also reachable on its own via Copy to
             // game, without a fresh Rebuild immediately before it, where this is the only thing that
             // keeps the Library entry current.
-            ImportBuiltPakIntoLibrary();
+            ImportBuiltPakIntoLibrary(SelectedProfileName ?? "Default");
 
             InstallStatusMessage = result.BackupPakPath is not null
                 ? $"Installed to '{result.InstalledPakPath}'. Backed up the previous pak to '{result.BackupPakPath}'."
@@ -2698,15 +3229,28 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             return;
         }
 
+        // Icarus holds its paks open while it runs: the same guard Install has, before and after the
+        // confirmation (which gives the game time to start).
+        if (IsGameRunning())
+        {
+            InstallStatusMessage = "Icarus is running — close it before removing the pack, or the delete can fail halfway.";
+            return;
+        }
+
         // Same explicit Yes/No gate InstallAsync itself already uses — this deletes a real file
         // from the user's actual game folder, so it shouldn't be reachable via a single accidental
         // click any more than overwriting it already isn't.
-        var confirmResult = ThemedMessageBox.Show(
+        if (!Confirm(
             $"This removes IcarusStarlink's installed pak from '{_settingsService.Current.IcarusContentPath}\\Paks\\mods'.\n\n" +
-            "It's backed up first (last 5 kept), and your Library copy of this mod isn't touched — only the real game install.\n\nContinue?",
-            "Remove from Icarus", ThemedConfirmSeverity.Question);
-        if (!(confirmResult))
+            $"It's backed up first (last {BackupCleanup.MergedPakBackupsKept} kept), and your Library copy of this mod isn't touched — only the real game install.\n\nContinue?",
+            "Remove from Icarus"))
         {
+            return;
+        }
+
+        if (IsGameRunning())
+        {
+            InstallStatusMessage = "Icarus started while the confirmation was open — close it, then Remove again.";
             return;
         }
 
@@ -2732,6 +3276,72 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         catch (Exception ex)
         {
             InstallStatusMessage = $"Remove failed: {ex.Message}";
+            _activityLog.Log(InstallStatusMessage, ActivityEntryKind.Warning);
+        }
+    }
+
+    /// <summary>
+    /// Puts the install before the current one back: the newest merged pak backup and the mod list
+    /// backed up with it (Install and Remove back both up first). What's installed now is backed up
+    /// first, so running this again undoes it.
+    /// </summary>
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task RestorePreviousInstallAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
+        {
+            InstallStatusMessage = "Set the Icarus Content folder in Settings first.";
+            return;
+        }
+
+        if (IsGameRunning())
+        {
+            InstallStatusMessage = "Icarus is running — close it before restoring an earlier install.";
+            return;
+        }
+
+        try
+        {
+            if (await _installService.FindPreviousInstallAsync(_backupDirectory) is not { } previous)
+            {
+                InstallStatusMessage = "There's no earlier install backed up to restore.";
+                return;
+            }
+
+            var listNote = previous.ManifestBackupPath is null
+                ? "\n\nIts mod list wasn't backed up with it, so the Library won't show which mods are in the game until the next Merge & Install."
+                : "";
+            if (!Confirm(
+                $"This puts back the merged pak that was installed before (backed up {previous.BackedUpAtUtc.ToLocalTime():g}), with its mod list.{listNote}\n\n"
+                + "What's installed now is backed up first, so you can switch back the same way.\n\nContinue?",
+                "Restore previous install"))
+            {
+                return;
+            }
+
+            if (IsGameRunning())
+            {
+                InstallStatusMessage = "Icarus started while the confirmation was open — close it, then try again.";
+                return;
+            }
+
+            InstallStatusMessage = "Restoring…";
+            var restored = await _installService.RestorePreviousInstallAsync(
+                Path.GetFileName(_outputPakPath), _settingsService.Current.IcarusContentPath!, _backupDirectory);
+            if (restored is null)
+            {
+                InstallStatusMessage = "There's no earlier install backed up to restore.";
+                return;
+            }
+
+            InstallStatusMessage = $"Restored the install from {restored.BackedUpAtUtc.ToLocalTime():g}. What was installed is backed up.";
+            _activityLog.Log($"Restored the previous install ({Path.GetFileName(restored.PakBackupPath)}).", ActivityEntryKind.Success);
+            HasExistingInstall = true;
+            await RefreshInstalledModNamesAsync();
+        }
+        catch (Exception ex)
+        {
+            InstallStatusMessage = $"Restore failed: {ex.Message}";
             _activityLog.Log(InstallStatusMessage, ActivityEntryKind.Warning);
         }
     }
