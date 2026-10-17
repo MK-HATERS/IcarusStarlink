@@ -67,7 +67,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
             () => SelectedProfile is { } p ? DedicatedServerLayout.ProspectsFolder(p.InstallFolder, p.SavedDirSuffix) : null,
             () => DataFolder,
             () => IsRunning ? "Stop the server first: it rewrites its worlds when it shuts down, which would undo this." : null,
-            Path.Combine(_backupsRoot, "WorldSettings"));
+            Path.Combine(_backupsRoot, "WorldSettings"),
+            activityLog);
 
         foreach (var profile in store.GetAll())
         {
@@ -339,10 +340,15 @@ public sealed partial class LocalServerViewModel : ObservableObject
             StatusMessage = Running is null
                 ? $"'{profile.Name}' didn't appear as a running process. Check its console window and the log below."
                 : $"'{profile.Name}' is running.";
+            if (Running is null)
+            {
+                _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
+            }
         }
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't start: {ex.Message}";
+            _activityLog.Log($"Couldn't start dedicated server '{profile.Name}': {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
@@ -397,6 +403,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't stop: {ex.Message}";
+            _activityLog.Log($"Couldn't stop dedicated server '{profile.Name}': {ex.Message}", ActivityEntryKind.Warning);
             return false;
         }
         finally

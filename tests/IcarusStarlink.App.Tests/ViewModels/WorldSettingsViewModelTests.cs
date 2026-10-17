@@ -1,5 +1,6 @@
 using System.IO;
 using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.PakIO.Worlds;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
@@ -7,6 +8,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 public sealed class WorldSettingsViewModelTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "WorldSettingsVmTests_" + Guid.NewGuid().ToString("N"));
+    private readonly ActivityLog _log = new();
     private string? _blocked;
 
     public WorldSettingsViewModelTests()
@@ -35,7 +37,8 @@ public sealed class WorldSettingsViewModelTests : IDisposable
             () => prospects is null ? null : Path.Combine(_root, "Prospects"),
             () => Path.Combine(_root, "Data"),
             () => _blocked,
-            Path.Combine(_root, "Backups"));
+            Path.Combine(_root, "Backups"),
+            _log);
         vm.Reload();
         return vm;
     }
@@ -77,6 +80,9 @@ public sealed class WorldSettingsViewModelTests : IDisposable
         Assert.False(vm.HasChanges);
         Assert.Equal(1, WorldSave.Load(Path.Combine(_root, "Prospects", "World.json"))!.Settings["Arachnophobia"]);
         Assert.Single(Directory.GetFiles(Path.Combine(_root, "Backups")));
+        var logged = Assert.Single(_log.Entries);
+        Assert.Equal(ActivityEntryKind.Success, logged.Kind);
+        Assert.Contains("Saved 1 setting(s) for 'World'", logged.Message);
 
         vm.Rows.Single(r => r.Definition.Name == "Arachnophobia").BoolValue = false;
         vm.RevertCommand.Execute(null);
@@ -96,6 +102,25 @@ public sealed class WorldSettingsViewModelTests : IDisposable
         Assert.Equal(0, WorldSave.Load(Path.Combine(_root, "Prospects", "World.json"))!.Settings["Arachnophobia"]);
         Assert.True(vm.HasChanges);
         Assert.False(Directory.Exists(Path.Combine(_root, "Backups")));
+        var logged = Assert.Single(_log.Entries);
+        Assert.Equal(ActivityEntryKind.Warning, logged.Kind);
+        Assert.Contains("Close Icarus first.", logged.Message);
+    }
+
+    [Fact]
+    public void Save_ThatFails_IsLoggedAsAWarning()
+    {
+        var vm = Create();
+        vm.Rows.Single(r => r.Definition.Name == "Arachnophobia").BoolValue = true;
+        // A file where the backup folder should be: the backup (taken before any write) fails.
+        File.WriteAllText(Path.Combine(_root, "Backups"), "");
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.StartsWith("Couldn't save the world", vm.StatusMessage);
+        var logged = Assert.Single(_log.Entries);
+        Assert.Equal(ActivityEntryKind.Warning, logged.Kind);
+        Assert.Contains("'World'", logged.Message);
     }
 
     [Fact]

@@ -16,6 +16,7 @@ public partial class MainWindow : Window
         DataContext = viewModel;
         _settingsService = settingsService;
         _serviceProvider = serviceProvider;
+        ToastHost.DataContext = serviceProvider.GetRequiredService<ToastsViewModel>();
 
         RestoreWindowBounds();
         Closing += (_, _) =>

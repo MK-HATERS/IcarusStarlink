@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.PakIO.Worlds;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -93,12 +94,15 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
     private readonly Func<string?> _dataFolder;
     private readonly Func<string?> _blockedReason;
     private readonly string _backupFolder;
+    private readonly IActivityLog _activityLog;
     private IReadOnlyList<WorldSettingDefinition>? _definitions;
 
     /// <param name="prospectsFolder">The Prospects folder of the slot or server (null: none chosen).</param>
     /// <param name="blockedReason">Why saving can't happen right now ("Close Icarus first…"), or null.</param>
-    public WorldSettingsViewModel(Func<string?> prospectsFolder, Func<string?> dataFolder, Func<string?> blockedReason, string backupFolder)
+    /// <param name="activityLog">Save, refusal and failure go to the app-wide activity feed too (and so pop up), not only this editor's status line.</param>
+    public WorldSettingsViewModel(Func<string?> prospectsFolder, Func<string?> dataFolder, Func<string?> blockedReason, string backupFolder, IActivityLog activityLog)
     {
+        _activityLog = activityLog;
         _prospectsFolder = prospectsFolder;
         _dataFolder = dataFolder;
         _blockedReason = blockedReason;
@@ -199,6 +203,7 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
         if (_blockedReason() is { } reason)
         {
             StatusMessage = reason;
+            _activityLog.Log($"World settings for '{world.Name}' not saved: {reason}", ActivityEntryKind.Warning);
             return;
         }
 
@@ -208,10 +213,12 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
             var backup = world.Save.Save(changes, _backupFolder);
             LoadRows();
             StatusMessage = $"Saved {changes.Count} setting(s) for '{world.Name}'. The world was backed up first ({Path.GetFileName(backup)}).";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't save the world: {ex.Message}";
+            _activityLog.Log($"Couldn't save the world '{world.Name}': {ex.Message}", ActivityEntryKind.Warning);
         }
     }
 

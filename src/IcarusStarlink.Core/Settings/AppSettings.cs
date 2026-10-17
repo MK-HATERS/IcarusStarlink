@@ -8,6 +8,9 @@ public sealed class AppSettings
     /// <summary>A steamcmd.exe the user already has, chosen on the Server page (or picked up from an adopted server's Steam manifest). Null = Starlink's own copy in its SteamCMD folder, installed on request.</summary>
     public string? SteamCmdExePath { get; set; }
     public string ThemeName { get; set; } = "Icarus";
+
+    /// <summary>Settings › Appearance › Show pop-up messages: results (a merge finished, an import failed…) pop up for a few seconds under the bell.</summary>
+    public bool ShowPopUpMessages { get; set; } = true;
     public bool PerformanceTrackingEnabled { get; set; }
 
     /// <summary>Settings › Diagnostics › Advanced log: the log file also records debug detail and web requests.</summary>

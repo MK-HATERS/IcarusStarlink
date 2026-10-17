@@ -238,6 +238,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _unrealPakExePath = settingsService.Current.UnrealPakExePath;
         _performanceTrackingEnabled = settingsService.Current.PerformanceTrackingEnabled;
         _advancedLogging = settingsService.Current.AdvancedLogging;
+        _showPopUpMessages = settingsService.Current.ShowPopUpMessages;
         // When Advanced switches itself back after its 24 hours, the switch shows it.
         LogDetail.SwitchedBackToBasic += () =>
         {
@@ -1459,6 +1460,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnPerformanceTrackingEnabledChanged(bool value)
     {
         _settingsService.Current.PerformanceTrackingEnabled = value;
+        _settingsService.Save();
+    }
+
+    /// <summary>Settings › Appearance › Show pop-up messages. Saved straight away like Performance tracking; turning it off also clears any cards showing.</summary>
+    [ObservableProperty]
+    private bool _showPopUpMessages;
+
+    partial void OnShowPopUpMessagesChanged(bool value)
+    {
+        _settingsService.Current.ShowPopUpMessages = value;
         _settingsService.Save();
     }
 

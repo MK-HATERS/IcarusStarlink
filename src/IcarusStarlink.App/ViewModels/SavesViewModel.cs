@@ -174,7 +174,8 @@ public sealed partial class SavesViewModel : ObservableObject
             () => SelectedSlot is { } slot ? Path.Combine(slot.FolderPath, "Prospects") : null,
             () => gameNames.DataFolder,
             () => gameProcessChecker.IsRunning() ? "Close Icarus first: it rewrites its worlds when it exits, which would undo this." : null,
-            worldBackupFolder ?? Path.Combine(Path.GetTempPath(), "IcarusStarlink", "WorldBackups"));
+            worldBackupFolder ?? Path.Combine(Path.GetTempPath(), "IcarusStarlink", "WorldBackups"),
+            activityLog);
 
         // Refresh game data re-extracts the tables every name here comes from.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((SavesViewModel)recipient).OnGameDataRefreshed());
@@ -1174,6 +1175,7 @@ public sealed partial class SavesViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Backup failed: {ex.Message}";
+            _activityLog.Log($"Save backup failed: {ex.Message}", ActivityEntryKind.Warning);
         }
     }
 
@@ -1223,11 +1225,12 @@ public sealed partial class SavesViewModel : ObservableObject
             _repository.RestoreSlot(SelectedSlot.SteamId, SelectedBackup.FilePath);
             await LoadSlotAsync();
             StatusMessage = "Restored. The replaced state was saved as a pre_restore zip.";
-            _activityLog.Log($"Restored save slot {SelectedSlot.Display} from backup.", ActivityEntryKind.Warning);
+            _activityLog.Log($"Restored save slot {SelectedSlot.Display} from backup.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             StatusMessage = $"Restore failed: {ex.Message}";
+            _activityLog.Log($"Save restore failed: {ex.Message}", ActivityEntryKind.Warning);
         }
     }
 
@@ -1369,6 +1372,7 @@ public sealed partial class SavesViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Save failed: {ex.Message}";
+            _activityLog.Log($"Player save not written: {ex.Message}", ActivityEntryKind.Warning);
         }
     }
 
