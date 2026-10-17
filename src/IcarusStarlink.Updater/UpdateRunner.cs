@@ -22,8 +22,27 @@ public static class UpdateRunner
     /// relaunch is a caller-supplied callback (real implementation: Process.Start) so this stays
     /// testable without actually launching anything.
     /// </summary>
-    public static Result Run(string installDirectory, string newFilesDirectory, Action<string> log, Func<bool> relaunch)
+    /// <param name="recordOutcome">
+    /// Called with the outcome and a plain sentence for the user BEFORE the relaunch, so the app
+    /// that comes back can say what happened (the updater has no window of its own, and a
+    /// rolled-back update used to relaunch the old version without a word).
+    /// </param>
+    public static Result Run(string installDirectory, string newFilesDirectory, Action<string> log, Func<bool> relaunch,
+        Action<Outcome, string>? recordOutcome = null)
     {
+        void Record(Outcome outcome, string message)
+        {
+            try
+            {
+                recordOutcome?.Invoke(outcome, message);
+            }
+            catch (Exception ex)
+            {
+                // Telling the app is a courtesy; it must never stop the relaunch.
+                log($"Couldn't record the update outcome ({ex.Message}).");
+            }
+        }
+
         try
         {
             UpdateApplier.Apply(installDirectory, newFilesDirectory, log);
@@ -31,6 +50,7 @@ public static class UpdateRunner
         catch (UpdateRollbackIncompleteException ex)
         {
             log($"Update FAILED: {ex.Message}");
+            Record(Outcome.RollbackIncomplete, $"The update failed and couldn't be fully undone, so some files may be missing. A copy of the replaced files is in {ex.BackupDirectory}. {ex.Message}");
             return new Result(Outcome.RollbackIncomplete, relaunch(), ex.BackupDirectory);
         }
         catch (Exception ex)
@@ -43,10 +63,12 @@ public static class UpdateRunner
                 ? " This usually means IcarusStarlink is installed somewhere Windows reserves for administrators only (e.g. Program Files) — move it to a folder you own (Desktop, Documents, a dedicated folder outside Program Files), or run it as Administrator."
                 : "";
             log($"Update FAILED (old install restored, relaunching it): {ex.Message}{guidance}");
+            Record(Outcome.RolledBack, $"The update didn't install, so your previous version was put back: {ex.Message}{guidance}");
             return new Result(Outcome.RolledBack, relaunch(), null);
         }
 
         log("Update applied — relaunching.");
+        Record(Outcome.Applied, "The update installed.");
         return new Result(Outcome.Applied, relaunch(), null);
     }
 }

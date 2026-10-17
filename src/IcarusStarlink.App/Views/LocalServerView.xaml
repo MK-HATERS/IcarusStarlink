@@ -78,6 +78,9 @@
                     <DockPanel>
                         <Button DockPanel.Dock="Right" Content="Hide" Command="{Binding DismissSteamCmdOutputCommand}" Padding="6,0" FontSize="11"
                                 Visibility="{Binding IsSteamCmdIdle, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding CancelSteamCmdCommand}" Padding="6,0" FontSize="11"
+                                Visibility="{Binding IsSteamCmdBusy, Converter={StaticResource BoolToVisibilityConverter}}"
+                                ToolTip="Stops SteamCMD. Run the install or update again later; it carries on from what it already downloaded."/>
                         <TextBlock Text="STEAMCMD" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center"/>
                     </DockPanel>
                     <ProgressBar Value="{Binding SteamCmdProgress}" Maximum="100" Height="6" Margin="0,6,0,6"/>
@@ -114,7 +117,7 @@
                         <Button Content="Start" Command="{Binding StartCommand}" Style="{StaticResource PrimaryButtonStyle}"
                                 ToolTip="Saves the settings below, then launches IcarusServer.exe in its own console window"/>
                         <Button Content="Stop" Command="{Binding StopCommand}" Margin="8,0,0,0"
-                                ToolTip="Asks the server to shut down cleanly (it saves on exit); ends it after 60 seconds if it hasn't closed"/>
+                                ToolTip="Asks the server to shut down cleanly (it saves then only if 'Save on exit' is on in Settings); ends it after 60 seconds if it hasn't closed"/>
                         <Button Content="Restart" Command="{Binding RestartCommand}" Margin="8,0,0,0"/>
                         <Button Content="Open folder" Command="{Binding OpenInstallFolderCommand}" Margin="16,0,0,0"/>
                         <Button Content="Open Saved" Command="{Binding OpenSavedFolderCommand}" Margin="8,0,0,0"
@@ -292,6 +295,12 @@
                                 <TextBlock Style="{StaticResource OptionHintStyle}"
                                            Text="While it runs, checks Steam every hour. A newer build installs the next time nobody is online."/>
 
+                                <CheckBox IsChecked="{Binding DailyBackup}" Margin="0,0,0,2">
+                                    <TextBlock Text="Back up every day" FontWeight="SemiBold"/>
+                                </CheckBox>
+                                <TextBlock Style="{StaticResource OptionHintStyle}"
+                                           Text="While it runs, zips its worlds and settings once a day (Backups tab). Older daily backups are tidied by the keep count there."/>
+
                                 <CheckBox IsChecked="{Binding StartWithApp}" Margin="0,0,0,2">
                                     <TextBlock Text="Start with Starlink" FontWeight="SemiBold"/>
                                 </CheckBox>
@@ -309,6 +318,8 @@
                             </StackPanel>
 
                             <StackPanel Grid.Column="2">
+                                <TextBlock Text="{Binding SaveOnExitWarning}" Foreground="{DynamicResource DangerBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,10"
+                                           Visibility="{Binding SaveOnExitWarning, Converter={StaticResource NullToVisibilityConverter}}"/>
                                 <TextBlock Text="NEXT UP" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
                                 <ItemsControl ItemsSource="{Binding NextUp}" Margin="0,0,0,14">
                                     <ItemsControl.ItemTemplate>
@@ -355,7 +366,9 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                                <TextBlock Text="{Binding FirewallSummary}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"/>
+                                <TextBlock Text="{Binding FirewallSummary}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,4"/>
+                                <TextBlock Text="{Binding FirewallNetworkText}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"
+                                           Visibility="{Binding FirewallNetworkText, Converter={StaticResource NullToVisibilityConverter}}"/>
                                 <StackPanel Orientation="Horizontal">
                                     <Button Content="Open these ports" Command="{Binding OpenFirewallPortsCommand}" Style="{StaticResource PrimaryButtonStyle}"
                                             ToolTip="Adds inbound allow rules for the ports that aren't open yet, only for this server's exe. Windows asks for administrator approval once."/>
@@ -670,6 +683,15 @@
                                 </StackPanel>
                                 <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0"
                                            Text="Made automatically before every Update, mod change and restore."/>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock Text="Keep the newest" VerticalAlignment="Center" FontSize="12"/>
+                                    <TextBox Text="{Binding BackupsToKeepText, UpdateSourceTrigger=PropertyChanged}" Width="44" Margin="6,0,6,0" Padding="2,0"
+                                             AutomationProperties.Name="Backups to keep of each kind"
+                                             ToolTip="Older backups of the same kind (manual, daily, before-update, before-mods, before-restore) are deleted after each new one. 0 keeps every backup."/>
+                                    <TextBlock Text="of each kind (0 keeps all)" VerticalAlignment="Center" FontSize="12"/>
+                                </StackPanel>
+                                <TextBlock Text="{Binding BackupsToKeepError}" Foreground="{DynamicResource DangerBrush}" FontSize="11.5" TextWrapping="Wrap"
+                                           Visibility="{Binding BackupsToKeepError, Converter={StaticResource NullToVisibilityConverter}}"/>
                             </StackPanel>
                             <ListBox ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
                                 <ListBox.ItemTemplate>

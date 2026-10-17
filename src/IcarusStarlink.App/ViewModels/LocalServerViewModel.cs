@@ -40,7 +40,6 @@ public sealed partial class LocalServerViewModel : ObservableObject
     private readonly DispatcherTimer? _timer;
     private readonly IFirewallService? _firewall;
     private readonly List<string> _allLogLines = [];
-    private LogTailer? _tailer;
 
     public LocalServerViewModel(
         IDedicatedServerProfileStore store, IDedicatedServerProcessService processes, IDialogService dialogService,
@@ -77,9 +76,23 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
         SelectedProfile = Profiles.FirstOrDefault();
         Profiles.CollectionChanged += (_, _) => RaiseSteamCmdChanged();
+        if (store.LoadProblem is { } problem)
+        {
+            StatusMessage = problem;
+            activityLog.Log(problem, ActivityEntryKind.Warning);
+        }
 
         // Refresh game data re-extracts D_ProspectList — rebuild the prospect choices from it.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((LocalServerViewModel)recipient).ReloadProspectChoices());
+
+        // An app update must not close Starlink in the middle of server work.
+        WeakReferenceMessenger.Default.Register<BackgroundWorkRequestMessage>(this, (recipient, message) =>
+        {
+            foreach (var work in ((LocalServerViewModel)recipient).DescribeWorkInProgress())
+            {
+                message.Reply(work);
+            }
+        });
 
         // A new merged pak was built — "Install my merged pak" and its summary follow it.
         WeakReferenceMessenger.Default.Register<MergedPakBuiltMessage>(this, (recipient, _) => ((LocalServerViewModel)recipient).RefreshMergedPak());
@@ -89,12 +102,31 @@ public sealed partial class LocalServerViewModel : ObservableObject
             _timer = new DispatcherTimer(DispatcherPriority.Normal, System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher) { Interval = TimeSpan.FromSeconds(1) };
             _timer.Tick += (_, _) =>
             {
-                Tick();
+                _ = TickAsync(skipIfBusy: true);
                 AutomationTick();
             };
             _timer.Start();
             _ = StartServersMarkedForStartupAsync();
         }
+    }
+
+    /// <summary>
+    /// Tests run the file and process work inline so every step is deterministic; the app runs it on
+    /// the thread pool so a 9 MB log, a world zip or a process scan never stalls the window.
+    /// </summary>
+    internal bool RunWorkInline { get; set; }
+
+    private Task<T> OffUiThread<T>(Func<T> work) => RunWorkInline ? Task.FromResult(work()) : Task.Run(work);
+
+    private Task OffUiThread(Action work)
+    {
+        if (!RunWorkInline)
+        {
+            return Task.Run(work);
+        }
+
+        work();
+        return Task.CompletedTask;
     }
 
     public ObservableCollection<DedicatedServerProfile> Profiles { get; } = [];
@@ -206,7 +238,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
     public bool IsStopped => Running is null;
 
-    public string RunStateText => IsBusy && Running is null ? "STARTING"
+    public string RunStateText => IsAutomationBusy ? "AUTOMATIC RESTART"
+        : IsBusy && Running is null ? "STARTING"
         : IsBusy ? "STOPPING"
         : Running is { } r ? $"RUNNING · up {FormatUptime(DateTime.Now - r.StartTime)}"
         : "STOPPED";
@@ -262,7 +295,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
             InstallFolder = root,
             SteamServerName = ini.SessionName ?? "Icarus Server",
         };
-        _store.Save(profile);
+        SaveToStore(profile);
         Profiles.Add(profile);
         SelectedProfile = profile;
         var adoptedSteamCmd = AdoptInstallingSteamCmd(root);
@@ -275,8 +308,48 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
     private bool CanUseProfile() => SelectedProfile is not null;
 
+    /// <summary>What closing the app now would cut off (asked before an app update).</summary>
+    internal IEnumerable<string> DescribeWorkInProgress()
+    {
+        if (IsSteamCmdBusy)
+        {
+            yield return "SteamCMD (installing, updating or checking a server)";
+        }
+
+        if (AnyAutomationBusy)
+        {
+            yield return "the automatic server restart or update";
+        }
+
+        if (IsBusy)
+        {
+            yield return "the server starting or stopping";
+        }
+
+        if (IsBackupBusy)
+        {
+            yield return "the server backup or restore";
+        }
+    }
+
+    /// <summary>Writes the profile list; when the store refuses (its file couldn't be read at startup) or the write fails, the status line says so.</summary>
+    private bool SaveToStore(DedicatedServerProfile profile)
+    {
+        if (_store.Save(profile))
+        {
+            return true;
+        }
+
+        StatusMessage = _store.LoadProblem ?? "Couldn't save the server list. Your change applies until Starlink closes; check the log for why.";
+        return false;
+    }
+
+    /// <summary>
+    /// Removes the list entry only. Starlink's own firewall rules for it are offered for removal
+    /// in a second question: once the profile is gone nothing in Starlink could find them again.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanUseProfile))]
-    private void RemoveProfile()
+    private async Task RemoveProfileAsync()
     {
         if (SelectedProfile is not { } profile)
         {
@@ -290,16 +363,36 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
-        _store.Delete(profile.Id);
+        var rules = await ReadOwnFirewallRulesAsync(profile);
+        var removeRules = rules.Count > 0 && _dialogService.Confirm(
+            $"Also remove the {rules.Count} firewall rule(s) Starlink added for '{profile.Name}'?\n\n{string.Join("\n", rules.Select(r => "  " + r))}\n\nRules you made yourself are not touched. Windows asks for administrator approval once. Choose No to keep them (you can delete them later in Windows Defender Firewall).",
+            "Remove firewall rules too", ThemedConfirmSeverity.Question);
+
+        var deleted = _store.Delete(profile.Id);
         Profiles.Remove(profile);
+        _watches.Remove(profile.Id);
         SelectedProfile = Profiles.FirstOrDefault();
-        StatusMessage = $"Removed '{profile.Name}' from the list.";
+        var message = $"Removed '{profile.Name}' from the list.";
+        if (removeRules)
+        {
+            message += await RemoveOwnFirewallRulesAsync(profile, rules)
+                ? $" Its {rules.Count} firewall rule(s) were removed too."
+                : " Its firewall rules couldn't be removed; delete them in Windows Defender Firewall (wf.msc) if you no longer need them.";
+        }
+        else if (rules.Count > 0)
+        {
+            message += $" Its {rules.Count} firewall rule(s) were kept.";
+        }
+
+        StatusMessage = deleted
+            ? message
+            : $"{message} {_store.LoadProblem ?? "The server list couldn't be saved, so it is back in the list the next time Starlink opens."}";
     }
 
     [RelayCommand(CanExecute = nameof(CanUseProfile))]
     private void SaveSettings() => TrySave();
 
-    private bool CanStart() => SelectedProfile is not null && Running is null && !IsBusy && !IsSteamCmdBusy;
+    private bool CanStart() => SelectedProfile is not null && Running is null && !IsBusy && !IsSteamCmdBusy && !IsAutomationBusy;
 
     [RelayCommand(CanExecute = nameof(CanStart))]
     private async Task StartAsync()
@@ -315,11 +408,9 @@ public sealed partial class LocalServerViewModel : ObservableObject
         try
         {
             // Skip what's already in the log: the new run's file replaces it (LogTailer starts over
-            // when the file shrinks), so the panel shows only this run.
-            _tailer?.SeekToEnd();
-            _allLogLines.Clear();
-            LogLines.Clear();
+            // when the file is replaced), so the panel shows only this run.
             var watch = GetWatch(profile);
+            await StartLogAfreshAsync(watch);
             watch.Automation.NoteManualStart();
             _processes.Start(profile);
             watch.CleanExitSeen = false;
@@ -335,7 +426,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
             for (var i = 0; i < 20 && Running is null; i++)
             {
                 await Task.Delay(StartPollDelay);
-                Tick();
+                await TickAsync();
             }
 
             StatusMessage = Running is null
@@ -357,7 +448,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
     }
 
-    private bool CanStop() => SelectedProfile is not null && Running is not null && !IsBusy;
+    private bool CanStop() => SelectedProfile is not null && Running is not null && !IsBusy && !IsAutomationBusy;
 
     [RelayCommand(CanExecute = nameof(CanStop))]
     private async Task StopAsync() => await StopCoreAsync(ask: true);
@@ -384,7 +475,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
 
         if (ask && !_dialogService.Confirm(
-                $"Stop '{profile.Name}'?\n\nConnected players are disconnected. The server is asked to shut down cleanly (it saves on exit); if it hasn't closed after 60 seconds it is ended.",
+                $"Stop '{profile.Name}'?\n\nConnected players are disconnected. The server is asked to shut down cleanly; if it hasn't closed after 60 seconds it is ended.\n\n{ServerShutdownNotes.DescribeSaving(ReadIniSettings(profile))}",
                 "Stop server", ThemedConfirmSeverity.Warning))
         {
             return false;
@@ -394,9 +485,9 @@ public sealed partial class LocalServerViewModel : ObservableObject
         try
         {
             StatusMessage = $"Stopping '{profile.Name}'…";
-            GetWatch(profile).Automation.NoteIntentionalStop(Clock());
+            GetWatch(profile).Automation.NoteOwnerStop(running.ProcessId);
             var clean = await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
-            Tick();
+            await TickAsync();
             StatusMessage = clean ? $"'{profile.Name}' stopped." : $"'{profile.Name}' didn't close within 60 seconds and was ended. The last autosave is intact.";
             _activityLog.Log(StatusMessage, clean ? ActivityEntryKind.Info : ActivityEntryKind.Warning);
             return true;
@@ -457,48 +548,20 @@ public sealed partial class LocalServerViewModel : ObservableObject
         LogLines.Clear();
     }
 
-    /// <summary>One heartbeat (every second from the timer): is the server running, and what did it log since last time.</summary>
-    public void Tick()
-    {
-        if (SelectedProfile is not { } profile)
-        {
-            Running = null;
-            return;
-        }
+    // ---- Internals ----
 
+    /// <summary>The server's ServerSettings.ini as it is on disk now (not the form, which may hold unsaved edits); null when it can't be read.</summary>
+    private static DedicatedServerSettings? ReadIniSettings(DedicatedServerProfile p)
+    {
         try
         {
-            var found = _processes.FindRunning(profile);
-            if (found?.ProcessId != Running?.ProcessId)
-            {
-                var startedOrStopped = (found is null) != (Running is null);
-                Running = found;
-                if (startedOrStopped)
-                {
-                    // The server writes its worlds and LastProspectName as it runs and on exit.
-                    RefreshProspectList(profile);
-                }
-            }
-            else
-            {
-                OnPropertyChanged(nameof(RunStateText));
-            }
+            return ServerSettingsIni.Load(DedicatedServerLayout.SettingsIniPath(p.InstallFolder, p.SavedDirSuffix)).Read();
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Process enumeration hiccup — keep the last known state.
+            return null;
         }
-
-        if (_tailer is not null)
-        {
-            AppendLog(_tailer.Poll());
-        }
-
-        ExpireStalePlayers();
-        RefreshOverview();
     }
-
-    // ---- Internals ----
 
     private void LoadForm()
     {
@@ -617,7 +680,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
 
         var index = Profiles.IndexOf(current);
-        _store.Save(updated);
+        var stored = SaveToStore(updated);
         SyncFirewallPortsAfterSave(current, updated);
 
         // Swap the list entry and re-select it without reloading the form from disk (it already
@@ -642,7 +705,10 @@ public sealed partial class LocalServerViewModel : ObservableObject
         AttachLog();
 
         ValidationMessage = null;
-        StatusMessage = Running is not null ? "Saved. Restart the server to apply." : "Saved.";
+        if (stored)
+        {
+            StatusMessage = Running is not null ? "Saved. Restart the server to apply." : "Saved.";
+        }
         return true;
     }
 
@@ -744,23 +810,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
         };
     }
 
-    private void AttachLog()
-    {
-        _allLogLines.Clear();
-        LogLines.Clear();
-        _tailer = SelectedProfile is null ? null : new LogTailer(LogPath);
-        ResetPlayersAndEvents();
-        if (_tailer is not null)
-        {
-            // Read the whole current run so the player list is right (someone who joined hours ago
-            // is still online), but only put its newest lines in the panel.
-            var lines = _tailer.Poll(maxBytes: 64 << 20).Select(ServerLogFilter.Redact).ToList();
-            FeedPlayersAndEvents(lines);
-            AppendLog(lines.Count > MaxLogLines ? lines.GetRange(lines.Count - MaxLogLines, MaxLogLines) : lines, feedEvents: false);
-        }
-    }
-
-    private void AppendLog(IReadOnlyList<string> lines, bool feedEvents = true)
+    /// <summary>Puts lines in the Log panel (the server's own lines come from its watch, already read and fed to the players list).</summary>
+    private void AppendLog(IReadOnlyList<string> lines)
     {
         if (lines.Count == 0)
         {
@@ -769,10 +820,6 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
         // The server logs the join password in plain text on every login — never show or keep it.
         lines = [.. lines.Select(ServerLogFilter.Redact)];
-        if (feedEvents)
-        {
-            FeedPlayersAndEvents(lines);
-        }
         _allLogLines.AddRange(lines);
         if (_allLogLines.Count > MaxLogLines)
         {

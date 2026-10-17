@@ -17,5 +17,8 @@ public interface IFtpClient : IAsyncDisposable
 
     Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default);
 
+    /// <summary>Renames (moves) a file on the server, replacing one already at <paramref name="toRemotePath"/>. Throws FtpOperationRejectedException when the server refuses.</summary>
+    Task RenameFileAsync(string fromRemotePath, string toRemotePath, CancellationToken cancellationToken = default);
+
     Task DisconnectAsync();
 }

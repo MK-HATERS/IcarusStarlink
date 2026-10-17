@@ -30,6 +30,29 @@ public sealed class DedicatedServerTests : IDisposable
             DedicatedServerCommandLine.BuildDisplayLine(profile));
     }
 
+    /// <summary>Two profiles on one install are told apart by the suffix on each process's own command line.</summary>
+    [Fact]
+    public void RunningProcess_IsMatchedToTheProfileBySavedDirSuffix()
+    {
+        var plain = new DedicatedServerProfile { InstallFolder = @"F:\IcarusServer" };
+        var second = new DedicatedServerProfile { InstallFolder = @"F:\IcarusServer", SavedDirSuffix = "_2" };
+        const string First = "\"F:\\IcarusServer\\Icarus\\Binaries\\Win64\\IcarusServer-Win64-Shipping.exe\" Icarus -log -SteamServerName=\"A\" -PORT=17777 -QueryPort=27015";
+        const string Second = "\"F:\\IcarusServer\\Icarus\\Binaries\\Win64\\IcarusServer-Win64-Shipping.exe\" Icarus -log -PORT=17778 -QueryPort=27016 -SavedDirSuffix=_2 -LOG=B.log";
+
+        Assert.Equal("", DedicatedServerCommandLine.ReadSavedDirSuffix(First));
+        Assert.Equal("_2", DedicatedServerCommandLine.ReadSavedDirSuffix(Second));
+        Assert.Equal("my world", DedicatedServerCommandLine.ReadSavedDirSuffix("x.exe -saveddirsuffix=\"my world\" -log"));
+
+        Assert.True(DedicatedServerCommandLine.IsThisProfilesProcess(First, plain));
+        Assert.False(DedicatedServerCommandLine.IsThisProfilesProcess(Second, plain));
+        Assert.True(DedicatedServerCommandLine.IsThisProfilesProcess(Second, second));
+        Assert.False(DedicatedServerCommandLine.IsThisProfilesProcess(First, second));
+        Assert.True(DedicatedServerCommandLine.IsThisProfilesProcess(null, second), "an unreadable command line can't rule it out");
+
+        // What Start passes is what is read back.
+        Assert.True(DedicatedServerCommandLine.IsThisProfilesProcess(DedicatedServerCommandLine.BuildDisplayLine(second), second));
+    }
+
     [Fact]
     public void Sanitize_CapsTheNameAt64Characters() =>
         Assert.Equal(64, DedicatedServerCommandLine.Sanitize(new string('x', 100)).Length);
@@ -93,6 +116,25 @@ public sealed class DedicatedServerTests : IDisposable
         // A new server run: Unreal moves the old log aside and starts a fresh, shorter file.
         File.WriteAllText(path, "new run\r\n");
         Assert.Equal(["new run"], tailer.Poll());
+    }
+
+    /// <summary>A new run that has already written MORE than the old one by the next poll: the file never shrank, but it starts differently, so it is read from the top.</summary>
+    [Fact]
+    public void LogTailer_NewRunThatGrewPastTheOldPosition_IsReadFromTheTop()
+    {
+        Directory.CreateDirectory(_root);
+        var path = Path.Combine(_root, "Icarus.log");
+        var tailer = new LogTailer(path);
+        File.WriteAllText(path, "Log file open, 10/16/26 17:18:04\r\nold run\r\n");
+        Assert.Equal(["Log file open, 10/16/26 17:18:04", "old run"], tailer.Poll());
+
+        File.WriteAllText(path, "Log file open, 10/16/26 21:35:10\r\nnew run line one\r\nnew run line two\r\nnew run line three\r\n");
+
+        Assert.Equal(["Log file open, 10/16/26 21:35:10", "new run line one", "new run line two", "new run line three"], tailer.Poll());
+
+        // Appending to the same run is still just the new lines.
+        File.AppendAllText(path, "four\r\n");
+        Assert.Equal(["four"], tailer.Poll());
     }
 
     [Fact]

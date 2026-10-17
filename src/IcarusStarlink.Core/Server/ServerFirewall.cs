@@ -2,12 +2,29 @@ using System.Globalization;
 
 namespace IcarusStarlink.Core.Server;
 
-/// <summary>One Windows Firewall rule as the firewall reports it (read through its COM API, so it is the same on every Windows language).</summary>
+/// <summary>
+/// One Windows Firewall rule as the firewall reports it (read through its COM API, so it is the
+/// same on every Windows language). Profiles is the network types it applies to (Domain 1,
+/// Private 2, Public 4; all of them by default).
+/// </summary>
 public sealed record FirewallRule(
-    string Name, bool Enabled, bool Inbound, bool Allow, int Protocol, string LocalPorts, string? Program);
+    string Name, bool Enabled, bool Inbound, bool Allow, int Protocol, string LocalPorts, string? Program, int Profiles = ServerFirewall.AllProfiles);
 
-/// <summary>Whether one port the server needs gets through, and which rule decides it.</summary>
-public sealed record FirewallPortStatus(string Label, int Port, int Protocol, bool Open, bool Blocked, string? RuleName)
+/// <summary>The network type(s) Windows says this PC is on right now, and whether the firewall is on for them.</summary>
+public sealed record FirewallNetwork(int Profiles, bool FirewallOn)
+{
+    public static readonly FirewallNetwork Unknown = new(ServerFirewall.AllProfiles, FirewallOn: true);
+
+    public string Name => ServerFirewall.ProfileNames(Profiles);
+}
+
+/// <summary>
+/// Whether one port the server needs gets through on the current network, and which rule decides
+/// it. OtherNetworksRule is an allow rule that would open it, but only on other network types
+/// (a Private-only rule while this PC is on a Public network).
+/// </summary>
+public sealed record FirewallPortStatus(string Label, int Port, int Protocol, bool Open, bool Blocked, string? RuleName,
+    string? OtherNetworksRule = null, string? CurrentNetwork = null, string? OtherNetworks = null)
 {
     public string ProtocolName => ServerFirewall.ProtocolName(Protocol);
 
@@ -15,16 +32,19 @@ public sealed record FirewallPortStatus(string Label, int Port, int Protocol, bo
         ? $"{Label} {Port}/{ProtocolName}: BLOCKED by '{RuleName}'"
         : Open
             ? $"{Label} {Port}/{ProtocolName}: open ('{RuleName}')"
-            : $"{Label} {Port}/{ProtocolName}: not open";
+            : OtherNetworksRule is not null
+                ? $"{Label} {Port}/{ProtocolName}: blocked on your current network ({CurrentNetwork}). '{OtherNetworksRule}' only covers {OtherNetworks} networks"
+                : $"{Label} {Port}/{ProtocolName}: not open";
 }
 
 /// <summary>
 /// Inbound firewall rules for a dedicated server. Players need the game port and the query port
 /// open over UDP (official defaults 17777 and 27015); TCP on the game port is optional. A rule
-/// counts when it is enabled, inbound, covers the port and protocol, and either names no program
-/// or names this server's IcarusServer-Win64-Shipping.exe. A matching BLOCK rule wins over any
-/// allow rule — Windows creates those when someone clicks Cancel on its "allow access" prompt.
-/// Rules Starlink adds carry a fixed name per profile, so changing a port replaces them.
+/// counts when it is enabled, inbound, applies to the network type the PC is on now, covers the
+/// port and protocol, and either names no program or names this server's
+/// IcarusServer-Win64-Shipping.exe. A matching BLOCK rule wins over any allow rule — Windows
+/// creates those when someone clicks Cancel on its "allow access" prompt. Rules Starlink adds carry
+/// the profile's id in their name, so changing a port (or renaming the profile) replaces them.
 /// </summary>
 public static class ServerFirewall
 {
@@ -32,12 +52,45 @@ public static class ServerFirewall
     public const int Udp = 17;
     public const int AnyProtocol = 256;
 
+    public const int DomainProfile = 1;
+    public const int PrivateProfile = 2;
+    public const int PublicProfile = 4;
+    public const int AllProfiles = 0x7FFFFFFF;
+
     public static string ProtocolName(int protocol) => protocol switch
     {
         Tcp => "TCP",
         Udp => "UDP",
         _ => "any",
     };
+
+    /// <summary>"Public", "Private and Public", "all"…</summary>
+    public static string ProfileNames(int profiles)
+    {
+        const int every = DomainProfile | PrivateProfile | PublicProfile;
+        if ((profiles & every) == every)
+        {
+            return "all";
+        }
+
+        var names = new List<string>();
+        if ((profiles & DomainProfile) != 0)
+        {
+            names.Add("Domain");
+        }
+
+        if ((profiles & PrivateProfile) != 0)
+        {
+            names.Add("Private");
+        }
+
+        if ((profiles & PublicProfile) != 0)
+        {
+            names.Add("Public");
+        }
+
+        return names.Count == 0 ? "no" : string.Join(" and ", names);
+    }
 
     /// <summary>The ports a profile needs, in the order the card shows them.</summary>
     public static IReadOnlyList<(string Label, int Port, int Protocol)> RequiredPorts(int gamePort, int queryPort, bool includeGameTcp)
@@ -51,9 +104,21 @@ public static class ServerFirewall
         return list;
     }
 
-    public static FirewallPortStatus Check(IEnumerable<FirewallRule> rules, string serverExe, string label, int port, int protocol)
+    /// <summary>
+    /// <paramref name="network"/> is the network type(s) the PC is on now: only rules for those
+    /// count. With the firewall off on the current network every port is open.
+    /// </summary>
+    public static FirewallPortStatus Check(IEnumerable<FirewallRule> rules, string serverExe, string label, int port, int protocol,
+        FirewallNetwork? network = null)
     {
+        network ??= FirewallNetwork.Unknown;
+        if (!network.FirewallOn)
+        {
+            return new FirewallPortStatus(label, port, protocol, Open: true, Blocked: false, $"Windows Firewall is off on {network.Name} networks");
+        }
+
         FirewallRule? allow = null;
+        FirewallRule? elsewhere = null;
         foreach (var rule in rules)
         {
             if (!rule.Enabled || !rule.Inbound
@@ -61,6 +126,16 @@ public static class ServerFirewall
                 || !PortMatches(rule.LocalPorts, port)
                 || !ProgramMatches(rule.Program, serverExe))
             {
+                continue;
+            }
+
+            if ((rule.Profiles & network.Profiles) == 0)
+            {
+                if (rule.Allow)
+                {
+                    elsewhere ??= rule;
+                }
+
                 continue;
             }
 
@@ -72,7 +147,10 @@ public static class ServerFirewall
             allow ??= rule;
         }
 
-        return new FirewallPortStatus(label, port, protocol, allow is not null, Blocked: false, allow?.Name);
+        return allow is not null
+            ? new FirewallPortStatus(label, port, protocol, Open: true, Blocked: false, allow.Name)
+            : new FirewallPortStatus(label, port, protocol, Open: false, Blocked: false, null,
+                elsewhere?.Name, network.Name, elsewhere is null ? null : ProfileNames(elsewhere.Profiles));
     }
 
     /// <summary>"*", "Any", a single port, a range ("27015-27020") or a comma list of those.</summary>
@@ -127,10 +205,25 @@ public static class ServerFirewall
     public static string RuleName(DedicatedServerProfile profile, string label, int protocol)
     {
         var safe = new string([.. profile.Name.Where(c => char.IsLetterOrDigit(c) || c is ' ' or '-' or '_')]).Trim();
-        return $"Icarus Starlink - {(safe.Length > 0 ? safe : "server")} ({profile.Id.ToString("N")[..8]}) - {label} {ProtocolName(protocol)}";
+        return $"Icarus Starlink - {(safe.Length > 0 ? safe : "server")} ({ProfileKey(profile)}) - {label} {ProtocolName(protocol)}";
     }
 
-    /// <summary>Every rule name Starlink may have made for this profile (any port it could have used), for removal.</summary>
+    /// <summary>The first 8 hex digits of the profile id: what ties a rule (or a backups folder) to its profile, whatever the profile is called now.</summary>
+    public static string ProfileKey(DedicatedServerProfile profile) => profile.Id.ToString("N")[..8];
+
+    /// <summary>
+    /// A rule Starlink made for this profile, matched by the profile's id in the name — renaming the
+    /// profile changes the rest of the name, and the rules made under the old name must still be found.
+    /// </summary>
+    public static bool IsOwnRule(string ruleName, DedicatedServerProfile profile) =>
+        ruleName.StartsWith("Icarus Starlink - ", StringComparison.Ordinal)
+        && ruleName.Contains($" ({ProfileKey(profile)}) - ", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The names of the rules Starlink made for this profile that exist now (under any name the profile has had).</summary>
+    public static IReadOnlyList<string> OwnRules(IEnumerable<FirewallRule> rules, DedicatedServerProfile profile) =>
+        [.. rules.Select(r => r.Name).Where(n => IsOwnRule(n, profile)).Distinct(StringComparer.OrdinalIgnoreCase)];
+
+    /// <summary>Every rule name Starlink may have made for this profile under its current name (any port it could have used), for removal.</summary>
     public static IEnumerable<string> OwnRuleNames(DedicatedServerProfile profile) =>
     [
         RuleName(profile, "Game port", Udp),
@@ -140,12 +233,15 @@ public static class ServerFirewall
 
     /// <summary>
     /// netsh arguments that make the firewall match: Starlink's old rules for this profile are
-    /// deleted first (a changed port must not leave the old one open), then a rule is added for
-    /// each port in <paramref name="toOpen"/>, scoped to this server's exe.
+    /// deleted first (a changed port must not leave the old one open) — the current names plus
+    /// <paramref name="existingOwnRules"/>, the ones found under an older profile name — then a rule
+    /// is added for each port in <paramref name="toOpen"/>, scoped to this server's exe.
     /// </summary>
-    public static IReadOnlyList<string> BuildNetshCommands(DedicatedServerProfile profile, string serverExe, IEnumerable<(string Label, int Port, int Protocol)> toOpen)
+    public static IReadOnlyList<string> BuildNetshCommands(DedicatedServerProfile profile, string serverExe, IEnumerable<(string Label, int Port, int Protocol)> toOpen,
+        IEnumerable<string>? existingOwnRules = null)
     {
-        var commands = OwnRuleNames(profile).Select(name => $"advfirewall firewall delete rule name=\"{name}\"").ToList();
+        var names = OwnRuleNames(profile).Concat(existingOwnRules ?? []).Distinct(StringComparer.OrdinalIgnoreCase);
+        var commands = names.Select(name => $"advfirewall firewall delete rule name=\"{name}\"").ToList();
         foreach (var (label, port, protocol) in toOpen)
         {
             commands.Add(
@@ -157,18 +253,29 @@ public static class ServerFirewall
         return commands;
     }
 
-    /// <summary>The script run elevated: deletes may fail (nothing to delete), adds must not.</summary>
-    public static string BuildScript(IReadOnlyList<string> netshCommands)
+    /// <summary>
+    /// The arguments for ONE elevated cmd.exe that runs every netsh command, so Windows asks for
+    /// administrator approval once — passed on its command line rather than through a script file
+    /// in TEMP, which another program could swap between writing it and the elevated run. Deletes
+    /// may fail (nothing to delete); a failed add ends it with exit code 1. Characters cmd would
+    /// still act on inside quotes (% ! ^, a line break, a stray quote) are refused rather than escaped.
+    /// </summary>
+    public static string BuildElevatedArguments(IReadOnlyList<string> netshCommands)
     {
-        var lines = new List<string> { "@echo off" };
+        var parts = new List<string>();
         foreach (var command in netshCommands)
         {
-            lines.Add(command.Contains(" delete rule ", StringComparison.Ordinal)
+            if (command.IndexOfAny(['%', '!', '^', '\r', '\n']) >= 0 || command.Count(c => c == '"') % 2 != 0)
+            {
+                throw new ArgumentException("A firewall rule name or the server's folder contains a character Windows' command line can't pass safely (% ! ^ or a quote). Move the server to a folder without it, or add the rules in Windows Defender Firewall yourself.");
+            }
+
+            parts.Add(command.Contains(" delete rule ", StringComparison.Ordinal)
                 ? $"netsh {command} >nul 2>&1"
-                : $"netsh {command} >nul || exit /b 1");
+                : $"netsh {command} >nul || exit 1");
         }
 
-        lines.Add("exit /b 0");
-        return string.Join("\r\n", lines) + "\r\n";
+        parts.Add("exit 0");
+        return $"/d /s /c \"{string.Join(" & ", parts)}\"";
     }
 }

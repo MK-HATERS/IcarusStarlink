@@ -20,6 +20,9 @@ public enum AutomationActionKind
 
     /// <summary>A newer build is known and nobody is online: stop, update, start.</summary>
     UpdateNow,
+
+    /// <summary>The once-a-day backup of a running server's worlds and settings is due.</summary>
+    DailyBackup,
 }
 
 public sealed record AutomationAction(AutomationActionKind Kind, string Reason)
@@ -27,8 +30,8 @@ public sealed record AutomationAction(AutomationActionKind Kind, string Reason)
     public static readonly AutomationAction None = new(AutomationActionKind.None, "");
 }
 
-/// <summary>What the app saw on one beat: the server process, who is online per its log, and whether its log shows a clean exit.</summary>
-public readonly record struct ServerObservation(DateTime NowLocal, bool Running, int PlayersOnline, bool CleanExitLogged);
+/// <summary>What the app saw on one beat: the server process (and its id while running), who is online per its log, and whether its log shows a clean exit.</summary>
+public readonly record struct ServerObservation(DateTime NowLocal, bool Running, int PlayersOnline, bool CleanExitLogged, int? ProcessId = null);
 
 /// <summary>
 /// The decisions behind the Overview tab's automation, for ONE server, kept free of processes,
@@ -42,16 +45,23 @@ public sealed class ServerAutomation
     public static readonly TimeSpan CrashWindow = TimeSpan.FromMinutes(10);
     public static readonly TimeSpan RestartWaitForEmpty = TimeSpan.FromMinutes(60);
     public static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(1);
+    public static readonly TimeSpan DailyBackupInterval = TimeSpan.FromHours(24);
 
     /// <summary>A daily slot the app wasn't open for (or that is long past) is skipped, never run hours late.</summary>
     private static readonly TimeSpan MissedSlotGrace = TimeSpan.FromMinutes(5);
 
     private readonly List<DateTime> _crashRestarts = [];
     private bool? _wasRunning;
-    private DateTime? _stopIntendedAt;
+    private int? _lastProcessId;
 
-    /// <summary>How long a "we are stopping it" note excuses the next exit. Stop waits at most 60 seconds, so a note older than this is stale and must not hide a later crash.</summary>
-    private static readonly TimeSpan IntendedStopWindow = TimeSpan.FromMinutes(3);
+    /// <summary>
+    /// The processes the app (or the owner through the app) stopped on purpose. Kept by process id
+    /// rather than for a time window: the beat that notices the exit can come much later (beats
+    /// wait while SteamCMD runs an update), and a window that ran out turned an owner's Stop into
+    /// a "crash" that was then restarted.
+    /// </summary>
+    private readonly HashSet<int> _intendedStops = [];
+    private bool _intendedStopOfUnknownProcess;
     private DateTime? _lastDailySlotHandled;
 
     /// <summary>Crashed MaxCrashRestarts times within CrashWindow; no more restarts until someone starts it by hand.</summary>
@@ -62,15 +72,44 @@ public sealed class ServerAutomation
 
     public DateTime? LastUpdateCheck { get; private set; }
 
+    /// <summary>When the last daily backup was made (the app seeds it from the newest one on disk).</summary>
+    public DateTime? LastDailyBackup { get; private set; }
+
+    public void NoteDailyBackup(DateTime? madeLocal) => LastDailyBackup = madeLocal;
+
     public int RecentCrashRestarts => _crashRestarts.Count;
 
-    /// <summary>The app (or the owner through the app) is stopping it: the next exit is not a crash.</summary>
-    public void NoteIntentionalStop(DateTime nowLocal) => _stopIntendedAt = nowLocal;
+    /// <summary>
+    /// The app (or the owner through the app) is stopping this process: its exit is not a crash,
+    /// however long it takes the next beat to notice. Null when the process id isn't known; that
+    /// excuses the next exit only.
+    /// </summary>
+    public void NoteIntentionalStop(int? processId)
+    {
+        if (processId is { } id)
+        {
+            _intendedStops.Add(id);
+        }
+        else
+        {
+            _intendedStopOfUnknownProcess = true;
+        }
+    }
+
+    /// <summary>The owner stopped it (Stop, or Update while it ran): nothing automatic starts it again until it runs again.</summary>
+    public bool StoppedByOwner { get; private set; }
+
+    public void NoteOwnerStop(int? processId)
+    {
+        NoteIntentionalStop(processId);
+        StoppedByOwner = true;
+    }
 
     /// <summary>Someone pressed Start: re-arm crash restarts.</summary>
     public void NoteManualStart()
     {
         GaveUp = false;
+        StoppedByOwner = false;
         _crashRestarts.Clear();
     }
 
@@ -93,6 +132,18 @@ public sealed class ServerAutomation
             return wasRunning == true ? OnStopped(profile, now) : AutomationAction.None;
         }
 
+        if (now.ProcessId is { } pid && pid != _lastProcessId)
+        {
+            // A new run (started here or outside Starlink): the owner's earlier Stop is history.
+            if (_lastProcessId is not null)
+            {
+                StoppedByOwner = false;
+            }
+
+            _intendedStops.RemoveWhere(id => id != pid);
+            _lastProcessId = pid;
+        }
+
         if (DailyRestartDue(profile, now) is { } restart)
         {
             return restart;
@@ -113,14 +164,23 @@ public sealed class ServerAutomation
             }
         }
 
+        if (profile.DailyBackup && (LastDailyBackup is null || now.NowLocal - LastDailyBackup >= DailyBackupInterval))
+        {
+            // Stamped now: a backup that fails waits a day rather than retrying every beat.
+            LastDailyBackup = now.NowLocal;
+            return new AutomationAction(AutomationActionKind.DailyBackup, "daily backup");
+        }
+
         return AutomationAction.None;
     }
 
     private AutomationAction OnStopped(DedicatedServerProfile profile, ServerObservation now)
     {
-        var intended = now.CleanExitLogged || (_stopIntendedAt is { } at && now.NowLocal - at <= IntendedStopWindow);
-        _stopIntendedAt = null;
-        if (intended || !profile.AutoRestartOnCrash || GaveUp)
+        var intended = now.CleanExitLogged
+            || _intendedStopOfUnknownProcess
+            || (_lastProcessId is { } pid && _intendedStops.Remove(pid));
+        _intendedStopOfUnknownProcess = false;
+        if (intended || StoppedByOwner || !profile.AutoRestartOnCrash || GaveUp)
         {
             return AutomationAction.None;
         }
@@ -227,6 +287,13 @@ public sealed class ServerAutomation
                 : LastUpdateCheck is { } last
                     ? $"Next update check at {last + UpdateCheckInterval:HH:mm}."
                     : "Checks for an update shortly.");
+        }
+
+        if (profile.DailyBackup)
+        {
+            lines.Add(LastDailyBackup is { } backedUp && nowLocal - backedUp < DailyBackupInterval
+                ? $"Next daily backup around {backedUp + DailyBackupInterval:ddd HH:mm}, while it runs."
+                : "Backs up its worlds shortly (daily backup), while it runs.");
         }
 
         if (profile.AutoRestartOnCrash)

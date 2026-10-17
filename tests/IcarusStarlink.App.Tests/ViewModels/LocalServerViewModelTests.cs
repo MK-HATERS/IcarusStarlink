@@ -1,4 +1,5 @@
 using System.IO;
+using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.App.Views;
@@ -41,14 +42,15 @@ public sealed partial class LocalServerViewModelTests : IDisposable
 
     private string MergedPakPath => Path.Combine(_root, "Staged_Build", IcarusStarlink.PakIO.InstallManifestNames.MergedPakFileName);
 
-    private (LocalServerViewModel Vm, FakeStore Store, FakeProcesses Processes, FakeDialogs Dialogs) Build(string? pick = null, bool confirm = true, string? pickExe = null)
+    private (LocalServerViewModel Vm, FakeStore Store, FakeProcesses Processes, FakeDialogs Dialogs) Build(string? pick = null, bool confirm = true, string? pickExe = null, FakeStore? existingStore = null)
     {
-        var store = new FakeStore();
+        var store = existingStore ?? new FakeStore();
         var processes = new FakeProcesses();
         var dialogs = new FakeDialogs(confirm);
         var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, () => pickExe, startTimer: false, firewall: Firewall)
         {
             StartPollDelay = TimeSpan.Zero,
+            RunWorkInline = true,
         };
         SteamCmd.Chosen = () => Settings.Current.SteamCmdExePath;
         return (vm, store, processes, dialogs);
@@ -170,6 +172,31 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.False(vm.IsRunning);
     }
 
+    /// <summary>Like the developer's own server (SaveGameOnExit=False, GameSaveFrequency=3): Stop must not promise a save, and automation that restarts it on its own is flagged.</summary>
+    [Fact]
+    public async Task Stop_WithSaveOnExitOff_WarnsThatProgressSinceTheAutosaveIsLost()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(IniPath)!);
+        File.WriteAllText(IniPath, "[/Script/Icarus.DedicatedServerSettings]\r\nGameSaveFrequency=3.000000\r\nSaveGameOnExit=False\r\n");
+        var (vm, _, processes, dialogs) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        processes.Running = new RunningServer(1234, DateTime.Now);
+        vm.Tick();
+
+        await vm.StopCommand.ExecuteAsync(null);
+
+        var message = Assert.Single(dialogs.Messages);
+        Assert.DoesNotContain("saves on exit", message);
+        Assert.Contains("'Save on exit' is OFF", message);
+        Assert.Contains("every 3 minutes", message);
+
+        Assert.Null(vm.SaveOnExitWarning);
+        vm.DailyRestartEnabled = true;
+        Assert.Contains("every automatic restart", vm.SaveOnExitWarning);
+        vm.SaveGameOnExit = true;
+        Assert.Null(vm.SaveOnExitWarning);
+    }
+
     [Fact]
     public async Task Stop_Declined_LeavesTheServerAlone()
     {
@@ -206,16 +233,30 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     }
 
     [Fact]
-    public void RemoveProfile_RemovesOnlyTheListEntry()
+    public async Task RemoveProfile_RemovesOnlyTheListEntry()
     {
         var (vm, store, _, _) = Build(pick: _install);
         vm.AddExistingServerCommand.Execute(null);
 
-        vm.RemoveProfileCommand.Execute(null);
+        await vm.RemoveProfileCommand.ExecuteAsync(null);
 
         Assert.Empty(store.Profiles);
         Assert.Null(vm.SelectedProfile);
         Assert.True(File.Exists(Path.Combine(_install, "IcarusServer.exe")));
+    }
+
+    /// <summary>The saved server list couldn't be read at startup: the page says so, and a Save doesn't pretend it worked.</summary>
+    [Fact]
+    public void UnreadableServerList_IsReported_AndSavesSaySoInsteadOfSaved()
+    {
+        var store = new FakeStore { LoadProblem = "Your saved server list couldn't be read." };
+        var (vm, _, _, _) = Build(pick: _install, existingStore: store);
+        Assert.Equal("Your saved server list couldn't be read.", vm.StatusMessage);
+
+        vm.AddExistingServerCommand.Execute(null);
+        vm.SaveSettingsCommand.Execute(null);
+
+        Assert.Equal("Your saved server list couldn't be read.", vm.StatusMessage);
     }
 
     // ---- Phase 2: SteamCMD ----
@@ -300,6 +341,31 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Equal([(_install, "experimental")], SteamCmd.Installs);
         var backup = Assert.Single(vm.Backups);
         Assert.Contains("before-update", backup.Name);
+    }
+
+    /// <summary>Cancel in the SteamCMD box stops a long download; the page says how to finish later.</summary>
+    [Fact]
+    public async Task UpdateServer_CanBeCancelled()
+    {
+        WriteManifest(buildId: 1);
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        SteamCmd.WaitForCancel = true;
+
+        var update = vm.UpdateServerCommand.ExecuteAsync(null);
+        Assert.True(vm.IsSteamCmdBusy);
+        Assert.True(vm.CancelSteamCmdCommand.CanExecute(null));
+
+        // An app update asks first, and is told to wait.
+        var replies = WeakReferenceMessenger.Default.Send(new IcarusStarlink.App.Messages.BackgroundWorkRequestMessage()).Responses;
+        Assert.Contains(replies, r => r.StartsWith("SteamCMD", StringComparison.Ordinal));
+
+        vm.CancelSteamCmdCommand.Execute(null);
+        await update;
+
+        Assert.False(vm.IsSteamCmdBusy);
+        Assert.Contains("Cancelled", vm.StatusMessage);
+        Assert.False(vm.CancelSteamCmdCommand.CanExecute(null));
     }
 
     /// <summary>The user's first install: no server in the list yet, so no Log tab — the SteamCMD box itself must show the output and keep it after the run until dismissed.</summary>
@@ -490,6 +556,49 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Contains(vm.Backups, b => b.Name.Contains("before-restore"));
     }
 
+    /// <summary>The backups folder carries the profile's name; renaming the profile renames the folder instead of starting an empty one.</summary>
+    [Fact]
+    public async Task RenamingAProfile_KeepsItsBackups()
+    {
+        WriteProspect("World A");
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        await vm.BackUpNowCommand.ExecuteAsync(null);
+        var oldFolder = vm.BackupsFolderPath;
+
+        vm.ProfileName = "Friends & family";
+        vm.SaveSettingsCommand.Execute(null);
+        vm.SelectedProfile = null;
+        vm.SelectedProfile = vm.Profiles.Single();
+
+        Assert.Single(vm.Backups);
+        Assert.NotEqual(oldFolder, vm.BackupsFolderPath);
+        Assert.EndsWith("Friendsfamily_" + vm.SelectedProfile.Id.ToString("N")[..8], vm.BackupsFolderPath);
+        Assert.False(Directory.Exists(oldFolder));
+    }
+
+    /// <summary>Only the newest N of each kind are kept.</summary>
+    [Fact]
+    public async Task BackUpNow_KeepsOnlyTheNewestOfEachKind()
+    {
+        WriteProspect("World A");
+        var (vm, store, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        vm.BackupsToKeepText = "2";
+        Assert.Equal(2, store.Profiles.Single().BackupsToKeep);
+        Directory.CreateDirectory(vm.BackupsFolderPath);
+        var before = Path.Combine(vm.BackupsFolderPath, "2026-01-01_000000_before-update.zip");
+        File.WriteAllText(before, "");
+
+        for (var i = 0; i < 3; i++)
+        {
+            await vm.BackUpNowCommand.ExecuteAsync(null);
+        }
+
+        Assert.Equal(2, vm.Backups.Count(b => b.Name.Contains("manual")));
+        Assert.True(File.Exists(before), "other kinds keep their own count");
+    }
+
     [Fact]
     public void SaveAccessLists_RequiresSteam64IdsForAdmins()
     {
@@ -527,6 +636,32 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.DoesNotContain(vm.LogLines, l => l.Contains("hunter2"));
         vm.HideNoise = false;
         Assert.Contains(vm.LogLines, l => l.Contains("password=***"));
+    }
+
+    /// <summary>The app's real path: the log is read off the UI thread (once, shared with automation) and the panels fill when it is in.</summary>
+    [Fact]
+    public async Task Log_IsReadOffTheUiThread_AndSharedWithAutomation()
+    {
+        var log = DedicatedServerLayout.LogPath(_install, null, null);
+        Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+        File.WriteAllText(log, "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: MK-HATERS\r\n");
+        var (vm, _, processes, _) = Build(pick: _install);
+        vm.RunWorkInline = false;
+
+        vm.AddExistingServerCommand.Execute(null);
+        await vm.LogLoadTask;
+
+        Assert.Equal("MK-HATERS", Assert.Single(vm.OnlinePlayers).Name);
+        Assert.Single(vm.LogLines);
+
+        processes.Running = new RunningServer(5, DateTime.Now);
+        await vm.RunAutomationBeatAsync(); // reads through the same watch: no second copy of the line
+        File.AppendAllText(log, "[2026.08.12-17.40.00:000][117]LogNet: Join succeeded: Friend\r\n");
+        await vm.TickAsync();
+
+        Assert.Equal(2, vm.OnlinePlayers.Count);
+        Assert.Equal(2, vm.LogLines.Count);
+        Assert.True(vm.IsRunning);
     }
 
     private void WriteManifest(int buildId, string? betaKey = null)
@@ -587,14 +722,27 @@ public sealed partial class LocalServerViewModelTests : IDisposable
             return Task.CompletedTask;
         }
 
-        public Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, Action<string> onLine, CancellationToken cancellationToken = default)
+        /// <summary>Makes the next install run until it is cancelled, like a long download.</summary>
+        public bool WaitForCancel { get; set; }
+
+        public async Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, Action<string> onLine, CancellationToken cancellationToken = default)
         {
             Installs.Add((installFolder, branch));
             onLine(" Update state (0x61) downloading, progress: 50.00 (1 / 2)");
+            if (WaitForCancel)
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+
+            return Finish(installFolder, onLine);
+        }
+
+        private SteamCmdResult Finish(string installFolder, Action<string> onLine)
+        {
             if (FailWith is not null)
             {
                 onLine(FailWith);
-                return Task.FromResult(new SteamCmdResult(false, FailWith));
+                return new SteamCmdResult(false, FailWith);
             }
 
             if (CreateServerOnInstall)
@@ -603,7 +751,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
                 File.WriteAllText(Path.Combine(installFolder, "IcarusServer.exe"), "");
             }
 
-            return Task.FromResult(new SteamCmdResult(true, "ok"));
+            return new SteamCmdResult(true, "ok");
         }
 
         public Task<int?> GetLatestBuildIdAsync(string branch, CancellationToken cancellationToken = default) => Task.FromResult(LatestBuild);
@@ -620,13 +768,20 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         public List<DedicatedServerProfile> Profiles { get; } = [];
         public IReadOnlyList<DedicatedServerProfile> GetAll() => Profiles;
 
-        public void Save(DedicatedServerProfile profile)
+        public string? LoadProblem { get; set; }
+
+        public bool Save(DedicatedServerProfile profile)
         {
             Profiles.RemoveAll(p => p.Id == profile.Id);
             Profiles.Add(profile);
+            return LoadProblem is null;
         }
 
-        public void Delete(Guid id) => Profiles.RemoveAll(p => p.Id == id);
+        public bool Delete(Guid id)
+        {
+            Profiles.RemoveAll(p => p.Id == id);
+            return LoadProblem is null;
+        }
     }
 
     private sealed class FakeProcesses : IDedicatedServerProcessService
@@ -637,7 +792,16 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         public List<DedicatedServerProfile> Started { get; } = [];
         public List<int> Stopped { get; } = [];
 
-        public RunningServer? FindRunning(DedicatedServerProfile profile) => Running;
+        /// <summary>Set to change what FindRunning answers from then on (for "it changed between two looks").</summary>
+        public Func<RunningServer?>? FindRunningHook { get; set; }
+
+        public int FindRunningCalls { get; private set; }
+
+        public RunningServer? FindRunning(DedicatedServerProfile profile)
+        {
+            FindRunningCalls++;
+            return FindRunningHook is { } hook ? hook() : Running;
+        }
 
         public void Start(DedicatedServerProfile profile)
         {
@@ -670,10 +834,13 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     {
         public List<string> Messages { get; } = [];
 
+        /// <summary>Answers for the next confirms, in order; once empty, every confirm gets confirmResult.</summary>
+        public Queue<bool> Answers { get; } = new();
+
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {
             Messages.Add(message);
-            return confirmResult;
+            return Answers.Count > 0 ? Answers.Dequeue() : confirmResult;
         }
 
         public RenamePromptResult PromptRename(string currentName, string description = "", string? resetValue = null, string resetLabel = "", string resetTooltip = "", string title = "", string fieldLabel = "") =>

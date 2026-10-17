@@ -43,17 +43,40 @@ public sealed class ServerPhase4Tests
         Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Down(Day.AddMinutes(3), clean: true)).Kind);
     }
 
+    private static ServerObservation UpAs(DateTime now, int processId) => new(now, Running: true, 0, CleanExitLogged: false, processId);
+
+    /// <summary>
+    /// An intended stop is tied to the process it stopped, not to a time window: the beat that sees
+    /// the exit can come long after (beats wait while SteamCMD updates). A note for one process
+    /// never excuses a later run's crash.
+    /// </summary>
     [Fact]
-    public void IntendedStop_IsNotACrash_ButAStaleNoteDoesNotHideALaterOne()
+    public void IntendedStop_IsNotACrash_HoweverLateItIsSeen_ButOnlyForThatProcess()
     {
         var p = Profile();
         var a = new ServerAutomation();
-        a.Evaluate(p, Up(Day));
-        a.NoteIntentionalStop(Day);
-        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Down(Day.AddSeconds(30))).Kind);
+        a.Evaluate(p, UpAs(Day, 9));
+        a.NoteIntentionalStop(9);
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Down(Day.AddMinutes(45))).Kind);
 
-        a.Evaluate(p, Up(Day.AddMinutes(1)));
-        a.NoteIntentionalStop(Day.AddMinutes(1)); // the stop never happened
+        a.Evaluate(p, UpAs(Day.AddHours(1), 10));
+        a.NoteIntentionalStop(9); // a stale note for the old process
+        Assert.Equal(AutomationActionKind.RestartAfterCrash, a.Evaluate(p, Down(Day.AddHours(2))).Kind);
+    }
+
+    /// <summary>The owner pressed Stop: nothing automatic starts it again until it runs again.</summary>
+    [Fact]
+    public void OwnerStop_KeepsItStopped_UntilItRunsAgain()
+    {
+        var p = Profile();
+        var a = new ServerAutomation();
+        a.Evaluate(p, UpAs(Day, 9));
+        a.NoteOwnerStop(9);
+        Assert.True(a.StoppedByOwner);
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Down(Day.AddMinutes(10))).Kind);
+
+        a.Evaluate(p, UpAs(Day.AddHours(1), 10)); // started again (outside Starlink, say)
+        Assert.False(a.StoppedByOwner);
         Assert.Equal(AutomationActionKind.RestartAfterCrash, a.Evaluate(p, Down(Day.AddHours(2))).Kind);
     }
 
@@ -198,6 +221,24 @@ public sealed class ServerPhase4Tests
         Assert.Equal(AutomationActionKind.CheckForUpdate, a.Evaluate(p, Up(Day.AddHours(13).AddMinutes(1))).Kind);
     }
 
+    /// <summary>Once a day while it runs, counted from the newest daily backup on disk.</summary>
+    [Fact]
+    public void DailyBackup_RunsOnceADayWhileRunning()
+    {
+        var p = Profile(x => x.DailyBackup = true);
+        var a = new ServerAutomation();
+        a.NoteDailyBackup(Day.AddHours(-23));
+
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Up(Day)).Kind);
+        Assert.Equal(AutomationActionKind.DailyBackup, a.Evaluate(p, Up(Day.AddHours(1))).Kind);
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Up(Day.AddHours(2))).Kind);
+        Assert.Contains(a.DescribeUpcoming(p, Day.AddHours(2), 0), l => l.StartsWith("Next daily backup", StringComparison.Ordinal));
+
+        a.Evaluate(p, Down(Day.AddHours(30), clean: true));
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Down(Day.AddHours(30), clean: true)).Kind);
+        Assert.Equal(AutomationActionKind.DailyBackup, a.Evaluate(p, Up(Day.AddHours(31))).Kind);
+    }
+
     [Fact]
     public void Automation_AllOff_SaysSo()
     {
@@ -266,11 +307,60 @@ public sealed class ServerPhase4Tests
         Assert.Contains($"program=\"{Exe}\"", add);
         Assert.DoesNotContain("&", add);
 
-        var script = ServerFirewall.BuildScript(commands);
-        Assert.Contains("delete rule", script);
-        Assert.Contains(">nul 2>&1", script);
-        Assert.Contains("|| exit /b 1", script);
-        Assert.EndsWith("exit /b 0\r\n", script);
+        // One elevated cmd.exe with every command on its command line: no script file to swap.
+        var arguments = ServerFirewall.BuildElevatedArguments(commands);
+        Assert.StartsWith("/d /s /c \"netsh advfirewall firewall delete rule", arguments);
+        Assert.Contains(">nul 2>&1 & ", arguments);
+        Assert.Contains(" >nul || exit 1 & exit 0\"", arguments);
+    }
+
+    [Theory]
+    [InlineData(@"C:\Servers\100%\IcarusServer-Win64-Shipping.exe")]
+    [InlineData(@"C:\Servers\Hi!\IcarusServer-Win64-Shipping.exe")]
+    public void ElevatedArguments_RefuseCharactersCmdWouldExpand(string exe)
+    {
+        var commands = ServerFirewall.BuildNetshCommands(Profile(), exe, [("Game port", 17777, ServerFirewall.Udp)]);
+        Assert.Throws<ArgumentException>(() => ServerFirewall.BuildElevatedArguments(commands));
+    }
+
+    /// <summary>A renamed profile's old rules are still its own (matched by the id in the name), and are deleted by their real names.</summary>
+    [Fact]
+    public void OwnRules_AreMatchedByProfileId_NotName()
+    {
+        var p = Profile();
+        var id8 = p.Id.ToString("N")[..8];
+        List<FirewallRule> rules =
+        [
+            new($"Icarus Starlink - Old name ({id8}) - Game port UDP", true, true, true, ServerFirewall.Udp, "17777", Exe),
+            new("Icarus Starlink - Other (00000000) - Game port UDP", true, true, true, ServerFirewall.Udp, "17777", Exe),
+            new("Icarus Server UDP", true, true, true, ServerFirewall.Udp, "17777", Exe),
+        ];
+
+        var own = ServerFirewall.OwnRules(rules, p);
+
+        Assert.Equal([$"Icarus Starlink - Old name ({id8}) - Game port UDP"], own);
+        var commands = ServerFirewall.BuildNetshCommands(p, Exe, [], own);
+        Assert.Contains($"advfirewall firewall delete rule name=\"Icarus Starlink - Old name ({id8}) - Game port UDP\"", commands);
+    }
+
+    /// <summary>Rules only count on the network type the PC is on now; Windows' firewall being off there opens everything.</summary>
+    [Fact]
+    public void Check_UsesOnlyRulesForTheCurrentNetwork()
+    {
+        List<FirewallRule> rules = [new("Home only", true, true, true, ServerFirewall.Udp, "17777", Exe, ServerFirewall.PrivateProfile)];
+        var onPublic = new FirewallNetwork(ServerFirewall.PublicProfile, FirewallOn: true);
+
+        var status = ServerFirewall.Check(rules, Exe, "Game port", 17777, ServerFirewall.Udp, onPublic);
+        Assert.False(status.Open);
+        Assert.Equal("Game port 17777/UDP: blocked on your current network (Public). 'Home only' only covers Private networks", status.Summary);
+
+        Assert.True(ServerFirewall.Check(rules, Exe, "Game port", 17777, ServerFirewall.Udp, new FirewallNetwork(ServerFirewall.PrivateProfile, true)).Open);
+        Assert.True(ServerFirewall.Check([], Exe, "Game port", 17777, ServerFirewall.Udp, new FirewallNetwork(ServerFirewall.PublicProfile, FirewallOn: false)).Open);
+
+        // A block rule for the other network type doesn't shut this one.
+        rules.Add(new("Blocked at home", true, true, false, ServerFirewall.Udp, "*", Exe, ServerFirewall.PrivateProfile));
+        rules.Add(new("Open everywhere", true, true, true, ServerFirewall.Udp, "17777", Exe));
+        Assert.True(ServerFirewall.Check(rules, Exe, "Game port", 17777, ServerFirewall.Udp, onPublic).Open);
     }
 
     [Fact]

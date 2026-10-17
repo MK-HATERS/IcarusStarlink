@@ -3,6 +3,8 @@ using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
@@ -206,6 +208,15 @@ public sealed partial class ServerViewModel : ObservableObject
         _pakManifestPath = Path.Combine(Path.GetDirectoryName(outputPakPath)!, InstallManifestNames.PakManifest);
 
         ReloadSites();
+
+        // An app update must not close Starlink in the middle of an upload to the server.
+        WeakReferenceMessenger.Default.Register<BackgroundWorkRequestMessage>(this, (recipient, message) =>
+        {
+            if (((ServerViewModel)recipient).IsBusy)
+            {
+                message.Reply("the transfer to your FTP server");
+            }
+        });
     }
 
     private void ReloadSites()
@@ -718,6 +729,9 @@ public sealed partial class ServerViewModel : ObservableObject
         }
     }
 
+    /// <summary>The temporary name a file is uploaded under before it replaces the old one ("ISL-Merged_9999_P.pak.uploading" — not a .pak, so the game never loads a half-uploaded file).</summary>
+    internal static string UploadingName(string fileName) => fileName + ".uploading";
+
     /// <summary>Persists whether this site's own FTP account can delete/overwrite an existing file,
     /// once actually confirmed either way — shared by the single-file Delete button and Install
     /// merged pak to server, so either one learning the answer benefits the other.
@@ -785,16 +799,18 @@ public sealed partial class ServerViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            // ArcFission Library's own data pak stays: the server's library writes it again anyway.
-            var existing = (await _connectedClient.ListDirectoryAsync(RemoteModsPath))
-                .Where(e => !e.IsDirectory && !IcarusStarlink.PakIO.InstallManifestNames.IsArcFissionDataPak(e.Name))
-                .ToList();
-
             var toUpload = new List<string> { Path.GetFileName(_outputPakPath) };
             if (File.Exists(_pakManifestPath))
             {
                 toUpload.Add(Path.GetFileName(_pakManifestPath));
             }
+
+            // ArcFission Library's own data pak stays: the server's library writes it again anyway.
+            // A leftover upload from an earlier attempt that broke off is replaced, not listed.
+            var existing = (await _connectedClient.ListDirectoryAsync(RemoteModsPath))
+                .Where(e => !e.IsDirectory && !IcarusStarlink.PakIO.InstallManifestNames.IsArcFissionDataPak(e.Name))
+                .Where(e => !toUpload.Any(name => string.Equals(e.Name, UploadingName(name), StringComparison.OrdinalIgnoreCase)))
+                .ToList();
 
             // _connectedSite, not SelectedSite: this gates a real delete attempt against the LIVE
             // connection, and must reflect what's actually known about the site being acted on, not
@@ -813,11 +829,11 @@ public sealed partial class ServerViewModel : ObservableObject
             else
             {
                 var deleteList = existing.Count > 0
-                    ? "delete:\n" + string.Join('\n', existing.Select(e => $"  - {e.Name}")) + "\n\nthen "
+                    ? "\n\nOnce it is fully uploaded, these are deleted:\n" + string.Join('\n', existing.Select(e => $"  - {e.Name}"))
                     : "";
                 prompt =
-                    $"This will {deleteList}upload:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
-                    + $"to '{RemoteModsPath}' on '{_connectedSite?.Name}'. Continue?";
+                    $"This will upload:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
+                    + $"to '{RemoteModsPath}' on '{_connectedSite?.Name}'.{deleteList}\n\nContinue?";
             }
 
             if (!(_dialogService.Confirm(prompt, "Install merged pak to server", ThemedConfirmSeverity.Warning)))
@@ -825,9 +841,36 @@ public sealed partial class ServerViewModel : ObservableObject
                 return;
             }
 
-            var deleteFailures = new List<string>();
-            if (!knownBlocked)
+            var localFor = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
+                [Path.GetFileName(_outputPakPath)] = _outputPakPath,
+            };
+            if (File.Exists(_pakManifestPath))
+            {
+                localFor[Path.GetFileName(_pakManifestPath)] = _pakManifestPath;
+            }
+
+            var deleteFailures = new List<string>();
+            if (knownBlocked)
+            {
+                // Nothing can be deleted (or, likely, renamed) there: upload straight over the names.
+                deleteFailures.AddRange(existing.Select(e => e.Name));
+                foreach (var name in toUpload)
+                {
+                    await _connectedClient.UploadFileAsync(localFor[name], $"{RemoteModsPath}/{name}");
+                }
+            }
+            else
+            {
+                // Upload under a temporary name first (the game only loads *.pak), and only once
+                // that has fully arrived delete the old files and rename the new ones into place: a
+                // dropped connection mid-upload used to leave the server with its old paks already
+                // deleted and the new one half there (an audit finding).
+                foreach (var name in toUpload)
+                {
+                    await _connectedClient.UploadFileAsync(localFor[name], $"{RemoteModsPath}/{UploadingName(name)}");
+                }
+
                 foreach (var entry in existing)
                 {
                     try
@@ -844,16 +887,27 @@ public sealed partial class ServerViewModel : ObservableObject
                 {
                     RememberDeleteCapability(deleteFailures.Count == 0);
                 }
-            }
-            else
-            {
-                deleteFailures.AddRange(existing.Select(e => e.Name));
-            }
 
-            await _connectedClient.UploadFileAsync(_outputPakPath, $"{RemoteModsPath}/{Path.GetFileName(_outputPakPath)}");
-            if (File.Exists(_pakManifestPath))
-            {
-                await _connectedClient.UploadFileAsync(_pakManifestPath, $"{RemoteModsPath}/{Path.GetFileName(_pakManifestPath)}");
+                foreach (var name in toUpload)
+                {
+                    try
+                    {
+                        await _connectedClient.RenameFileAsync($"{RemoteModsPath}/{UploadingName(name)}", $"{RemoteModsPath}/{name}");
+                    }
+                    catch (FtpOperationRejectedException)
+                    {
+                        // The server won't rename: upload it again under its real name, then tidy the temporary copy.
+                        await _connectedClient.UploadFileAsync(localFor[name], $"{RemoteModsPath}/{name}");
+                        try
+                        {
+                            await _connectedClient.DeleteFileAsync($"{RemoteModsPath}/{UploadingName(name)}");
+                        }
+                        catch (FtpOperationRejectedException)
+                        {
+                            deleteFailures.Add(UploadingName(name));
+                        }
+                    }
+                }
             }
 
             if (deleteFailures.Count > 0)

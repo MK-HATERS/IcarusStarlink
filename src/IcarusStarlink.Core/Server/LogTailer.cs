@@ -5,31 +5,112 @@ namespace IcarusStarlink.Core.Server;
 /// <summary>
 /// Follows a log file the server is still writing: each Poll returns only the complete lines
 /// added since the last one. Opens with FileShare.ReadWrite|Delete so the server is never blocked.
-/// When the file shrinks (Unreal renames Icarus.log to a backup and starts a new one on every
-/// launch) it starts over from the top. A partial last line is held back until its newline arrives.
+/// Unreal renames Icarus.log to a backup and starts a new one on every launch; that new run is
+/// noticed when the file shrinks, OR when its first bytes change (the first line carries the time
+/// the log was opened) — a new run that has already grown past the old read position used to be
+/// read from the middle. A partial last line is held back until its newline arrives. Safe to poll
+/// from a background thread: one Poll at a time.
 /// </summary>
 public sealed class LogTailer(string path)
 {
+    /// <summary>How much of the file's start is remembered to recognise a new file under the same name.</summary>
+    private const int HeadBytes = 256;
+
+    private readonly object _gate = new();
     private long _position;
     private string _pending = "";
+    private byte[] _head = [];
 
     public string Path { get; } = path;
 
     /// <summary>Skip everything already in the file — for attaching to a server that has been running a while.</summary>
     public void SeekToEnd()
     {
-        _position = File.Exists(Path) ? new FileInfo(Path).Length : 0;
-        _pending = "";
+        lock (_gate)
+        {
+            _pending = "";
+            _position = 0;
+            _head = [];
+            try
+            {
+                if (File.Exists(Path))
+                {
+                    using var stream = Open();
+                    _head = ReadHead(stream);
+                    _position = stream.Length;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Read from the top next time instead.
+            }
+        }
     }
 
     /// <summary>Start from the beginning on the next Poll.</summary>
     public void Reset()
     {
+        lock (_gate)
+        {
+            ResetCore();
+        }
+    }
+
+    private void ResetCore()
+    {
         _position = 0;
         _pending = "";
+        _head = [];
     }
 
     public IReadOnlyList<string> Poll(int maxBytes = 1 << 20)
+    {
+        lock (_gate)
+        {
+            return PollCore(maxBytes);
+        }
+    }
+
+    private FileStream Open() => new(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+    private static byte[] ReadHead(FileStream stream)
+    {
+        var head = new byte[(int)Math.Min(HeadBytes, stream.Length)];
+        stream.Seek(0, SeekOrigin.Begin);
+        var read = 0;
+        while (read < head.Length)
+        {
+            var n = stream.Read(head, read, head.Length - read);
+            if (n == 0)
+            {
+                break;
+            }
+
+            read += n;
+        }
+
+        return read == head.Length ? head : head[..read];
+    }
+
+    /// <summary>The file under this name is not the one read so far: it is shorter, or it starts differently.</summary>
+    private bool IsNewFile(FileStream stream)
+    {
+        if (stream.Length < _position)
+        {
+            return true;
+        }
+
+        if (_position == 0 || _head.Length == 0)
+        {
+            return false;
+        }
+
+        var current = ReadHead(stream);
+        var common = Math.Min(current.Length, _head.Length);
+        return !current.AsSpan(0, common).SequenceEqual(_head.AsSpan(0, common));
+    }
+
+    private IReadOnlyList<string> PollCore(int maxBytes)
     {
         if (!File.Exists(Path))
         {
@@ -38,10 +119,15 @@ public sealed class LogTailer(string path)
 
         try
         {
-            using var stream = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (stream.Length < _position)
+            using var stream = Open();
+            if (IsNewFile(stream))
             {
-                Reset();
+                ResetCore();
+            }
+
+            if (_head.Length < HeadBytes && stream.Length > _head.Length)
+            {
+                _head = ReadHead(stream);
             }
 
             if (stream.Length == _position)

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Server;
@@ -26,12 +27,16 @@ public sealed partial class LocalServerViewModel
 
     [ObservableProperty] private string? _firewallSummary;
 
+    /// <summary>"This PC is on a Public network." Rules only count for the network type the PC is on.</summary>
+    [ObservableProperty] private string? _firewallNetworkText;
+
     public ObservableCollection<FirewallPortStatus> FirewallPorts { get; } = [];
 
     /// <summary>True when one of the server's ports is shut by a block rule (adding an allow rule can't fix that).</summary>
     [ObservableProperty] private bool _firewallHasBlockRule;
 
     private IReadOnlyList<FirewallRule> _firewallRules = [];
+    private FirewallNetwork _firewallNetwork = FirewallNetwork.Unknown;
     private int _firewallReadVersion;
 
     /// <summary>The read started when a server is selected. Tests await it instead of racing it.</summary>
@@ -83,9 +88,10 @@ public sealed partial class LocalServerViewModel
 
         var version = ++_firewallReadVersion;
         IReadOnlyList<FirewallRule> rules;
+        FirewallNetwork network;
         try
         {
-            rules = await Task.Run(_firewall.ReadInboundRules);
+            (rules, network) = await Task.Run(() => (_firewall.ReadInboundRules(), ReadNetworkOrUnknown(_firewall)));
         }
         catch (Exception ex)
         {
@@ -106,10 +112,11 @@ public sealed partial class LocalServerViewModel
         }
 
         _firewallRules = rules;
+        _firewallNetwork = network;
 
         if (detectTcp && TryFirewallPorts(out var game, out _) && SelectedProfile is { } p)
         {
-            FirewallIncludeTcp = ServerFirewall.Check(_firewallRules, DedicatedServerLayout.ShippingExePath(p.InstallFolder), "Game port", game, ServerFirewall.Tcp).Open;
+            FirewallIncludeTcp = ServerFirewall.Check(_firewallRules, DedicatedServerLayout.ShippingExePath(p.InstallFolder), "Game port", game, ServerFirewall.Tcp, _firewallNetwork).Open;
         }
 
         RecheckFirewall();
@@ -133,16 +140,24 @@ public sealed partial class LocalServerViewModel
         var exe = DedicatedServerLayout.ShippingExePath(p.InstallFolder);
         foreach (var (label, port, protocol) in ServerFirewall.RequiredPorts(game, query, FirewallIncludeTcp))
         {
-            FirewallPorts.Add(ServerFirewall.Check(_firewallRules, exe, label, port, protocol));
+            FirewallPorts.Add(ServerFirewall.Check(_firewallRules, exe, label, port, protocol, _firewallNetwork));
         }
 
         FirewallHasBlockRule = FirewallPorts.Any(s => s.Blocked);
+        FirewallNetworkText = _firewallNetwork == FirewallNetwork.Unknown
+            ? null
+            : _firewallNetwork.FirewallOn
+                ? $"This PC is on a {_firewallNetwork.Name} network; only rules for that network type count."
+                : $"Windows Firewall is off for the {_firewallNetwork.Name} network this PC is on.";
         var missing = FirewallPorts.Count(s => !s.Open);
+        var otherNetworksOnly = FirewallPorts.Any(s => !s.Open && s.OtherNetworksRule is not null);
         FirewallSummary = FirewallHasBlockRule
             ? "A block rule shuts one of these ports. Remove or disable it in Windows Defender Firewall (wf.msc); an allow rule can't override it."
             : missing == 0
                 ? "Windows Firewall lets players in on every port this server needs."
-                : $"{missing} port(s) aren't open yet. 'Open these ports' adds the missing rules.";
+                : otherNetworksOnly
+                    ? $"{missing} port(s) aren't open on the network this PC is on now ({_firewallNetwork.Name}): a rule opens them only on other network types. 'Open these ports' adds rules for every network type."
+                    : $"{missing} port(s) aren't open yet. 'Open these ports' adds the missing rules.";
 
         if (game != p.Port || query != p.QueryPort)
         {
@@ -180,7 +195,8 @@ public sealed partial class LocalServerViewModel
         }
 
         // Starlink's own rules are deleted and re-added as a set, so a port they already open is re-added too.
-        var own = ServerFirewall.OwnRuleNames(p).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var existingOwn = ServerFirewall.OwnRules(_firewallRules, p);
+        var own = existingOwn.Concat(ServerFirewall.OwnRuleNames(p)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var toOpen = FirewallPorts
             .Where(s => !s.Blocked && (!s.Open || (s.RuleName is not null && own.Contains(s.RuleName))))
             .Select(s => (s.Label, s.Port, s.Protocol))
@@ -193,7 +209,7 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        await RunFirewallAsync(ServerFirewall.BuildNetshCommands(p, DedicatedServerLayout.ShippingExePath(p.InstallFolder), toOpen),
+        await RunFirewallAsync(ServerFirewall.BuildNetshCommands(p, DedicatedServerLayout.ShippingExePath(p.InstallFolder), toOpen, existingOwn),
             $"Opened {toOpen.Count} firewall port(s) for '{p.Name}'.");
     }
 
@@ -205,8 +221,8 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        var own = ServerFirewall.OwnRuleNames(p).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (!_firewallRules.Any(r => own.Contains(r.Name)))
+        var own = ServerFirewall.OwnRules(_firewallRules, p);
+        if (own.Count == 0)
         {
             FirewallSummary = "Starlink hasn't added any firewall rules for this server. Rules you made yourself are left alone.";
             return;
@@ -219,8 +235,69 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        await RunFirewallAsync(ServerFirewall.BuildNetshCommands(p, DedicatedServerLayout.ShippingExePath(p.InstallFolder), []),
+        await RunFirewallAsync(ServerFirewall.BuildNetshCommands(p, DedicatedServerLayout.ShippingExePath(p.InstallFolder), [], own),
             $"Removed Starlink's firewall rules for '{p.Name}'.");
+    }
+
+    /// <summary>A failed network read must not hide the rules: the check then counts every rule, as before.</summary>
+    private static FirewallNetwork ReadNetworkOrUnknown(IFirewallService firewall)
+    {
+        try
+        {
+            return firewall.ReadCurrentNetwork();
+        }
+        catch (Exception)
+        {
+            return FirewallNetwork.Unknown;
+        }
+    }
+
+    /// <summary>The rules Starlink made for a profile, read fresh (the card's list belongs to whichever server is selected). Empty when the firewall can't be read.</summary>
+    private async Task<IReadOnlyList<string>> ReadOwnFirewallRulesAsync(DedicatedServerProfile profile)
+    {
+        if (_firewall is null)
+        {
+            return [];
+        }
+
+        try
+        {
+            var rules = await Task.Run(_firewall.ReadInboundRules);
+            return ServerFirewall.OwnRules(rules, profile);
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Removes the given rules (Starlink's own, for a profile being removed from the list) with one administrator prompt.</summary>
+    private async Task<bool> RemoveOwnFirewallRulesAsync(DedicatedServerProfile profile, IReadOnlyList<string> ruleNames)
+    {
+        if (_firewall is null || ruleNames.Count == 0)
+        {
+            return true;
+        }
+
+        IsFirewallBusy = true;
+        try
+        {
+            var result = await _firewall.RunElevatedAsync(ServerFirewall.BuildNetshCommands(profile, DedicatedServerLayout.ShippingExePath(profile.InstallFolder), [], ruleNames));
+            _activityLog.Log(result.Success
+                    ? $"Removed the {ruleNames.Count} firewall rule(s) Starlink added for '{profile.Name}'."
+                    : $"The firewall rules Starlink added for '{profile.Name}' were left in place: {result.Message}",
+                result.Success ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
+            return result.Success;
+        }
+        catch (Exception ex)
+        {
+            _activityLog.Log($"The firewall rules Starlink added for '{profile.Name}' were left in place: {ex.Message}", ActivityEntryKind.Warning);
+            return false;
+        }
+        finally
+        {
+            IsFirewallBusy = false;
+        }
     }
 
     private async Task RunFirewallAsync(IReadOnlyList<string> commands, string successMessage)

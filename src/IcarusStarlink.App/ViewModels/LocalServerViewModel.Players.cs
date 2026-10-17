@@ -4,12 +4,14 @@ using IcarusStarlink.Core.Server;
 
 namespace IcarusStarlink.App.ViewModels;
 
-/// <summary>Phase 3: who is online and what happened, read from the server's own log (there is no network RCON for Icarus — the log is the only window in).</summary>
+/// <summary>
+/// Phase 3: who is online and what happened, read from the server's own log (there is no network
+/// RCON for Icarus — the log is the only window in). Every server's log is read once, by its
+/// watch (see the .Automation partial); the panels here show the selected server's watch.
+/// </summary>
 public sealed partial class LocalServerViewModel
 {
     private const int MaxEvents = 200;
-
-    private readonly ServerLogEvents _logEvents = new();
 
     public ObservableCollection<OnlinePlayer> OnlinePlayers { get; } = [];
 
@@ -26,64 +28,71 @@ public sealed partial class LocalServerViewModel
         var n => $"{n} players online",
     };
 
-    private void ResetPlayersAndEvents()
+    /// <summary>Fills the Players and Events panels from a watch (null clears them).</summary>
+    private void ShowPlayersAndEventsOf(ServerWatch? watch)
     {
-        _logEvents.Reset();
-        OnlinePlayers.Clear();
         Events.Clear();
-        CurrentProspect = null;
-        OnPropertyChanged(nameof(OnlineSummary));
-    }
-
-    private void FeedPlayersAndEvents(IEnumerable<string> lines)
-    {
-        var changed = false;
-        foreach (var line in lines)
+        foreach (var line in watch?.EventLines ?? [])
         {
-            if (!line.StartsWith("[SteamCMD]", StringComparison.Ordinal))
-            {
-                changed |= AddEvents(_logEvents.Feed(line));
-            }
+            Events.Add(line);
         }
 
-        if (changed)
-        {
-            RefreshOnlinePlayers();
-        }
+        RefreshOnlinePlayers(watch);
     }
 
-    /// <summary>A quiet server writes nothing — the timer still turns an unanswered disconnect into "left" after the grace period.</summary>
-    private void ExpireStalePlayers()
+    /// <summary>Error lines stay in the log itself (a normal start logs dozens of harmless asset errors); the Events list keeps to what an owner acts on. True when anything happened.</summary>
+    private bool RecordEvents(ServerWatch watch, IReadOnlyList<ServerLogEvent> events)
     {
-        if (AddEvents(_logEvents.ExpireStale(DateTime.UtcNow)))
-        {
-            RefreshOnlinePlayers();
-        }
-    }
-
-    /// <summary>Error lines stay in the log itself (a normal start logs dozens of harmless asset errors); the Events list keeps to what an owner acts on.</summary>
-    private bool AddEvents(IReadOnlyList<ServerLogEvent> events)
-    {
-        var changed = false;
         foreach (var ev in events.Where(e => e.Kind != ServerLogEventKind.Error))
         {
-            changed = true;
-            var time = ev.Time?.ToLocalTime().ToString("HH:mm") ?? "--:--";
-            Events.Insert(0, $"{time}  {ev.Text}");
+            RecordEventLine(watch, $"{ev.Time?.ToLocalTime().ToString("HH:mm") ?? "--:--"}  {ev.Text}");
+        }
+
+        return events.Count > 0;
+    }
+
+    private void RecordEventLine(ServerWatch watch, string text)
+    {
+        watch.EventLines.Insert(0, text);
+        if (watch.EventLines.Count > MaxEvents)
+        {
+            watch.EventLines.RemoveRange(MaxEvents, watch.EventLines.Count - MaxEvents);
+        }
+
+        if (ReferenceEquals(_shownWatch, watch))
+        {
+            Events.Insert(0, text);
             while (Events.Count > MaxEvents)
             {
                 Events.RemoveAt(Events.Count - 1);
             }
         }
-
-        return changed || events.Count > 0;
     }
 
-    private void RefreshOnlinePlayers()
+    /// <summary>A quiet server writes nothing — the timer still turns an unanswered disconnect into "left" after the grace period.</summary>
+    private void ExpireStalePlayers(ServerWatch watch)
     {
-        CurrentProspect = _logEvents.CurrentProspect;
+        if (RecordEvents(watch, watch.Events.ExpireStale(DateTime.UtcNow)) && ReferenceEquals(_shownWatch, watch))
+        {
+            RefreshOnlinePlayers(watch);
+        }
+    }
+
+    /// <summary>The server stopped or a new run began: nobody is online any more.</summary>
+    private void ResetWatchEvents(ServerWatch watch)
+    {
+        watch.Events.Reset();
+        if (ReferenceEquals(_shownWatch, watch))
+        {
+            RefreshOnlinePlayers(watch);
+        }
+    }
+
+    private void RefreshOnlinePlayers(ServerWatch? watch)
+    {
+        CurrentProspect = watch?.Events.CurrentProspect;
         OnlinePlayers.Clear();
-        foreach (var player in _logEvents.Online.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var player in (watch?.Events.Online ?? []).OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
         {
             OnlinePlayers.Add(player);
         }

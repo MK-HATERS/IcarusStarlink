@@ -16,6 +16,81 @@ public sealed class ServerPhase23Tests : IDisposable
         }
     }
 
+    // ---- Saving on stop ----
+
+    [Fact]
+    public void ShutdownNotes_SayWhatAStopDoesToTheWorld()
+    {
+        Assert.Equal("It saves the world as it shuts down.", ServerShutdownNotes.DescribeSaving(new DedicatedServerSettings { SaveGameOnExit = true }));
+        Assert.Contains("is lost", ServerShutdownNotes.DescribeSaving(new DedicatedServerSettings { SaveGameOnExit = false, GameSaveFrequency = 3 }));
+        Assert.Contains("game's default", ServerShutdownNotes.DescribeSaving(new DedicatedServerSettings()));
+        Assert.Contains("game's default", ServerShutdownNotes.DescribeSaving(null));
+
+        var restarts = new DedicatedServerProfile { AutoUpdate = true };
+        Assert.NotNull(ServerShutdownNotes.AutomationWarning(restarts, new DedicatedServerSettings { SaveGameOnExit = false }));
+        Assert.Null(ServerShutdownNotes.AutomationWarning(new DedicatedServerProfile(), new DedicatedServerSettings { SaveGameOnExit = false }));
+        Assert.Null(ServerShutdownNotes.AutomationWarning(restarts, new DedicatedServerSettings { SaveGameOnExit = true }));
+    }
+
+    // ---- Backup folders and retention ----
+
+    /// <summary>The user's real folder is "Server1_dc7ea824" for "Server #1": renaming the profile must find it by the id and carry it over.</summary>
+    [Fact]
+    public void BackupFolder_IsFoundByProfileId_AndRenamedToTheCurrentName()
+    {
+        var root = Path.Combine(_root, "Server");
+        var profile = new DedicatedServerProfile { Id = Guid.Parse("dc7ea824-fb24-470b-9951-2536eaf85d38"), Name = "Server #1" };
+        Assert.Equal(Path.Combine(root, "Server1_dc7ea824"), ServerBackups.ResolveFolder(root, profile));
+        Directory.CreateDirectory(Path.Combine(root, "Server1_dc7ea824"));
+        File.WriteAllText(Path.Combine(root, "Server1_dc7ea824", "2026-10-16_171804_manual.zip"), "");
+        Directory.CreateDirectory(Path.Combine(root, "Other_00000000"));
+
+        profile.Name = "Friends";
+        var folder = ServerBackups.ResolveFolder(root, profile);
+
+        Assert.Equal(Path.Combine(root, "Friends_dc7ea824"), folder);
+        Assert.True(File.Exists(Path.Combine(folder, "2026-10-16_171804_manual.zip")));
+        Assert.False(Directory.Exists(Path.Combine(root, "Server1_dc7ea824")));
+        Assert.True(Directory.Exists(Path.Combine(root, "Other_00000000")));
+    }
+
+    [Theory]
+    [InlineData("2026-10-16_171804_manual", "manual")]
+    [InlineData("2026-10-16_171804_before-update_2", "before-update")]
+    [InlineData("2026-10-16_171804_daily", "daily")]
+    [InlineData("my own copy", null)]
+    public void ReasonOf_ReadsTheKindFromTheName(string name, string? reason) => Assert.Equal(reason, ServerBackups.ReasonOf(name));
+
+    [Fact]
+    public void Prune_KeepsTheNewestOfEachKind_AndWhatItIsToldToKeep()
+    {
+        Directory.CreateDirectory(_root);
+        string Make(string name, int minutesAgo)
+        {
+            var path = Path.Combine(_root, name + ".zip");
+            File.WriteAllText(path, "");
+            File.SetLastWriteTime(path, DateTime.Now.AddMinutes(-minutesAgo));
+            return path;
+        }
+
+        var oldManual = Make("2026-10-01_000000_manual", 50);
+        Make("2026-10-02_000000_manual", 40);
+        Make("2026-10-03_000000_manual", 30);
+        var restoredFrom = Make("2026-09-01_000000_daily", 90);
+        Make("2026-10-03_000000_daily", 20);
+        Make("2026-10-04_000000_daily", 10);
+        var onlyRestore = Make("2026-09-01_000000_before-restore", 100);
+        var foreign = Make("hand made", 200);
+
+        var deleted = ServerBackups.Prune(_root, keepPerReason: 2, neverDelete: [restoredFrom]);
+
+        Assert.Equal([oldManual], deleted);
+        Assert.True(File.Exists(onlyRestore));
+        Assert.True(File.Exists(foreign));
+        Assert.True(File.Exists(restoredFrom));
+        Assert.Empty(ServerBackups.Prune(_root, keepPerReason: 0));
+    }
+
     // ---- SteamCMD ----
 
     [Fact]

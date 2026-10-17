@@ -103,6 +103,49 @@ public sealed class UpdateRunnerTests : IDisposable
         Assert.NotNull(result.BackupDirectory);
     }
 
+    /// <summary>A rolled-back update used to relaunch the old version without a word: the outcome is now recorded, before the relaunch, for the app to show.</summary>
+    [Fact]
+    public void Run_RecordsTheOutcomeBeforeRelaunching()
+    {
+        WriteInstall("IcarusStarlink.App.exe", "old exe");
+        WriteInstall("LockedFile.dll", "old locked");
+        WriteNew("IcarusStarlink.App.exe", "new exe");
+        WriteNew("LockedFile.dll", "new locked");
+        var events = new List<string>();
+
+        using (new FileStream(Path.Combine(_installDirectory, "LockedFile.dll"), FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            UpdateRunner.Run(_installDirectory, _newFilesDirectory, _ => { }, () => { events.Add("relaunch"); return true; },
+                (outcome, message) => events.Add($"{outcome}: {message}"));
+        }
+
+        Assert.Equal(2, events.Count);
+        Assert.StartsWith("RolledBack: The update didn't install, so your previous version was put back", events[0]);
+        Assert.Equal("relaunch", events[1]);
+    }
+
+    [Fact]
+    public void Run_AFailingOutcomeRecorder_NeverStopsTheRelaunch()
+    {
+        WriteInstall("IcarusStarlink.App.exe", "old exe");
+        WriteNew("IcarusStarlink.App.exe", "new exe");
+
+        var result = UpdateRunner.Run(_installDirectory, _newFilesDirectory, _ => { }, () => true, (_, _) => throw new IOException("disk full"));
+
+        Assert.Equal(UpdateRunner.Outcome.Applied, result.Outcome);
+        Assert.True(result.Relaunched);
+    }
+
+    [Fact]
+    public void OutcomeFile_IsTwoPlainLines()
+    {
+        var path = Path.Combine(_root, UpdateOutcomeFile.FileName);
+
+        UpdateOutcomeFile.Write(path, UpdateRunner.Outcome.RolledBack, "line one\r\nline two");
+
+        Assert.Equal(["RolledBack", "line one  line two"], File.ReadAllLines(path));
+    }
+
     [Fact]
     public void Run_RelaunchCallbackReturnsFalse_ResultReflectsThat()
     {

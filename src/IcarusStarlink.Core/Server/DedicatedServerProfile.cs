@@ -61,6 +61,12 @@ public sealed class DedicatedServerProfile
 
     /// <summary>Check Steam every hour and update the next time nobody is online.</summary>
     public bool AutoUpdate { get; set; }
+
+    /// <summary>While it runs, back up its worlds and settings once a day.</summary>
+    public bool DailyBackup { get; set; }
+
+    /// <summary>How many backups of each kind (manual, daily, before-update…) to keep; older ones are deleted after each new backup. 0 keeps every one.</summary>
+    public int BackupsToKeep { get; set; } = 10;
 }
 
 public static class DedicatedServerDefaults

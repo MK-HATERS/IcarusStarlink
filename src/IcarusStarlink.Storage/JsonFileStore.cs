@@ -3,6 +3,18 @@ using Microsoft.Extensions.Logging;
 
 namespace IcarusStarlink.Storage;
 
+/// <summary>Why JsonFileStore.LoadList handed back an empty list for a file that exists.</summary>
+internal enum ListLoadProblem
+{
+    None,
+
+    /// <summary>Locked or access denied even after retries: the file itself may be perfectly fine.</summary>
+    Unreadable,
+
+    /// <summary>Not valid JSON, or not a JSON array.</summary>
+    Corrupt,
+}
+
 /// <summary>
 /// Shared "single JSON file, tolerate corruption by falling back to a default" read/write helper —
 /// previously hand-copied (a private JsonSerializerOptions field, Load's try/catch-and-default,
@@ -77,28 +89,57 @@ internal static class JsonFileStore
     /// download/watchlist entry along with it. This instead parses the array structurally first,
     /// then deserializes element-by-element, skipping (and logging) only the one that fails.
     /// </summary>
-    public static List<TItem> LoadList<TItem>(string filePath, ILogger logger)
+    public static List<TItem> LoadList<TItem>(string filePath, ILogger logger) => LoadList<TItem>(filePath, logger, out _);
+
+    /// <summary>
+    /// <paramref name="problem"/> says why an EXISTING file came back as an empty list: it couldn't
+    /// be read (locked, permission denied — the data may be fine) or it isn't a JSON array (corrupt,
+    /// hand-edited). A missing file is not a problem. Callers whose next Save would replace the
+    /// whole file with the (empty) list must not save over it blindly — the dedicated-server list
+    /// was wiped exactly that way.
+    /// </summary>
+    public static List<TItem> LoadList<TItem>(string filePath, ILogger logger, out ListLoadProblem problem)
     {
+        problem = ListLoadProblem.None;
         if (!File.Exists(filePath))
         {
             return [];
         }
 
         JsonElement root;
-        try
+        const int attempts = 3;
+        for (var attempt = 1; ; attempt++)
         {
-            using var document = JsonDocument.Parse(File.ReadAllText(filePath));
-            root = document.RootElement.Clone();
-        }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-        {
-            logger.LogWarning(ex, "Failed to load {Path}; falling back to an empty list", filePath);
-            return [];
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(filePath));
+                root = document.RootElement.Clone();
+                break;
+            }
+            catch (JsonException ex)
+            {
+                logger.LogWarning(ex, "Failed to load {Path}; falling back to an empty list", filePath);
+                problem = ListLoadProblem.Corrupt;
+                return [];
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt < attempts)
+                {
+                    Thread.Sleep(100 * attempt);
+                    continue;
+                }
+
+                logger.LogWarning(ex, "Couldn't read {Path} after {Attempts} attempts; falling back to an empty list", filePath, attempts);
+                problem = ListLoadProblem.Unreadable;
+                return [];
+            }
         }
 
         if (root.ValueKind != JsonValueKind.Array)
         {
             logger.LogWarning("Expected a JSON array in {Path} but found {Kind}; falling back to an empty list", filePath, root.ValueKind);
+            problem = ListLoadProblem.Corrupt;
             return [];
         }
 

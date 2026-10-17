@@ -120,6 +120,51 @@ public sealed partial class LocalServerViewModelTests
         Assert.Empty(processes.Started);
     }
 
+    /// <summary>
+    /// The review's case: Stop, then an Update that keeps SteamCMD busy for longer than the old
+    /// 3-minute "intended stop" note lasted. The beat that finally sees the server gone must not
+    /// call it a crash and start it again.
+    /// </summary>
+    [Fact]
+    public async Task StopThenALongUpdate_IsStillNotACrash()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.LatestBuild = 2;
+        var (vm, _, processes, _) = BuildWithServer();
+        var now = DateTime.Today.AddHours(12);
+        vm.Clock = () => now;
+        processes.Running = new RunningServer(9, DateTime.Now);
+        vm.Tick();
+        await vm.RunAutomationBeatAsync();
+        processes.StopIsClean = false;
+
+        await vm.UpdateServerCommand.ExecuteAsync(null); // asks, stops, updates
+        now = now.AddMinutes(20);
+        await vm.RunAutomationBeatAsync();
+        await vm.RunAutomationBeatAsync();
+
+        Assert.Single(SteamCmd.Installs);
+        Assert.Empty(processes.Started);
+    }
+
+    /// <summary>Right before automation starts a server it looks again: a server already running (started by hand meanwhile) isn't started twice.</summary>
+    [Fact]
+    public async Task CrashRestart_SkipsTheLaunchWhenItIsAlreadyRunningAgain()
+    {
+        var (vm, _, processes, _) = BuildWithServer();
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.RunAutomationBeatAsync();
+        processes.Running = null;
+        await vm.RunAutomationBeatAsync();
+        // The beat still sees it gone, then someone starts it between that decision and the launch.
+        var looks = 0;
+        processes.FindRunningHook = () => ++looks == 1 ? null : new RunningServer(77, DateTime.Now);
+
+        await vm.RunAutomationBeatAsync();
+
+        Assert.Empty(processes.Started);
+    }
+
     /// <summary>The daily restart waits while someone is online, then goes ahead at the end of the hour — with an update first when "update on restart" is on.</summary>
     [Fact]
     public async Task DailyRestart_WaitsForPlayers_ThenRestartsAndUpdates()
@@ -302,12 +347,83 @@ public sealed partial class LocalServerViewModelTests
         Assert.Equal(27100, vm.FirewallPorts[1].Port);
     }
 
+    /// <summary>Rules Starlink made before the profile was renamed are still its own: they count, and Remove deletes them by their real names.</summary>
+    [Fact]
+    public async Task Firewall_RulesMadeUnderAnOldProfileName_AreStillFoundAndRemoved()
+    {
+        var (vm, _, _, _) = BuildWithServer();
+        var id8 = vm.SelectedProfile!.Id.ToString("N")[..8];
+        var oldName = $"Icarus Starlink - Old name ({id8}) - Game port UDP";
+        Firewall.Rules.Add(new FirewallRule(oldName, true, true, true, ServerFirewall.Udp, "17777", ServerExe));
+        vm.ProfileName = "New name";
+        vm.SaveSettingsCommand.Execute(null);
+        await vm.RefreshFirewallAsync(detectTcp: false);
+
+        Assert.True(vm.FirewallPorts[0].Open);
+
+        await vm.RemoveFirewallRulesCommand.ExecuteAsync(null);
+
+        var commands = Assert.Single(Firewall.Runs);
+        Assert.Contains(commands, c => c == $"advfirewall firewall delete rule name=\"{oldName}\"");
+        Assert.DoesNotContain(commands, c => c.Contains(" add rule "));
+    }
+
+    /// <summary>A Private-only rule doesn't let players in while the PC is on a Public network.</summary>
+    [Fact]
+    public async Task Firewall_APrivateOnlyRule_IsNotOpenOnAPublicNetwork()
+    {
+        Firewall.Network = new FirewallNetwork(ServerFirewall.PublicProfile, FirewallOn: true);
+        Firewall.Rules.Add(new FirewallRule("Icarus Server UDP", true, true, true, ServerFirewall.Udp, "17777,27015", ServerExe, ServerFirewall.PrivateProfile));
+        var (vm, _, _, _) = BuildWithServer();
+        await vm.FirewallLoadTask;
+
+        Assert.All(vm.FirewallPorts, p => Assert.False(p.Open));
+        Assert.Contains("blocked on your current network (Public)", vm.FirewallPorts[0].Summary);
+        Assert.Contains("Public", vm.FirewallSummary);
+    }
+
+    /// <summary>Removing a server offers to remove the rules Starlink made for it; they'd be orphaned otherwise.</summary>
+    [Fact]
+    public async Task RemoveProfile_OffersToRemoveItsFirewallRules()
+    {
+        var (vm, store, _, dialogs) = BuildWithServer();
+        var profile = vm.SelectedProfile!;
+        Firewall.Rules.Add(new FirewallRule(ServerFirewall.RuleName(profile, "Game port", ServerFirewall.Udp), true, true, true, ServerFirewall.Udp, "17777", ServerExe));
+        Firewall.Rules.Add(new FirewallRule("Icarus Server UDP", true, true, true, ServerFirewall.Udp, "17777", ServerExe));
+
+        await vm.RemoveProfileCommand.ExecuteAsync(null);
+
+        Assert.Empty(store.Profiles);
+        Assert.Contains("Also remove the 1 firewall rule(s)", dialogs.Messages[1]);
+        var commands = Assert.Single(Firewall.Runs);
+        Assert.DoesNotContain(commands, c => c.Contains("Icarus Server UDP\""));
+        Assert.Contains("were removed too", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task RemoveProfile_KeepingItsFirewallRules_LeavesThemAlone()
+    {
+        var (vm, store, _, dialogs) = BuildWithServer();
+        Firewall.Rules.Add(new FirewallRule(ServerFirewall.RuleName(vm.SelectedProfile!, "Game port", ServerFirewall.Udp), true, true, true, ServerFirewall.Udp, "17777", ServerExe));
+        dialogs.Answers.Enqueue(true);
+        dialogs.Answers.Enqueue(false);
+
+        await vm.RemoveProfileCommand.ExecuteAsync(null);
+
+        Assert.Empty(store.Profiles);
+        Assert.Empty(Firewall.Runs);
+        Assert.Contains("were kept", vm.StatusMessage);
+    }
+
     private sealed class FakeFirewall : IFirewallService
     {
         public List<FirewallRule> Rules { get; } = [];
         public List<IReadOnlyList<string>> Runs { get; } = [];
+        public FirewallNetwork Network { get; set; } = FirewallNetwork.Unknown;
 
         public IReadOnlyList<FirewallRule> ReadInboundRules() => [.. Rules];
+
+        public FirewallNetwork ReadCurrentNetwork() => Network;
 
         public Task<FirewallApplyResult> RunElevatedAsync(IReadOnlyList<string> netshCommands, CancellationToken cancellationToken = default)
         {
