@@ -1,5 +1,6 @@
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Container;
+using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.PakIO.Import;
 
@@ -19,10 +20,13 @@ public interface IPrebuiltPakToExmodConverter
     /// UnrealPak.exe configured yet, the extracted game data folder is missing/empty, the pak
     /// itself can't be read — so a caller can always fall back to importing the pak as-is. The
     /// failure is still recorded on report as a warning either way, so it's visible somewhere.
+    ///
+    /// gameHistory: the game's old values from recent updates (the Refresh game data reports), so a
+    /// value the pak copied from before an update is left out too, not only old copies by shape.
     /// </summary>
     Task<PrebuiltPakConversionResult?> TryConvertAsync(
         string pakFilePath, string dataFolder, string unrealPakExePath, string name, string author,
-        MergeReport report, CancellationToken cancellationToken = default);
+        MergeReport report, GameValueHistory? gameHistory = null, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

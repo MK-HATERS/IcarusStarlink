@@ -293,7 +293,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// <summary>
     /// Nexus's own recorded status for THIS account on this mod — null until "Check endorsements"
     /// has actually run (never persisted, same "computed at display time" precedent as
-    /// LatestVersion/StaleItemCount below — a stale cached endorsement status surviving a restart
+    /// LatestVersion below — a stale cached endorsement status surviving a restart
     /// would be actively misleading if it changed on Nexus's own website in the meantime).
     /// </summary>
     [ObservableProperty]
@@ -397,41 +397,6 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     partial void OnLatestVersionChanged(string? value) => OnPropertyChanged(nameof(HasUpdateAvailable));
 
     /// <summary>
-    /// Populated by LibraryViewModel.CheckModsAgainstCurrentDataAsync — count of this mod's own
-    /// items that look like they're editing a row the currently-extracted game data no longer has
-    /// (a small field count is the tell; see StaleItemHeuristic). Not persisted, recomputed each
-    /// check — same "computed at display time" precedent as LatestVersion/HasUpdateAvailable above.
-    /// </summary>
-    [ObservableProperty]
-    private int _staleItemCount;
-
-    public bool HasPossiblyStaleItems => StaleItemCount > 0;
-
-    partial void OnStaleItemCountChanged(int value) => OnPropertyChanged(nameof(HasPossiblyStaleItems));
-
-    /// <summary>
-    /// A best-guess replacement name for the first remaining flagged item, when one exists but
-    /// wasn't confident enough to auto-apply (see StaleItemFixSuggester's ambiguity/field-overlap
-    /// guards) — shown in the row's warning badge tooltip so a user doesn't have to open the editor
-    /// just to learn there's a guess at all. Null when there's no candidate close enough to name.
-    /// </summary>
-    [ObservableProperty]
-    private string? _staleItemSuggestionHint;
-
-    private IReadOnlyList<ExmodStalenessChecker.StaleItem> _staleItems = [];
-
-    /// <summary>The first flagged item, if any — the item to pre-select when this mod is opened in the editor for its stale items.</summary>
-    public (string CurrentFile, string ItemName)? FirstStaleItem =>
-        _staleItems.Count > 0 ? (_staleItems[0].CurrentFile, _staleItems[0].ItemName) : null;
-
-    public void SetStaleItems(IReadOnlyList<ExmodStalenessChecker.StaleItem> staleItems, string? suggestionHint)
-    {
-        _staleItems = staleItems;
-        StaleItemCount = staleItems.Count;
-        StaleItemSuggestionHint = suggestionHint;
-    }
-
-    /// <summary>
     /// What "Check mods against game data" found doesn't fit the current game (ModHealthChecker):
     /// old copies of game data, mixed lists, renamed rows. Drives the row's warning badge, which
     /// opens the fix window. Not persisted, recomputed each check.
@@ -445,13 +410,14 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     partial void OnModIssueCountChanged(int value) => OnPropertyChanged(nameof(HasModIssues));
 
+    /// <summary>"Doesn't fully fit the current game: 3 sure fixes, 2 to look over": the sure ones are what Fix sure problems makes (old copies, proven broken links and renames).</summary>
     public string ModIssuesTooltip => Health is not { HasProblems: true } health
         ? ""
         : "Doesn't fully fit the current game: "
           + string.Join(", ", new[]
             {
-                health.Count(ModIssueKind.OldCopy) > 0 ? $"{health.Count(ModIssueKind.OldCopy)} old copies of game data (sure fixes)" : null,
-                health.ProblemCount - health.Count(ModIssueKind.OldCopy) is > 0 and var toLook ? $"{toLook} to look over" : null,
+                health.Issues.Count(i => i.IsAutomatic && !i.IsTidyOnly) is > 0 and var sure ? $"{sure} sure fix(es)" : null,
+                health.Issues.Count(i => !i.IsTidyOnly && !i.IsAutomatic) is > 0 and var toLook ? $"{toLook} to look over" : null,
             }.Where(p => p is not null))
           + ". Click to see them and fix.";
 

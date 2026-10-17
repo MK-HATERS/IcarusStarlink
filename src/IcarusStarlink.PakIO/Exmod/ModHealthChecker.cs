@@ -23,9 +23,11 @@ public enum ModIssueKind
     MissingRow,
 
     /// <summary>
-    /// A link to a row the game doesn't have (and no mod in the Library adds), where the game's own
-    /// link is real: does nothing in game (a canteen you can't drink from, an item with no model).
-    /// Sure, but only made where every Library mod's new rows are known (not while converting a pak).
+    /// A link, at any depth of any row (the mod's own new rows too), to a row the game doesn't have
+    /// and no mod in the Library adds: does nothing in game (a canteen you can't drink from, an
+    /// item with no model). Sure only for a game row's own link field where the game's link is real
+    /// and the game's row history proves the game had the row the mod links to (and every Library
+    /// mod's new rows are known); otherwise only listed, kept as the mod has it.
     /// </summary>
     BrokenLink,
 
@@ -48,9 +50,10 @@ public enum ModIssueFix
     RemoveRow,
 }
 
-/// <param name="FieldName">Null for a whole-row issue (MissingRow).</param>
+/// <param name="FieldName">Null for a whole-row issue (MissingRow). A path ("Inputs[0].Element") for a link inside a field.</param>
 /// <param name="MergedValue">MixedList and LikelyOld-with-lists: the game's current value plus what the mod added.</param>
 /// <param name="IsSure">Safe to fix without asking: the fix keeps everything the mod meant to do.</param>
+/// <param name="Remembered">The user chose this fix for this mod before (ModFixDecisions): it's made again by itself, tidying included.</param>
 public sealed record ModIssue(
     ModIssueKind Kind,
     string CurrentFile,
@@ -62,12 +65,15 @@ public sealed record ModIssue(
     string? SuggestedRow,
     ModIssueFix DefaultFix,
     bool IsSure,
-    string Why)
+    string Why,
+    bool Remembered = false)
 {
     public IReadOnlyList<ModIssueFix> Choices => Kind switch
     {
         ModIssueKind.MissingRow => SuggestedRow is null ? [ModIssueFix.RemoveRow, ModIssueFix.KeepMod] : [ModIssueFix.RenameRow, ModIssueFix.RemoveRow, ModIssueFix.KeepMod],
         ModIssueKind.OldGameRow => [ModIssueFix.RemoveRow, ModIssueFix.KeepMod],
+        // A link inside a field, or in the mod's own row: no game value to go back to, only to look at.
+        ModIssueKind.BrokenLink when GameValue is null => [ModIssueFix.KeepMod],
         _ when MergedValue is not null => [ModIssueFix.Merge, ModIssueFix.UseGame, ModIssueFix.KeepMod],
         ModIssueKind.SameAsGame => [ModIssueFix.UseGame, ModIssueFix.KeepMod],
         _ => [ModIssueFix.UseGame, ModIssueFix.KeepMod],
@@ -75,6 +81,13 @@ public sealed record ModIssue(
 
     /// <summary>Changes nothing in game either way: taking it out only makes the mod smaller.</summary>
     public bool IsTidyOnly => Kind is ModIssueKind.SameAsGame or ModIssueKind.OldGameRow;
+
+    /// <summary>
+    /// Made by Fix sure problems without asking: a sure fix to something that matters in game, or a
+    /// choice the user made before. Tidying alone never is: a hand-made mod's values that match the
+    /// game are its author's (Ferani's Effortless Lights sets AlwaysActive on purpose).
+    /// </summary>
+    public bool IsAutomatic => IsSure && DefaultFix != ModIssueFix.KeepMod && (!IsTidyOnly || Remembered);
 }
 
 /// <param name="BuiltFor">Which game version the mod's rows come from (when the game's row history is known).</param>
@@ -83,6 +96,9 @@ public sealed record ModHealthReport(IReadOnlyList<ModIssue> Issues, int AuthorC
     public static ModHealthReport Healthy { get; } = new([], 0);
 
     public int SureCount => Issues.Count(i => i.IsSure);
+
+    /// <summary>What Fix sure problems would change by itself (<see cref="ModIssue.IsAutomatic"/>): never tidying alone.</summary>
+    public int SureProblemCount => Issues.Count(i => i.IsAutomatic);
 
     public int ReviewCount => Issues.Count(i => !i.IsSure);
 
@@ -155,6 +171,14 @@ public static class ModHealthChecker
         var authorChanges = 0;
         var wholesaleFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // Every link to a row nothing has, at any depth of any row; a game row's own link field is
+        // judged with its other differences below, the rest are listed after.
+        var brokenLinks = BrokenLinks(package, gameIndex, rowsOtherModsAdd).ToList();
+        var topLevelLinks = brokenLinks.Where(l => l.Path == l.Field)
+            .GroupBy(l => (File: l.File.ToLowerInvariant(), Item: l.Item.ToLowerInvariant(), l.Field))
+            .ToDictionary(g => g.Key, g => g.Last());
+        var linksJudged = new HashSet<BrokenLinkFound>();
+
         foreach (var row in package.Rows)
         {
             if (ExmodSentinelFiles.IsEndOfModMarker(row.CurrentFile) || Table(row.CurrentFile, dataFolder, baseTableCache) is not { } table)
@@ -172,6 +196,11 @@ public static class ModHealthChecker
             // Old by shape only (a shorter list, a deleted field): decided once it's known whether
             // this table is a copy (below).
             var oldByShape = new List<ModIssue>();
+
+            // A value the game had before a recent update: an old copy in a prebuilt pak or a copied
+            // table, but in a hand-made mod possibly the author putting it back on purpose (a
+            // "revert the nerf" mod). Also decided once it's known whether this table is a copy.
+            var oldByHistory = new List<ModIssue>();
 
             // The last entry wins when a mod lists a row twice (as the merge does), so judge that one.
             foreach (var item in row.FileItems.GroupBy(i => i.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.Last()))
@@ -213,7 +242,7 @@ public static class ModHealthChecker
                     if (history.WasOldValue(row.CurrentFile, item.Name, field, value) && !JsonNode.DeepEquals(value, gameValue))
                     {
                         rowsWithOld.Add(item.Name);
-                        tableIssues.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
+                        oldByHistory.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
                             ModIssueFix.UseGame, IsSure: true, "The game changed this in a recent update; the mod still has the value from before."));
                         continue;
                     }
@@ -235,17 +264,27 @@ public static class ModHealthChecker
                                 ModIssueFix.Merge, IsSure: false, MixedWhy(value, gameValue)));
                             break;
                         default:
-                            if (BrokenLink(gameIndex, package, row.CurrentFile, field, value, gameValue, rowsOtherModsAdd) is { } broken)
+                            if (topLevelLinks.TryGetValue((row.CurrentFile.ToLowerInvariant(), item.Name.ToLowerInvariant(), field), out var broken)
+                                && gameValue is JsonObject gameLink && gameLink["RowName"] is JsonValue gameRowValue && gameRowValue.TryGetValue<string>(out var gameLinkRow)
+                                && gameIndex.HasRow(broken.TargetFile, gameLinkRow))
                             {
                                 // A link to a row the game doesn't have does nothing in game (an item that
-                                // can't be used, a recipe that never shows): never what anyone meant.
-                                var gone = rowHistory?.Find(broken.TargetFile, broken.Row) is { } seen
-                                    ? $"which the game removed after {seen.LastSeen}"
-                                    : "which the game doesn't have";
-                                tableIssues.Add(new(ModIssueKind.BrokenLink, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
-                                    ModIssueFix.UseGame, IsSure: true,
-                                    $"Links to '{broken.Row}' in {broken.Table}, {gone}, so this does nothing in game. The game links it to '{broken.GameRow}'."));
-                                rowsWithOld.Add(item.Name);
+                                // can't be used, a recipe that never shows). Sure only when the game's own
+                                // history proves the row was the game's and it removed it: a row it never
+                                // had may be one another mod (not in this Library) adds.
+                                linksJudged.Add(broken);
+                                var removed = rowHistory?.Find(broken.TargetFile, broken.Row);
+                                var proven = removed is not null && rowsOtherModsAdd is not null;
+                                tableIssues.Add(new(ModIssueKind.BrokenLink, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue.DeepClone(), null, null,
+                                    proven ? ModIssueFix.UseGame : ModIssueFix.KeepMod, IsSure: proven,
+                                    removed is not null
+                                        ? $"Links to '{broken.Row}' in {broken.Table}, which the game removed after {removed.LastSeen}, so this does nothing in game. The game links it to '{gameLinkRow}'."
+                                        : $"Links to '{broken.Row}' in {broken.Table}, which neither the game nor any mod in your Library has: it needs a mod that adds '{broken.Row}'. Without one it does nothing in game; the game links it to '{gameLinkRow}'."));
+                                if (removed is not null)
+                                {
+                                    // A link to a row the game used to have is what an old copy looks like.
+                                    rowsWithOld.Add(item.Name);
+                                }
                             }
                             else
                             {
@@ -268,11 +307,21 @@ public static class ModHealthChecker
             if (fromPrebuiltPak || wholesale)
             {
                 tableIssues.AddRange(oldByShape);
+                tableIssues.AddRange(oldByHistory);
             }
             else
             {
                 // A hand-made mod's own edit: an author emptying a list or deleting a field meant it.
                 authorChanges += oldByShape.Count;
+
+                // An old value is listed but kept unless you choose otherwise: putting a value back
+                // the game changed can be the whole point of a hand-made mod.
+                tableIssues.AddRange(oldByHistory.Select(i => i with
+                {
+                    IsSure = false,
+                    DefaultFix = ModIssueFix.KeepMod,
+                    Why = "The game changed this in a recent update, and the mod has the value from before: either an old copy, or the author putting the old value back on purpose.",
+                }));
             }
 
             if (wholesale)
@@ -320,10 +369,12 @@ public static class ModHealthChecker
             }
         }
 
-        // Small edits to rows the game no longer has, renamed since. A row the mod itself makes or
-        // links to elsewhere is its own new content (a new bag's priority row), never "missing";
-        // and without a likely new name there is nothing to offer, so it isn't listed.
+        // Small edits to rows the game no longer has: renamed since, or removed. A row the mod itself
+        // makes or links to elsewhere is its own new content (a new bag's priority row), never
+        // "missing"; and without a likely new name or the history's proof that the game removed it,
+        // there is nothing to offer, so it isn't listed.
         var ownNames = OwnRowNames(package, dataFolder, baseTableCache);
+        var missingRows = new HashSet<string>(StringComparer.Ordinal);
         foreach (var stale in ExmodStalenessChecker.FindLikelyStaleItems(package, dataFolder, classifier ?? new DefaultSemanticClassifier(), baseTableCache, ownAssetPaths))
         {
             // Row names ignore case in the game, so "Pickaxe_Mk2" already is the game's "Pickaxe_MK2".
@@ -346,6 +397,16 @@ public static class ModHealthChecker
             var suggestion = baseTableCache.TryGetValue(stale.CurrentFile, out var baseTable) && baseTable is not null ?StaleItemFixSuggester.Suggest(stale.ItemName, fields, baseTable) : null;
             if (suggestion is null)
             {
+                // No likely new name, but the history proves the game had this row and removed it:
+                // the edit has nothing left to change (it's what the "made for" line counts).
+                if (hadIt is not null && hadIt.Last < rowHistory!.Latest)
+                {
+                    missingRows.Add(AddedRowKey(stale.CurrentFile, stale.ItemName));
+                    issues.Add(new(ModIssueKind.MissingRow, stale.CurrentFile, stale.ItemName, null, null, null, null, null,
+                        ModIssueFix.RemoveRow, IsSure: false,
+                        $"The game removed this row after {hadIt.LastSeen}, so this edit has nothing left to change. The game has no row with a similar name to move it to."));
+                }
+
                 continue;
             }
 
@@ -355,19 +416,34 @@ public static class ModHealthChecker
             var hasNew = hadIt is not null ? rowHistory!.Find(stale.CurrentFile, newName) : null;
             var renamedInOneUpdate = hadIt is not null && hasNew is not null && hasNew.First == hadIt.Last + 1;
             var bothAtOnce = hadIt is not null && hasNew is not null && hasNew.First <= hadIt.Last;
-            // Made by itself only when the names match closely too: timing alone picks the fix, you confirm it.
-            var sure = suggestion.CanAutoApply && !bothAtOnce;
+            // Made by itself only when the history proves the rename and the names match closely too;
+            // a similar name alone is a guess, made only when you confirm it.
+            var sure = renamedInOneUpdate && suggestion.CanAutoApply;
             var why = renamedInOneUpdate
                 ? $"The game renamed this row to '{newName}' in the update after {hadIt!.LastSeen}."
                 : bothAtOnce
                     ? $"The game removed this row after {hadIt!.LastSeen}. '{newName}' has a similar name, but the game had both at once, so it's probably a different thing."
-                    : sure
-                        ? $"The game no longer has this row: it was renamed to '{newName}'."
-                        : hadIt is not null
-                            ? $"The game removed this row after {hadIt.LastSeen}. It may have been renamed to '{newName}'."
-                            : $"The game no longer has this row. It may have been renamed to '{newName}', or this is the mod's own new row.";
+                    : hadIt is not null
+                        ? $"The game removed this row after {hadIt.LastSeen}. It may have been renamed to '{newName}', which has a similar name."
+                        : $"The game no longer has this row. It may have been renamed to '{newName}', which has a similar name, or this is the mod's own new row.";
+            missingRows.Add(AddedRowKey(stale.CurrentFile, stale.ItemName));
             issues.Add(new(ModIssueKind.MissingRow, stale.CurrentFile, stale.ItemName, null, null, null, null, newName,
-                sure || renamedInOneUpdate ? ModIssueFix.RenameRow : ModIssueFix.KeepMod, IsSure: sure, why));
+                renamedInOneUpdate ? ModIssueFix.RenameRow : ModIssueFix.KeepMod, IsSure: sure, why));
+        }
+
+        // The links not judged with a game row's other differences: inside a field, or in a row the
+        // game doesn't have (the mod's own new rows too). Only listed: there's no game value to go
+        // back to. Rows already listed as old or missing are left out (their links go with them).
+        foreach (var link in brokenLinks.Where(l => !linksJudged.Contains(l)
+            && !oldRows.Contains(AddedRowKey(l.File, l.Item)) && !missingRows.Contains(AddedRowKey(l.File, l.Item))))
+        {
+            var removed = rowHistory?.Find(link.TargetFile, link.Row);
+            var links = gameIndex.HasRow(link.File, link.Item) ? "Links" : "This row of the mod's own links";
+            issues.Add(new(ModIssueKind.BrokenLink, link.File, link.Item, link.Path, link.Link.DeepClone(), null, null, null,
+                ModIssueFix.KeepMod, IsSure: false,
+                removed is not null
+                    ? $"{links} to '{link.Row}' in {link.Table}, which the game removed after {removed.LastSeen}, so this link does nothing in game. Edit the mod to link it to a row the game has now."
+                    : $"{links} to '{link.Row}' in {link.Table}, which neither the game nor any mod in your Library has: it needs a mod that adds '{link.Row}'. Without one this link does nothing in game."));
         }
 
         // What the user decided before for this mod: a value they kept is theirs now (unless either
@@ -387,7 +463,7 @@ public static class ModHealthChecker
                 }
                 else if (issue.Choices.Contains(fix))
                 {
-                    remembered.Add(issue with { DefaultFix = fix, IsSure = true, Why = issue.Why + " Done as you chose before." });
+                    remembered.Add(issue with { DefaultFix = fix, IsSure = true, Remembered = true, Why = issue.Why + " Done as you chose before." });
                 }
                 else
                 {
@@ -477,9 +553,9 @@ public static class ModHealthChecker
             HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(obj.File), StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Item));
     }
 
-    /// <summary>Applies every sure fix (the automatic part); returns how many.</summary>
+    /// <summary>Applies every automatic fix (sure problems and remembered choices, never tidying alone); returns how many.</summary>
     public static int ApplySure(ExmodPackage package, ModHealthReport report) =>
-        Apply(package, report.Issues.Where(i => i.IsSure).Select(i => (i, i.DefaultFix)).ToList());
+        Apply(package, report.Issues.Where(i => i.IsAutomatic).Select(i => (i, i.DefaultFix)).ToList());
 
     private static Verdict Judge(JsonNode? mod, JsonNode? game)
     {
@@ -633,34 +709,99 @@ public static class ModHealthChecker
         return (0, 0);
     }
 
+    /// <summary>A link to a row nothing has: where it is (Path is "Field" or "Field[0].Element"), where it points, and the link itself.</summary>
+    private sealed record BrokenLinkFound(string File, string Item, string Field, string Path, JsonObject Link, string Row, string Table, string TargetFile);
+
     /// <summary>
-    /// The mod links this field to a row its target table doesn't have (and the mod doesn't add),
-    /// where the game's own link is to a real row: (the missing row, its table, the game's row).
-    /// The target table is the link's own DataTableName, else the field's in the table's Defaults.
+    /// Every {"RowName": X} link, at any depth of every row the mod lists (its own new rows too),
+    /// to a row its target table doesn't have, that this mod doesn't add and no other Library mod
+    /// does (an add-on linking to the mod it's for). The target table is the link's own
+    /// DataTableName, else the one the table's Defaults give at the same place (a list's first
+    /// entry stands for every entry). A link the game's own row has too is the game's, not the mod's.
     /// </summary>
-    private static (string Row, string Table, string TargetFile, string GameRow)? BrokenLink(
-        GameTableIndex index, ExmodPackage package, string currentFile, string field, JsonNode? mod, JsonNode? game,
-        IReadOnlySet<string>? rowsOtherModsAdd)
+    private static IEnumerable<BrokenLinkFound> BrokenLinks(ExmodPackage package, GameTableIndex index, IReadOnlySet<string>? rowsOtherModsAdd)
     {
-        if (mod is not JsonObject link || link["RowName"] is not JsonValue rowValue || !rowValue.TryGetValue<string>(out var rowName)
-            || rowName.Length == 0 || string.Equals(rowName, "None", StringComparison.OrdinalIgnoreCase)
-            || game is not JsonObject gameLink || gameLink["RowName"] is not JsonValue gameRowValue || !gameRowValue.TryGetValue<string>(out var gameRow))
+        var modAdds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in package.Rows)
         {
-            return null;
+            foreach (var item in row.FileItems)
+            {
+                modAdds.Add(AddedRowKey(row.CurrentFile, item.Name));
+            }
         }
 
-        var table = link["DataTableName"] is JsonValue t && t.TryGetValue<string>(out var named) && named.Length > 0 ? named : index.LinkTarget(currentFile, field);
-        if (table is null || index.CurrentFileFor(table) is not { } targetFile || index.Rows(targetFile) is null
-            || index.HasRow(targetFile, rowName) || !index.HasRow(targetFile, gameRow))
+        foreach (var row in package.Rows.Where(r => !ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile)))
         {
-            return null;
+            if (index.Rows(row.CurrentFile) is null)
+            {
+                continue;
+            }
+
+            var defaults = index.Defaults(row.CurrentFile);
+            foreach (var item in row.FileItems.GroupBy(i => i.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.Last()))
+            {
+                var gameLinks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                CollectLinks(index.Row(row.CurrentFile, item.Name), gameLinks);
+                foreach (var (field, value) in item.Fields)
+                {
+                    foreach (var (path, link, rowName, table) in Links(value, defaults?[field], field))
+                    {
+                        if (gameLinks.Contains(rowName) || index.CurrentFileFor(table) is not { } targetFile || index.Rows(targetFile) is null
+                            || index.HasRow(targetFile, rowName) || modAdds.Contains(AddedRowKey(targetFile, rowName))
+                            || rowsOtherModsAdd?.Contains(AddedRowKey(targetFile, rowName)) == true)
+                        {
+                            continue;
+                        }
+
+                        yield return new BrokenLinkFound(row.CurrentFile, item.Name, field, path, link, rowName, table, targetFile);
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>The links in a value with the table each points into, walking the table's Defaults alongside it.</summary>
+    private static IEnumerable<(string Path, JsonObject Link, string Row, string Table)> Links(JsonNode? node, JsonNode? defaults, string path)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                if (o["RowName"] is JsonValue rowValue && rowValue.TryGetValue<string>(out var rowName)
+                    && rowName.Length > 0 && !string.Equals(rowName, "None", StringComparison.OrdinalIgnoreCase)
+                    && (TableName(o) ?? (defaults is JsonObject d ? TableName(d) : null)) is { } table)
+                {
+                    yield return (path, o, rowName, table);
+                }
+
+                foreach (var (key, child) in o)
+                {
+                    if (key is "RowName" or "DataTableName")
+                    {
+                        continue;
+                    }
+
+                    foreach (var found in Links(child, (defaults as JsonObject)?[key], $"{path}.{key}"))
+                    {
+                        yield return found;
+                    }
+                }
+
+                break;
+            case JsonArray a:
+                var entryDefaults = defaults is JsonArray { Count: > 0 } d2 ? d2[0] : null;
+                for (var i = 0; i < a.Count; i++)
+                {
+                    foreach (var found in Links(a[i], entryDefaults, $"{path}[{i}]"))
+                    {
+                        yield return found;
+                    }
+                }
+
+                break;
         }
 
-        // A row this mod adds, or another Library mod does (an add-on linking to the mod it's for).
-        var modAddsIt = package.Rows.Any(r => string.Equals(r.CurrentFile, targetFile, StringComparison.OrdinalIgnoreCase)
-            && r.FileItems.Any(i => string.Equals(i.Name, rowName, StringComparison.OrdinalIgnoreCase)));
-        var anotherModAddsIt = rowsOtherModsAdd?.Contains(AddedRowKey(targetFile, rowName)) == true;
-        return modAddsIt || anotherModAddsIt ? null : (rowName, table, targetFile, gameRow);
+        static string? TableName(JsonObject o) =>
+            o["DataTableName"] is JsonValue t && t.TryGetValue<string>(out var named) && named.Length > 0 && !string.Equals(named, "None", StringComparison.OrdinalIgnoreCase) ? named : null;
     }
 
     /// <summary>

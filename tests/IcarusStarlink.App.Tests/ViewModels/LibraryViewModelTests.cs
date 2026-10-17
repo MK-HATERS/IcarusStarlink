@@ -995,7 +995,7 @@ public sealed class LibraryViewModelTests
     /// applies nothing, so nothing is logged as fixed and nothing is backed up.
     /// </summary>
     [Fact]
-    public void AfterTheFixWindow_KeepAll_IsNotLoggedAsFixed_AndTheBadgeIsCheckedAgain()
+    public async Task AfterTheFixWindow_KeepAll_IsNotLoggedAsFixed_AndTheBadgeIsCheckedAgain()
     {
         var harness = new TestHarness();
         const string folderName = "RenamedRowMod_KeepAll";
@@ -1014,7 +1014,7 @@ public sealed class LibraryViewModelTests
             }
 
             fixWindow.ApplyCommand.Execute(null);
-            vm.AfterModFixClosed(item, fixWindow);
+            await vm.AfterModFixClosedAsync(item, fixWindow);
 
             Assert.True(fixWindow.IsApplied);
             Assert.Equal(0, fixWindow.AppliedCount);
@@ -1080,14 +1080,15 @@ public sealed class LibraryViewModelTests
         var baseDataDir = Path.Combine(harness.DataFolder, "Items");
         Directory.CreateDirectory(baseDataDir);
 
-        // An earlier game version had the old name (so it's a real renamed game row, not the mod's own).
+        // An earlier game version had the old name (so it's a real renamed game row, not the mod's own),
+        // renamed in the very next one. Dated after the shipped history, or the refreshes would be older than it.
         var history = GameRowHistory.LocalFileFor(harness.DataFolder);
         File.WriteAllText(Path.Combine(baseDataDir, "D_ItemTemplate.json"), """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickax_MK2","RequiredMillijoules":100}]}""");
-        GameRowHistory.Record(harness.DataFolder, history, DateTimeOffset.UtcNow.AddDays(-14));
+        GameRowHistory.Record(harness.DataFolder, history, new DateTimeOffset(2099, 1, 1, 0, 0, 0, TimeSpan.Zero));
         File.WriteAllText(
             Path.Combine(baseDataDir, "D_ItemTemplate.json"),
             """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe_MK2","RequiredMillijoules":100}]}""");
-        GameRowHistory.Record(harness.DataFolder, history, DateTimeOffset.UtcNow.AddDays(-7));
+        GameRowHistory.Record(harness.DataFolder, history, new DateTimeOffset(2099, 1, 8, 0, 0, 0, TimeSpan.Zero));
 
         var modFolderPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(modFolderPath);
@@ -2030,7 +2031,7 @@ public sealed class LibraryViewModelTests
     private sealed class FakePrebuiltPakToExmodConverter : IPrebuiltPakToExmodConverter
     {
         public Task<PrebuiltPakConversionResult?> TryConvertAsync(
-            string pakFilePath, string dataFolder, string unrealPakExePath, string name, string author, MergeReport report, CancellationToken cancellationToken = default) =>
+            string pakFilePath, string dataFolder, string unrealPakExePath, string name, string author, MergeReport report, GameValueHistory? gameHistory = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
     }
 

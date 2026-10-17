@@ -30,6 +30,7 @@ public sealed class GameRowHistory
     public static GameRowHistory Empty { get; } = new([], new(StringComparer.OrdinalIgnoreCase));
 
     private readonly List<string> _versions;
+    private readonly List<string> _dates = [];
     private readonly Dictionary<string, Dictionary<string, (int First, int Last)>> _tables;
 
     private GameRowHistory(List<string> versions, Dictionary<string, Dictionary<string, (int First, int Last)>> tables)
@@ -112,17 +113,35 @@ public sealed class GameRowHistory
 
         var versions = root["versions"] as JsonArray ?? [];
         var tables = root["tables"] as JsonObject ?? [];
-        var index = versions.Count;
-        versions.Add(new JsonObject { ["label"] = when.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["date"] = when.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) });
 
+        var found = new List<(string CurrentFile, List<string> Names)>();
         foreach (var path in Directory.EnumerateFiles(dataFolder, "D_*.json", SearchOption.AllDirectories))
         {
             var currentFile = Path.GetRelativePath(dataFolder, path).Replace(Path.DirectorySeparatorChar, '-').Replace('/', '-');
-            if (RowNames(path) is not { } names)
+            if (RowNames(path) is { } names)
             {
-                continue;
+                found.Add((currentFile, names));
             }
+        }
 
+        // A refresh that changed no row name (the same game version extracted again) adds nothing:
+        // a second identical version would make a removal look one update later than it was.
+        var fingerprint = Fingerprint(found);
+        if (versions.Count > 0 && versions[^1] is JsonObject last && last["rows"]?.ToString() == fingerprint)
+        {
+            return;
+        }
+
+        var index = versions.Count;
+        versions.Add(new JsonObject
+        {
+            ["label"] = when.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ["date"] = when.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ["rows"] = fingerprint,
+        });
+
+        foreach (var (currentFile, names) in found)
+        {
             if (tables[currentFile] is not JsonObject rows)
             {
                 tables[currentFile] = rows = [];
@@ -143,7 +162,28 @@ public sealed class GameRowHistory
         File.Move(temp, localFile, overwrite: true);
     }
 
-    /// <summary>Adds a history file's versions after the ones already here (shipped first, then the user's own).</summary>
+    /// <summary>The row names of one game version, as a short hash (to spot a refresh that changed nothing).</summary>
+    private static string Fingerprint(List<(string CurrentFile, List<string> Names)> tables)
+    {
+        var text = new StringBuilder();
+        foreach (var (file, names) in tables.OrderBy(t => t.CurrentFile, StringComparer.OrdinalIgnoreCase))
+        {
+            text.Append(file.ToLowerInvariant()).Append('\n');
+            foreach (var name in names.Select(n => n.ToLowerInvariant()).Order(StringComparer.Ordinal))
+            {
+                text.Append(name).Append('\n');
+            }
+        }
+
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..16];
+    }
+
+    /// <summary>
+    /// Adds a history file's versions after the ones already here (shipped first, then the user's
+    /// own). A version dated on or before the newest one already here is left out: the user's part
+    /// recorded before this release's shipped history was built would otherwise land after it,
+    /// out of order, and make rows the game removed since look as if it still had them.
+    /// </summary>
     private void Merge(JsonObject? root)
     {
         if (root?["versions"] is not JsonArray versions || root["tables"] is not JsonObject tables)
@@ -151,10 +191,23 @@ public sealed class GameRowHistory
             return;
         }
 
-        var offset = _versions.Count;
-        foreach (var version in versions.OfType<JsonObject>())
+        // Where each of this file's versions lands here (-1: left out). Only compared with the parts
+        // merged before: the shipped history itself has several versions on one date.
+        var newestDate = _dates.Count > 0 ? _dates[^1] : null;
+        var position = new int[versions.Count];
+        for (var i = 0; i < versions.Count; i++)
         {
-            _versions.Add(Label(version["label"]?.ToString(), version["date"]?.ToString()));
+            var version = versions[i] as JsonObject;
+            var date = version?["date"]?.ToString();
+            if (version is null || (newestDate is not null && date is not null && string.CompareOrdinal(date, newestDate) <= 0))
+            {
+                position[i] = -1;
+                continue;
+            }
+
+            position[i] = _versions.Count;
+            _versions.Add(Label(version["label"]?.ToString(), date));
+            _dates.Add(date ?? newestDate ?? "");
         }
 
         foreach (var (file, rowsNode) in tables)
@@ -176,7 +229,15 @@ public sealed class GameRowHistory
                     continue;
                 }
 
-                var (first, last) = (seen[0]!.GetValue<int>() + offset, seen[1]!.GetValue<int>() + offset);
+                // Seen only in versions left out: the history already here covers that time.
+                var (firstAt, lastAt) = (seen[0]!.GetValue<int>(), seen[1]!.GetValue<int>());
+                if (firstAt < 0 || lastAt >= position.Length || firstAt > lastAt || position[lastAt] < 0)
+                {
+                    continue;
+                }
+
+                var first = Enumerable.Range(firstAt, lastAt - firstAt + 1).Select(i => position[i]).First(p => p >= 0);
+                var last = position[lastAt];
                 known[row] = known.TryGetValue(row, out var before) ? (Math.Min(before.First, first), Math.Max(before.Last, last)) : (first, last);
             }
         }

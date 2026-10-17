@@ -25,6 +25,11 @@ public sealed class ModHealthCheckerTests : IDisposable
         }
 
         rows.Add(new JsonObject { ["Name"] = "Canteen", ["Consumable"] = new JsonObject { ["RowName"] = "BasicWater" } });
+        foreach (var ingredient in new[] { "Flour", "Wheat", "Leather" })
+        {
+            rows.Add(new JsonObject { ["Name"] = ingredient, ["Weight"] = 1 });
+        }
+
         Write("Items/D_ItemsStatic.json", rows, new JsonObject { ["Consumable"] = new JsonObject { ["RowName"] = "None", ["DataTableName"] = "D_Consumable" } });
         Write("Traits/D_Consumable.json", new JsonArray { new JsonObject { ["Name"] = "BasicWater" }, new JsonObject { ["Name"] = "Juice" } });
         Write("Crafting/D_ProcessorRecipes.json", new JsonArray
@@ -76,9 +81,12 @@ public sealed class ModHealthCheckerTests : IDisposable
         Assert.Contains(report.Issues, i => i.Kind == ModIssueKind.OldCopy && i.FieldName == "RequiredMillijoules");
         Assert.Contains(report.Issues, i => i.Kind == ModIssueKind.SameAsGame && i.FieldName == "Weight");
         Assert.All(report.Issues, i => Assert.True(i.IsSure));
+        Assert.Equal(1, report.SureProblemCount);
 
+        // Tidying is never automatic: the value the game already has stays until you take it out.
         ModHealthChecker.ApplySure(package, report);
-        Assert.DoesNotContain(package.Rows, r => r.CurrentFile is Items or Recipes);
+        Assert.DoesNotContain(package.Rows, r => r.CurrentFile is Recipes);
+        Assert.Contains(package.Rows, r => r.CurrentFile is Items);
     }
 
     /// <summary>
@@ -114,20 +122,24 @@ public sealed class ModHealthCheckerTests : IDisposable
 
     /// <summary>
     /// laanp's old copies linked the Canteen's drink effect to a "Canteen" consumable the game no
-    /// longer has, so it couldn't be drunk from. A link to a row that doesn't exist is a sure fix in
-    /// any mod; a link to a real other row, or to a row the mod adds itself, is the author's choice.
+    /// longer has, so it couldn't be drunk from. A link to a row nothing has is listed; without the
+    /// game's history proving the game had that row (the proven case is in GameRowHistoryTests), it
+    /// may be one a mod outside the Library adds, so it's kept unless you choose otherwise. A link
+    /// to a real other row, or to a row the mod adds itself, is the author's choice.
     /// </summary>
     [Fact]
-    public void ALinkToARowTheGameDoesntHave_IsASureFix_ButARealOrOwnRowIsTheAuthors()
+    public void ALinkToARowNothingHas_IsListed_ButSureOnlyWithProof_AndARealOrOwnRowIsTheAuthors()
     {
         var broken = Mod((Items, "Canteen", "Consumable", new JsonObject { ["RowName"] = "Canteen" }));
         var real = Mod((Items, "Canteen", "Consumable", new JsonObject { ["RowName"] = "Juice" }));
         var own = Mod((Items, "Canteen", "Consumable", new JsonObject { ["RowName"] = "Canteen_Drink" }), ("Traits-D_Consumable.json", "Canteen_Drink", "Modifier", 5));
 
-        var issue = Assert.Single(ModHealthChecker.Check(broken, _data).Issues);
+        var issue = Assert.Single(ModHealthChecker.Check(broken, _data, rowsOtherModsAdd: new HashSet<string>()).Issues);
         Assert.Equal(ModIssueKind.BrokenLink, issue.Kind);
-        Assert.True(issue.IsSure);
+        Assert.False(issue.IsSure);
+        Assert.Equal(ModIssueFix.KeepMod, issue.DefaultFix);
         Assert.Contains("'Canteen' in D_Consumable", issue.Why);
+        Assert.Contains("needs a mod that adds 'Canteen'", issue.Why);
         Assert.Contains("'BasicWater'", issue.Why);
 
         Assert.False(ModHealthChecker.Check(real, _data).HasIssues);
@@ -203,9 +215,76 @@ public sealed class ModHealthCheckerTests : IDisposable
         var history = new GameValueHistory([new FieldChange(Items, "Bread", "Weight", JsonValue.Create(25), JsonValue.Create(20), ValueSemantic.Scalar)]);
 
         Assert.False(ModHealthChecker.Check(package, _data).HasIssues);
-        var issue = Assert.Single(ModHealthChecker.Check(package, _data, gameHistory: history).Issues);
+        var issue = Assert.Single(ModHealthChecker.Check(package, _data, gameHistory: history, fromPrebuiltPak: true).Issues);
         Assert.Equal(ModIssueKind.OldCopy, issue.Kind);
         Assert.True(issue.IsSure);
+    }
+
+    /// <summary>A hand-made "revert the nerf" mod puts back the value the game had: listed, but kept unless you choose otherwise.</summary>
+    [Fact]
+    public void InAHandMadeMod_AValueTheGameHadBefore_IsOnlyListed_AndKept()
+    {
+        var package = Mod((Items, "Bread", "Weight", 25));
+        var history = new GameValueHistory([new FieldChange(Items, "Bread", "Weight", JsonValue.Create(25), JsonValue.Create(20), ValueSemantic.Scalar)]);
+
+        var report = ModHealthChecker.Check(package, _data, gameHistory: history);
+
+        var issue = Assert.Single(report.Issues);
+        Assert.Equal(ModIssueKind.OldCopy, issue.Kind);
+        Assert.False(issue.IsSure);
+        Assert.Equal(ModIssueFix.KeepMod, issue.DefaultFix);
+        Assert.Equal(0, report.SureProblemCount);
+        Assert.Equal(0, ModHealthChecker.ApplySure(package, report));
+    }
+
+    /// <summary>
+    /// Ferani's Effortless Lights sets AlwaysActive and AutoActivate to what the game has now: the
+    /// check says it fits, so nothing in it is ever changed by itself (taking them out is tidying).
+    /// </summary>
+    [Fact]
+    public void InAHandMadeMod_ValuesTheGameAlreadyHas_AreNeverFixedByThemselves()
+    {
+        var package = Mod((Items, "Bread", "Weight", 20), (Items, "Cheese", "Weight", 50));
+
+        var report = ModHealthChecker.Check(package, _data);
+
+        Assert.Equal(2, report.SureCount);
+        Assert.Equal(0, report.SureProblemCount);
+        Assert.False(report.HasProblems);
+        Assert.Equal(0, ModHealthChecker.ApplySure(package, report));
+        Assert.Equal(2, package.Rows.Single(r => r.CurrentFile == Items).FileItems.Count);
+    }
+
+    /// <summary>
+    /// Links are followed at any depth and in the mod's own new rows too (Diezel's Salt Collector
+    /// links its own item to a mesh the game removed; a recipe input can name an item nothing has).
+    /// Only listed: there's no game value to go back to.
+    /// </summary>
+    [Fact]
+    public void ALinkInsideAField_OrInTheModsOwnRow_ToARowNothingHas_IsListed()
+    {
+        var package = Mod(
+            (Recipes, "Bread_Recipe", "Inputs", new JsonArray { Input("Flour", 2), Input("Removed_Grain", 1) }),
+            (Items, "My_Own_Bottle", "Consumable", new JsonObject { ["RowName"] = "Gone_Drink" }),
+            (Items, "My_Own_Bottle", "Weight", 3),
+            (Recipes, "My_Own_Bottle", "Inputs", new JsonArray { Input("Leather", 1) }));
+
+        var report = ModHealthChecker.Check(package, _data, rowsOtherModsAdd: new HashSet<string>());
+
+        var links = report.Issues.Where(i => i.Kind == ModIssueKind.BrokenLink).OrderBy(i => i.ItemName).ToList();
+        Assert.Equal(2, links.Count);
+        Assert.Equal(("Bread_Recipe", "Inputs[1].Element"), (links[0].ItemName, links[0].FieldName));
+        Assert.Equal(("My_Own_Bottle", "Consumable"), (links[1].ItemName, links[1].FieldName));
+        Assert.StartsWith("This row of the mod's own links to 'Gone_Drink'", links[1].Why);
+        Assert.All(links, l =>
+        {
+            Assert.False(l.IsSure);
+            Assert.Equal([ModIssueFix.KeepMod], l.Choices);
+        });
+
+        // A row another Library mod adds is a dependency, not a broken link.
+        var withDependency = new HashSet<string> { ModHealthChecker.AddedRowKey(Items, "Removed_Grain"), ModHealthChecker.AddedRowKey("Traits-D_Consumable.json", "Gone_Drink") };
+        Assert.DoesNotContain(ModHealthChecker.Check(package, _data, rowsOtherModsAdd: withDependency).Issues, i => i.Kind == ModIssueKind.BrokenLink);
     }
 
     [Fact]
@@ -222,6 +301,11 @@ public sealed class ModHealthCheckerTests : IDisposable
         var renamed = Assert.Single(report.Issues, i => i.Kind == ModIssueKind.MissingRow);
         Assert.Equal("Wood_Floo", renamed.ItemName);
         Assert.Equal("Wood_Floor", renamed.SuggestedRow);
+
+        // A similar name alone isn't proof of a rename (no game history here): offered, not made.
+        Assert.False(renamed.IsSure);
+        Assert.Equal(ModIssueFix.KeepMod, renamed.DefaultFix);
+        Assert.DoesNotContain("was renamed", renamed.Why);
     }
 
     [Fact]

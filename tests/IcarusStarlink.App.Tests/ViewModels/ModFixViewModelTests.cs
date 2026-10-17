@@ -83,9 +83,12 @@ public sealed class ModFixViewModelTests : IDisposable
         Assert.False(Entry.IsLocallyEdited);
     }
 
-    /// <summary>Sure fixes aren't remembered as choices: a re-conversion after a game update used to drop them (a broken canteen link came back).</summary>
+    /// <summary>
+    /// Every fix Fix sure problems makes is remembered, so a re-conversion after a game update makes
+    /// exactly those again (it used to drop them: a broken canteen link came back).
+    /// </summary>
     [Fact]
-    public void ReapplyRemembered_AfterReconversion_MakesSureFixesAgain_WithNoChoicesRemembered()
+    public void ReapplyRemembered_AfterReconversion_MakesExactlyTheFixesMadeBefore()
     {
         var exmod = Directory.GetFiles(_library.GetFolderPath(_folder), "*.EXMOD", SearchOption.AllDirectories).Single();
         var original = File.ReadAllText(exmod);
@@ -93,23 +96,38 @@ public sealed class ModFixViewModelTests : IDisposable
         Assert.Equal(0, service.ReapplyRemembered(_folder));
 
         service.FixSure(_folder);
-        Assert.Equal(0, service.RememberedCount(_folder));
+        Assert.Equal(1, service.RememberedCount(_folder));
         File.WriteAllText(exmod, original);
 
-        Assert.True(service.ReapplyRemembered(_folder) > 0);
-        Assert.Equal(0, service.Check(_folder).SureCount);
+        Assert.Equal(1, service.ReapplyRemembered(_folder));
+        Assert.Equal(0, service.Check(_folder).SureProblemCount);
+        // The mixed list nobody chose a fix for stays as the mod has it.
+        Assert.Equal(2, ((JsonArray)Item("Cheese").Fields["Manual_Tags"]!["GameplayTags"]!).Count);
     }
 
-    /// <summary>A mod fixed before the fixed mark existed: the fresh conversion has sure problems the replaced copy didn't.</summary>
+    /// <summary>A mod never fixed is never touched by the refresh, however many sure problems its fresh conversion has.</summary>
     [Fact]
-    public void ReapplyRemembered_MoreSureProblemsThanTheReplacedCopy_FixesAgain_AndMarksIt()
+    public void ReapplyRemembered_NeverFixedBefore_ChangesNothing()
     {
-        var sure = Service.Check(_folder).SureCount;
-        Assert.True(sure > 0);
-        Assert.Equal(0, Service.ReapplyRemembered(_folder, sureBefore: sure));
+        Assert.True(Service.Check(_folder).SureProblemCount > 0);
 
-        Assert.True(Service.ReapplyRemembered(_folder, sureBefore: 0) > 0);
-        Assert.NotNull(Entry.FixedByIslAtUtc);
+        Assert.Equal(0, Service.ReapplyRemembered(_folder));
+
+        Assert.False(_library.HasModBackup(_folder));
+        Assert.True(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
+        Assert.Null(Entry.FixedByIslAtUtc);
+    }
+
+    /// <summary>A mod Fix sure problems fixed before it remembered its fixes (only marked fixed): fixed once more, and remembered from then on.</summary>
+    [Fact]
+    public void ReapplyRemembered_MarkedFixedByAnEarlierVersion_FixesItsSureProblems_AndRemembersThem()
+    {
+        _library.MarkFixedByIsl(_folder);
+
+        Assert.Equal(1, Service.ReapplyRemembered(_folder));
+
+        Assert.False(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
+        Assert.Equal(1, Service.RememberedCount(_folder));
     }
 
     [Fact]
@@ -189,7 +207,8 @@ public sealed class ModFixViewModelTests : IDisposable
 
         var again = Open();
         Assert.False(again.HasIssues);
-        Assert.Equal(1, again.RememberedCount);
+        // The kept list, and the sure fix made with it (made again after a re-conversion).
+        Assert.Equal(2, again.RememberedCount);
         Assert.Equal(2, again.AuthorChangeCount);
 
         again.ForgetChoicesCommand.Execute(null);
@@ -261,6 +280,12 @@ public sealed class ModFixViewModelTests : IDisposable
         var vm = new ModFixViewModel(entry.FolderName, "Tidy Mod", report, Service);
         Assert.StartsWith("Nothing here is wrong", vm.Summary);
         Assert.Equal("the same (no change)", vm.Groups.Single().Issues[0].GameText);
+
+        // Fix sure problems never tidies a mod that fits the game: nothing written, nothing backed up.
+        Assert.Equal(0, report.SureProblemCount);
+        Assert.Equal(0, Service.FixSure(entry.FolderName).Applied);
+        Assert.False(_library.HasModBackup(entry.FolderName));
+        Assert.Equal(2, Service.Check(entry.FolderName).Count(ModIssueKind.SameAsGame));
     }
 
     /// <summary>A converted prebuilt pak stays live: fixing it doesn't mark it edited, and after the next re-conversion the choices are made again.</summary>

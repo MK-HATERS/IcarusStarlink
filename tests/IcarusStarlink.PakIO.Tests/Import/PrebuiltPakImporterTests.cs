@@ -30,7 +30,7 @@ public class PrebuiltPakImporterTests : IDisposable
 
         public Task<PrebuiltPakConversionResult?> TryConvertAsync(
             string pakFilePath, string dataFolder, string unrealPakExePath, string name, string author,
-            MergeReport report, CancellationToken cancellationToken = default)
+            MergeReport report, GameValueHistory? gameHistory = null, CancellationToken cancellationToken = default)
         {
             LastName = name;
             LastAuthor = author;

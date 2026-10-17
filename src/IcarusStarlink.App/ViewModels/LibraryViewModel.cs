@@ -83,19 +83,13 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly Dictionary<string, LibraryGroupViewModel> _groupsByKey = [];
 
     /// <summary>
-    /// Open-editor-window count per folder name — CheckModsAgainstCurrentDataAsync's own auto-fix
-    /// pass consults this (a snapshot taken before its background Task.Run, see there) to skip
-    /// writing to any folder with a count above zero. Without this, its background backup+rewrite
-    /// could land while an editor window for that same mod is open: the editor's own _package was
-    /// loaded from disk before the auto-fix ran and has no idea it happened, so the very next click
-    /// of the editor's own Save button would write that stale in-memory copy straight back over the
-    /// just-applied auto-fix — silently discarding it with no error, and leaving the repository
-    /// record inconsistent with what SetStaleItems/NotifyRepairedFromDisk just told the UI moments
-    /// earlier. Skipping the write entirely (rather than trying to coordinate two writers with a
-    /// lock, which wouldn't stop the editor's own later Save from still clobbering it) is the
-    /// simplest fix that actually closes the race — the next staleness check run picks up that mod
-    /// once every editor window for it has closed. A count, not a HashSet, because nothing stops the
-    /// same folder being opened in more than one editor window at once.
+    /// Open-editor-window count per folder name. Every pass that writes mods (Fix sure problems, the
+    /// refresh after a game data update, scale rules) skips a folder with a count above zero, and
+    /// the fix window won't open for it: the editor's own _package was loaded from disk before, so
+    /// its next Save would write that stale copy straight back over the fix, silently. Skipping the
+    /// write (rather than coordinating two writers with a lock, which wouldn't stop the editor's own
+    /// later Save from still clobbering it) is the simplest thing that closes the race. A count, not
+    /// a HashSet, because nothing stops the same folder being opened in more than one editor window.
     /// </summary>
     private readonly Dictionary<string, int> _openEditorCountByFolder = new(StringComparer.OrdinalIgnoreCase);
 
@@ -1984,8 +1978,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         var report = new MergeReport();
+        var history = await Task.Run(FixService.History);
         var converted = await _prebuiltPakToExmodConverter.TryConvertAsync(
-            pakFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath ?? "", item.Name, item.Author, report);
+            pakFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath ?? "", item.Name, item.Author, report, history);
 
         if (converted is null)
         {
@@ -2128,6 +2123,44 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// </summary>
     private async Task RefreshConvertedOpaqueModsAsync()
     {
+        // It rewrites mods outside the fix service's lock, so never alongside a check or Fix sure
+        // problems pass (they write mods too): one already running gets this refresh right after.
+        if (IsCheckingStaleness)
+        {
+            _refreshConvertedPending = true;
+            return;
+        }
+
+        IsCheckingStaleness = true;
+        try
+        {
+            await RefreshConvertedOpaqueModsCoreAsync();
+        }
+        finally
+        {
+            IsCheckingStaleness = false;
+            RunPendingRefresh();
+        }
+    }
+
+    /// <summary>A game data refresh arrived while a check or fix pass ran: the refresh it asked for, once that pass is done.</summary>
+    private bool _refreshConvertedPending;
+
+    private void RunPendingRefresh()
+    {
+        if (_refreshConvertedPending)
+        {
+            _refreshConvertedPending = false;
+            _ = RefreshConvertedOpaqueModsAsync();
+        }
+    }
+
+    /// <summary>The tables, old values and Library-added rows one pass of checks shares (each Check would otherwise read them again).</summary>
+    private sealed record CheckPass(Dictionary<string, JsonObject?> Tables, GameValueHistory History, IReadOnlySet<string> AddedRows);
+
+    private async Task RefreshConvertedOpaqueModsCoreAsync()
+    {
+        CheckPass? pass = null;
         var stillOpaque = AllLibraryItems().Where(i => i.IsOpaquePak && !i.IsMergedPack && !i.IsPakBundle).ToList();
         var alreadyConverted = AllLibraryItems()
             .Where(i => i.ConvertedFromPrebuiltPak && !i.IsLocallyEdited && !i.IsOpaquePak)
@@ -2175,9 +2208,10 @@ public sealed partial class LibraryViewModel : ObservableObject
 
             try
             {
+                pass ??= await Task.Run(() => new CheckPass(new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase), FixService.History(), FixService.LibraryAddedRows()));
                 var report = new MergeReport();
                 var converted = await _prebuiltPakToExmodConverter.TryConvertAsync(
-                    sourcePakPath, _dataFolder, _settingsService.Current.UnrealPakExePath ?? "", item.Name, item.Author, report);
+                    sourcePakPath, _dataFolder, _settingsService.Current.UnrealPakExePath ?? "", item.Name, item.Author, report, pass.History);
                 if (converted is null)
                 {
                     continue;
@@ -2192,19 +2226,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 // .EXMOD" on the next rescan (an audit finding). Keep the existing package's own name.
                 converted.Contents.Package.FileName = ExmodFolder.ReadPackageOnly(folder).FileName;
 
-                // How many sure problems the copy being replaced has: more in the fresh conversion
-                // means fixes were made to it, so they're made again below.
                 var folderName = item.FolderName;
-                int? sureBefore;
-                try
-                {
-                    sureBefore = await Task.Run(() => FixService.Check(folderName).SureCount);
-                }
-                catch (Exception)
-                {
-                    sureBefore = null;
-                }
-
                 _repository.BackupMod(item.FolderName);
                 try
                 {
@@ -2225,17 +2247,17 @@ public sealed partial class LibraryViewModel : ObservableObject
                 _repository.Refresh();
                 refreshedCount++;
 
-                // The fixes the user chose for this mod in the fix window, made again on the fresh
-                // conversion (its sure ones the converter already left out).
+                // Exactly the fixes made to this mod before (in the fix window or by Fix sure
+                // problems), made again on the fresh conversion; nothing it wasn't asked to.
                 // Off the UI thread: the service is shared with any check or fix pass and waits its turn.
-                var reapplied = await Task.Run(() => FixService.ReapplyRemembered(folderName, sureBefore));
+                var reapplied = await Task.Run(() => FixService.ReapplyRemembered(folderName, pass.Tables, pass.History, pass.AddedRows));
                 if (reapplied > 0)
                 {
                     _activityLog.Log($"Made {reapplied} earlier fix(es) again in '{item.Name}' after refreshing it.", ActivityEntryKind.Info);
                 }
 
                 // The fresh conversion (and those fixes) can change what the row's badge says.
-                await RefreshHealthAsync(item);
+                await RefreshHealthAsync(item, pass);
             }
             catch (Exception ex)
             {
@@ -2806,9 +2828,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// the fix window is modal, so the editor couldn't be closed from behind it.
     /// </summary>
     [RelayCommand]
-    private void OpenModFix(LibraryItemViewModel? item)
+    private async Task OpenModFixAsync(LibraryItemViewModel? item)
     {
-        if (item is null || item.IsOpaquePak)
+        if (item is null || item.IsOpaquePak || _openingModFix)
         {
             return;
         }
@@ -2829,7 +2851,25 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             var folderName = item.FolderName;
-            var report = FixService.Check(folderName);
+            // Off the UI thread (a whole mod against the game data); one window at a time meanwhile.
+            ModHealthReport report;
+            _openingModFix = true;
+            try
+            {
+                report = await Task.Run(() => FixService.Check(folderName));
+            }
+            finally
+            {
+                _openingModFix = false;
+            }
+
+            // A check or refresh may have started while this one ran.
+            if (ModFixBlockedReason(item) is { } blockedNow)
+            {
+                StatusMessage = blockedNow;
+                return;
+            }
+
             item.SetHealth(report);
             viewModel = new ModFixViewModel(folderName, item.Name, report, FixService, () => _openEditorCountByFolder.ContainsKey(folderName));
             var window = new ModFixWindow(viewModel) { Owner = Application.Current.MainWindow };
@@ -2849,9 +2889,12 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         if (viewModel is not null)
         {
-            AfterModFixClosed(item, viewModel);
+            await AfterModFixClosedAsync(item, viewModel);
         }
     }
+
+    /// <summary>The fix window's own check is running (off the UI thread): a second click waits for it.</summary>
+    private bool _openingModFix;
 
     /// <summary>Why the fix window can't open for this mod right now (null: it can).</summary>
     internal string? ModFixBlockedReason(LibraryItemViewModel item)
@@ -2876,11 +2919,12 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// and Forget change what's flagged too), and only fixes actually made are logged as such
     /// ("Keep all as they are" applies nothing; it only remembers the choices).
     /// </summary>
-    internal void AfterModFixClosed(LibraryItemViewModel item, ModFixViewModel viewModel)
+    internal async Task AfterModFixClosedAsync(LibraryItemViewModel item, ModFixViewModel viewModel)
     {
+        var folderName = item.FolderName;
         try
         {
-            item.SetHealth(FixService.Check(item.FolderName));
+            item.SetHealth(await Task.Run(() => FixService.Check(folderName)));
         }
         catch (Exception)
         {
@@ -2910,9 +2954,10 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     /// <summary>
-    /// The automatic part: every sure fix (old copies of game data, values that already match the
-    /// game, certain renames) in every mod the last check flagged, each backed up first. What needs
-    /// a look stays flagged for the fix window.
+    /// The automatic part: every sure fix (old copies of game data, proven broken links and
+    /// renames) and every choice made before, in every mod the last check flagged, each backed up
+    /// first. Tidying alone (values the game already has) never: a hand-made mod that fits the game
+    /// isn't rewritten. What needs a look stays flagged for the fix window.
     /// </summary>
     [RelayCommand]
     private async Task FixSureProblemsAsync()
@@ -2922,7 +2967,10 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        var flagged = AllLibraryItems().Where(i => i.Health is { SureCount: > 0 } && !i.IsOpaquePak).ToList();
+        // A mod being converted again right now is left for that conversion (it rewrites the mod).
+        var flagged = AllLibraryItems()
+            .Where(i => i.Health is { SureProblemCount: > 0 } && !i.IsOpaquePak && !_foldersCurrentlyConvertingToExmod.Contains(i.FolderName))
+            .ToList();
         if (flagged.Count == 0)
         {
             StalenessCheckStatusMessage = "Nothing sure to fix. Run Check mods against game data first, or click a flagged row's warning badge.";
@@ -3008,6 +3056,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         finally
         {
             IsCheckingStaleness = false;
+            RunPendingRefresh();
         }
     }
 
@@ -3550,16 +3599,6 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
     }
 
-    /// <summary>One mod's own outcome from a CheckModsAgainstCurrentDataAsync pass — plain data, safe to build off the UI thread and apply afterward.</summary>
-    private sealed record ModStalenessResult(
-        IReadOnlyList<ExmodStalenessChecker.StaleItem> RemainingStaleItems,
-        string? SuggestionHint,
-        IReadOnlyList<string> AutoFixActivityMessages,
-        bool BackupTaken,
-        bool PackageChanged = false,
-        ModHealthReport? Health = null,
-        bool HealthCheckFailed = false);
-
     /// <summary>
     /// A separate question and a separate action from CheckForUpdatesAsync above (that's Nexus/
     /// catalog version-string checking) — this asks "does this mod's own data still match what the
@@ -3567,19 +3606,14 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// string. Explicit action (a toolbar button), not automatic on every Library load, since a
     /// whole-library base-vs-modded diff is real work a routine navigation shouldn't pay for.
     ///
-    /// Beyond detection, this also attempts a real fix for anything StaleItemFixSuggester is
-    /// confident enough about: it backs the mod up first (the same BackupMod this page's own
-    /// context menu already offers — one click to undo via Restore latest backup), renames the
-    /// item to the suggested real row, writes the mod back out, and marks it locally edited —
-    /// never silently; every auto-fix is logged to the Activity panel by name. Anything less than
-    /// fully confident is left alone and only named as a hint in the row's own tooltip.
+    /// Looks only: what it finds (ModHealthChecker, through the fix service) is fixed from the fix
+    /// window or Check ▾ › Fix sure problems. It used to rename rows silently, which renamed mods'
+    /// own new rows to similar game rows (Homestead's Water_Well became the game's Waterwheel).
     /// </summary>
     private async Task CheckModsAgainstCurrentDataAsync()
     {
-        // Real file mutation happens inside this pass (backup + rewrite an auto-fixed mod's own
-        // .EXMOD) — unlike CheckForUpdatesAsync's own read-only network calls, letting two passes
-        // run at once risks two threads writing the same mod's .EXMOD concurrently. Checked here,
-        // not via [RelayCommand]'s CanExecute, since IsCheckingStaleness itself is what's guarded.
+        // Fix sure problems and the refresh after a game data update write mods: never at once.
+        // Checked here, not via [RelayCommand]'s CanExecute, since IsCheckingStaleness itself is what's guarded.
         if (IsCheckingStaleness)
         {
             return;
@@ -3594,11 +3628,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         // Without this, a Data folder that's missing, empty, or was never extracted makes every
-        // mod's own base-file lookup fail silently (ExmodBaseDiffer.DiffAgainstBase is called with
-        // no MergeReport here, so its own "no matching base file" warnings go nowhere) — every mod
-        // comes back with zero stale items, and the status message below would read "No possibly
-        // stale items remain," a false all-clear. Same check, same wording, ExmodEditorViewModel's
-        // own game-data search already uses for the identical underlying condition.
+        // mod's own base-file lookup fail silently — every mod would come back as fitting the game,
+        // a false all-clear. Same check, same wording, ExmodEditorViewModel's own game-data search
+        // already uses for the identical underlying condition.
         if (!Directory.Exists(_dataFolder) || !Directory.EnumerateFiles(_dataFolder, "*.json", SearchOption.AllDirectories).Any())
         {
             StatusMessage = "No game data found — run Refresh game data in Settings first.";
@@ -3609,47 +3641,29 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             var folderNames = candidates.Select(i => i.FolderName).ToList();
-            // Snapshotted here, on the UI thread, before the Task.Run below reads it from a
-            // background thread — _openEditorCountByFolder is only ever mutated on the UI thread
-            // (OpenEditor/its window's Closed handler), so a live, unsynchronized read of it from
-            // that background thread would itself be a new race. See its own doc comment for why
-            // this exists at all.
-            var foldersWithOpenEditors = _openEditorCountByFolder.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            // Off the UI thread: this diffs every non-opaque mod's own items against the real
-            // extracted game data (and, for anything confidently fixable, backs up + rewrites the
-            // mod's own .EXMOD), which for a large library is real, avoidable-to-block-on work —
-            // same reasoning RebuildService's own merge computation was moved to Task.Run for.
-            // Results are collected into a plain dictionary and applied to the rows/ActivityLog back
-            // on this (UI) thread afterward, since neither an ObservableProperty setter nor
-            // IActivityLog.Log's own bound ObservableCollection is safe to touch from a background
-            // thread.
+            // Off the UI thread: every non-opaque mod against the real extracted game data is real,
+            // avoidable-to-block-on work for a large library. Results are collected into a plain
+            // dictionary and applied to the rows back on this (UI) thread afterward.
             var resultsByFolder = await Task.Run(() =>
             {
                 // Shared for the whole pass, not per mod — many mods touch the same real file (e.g.
                 // Traits-D_Itemable.json), and re-parsing it once per mod that touches it is real,
-                // avoidable cost. Also doubles as the fix suggester's own candidate-row pool per file.
-                var baseTableCache = new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
-                var classifier = new DefaultSemanticClassifier();
-                var history = FixService.History();
-                _passAddedRows = FixService.LibraryAddedRows();
-                var results = new Dictionary<string, ModStalenessResult>();
-
+                // avoidable cost.
+                var pass = new CheckPass(new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase), FixService.History(), FixService.LibraryAddedRows());
+                var results = new Dictionary<string, ModHealthReport?>();
                 foreach (var folderName in folderNames)
                 {
                     try
                     {
-                        // Looks only: renames are offered (never for a mod's own new rows) and made from the
-                        // fix window or Fix sure problems. A silent rename here once turned Homestead's
-                        // own Water_Well into the game's Waterwheel.
-                        results[folderName] = CheckOneModAgainstCurrentData(
-                            folderName, baseTableCache, classifier, allowAutoFix: false, history);
+                        results[folderName] = FixService.Check(folderName, pass.Tables, pass.History, pass.AddedRows);
                     }
                     catch (Exception)
                     {
                         // Best-effort per mod, matching CheckForUpdatesAsync's own per-source
                         // isolation — a locked or malformed .EXMOD just means that one mod isn't
-                        // checked this pass, not a reason to fail the whole library check.
+                        // checked this pass (named below; its badge keeps what it had).
+                        results[folderName] = null;
                     }
                 }
 
@@ -3658,65 +3672,29 @@ public sealed partial class LibraryViewModel : ObservableObject
 
             var flaggedCount = 0;
             var couldNotCheck = new List<string>();
-            var autoFixedCount = 0;
             foreach (var item in candidates)
             {
-                if (!resultsByFolder.TryGetValue(item.FolderName, out var result))
+                if (resultsByFolder.GetValueOrDefault(item.FolderName) is not { } health)
                 {
-                    couldNotCheck.Add(item.Name);
-                    continue;
-                }
-
-                item.SetStaleItems(result.RemainingStaleItems, result.SuggestionHint);
-                if (result.HealthCheckFailed)
-                {
-                    // Not an all-clear: the badge keeps what it had and the mod is named below.
                     couldNotCheck.Add(item.Name);
                 }
                 else
                 {
-                    item.SetHealth(result.Health);
+                    item.SetHealth(health);
                 }
 
                 if (item.Health is { HasProblems: true })
                 {
                     flaggedCount++;
                 }
-
-                foreach (var message in result.AutoFixActivityMessages)
-                {
-                    _activityLog.Log(message, ActivityEntryKind.Success);
-                    autoFixedCount++;
-                }
-
-                if (result.BackupTaken)
-                {
-                    item.NotifyBackupStateChanged();
-                }
-
-                if (result.PackageChanged)
-                {
-                    // The auto-fix loop above wrote straight to disk and to the repository's own
-                    // cache — nothing else re-syncs this bound row, so without this the ✎ badge
-                    // wouldn't appear and a currently-open Changes tab would keep showing the
-                    // pre-repair item name until an unrelated full resync happened to run.
-                    item.NotifyRepairedFromDisk();
-                    if (ReferenceEquals(item, SelectedItem))
-                    {
-                        item.EnsureDetailsLoaded();
-                    }
-                }
             }
 
-            var messageParts = new List<string>();
-            if (autoFixedCount > 0)
+            var messageParts = new List<string>
             {
-                messageParts.Add($"Auto-fixed {autoFixedCount} item(s) — each mod was backed up first, see Restore latest backup to undo.");
-            }
-
-            messageParts.Add(flaggedCount > 0
-                ? $"{flaggedCount} mod(s) don't fully fit the current game — click a flagged row's warning badge to see and fix them, or Check ▾ › Fix sure problems in every mod."
-                : couldNotCheck.Count > 0 ? "Every mod that could be checked fits the current game." : "Every mod fits the current game.");
+                flaggedCount > 0
+                    ? $"{flaggedCount} mod(s) don't fully fit the current game — click a flagged row's warning badge to see and fix them, or Check ▾ › Fix sure problems in every mod."
+                    : couldNotCheck.Count > 0 ? "Every mod that could be checked fits the current game." : "Every mod fits the current game.",
+            };
             if (couldNotCheck.Count > 0)
             {
                 messageParts.Add($"Couldn't check {couldNotCheck.Count} mod(s): {string.Join(", ", couldNotCheck)}.");
@@ -3727,104 +3705,18 @@ public sealed partial class LibraryViewModel : ObservableObject
         finally
         {
             IsCheckingStaleness = false;
-        }
-    }
-
-    /// <summary>
-    /// Runs entirely off the UI thread (called from CheckModsAgainstCurrentDataAsync's own
-    /// Task.Run) — every repository call here is plain file I/O, safe on a background thread; only
-    /// its ModStalenessResult return value ever touches a bound property, back on the UI thread.
-    /// allowAutoFix false (an open editor window for this same folder, see
-    /// _openEditorCountByFolder's own doc comment) still detects and reports stale items as usual,
-    /// it just never backs up or writes anything for this mod this pass.
-    /// </summary>
-    private ModStalenessResult CheckOneModAgainstCurrentData(
-        string folderName, Dictionary<string, JsonObject?> baseTableCache, DefaultSemanticClassifier classifier, bool allowAutoFix,
-        GameValueHistory? history = null)
-    {
-        var folderPath = _repository.GetFolderPath(folderName);
-        var package = ExmodFolder.ReadPackageOnly(folderPath);
-        var ownAssetPaths = _repository.ListAssetPaths(folderName);
-
-        var staleItems = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, classifier, baseTableCache, ownAssetPaths);
-        if (staleItems.Count == 0)
-        {
-            var (health, healthFailed) = CheckHealth(folderName, baseTableCache, history);
-            return new ModStalenessResult([], null, [], BackupTaken: false, Health: health, HealthCheckFailed: healthFailed);
-        }
-
-        var remaining = new List<ExmodStalenessChecker.StaleItem>();
-        var activityMessages = new List<string>();
-        string? suggestionHint = null;
-        var backupTaken = false;
-        var packageChanged = false;
-
-        foreach (var staleItem in staleItems)
-        {
-            var row = package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, staleItem.CurrentFile, StringComparison.OrdinalIgnoreCase));
-            // LastOrDefault, not First: a mod can legitimately list the same item name more than
-            // once (see the field notes on real EXMOD mods) — ExmodBaseDiffer.ToKeyedObject keys by
-            // Name and overwrites on each duplicate, so the LAST entry is the one TableDiffer.Diff
-            // actually scored (StaleItem.FieldCount). Using the first entry here would judge the fix
-            // suggestion's field overlap against fields that were never actually part of the diff.
-            IEnumerable<string> fieldNames = row?.FileItems.LastOrDefault(i => i.Name == staleItem.ItemName)?.Fields.Keys ?? Enumerable.Empty<string>();
-            var baseTable = baseTableCache.GetValueOrDefault(staleItem.CurrentFile);
-            var suggestion = baseTable is null ? null : StaleItemFixSuggester.Suggest(staleItem.ItemName, fieldNames, baseTable);
-
-            if (suggestion is { CanAutoApply: true } && allowAutoFix)
-            {
-                if (!backupTaken)
-                {
-                    _repository.BackupMod(folderName);
-                    backupTaken = true;
-                }
-
-                if (ExmodStaleItemRepair.RenameItem(package, staleItem.CurrentFile, staleItem.ItemName, suggestion.SuggestedItemName))
-                {
-                    activityMessages.Add(
-                        $"Auto-fixed '{staleItem.ItemName}' → '{suggestion.SuggestedItemName}' in '{package.Name}' (backed up first).");
-                    packageChanged = true;
-                    continue;
-                }
-            }
-
-            remaining.Add(staleItem);
-            suggestionHint ??= suggestion?.SuggestedItemName;
-        }
-
-        if (packageChanged)
-        {
-            ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
-            _repository.MarkLocallyEdited(folderName);
-        }
-
-        var (report, failed) = CheckHealth(folderName, baseTableCache, history);
-        return new ModStalenessResult(remaining, suggestionHint, activityMessages, backupTaken, packageChanged, report, failed);
-    }
-
-    /// <summary>The rows Library mods add, gathered once per whole-library check (see ModFixService.LibraryAddedRows).</summary>
-    private IReadOnlySet<string>? _passAddedRows;
-
-    /// <summary>What in this mod doesn't fit the current game (old copies, mixed lists, renamed rows); Failed when it couldn't be checked (the row keeps its badge).</summary>
-    private (ModHealthReport? Report, bool Failed) CheckHealth(string folderName, Dictionary<string, JsonObject?> baseTableCache, GameValueHistory? history)
-    {
-        try
-        {
-            return (FixService.Check(folderName, baseTableCache, history, _passAddedRows), false);
-        }
-        catch (Exception)
-        {
-            return (null, true);
+            RunPendingRefresh();
         }
     }
 
     /// <summary>Checks one row's mod again off the UI thread and updates its badge; a failed check keeps the badge it had.</summary>
-    private async Task RefreshHealthAsync(LibraryItemViewModel item)
+    /// <param name="pass">What a pass of checks shares (the refresh after a game data update); null reads it afresh.</param>
+    private async Task RefreshHealthAsync(LibraryItemViewModel item, CheckPass? pass = null)
     {
         var folderName = item.FolderName;
         try
         {
-            item.SetHealth(await Task.Run(() => FixService.Check(folderName)));
+            item.SetHealth(await Task.Run(() => FixService.Check(folderName, pass?.Tables, pass?.History, pass?.AddedRows)));
         }
         catch (Exception)
         {

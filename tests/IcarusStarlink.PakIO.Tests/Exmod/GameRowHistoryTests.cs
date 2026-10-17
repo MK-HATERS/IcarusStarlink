@@ -123,9 +123,12 @@ public sealed class GameRowHistoryTests : IDisposable
         package.Rows.Add(new ExmodFileRow { CurrentFile = "Items-D_ItemsStatic.json", FileItems = [new ExmodFileItem { Name = "Canteen", Fields = new() { ["Consumable"] = new JsonObject { ["RowName"] = "Old_Drink_2099" } } }] });
         package.Rows.Add(new ExmodFileRow { CurrentFile = "EndOfMod" });
 
-        var issue = Assert.Single(ModHealthChecker.Check(package, DataFolder, rowHistory: GameRowHistory.Load(local)).Issues);
+        var issue = Assert.Single(ModHealthChecker.Check(package, DataFolder, rowHistory: GameRowHistory.Load(local), rowsOtherModsAdd: new HashSet<string>()).Issues);
 
+        // Proven: the game had the row and removed it, and no Library mod adds it back.
         Assert.Equal(ModIssueKind.BrokenLink, issue.Kind);
+        Assert.True(issue.IsSure);
+        Assert.Equal(ModIssueFix.UseGame, issue.DefaultFix);
         Assert.Contains("which the game removed after 1 Mar 2099", issue.Why);
     }
 
@@ -145,6 +148,90 @@ public sealed class GameRowHistoryTests : IDisposable
             Assert.Equal(ModIssueFix.RenameRow, renamed.DefaultFix);
             Assert.Contains("renamed this row to 'Pickaxe_Steel' in the update after", renamed.Why);
         }
+    }
+
+    /// <summary>A similar name that only appeared a few updates later isn't a proven rename: offered, never made by itself.</summary>
+    [Fact]
+    public void ARowRemovedLongBeforeASimilarNameAppeared_IsNotASureRename()
+    {
+        var local = GameRowHistory.LocalFileFor(DataFolder);
+        WriteTable("Old_Pickaxe_Steel", "Wood_Floor");
+        GameRowHistory.Record(DataFolder, local, new DateTimeOffset(2099, 2, 1, 0, 0, 0, TimeSpan.Zero));
+        WriteTable("Wood_Floor");
+        GameRowHistory.Record(DataFolder, local, new DateTimeOffset(2099, 2, 8, 0, 0, 0, TimeSpan.Zero));
+        WriteTable("Pickaxe_Steel", "Wood_Floor");
+        GameRowHistory.Record(DataFolder, local, new DateTimeOffset(2099, 2, 15, 0, 0, 0, TimeSpan.Zero));
+        var package = Package(("Items-D_ItemsStatic.json", "Old_Pickaxe_Steel", 5));
+
+        var issue = Assert.Single(ModHealthChecker.Check(package, DataFolder, rowHistory: GameRowHistory.Load(local)).Issues, i => i.Kind == ModIssueKind.MissingRow);
+
+        Assert.Equal("Pickaxe_Steel", issue.SuggestedRow);
+        Assert.False(issue.IsSure);
+        Assert.Equal(ModIssueFix.KeepMod, issue.DefaultFix);
+        Assert.Contains("removed this row after 1 Feb 2099", issue.Why);
+    }
+
+    /// <summary>
+    /// Coracks' ammo mod still edits two arrows the game removed after Week 160 while carrying rows
+    /// from Week 221: made for the newer game, with the removed rows listed (to remove, or keep).
+    /// </summary>
+    [Fact]
+    public void AModWithRowsFromTwoGameVersions_SaysWhichRowsTheGameRemoved_AndListsThem()
+    {
+        var local = GameRowHistory.LocalFileFor(DataFolder);
+        WriteTable("Alder_2099", "Birch_2099", "Cedar_2099", "Dogwood_2099", "Zebra_Lamp_2099");
+        GameRowHistory.Record(DataFolder, local, new DateTimeOffset(2099, 4, 1, 0, 0, 0, TimeSpan.Zero));
+        WriteTable("Alder_2099", "Birch_2099", "Cedar_2099", "Dogwood_2099", "Quokka_Crate_2099");
+        GameRowHistory.Record(DataFolder, local, new DateTimeOffset(2099, 4, 8, 0, 0, 0, TimeSpan.Zero));
+        const string items = "Items-D_ItemsStatic.json";
+        var package = Package((items, "Alder_2099", 1), (items, "Birch_2099", 1), (items, "Cedar_2099", 1), (items, "Dogwood_2099", 1), (items, "Quokka_Crate_2099", 1), (items, "Zebra_Lamp_2099", 1));
+        var history = GameRowHistory.Load(local);
+
+        var report = ModHealthChecker.Check(package, DataFolder, rowHistory: history);
+
+        Assert.Equal("Made for 8 Apr 2099 or later, but still edits 1 row(s) the game removed after 1 Apr 2099", report.BuiltFor!.OlderText);
+        var removed = Assert.Single(report.Issues, i => i.Kind == ModIssueKind.MissingRow);
+        Assert.Equal("Zebra_Lamp_2099", removed.ItemName);
+        Assert.Null(removed.SuggestedRow);
+        Assert.False(removed.IsSure);
+        Assert.Equal(ModIssueFix.RemoveRow, removed.DefaultFix);
+        Assert.Contains("removed this row after 1 Apr 2099", removed.Why);
+    }
+
+    /// <summary>A refresh recorded before this release's shipped history was built comes before it, not after (it would make removed rows look current).</summary>
+    [Fact]
+    public void Load_LeavesOutLocalVersionsNoNewerThanTheShippedHistory()
+    {
+        var local = GameRowHistory.LocalFileFor(DataFolder);
+        WriteTable("Electric_Motor", "Stale_Local_Row_2020");
+        GameRowHistory.Record(DataFolder, local, new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        WriteTable("Fresh_Local_Row_2099");
+        GameRowHistory.Record(DataFolder, local, new DateTimeOffset(2099, 1, 1, 0, 0, 0, TimeSpan.Zero));
+
+        var shipped = GameRowHistory.Load(localFile: null);
+        var history = GameRowHistory.Load(local);
+
+        Assert.Equal(shipped.VersionCount + 1, history.VersionCount);
+        Assert.Null(history.Find("Items-D_ItemsStatic.json", "Stale_Local_Row_2020"));
+        Assert.Equal(shipped.Find("Items-D_ItemsStatic.json", "Electric_Motor"), history.Find("Items-D_ItemsStatic.json", "Electric_Motor"));
+        Assert.Equal(history.Latest, history.Find("Items-D_ItemsStatic.json", "Fresh_Local_Row_2099")!.Last);
+    }
+
+    /// <summary>Refreshing the same game version again adds no second version (a removal would look one update later).</summary>
+    [Fact]
+    public void Record_TheSameGameDataTwice_AddsOneVersion()
+    {
+        var local = GameRowHistory.LocalFileFor(DataFolder);
+        WriteTable("Kept_Item_2099");
+        GameRowHistory.Record(DataFolder, local, new DateTimeOffset(2099, 5, 1, 0, 0, 0, TimeSpan.Zero));
+        GameRowHistory.Record(DataFolder, local, new DateTimeOffset(2099, 5, 8, 0, 0, 0, TimeSpan.Zero));
+        WriteTable("Kept_Item_2099", "New_Item_2099");
+        GameRowHistory.Record(DataFolder, local, new DateTimeOffset(2099, 5, 15, 0, 0, 0, TimeSpan.Zero));
+
+        var history = GameRowHistory.Load(local);
+
+        Assert.Equal(GameRowHistory.Load(localFile: null).VersionCount + 2, history.VersionCount);
+        Assert.Equal("15 May 2099", history.Find("Items-D_ItemsStatic.json", "New_Item_2099")!.FirstSeen);
     }
 
     [Fact]
