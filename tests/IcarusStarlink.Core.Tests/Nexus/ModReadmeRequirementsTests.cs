@@ -66,4 +66,24 @@ public sealed class ModReadmeRequirementsTests
         Assert.True(ModReadmeRequirements.IsLoaderRequirement("UE4SS (experimental build): https://x"));
         Assert.False(ModReadmeRequirements.IsLoaderRequirement("ArcFission Library 1.2.0 or newer"));
     }
+
+    /// <summary>The real Minimap README: "Icarus Mod Manager (for the .EXMODZ file …)" — the app installing the mod is one.</summary>
+    [Theory]
+    [InlineData("Icarus Mod Manager (for the .EXMODZ file with the map icon rows).", true)]
+    [InlineData("IMM", true)]
+    [InlineData("Icarus Starlink 2.0 or newer", true)]
+    [InlineData("Starlink", true)]
+    [InlineData("ArcFission Library 1.2.0 or newer", false)]
+    [InlineData("Icarus Map Icons", false)]
+    public void IsModManagerRequirement_ForTheModManagerItself(string requirement, bool expected) =>
+        Assert.Equal(expected, ModReadmeRequirements.IsModManagerRequirement(requirement));
+
+    [Fact]
+    public void NeedsNoDownload_BlankLoaderAndModManager()
+    {
+        Assert.True(ModReadmeRequirements.NeedsNoDownload("  "));
+        Assert.True(ModReadmeRequirements.NeedsNoDownload("UE4SS for Icarus (Lua mods)."));
+        Assert.True(ModReadmeRequirements.NeedsNoDownload("Icarus Mod Manager"));
+        Assert.False(ModReadmeRequirements.NeedsNoDownload("ArcFission Library"));
+    }
 }
