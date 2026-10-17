@@ -627,6 +627,55 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
     }
 
+    /// <summary>The queue, options and conflict winners as they are now, as the profile in use (or "Default") — what Update everything's snapshot keeps.</summary>
+    internal Profile CurrentWorkingProfile() => new()
+    {
+        Name = SelectedProfileName ?? "Default",
+        MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)],
+        Options = BuildGameplayOptionsFromUi(),
+        ConflictWinners = new(_winners),
+    };
+
+    /// <summary>
+    /// Roll back after a game update: the profile as the snapshot saved it (queue order, options,
+    /// conflict winners) is saved again (its version from now backed up first, as Save profile does)
+    /// and loaded. False while a build runs.
+    /// </summary>
+    internal bool RestoreWorkingState(Profile profile)
+    {
+        if (RefuseWhileRebuilding())
+        {
+            return false;
+        }
+
+        // Anything changed but not yet saved goes into the profile in use before it's replaced.
+        SaveWorkingState();
+        _profileStore.Save(profile);
+        if (string.Equals(SelectedProfileName, profile.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            _loadingProfile = true;
+            try
+            {
+                LoadProfileIntoUi(profile.Name, verb: "Rolled back");
+            }
+            finally
+            {
+                _loadingProfile = false;
+            }
+        }
+        else
+        {
+            ReloadProfileNames();
+            SelectedProfileName = ProfileNames.FirstOrDefault(n => string.Equals(n, profile.Name, StringComparison.OrdinalIgnoreCase)) ?? profile.Name;
+        }
+
+        _activityLog.Log($"Put profile '{profile.Name}' back as it was before the game update run.", ActivityEntryKind.Success);
+        return true;
+    }
+
+    /// <summary>A ticked mod that's in the Library, or a merge option: something for a build to make.</summary>
+    internal bool HasAnythingToBuild => Queue.Any(IsBuildable) || BuildGameplayOptionsFromUi().IsAnyActive;
+
     /// <summary>
     /// The mods the installed merged pak was built from, ticked again in the order they were merged
     /// — for when the queue was lost (an older version that didn't save it, a profile switch) while
@@ -3074,18 +3123,26 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
     }
 
-    private async Task InstallAsync()
+    /// <summary>How an install ended: in the game, not done (the user said No, or the game started meanwhile), or failed. The reason is in InstallStatusMessage.</summary>
+    internal enum InstallOutcome
+    {
+        Installed,
+        NotDone,
+        Failed,
+    }
+
+    internal async Task<InstallOutcome> InstallAsync()
     {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
             InstallStatusMessage = "Set the Icarus Content folder in Settings first.";
-            return;
+            return InstallOutcome.Failed;
         }
 
         if (!File.Exists(_outputPakPath))
         {
             InstallStatusMessage = "Nothing staged yet — click Rebuild first.";
-            return;
+            return InstallOutcome.Failed;
         }
 
         // The same guard the saves editor and the UE4SS tab already have, and the one place it was
@@ -3095,7 +3152,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         if (IsGameRunning())
         {
             InstallStatusMessage = "Icarus is running — close it before installing, or the game keeps loading the old pack and the copy can fail halfway.";
-            return;
+            return InstallOutcome.NotDone;
         }
 
         // Content\Paks\mods is meant to hold exactly one active merged pak — named here rather than
@@ -3141,13 +3198,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             $"The existing pak is backed up first (last {BackupCleanup.MergedPakBackupsKept} kept).{clearNote}\n\nContinue?",
             "Install to Icarus"))
         {
-            return;
+            InstallStatusMessage = "Not installed: you chose not to.";
+            return InstallOutcome.NotDone;
         }
 
         if (IsGameRunning())
         {
             InstallStatusMessage = "Icarus started while the confirmation was open — close it, then Install again.";
-            return;
+            return InstallOutcome.NotDone;
         }
 
         InstallStatusMessage = "Installing…";
@@ -3176,6 +3234,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // crash happened since — see AppSettings.LastInstallAtUtc's own doc comment for why.
             _settingsService.Current.LastInstallAtUtc = DateTimeOffset.UtcNow;
             _settingsService.Save();
+            return InstallOutcome.Installed;
         }
         catch (IOException ex)
         {
@@ -3187,6 +3246,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
                 + "Close Icarus if it's running, then click 'Copy to game' (no need to rebuild).";
             _activityLog.Log(InstallStatusMessage, ActivityEntryKind.Warning);
             CanCopyToGame = true;
+            return InstallOutcome.Failed;
         }
         catch (Exception ex)
         {
@@ -3194,6 +3254,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             // issue should show a status message, not crash the app.
             InstallStatusMessage = $"Install failed: {ex.Message}";
             _activityLog.Log(InstallStatusMessage, ActivityEntryKind.Warning);
+            return InstallOutcome.Failed;
         }
     }
 

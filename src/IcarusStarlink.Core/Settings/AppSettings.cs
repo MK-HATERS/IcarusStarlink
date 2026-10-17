@@ -93,6 +93,14 @@ public sealed class AppSettings
     /// unset, the way the UnrealPak offer always has.
     /// </summary>
     public DateTimeOffset? FirstLaunchSetupCompletedAtUtc { get; set; }
+
+    /// <summary>
+    /// The game build the mod setup was last made ready for: Steam's build id from
+    /// appmanifest_1149460.acf ("25956278"), or "data-" + part of data.pak's hash when the
+    /// manifest can't be found. Recorded on the first check, then moved on by Update everything
+    /// (or the Library bar's Dismiss). Another build on disk means "Icarus updated".
+    /// </summary>
+    public string? LastSeenGameBuildId { get; set; }
 }
 
 /// <summary>A window's last size, restored the next time it opens.</summary>

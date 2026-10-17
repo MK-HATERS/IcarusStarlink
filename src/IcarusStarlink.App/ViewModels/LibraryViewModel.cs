@@ -2747,6 +2747,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     private bool _fileRiskPassRunning;
     private bool _fileRiskPassAgain;
 
+    /// <summary>The game build the first risk pass this session read (the one the game's mounted content is).</summary>
+    private string? _sessionGameBuild;
+
     /// <summary>
     /// Rates the game files every mod replaces (the risk pill) and finds mods replacing the same
     /// file with different copies. In the background after the Library loads and after mods
@@ -2774,7 +2777,28 @@ public sealed partial class LibraryViewModel : ObservableObject
                 _fileRiskPassAgain = false;
                 var items = AllLibraryItems().Where(i => !i.IsMergedPack).ToList();
                 var folders = items.Select(i => (i.FolderName, i.Name)).ToList();
-                var risks = await Task.Run(() => FileRiskAssessor.Assess(_repository, folders, game));
+                // The build on disk: the game's own copies of the files mods replace are recorded
+                // for it, so what a later game update changes in them is known.
+                var build = GameUpdates is { } updates ? await updates.ReadCurrentBuildAsync() : null;
+                // The game's content is read once per app session: after Steam updated the game
+                // while the app ran, what's read is still the build from before, so nothing is
+                // recorded (or said) until the next start.
+                _sessionGameBuild ??= build;
+                var fingerprints = build is not null && string.Equals(build, _sessionGameBuild, StringComparison.OrdinalIgnoreCase) ? GameFileFingerprints : null;
+                var risks = await Task.Run(() =>
+                {
+                    var rated = FileRiskAssessor.Assess(_repository, folders, game, fingerprints, build);
+                    try
+                    {
+                        fingerprints?.SaveIfChanged();
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // Recorded again on the next pass.
+                    }
+
+                    return rated;
+                });
                 foreach (var item in items)
                 {
                     item.FileRisk = risks.GetValueOrDefault(item.FolderName);
@@ -2935,11 +2959,15 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// isn't rewritten. What needs a look stays flagged for the fix window.
     /// </summary>
     [RelayCommand]
-    private async Task FixSureProblemsAsync()
+    private Task FixSureProblemsAsync() => FixSureProblemsCoreAsync();
+
+    /// <summary>Fix sure problems in every mod; what was fixed, per mod (Update everything lists it).</summary>
+    internal async Task<IReadOnlyList<GameUpdateFixedMod>> FixSureProblemsCoreAsync()
     {
+        var fixedMods = new List<GameUpdateFixedMod>();
         if (IsCheckingStaleness)
         {
-            return;
+            return fixedMods;
         }
 
         // A mod being converted again right now is left for that conversion (it rewrites the mod).
@@ -2949,7 +2977,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         if (flagged.Count == 0)
         {
             StalenessCheckStatusMessage = "Nothing sure to fix. Run Check mods against game data first, or click a flagged row's warning badge.";
-            return;
+            return fixedMods;
         }
 
         var folders = flagged.Select(i => i.FolderName).ToList();
@@ -2997,6 +3025,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                     if (result.Applied > 0)
                     {
                         total += result.Applied;
+                        fixedMods.Add(new GameUpdateFixedMod(item.FolderName, item.Name, result.Applied));
                         item.NotifyBackupStateChanged();
                         item.NotifyRepairedFromDisk();
                         _activityLog.Log($"Fixed {result.Applied} thing(s) in '{item.Name}' to fit the current game (backed up first).", ActivityEntryKind.Success);
@@ -3027,6 +3056,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
 
             SelectedItem?.EnsureDetailsLoaded();
+            return fixedMods;
         }
         finally
         {
@@ -3420,6 +3450,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// <summary>The Library page is showing (MainViewModel): rates the game files mods replace, if not done since mods changed.</summary>
     public void OnPageShown()
     {
+        // Steam may have updated the game while another page was open.
+        _ = CheckForGameUpdateAsync();
+
         if (_fileRisksStale && BaseGameContent is not null)
         {
             _fileRisksStale = false;
@@ -3591,7 +3624,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// window or Check ▾ › Fix sure problems. It used to rename rows silently, which renamed mods'
     /// own new rows to similar game rows (Homestead's Water_Well became the game's Waterwheel).
     /// </summary>
-    private async Task CheckModsAgainstCurrentDataAsync()
+    internal async Task CheckModsAgainstCurrentDataAsync()
     {
         // Fix sure problems and the refresh after a game data update write mods: never at once.
         // Checked here, not via [RelayCommand]'s CanExecute, since IsCheckingStaleness itself is what's guarded.
@@ -3715,7 +3748,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// isAutomatic (the once-per-launch call from the constructor) suppresses status messages
     /// entirely — no "sign in first" nag just from opening the app, only from an explicit click.
     /// </summary>
-    private async Task CheckForUpdatesAsync(bool isAutomatic)
+    internal async Task CheckForUpdatesAsync(bool isAutomatic)
     {
         if (IsCheckingForUpdates)
         {
