@@ -91,7 +91,7 @@ public static class ExmodFolder
 
         var exmodDir = Path.Combine(folderPath, "Extracted Mods");
         Directory.CreateDirectory(exmodDir);
-        File.WriteAllText(
+        WriteTextAtomically(
             Path.Combine(exmodDir, $"{contents.Package.FileName}.EXMOD"),
             ExmodJson.Serialize(contents.Package));
 
@@ -102,6 +102,33 @@ public static class ExmodFolder
             var assetPath = AssetPathGuard.ResolveWithinDirectory(folderPath, asset.RelativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(assetPath)!);
             File.WriteAllBytes(assetPath, asset.Content);
+        }
+    }
+
+    /// <summary>
+    /// Temp file + move, like JsonFileStore.WriteAtomically (PakIO can't reference Storage): a
+    /// crash or a full disk mid-write leaves the previous .EXMOD intact instead of a truncated one
+    /// that would no longer load.
+    /// </summary>
+    private static void WriteTextAtomically(string filePath, string content)
+    {
+        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(tempPath, content);
+            File.Move(tempPath, filePath, overwrite: true);
+        }
+        catch
+        {
+            try
+            {
+                File.Delete(tempPath);
+            }
+            catch (IOException)
+            {
+            }
+
+            throw;
         }
     }
 
