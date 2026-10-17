@@ -8,7 +8,8 @@ namespace IcarusStarlink.Core.Server;
 /// Private 2, Public 4; all of them by default).
 /// </summary>
 public sealed record FirewallRule(
-    string Name, bool Enabled, bool Inbound, bool Allow, int Protocol, string LocalPorts, string? Program, int Profiles = ServerFirewall.AllProfiles);
+    string Name, bool Enabled, bool Inbound, bool Allow, int Protocol, string LocalPorts, string? Program, int Profiles = ServerFirewall.AllProfiles,
+    bool AppScoped = false);
 
 /// <summary>The network type(s) Windows says this PC is on right now, and whether the firewall is on for them.</summary>
 public sealed record FirewallNetwork(int Profiles, bool FirewallOn)
@@ -121,7 +122,9 @@ public static class ServerFirewall
         FirewallRule? elsewhere = null;
         foreach (var rule in rules)
         {
-            if (!rule.Enabled || !rule.Inbound
+            // A rule tied to an app package or owned by one user's app (the Microsoft Store's own
+            // allow-everything rules) only applies to that app, never to the server.
+            if (!rule.Enabled || !rule.Inbound || rule.AppScoped
                 || (rule.Protocol != protocol && rule.Protocol != AnyProtocol)
                 || !PortMatches(rule.LocalPorts, port)
                 || !ProgramMatches(rule.Program, serverExe))

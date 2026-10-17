@@ -62,6 +62,17 @@ public sealed class FirewallService : IFirewallService
                     profiles = ServerFirewall.AllProfiles;
                 }
 
+                // INetFwRule3: an app package or an owning user means a rule for one app (Store apps).
+                var appScoped = false;
+                try
+                {
+                    appScoped = !string.IsNullOrEmpty((string?)rule.LocalAppPackageId) || !string.IsNullOrEmpty((string?)rule.LocalUserOwner);
+                }
+                catch (Exception ex) when (ex is Microsoft.CSharp.RuntimeBinder.RuntimeBinderException or System.Runtime.InteropServices.COMException or InvalidCastException)
+                {
+                    // An older rule interface: no app scope to read.
+                }
+
                 rules.Add(new FirewallRule(
                     (string?)rule.Name ?? "",
                     (bool)rule.Enabled,
@@ -70,7 +81,8 @@ public sealed class FirewallService : IFirewallService
                     (int)rule.Protocol,
                     (string?)rule.LocalPorts ?? "*",
                     (string?)rule.ApplicationName,
-                    profiles));
+                    profiles,
+                    appScoped));
             }
             catch (Exception ex) when (ex is Microsoft.CSharp.RuntimeBinder.RuntimeBinderException or System.Runtime.InteropServices.COMException or InvalidCastException)
             {

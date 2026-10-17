@@ -1705,6 +1705,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject
             return;
         }
 
+        // Mods already in the queue are no request at all (a tick that was already on): nothing to say.
+        folderNames = [.. folderNames.Where(f => !Queue.Any(q => !q.IsMissingFromLibrary && string.Equals(q.FolderName, f, StringComparison.OrdinalIgnoreCase)))];
+        if (folderNames.Count == 0)
+        {
+            return;
+        }
+
         var byFolder = _libraryRepository.GetAll().ToDictionary(e => e.FolderName, StringComparer.OrdinalIgnoreCase);
         var addedCount = 0;
         string? lastRefusal = null;

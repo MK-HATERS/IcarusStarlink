@@ -271,6 +271,18 @@ public sealed class ServerPhase4Tests
         Assert.False(ServerFirewall.ProgramMatches(@"E:\steamlibrary\steamapps\common\icarus\icarus\binaries\win64\icarus-win64-shipping.exe", Exe));
     }
 
+    /// <summary>The user's real PC: an allow-everything "Microsoft Store" rule owned by their account opened nothing for the server, yet showed it open.</summary>
+    [Fact]
+    public void Check_AnAppScopedRule_NeverOpensTheServersPorts()
+    {
+        List<FirewallRule> rules = [new("Microsoft Store", true, true, true, ServerFirewall.AnyProtocol, "*", null, AppScoped: true)];
+
+        var status = ServerFirewall.Check(rules, Exe, "Game port", 17777, ServerFirewall.Udp);
+
+        Assert.False(status.Open);
+        Assert.Null(status.RuleName);
+    }
+
     /// <summary>Shaped like the rules on the developer's own PC: the client game's rule must not count for the server.</summary>
     [Fact]
     public void Check_CountsOnlyEnabledInboundRulesForThisServer_AndBlockWins()
