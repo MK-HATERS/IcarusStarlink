@@ -30,8 +30,8 @@ public sealed record AutomationAction(AutomationActionKind Kind, string Reason)
     public static readonly AutomationAction None = new(AutomationActionKind.None, "");
 }
 
-/// <summary>What the app saw on one beat: the server process, who is online per its log, and whether its log shows a clean exit.</summary>
-public readonly record struct ServerObservation(DateTime NowLocal, bool Running, int PlayersOnline, bool CleanExitLogged);
+/// <summary>What the app saw on one beat: the server process (and its id while running), who is online per its log, and whether its log shows a clean exit.</summary>
+public readonly record struct ServerObservation(DateTime NowLocal, bool Running, int PlayersOnline, bool CleanExitLogged, int? ProcessId = null);
 
 /// <summary>
 /// The decisions behind the Overview tab's automation, for ONE server, kept free of processes,
@@ -52,10 +52,16 @@ public sealed class ServerAutomation
 
     private readonly List<DateTime> _crashRestarts = [];
     private bool? _wasRunning;
-    private DateTime? _stopIntendedAt;
+    private int? _lastProcessId;
 
-    /// <summary>How long a "we are stopping it" note excuses the next exit. Stop waits at most 60 seconds, so a note older than this is stale and must not hide a later crash.</summary>
-    private static readonly TimeSpan IntendedStopWindow = TimeSpan.FromMinutes(3);
+    /// <summary>
+    /// The processes the app (or the owner through the app) stopped on purpose. Kept by process id
+    /// rather than for a time window: the beat that notices the exit can come much later (beats
+    /// wait while SteamCMD runs an update), and a window that ran out turned an owner's Stop into
+    /// a "crash" that was then restarted.
+    /// </summary>
+    private readonly HashSet<int> _intendedStops = [];
+    private bool _intendedStopOfUnknownProcess;
     private DateTime? _lastDailySlotHandled;
 
     /// <summary>Crashed MaxCrashRestarts times within CrashWindow; no more restarts until someone starts it by hand.</summary>
@@ -73,13 +79,37 @@ public sealed class ServerAutomation
 
     public int RecentCrashRestarts => _crashRestarts.Count;
 
-    /// <summary>The app (or the owner through the app) is stopping it: the next exit is not a crash.</summary>
-    public void NoteIntentionalStop(DateTime nowLocal) => _stopIntendedAt = nowLocal;
+    /// <summary>
+    /// The app (or the owner through the app) is stopping this process: its exit is not a crash,
+    /// however long it takes the next beat to notice. Null when the process id isn't known; that
+    /// excuses the next exit only.
+    /// </summary>
+    public void NoteIntentionalStop(int? processId)
+    {
+        if (processId is { } id)
+        {
+            _intendedStops.Add(id);
+        }
+        else
+        {
+            _intendedStopOfUnknownProcess = true;
+        }
+    }
+
+    /// <summary>The owner stopped it (Stop, or Update while it ran): nothing automatic starts it again until it runs again.</summary>
+    public bool StoppedByOwner { get; private set; }
+
+    public void NoteOwnerStop(int? processId)
+    {
+        NoteIntentionalStop(processId);
+        StoppedByOwner = true;
+    }
 
     /// <summary>Someone pressed Start: re-arm crash restarts.</summary>
     public void NoteManualStart()
     {
         GaveUp = false;
+        StoppedByOwner = false;
         _crashRestarts.Clear();
     }
 
@@ -100,6 +130,18 @@ public sealed class ServerAutomation
         if (!now.Running)
         {
             return wasRunning == true ? OnStopped(profile, now) : AutomationAction.None;
+        }
+
+        if (now.ProcessId is { } pid && pid != _lastProcessId)
+        {
+            // A new run (started here or outside Starlink): the owner's earlier Stop is history.
+            if (_lastProcessId is not null)
+            {
+                StoppedByOwner = false;
+            }
+
+            _intendedStops.RemoveWhere(id => id != pid);
+            _lastProcessId = pid;
         }
 
         if (DailyRestartDue(profile, now) is { } restart)
@@ -134,9 +176,11 @@ public sealed class ServerAutomation
 
     private AutomationAction OnStopped(DedicatedServerProfile profile, ServerObservation now)
     {
-        var intended = now.CleanExitLogged || (_stopIntendedAt is { } at && now.NowLocal - at <= IntendedStopWindow);
-        _stopIntendedAt = null;
-        if (intended || !profile.AutoRestartOnCrash || GaveUp)
+        var intended = now.CleanExitLogged
+            || _intendedStopOfUnknownProcess
+            || (_lastProcessId is { } pid && _intendedStops.Remove(pid));
+        _intendedStopOfUnknownProcess = false;
+        if (intended || StoppedByOwner || !profile.AutoRestartOnCrash || GaveUp)
         {
             return AutomationAction.None;
         }

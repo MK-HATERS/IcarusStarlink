@@ -43,17 +43,40 @@ public sealed class ServerPhase4Tests
         Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Down(Day.AddMinutes(3), clean: true)).Kind);
     }
 
+    private static ServerObservation UpAs(DateTime now, int processId) => new(now, Running: true, 0, CleanExitLogged: false, processId);
+
+    /// <summary>
+    /// An intended stop is tied to the process it stopped, not to a time window: the beat that sees
+    /// the exit can come long after (beats wait while SteamCMD updates). A note for one process
+    /// never excuses a later run's crash.
+    /// </summary>
     [Fact]
-    public void IntendedStop_IsNotACrash_ButAStaleNoteDoesNotHideALaterOne()
+    public void IntendedStop_IsNotACrash_HoweverLateItIsSeen_ButOnlyForThatProcess()
     {
         var p = Profile();
         var a = new ServerAutomation();
-        a.Evaluate(p, Up(Day));
-        a.NoteIntentionalStop(Day);
-        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Down(Day.AddSeconds(30))).Kind);
+        a.Evaluate(p, UpAs(Day, 9));
+        a.NoteIntentionalStop(9);
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Down(Day.AddMinutes(45))).Kind);
 
-        a.Evaluate(p, Up(Day.AddMinutes(1)));
-        a.NoteIntentionalStop(Day.AddMinutes(1)); // the stop never happened
+        a.Evaluate(p, UpAs(Day.AddHours(1), 10));
+        a.NoteIntentionalStop(9); // a stale note for the old process
+        Assert.Equal(AutomationActionKind.RestartAfterCrash, a.Evaluate(p, Down(Day.AddHours(2))).Kind);
+    }
+
+    /// <summary>The owner pressed Stop: nothing automatic starts it again until it runs again.</summary>
+    [Fact]
+    public void OwnerStop_KeepsItStopped_UntilItRunsAgain()
+    {
+        var p = Profile();
+        var a = new ServerAutomation();
+        a.Evaluate(p, UpAs(Day, 9));
+        a.NoteOwnerStop(9);
+        Assert.True(a.StoppedByOwner);
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Down(Day.AddMinutes(10))).Kind);
+
+        a.Evaluate(p, UpAs(Day.AddHours(1), 10)); // started again (outside Starlink, say)
+        Assert.False(a.StoppedByOwner);
         Assert.Equal(AutomationActionKind.RestartAfterCrash, a.Evaluate(p, Down(Day.AddHours(2))).Kind);
     }
 

@@ -100,7 +100,7 @@ public sealed partial class LocalServerViewModel
 
     private bool CanUseSteamCmd() => _steamCmd is not null && !IsSteamCmdBusy && !IsBusy;
 
-    private bool CanUpdate() => CanUseSteamCmd() && SelectedProfile is not null;
+    private bool CanUpdate() => CanUseSteamCmd() && SelectedProfile is not null && !IsAutomationBusy;
 
     // ---- Which SteamCMD: Starlink's own copy (installed on request) or one the user already has ----
 

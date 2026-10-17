@@ -702,7 +702,16 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         public List<DedicatedServerProfile> Started { get; } = [];
         public List<int> Stopped { get; } = [];
 
-        public RunningServer? FindRunning(DedicatedServerProfile profile) => Running;
+        /// <summary>Set to change what FindRunning answers from then on (for "it changed between two looks").</summary>
+        public Func<RunningServer?>? FindRunningHook { get; set; }
+
+        public int FindRunningCalls { get; private set; }
+
+        public RunningServer? FindRunning(DedicatedServerProfile profile)
+        {
+            FindRunningCalls++;
+            return FindRunningHook is { } hook ? hook() : Running;
+        }
 
         public void Start(DedicatedServerProfile profile)
         {

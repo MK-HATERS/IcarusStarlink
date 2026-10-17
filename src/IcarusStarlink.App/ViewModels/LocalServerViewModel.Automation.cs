@@ -46,6 +46,9 @@ public sealed partial class LocalServerViewModel
         public int MissingBeats { get; set; }
         public DateTime? MinimizeUntil { get; set; }
         public string? LastAutomationEvent { get; set; }
+
+        /// <summary>Automation is stopping, updating or starting this server right now.</summary>
+        public bool AutomationBusy { get; set; }
     }
 
     // ---- Automation settings (saved straight into the profile, no Save button) ----
@@ -339,7 +342,7 @@ public sealed partial class LocalServerViewModel
                 }
 
                 watch.Running = found;
-                var action = watch.Automation.Evaluate(profile, new ServerObservation(Clock(), found is not null, watch.Events.Online.Count, watch.CleanExitSeen));
+                var action = watch.Automation.Evaluate(profile, new ServerObservation(Clock(), found is not null, watch.Events.Online.Count, watch.CleanExitSeen, found?.ProcessId));
                 if (action.Kind != AutomationActionKind.None)
                 {
                     await ExecuteAutomationAsync(watch, action);
@@ -364,7 +367,7 @@ public sealed partial class LocalServerViewModel
         {
             case AutomationActionKind.RestartAfterCrash:
                 ReportAutomation(watch, $"'{p.Name}': {action.Reason}. Starting it again.", ActivityEntryKind.Warning);
-                await LaunchProfileAsync(watch);
+                await RunAsAutomationAsync(watch, () => LaunchIfStillWantedAsync(watch));
                 break;
 
             case AutomationActionKind.GaveUpAfterCrashes:
@@ -373,7 +376,7 @@ public sealed partial class LocalServerViewModel
 
             case AutomationActionKind.ScheduledRestart:
                 ReportAutomation(watch, $"'{p.Name}': {action.Reason}. Restarting.", ActivityEntryKind.Info);
-                await AutomatedRestartAsync(watch, checkForUpdate: p.UpdateOnRestart);
+                await RunAsAutomationAsync(watch, () => AutomatedRestartAsync(watch, checkForUpdate: p.UpdateOnRestart));
                 break;
 
             case AutomationActionKind.CheckForUpdate:
@@ -386,7 +389,7 @@ public sealed partial class LocalServerViewModel
 
             case AutomationActionKind.UpdateNow:
                 ReportAutomation(watch, $"'{p.Name}': {action.Reason}. Updating.", ActivityEntryKind.Info);
-                await AutomatedRestartAsync(watch, checkForUpdate: true);
+                await RunAsAutomationAsync(watch, () => AutomatedRestartAsync(watch, checkForUpdate: true));
                 break;
 
             case AutomationActionKind.DailyBackup:
@@ -420,12 +423,75 @@ public sealed partial class LocalServerViewModel
         }
     }
 
+    /// <summary>An automated stop/update/start is running on this server: the Start/Stop/Update buttons wait for it, and so does an app update.</summary>
+    public bool IsAutomationBusy => SelectedProfile is { } p && _watches.TryGetValue(p.Id, out var w) && w.AutomationBusy;
+
+    /// <summary>Any server is being restarted or updated by automation right now.</summary>
+    internal bool AnyAutomationBusy => _watches.Values.Any(w => w.AutomationBusy);
+
+    private async Task RunAsAutomationAsync(ServerWatch watch, Func<Task> work)
+    {
+        watch.AutomationBusy = true;
+        RaiseAutomationBusyChanged();
+        try
+        {
+            await work();
+        }
+        finally
+        {
+            watch.AutomationBusy = false;
+            RaiseAutomationBusyChanged();
+        }
+    }
+
+    private void RaiseAutomationBusyChanged()
+    {
+        OnPropertyChanged(nameof(IsAutomationBusy));
+        OnPropertyChanged(nameof(RunStateText));
+        StartCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
+        RestartCommand.NotifyCanExecuteChanged();
+        UpdateServerCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// Right before automation starts a server: the owner may have stopped it while automation was
+    /// working (an update can take minutes), or started it themselves. Either way, don't launch.
+    /// </summary>
+    private async Task<bool> LaunchIfStillWantedAsync(ServerWatch watch)
+    {
+        var p = watch.Profile;
+        if (watch.Automation.StoppedByOwner)
+        {
+            ReportAutomation(watch, $"'{p.Name}' was left stopped: you stopped it, so automation doesn't start it again.", ActivityEntryKind.Info);
+            return false;
+        }
+
+        RunningServer? already;
+        try
+        {
+            already = await OffUiThread(() => _processes.FindRunning(p));
+        }
+        catch (Exception)
+        {
+            already = null;
+        }
+
+        if (already is not null)
+        {
+            watch.Running = already;
+            return false; // started meanwhile (by hand, or from outside Starlink)
+        }
+
+        return await LaunchProfileAsync(watch);
+    }
+
     /// <summary>Stop (if running), update when asked and Steam has something newer, start.</summary>
     private async Task AutomatedRestartAsync(ServerWatch watch, bool checkForUpdate)
     {
         if (watch.Running is { } running)
         {
-            watch.Automation.NoteIntentionalStop(Clock());
+            watch.Automation.NoteIntentionalStop(running.ProcessId);
             await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
             watch.Running = null;
             watch.Events.Reset();
@@ -440,7 +506,7 @@ public sealed partial class LocalServerViewModel
             await UpdateProfileIfNewerAsync(watch);
         }
 
-        await LaunchProfileAsync(watch);
+        await LaunchIfStillWantedAsync(watch);
     }
 
     /// <summary>Asks Steam for the newest build of the profile's branch. True when it differs from what is installed (or the branch changed); null when it couldn't ask.</summary>

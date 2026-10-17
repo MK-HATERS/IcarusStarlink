@@ -120,6 +120,51 @@ public sealed partial class LocalServerViewModelTests
         Assert.Empty(processes.Started);
     }
 
+    /// <summary>
+    /// The review's case: Stop, then an Update that keeps SteamCMD busy for longer than the old
+    /// 3-minute "intended stop" note lasted. The beat that finally sees the server gone must not
+    /// call it a crash and start it again.
+    /// </summary>
+    [Fact]
+    public async Task StopThenALongUpdate_IsStillNotACrash()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.LatestBuild = 2;
+        var (vm, _, processes, _) = BuildWithServer();
+        var now = DateTime.Today.AddHours(12);
+        vm.Clock = () => now;
+        processes.Running = new RunningServer(9, DateTime.Now);
+        vm.Tick();
+        await vm.RunAutomationBeatAsync();
+        processes.StopIsClean = false;
+
+        await vm.UpdateServerCommand.ExecuteAsync(null); // asks, stops, updates
+        now = now.AddMinutes(20);
+        await vm.RunAutomationBeatAsync();
+        await vm.RunAutomationBeatAsync();
+
+        Assert.Single(SteamCmd.Installs);
+        Assert.Empty(processes.Started);
+    }
+
+    /// <summary>Right before automation starts a server it looks again: a server already running (started by hand meanwhile) isn't started twice.</summary>
+    [Fact]
+    public async Task CrashRestart_SkipsTheLaunchWhenItIsAlreadyRunningAgain()
+    {
+        var (vm, _, processes, _) = BuildWithServer();
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.RunAutomationBeatAsync();
+        processes.Running = null;
+        await vm.RunAutomationBeatAsync();
+        // The beat still sees it gone, then someone starts it between that decision and the launch.
+        var looks = 0;
+        processes.FindRunningHook = () => ++looks == 1 ? null : new RunningServer(77, DateTime.Now);
+
+        await vm.RunAutomationBeatAsync();
+
+        Assert.Empty(processes.Started);
+    }
+
     /// <summary>The daily restart waits while someone is online, then goes ahead at the end of the hour — with an update first when "update on restart" is on.</summary>
     [Fact]
     public async Task DailyRestart_WaitsForPlayers_ThenRestartsAndUpdates()

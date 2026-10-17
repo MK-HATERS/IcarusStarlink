@@ -230,7 +230,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
     public bool IsStopped => Running is null;
 
-    public string RunStateText => IsBusy && Running is null ? "STARTING"
+    public string RunStateText => IsAutomationBusy ? "AUTOMATIC RESTART"
+        : IsBusy && Running is null ? "STARTING"
         : IsBusy ? "STOPPING"
         : Running is { } r ? $"RUNNING · up {FormatUptime(DateTime.Now - r.StartTime)}"
         : "STOPPED";
@@ -359,7 +360,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanUseProfile))]
     private void SaveSettings() => TrySave();
 
-    private bool CanStart() => SelectedProfile is not null && Running is null && !IsBusy && !IsSteamCmdBusy;
+    private bool CanStart() => SelectedProfile is not null && Running is null && !IsBusy && !IsSteamCmdBusy && !IsAutomationBusy;
 
     [RelayCommand(CanExecute = nameof(CanStart))]
     private async Task StartAsync()
@@ -417,7 +418,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
     }
 
-    private bool CanStop() => SelectedProfile is not null && Running is not null && !IsBusy;
+    private bool CanStop() => SelectedProfile is not null && Running is not null && !IsBusy && !IsAutomationBusy;
 
     [RelayCommand(CanExecute = nameof(CanStop))]
     private async Task StopAsync() => await StopCoreAsync(ask: true);
@@ -454,7 +455,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         try
         {
             StatusMessage = $"Stopping '{profile.Name}'…";
-            GetWatch(profile).Automation.NoteIntentionalStop(Clock());
+            GetWatch(profile).Automation.NoteOwnerStop(running.ProcessId);
             var clean = await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
             Tick();
             StatusMessage = clean ? $"'{profile.Name}' stopped." : $"'{profile.Name}' didn't close within 60 seconds and was ended. The last autosave is intact.";
