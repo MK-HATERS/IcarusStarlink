@@ -11,6 +11,10 @@ namespace IcarusStarlink.App.Services;
 /// lives under the profile's install folder. Graceful stop sends CTRL_C to the server's console by
 /// briefly attaching to it — the documented way to deliver a console control event to another
 /// process — then falls back to closing its window, then to killing it after the timeout.
+/// Two profiles on one install (different -saveddirsuffix) are told apart by the suffix on the
+/// process's own command line, read with NtQueryInformationProcess(ProcessCommandLineInformation)
+/// — the documented-since-Windows-8.1 way, needing only limited query rights. When it can't be read
+/// (a server started as administrator) the process still counts, as it did before.
 /// </summary>
 public sealed class DedicatedServerProcessService : IDedicatedServerProcessService
 {
@@ -22,6 +26,7 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
         }
 
         var root = Path.GetFullPath(profile.InstallFolder).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        RunningServer? unsure = null;
         foreach (var name in new[] { DedicatedServerLayout.ShippingProcessName, DedicatedServerLayout.LauncherProcessName })
         {
             foreach (var process in Process.GetProcessesByName(name))
@@ -30,15 +35,26 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
                 {
                     try
                     {
-                        var exe = process.MainModule?.FileName;
+                        var (exe, commandLine) = ReadImageAndCommandLine(process.Id);
+                        exe ??= process.MainModule?.FileName;
                         if (exe is null || !exe.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                         {
                             continue;
                         }
 
-                        // Two profiles on one install: tell them apart by the Saved suffix on the
-                        // command line when Windows lets us read it; otherwise any match counts.
-                        return new RunningServer(process.Id, process.StartTime);
+                        if (!DedicatedServerCommandLine.IsThisProfilesProcess(commandLine, profile))
+                        {
+                            continue; // another profile's server on the same install
+                        }
+
+                        var found = new RunningServer(process.Id, process.StartTime);
+                        if (commandLine is not null)
+                        {
+                            return found;
+                        }
+
+                        // Couldn't read its command line: use it only if nothing certain turns up.
+                        unsure ??= found;
                     }
                     catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
                     {
@@ -46,10 +62,92 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
                     }
                 }
             }
+
+            if (unsure is not null)
+            {
+                return unsure;
+            }
         }
 
         return null;
     }
+
+    /// <summary>The exe path and the full command line of a process, each null when Windows won't say.</summary>
+    private static (string? Exe, string? CommandLine) ReadImageAndCommandLine(int processId)
+    {
+        var handle = OpenProcess(ProcessQueryLimitedInformation, false, (uint)processId);
+        if (handle == IntPtr.Zero)
+        {
+            return (null, null);
+        }
+
+        try
+        {
+            string? exe = null;
+            var pathBuffer = new char[32768];
+            var size = (uint)pathBuffer.Length;
+            if (QueryFullProcessImageName(handle, 0, pathBuffer, ref size))
+            {
+                exe = new string(pathBuffer, 0, (int)size);
+            }
+
+            return (exe, ReadCommandLine(handle));
+        }
+        finally
+        {
+            CloseHandle(handle);
+        }
+    }
+
+    private static string? ReadCommandLine(IntPtr handle)
+    {
+        NtQueryInformationProcess(handle, ProcessCommandLineInformation, IntPtr.Zero, 0, out var needed);
+        if (needed <= 0 || needed > 1 << 20)
+        {
+            return null;
+        }
+
+        var buffer = Marshal.AllocHGlobal(needed);
+        try
+        {
+            if (NtQueryInformationProcess(handle, ProcessCommandLineInformation, buffer, needed, out _) != 0)
+            {
+                return null;
+            }
+
+            var text = Marshal.PtrToStructure<UnicodeString>(buffer);
+            return text.Buffer == IntPtr.Zero ? null : Marshal.PtrToStringUni(text.Buffer, text.Length / 2);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    private const uint ProcessQueryLimitedInformation = 0x1000;
+    private const int ProcessCommandLineInformation = 60;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UnicodeString
+    {
+        public ushort Length;
+        public ushort MaximumLength;
+        public IntPtr Buffer;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, uint processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "QueryFullProcessImageNameW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryFullProcessImageName(IntPtr process, uint flags, [Out] char[] exeName, ref uint size);
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationProcess(IntPtr process, int processInformationClass, IntPtr processInformation, int processInformationLength, out int returnLength);
 
     public void Start(DedicatedServerProfile profile)
     {

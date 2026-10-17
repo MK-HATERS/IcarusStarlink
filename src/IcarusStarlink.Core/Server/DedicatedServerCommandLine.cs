@@ -48,6 +48,36 @@ public static class DedicatedServerCommandLine
     public static string BuildDisplayLine(DedicatedServerProfile profile) =>
         $"\"{DedicatedServerLayout.LauncherPath(profile.InstallFolder)}\" {BuildArgumentString(profile)}";
 
+    /// <summary>The -saveddirsuffix= value on a running server's command line ("" when it has none), quoted or not, any case.</summary>
+    public static string ReadSavedDirSuffix(string commandLine)
+    {
+        const string key = "-saveddirsuffix=";
+        var at = commandLine.IndexOf(key, StringComparison.OrdinalIgnoreCase);
+        if (at < 0)
+        {
+            return "";
+        }
+
+        var start = at + key.Length;
+        if (start < commandLine.Length && commandLine[start] == '"')
+        {
+            var close = commandLine.IndexOf('"', start + 1);
+            return (close < 0 ? commandLine[(start + 1)..] : commandLine[(start + 1)..close]).Trim();
+        }
+
+        var end = commandLine.IndexOfAny([' ', '\t', '"'], start);
+        return (end < 0 ? commandLine[start..] : commandLine[start..end]).Trim();
+    }
+
+    /// <summary>
+    /// Several profiles can share one install with different Saved suffixes: a process belongs to
+    /// this profile when its command line carries the profile's suffix (or none, for a profile
+    /// without one). Null — the command line couldn't be read — can't tell them apart, so it counts.
+    /// </summary>
+    public static bool IsThisProfilesProcess(string? commandLine, DedicatedServerProfile profile) =>
+        commandLine is null
+        || string.Equals(ReadSavedDirSuffix(commandLine), (profile.SavedDirSuffix ?? "").Trim(), StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Quotes can't be escaped inside a Windows command-line argument the engine parses, and the name is capped at 64 characters by the game.</summary>
     public static string Sanitize(string? serverName)
     {

@@ -30,6 +30,29 @@ public sealed class DedicatedServerTests : IDisposable
             DedicatedServerCommandLine.BuildDisplayLine(profile));
     }
 
+    /// <summary>Two profiles on one install are told apart by the suffix on each process's own command line.</summary>
+    [Fact]
+    public void RunningProcess_IsMatchedToTheProfileBySavedDirSuffix()
+    {
+        var plain = new DedicatedServerProfile { InstallFolder = @"F:\IcarusServer" };
+        var second = new DedicatedServerProfile { InstallFolder = @"F:\IcarusServer", SavedDirSuffix = "_2" };
+        const string First = "\"F:\\IcarusServer\\Icarus\\Binaries\\Win64\\IcarusServer-Win64-Shipping.exe\" Icarus -log -SteamServerName=\"A\" -PORT=17777 -QueryPort=27015";
+        const string Second = "\"F:\\IcarusServer\\Icarus\\Binaries\\Win64\\IcarusServer-Win64-Shipping.exe\" Icarus -log -PORT=17778 -QueryPort=27016 -SavedDirSuffix=_2 -LOG=B.log";
+
+        Assert.Equal("", DedicatedServerCommandLine.ReadSavedDirSuffix(First));
+        Assert.Equal("_2", DedicatedServerCommandLine.ReadSavedDirSuffix(Second));
+        Assert.Equal("my world", DedicatedServerCommandLine.ReadSavedDirSuffix("x.exe -saveddirsuffix=\"my world\" -log"));
+
+        Assert.True(DedicatedServerCommandLine.IsThisProfilesProcess(First, plain));
+        Assert.False(DedicatedServerCommandLine.IsThisProfilesProcess(Second, plain));
+        Assert.True(DedicatedServerCommandLine.IsThisProfilesProcess(Second, second));
+        Assert.False(DedicatedServerCommandLine.IsThisProfilesProcess(First, second));
+        Assert.True(DedicatedServerCommandLine.IsThisProfilesProcess(null, second), "an unreadable command line can't rule it out");
+
+        // What Start passes is what is read back.
+        Assert.True(DedicatedServerCommandLine.IsThisProfilesProcess(DedicatedServerCommandLine.BuildDisplayLine(second), second));
+    }
+
     [Fact]
     public void Sanitize_CapsTheNameAt64Characters() =>
         Assert.Equal(64, DedicatedServerCommandLine.Sanitize(new string('x', 100)).Length);
