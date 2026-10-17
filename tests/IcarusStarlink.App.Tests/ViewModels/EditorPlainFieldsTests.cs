@@ -318,6 +318,40 @@ public sealed class EditorPlainFieldsTests : IDisposable
         Assert.False(editor.CanUndo);
     }
 
+    /// <summary>Undo had no Redo: what Undo takes away comes back with Redo (Ctrl+Y), step by step, until a new change is made.</summary>
+    [Fact]
+    public void Redo_PutsBackWhatUndoTook_AndANewChangeEndsTheChain()
+    {
+        var editor = OpenMod();
+        Assert.False(editor.CanRedo);
+        editor.RedoCommand.Execute(null);
+        Assert.Equal("Nothing to redo.", editor.StatusMessage);
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
+        editor.NewFieldName = "MaxStack";
+        editor.NewFieldValue = "5";
+        editor.AddFieldCommand.Execute(null);
+        Field(editor, "Weight").ValueText = "75";
+
+        editor.UndoCommand.Execute(null);
+        editor.UndoCommand.Execute(null);
+        Assert.DoesNotContain(editor.Fields, f => f.FieldName == "MaxStack");
+        Assert.True(editor.CanRedo);
+
+        editor.RedoCommand.Execute(null);
+        Assert.Contains(editor.Fields, f => f.FieldName == "MaxStack");
+        Assert.Equal("50", Field(editor, "Weight").ValueText);
+
+        editor.RedoCommand.Execute(null);
+        Assert.Equal("75", Field(editor, "Weight").ValueText);
+        Assert.False(editor.CanRedo);
+        Assert.True(editor.CanUndo);
+
+        editor.UndoCommand.Execute(null);
+        Assert.True(editor.CanRedo);
+        Field(editor, "Weight").ValueText = "60";
+        Assert.False(editor.CanRedo);
+    }
+
     [Fact]
     public void RemoveField_UpdatesTheChangeBadge()
     {

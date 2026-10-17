@@ -77,6 +77,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     private readonly List<string> _undoSnapshots = [];
     private const int MaxUndoDepth = 20;
 
+    /// <summary>What Undo took away, newest last, for Redo. Any new change empties it (classic undo/redo).</summary>
+    private readonly List<string> _redoSnapshots = [];
+
     /// <summary>The field typed into since the last snapshot: more typing there needs no new one.</summary>
     private (string CurrentFile, string ItemName, string FieldName)? _lastEditedField;
 
@@ -239,7 +242,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             if (ApplyScaleRulesCore())
             {
                 _undoSnapshots.Clear();
+                _redoSnapshots.Clear();
                 OnPropertyChanged(nameof(CanUndo));
+                OnPropertyChanged(nameof(CanRedo));
                 ScaleStatusMessage = $"{ScaleStatusMessage} Turn rules on or off and change the numbers, then Apply rules again.";
             }
         }
@@ -861,8 +866,16 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(WindowTitle));
     }
 
-    private void PushUndoSnapshot()
+    /// <summary>Snapshots the package before a change. A new change (not Redo itself) ends any redo chain.</summary>
+    private void PushUndoSnapshot() => PushUndoSnapshot(clearRedo: true);
+
+    private void PushUndoSnapshot(bool clearRedo)
     {
+        if (_restoringSnapshot && clearRedo)
+        {
+            return;
+        }
+
         _lastEditedField = null;
         _undoSnapshots.Add(ExmodJson.ToJsonObject(_package).ToJsonString());
         if (_undoSnapshots.Count > MaxUndoDepth)
@@ -870,10 +883,18 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             _undoSnapshots.RemoveAt(0);
         }
 
+        if (clearRedo && _redoSnapshots.Count > 0)
+        {
+            _redoSnapshots.Clear();
+            OnPropertyChanged(nameof(CanRedo));
+        }
+
         OnPropertyChanged(nameof(CanUndo));
     }
 
     public bool CanUndo => _undoSnapshots.Count > 0;
+
+    public bool CanRedo => _redoSnapshots.Count > 0;
 
     /// <summary>
     /// Called by a field row just before it writes a new value: the first write to a field after
@@ -892,7 +913,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _lastEditedField = key;
     }
 
-    /// <summary>Reverts the last change (see _undoSnapshots' own doc comment for exactly what counts) — does not itself push a "redo" point, matching classic IMM's own plain single-direction Undo button.</summary>
+    /// <summary>Reverts the last change (see _undoSnapshots' own doc comment for exactly what counts); what it took away goes on the redo stack.</summary>
     [RelayCommand]
     private void Undo()
     {
@@ -904,16 +925,53 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         var snapshotJson = _undoSnapshots[^1];
         _undoSnapshots.RemoveAt(_undoSnapshots.Count - 1);
+        _redoSnapshots.Add(ExmodJson.ToJsonObject(_package).ToJsonString());
+        RestoreSnapshot(snapshotJson);
+        StatusMessage = "Undid last action.";
+    }
+
+    /// <summary>Puts back what the last Undo took away (until a new change is made).</summary>
+    [RelayCommand]
+    private void Redo()
+    {
+        if (_redoSnapshots.Count == 0)
+        {
+            StatusMessage = "Nothing to redo.";
+            return;
+        }
+
+        var snapshotJson = _redoSnapshots[^1];
+        _redoSnapshots.RemoveAt(_redoSnapshots.Count - 1);
+        PushUndoSnapshot(clearRedo: false);
+        RestoreSnapshot(snapshotJson);
+        StatusMessage = "Redid last action.";
+    }
+
+    private void RestoreSnapshot(string snapshotJson)
+    {
         _lastEditedField = null;
         OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
 
         var snapshot = ExmodJson.Parse(snapshotJson);
         var previousFile = SelectedItem?.CurrentFile;
         var previousName = SelectedItem?.ItemName;
-        ApplyParsedPackage(snapshot, reloadRules: !_scaleRulesDirty);
-        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == previousFile && i.ItemName == previousName) ?? Items.FirstOrDefault();
-        StatusMessage = "Undid last action.";
+        _restoringSnapshot = true;
+        try
+        {
+            ApplyParsedPackage(snapshot, reloadRules: !_scaleRulesDirty);
+            SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == previousFile && i.ItemName == previousName) ?? Items.FirstOrDefault();
+        }
+        finally
+        {
+            _restoringSnapshot = false;
+        }
+
+        _lastEditedField = null;
     }
+
+    /// <summary>Set while Undo/Redo rebuild the view: anything that writes then is the restore, not a new change to snapshot.</summary>
+    private bool _restoringSnapshot;
 
     /// <summary>"Name" is the row-identity key in EXMOD JSON (see ReservedFieldNames in PakIO) — an item carrying a field by that name can't be serialized, and every structural command snapshots by serializing, so it has to be refused at entry rather than crash the next click.</summary>
     private static bool IsReservedFieldName(string fieldName) => string.Equals(fieldName.Trim(), "Name", StringComparison.Ordinal);
