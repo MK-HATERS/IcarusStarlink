@@ -42,12 +42,13 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
         : ModFixViewModel.OnlyIn(Issue.ModValue, Issue.GameValue) ?? ModFixViewModel.Describe(Issue.ModValue);
 
     public string GameText => Issue.Kind == ModIssueKind.OldGameRow ? "doesn't have it any more"
-        : Issue.Kind == ModIssueKind.MissingRow ? $"has '{Issue.SuggestedRow}'"
+        : Issue.Kind == ModIssueKind.MissingRow ? (Issue.SuggestedRow is null ? "doesn't have it any more" : $"has '{Issue.SuggestedRow}'")
+        : Issue.Kind == ModIssueKind.BrokenLink && Issue.GameValue is null ? "doesn't have what it links to"
         : Issue.Kind == ModIssueKind.SameAsGame ? "the same (no change)"
         : ModFixViewModel.OnlyIn(Issue.GameValue, Issue.ModValue) ?? ModFixViewModel.Describe(Issue.GameValue);
 
-    /// <summary>A renamed row has no values to compare, only the names.</summary>
-    public bool ShowValues => Issue.Kind is not (ModIssueKind.MissingRow or ModIssueKind.OldGameRow);
+    /// <summary>A renamed row has no values to compare, only the names; nor has a link with no game value to go back to.</summary>
+    public bool ShowValues => Issue.Kind is not (ModIssueKind.MissingRow or ModIssueKind.OldGameRow) && !(Issue.Kind == ModIssueKind.BrokenLink && Issue.GameValue is null);
 
     public string KindLabel => ModFixViewModel.KindTitle(Issue.Kind);
 
@@ -414,7 +415,7 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.LikelyOld => "Probably old",
         ModIssueKind.MixedList => "Lists both changed",
         ModIssueKind.BrokenLink => "Links to things the game doesn't have",
-        ModIssueKind.MissingRow => "Rows the game renamed",
+        ModIssueKind.MissingRow => "Rows the game no longer has",
         ModIssueKind.OldGameRow => "Old game rows (tidy-up)",
         _ => kind.ToString(),
     };
@@ -425,9 +426,9 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.SameAsGame => "Nothing wrong: the mod sets these to exactly what the game already has, so they change nothing. Taking them out only makes the mod smaller; the game plays the same.",
         ModIssueKind.LikelyOld => "Changes on rows the mod copied wholesale from an older game version. Most likely old values, not the author's idea; the suggestion is the game's current value.",
         ModIssueKind.MixedList => "The mod added entries to a list, and the game has entries the mod lacks (most likely added since). Merge keeps both.",
-        ModIssueKind.BrokenLink => "The mod links these to something the game (and no mod in your Library) has, so in game they do nothing: a canteen you can't drink from, food with no model. The fix links each back to what the game uses.",
-        ModIssueKind.MissingRow => "The mod changes a row the game no longer has under that name.",
-        ModIssueKind.OldGameRow => "Nothing wrong in game: the mod was made from an older game version and still carries whole rows the game has since removed (another mod in your Library carries the same old rows). Nothing uses them, so they do nothing. Removing them only makes the mod smaller.",
+        ModIssueKind.BrokenLink => "The mod links these to something the game (and no mod in your Library) doesn't have, so in game they do nothing: a canteen you can't drink from, food with no model. Where the game removed what it links to, the fix links it back to what the game uses; otherwise it may need a mod that adds it, so it's kept as it is.",
+        ModIssueKind.MissingRow => "The mod changes rows the game no longer has under that name: renamed since (it can be renamed to match), or removed (the change has nothing left to change).",
+        ModIssueKind.OldGameRow => "Nothing wrong in game: the mod was made from an older game version and still carries whole rows the game has since removed (the game's own row history shows it had them, or another mod in your Library carries the same rows). Nothing uses them, so they do nothing. Removing them only makes the mod smaller.",
         _ => "",
     };
 

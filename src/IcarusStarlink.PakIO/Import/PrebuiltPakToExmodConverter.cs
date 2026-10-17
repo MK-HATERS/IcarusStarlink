@@ -24,7 +24,7 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
 {
     public async Task<PrebuiltPakConversionResult?> TryConvertAsync(
         string pakFilePath, string dataFolder, string unrealPakExePath, string name, string author,
-        MergeReport report, CancellationToken cancellationToken = default)
+        MergeReport report, GameValueHistory? gameHistory = null, CancellationToken cancellationToken = default)
     {
         var pakName = Path.GetFileNameWithoutExtension(pakFilePath);
 
@@ -177,7 +177,7 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
             // every time it is converted (including the re-conversion after each game data refresh).
             if (embedded is null)
             {
-                var health = ModHealthChecker.Check(package, dataFolder, fromPrebuiltPak: true);
+                var health = ModHealthChecker.Check(package, dataFolder, gameHistory: gameHistory, fromPrebuiltPak: true);
                 var oldCopies = ModHealthChecker.Apply(package, health.Issues
                     .Where(i => i.IsSure && i.Kind is ModIssueKind.OldCopy or ModIssueKind.SameAsGame)
                     .Select(i => (i, i.DefaultFix))

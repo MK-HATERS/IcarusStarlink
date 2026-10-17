@@ -62,6 +62,9 @@ public sealed class ModFixDecisions
 
     public int Count => Entries.Count;
 
+    /// <summary>Any fix remembered (not only values kept): there's something to make again after a re-conversion.</summary>
+    public bool HasFixes => Entries.Any(e => e.Value != ModIssueFix.KeepMod);
+
     public void Remember(ModIssue issue, ModIssueFix fix)
     {
         Entries.Remove(KeepKey(issue));

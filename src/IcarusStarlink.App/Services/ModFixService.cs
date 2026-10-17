@@ -14,8 +14,8 @@ namespace IcarusStarlink.App.Services;
 /// back, always backed up first (Restore latest backup undoes it). Remembers each mod's choices
 /// (ModFixDecisions, one small file per mod) so what the user decided once is done by itself the
 /// next time. A mod converted from a prebuilt pak isn't marked edited by a fix: it keeps being
-/// re-converted against each new game version, and its sure fixes and remembered choices are made
-/// again right after (ReapplyRemembered). Plain file work, safe off the UI thread.
+/// re-converted against each new game version, and exactly the fixes made to it before (each one
+/// remembered) are made again right after (ReapplyRemembered). Plain file work, safe off the UI thread.
 ///
 /// One call at a time: the fix window, Fix sure problems, the whole-library check and the
 /// post-refresh ReapplyRemembered can all reach this one service from different threads. Every
@@ -101,8 +101,8 @@ public sealed class ModFixService(
     }
 
     /// <summary>
-    /// Remembers the choices worth remembering (every one the user looked at: anything not a sure
-    /// fix, and any sure fix they overrode), then backs the mod up, applies the fixes and writes it.
+    /// Remembers every choice (what was kept isn't asked again; every fix made is made again after
+    /// a re-conversion, exactly as chosen), then backs the mod up, applies the fixes and writes it.
     /// Returns how many fixes were applied.
     /// </summary>
     public int Apply(string folderName, IReadOnlyCollection<(ModIssue Issue, ModIssueFix Fix)> fixes)
@@ -110,14 +110,12 @@ public sealed class ModFixService(
         lock (_gate)
         {
             var decisions = LoadDecisions(folderName);
-            var learned = 0;
-            foreach (var (issue, fix) in fixes.Where(f => !f.Issue.IsSure || f.Fix != f.Issue.DefaultFix))
+            foreach (var (issue, fix) in fixes)
             {
                 decisions.Remember(issue, fix);
-                learned++;
             }
 
-            if (learned > 0)
+            if (fixes.Count > 0)
             {
                 SaveDecisions(folderName, decisions);
             }
@@ -126,9 +124,19 @@ public sealed class ModFixService(
         }
     }
 
-    /// <summary>The automatic part for one mod: every sure fix, remembered choices included. Returns (applied, still to look over).</summary>
+    /// <summary>
+    /// The automatic part for one mod: every sure problem fixed, and every choice made before made
+    /// again; tidying alone (values the game already has, old rows nothing uses) never is. Each fix
+    /// made is remembered as a choice, so a re-conversion makes exactly these again
+    /// (ReapplyRemembered). Returns (applied, still to look over).
+    /// </summary>
     public (int Applied, int ToReview) FixSure(string folderName, IDictionary<string, JsonObject?>? baseTableCache = null, GameValueHistory? history = null,
-        IReadOnlySet<string>? libraryAddedRows = null)
+        IReadOnlySet<string>? libraryAddedRows = null) =>
+        Fix(folderName, baseTableCache, history, libraryAddedRows, onlyRemembered: false);
+
+    /// <param name="onlyRemembered">Only the choices remembered for this mod (ReapplyRemembered), not every sure problem.</param>
+    private (int Applied, int ToReview) Fix(string folderName, IDictionary<string, JsonObject?>? baseTableCache, GameValueHistory? history,
+        IReadOnlySet<string>? libraryAddedRows, bool onlyRemembered)
     {
         lock (_gate)
         {
@@ -138,9 +146,26 @@ public sealed class ModFixService(
             // Restore latest backup undoes the whole click rather than only its last round.
             var applied = 0;
             var report = Check(folderName, baseTableCache, history, libraryAddedRows);
-            for (var round = 0; round < 3 && report.SureCount > 0; round++)
+            for (var round = 0; round < 3; round++)
             {
-                var thisRound = Write(folderName, [.. report.Issues.Where(i => i.IsSure).Select(i => (i, i.DefaultFix))], backUp: applied == 0);
+                var fixes = report.Issues.Where(i => i.IsAutomatic && (!onlyRemembered || i.Remembered)).Select(i => (i, i.DefaultFix)).ToList();
+                if (fixes.Count == 0)
+                {
+                    break;
+                }
+
+                if (fixes.Any(f => !f.i.Remembered))
+                {
+                    var decisions = LoadDecisions(folderName);
+                    foreach (var (issue, fix) in fixes.Where(f => !f.i.Remembered))
+                    {
+                        decisions.Remember(issue, fix);
+                    }
+
+                    SaveDecisions(folderName, decisions);
+                }
+
+                var thisRound = Write(folderName, fixes, backUp: applied == 0);
                 if (thisRound == 0)
                 {
                     break;
@@ -155,20 +180,23 @@ public sealed class ModFixService(
     }
 
     /// <summary>
-    /// After a prebuilt pak was converted again: make the remembered choices (and sure fixes) again.
-    /// Sure fixes aren't remembered as choices, so a mod counts as fixed before when it's marked so,
-    /// or when the fresh conversion has more sure problems than the copy it replaced
-    /// (<paramref name="sureBefore"/>: that copy's count) — which also catches mods fixed before the
-    /// mark existed. Without this a broken link fixed with Fix sure problems came back on the next refresh.
+    /// After a prebuilt pak was converted again: make again exactly the fixes made to it before
+    /// (in the fix window or by Fix sure problems, each remembered as a choice), nothing more. A mod
+    /// marked fixed by an earlier version, which didn't remember the fixes Fix sure problems made,
+    /// gets its sure problems fixed once more (and remembered from then on). Without this a broken
+    /// link fixed with Fix sure problems came back on the next refresh.
     /// </summary>
-    public int ReapplyRemembered(string folderName, int? sureBefore = null)
+    public int ReapplyRemembered(string folderName, IDictionary<string, JsonObject?>? baseTableCache = null, GameValueHistory? history = null,
+        IReadOnlySet<string>? libraryAddedRows = null)
     {
         lock (_gate)
         {
-            var fixedBefore = LoadDecisions(folderName).Count > 0
-                || Entry(folderName)?.FixedByIslAtUtc is not null
-                || (sureBefore is { } before && Check(folderName).SureCount > before);
-            return fixedBefore ? FixSure(folderName).Applied : 0;
+            if (!LoadDecisions(folderName).HasFixes)
+            {
+                return Entry(folderName)?.FixedByIslAtUtc is not null ? FixSure(folderName, baseTableCache, history, libraryAddedRows).Applied : 0;
+            }
+
+            return Fix(folderName, baseTableCache, history, libraryAddedRows, onlyRemembered: true).Applied;
         }
     }
 
