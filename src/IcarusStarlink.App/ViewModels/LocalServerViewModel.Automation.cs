@@ -92,7 +92,7 @@ public sealed partial class LocalServerViewModel
         }
 
         apply(profile);
-        _store.Save(profile);
+        SaveToStore(profile);
         RefreshOverview();
     }
 

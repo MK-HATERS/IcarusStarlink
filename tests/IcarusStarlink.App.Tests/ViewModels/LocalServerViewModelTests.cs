@@ -41,9 +41,9 @@ public sealed partial class LocalServerViewModelTests : IDisposable
 
     private string MergedPakPath => Path.Combine(_root, "Staged_Build", IcarusStarlink.PakIO.InstallManifestNames.MergedPakFileName);
 
-    private (LocalServerViewModel Vm, FakeStore Store, FakeProcesses Processes, FakeDialogs Dialogs) Build(string? pick = null, bool confirm = true, string? pickExe = null)
+    private (LocalServerViewModel Vm, FakeStore Store, FakeProcesses Processes, FakeDialogs Dialogs) Build(string? pick = null, bool confirm = true, string? pickExe = null, FakeStore? existingStore = null)
     {
-        var store = new FakeStore();
+        var store = existingStore ?? new FakeStore();
         var processes = new FakeProcesses();
         var dialogs = new FakeDialogs(confirm);
         var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, () => pickExe, startTimer: false, firewall: Firewall)
@@ -216,6 +216,20 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Empty(store.Profiles);
         Assert.Null(vm.SelectedProfile);
         Assert.True(File.Exists(Path.Combine(_install, "IcarusServer.exe")));
+    }
+
+    /// <summary>The saved server list couldn't be read at startup: the page says so, and a Save doesn't pretend it worked.</summary>
+    [Fact]
+    public void UnreadableServerList_IsReported_AndSavesSaySoInsteadOfSaved()
+    {
+        var store = new FakeStore { LoadProblem = "Your saved server list couldn't be read." };
+        var (vm, _, _, _) = Build(pick: _install, existingStore: store);
+        Assert.Equal("Your saved server list couldn't be read.", vm.StatusMessage);
+
+        vm.AddExistingServerCommand.Execute(null);
+        vm.SaveSettingsCommand.Execute(null);
+
+        Assert.Equal("Your saved server list couldn't be read.", vm.StatusMessage);
     }
 
     // ---- Phase 2: SteamCMD ----
@@ -620,13 +634,20 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         public List<DedicatedServerProfile> Profiles { get; } = [];
         public IReadOnlyList<DedicatedServerProfile> GetAll() => Profiles;
 
-        public void Save(DedicatedServerProfile profile)
+        public string? LoadProblem { get; set; }
+
+        public bool Save(DedicatedServerProfile profile)
         {
             Profiles.RemoveAll(p => p.Id == profile.Id);
             Profiles.Add(profile);
+            return LoadProblem is null;
         }
 
-        public void Delete(Guid id) => Profiles.RemoveAll(p => p.Id == id);
+        public bool Delete(Guid id)
+        {
+            Profiles.RemoveAll(p => p.Id == id);
+            return LoadProblem is null;
+        }
     }
 
     private sealed class FakeProcesses : IDedicatedServerProcessService
@@ -670,10 +691,13 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     {
         public List<string> Messages { get; } = [];
 
+        /// <summary>Answers for the next confirms, in order; once empty, every confirm gets confirmResult.</summary>
+        public Queue<bool> Answers { get; } = new();
+
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {
             Messages.Add(message);
-            return confirmResult;
+            return Answers.Count > 0 ? Answers.Dequeue() : confirmResult;
         }
 
         public RenamePromptResult PromptRename(string currentName, string description = "", string? resetValue = null, string resetLabel = "", string resetTooltip = "", string title = "", string fieldLabel = "") =>

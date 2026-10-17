@@ -304,7 +304,7 @@ public sealed partial class LocalServerViewModel
         }
 
         var profile = new DedicatedServerProfile { Name = "Icarus Server", InstallFolder = target, SteamServerName = "Icarus Server" };
-        _store.Save(profile);
+        SaveToStore(profile);
         Profiles.Add(profile);
         SelectedProfile = profile;
         TrySave();

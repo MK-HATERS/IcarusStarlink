@@ -77,6 +77,11 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
         SelectedProfile = Profiles.FirstOrDefault();
         Profiles.CollectionChanged += (_, _) => RaiseSteamCmdChanged();
+        if (store.LoadProblem is { } problem)
+        {
+            StatusMessage = problem;
+            activityLog.Log(problem, ActivityEntryKind.Warning);
+        }
 
         // Refresh game data re-extracts D_ProspectList — rebuild the prospect choices from it.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((LocalServerViewModel)recipient).ReloadProspectChoices());
@@ -262,7 +267,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
             InstallFolder = root,
             SteamServerName = ini.SessionName ?? "Icarus Server",
         };
-        _store.Save(profile);
+        SaveToStore(profile);
         Profiles.Add(profile);
         SelectedProfile = profile;
         var adoptedSteamCmd = AdoptInstallingSteamCmd(root);
@@ -274,6 +279,18 @@ public sealed partial class LocalServerViewModel : ObservableObject
     }
 
     private bool CanUseProfile() => SelectedProfile is not null;
+
+    /// <summary>Writes the profile list; when the store refuses (its file couldn't be read at startup) or the write fails, the status line says so.</summary>
+    private bool SaveToStore(DedicatedServerProfile profile)
+    {
+        if (_store.Save(profile))
+        {
+            return true;
+        }
+
+        StatusMessage = _store.LoadProblem ?? "Couldn't save the server list. Your change applies until Starlink closes; check the log for why.";
+        return false;
+    }
 
     [RelayCommand(CanExecute = nameof(CanUseProfile))]
     private void RemoveProfile()
@@ -617,7 +634,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
 
         var index = Profiles.IndexOf(current);
-        _store.Save(updated);
+        var stored = SaveToStore(updated);
         SyncFirewallPortsAfterSave(current, updated);
 
         // Swap the list entry and re-select it without reloading the form from disk (it already
@@ -642,7 +659,10 @@ public sealed partial class LocalServerViewModel : ObservableObject
         AttachLog();
 
         ValidationMessage = null;
-        StatusMessage = Running is not null ? "Saved. Restart the server to apply." : "Saved.";
+        if (stored)
+        {
+            StatusMessage = Running is not null ? "Saved. Restart the server to apply." : "Saved.";
+        }
         return true;
     }
 
