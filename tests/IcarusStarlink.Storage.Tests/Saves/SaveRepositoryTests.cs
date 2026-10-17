@@ -218,51 +218,70 @@ public sealed class SaveRepositoryTests : IDisposable
             dir => Path.GetFileName(dir).Contains("_restore_scratch_"));
     }
 
-    /// <summary>
-    /// Regression guard for the real bug this method exists to prevent: the OLD shape ("delete
-    /// destinationFolder, then move newContentFolder into place, and on ANY failure delete
-    /// newContentFolder too") would destroy BOTH the original and the replacement if the second
-    /// move failed after the delete had already succeeded (e.g. a file inside newContentFolder
-    /// briefly locked by a real-time antivirus scan right after extraction). Simulated here by
-    /// pointing newContentFolder at a path that doesn't exist, which reliably fails Directory.Move
-    /// with DirectoryNotFoundException — the exact same "the swap-in move throws" shape a real file
-    /// lock would produce, just via a cause this test can construct deterministically.
-    /// </summary>
+    /// <summary>A failure partway through the swap (here: the second rename into place) puts every live file back as it was.</summary>
     [Fact]
-    public void SwapFolderInPlace_NewContentMoveFails_OriginalIsRestoredNotLost()
+    public void ReplaceTopLevelFiles_FailureMidSwap_PutsTheLiveFilesBack()
     {
-        var destination = Path.Combine(_root, "destination");
-        Directory.CreateDirectory(destination);
-        File.WriteAllText(Path.Combine(destination, "original.txt"), "original content");
-        var missingNewContent = Path.Combine(_root, "does_not_exist");
-        var oldFolderPath = Path.Combine(_root, "old");
+        var slot = Path.Combine(_root, "slot");
+        var incoming = Path.Combine(_root, "incoming");
+        var aside = Path.Combine(_root, "aside");
+        Directory.CreateDirectory(slot);
+        Directory.CreateDirectory(incoming);
+        File.WriteAllText(Path.Combine(slot, "Profile.json"), "live profile");
+        File.WriteAllText(Path.Combine(slot, "Characters.json"), "live characters");
+        File.WriteAllText(Path.Combine(slot, "OnlyLive.json"), "live only");
+        File.WriteAllText(Path.Combine(incoming, "Profile.json"), "old profile");
+        File.WriteAllText(Path.Combine(incoming, "Characters.json"), "old characters");
 
-        Assert.ThrowsAny<Exception>(() => SaveRepository.SwapFolderInPlace(destination, missingNewContent, oldFolderPath));
+        var swaps = 0;
+        Assert.Throws<IOException>(() => SaveRepository.ReplaceTopLevelFiles(slot, incoming, aside, _ =>
+        {
+            if (++swaps == 2)
+            {
+                throw new IOException("locked");
+            }
+        }));
 
-        // The original must still be there, under its ORIGINAL path — not lost, not stuck under
-        // oldFolderPath forever.
-        Assert.True(Directory.Exists(destination));
-        Assert.Equal("original content", File.ReadAllText(Path.Combine(destination, "original.txt")));
-        Assert.False(Directory.Exists(oldFolderPath));
+        Assert.Equal("live profile", File.ReadAllText(Path.Combine(slot, "Profile.json")));
+        Assert.Equal("live characters", File.ReadAllText(Path.Combine(slot, "Characters.json")));
+        Assert.Equal("live only", File.ReadAllText(Path.Combine(slot, "OnlyLive.json")));
+        Assert.Equal(3, Directory.GetFiles(slot).Length);
+        Assert.False(Directory.Exists(aside));
     }
 
     [Fact]
-    public void SwapFolderInPlace_Success_ReplacesContentAndCleansUpTheOriginal()
+    public void ReplaceTopLevelFiles_Success_ReplacesFilesAndCleansUp()
     {
-        var destination = Path.Combine(_root, "destination");
-        Directory.CreateDirectory(destination);
-        File.WriteAllText(Path.Combine(destination, "original.txt"), "original content");
-        var newContent = Path.Combine(_root, "new_content");
-        Directory.CreateDirectory(newContent);
-        File.WriteAllText(Path.Combine(newContent, "replacement.txt"), "new content");
-        var oldFolderPath = Path.Combine(_root, "old");
+        var slot = Path.Combine(_root, "slot");
+        var incoming = Path.Combine(_root, "incoming");
+        var aside = Path.Combine(_root, "aside");
+        Directory.CreateDirectory(slot);
+        Directory.CreateDirectory(incoming);
+        File.WriteAllText(Path.Combine(slot, "Profile.json"), "live profile");
+        File.WriteAllText(Path.Combine(slot, "OnlyLive.json"), "live only");
+        File.WriteAllText(Path.Combine(incoming, "Profile.json"), "old profile");
 
-        SaveRepository.SwapFolderInPlace(destination, newContent, oldFolderPath);
+        SaveRepository.ReplaceTopLevelFiles(slot, incoming, aside);
 
-        Assert.True(File.Exists(Path.Combine(destination, "replacement.txt")));
-        Assert.False(File.Exists(Path.Combine(destination, "original.txt")));
-        Assert.False(Directory.Exists(newContent));
-        Assert.False(Directory.Exists(oldFolderPath));
+        Assert.Equal("old profile", File.ReadAllText(Path.Combine(slot, "Profile.json")));
+        Assert.False(File.Exists(Path.Combine(slot, "OnlyLive.json")));
+        Assert.Single(Directory.GetFiles(slot));
+        Assert.False(Directory.Exists(aside));
+    }
+
+    /// <summary>AssociatedProspects_* is each character's list of worlds; worlds are never restored, so neither is the list.</summary>
+    [Fact]
+    public void RestoreSlot_LeavesAssociatedProspectsAlone()
+    {
+        var listPath = Path.Combine(_playerData, SteamId, "AssociatedProspects_Slot_0.json");
+        File.WriteAllText(listPath, "worlds at backup time");
+        var backupPath = _repository.BackupSlot(SteamId);
+        File.WriteAllText(listPath, "worlds now");
+
+        _repository.RestoreSlot(SteamId, backupPath);
+
+        Assert.Equal("worlds now", File.ReadAllText(listPath));
+        Assert.DoesNotContain(Directory.GetDirectories(_playerData), d => Path.GetFileName(d).Contains("_restore_"));
     }
 
     [Fact]

@@ -337,17 +337,6 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         // the backup (a new character's sidecar, the game's own rolling .backup copies) lingering
         // beside restored ones would be a half-and-half state neither the user nor the game chose.
         //
-        // Deliberately NOT "delete slotFolder, then move scratchFolder into place, then on any
-        // failure delete scratchFolder": that shape has a real gap once the delete has already
-        // succeeded — if the move that follows it then fails (e.g. a file inside scratchFolder
-        // gets briefly locked by a real-time antivirus scan right after extraction, a common
-        // Windows occurrence), the live slot is already gone AND the only remaining copy of the
-        // restored data gets deleted by the same catch, destroying both the original and the
-        // restore. Renaming the live slot out of the way first (a same-volume rename, not a
-        // recursive delete, so it can't fail partway through the way a big recursive delete can)
-        // means there is never a moment where neither the original nor the replacement exists on
-        // disk — and if the final swap-in still fails for some reason, the original is renamed
-        // back rather than anything being deleted.
         // Replace, not merge — but only the slot's TOP-LEVEL files (the ones this editor actually
         // writes: Profile.json, Characters.json, Accolades, Bestiary, MetaInventory, Mounts.json,
         // flags_<id>.dat and the game's own rolling .backup copies). Subfolders are never touched
@@ -355,18 +344,13 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         // (Prospects), map data and loadouts, which the editor never changes, so the old whole-
         // folder swap silently rolled every world back to the backup's moment. Backups made by
         // the earlier whole-folder shape still restore correctly — their subfolder entries are
-        // simply ignored. The pre_restore zip above is the safety net for a failure mid-copy.
+        // simply ignored. AssociatedProspects_* (each character's list of worlds) belongs with the
+        // Prospects folder, so it is left alone too: restoring it would point characters at worlds
+        // as they were listed back then while the worlds themselves stay current.
         try
         {
-            foreach (var live in Directory.GetFiles(slotFolder))
-            {
-                File.Delete(live);
-            }
-
-            foreach (var restored in Directory.GetFiles(scratchFolder))
-            {
-                File.Copy(restored, Path.Combine(slotFolder, Path.GetFileName(restored)), overwrite: true);
-            }
+            var asideFolder = Path.Combine(playerDataDirectory, $"{steamId}_restore_aside_{Guid.NewGuid():N}");
+            ReplaceTopLevelFiles(slotFolder, scratchFolder, asideFolder);
         }
         finally
         {
@@ -382,21 +366,111 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         return preRestorePath;
     }
 
+    private const string RestoringSuffix = ".isl_restoring";
+
+    /// <summary>Top-level files a restore never replaces or deletes: AssociatedProspects_* lists each character's worlds, which live in Prospects (also never restored).</summary>
+    internal static bool IsKeptOutOfRestore(string fileName) =>
+        fileName.StartsWith("AssociatedProspects_", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
-    /// Replaces destinationFolder's content with newContentFolder's, never leaving a moment where
-    /// neither the original nor the replacement exists on disk: renames destinationFolder out of
-    /// the way (a same-volume rename, not a recursive delete, so it can't fail partway through the
-    /// way a big recursive delete can), moves newContentFolder into destinationFolder's place, and
-    /// only deletes the renamed-away original once that move has confirmed succeeded. If the swap-in
-    /// move itself fails (e.g. a file inside newContentFolder gets briefly locked by a real-time
-    /// antivirus scan right after extraction — a real, common Windows occurrence, not hypothetical),
-    /// the renamed-away original is moved back into place rather than anything being deleted —
-    /// deliberately NOT the simpler "delete destinationFolder, then move newContentFolder into
-    /// place" shape, whose own failure-cleanup would otherwise delete the only remaining copy of the
-    /// replacement data right after the original was already gone, destroying both. Internal (not
-    /// private) so this specific safety property is directly unit-testable without needing to force
-    /// a real OS-level file lock, which isn't reliably reproducible in an automated test.
+    /// Swaps the slot's top-level files for the restored ones without a moment where a half-copied
+    /// set is all that's left: (1) every restored file is copied in under a temporary name while
+    /// the live files are untouched, (2) the live files are renamed into asideFolder (same volume,
+    /// so a rename, not a copy), (3) the temporary names are renamed to the real ones. Any failure
+    /// undoes what was done, in reverse, and puts the live files back. Internal, with
+    /// beforeSwapIn as a fault hook, so the rollback can be tested without forcing a real file lock.
     /// </summary>
+    internal static void ReplaceTopLevelFiles(string slotFolder, string newFilesFolder, string asideFolder, Action<string>? beforeSwapIn = null)
+    {
+        var incoming = Directory.GetFiles(newFilesFolder).Where(f => !IsKeptOutOfRestore(Path.GetFileName(f))).ToList();
+        var outgoing = Directory.GetFiles(slotFolder)
+            .Where(f => !IsKeptOutOfRestore(Path.GetFileName(f)) && !f.EndsWith(RestoringSuffix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var staged = new List<string>();
+        var movedAside = new List<(string From, string To)>();
+        var swappedIn = new List<string>();
+        try
+        {
+            foreach (var file in incoming)
+            {
+                var temp = Path.Combine(slotFolder, Path.GetFileName(file) + RestoringSuffix);
+                File.Copy(file, temp, overwrite: true);
+                staged.Add(temp);
+            }
+
+            Directory.CreateDirectory(asideFolder);
+            foreach (var live in outgoing)
+            {
+                var aside = Path.Combine(asideFolder, Path.GetFileName(live));
+                File.Move(live, aside);
+                movedAside.Add((live, aside));
+            }
+
+            foreach (var temp in staged)
+            {
+                var final = temp[..^RestoringSuffix.Length];
+                beforeSwapIn?.Invoke(final);
+                File.Move(temp, final);
+                swappedIn.Add(final);
+            }
+        }
+        catch
+        {
+            foreach (var final in swappedIn)
+            {
+                TryDeleteFile(final);
+            }
+
+            foreach (var temp in staged)
+            {
+                TryDeleteFile(temp);
+            }
+
+            foreach (var (from, to) in movedAside)
+            {
+                File.Move(to, from, overwrite: true);
+            }
+
+            TryDeleteFolder(asideFolder);
+            throw;
+        }
+
+        TryDeleteFolder(asideFolder);
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static void TryDeleteFolder(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+            // A leftover aside folder is inert (ListSlots only lists all-digit folder names).
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
     /// <summary>
     /// Only the slot's top-level files go into a backup — never Prospects (world saves), MapData,
     /// Loadout or Mounts icons, none of which the editor touches. Besides keeping Restore from
@@ -409,40 +483,6 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         foreach (var file in Directory.GetFiles(slotFolder))
         {
             archive.CreateEntryFromFile(file, Path.GetFileName(file));
-        }
-    }
-
-    internal static void SwapFolderInPlace(string destinationFolder, string newContentFolder, string oldFolderPath)
-    {
-        Directory.Move(destinationFolder, oldFolderPath);
-        try
-        {
-            Directory.Move(newContentFolder, destinationFolder);
-        }
-        catch
-        {
-            // Put the original back rather than leaving destinationFolder missing — but only if
-            // nothing already landed there (Directory.Move on Windows is all-or-nothing for a
-            // same-volume rename, so this is a defensive check, not an expected case).
-            if (!Directory.Exists(destinationFolder))
-            {
-                Directory.Move(oldFolderPath, destinationFolder);
-            }
-
-            throw;
-        }
-
-        // Only reached once the new data is confirmed in place — safe to remove the renamed-away
-        // original now. A failure here (a locked file) leaves an inert, harmless leftover folder
-        // rather than risking any real data.
-        try
-        {
-            Directory.Delete(oldFolderPath, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Same reasoning as PruneBackups' own locked-file tolerance — never worth failing an
-            // otherwise-successful restore over housekeeping.
         }
     }
 
