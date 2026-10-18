@@ -57,6 +57,8 @@ namespace IcarusStarlink.App;
 
 public partial class App : Application
 {
+    private BackgroundMemoryTrimmer? _memoryTrimmer;
+
     private IHost? _host;
 
     /// <summary>The app's settings, for windows created outside DI (WindowSizeMemory); null in tests.</summary>
@@ -331,6 +333,8 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Cache", "PakPreviews"),
             sp.GetRequiredService<IDialogService>())
         {
+            // A UE4SS mod's config can also be saved to the mod's copy on these servers.
+            ServerProfiles = () => sp.GetRequiredService<IDedicatedServerProfileStore>().GetAll(),
             // Old values from recent game updates: a mod still holding one is an old copy.
             GameHistory = () => sp.GetRequiredService<IWeeklyChangeReportStore>().History
                 .SelectMany(report => report.ChangedFiles).SelectMany(file => file.FieldChanges),
@@ -360,12 +364,12 @@ public partial class App : Application
             sp.GetRequiredService<IActivityLog>(),
             Path.Combine(appDataDirectory, "Backups")));
         // One fix service for the whole app: every writer of a mod's .EXMOD takes its lock.
-        builder.Services.AddSingleton(sp => new ModFixService(
+        builder.Services.AddSingleton(sp => IcarusStarlink.App.Services.ModFixService.Registered(new ModFixService(
             sp.GetRequiredService<ILibraryRepository>(),
             Path.Combine(appDataDirectory, "Data"),
             () => sp.GetRequiredService<IWeeklyChangeReportStore>().History
                 .SelectMany(report => report.ChangedFiles).SelectMany(file => file.FieldChanges),
-            Path.Combine(appDataDirectory, "Library_Meta", "Fix_Choices")));
+            Path.Combine(appDataDirectory, "Library_Meta", "Fix_Choices"))));
         // How every copy of a mod is replaced: Downloads' Activate/Reinstall, Library's Get update and Reinstall original.
         builder.Services.AddSingleton(sp => new ModReplacementService(
             sp.GetRequiredService<ILibraryRepository>(),
@@ -596,6 +600,9 @@ public partial class App : Application
                 // crashed the app the moment any ThemedConfirmDialog/ThemedMessageBox tried to show
                 // using Application.Current.MainWindow as its owner.
                 Application.Current.MainWindow = mainWindow;
+
+                // Memory goes back to Windows while the app sits in the background (the game is being played).
+                _memoryTrimmer = new BackgroundMemoryTrimmer(this);
 
                 // Constructed eagerly (page ViewModels are otherwise built lazily on first
                 // navigation) so its launch checks — the app-update prompt, Nexus key

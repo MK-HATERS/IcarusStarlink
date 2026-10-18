@@ -1,5 +1,6 @@
 using CUE4Parse.FileProvider;
 using CUE4Parse.UE4.Versions;
+using IcarusStarlink.Core.Memory;
 using IcarusStarlink.Core.Settings;
 
 namespace IcarusStarlink.PakIO.Assets;
@@ -33,7 +34,7 @@ namespace IcarusStarlink.PakIO.Assets;
 /// all session): it's tried again once the Content path changes, or after RetryFailedMountAfter —
 /// never on every call, so a doomed mount isn't redone per lookup.
 /// </summary>
-public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
+public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IIdleReleasable
 {
     // GAME_UE4_27 never varies for this app (Icarus is a fixed UE4.27 title) — same shared
     // instance convention CueAssetProviderLocator already uses for its own mod-folder provider.
@@ -57,7 +58,38 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
     private string? _mountedForPath;
     private DateTime _mountStartedUtc;
 
-    public CueBaseGameContentProvider(ISettingsService settingsService) => _settingsService = settingsService;
+    /// <summary>The last lookup (under _lock): the mount is let go after it has stood unused a while.</summary>
+    private DateTime _lastUsedUtc;
+
+    public CueBaseGameContentProvider(ISettingsService settingsService)
+    {
+        _settingsService = settingsService;
+        IdleMemory.Register(this);
+    }
+
+    /// <summary>
+    /// The mounted game paks hold about 100 MB (every file's index entry and a reader per pak) and
+    /// mount again in well under a second, so they're let go while the app sits unused (the user
+    /// is playing). The next lookup mounts them again.
+    /// </summary>
+    public bool ReleaseIfIdle(TimeSpan idleFor)
+    {
+        lock (_lock)
+        {
+            if (_mountTask is not { IsCompletedSuccessfully: true } task || task.Result is not { } mounted
+                || DateTime.UtcNow - _lastUsedUtc < idleFor)
+            {
+                return false;
+            }
+
+            // Every use of the provider happens under _lock and checks Released first, so nothing
+            // is reading from it while it's disposed here.
+            mounted.Released = true;
+            _mountTask = null;
+            mounted.Provider.Dispose();
+            return true;
+        }
+    }
 
     public T? TryLoadExport<T>(string assetPath) where T : class =>
         TryLoadExportAndProject<T, T>(assetPath, static export => export);
@@ -76,6 +108,22 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
 
     public BlueprintSummary? TrySummarizeBlueprint(string assetPath)
     {
+        // Twice at most: the mount may be let go (ReleaseIfIdle) between getting it and locking.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var summary = TrySummarizeBlueprintOnce(assetPath, out var released);
+            if (!released)
+            {
+                return summary;
+            }
+        }
+
+        return null;
+    }
+
+    private BlueprintSummary? TrySummarizeBlueprintOnce(string assetPath, out bool released)
+    {
+        released = false;
         var mounted = GetOrMountProvider();
         if (mounted is null)
         {
@@ -84,6 +132,12 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
 
         lock (_lock)
         {
+            if (mounted.Released)
+            {
+                released = true;
+                return null;
+            }
+
             if (!mounted.ContentPathIndex.TryGetValue(assetPath.Replace('\\', '/').TrimStart('/'), out var matchedKey))
             {
                 return null;
@@ -114,6 +168,23 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
     public TResult? TryLoadExportAndProject<T, TResult>(string assetPath, Func<T, TResult> project)
         where T : class where TResult : class
     {
+        // Twice at most: the mount may be let go (ReleaseIfIdle) between getting it and locking.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var result = TryLoadExportAndProjectOnce(assetPath, project, out var released);
+            if (!released)
+            {
+                return result;
+            }
+        }
+
+        return null;
+    }
+
+    private TResult? TryLoadExportAndProjectOnce<T, TResult>(string assetPath, Func<T, TResult> project, out bool released)
+        where T : class where TResult : class
+    {
+        released = false;
         var mounted = GetOrMountProvider();
         if (mounted is null)
         {
@@ -142,6 +213,12 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
         // callers against each other once a provider exists.
         lock (_lock)
         {
+            if (mounted.Released)
+            {
+                released = true;
+                return null;
+            }
+
             if (!mounted.ContentPathIndex.TryGetValue(normalizedAssetPath, out var matchedKey))
             {
                 return null;
@@ -184,6 +261,7 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
             }
 
             mountTask = _mountTask;
+            _lastUsedUtc = DateTime.UtcNow;
         }
 
         try
@@ -263,5 +341,8 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider
     {
         /// <summary>Blueprint summaries read so far (under _lock).</summary>
         public Dictionary<string, BlueprintSummary?> Summaries { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Let go by ReleaseIfIdle: its provider is disposed (set and read under _lock).</summary>
+        public bool Released { get; set; }
     }
 }

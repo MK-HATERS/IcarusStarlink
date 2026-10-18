@@ -40,7 +40,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// Content\Paks\mods — deliberately its own separate, explicit button rather than folded into
 /// Rebuild, so a click there is never accidental.
 /// </summary>
-public sealed partial class MergeInstallViewModel : ObservableObject
+public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStarlink.Core.Memory.IIdleReleasable
 {
     private readonly ILibraryRepository _libraryRepository;
     private readonly IRebuildService _rebuildService;
@@ -412,6 +412,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         string dataFolder, string outputPakPath, string backupDirectory, IMessenger? messenger = null, IGameProcessChecker? gameProcessChecker = null,
         IGameDataFreshness? gameDataFreshness = null)
     {
+        IcarusStarlink.Core.Memory.IdleMemory.Register(this);
+
         // Injectable so tests can give each view model its own messenger — the shared Default one
         // made this class's tests interfere with each other under the parallel runner.
         _messenger = messenger ?? WeakReferenceMessenger.Default;
@@ -2500,6 +2502,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject
 
         lock (_packageCacheLock)
         {
+            _packageCacheUsedUtc = DateTime.UtcNow;
             if (_packageCache.TryGetValue(entry.FolderName, out var cached) && cached.Fingerprint == fingerprint)
             {
                 return cached.Package;
@@ -2514,6 +2517,28 @@ public sealed partial class MergeInstallViewModel : ObservableObject
         }
 
         return package;
+    }
+
+    /// <summary>When a queued mod was last read through the cache (under _packageCacheLock).</summary>
+    private DateTime _packageCacheUsedUtc;
+
+    /// <summary>
+    /// Every queued mod read from disk (about 50 MB for a 25-mod queue) is let go while the app
+    /// sits unused; the next build or conflict check reads them again.
+    /// </summary>
+    public bool ReleaseIfIdle(TimeSpan idleFor)
+    {
+        lock (_packageCacheLock)
+        {
+            if ((_packageCache.Count == 0 && _prebuiltPakChangesCache.Count == 0) || DateTime.UtcNow - _packageCacheUsedUtc < idleFor)
+            {
+                return false;
+            }
+
+            _packageCache.Clear();
+            _prebuiltPakChangesCache.Clear();
+            return true;
+        }
     }
 
     private static FolderFingerprint ComputeFolderFingerprint(string folderPath)

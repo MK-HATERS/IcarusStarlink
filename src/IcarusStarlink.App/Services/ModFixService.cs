@@ -24,6 +24,7 @@ namespace IcarusStarlink.App.Services;
 /// </summary>
 public sealed class ModFixService(
     ILibraryRepository repository, string dataFolder, Func<IEnumerable<FieldChange>>? gameHistory = null, string? decisionsDirectory = null)
+    : IcarusStarlink.Core.Memory.IIdleReleasable
 {
     private static readonly JsonSerializerOptions DecisionJson = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
 
@@ -38,6 +39,32 @@ public sealed class ModFixService(
     private GameRowHistory? _rowHistory;
     private DateTime _rowHistoryStamp;
 
+    /// <summary>When a check last used the game indexes (under _gate).</summary>
+    private DateTime _lastUsedUtc;
+
+    /// <summary>Registers <paramref name="service"/> so its indexes are let go while the app sits unused (a primary constructor can't do it itself).</summary>
+    public static ModFixService Registered(ModFixService service)
+    {
+        IcarusStarlink.Core.Memory.IdleMemory.Register(service);
+        return service;
+    }
+
+    /// <summary>The game's table index and row history are let go while the app sits unused; the next check reads them again.</summary>
+    public bool ReleaseIfIdle(TimeSpan idleFor)
+    {
+        lock (_gate)
+        {
+            if ((_gameIndex is null && _rowHistory is null) || DateTime.UtcNow - _lastUsedUtc < idleFor)
+            {
+                return false;
+            }
+
+            _gameIndex = null;
+            _rowHistory = null;
+            return true;
+        }
+    }
+
     /// <summary>Every row the game has ever had: shipped, plus the user's own refreshes (re-read when a refresh adds to it). Only read under _gate.</summary>
     private GameRowHistory RowHistory
     {
@@ -45,6 +72,7 @@ public sealed class ModFixService(
         {
             var local = GameRowHistory.LocalFileFor(dataFolder);
             var stamp = File.Exists(local) ? File.GetLastWriteTimeUtc(local) : default;
+            _lastUsedUtc = DateTime.UtcNow;
             if (_rowHistory is null || stamp != _rowHistoryStamp)
             {
                 _rowHistory = GameRowHistory.Load(local);
@@ -61,6 +89,7 @@ public sealed class ModFixService(
         get
         {
             var stamp = Directory.Exists(dataFolder) ? Directory.GetLastWriteTimeUtc(dataFolder) : default;
+            _lastUsedUtc = DateTime.UtcNow;
             if (_gameIndex is null || stamp != _gameIndexStamp)
             {
                 _gameIndex = new GameTableIndex(dataFolder);

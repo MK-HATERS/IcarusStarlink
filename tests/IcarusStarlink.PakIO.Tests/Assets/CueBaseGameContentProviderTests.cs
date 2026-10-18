@@ -99,6 +99,32 @@ public class CueBaseGameContentProviderTests
         Assert.Null(second);
     }
 
+    [Fact]
+    public void ReleaseIfIdle_LetsGoOfAMountOnlyWhenUnused_AndTheNextLookupMountsAgain()
+    {
+        // An empty Paks folder mounts fine (with no files), which is all the release needs.
+        var content = Path.Combine(Path.GetTempPath(), "BaseGameRelease_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(content, "Paks"));
+        try
+        {
+            var provider = new CueBaseGameContentProvider(new FakeSettingsService(new AppSettings { IcarusContentPath = content }));
+            Assert.False(provider.ReleaseIfIdle(TimeSpan.Zero)); // nothing mounted yet
+
+            Assert.False(provider.HasAsset("Data/D_ItemsStatic.uasset"));
+            Assert.False(provider.ReleaseIfIdle(TimeSpan.FromMinutes(5))); // just used
+            Assert.True(provider.ReleaseIfIdle(TimeSpan.Zero));
+            Assert.False(provider.ReleaseIfIdle(TimeSpan.Zero)); // already let go
+
+            Assert.False(provider.HasAsset("Data/D_ItemsStatic.uasset"));
+            Assert.Null(provider.TryLoadExport<object>("Data/D_ItemsStatic.uasset"));
+            Assert.True(provider.ReleaseIfIdle(TimeSpan.Zero)); // mounted again by those lookups
+        }
+        finally
+        {
+            Directory.Delete(content, recursive: true);
+        }
+    }
+
     private sealed class FakeSettingsService(AppSettings settings) : ISettingsService
     {
         public AppSettings Current { get; } = settings;
