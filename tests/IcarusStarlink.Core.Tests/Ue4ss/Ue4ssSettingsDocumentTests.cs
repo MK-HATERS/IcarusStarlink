@@ -1,0 +1,109 @@
+using IcarusStarlink.Core.Ue4ss;
+
+namespace IcarusStarlink.Core.Tests.Ue4ss;
+
+public class Ue4ssSettingsDocumentTests
+{
+    // Trimmed from a real dev-build UE4SS-settings.ini (2026-10-17).
+    private const string RealisticIni =
+        "[Overrides]\r\n" +
+        "; Path to the 'Mods' folder\r\n" +
+        "; Default: <dll_directory>/Mods\r\n" +
+        "ModsFolderPath =\r\n" +
+        "\r\n" +
+        "[General]\r\n" +
+        "; Whether to reload all mods when the key defined by HotReloadKey is hit.\r\n" +
+        "; Default: 1\r\n" +
+        "EnableHotReloadSystem = 0\r\n" +
+        "\r\n" +
+        "; The key that will trigger a reload of all mods.\r\n" +
+        "; Valid values (case-insensitive): Anything from Mods/Keybinds/Scripts/main.lua\r\n" +
+        "; Default: R\r\n" +
+        "HotReloadKey = R\r\n" +
+        "\r\n" +
+        "; Whether to create UObject listeners in GUObjectArray.\r\n" +
+        "; Default: true\r\n" +
+        "bUseUObjectArrayCache = false\r\n" +
+        "\r\n" +
+        "; The default execution method for ExecuteInGameThread Lua function.\r\n" +
+        "; Valid values (case-insensitive): EngineTick, ProcessEvent\r\n" +
+        "; Default: EngineTick\r\n" +
+        "DefaultExecuteInGameThreadMethod = EngineTick\r\n" +
+        "\r\n" +
+        "[Debug]\r\n" +
+        "; Multiplier for Font Size within the Debug Gui\r\n" +
+        "; Default: 1\r\n" +
+        "GuiConsoleFontScaling = 1\r\n";
+
+    [Fact]
+    public void Parse_ThenToText_KeepsTheFileExactly() =>
+        Assert.Equal(RealisticIni, Ue4ssSettingsDocument.Parse(RealisticIni).ToText());
+
+    [Fact]
+    public void Settings_ReadKindsDefaultsAndDescriptions()
+    {
+        var settings = Ue4ssSettingsDocument.Parse(RealisticIni).Settings.ToDictionary(s => s.Key);
+
+        Assert.Equal(6, settings.Count);
+        Assert.Equal(("General", "0", "1", Ue4ssSettingKind.Toggle), (settings["EnableHotReloadSystem"].Section, settings["EnableHotReloadSystem"].Value, settings["EnableHotReloadSystem"].Default, settings["EnableHotReloadSystem"].Kind));
+        Assert.Equal("Whether to reload all mods when the key defined by HotReloadKey is hit.", settings["EnableHotReloadSystem"].Description);
+        Assert.Equal(Ue4ssSettingKind.Toggle, settings["bUseUObjectArrayCache"].Kind);
+        Assert.Equal(Ue4ssSettingKind.Choice, settings["DefaultExecuteInGameThreadMethod"].Kind);
+        Assert.Equal(["EngineTick", "ProcessEvent"], settings["DefaultExecuteInGameThreadMethod"].Choices);
+        // "Anything from ..." is advice, not a list to pick from.
+        Assert.Equal(Ue4ssSettingKind.Text, settings["HotReloadKey"].Kind);
+        Assert.Contains("Anything from Mods/Keybinds", settings["HotReloadKey"].Description);
+        // 1 here is a number, not on/off.
+        Assert.Equal(Ue4ssSettingKind.Text, settings["GuiConsoleFontScaling"].Kind);
+        Assert.Equal("", settings["ModsFolderPath"].Value);
+    }
+
+    [Fact]
+    public void SetValue_ChangesOnlyThatLineAndKeepsTheNewlines()
+    {
+        var document = Ue4ssSettingsDocument.Parse(RealisticIni);
+
+        Assert.True(document.SetValue("General", "EnableHotReloadSystem", "1"));
+        Assert.False(document.SetValue("General", "HotReloadKey", "R"));
+        Assert.True(document.SetValue("Overrides", "ModsFolderPath", "../Mods"));
+
+        Assert.Equal(
+            RealisticIni.Replace("EnableHotReloadSystem = 0", "EnableHotReloadSystem = 1").Replace("ModsFolderPath =\r\n", "ModsFolderPath = ../Mods\r\n"),
+            document.ToText());
+    }
+
+    [Fact]
+    public void SetValue_MissingKeyOrSection_IsAddedWhereItBelongs()
+    {
+        var document = Ue4ssSettingsDocument.Parse(RealisticIni);
+
+        document.SetValue("Debug", "GuiConsoleVisible", "1");
+        document.SetValue("Hooks", "HookLoadMap", "1");
+
+        Assert.Equal("1", document.GetValue("Debug", "GuiConsoleVisible"));
+        Assert.Equal("1", document.GetValue("Hooks", "HookLoadMap"));
+        Assert.EndsWith("GuiConsoleFontScaling = 1\r\nGuiConsoleVisible = 1\r\n\r\n[Hooks]\r\nHookLoadMap = 1", document.ToText());
+    }
+
+    [Fact]
+    public void SetValue_SameKeyInAnotherSection_IsNotTouched()
+    {
+        var document = Ue4ssSettingsDocument.Parse("[A]\nKey = 1\n[B]\nKey = 1\n");
+
+        document.SetValue("B", "Key", "0");
+
+        Assert.Equal("[A]\nKey = 1\n[B]\nKey = 0\n", document.ToText());
+    }
+
+    [Fact]
+    public void SetValue_RefusesLineBreaks() =>
+        Assert.Throws<ArgumentException>(() => Ue4ssSettingsDocument.Parse(RealisticIni).SetValue("General", "HotReloadKey", "R\nEvil = 1"));
+
+    [Theory]
+    [InlineData(true, "0", "1")]
+    [InlineData(false, "1", "0")]
+    [InlineData(true, "false", "true")]
+    [InlineData(false, "TRUE", "false")]
+    public void ToggleText_KeepsTheFilesStyle(bool on, string existing, string expected) =>
+        Assert.Equal(expected, Ue4ssSettingsDocument.ToggleText(on, existing));
+}
