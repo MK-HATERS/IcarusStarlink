@@ -24,6 +24,7 @@ using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Skins;
 using IcarusStarlink.Core.Steam;
+using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
@@ -123,9 +124,23 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string? _ue4ssInstalledVersion;
 
-    /// <summary>Null until GetLatestStableReleaseAsync succeeds — offline/rate-limited/unreachable all leave this null, disabling Install/Update rather than guessing a download URL.</summary>
+    /// <summary>The UE4SS config tab (UE4SS-settings.ini for the game and Starlink's servers). Set by the app; null in tests that don't need it.</summary>
+    public Ue4ssConfigViewModel? Ue4ssConfig { get; init; }
+
+    /// <summary>The installed build's git commit (from UE4SS.log or Starlink's install marker): what tells "3.0.1" builds apart.</summary>
+    [ObservableProperty]
+    private string? _ue4ssInstalledCommit;
+
+    /// <summary>The newest UE4SS dev build on GitHub. Null until the user presses Check for updates (never checked on its own) or when GitHub didn't answer; Install then uses the bundled build.</summary>
     [ObservableProperty]
     private Ue4ssReleaseInfo? _ue4ssLatestRelease;
+
+    /// <summary>How the build Install would put in compares with the installed one, as worked out by the last manual check (Unknown before one).</summary>
+    [ObservableProperty]
+    private Ue4ssBuildOrder _ue4ssCheckedOrder;
+
+    [ObservableProperty]
+    private bool _hasCheckedUe4ssRelease;
 
     [ObservableProperty]
     private bool _isCheckingUe4ssRelease;
@@ -145,46 +160,95 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string? _ue4ssStatusMessage;
 
-    public string Ue4ssStatusText => (IsUe4ssInstalled, Ue4ssLatestRelease) switch
-    {
-        (false, _) => "Not installed.",
-        (true, null) => $"v{Ue4ssInstalledVersion} installed.",
-        (true, { } latest) when latest.Version == Ue4ssInstalledVersion => $"v{Ue4ssInstalledVersion} installed (up to date).",
-        (true, { } latest) => $"v{Ue4ssInstalledVersion} installed — v{latest.Version} available.",
-    };
+    /// <summary>The installed build in words: "3.0.1 dev build 1c1a1497", "3.0.1 (official release)", or "3.0.1 dev build 1181" when it's a build Starlink knows the number of.</summary>
+    public string Ue4ssInstalledLabel => Ue4ssBuild.Describe(Ue4ssInstalledVersion, Ue4ssInstalledCommit, KnownBuildNumber(Ue4ssInstalledCommit));
 
-    /// <summary>Install uses the UE4SS built into Starlink (no download) unless GitHub has a newer stable release.</summary>
-    public string Ue4ssInstallButtonLabel => (IsUe4ssInstalled, Ue4ssLatestRelease) switch
+    public string Ue4ssStatusText
     {
-        (false, _) => $"Install v{Ue4ssInstallVersion}",
-        _ when Ue4ssInstalledVersion is null => "Reinstall", // installed, version not known yet (no UE4SS.log)
-        (true, { } latest) when BundledUe4ss.IsNewer(latest.Version, Ue4ssInstalledVersion) => $"Update to v{latest.Version}",
-        _ when BundledUe4ss.IsNewer(BundledUe4ss.Version, Ue4ssInstalledVersion) => $"Update to v{BundledUe4ss.Version}",
-        _ => $"Reinstall v{Ue4ssInstallVersion}",
-    };
+        get
+        {
+            if (!IsUe4ssInstalled)
+            {
+                return $"Not installed. Starlink comes with UE4SS {BundledUe4ss.Label}.";
+            }
 
-    /// <summary>What Install would put in: GitHub's latest stable when it is newer than the bundled copy, otherwise the bundled one.</summary>
+            if (Ue4ssInstalledVersion is null)
+            {
+                return "Installed (its build shows once the game has started with it).";
+            }
+
+            return Ue4ssInstallOrder switch
+            {
+                Ue4ssBuildOrder.Same when HasCheckedUe4ssRelease => $"{Ue4ssInstalledLabel} installed (up to date).",
+                Ue4ssBuildOrder.Newer => $"{Ue4ssInstalledLabel} installed — {Ue4ssInstallLabel} available.",
+                Ue4ssBuildOrder.Older => $"{Ue4ssInstalledLabel} installed (newer than {Ue4ssInstallLabel}).",
+                Ue4ssBuildOrder.Unknown when HasCheckedUe4ssRelease => $"{Ue4ssInstalledLabel} installed. The newest is {Ue4ssInstallLabel}.",
+                _ => $"{Ue4ssInstalledLabel} installed.",
+            };
+        }
+    }
+
+    /// <summary>Install uses the UE4SS built into Starlink (no download) unless a manual check found a newer dev build on GitHub.</summary>
+    public string Ue4ssInstallButtonLabel => !IsUe4ssInstalled
+        ? $"Install {Ue4ssInstallLabel}"
+        : Ue4ssInstallOrder switch
+        {
+            Ue4ssBuildOrder.Same => "Reinstall",
+            Ue4ssBuildOrder.Newer => $"Update to {Ue4ssInstallLabel}",
+            Ue4ssBuildOrder.Older => $"Install {Ue4ssInstallLabel} (older)",
+            _ => $"Install {Ue4ssInstallLabel}",
+        };
+
+    /// <summary>The build Install would put in, in words.</summary>
+    private string Ue4ssInstallLabel => UseGitHubUe4ss
+        ? Ue4ssBuild.Describe(Ue4ssLatestRelease!.Version, Ue4ssLatestRelease.Commit, Ue4ssLatestRelease.BuildNumber)
+        : BundledUe4ss.Label;
+
     private string Ue4ssInstallVersion => UseGitHubUe4ss ? Ue4ssLatestRelease!.Version : BundledUe4ss.Version;
 
-    private bool UseGitHubUe4ss => Ue4ssLatestRelease is { } latest && BundledUe4ss.IsNewerThanBundled(latest.Version);
+    private string Ue4ssInstallCommit => UseGitHubUe4ss ? Ue4ssLatestRelease!.Commit! : BundledUe4ss.Commit;
+
+    /// <summary>Download only when the manual check found a dev build other than the one inside Starlink (the bundled one was the newest when this Starlink was released, and experimental-latest only moves forward).</summary>
+    private bool UseGitHubUe4ss => Ue4ssLatestRelease is { Commit: { } commit } && !Ue4ssBuild.SameCommit(commit, BundledUe4ss.Commit);
+
+    /// <summary>How the build Install would put in compares with the installed one.</summary>
+    private Ue4ssBuildOrder Ue4ssInstallOrder =>
+        Ue4ssInstalledCommit is null ? Ue4ssBuildOrder.Unknown
+        : Ue4ssBuild.SameCommit(Ue4ssInstalledCommit, Ue4ssInstallCommit) ? Ue4ssBuildOrder.Same
+        // Every dev build comes after the v3.0.1 tag.
+        : Ue4ssBuild.IsOfficialRelease(Ue4ssInstalledCommit) ? Ue4ssBuildOrder.Newer
+        : Ue4ssCheckedOrder;
+
+    private int? KnownBuildNumber(string? commit) =>
+        Ue4ssBuild.SameCommit(commit, BundledUe4ss.Commit) ? BundledUe4ss.BuildNumber
+        : Ue4ssLatestRelease is { Commit: { } latest, BuildNumber: { } number } && Ue4ssBuild.SameCommit(commit, latest) ? number
+        : null;
+
+    private void NotifyUe4ssLabels()
+    {
+        OnPropertyChanged(nameof(Ue4ssInstalledLabel));
+        OnPropertyChanged(nameof(Ue4ssStatusText));
+        OnPropertyChanged(nameof(Ue4ssInstallButtonLabel));
+    }
+
+    partial void OnUe4ssInstalledCommitChanged(string? value) => NotifyUe4ssLabels();
+
+    partial void OnUe4ssCheckedOrderChanged(Ue4ssBuildOrder value) => NotifyUe4ssLabels();
+
+    partial void OnHasCheckedUe4ssReleaseChanged(bool value) => NotifyUe4ssLabels();
 
     /// <summary>Never waits on GitHub: the bundled copy is always there.</summary>
     public bool CanInstallOrUpdateUe4ss => !IsInstallingUe4ss && !IsUninstallingUe4ss;
 
     public bool CanUninstallUe4ss => !IsInstallingUe4ss && !IsUninstallingUe4ss;
 
-    partial void OnIsUe4ssInstalledChanged(bool value)
-    {
-        OnPropertyChanged(nameof(Ue4ssStatusText));
-        OnPropertyChanged(nameof(Ue4ssInstallButtonLabel));
-    }
+    partial void OnIsUe4ssInstalledChanged(bool value) => NotifyUe4ssLabels();
 
-    partial void OnUe4ssInstalledVersionChanged(string? value) => OnPropertyChanged(nameof(Ue4ssStatusText));
+    partial void OnUe4ssInstalledVersionChanged(string? value) => NotifyUe4ssLabels();
 
     partial void OnUe4ssLatestReleaseChanged(Ue4ssReleaseInfo? value)
     {
-        OnPropertyChanged(nameof(Ue4ssStatusText));
-        OnPropertyChanged(nameof(Ue4ssInstallButtonLabel));
+        NotifyUe4ssLabels();
         OnPropertyChanged(nameof(CanInstallOrUpdateUe4ss));
     }
 
@@ -258,7 +322,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         // own top-level try/catch so nothing here can produce an unobserved exception.
         _ = CheckForGameUpdateAsync();
         _ = InitializeNexusStatusAsync();
-        _ = CheckUe4ssLatestReleaseAsync();
+        // No UE4SS check here: GitHub is only asked about a newer UE4SS when the user presses
+        // Check for updates (CheckForUe4ssUpdateAsync).
 
         // The Library's "UE4SS isn't installed" bar: install here, where the confirmation,
         // the game-running check and the backup already live.
@@ -1157,6 +1222,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             var status = _ue4ssLoaderInstallService.GetStatus(IcarusContentPath!);
             IsUe4ssInstalled = status.IsInstalled;
             Ue4ssInstalledVersion = status.InstalledVersion;
+            Ue4ssInstalledCommit = status.InstalledCommit;
         }
         catch (Exception)
         {
@@ -1165,6 +1231,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             // finding). Not a real install = not installed.
             IsUe4ssInstalled = false;
             Ue4ssInstalledVersion = null;
+            Ue4ssInstalledCommit = null;
         }
     }
 
@@ -1181,18 +1248,81 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    /// <summary>Best-effort, once per launch — offline or GitHub-unreachable just leaves Ue4ssLatestRelease null (Install/Update stays disabled) rather than surfacing an error nobody asked for.</summary>
-    private async Task CheckUe4ssLatestReleaseAsync()
+    /// <summary>
+    /// Only when the user asks (the UE4SS tab's button, or the app's own Check for updates):
+    /// fetches GitHub's newest UE4SS dev build and works out whether it is newer than the
+    /// installed one. Never installs anything.
+    /// </summary>
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task CheckForUe4ssUpdateAsync()
     {
+        if (IsCheckingUe4ssRelease)
+        {
+            return;
+        }
+
         IsCheckingUe4ssRelease = true;
         try
         {
-            Ue4ssLatestRelease = await _ue4ssReleaseClient.GetLatestStableReleaseAsync();
+            if (!string.IsNullOrWhiteSpace(IcarusContentPath))
+            {
+                RefreshUe4ssStatus();
+            }
+
+            var latest = await _ue4ssReleaseClient.GetLatestDevBuildAsync();
+            if (latest is null)
+            {
+                Ue4ssStatusMessage = GitHubApiCache.RateLimitMessage is { } limit
+                    ? $"Couldn't check for a newer UE4SS. {limit}"
+                    : "Couldn't check for a newer UE4SS: GitHub didn't answer (offline, or GitHub is down).";
+                return;
+            }
+
+            Ue4ssLatestRelease = latest;
+            Ue4ssCheckedOrder = Ue4ssInstalledCommit is { } installed
+                ? await _ue4ssReleaseClient.CompareBuildsAsync(installed, Ue4ssInstallCommit)
+                : Ue4ssBuildOrder.Unknown;
+            HasCheckedUe4ssRelease = true;
+
+            var newest = Ue4ssBuild.Describe(latest.Version, latest.Commit, latest.BuildNumber);
+            Ue4ssStatusMessage = !IsUe4ssInstalled ? $"The newest UE4SS is {newest}."
+                : Ue4ssInstallOrder switch
+                {
+                    Ue4ssBuildOrder.Same => "You have the newest UE4SS dev build.",
+                    Ue4ssBuildOrder.Newer => $"UE4SS {newest} is available.",
+                    Ue4ssBuildOrder.Older => $"Your UE4SS is newer than the newest dev build on GitHub ({newest}).",
+                    _ => $"The newest UE4SS is {newest}. Starlink couldn't tell how yours compares.",
+                };
         }
         finally
         {
             IsCheckingUe4ssRelease = false;
         }
+    }
+
+    /// <summary>The paragraph about the user's C++ mods for an install/update confirmation; empty when there are none or the build isn't changing.</summary>
+    private string NativeModsWarning() => NativeModsWarningFor(changing: Ue4ssInstallOrder != Ue4ssBuildOrder.Same);
+
+    private string NativeModsWarningFor(bool changing)
+    {
+        if (!changing || !IsUe4ssInstalled || string.IsNullOrWhiteSpace(IcarusContentPath))
+        {
+            return "";
+        }
+
+        IReadOnlyList<string> native;
+        try
+        {
+            native = _ue4ssLoaderInstallService.ListNativeMods(IcarusContentPath);
+        }
+        catch (Exception)
+        {
+            return "";
+        }
+
+        return native.Count == 0 ? ""
+            : $"These mods are C++ mods: {string.Join(", ", native)}. A C++ mod is made for one UE4SS build, so after this change it may stop loading " +
+              "until it's rebuilt for the new build. Lua mods aren't affected. If something breaks, the UE4SS you have now is in Backups\\UE4SS-Loader.\n\n";
     }
 
     /// <summary>
@@ -1212,16 +1342,21 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         var fromGitHub = UseGitHubUe4ss;
         var version = Ue4ssInstallVersion;
+        var commit = Ue4ssInstallCommit;
+        var label = Ue4ssInstallLabel;
         var wasInstalled = IsUe4ssInstalled;
-        var verb = wasInstalled ? "Update" : "Install";
-        var downgrade = wasInstalled && BundledUe4ss.IsNewer(Ue4ssInstalledVersion, version) && Ue4ssInstalledVersion is not null
-            ? $"Your installed v{Ue4ssInstalledVersion} is newer: this replaces it with v{version}. To keep it, cancel.\n\n"
+        var order = Ue4ssInstallOrder;
+        var verb = !wasInstalled ? "Install" : order == Ue4ssBuildOrder.Newer ? "Update" : "Reinstall";
+        var current = wasInstalled && Ue4ssInstalledVersion is not null ? $"You have UE4SS {Ue4ssInstalledLabel}. " : "";
+        var downgrade = order == Ue4ssBuildOrder.Older
+            ? "Yours is newer: this replaces it with an older build. To keep yours, cancel.\n\n"
             : "";
         var result = _dialogService.Confirm(
-            downgrade + (fromGitHub
-                ? $"This downloads UE4SS v{version} from GitHub and installs it into your game's Binaries\\Win64 folder "
-                : $"This installs UE4SS v{version}, which comes with Starlink (no download), into your game's Binaries\\Win64 folder ") +
+            current + downgrade + (fromGitHub
+                ? $"This downloads UE4SS {label} from GitHub and installs it into your game's Binaries\\Win64 folder "
+                : $"This installs UE4SS {label}, which comes with Starlink (no download), into your game's Binaries\\Win64 folder ") +
             "— the loader that lets Lua/scripting mods run.\n\n" +
+            NativeModsWarning() +
             "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Any mods already in your Mods folder, " +
             "and your own UE4SS-settings.ini if you've customized it, are left untouched.\n\n" +
             "Continue?",
@@ -1273,11 +1408,12 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
 
             Ue4ssStatusMessage = "Installing…";
-            await _ue4ssLoaderInstallService.InstallOrUpdateAsync(IcarusContentPath, tempZipPath, _backupDirectory);
+            await _ue4ssLoaderInstallService.InstallOrUpdateAsync(IcarusContentPath, tempZipPath, _backupDirectory, version, commit);
 
             RefreshUe4ssStatus();
-            Ue4ssStatusMessage = $"{(wasInstalled ? "Updated" : "Installed")} to v{version}.";
-            WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage($"UE4SS v{version} is installed in the game."));
+            Ue4ssCheckedOrder = Ue4ssBuildOrder.Unknown;
+            Ue4ssStatusMessage = $"{(wasInstalled ? "Updated" : "Installed")} to {label}.";
+            WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage($"UE4SS {label} is installed in the game."));
         }
         catch (Exception ex)
         {
@@ -1301,7 +1437,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Picks a UE4SS release zip the user downloaded themselves (tests swap in a fake).</summary>
     internal Func<string?> PickUe4ssZip { get; set; } = () =>
     {
-        var dialog = new OpenFileDialog { Title = "Pick a UE4SS release zip (for example UE4SS_v3.0.1.zip)", Filter = "UE4SS release (*.zip)|*.zip" };
+        var dialog = new OpenFileDialog { Title = "Pick a UE4SS release zip (for example UE4SS_v3.0.1-1181-g83330635.zip)", Filter = "UE4SS release (*.zip)|*.zip" };
         return dialog.ShowDialog() == true ? dialog.FileName : null;
     };
 
@@ -1325,8 +1461,12 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        // A release zip keeps GitHub's name ("UE4SS_v3.0.1-1176-g1ba38db4.zip"), which says which build it is.
+        var knownBuild = Ue4ssBuild.TryParseDevAssetName(Path.GetFileName(zipPath), out var zipVersion, out _, out var zipCommit);
+        var changesBuild = !knownBuild || !Ue4ssBuild.SameCommit(zipCommit, Ue4ssInstalledCommit);
         if (!_dialogService.Confirm(
                 $"Install UE4SS from\n{zipPath}\ninto your game's Binaries\\Win64 folder?\n\n" +
+                (changesBuild ? NativeModsWarningFor(changing: true) : "") +
                 "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Mods already in your Mods folder, " +
                 "and your own UE4SS-settings.ini, are left untouched.",
                 "Install UE4SS from a zip", ThemedConfirmSeverity.Question))
@@ -1344,9 +1484,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         Ue4ssStatusMessage = "Installing…";
         try
         {
-            await _ue4ssLoaderInstallService.InstallOrUpdateAsync(IcarusContentPath, zipPath, _backupDirectory);
+            await _ue4ssLoaderInstallService.InstallOrUpdateAsync(
+                IcarusContentPath, zipPath, _backupDirectory, knownBuild ? zipVersion : null, knownBuild ? zipCommit : null);
             RefreshUe4ssStatus();
-            Ue4ssStatusMessage = $"Installed UE4SS{(Ue4ssInstalledVersion is { } v ? $" v{v}" : "")} from {Path.GetFileName(zipPath)}.";
+            Ue4ssCheckedOrder = Ue4ssBuildOrder.Unknown;
+            Ue4ssStatusMessage = $"Installed UE4SS{(Ue4ssInstalledVersion is not null ? $" {Ue4ssInstalledLabel}" : "")} from {Path.GetFileName(zipPath)}.";
             WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage(Ue4ssStatusMessage));
         }
         catch (Exception ex)
@@ -1632,6 +1774,17 @@ public sealed partial class SettingsViewModel : ObservableObject
         finally
         {
             IsCheckingForAppUpdate = false;
+        }
+
+        // A manual check covers UE4SS too (the answer shows on the UE4SS tab). Only here, never
+        // on the automatic launch check.
+        if (LatestAppUpdateRelease is not null)
+        {
+            await CheckForUe4ssUpdateAsync();
+            if (IsUe4ssInstalled && Ue4ssInstallOrder == Ue4ssBuildOrder.Newer)
+            {
+                AppUpdateStatusMessage += $" UE4SS {Ue4ssInstallLabel} is also available (Settings > UE4SS).";
+            }
         }
     }
 

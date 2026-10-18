@@ -964,24 +964,28 @@ public sealed partial class ServerViewModel : ObservableObject
         }
 
         var localLoaderFolder = Ue4ssGamePaths.ResolveLoaderFolder(contentPath);
-        var localLogPath = Ue4ssGamePaths.ResolveLoaderLogPath(contentPath);
-        if (!File.Exists(localLogPath))
+        if (!File.Exists(Ue4ssGamePaths.ResolveLoaderDllPath(contentPath)))
         {
             ConnectionStatusMessage = "UE4SS isn't installed locally — nothing to sync.";
             return;
         }
 
-        var localVersion = Ue4ssLogVersionParser.Parse(File.ReadLines(localLogPath));
+        // Every UE4SS build since 3.0.1 says "v3.0.1": the commit is what tells two builds apart.
+        var (localVersion, localCommit) = Ue4ssInstalledBuild.Read(localLoaderFolder);
+        var localLabel = Ue4ssBuild.Describe(localVersion, localCommit);
 
         IsBusy = true;
         var tempLogPath = Path.GetTempFileName();
         try
         {
             string? remoteVersion = null;
+            string? remoteCommit = null;
             try
             {
                 await _connectedClient.DownloadFileAsync($"{RemoteLoaderPath}/UE4SS.log", tempLogPath);
-                remoteVersion = Ue4ssLogVersionParser.Parse(File.ReadLines(tempLogPath));
+                var remoteLines = File.ReadLines(tempLogPath).Take(20).ToList();
+                remoteVersion = Ue4ssLogVersionParser.Parse(remoteLines);
+                remoteCommit = Ue4ssLogVersionParser.ParseCommit(remoteLines);
             }
             catch (Exception)
             {
@@ -989,9 +993,12 @@ public sealed partial class ServerViewModel : ObservableObject
                 // same as the local Ue4ssLoaderInstallService.GetStatus contract.
             }
 
-            if (remoteVersion is not null && string.Equals(remoteVersion, localVersion, StringComparison.OrdinalIgnoreCase))
+            var sameBuild = remoteVersion is not null
+                && string.Equals(remoteVersion, localVersion, StringComparison.OrdinalIgnoreCase)
+                && (Ue4ssBuild.SameCommit(remoteCommit, localCommit) || (remoteCommit is null && localCommit is null));
+            if (sameBuild)
             {
-                ConnectionStatusMessage = $"Server already has UE4SS v{remoteVersion} — nothing to do.";
+                ConnectionStatusMessage = $"Server already has UE4SS {localLabel} — nothing to do.";
                 return;
             }
 
@@ -1005,7 +1012,7 @@ public sealed partial class ServerViewModel : ObservableObject
 
             var prompt =
                 $"This will upload {localFiles.Count} loader file(s) (UE4SS.dll, dwmapi.dll, etc.) to '{RemoteWin64Path}' on "
-                + $"'{_connectedSite?.Name}', replacing its current loader ({(remoteVersion is null ? "not installed" : $"v{remoteVersion}")}). "
+                + $"'{_connectedSite?.Name}', replacing its current loader ({(remoteVersion is null ? "not installed" : Ue4ssBuild.Describe(remoteVersion, remoteCommit))}) with yours ({localLabel}). "
                 + $"The server's own Mods folder{(remoteHasSettings ? " and its existing UE4SS-settings.ini" : "")} won't be touched. Continue?";
             if (!(_dialogService.Confirm(prompt, "Sync UE4SS loader to server", ThemedConfirmSeverity.Warning)))
             {
@@ -1020,8 +1027,8 @@ public sealed partial class ServerViewModel : ObservableObject
 
             await _connectedClient.UploadFileAsync(Ue4ssGamePaths.ResolveDwmapiPath(contentPath), $"{RemoteWin64Path}/dwmapi.dll");
 
-            ConnectionStatusMessage = $"Synced UE4SS v{localVersion} to '{_connectedSite?.Name}'.";
-            _activityLog.Log($"Synced UE4SS loader (v{localVersion}) to FTP site '{_connectedSite?.Name}'.", ActivityEntryKind.Success);
+            ConnectionStatusMessage = $"Synced UE4SS {localLabel} to '{_connectedSite?.Name}'.";
+            _activityLog.Log($"Synced UE4SS loader ({localLabel}) to FTP site '{_connectedSite?.Name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {

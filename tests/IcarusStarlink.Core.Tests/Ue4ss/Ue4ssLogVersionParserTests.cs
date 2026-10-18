@@ -20,6 +20,14 @@ public class Ue4ssLogVersionParserTests
     }
 
     [Fact]
+    public void ParseCommit_RealisticLogLines_ExtractsTheBuildsCommit()
+    {
+        Assert.Equal("1c1a1497", Ue4ssLogVersionParser.ParseCommit(RealisticLogLines));
+        Assert.Null(Ue4ssLogVersionParser.ParseCommit(["UE4SS - v3.0.1 Beta #0"]));
+        Assert.Null(Ue4ssLogVersionParser.ParseCommit([]));
+    }
+
+    [Fact]
     public void Parse_VersionLineIsFirst_StillMatches()
     {
         Assert.Equal("3.0.1", Ue4ssLogVersionParser.Parse(["UE4SS - v3.0.1 Beta #0 - Git SHA #1c1a1497"]));

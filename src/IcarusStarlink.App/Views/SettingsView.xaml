@@ -247,7 +247,7 @@
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <Button Command="{Binding InstallOrUpdateUe4ssCommand}"
                                     IsEnabled="{Binding CanInstallOrUpdateUe4ss}"
-                                    ToolTip="Installs the UE4SS that comes with Starlink (or GitHub's latest stable when that is newer) into Binaries\Win64. Backs up what's there first and asks before writing anything."
+                                    ToolTip="Installs the UE4SS dev build that comes with Starlink (or a newer one Check for update found on GitHub) into Binaries\Win64. Backs up what's there first and asks before writing anything."
                                     AutomationProperties.Name="{Binding Ue4ssInstallButtonLabel}">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
@@ -268,7 +268,9 @@
                             </Button>
                             <Button Content="Install from zip…" Command="{Binding InstallUe4ssFromZipCommand}" Margin="8,0,0,0"
                                     IsEnabled="{Binding CanInstallOrUpdateUe4ss}"
-                                    ToolTip="Install a UE4SS release zip you downloaded yourself, for a specific version or a PC without internet"/>
+                                    ToolTip="Install a UE4SS release zip you downloaded yourself, for a specific build or a PC without internet"/>
+                            <Button Content="Check for update" Command="{Binding CheckForUe4ssUpdateCommand}" Margin="8,0,0,0"
+                                    ToolTip="Asks GitHub for the newest UE4SS dev build and says whether it is newer than yours. Only runs when you press it (or the app's own Check for updates); nothing is installed until you choose to."/>
                             <TextBlock Text="{Binding Ue4ssStatusText}" VerticalAlignment="Center" Margin="12,0,0,0"
                                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
                         </StackPanel>
@@ -277,6 +279,105 @@
                                    Visibility="{Binding Ue4ssStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                     </StackPanel>
                 </ScrollViewer>
+            </TabItem>
+
+            <!-- ===================== UE4SS config ===================== -->
+            <TabItem Header="UE4SS config" DataContext="{Binding Ue4ssConfig}">
+                <DockPanel Margin="0,14,0,0" MaxWidth="760" HorizontalAlignment="Left">
+                    <StackPanel DockPanel.Dock="Top">
+                        <TextBlock Text="Change UE4SS-settings.ini for your game or one of your servers. Saving only changes the settings you edit (every comment stays), backs the file up first, and UE4SS reads it when the game or server starts."
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10"/>
+                        <TextBlock Text="{Binding NoTargetsText}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   Visibility="{Binding HasNoTargets, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10"
+                                    Visibility="{Binding HasTargets, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="Edit" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <ComboBox ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}" DisplayMemberPath="Name" MinWidth="220"
+                                      AutomationProperties.Name="Which UE4SS settings to edit"/>
+                            <Button Content="Reload" Command="{Binding RefreshTargetsCommand}" Margin="8,0,0,0"
+                                    ToolTip="Read the files again (and find servers added since)"/>
+                            <TextBox Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="16,0,0,0"
+                                     ToolTip="Show only settings whose name or description contains this"
+                                     AutomationProperties.Name="Filter settings"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Border DockPanel.Dock="Bottom" Padding="0,10,0,0" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
+                            Visibility="{Binding HasTargets, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Visibility="{Binding HasOtherTargets, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,0,0,8">
+                                <TextBlock Text="Also save these changes to" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ItemsControl ItemsSource="{Binding AlsoSaveTo}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <CheckBox Content="{Binding Target.Name}" IsChecked="{Binding IsChecked}" Margin="0,0,14,0" VerticalAlignment="Center"
+                                                      ToolTip="Only the settings you changed are written there; its other settings stay as they are"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="Save" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                        ToolTip="Writes the changed settings (backs the old file up to Backups\UE4SS-Settings first)"/>
+                                <Button Content="Discard changes" Command="{Binding DiscardChangesCommand}" Margin="8,0,0,0"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" Margin="0,8,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                       Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding Sections}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="0,0,0,14">
+                                        <TextBlock Text="{Binding Name}" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,6"/>
+                                        <ItemsControl ItemsSource="{Binding Fields}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,0,0,10">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="230"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Margin="0,0,12,0">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Text="{Binding Key}" FontWeight="SemiBold"/>
+                                                                <TextBlock Text="  changed" Foreground="{DynamicResource AccentBrush}" FontSize="11" VerticalAlignment="Center"
+                                                                           Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                            </StackPanel>
+                                                            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                                       Visibility="{Binding HasDescription, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Text="{Binding DefaultText}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                                                                <Button Content="Reset to default" Command="{Binding ResetToDefaultCommand}" Style="{StaticResource PillButtonStyle}" Margin="8,0,0,0" FontSize="11"
+                                                                        Visibility="{Binding CanResetToDefault, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                            </StackPanel>
+                                                        </StackPanel>
+                                                        <Grid Grid.Column="1" VerticalAlignment="Top">
+                                                            <CheckBox IsChecked="{Binding IsOn}" Style="{StaticResource ToggleSwitchStyle}" HorizontalAlignment="Left"
+                                                                      AutomationProperties.Name="{Binding Key}"
+                                                                      Visibility="{Binding IsToggle, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                            <ComboBox ItemsSource="{Binding Choices}" Text="{Binding Value}" IsEditable="True"
+                                                                      AutomationProperties.Name="{Binding Key}"
+                                                                      Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                            <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                                     AutomationProperties.Name="{Binding Key}"
+                                                                     Visibility="{Binding IsText, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        </Grid>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
             </TabItem>
 
             <!-- ===================== Maintenance ===================== -->

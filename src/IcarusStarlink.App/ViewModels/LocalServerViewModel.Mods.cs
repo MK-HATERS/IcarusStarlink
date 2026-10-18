@@ -89,11 +89,17 @@ public sealed partial class LocalServerViewModel
         }
 
         ServerHasUe4ss = DedicatedServerLayout.IsUe4ssInstalled(p.InstallFolder);
-        var logPath = Path.Combine(DedicatedServerLayout.Win64Folder(p.InstallFolder), "ue4ss", "UE4SS.log");
-        var version = File.Exists(logPath) ? Ue4ssLogVersionParser.Parse(ReadFirstLines(logPath, 20)) : null;
-        ServerUe4ssSummary = ServerHasUe4ss
-            ? $"UE4SS is installed on the server{(version is null ? "" : $" (v{version})")}."
-            : "UE4SS isn't installed on the server. Lua mods that need to run on the host (StorageLink, Wireless Power…) need it.";
+        var (version, commit) = Ue4ssInstalledBuild.Read(Path.Combine(DedicatedServerLayout.Win64Folder(p.InstallFolder), "ue4ss"));
+        var (gameVersion, gameCommit) = GameWin64Folder() is { } gameWin64 ? Ue4ssInstalledBuild.Read(Path.Combine(gameWin64, "ue4ss")) : (null, null);
+        // The server and the game should run the same build: C++ mods are tied to one, and a Lua
+        // mod tested in the game should meet the same UE4SS on the server.
+        var differs = ServerHasUe4ss && commit is not null && gameCommit is not null && !Ue4ssBuild.SameCommit(commit, gameCommit);
+        ServerUe4ssSummary = !ServerHasUe4ss
+            ? "UE4SS isn't installed on the server. Lua mods that need to run on the host (StorageLink, Wireless Power…) need it."
+            : differs
+                ? $"The server has UE4SS {Ue4ssBuild.Describe(version, commit)}, your game has {Ue4ssBuild.Describe(gameVersion, gameCommit)}. " +
+                  "Press Install UE4SS from my game to copy your game's build over (the server's settings and mods are kept)."
+                : $"UE4SS is installed on the server{(version is null ? "" : $" ({Ue4ssBuild.Describe(version, commit)})")}.";
 
         var onServer = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var mod in ServerModFiles.ListUe4ssMods(p.InstallFolder).Where(m => !Ue4ssFrameworkMods.Contains(m.Name)))
@@ -310,26 +316,6 @@ public sealed partial class LocalServerViewModel
             var folder = DedicatedServerLayout.PakModsFolder(p.InstallFolder);
             Directory.CreateDirectory(folder);
             UrlOpener.TryOpen(folder);
-        }
-    }
-
-    private static IEnumerable<string> ReadFirstLines(string path, int count)
-    {
-        try
-        {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using var reader = new StreamReader(stream);
-            var lines = new List<string>();
-            while (lines.Count < count && reader.ReadLine() is { } line)
-            {
-                lines.Add(line);
-            }
-
-            return lines;
-        }
-        catch (IOException)
-        {
-            return [];
         }
     }
 }

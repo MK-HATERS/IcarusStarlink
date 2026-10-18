@@ -133,10 +133,10 @@
     <PublishSingleFile>true</PublishSingleFile>
   </PropertyGroup>
 
-  <!-- UE4SS ships inside the exe: the official release zip, unchanged, plus its MIT licence
-       (the zip has none). See Services/BundledUe4ss.cs. -->
+  <!-- UE4SS ships inside the exe: a dev build zip from GitHub's experimental-latest release,
+       unchanged, plus its MIT licence (added if the zip has none). See Services/BundledUe4ss.cs. -->
   <ItemGroup>
-    <EmbeddedResource Include="Assets\UE4SS\UE4SS_v3.0.1.zip" LogicalName="UE4SS.zip" />
+    <EmbeddedResource Include="Assets\UE4SS\UE4SS_v3.0.1-1181-g83330635.zip" LogicalName="UE4SS.zip" />
     <EmbeddedResource Include="Assets\UE4SS\LICENSE.txt" LogicalName="UE4SS-LICENSE.txt" />
   </ItemGroup>
 

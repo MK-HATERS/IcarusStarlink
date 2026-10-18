@@ -14,6 +14,26 @@ public static partial class Ue4ssLogVersionParser
     [GeneratedRegex(@"UE4SS\s*-\s*v(\S+)")]
     private static partial Regex VersionPattern();
 
+    [GeneratedRegex(@"Git SHA #(?<commit>[0-9a-fA-F]{7,40})")]
+    private static partial Regex CommitPattern();
+
+    /// <summary>The build's git commit from the same version line ("... - Git SHA #1c1a1497"), lower-case; null when the log doesn't say.</summary>
+    public static string? ParseCommit(IEnumerable<string> logLines)
+    {
+        foreach (var line in logLines.Take(10))
+        {
+            if (!VersionPattern().IsMatch(line))
+            {
+                continue;
+            }
+
+            var match = CommitPattern().Match(line);
+            return match.Success ? match.Groups["commit"].Value.ToLowerInvariant() : null;
+        }
+
+        return null;
+    }
+
     /// <summary>Scans the first few lines (the version line isn't guaranteed to be the very first — a blank/console-setup line can precede it) for the version marker. Returns null if the log is empty, unreadable, or doesn't match the expected shape.</summary>
     public static string? Parse(IEnumerable<string> logLines)
     {

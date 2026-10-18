@@ -19,8 +19,22 @@ public interface IUe4ssLoaderInstallService
     /// </summary>
     Task InstallOrUpdateAsync(string icarusContentPath, string downloadedZipPath, string backupDirectory, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The same install, for a build Starlink knows (the bundled one, a GitHub dev build, a zip
+    /// named like a release). UE4SS only rewrites UE4SS.log on the game's next start, so the stale
+    /// log is dropped and the installed version/commit recorded (Ue4ssInstalledBuild), letting
+    /// GetStatus name the new build straight away.
+    /// </summary>
+    Task InstallOrUpdateAsync(
+        string icarusContentPath, string downloadedZipPath, string backupDirectory, string? knownVersion, string? knownCommit,
+        CancellationToken cancellationToken = default) =>
+        InstallOrUpdateAsync(icarusContentPath, downloadedZipPath, backupDirectory, cancellationToken);
+
     /// <summary>The names of the user's OWN mods currently in the game's Mods folder — everything that isn't framework-owned (listed in UE4SS's own mods.json, or the shared\ infrastructure folder). What UninstallAsync will preserve; surfaced separately so the confirmation dialog can name them before anything happens.</summary>
     IReadOnlyList<string> ListUserAddedMods(string icarusContentPath);
+
+    /// <summary>Mods in the game's Mods folder that carry their own program file (dlls\main.dll): C++ mods, which only work with the UE4SS build they were made for, so changing UE4SS can stop them loading.</summary>
+    IReadOnlyList<string> ListNativeMods(string icarusContentPath) => [];
 
     /// <summary>
     /// Whether modName is one of the framework's own built-in mods (or its shared\ infrastructure

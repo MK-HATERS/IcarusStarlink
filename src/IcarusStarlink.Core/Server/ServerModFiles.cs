@@ -126,6 +126,10 @@ public static class ServerModFiles
             }
         }
 
+        // The server now runs the game's build: drop its stale UE4SS.log and say which build that is.
+        var (version, commit) = Ue4ss.Ue4ssInstalledBuild.Read(gameUe4ss);
+        Ue4ss.Ue4ssInstalledBuild.RecordInstalled(serverUe4ss, version, commit);
+
         return true;
     }
 

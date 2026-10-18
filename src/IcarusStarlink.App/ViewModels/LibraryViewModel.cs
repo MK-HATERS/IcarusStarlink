@@ -973,7 +973,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private bool _showUe4ssLoaderMissing;
 
-    public string BundledUe4ssVersion => BundledUe4ss.Version;
+    /// <summary>"3.0.1 dev build 1181": the build the missing-loader bar's Install button puts in.</summary>
+    public string BundledUe4ssVersion => BundledUe4ss.Label;
 
     /// <summary>The bar's Install button: Settings owns installing the loader (confirmation, game-running check, backup), so it is asked to do it.</summary>
     [RelayCommand]

@@ -26,13 +26,35 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
             return new Ue4ssLoaderStatus(IsInstalled: false, InstalledVersion: null);
         }
 
-        var logPath = Ue4ssGamePaths.ResolveLoaderLogPath(icarusContentPath);
-        var version = File.Exists(logPath) ? Ue4ssLogVersionParser.Parse(File.ReadLines(logPath)) : null;
-        return new Ue4ssLoaderStatus(IsInstalled: true, InstalledVersion: version);
+        var (version, commit) = Ue4ssInstalledBuild.Read(Ue4ssGamePaths.ResolveLoaderFolder(icarusContentPath));
+        return new Ue4ssLoaderStatus(IsInstalled: true, version, commit);
+    }
+
+    public IReadOnlyList<string> ListNativeMods(string icarusContentPath)
+    {
+        var modsFolder = Ue4ssGamePaths.ResolveModsFolder(icarusContentPath);
+        if (!Directory.Exists(modsFolder))
+        {
+            return [];
+        }
+
+        return [.. Directory.GetDirectories(modsFolder)
+            .Where(d => File.Exists(Path.Combine(d, "dlls", "main.dll")))
+            .Select(d => Path.GetFileName(d)!)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
     }
 
     public Task InstallOrUpdateAsync(string icarusContentPath, string downloadedZipPath, string backupDirectory, CancellationToken cancellationToken = default) =>
-        Task.Run(() => InstallOrUpdateCore(icarusContentPath, downloadedZipPath, backupDirectory), cancellationToken);
+        InstallOrUpdateAsync(icarusContentPath, downloadedZipPath, backupDirectory, knownVersion: null, knownCommit: null, cancellationToken);
+
+    public Task InstallOrUpdateAsync(
+        string icarusContentPath, string downloadedZipPath, string backupDirectory, string? knownVersion, string? knownCommit,
+        CancellationToken cancellationToken = default) =>
+        Task.Run(() =>
+        {
+            InstallOrUpdateCore(icarusContentPath, downloadedZipPath, backupDirectory);
+            Ue4ssInstalledBuild.RecordInstalled(Ue4ssGamePaths.ResolveLoaderFolder(icarusContentPath), knownVersion, knownCommit);
+        }, cancellationToken);
 
     private static void InstallOrUpdateCore(string icarusContentPath, string downloadedZipPath, string backupDirectory)
     {
@@ -48,16 +70,22 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
         // used to go through the full backup and then land a broken, misplaced install with no
         // error. A single wrapping folder is stripped (same convention Ue4ssModArchive uses for mod
         // zips); anything else without the two loader files at its root is refused untouched.
+        // Two real release layouts:
+        // - flat (official v3.0.1): dwmapi.dll, UE4SS.dll, UE4SS-settings.ini and Mods\ all at the
+        //   root; everything but dwmapi.dll goes into Binaries\Win64\ue4ss.
+        // - game-layout (every dev build since): dwmapi.dll at the root plus a ue4ss\ folder that
+        //   mirrors Binaries\Win64\ue4ss exactly.
         using var archive = ZipFile.OpenRead(downloadedZipPath);
         var wrappingPrefix = FindSingleWrappingFolderPrefix(archive);
-        var rootFileNames = archive.Entries
+        var paths = archive.Entries
             .Select(e => StripWrapper(e.FullName, wrappingPrefix))
-            .Where(name => name is not null && !name.Contains('/'))
+            .Where(name => name is not null)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (!rootFileNames.Contains("UE4SS.dll") || !rootFileNames.Contains("dwmapi.dll"))
+        var gameLayout = paths.Contains("dwmapi.dll") && paths.Contains("ue4ss/UE4SS.dll");
+        if (!gameLayout && (!paths.Contains("UE4SS.dll") || !paths.Contains("dwmapi.dll")))
         {
             throw new InvalidOperationException(
-                "This UE4SS archive doesn't have the expected layout (UE4SS.dll and dwmapi.dll at its root, optionally inside one wrapping folder) — nothing was changed. It may be a different kind of UE4SS download; get the release zip itself.");
+                "This UE4SS archive doesn't have the expected layout (dwmapi.dll with UE4SS.dll next to it or in a ue4ss folder, optionally inside one wrapping folder) — nothing was changed. It may be a different kind of UE4SS download; get the release zip itself.");
         }
 
         FolderBackup.BackupFolder(loaderFolder, ue4ssBackupDirectory);
@@ -76,8 +104,20 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
             }
 
             var relativePath = StripWrapper(entry.FullName, wrappingPrefix)!;
+            var isTopLevelDwmapi = relativePath.Equals("dwmapi.dll", StringComparison.OrdinalIgnoreCase);
+            if (gameLayout && !isTopLevelDwmapi)
+            {
+                // Only the ue4ss\ folder and dwmapi.dll belong in the game; anything else at the
+                // zip's root (a readme) is left out.
+                if (!relativePath.StartsWith("ue4ss/", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                relativePath = relativePath["ue4ss/".Length..];
+            }
+
             var segments = relativePath.Split('/');
-            var isTopLevelDwmapi = segments.Length == 1 && segments[0].Equals("dwmapi.dll", StringComparison.OrdinalIgnoreCase);
             var isUnderMods = segments[0].Equals("Mods", StringComparison.OrdinalIgnoreCase);
             var isSettingsIni = segments.Length == 1 && segments[0].Equals("UE4SS-settings.ini", StringComparison.OrdinalIgnoreCase);
 

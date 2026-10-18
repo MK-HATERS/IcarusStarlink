@@ -934,7 +934,7 @@
                             <Button DockPanel.Dock="Right" Command="{Binding InstallUe4ssLoaderCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"
                                     ToolTip="Installs the UE4SS that comes with Starlink into the game. Asks first and backs up anything it replaces.">
                                 <TextBlock>
-                                    <Run Text="Install UE4SS v"/><Run Text="{Binding BundledUe4ssVersion, Mode=OneWay}"/>
+                                    <Run Text="Install UE4SS "/><Run Text="{Binding BundledUe4ssVersion, Mode=OneWay}"/>
                                 </TextBlock>
                             </Button>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
