@@ -27,12 +27,16 @@ public sealed record Ue4ssSetting(
 public sealed partial class Ue4ssSettingsDocument
 {
     private readonly List<string> _lines;
+    private readonly List<string> _endings;
     private readonly string _newline;
+    private readonly string _descriptionSeparator;
 
-    private Ue4ssSettingsDocument(List<string> lines, string newline)
+    private Ue4ssSettingsDocument(List<string> lines, List<string> endings, string newline, string descriptionSeparator)
     {
         _lines = lines;
+        _endings = endings;
         _newline = newline;
+        _descriptionSeparator = descriptionSeparator;
     }
 
     [GeneratedRegex(@"^\s*\[(?<name>[^\]]+)\]\s*$")]
@@ -50,16 +54,26 @@ public sealed partial class Ue4ssSettingsDocument
     [GeneratedRegex(@"^[A-Za-z0-9_]+$")]
     private static partial Regex SimpleToken();
 
-    public static Ue4ssSettingsDocument Parse(string text)
+    /// <param name="keepCommentLines">
+    /// Keep a description's comment lines as lines (a mod's own config.ini, whose comments are often
+    /// a laid-out list) instead of one run of text (UE4SS's own one-sentence comments).
+    /// </param>
+    public static Ue4ssSettingsDocument Parse(string text, bool keepCommentLines = false)
     {
-        var newline = text.Contains("\r\n") ? "\r\n" : "\n";
-        var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
-        return new Ue4ssSettingsDocument(lines, newline);
+        var (lines, endings) = TextLines.Split(text);
+        return new Ue4ssSettingsDocument(lines, endings, TextLines.NewLineOf(text), keepCommentLines ? "\n" : " ");
     }
 
-    public static Ue4ssSettingsDocument Load(string path) => Parse(File.ReadAllText(path));
+    public static Ue4ssSettingsDocument Load(string path, bool keepCommentLines = false) => Parse(File.ReadAllText(path), keepCommentLines);
 
-    public string ToText() => string.Join(_newline, _lines);
+    public string ToText() => TextLines.Join(_lines, _endings);
+
+    private void AddLine(string line)
+    {
+        _endings[^1] = _newline;
+        _lines.Add(line);
+        _endings.Add("");
+    }
 
     public void Save(string path)
     {
@@ -76,6 +90,11 @@ public sealed partial class Ue4ssSettingsDocument
             var settings = new List<Ue4ssSetting>();
             var section = "";
             var comments = new List<string>();
+            // A mod's config often documents a group of settings in one comment above them
+            // ("LogReports  1 = ...", "ChatMessages  1 = ..."): the settings right under the first
+            // one (no blank line between) share its comment.
+            List<string> shared = [];
+            var afterSetting = false;
             foreach (var line in _lines)
             {
                 var trimmed = line.Trim();
@@ -83,19 +102,25 @@ public sealed partial class Ue4ssSettingsDocument
                 {
                     section = sectionMatch.Groups["name"].Value.Trim();
                     comments.Clear();
+                    afterSetting = false;
                 }
                 else if (trimmed.StartsWith(';') || trimmed.StartsWith('#'))
                 {
                     comments.Add(trimmed.TrimStart(';', '#').Trim());
+                    afterSetting = false;
                 }
                 else if (trimmed.Length == 0)
                 {
                     comments.Clear();
+                    afterSetting = false;
                 }
                 else if (KeyLine().Match(line) is { Success: true } keyMatch)
                 {
-                    settings.Add(Describe(section, keyMatch.Groups["key"].Value.Trim(), keyMatch.Groups["value"].Value.Trim(), comments));
+                    var block = comments.Count == 0 && afterSetting && _descriptionSeparator == "\n" ? shared : [.. comments];
+                    settings.Add(Describe(section, keyMatch.Groups["key"].Value.Trim(), keyMatch.Groups["value"].Value.Trim(), block, _descriptionSeparator));
+                    shared = block;
                     comments.Clear();
+                    afterSetting = true;
                 }
             }
 
@@ -133,11 +158,11 @@ public sealed partial class Ue4ssSettingsDocument
         {
             if (_lines.Count > 0 && _lines[^1].Trim().Length > 0)
             {
-                _lines.Add("");
+                AddLine("");
             }
 
-            _lines.Add($"[{section}]");
-            _lines.Add($"{key} = {value}");
+            AddLine($"[{section}]");
+            AddLine($"{key} = {value}");
             return true;
         }
 
@@ -151,7 +176,16 @@ public sealed partial class Ue4ssSettingsDocument
             }
         }
 
-        _lines.Insert(insertAt, $"{key} = {value}");
+        if (insertAt == _lines.Count)
+        {
+            AddLine($"{key} = {value}");
+        }
+        else
+        {
+            _lines.Insert(insertAt, $"{key} = {value}");
+            _endings.Insert(insertAt, _newline);
+        }
+
         return true;
     }
 
@@ -197,7 +231,7 @@ public sealed partial class Ue4ssSettingsDocument
         return null;
     }
 
-    private static Ue4ssSetting Describe(string section, string key, string value, List<string> comments)
+    private static Ue4ssSetting Describe(string section, string key, string value, List<string> comments, string separator)
     {
         string? defaultValue = null;
         var choices = new List<string>();
@@ -226,12 +260,46 @@ public sealed partial class Ue4ssSettingsDocument
             }
         }
 
-        var text = string.Join(" ", description);
+        // A mod's own list of options, one per comment line ("NoStability  buildings never become
+        // unstable"): a choice when the current value is one of them.
+        if (choices.Count == 0 && SimpleToken().IsMatch(value) && !IsToggle(value)
+            && !double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
+        {
+            var listed = comments.Select(c => OptionLine().Match(c)).Where(m => m.Success).Select(m => m.Groups["word"].Value)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (listed.Count > 1 && listed.Contains(value, StringComparer.OrdinalIgnoreCase))
+            {
+                choices.AddRange(listed);
+            }
+        }
+
+        var text = string.Join(separator, description);
+        var isSwitch = separator == "\n"
+            ? IsModSwitch(key, value, text)
+            : IsToggle(value) && (defaultValue is null || IsToggle(defaultValue)) && !NumberDescription().IsMatch(text);
         var kind = choices.Count > 1 ? Ue4ssSettingKind.Choice
-            : IsToggle(value) && (defaultValue is null || IsToggle(defaultValue)) && !NumberDescription().IsMatch(text) ? Ue4ssSettingKind.Toggle
+            : isSwitch ? Ue4ssSettingKind.Toggle
             : Ue4ssSettingKind.Text;
         return new Ue4ssSetting(section, key, value, text, defaultValue, kind, choices);
     }
+
+    /// <summary>
+    /// A mod's own config: true/false is a switch; 0 or 1 only when the comment says what 1 means
+    /// ("LogReports  1 = a report every minute") or the name reads like one (EnableX, XEnabled).
+    /// Otherwise it's a number that happens to be 0 ("MinimumStability = 0", a floor).
+    /// </summary>
+    private static bool IsModSwitch(string key, string value, string description) =>
+        value.Equals("true", StringComparison.OrdinalIgnoreCase) || value.Equals("false", StringComparison.OrdinalIgnoreCase)
+        || (value is "0" or "1" && (SwitchName().IsMatch(key) || OneMeans().IsMatch(description)));
+
+    [GeneratedRegex(@"^(Enable|Disable|Use|Show|Hide|Allow|Include|Exclude|Skip|Force|Is|b[A-Z])|Enabled$|^(Debug|Verbose)$")]
+    private static partial Regex SwitchName();
+
+    [GeneratedRegex(@"(^|\s)1\s*=\s|=\s*1\s+means\b", RegexOptions.Multiline)]
+    private static partial Regex OneMeans();
+
+    [GeneratedRegex(@"^(?<word>[A-Za-z_][A-Za-z0-9_]*)\s{2,}\S")]
+    private static partial Regex OptionLine();
 
     // A 0/1 value is a switch unless its description says it's a number ("Multiplier for Font Size").
     [GeneratedRegex(@"\b(multiplier|number of|seconds|percent|size|count|amount|scale)\b", RegexOptions.IgnoreCase)]

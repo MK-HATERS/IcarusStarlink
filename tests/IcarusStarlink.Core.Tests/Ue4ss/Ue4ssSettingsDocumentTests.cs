@@ -106,4 +106,27 @@ public class Ue4ssSettingsDocumentTests
     [InlineData(false, "TRUE", "false")]
     public void ToggleText_KeepsTheFilesStyle(bool on, string existing, string expected) =>
         Assert.Equal(expected, Ue4ssSettingsDocument.ToggleText(on, existing));
+
+    [Fact]
+    public void ModConfig_OptionsListedOnePerCommentLine_AreAChoice()
+    {
+        // MkHaters Stability's real config.ini layout.
+        const string ini =
+            "; Mode:\n" +
+            ";   NoStability  buildings never become unstable\n" +
+            ";   Forgiving    more forgiving\n" +
+            ";   Off          the game's own stability\n" +
+            "Mode = NoStability\n" +
+            "\n" +
+            "; LogReports    1 = a report every minute\n" +
+            "; Debug         1 = one line per failing piece\n" +
+            "LogReports = 0\n";
+
+        var settings = Ue4ssSettingsDocument.Parse(ini, keepCommentLines: true).Settings.ToDictionary(s => s.Key);
+
+        Assert.Equal(Ue4ssSettingKind.Choice, settings["Mode"].Kind);
+        Assert.Equal(["NoStability", "Forgiving", "Off"], settings["Mode"].Choices);
+        Assert.Equal("Mode:\nNoStability  buildings never become unstable\nForgiving    more forgiving\nOff          the game's own stability", settings["Mode"].Description);
+        Assert.Equal(Ue4ssSettingKind.Toggle, settings["LogReports"].Kind);
+    }
 }

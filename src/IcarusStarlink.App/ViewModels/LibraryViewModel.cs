@@ -684,6 +684,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
                 row.LoaderMissing = !IsUe4ssLoaderInstalled;
                 row.NexusFileId = meta.NexusFileId;
+                row.HasConfig = ModHasConfig(modsFolder, state);
                 Ue4ssMods.Add(row);
             }
             RecomputeHasPendingUe4ssChanges();
@@ -711,6 +712,19 @@ public sealed partial class LibraryViewModel : ObservableObject
         catch (Exception ex)
         {
             Ue4ssStatusMessage = $"Couldn't read the game's UE4SS Mods folder: {ex.Message}";
+        }
+    }
+
+    /// <summary>Whether the mod's current copy (game when on, staging when off) has a config file; false when that can't be read, so the list never breaks over it.</summary>
+    private bool ModHasConfig(string modsFolder, Ue4ssModState state)
+    {
+        try
+        {
+            return Ue4ssModConfigFiles.HasAny(state.IsEnabled ? Path.Combine(modsFolder, state.Name) : _ue4ssModRepository.GetFolderPath(state.Name));
+        }
+        catch (Exception)
+        {
+            return false;
         }
     }
 
@@ -1048,6 +1062,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             item.LinkedUe4ssNames = item.NexusModId is { } id && packages.TryGetValue(id, out var package) && package.LibraryFolderNames.Count > 0
                 ? package.Ue4ssFolderNames
                 : [];
+            item.HasLuaConfig = Ue4ssMods.Any(r => r.HasConfig && item.LinkedUe4ssNames.Contains(r.Name, StringComparer.OrdinalIgnoreCase));
         }
 
         foreach (var row in Ue4ssMods)
@@ -1151,6 +1166,68 @@ public sealed partial class LibraryViewModel : ObservableObject
         Ue4ssStatusMessage = failure is null ? $"Deleted '{item.Name}'." : $"Couldn't delete '{item.Name}': {failure}";
         _activityLog.Log(failure is null ? $"Deleted UE4SS mod '{item.Name}'." : $"Couldn't delete UE4SS mod '{item.Name}': {failure}",
             failure is null ? ActivityEntryKind.Info : ActivityEntryKind.Warning);
+    }
+
+    /// <summary>The servers Starlink runs (the Server page's local servers): a UE4SS mod's config can be saved to its copy there too.</summary>
+    public Func<IReadOnlyList<IcarusStarlink.Core.Server.DedicatedServerProfile>>? ServerProfiles { get; init; }
+
+    /// <summary>Right-click a UE4SS mod > Edit config: its config file as fields, for the game's copy and any server's.</summary>
+    [RelayCommand]
+    private void EditUe4ssModConfig(Ue4ssModRowViewModel? row)
+    {
+        if (row is not null)
+        {
+            OpenModConfigEditor(row);
+        }
+    }
+
+    /// <summary>The same for a "Pak + UE4SS" row: its Lua half's config.</summary>
+    [RelayCommand]
+    private void EditLinkedUe4ssConfig(LibraryItemViewModel? item)
+    {
+        if (item is not null && Ue4ssMods.FirstOrDefault(r => r.HasConfig && item.LinkedUe4ssNames.Contains(r.Name, StringComparer.OrdinalIgnoreCase)) is { } row)
+        {
+            OpenModConfigEditor(row);
+        }
+    }
+
+    private void OpenModConfigEditor(Ue4ssModRowViewModel row)
+    {
+        try
+        {
+            var locations = new List<ModConfigLocation>();
+            var contentPath = _settingsService.Current.IcarusContentPath;
+            if (row.RealIsEnabled && !string.IsNullOrWhiteSpace(contentPath))
+            {
+                locations.Add(new ModConfigLocation("Your game", Path.Combine(Ue4ssGamePaths.ResolveModsFolder(contentPath), row.Name), IsServer: false));
+            }
+            else
+            {
+                locations.Add(new ModConfigLocation("Starlink (the mod is off)", _ue4ssModRepository.GetFolderPath(row.Name), IsServer: false));
+            }
+
+            foreach (var profile in ServerProfiles?.Invoke() ?? [])
+            {
+                var folder = Path.Combine(IcarusStarlink.Core.Server.DedicatedServerLayout.Ue4ssModsFolder(profile.InstallFolder), row.Name);
+                if (Directory.Exists(folder))
+                {
+                    locations.Add(new ModConfigLocation($"Server: {profile.Name}", folder, IsServer: true));
+                }
+            }
+
+            var viewModel = new ModConfigEditorViewModel(row.Name, locations, _backupDirectory);
+            if (!viewModel.HasFiles)
+            {
+                Ue4ssStatusMessage = $"'{row.Name}' has no config file.";
+                return;
+            }
+
+            new ModConfigEditorWindow(viewModel) { Owner = Application.Current.MainWindow }.Show();
+        }
+        catch (Exception ex)
+        {
+            Ue4ssStatusMessage = $"Couldn't open the config: {ex.Message}";
+        }
     }
 
     /// <summary>Where this mod's files actually are right now — the game's Mods folder when enabled, this app's staging when not.</summary>
@@ -2818,7 +2895,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
 
-    private ModFixService FixService => _modFixService ??= new ModFixService(_repository, _dataFolder, GameHistory, FixDecisionsDirectory);
+    private ModFixService FixService => _modFixService ??= ModFixService.Registered(new ModFixService(_repository, _dataFolder, GameHistory, FixDecisionsDirectory));
 
     /// <summary>
     /// The row's warning badge, and right-click › Check against the game &amp; fix…: the fix window,

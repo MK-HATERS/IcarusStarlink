@@ -9,6 +9,8 @@
              mc:Ignorable="d">
 
     <UserControl.Resources>
+        <!-- Grey at low opacity: a faint stripe on the dark and the light themes alike. -->
+        <SolidColorBrush x:Key="LibraryRowStripeBrush" Color="#14808080"/>
         <!-- DataGridColumn.Visibility can't reach a nested VM via ElementName (see BindingProxy's
              own doc comment) — every toggleable IMM Database column binds through this proxy
              instead. Points at Downloads specifically (not the page's own DataContext), since the
@@ -59,7 +61,16 @@
                 <Grid.Style>
                     <!-- Selected rows turn grey, the same as pak/EXMOD rows (see that template). -->
                     <Style TargetType="Grid">
+                        <Setter Property="Background" Value="Transparent"/>
                         <Style.Triggers>
+                            <!-- Every other row slightly shaded, and the row under the mouse lit, so a
+                                 row is easy to follow across the wide columns. Selection still wins. -->
+                            <DataTrigger Binding="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=TreeViewItem}}" Value="1">
+                                <Setter Property="Background" Value="{StaticResource LibraryRowStripeBrush}"/>
+                            </DataTrigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource NavItemHoverBrush}"/>
+                            </Trigger>
                             <DataTrigger Binding="{Binding IsSelectedForBulk}" Value="True">
                                 <Setter Property="Background" Value="{DynamicResource NavItemSelectedBrush}"/>
                             </DataTrigger>
@@ -91,6 +102,11 @@
                                   Command="{Binding PlacementTarget.Tag.OpenUe4ssModFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
                                   ToolTip="Opens this mod's folder — in the game's Mods folder when enabled, in this app's staging when disabled"/>
+                        <MenuItem Header="Edit config…"
+                                  Command="{Binding PlacementTarget.Tag.EditUe4ssModConfigCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  Visibility="{Binding HasConfig, Converter={StaticResource BoolToVisibilityConverter}}"
+                                  ToolTip="Change this mod's settings (its config file) for your game, and on your servers too if you like"/>
                         <Separator/>
                         <!-- Built-in UE4SS mods have no Nexus page and come back with UE4SS, so these
                              are greyed out for them (not hidden, which left the menu as two stray
@@ -115,6 +131,9 @@
                                   ToolTipService.ShowOnDisabled="True"/>
                     </ContextMenu>
                 </Grid.ContextMenu>
+                <!-- A faint line under every row. -->
+                <Border Grid.ColumnSpan="13" Height="1" VerticalAlignment="Bottom" Margin="0,0,0,-3" IsHitTestVisible="False"
+                        Background="{DynamicResource BorderBrush}" Opacity="0.7"/>
 
                 <CheckBox Grid.Column="1" VerticalAlignment="Center" Margin="4,0,4,0" IsChecked="{Binding IsEnabled}" Click="EnabledCheckbox_Click"
                           ToolTip="On = in the game's Mods folder. Changes apply when you click Apply in the bar below. With several rows selected, ticking one ticks them all."
@@ -216,7 +235,16 @@
                     <!-- Click selection (click, Ctrl-click, Shift-click): the row turns grey.
                          The ON checkbox is separate: it is whether the mod goes into the game. -->
                     <Style TargetType="Grid">
+                        <Setter Property="Background" Value="Transparent"/>
                         <Style.Triggers>
+                            <!-- Every other row slightly shaded, and the row under the mouse lit, so a
+                                 row is easy to follow across the wide columns. Selection still wins. -->
+                            <DataTrigger Binding="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=TreeViewItem}}" Value="1">
+                                <Setter Property="Background" Value="{StaticResource LibraryRowStripeBrush}"/>
+                            </DataTrigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource NavItemHoverBrush}"/>
+                            </Trigger>
                             <DataTrigger Binding="{Binding IsSelectedForBulk}" Value="True">
                                 <Setter Property="Background" Value="{DynamicResource NavItemSelectedBrush}"/>
                             </DataTrigger>
@@ -276,6 +304,11 @@
                                   Command="{Binding PlacementTarget.Tag.RenameItemCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
                                   ToolTip="Change how this mod displays in Library — its real folder/files aren't touched"/>
+                        <MenuItem Header="Edit config…"
+                                  Command="{Binding PlacementTarget.Tag.EditLinkedUe4ssConfigCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  Visibility="{Binding HasLuaConfig, Converter={StaticResource BoolToVisibilityConverter}}"
+                                  ToolTip="Change the settings of this mod's UE4SS part (its config file) for your game, and on your servers too if you like"/>
                         <MenuItem Header="Check against the game &amp; fix…"
                                   Command="{Binding PlacementTarget.Tag.OpenModFixCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding CanEdit}"
@@ -336,6 +369,9 @@
                                   ToolTip="Removes every mod in your Library, regardless of what's selected — asks first (naming the real count), can't be undone without a backup"/>
                     </ContextMenu>
                 </Grid.ContextMenu>
+                <!-- A faint line under every row. -->
+                <Border Grid.ColumnSpan="13" Height="1" VerticalAlignment="Bottom" Margin="0,0,0,-3" IsHitTestVisible="False"
+                        Background="{DynamicResource BorderBrush}" Opacity="0.7"/>
 
                 <!-- The "On" checkbox: for a pak/EXMOD mod this IS merge-queue membership (see
                      LibraryItemViewModel.IsEnabled) — ticked mods are what the next Merge &
@@ -913,7 +949,7 @@
                              visibility no longer affects alignment either way, and Auto is what keeps
                              the row-actions column (Pin/Favorite/Edit/Delete) reachable if the window
                              is ever narrower than the columns' own combined MinWidths. -->
-                        <TreeView x:Name="LibraryTree" ItemsSource="{Binding RootItems}" Background="Transparent" BorderThickness="0"
+                        <TreeView x:Name="LibraryTree" ItemsSource="{Binding RootItems}" Background="Transparent" BorderThickness="0" AlternationCount="2"
                                   HorizontalContentAlignment="Stretch"
                                   SelectedItemChanged="LibraryTree_SelectedItemChanged"
                                   PreviewMouseRightButtonDown="LibraryTree_PreviewMouseRightButtonDown"

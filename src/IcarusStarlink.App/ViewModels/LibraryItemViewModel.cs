@@ -108,6 +108,10 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     public bool HasLuaPart => LinkedUe4ssNames.Count > 0;
 
+    /// <summary>Set by LibraryViewModel: the Lua half ships a config file, so the right-click menu offers Edit config.</summary>
+    [ObservableProperty]
+    private bool _hasLuaConfig;
+
     /// <summary>"EXMOD", "Pak", or "Pak + UE4SS" — the Type column.</summary>
     public string TypeLabel => !IsOpaquePak ? "EXMOD" : HasLuaPart ? "Pak + UE4SS" : "Pak";
 

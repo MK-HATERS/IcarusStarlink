@@ -27,7 +27,8 @@ public sealed partial class Ue4ssConfigAlsoSave(Ue4ssConfigTarget target) : Obse
 /// <summary>One setting on the tab.</summary>
 public sealed partial class Ue4ssConfigField : ObservableObject
 {
-    public Ue4ssConfigField(Ue4ssSetting setting)
+    /// <param name="originalValue">What the file on disk says, when the setting was read from an edited copy (the mod config editor's text view).</param>
+    public Ue4ssConfigField(Ue4ssSetting setting, string? originalValue = null)
     {
         Section = setting.Section;
         Key = setting.Key;
@@ -35,7 +36,7 @@ public sealed partial class Ue4ssConfigField : ObservableObject
         Default = setting.Default;
         Kind = setting.Kind;
         Choices = setting.Choices;
-        OriginalValue = setting.Value;
+        OriginalValue = originalValue ?? setting.Value;
         _value = setting.Value;
     }
 

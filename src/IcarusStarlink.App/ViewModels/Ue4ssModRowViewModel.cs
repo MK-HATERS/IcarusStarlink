@@ -74,6 +74,10 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     public bool IsInGame => InstallStatus == "In game";
 
+    /// <summary>Set by LibraryViewModel: the mod ships a config file (config.lua, config.ini…), so the right-click menu offers Edit config.</summary>
+    [ObservableProperty]
+    private bool _hasConfig;
+
     public bool NeedsAction => IsDirty || (LoaderMissing && IsEnabled);
 
     /// <summary>

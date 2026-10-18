@@ -1,0 +1,126 @@
+<Window x:Class="IcarusStarlink.App.Views.ModConfigEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{Binding Title}" Height="760" Width="900" MinHeight="420" MinWidth="620"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource ContentBackgroundBrush}"
+        Foreground="{DynamicResource ForegroundBrush}">
+
+    <!-- A UE4SS mod's own config file as fields (with the author's comments), or as text.
+         Same field layout as Settings > UE4SS config. -->
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top">
+            <TextBlock Text="Change this mod's settings. Saving only changes what you edit (every comment stays) and backs the old file up first. The mod reads its config when the game or server starts, unless it has its own reload key."
+                       Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+            <WrapPanel Margin="0,0,0,6">
+                <StackPanel Orientation="Horizontal" Margin="0,0,16,6" Visibility="{Binding HasSeveralFiles, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <TextBlock Text="File" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}" DisplayMemberPath="RelativePath" MinWidth="200"
+                              AutomationProperties.Name="Which config file"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,16,6" Visibility="{Binding HasSeveralLocations, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <TextBlock Text="Edit the copy in" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox ItemsSource="{Binding Locations}" SelectedItem="{Binding SelectedLocation}" DisplayMemberPath="Name" MinWidth="180"
+                              AutomationProperties.Name="Which copy of the mod"/>
+                </StackPanel>
+                <TextBox Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="0,0,16,6"
+                         Visibility="{Binding ShowFields, Converter={StaticResource BoolToVisibilityConverter}}"
+                         ToolTip="Show only settings whose name or description contains this" AutomationProperties.Name="Filter settings"/>
+                <CheckBox Content="Edit as text" IsChecked="{Binding IsTextMode}" VerticalAlignment="Center" Margin="0,0,0,6"
+                          IsEnabled="{Binding CanUseFields}"
+                          ToolTip="The whole file, for lists and anything the fields don't show. Switching back reads the fields from your text."/>
+            </WrapPanel>
+            <TextBlock Text="{Binding CurrentPath}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}" TextTrimming="CharacterEllipsis" Margin="0,0,0,10"
+                       ToolTip="{Binding CurrentPath}"/>
+        </StackPanel>
+
+        <Border DockPanel.Dock="Bottom" Padding="0,10,0,0" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Visibility="{Binding HasOtherLocations, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,0,0,8">
+                    <TextBlock Text="Also save these changes to" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <ItemsControl ItemsSource="{Binding AlsoSaveTo}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox Content="{Binding Location.Name}" IsChecked="{Binding IsChecked}" Margin="0,0,14,0" VerticalAlignment="Center"
+                                          ToolTip="Only the settings you changed are written there; its other settings stay as they are"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="Save" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                            ToolTip="Writes your changes (backs the old file up to Backups\UE4SS-Mod-Configs first)"/>
+                    <Button Content="Discard changes" Command="{Binding DiscardChangesCommand}" Margin="8,0,0,0"/>
+                    <Button Content="Close" Click="Close_Click" Margin="8,0,0,0"/>
+                </StackPanel>
+                <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" Margin="0,8,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                           Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+            </StackPanel>
+        </Border>
+
+        <Grid>
+            <TextBox Text="{Binding RawText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" AcceptsTab="True" TextWrapping="NoWrap"
+                     FontFamily="Consolas" FontSize="12.5" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                     Visibility="{Binding IsTextMode, Converter={StaticResource BoolToVisibilityConverter}}"
+                     AutomationProperties.Name="Config file text"/>
+
+            <TextBlock Text="This file has no settings Starlink can show as fields. Tick Edit as text to change it."
+                       TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                       Visibility="{Binding ShowNoFieldsNote, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding ShowFields, Converter={StaticResource BoolToVisibilityConverter}}">
+                <ItemsControl ItemsSource="{Binding Sections}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,0,0,14">
+                                <TextBlock Text="{Binding Name}" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,6"/>
+                                <ItemsControl ItemsSource="{Binding Fields}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,6,0,8">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="260"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Margin="0,0,12,0">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="{Binding Key}" FontWeight="SemiBold"/>
+                                                            <TextBlock Text="  changed" Foreground="{DynamicResource AccentBrush}" FontSize="11" VerticalAlignment="Center"
+                                                                       Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        </StackPanel>
+                                                        <TextBlock Text="{Binding Description}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                                   Visibility="{Binding HasDescription, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="{Binding DefaultText}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                                                            <Button Content="Reset to default" Command="{Binding ResetToDefaultCommand}" Style="{StaticResource PillButtonStyle}" Margin="8,0,0,0" FontSize="11"
+                                                                    Visibility="{Binding CanResetToDefault, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                    <Grid Grid.Column="1" VerticalAlignment="Top">
+                                                        <CheckBox IsChecked="{Binding IsOn}" Style="{StaticResource ToggleSwitchStyle}" HorizontalAlignment="Left"
+                                                                  AutomationProperties.Name="{Binding Key}"
+                                                                  Visibility="{Binding IsToggle, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        <ComboBox ItemsSource="{Binding Choices}" Text="{Binding Value}" IsEditable="True"
+                                                                  AutomationProperties.Name="{Binding Key}"
+                                                                  Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                                 AutomationProperties.Name="{Binding Key}"
+                                                                 Visibility="{Binding IsText, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                    </Grid>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</Window>
