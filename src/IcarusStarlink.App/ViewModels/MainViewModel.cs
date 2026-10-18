@@ -239,10 +239,11 @@ public sealed partial class MainViewModel : ObservableObject
 
         CurrentPage = _serviceProvider.GetRequiredService(value.ViewModelType);
 
-        // The merged pak may have been (re)built since the Server page was last shown.
+        // The merged pak may have been (re)built, and UE4SS mods turned on in the Library, since the
+        // Server page was last shown.
         if (CurrentPage is ServerViewModel { Local: { } localServer })
         {
-            localServer.RefreshMergedPak();
+            localServer.OnPageShown();
         }
 
         if (CurrentPage is LibraryViewModel library)

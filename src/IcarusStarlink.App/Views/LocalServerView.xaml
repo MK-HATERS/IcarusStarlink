@@ -646,7 +646,7 @@
                                                             CommandParameter="{Binding}"/>
                                                     <TextBlock VerticalAlignment="Center">
                                                         <Run Text="{Binding Name, Mode=OneWay}"/>
-                                                        <Run Text="{Binding Enabled, Mode=OneWay, StringFormat='  (on: {0})'}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
+                                                        <Run Text="{Binding StateText, Mode=OneWay}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
                                                     </TextBlock>
                                                 </DockPanel>
                                             </DataTemplate>

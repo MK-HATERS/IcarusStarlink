@@ -2,7 +2,11 @@ namespace IcarusStarlink.Core.Server;
 
 public sealed record ServerPakFile(string FileName, long SizeBytes, DateTime ModifiedLocal);
 
-public sealed record ServerUe4ssMod(string Name, bool Enabled);
+public sealed record ServerUe4ssMod(string Name, bool Enabled)
+{
+    /// <summary>"(on)" or "(off)", for the server's mod list.</summary>
+    public string StateText => Enabled ? "  (on)" : "  (off)";
+}
 
 /// <summary>
 /// The mod side of a local dedicated server: its Content\Paks\mods folder and its UE4SS install.

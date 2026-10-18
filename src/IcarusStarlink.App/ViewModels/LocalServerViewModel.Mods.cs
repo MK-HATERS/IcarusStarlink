@@ -72,6 +72,13 @@ public sealed partial class LocalServerViewModel
             : "No merged pak yet — build one on the Merge & Install page first.";
     }
 
+    /// <summary>
+    /// The Server page was opened: re-reads the server's and the game's mods (a UE4SS mod turned on
+    /// in the Library since used to be missing from "your game's UE4SS mods" until another server
+    /// was picked) and the merged pak.
+    /// </summary>
+    public void OnPageShown() => RefreshMods();
+
     private void RefreshMods()
     {
         ServerPaks.Clear();
