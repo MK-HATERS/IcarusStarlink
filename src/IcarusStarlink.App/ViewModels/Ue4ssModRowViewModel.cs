@@ -8,10 +8,10 @@ using IcarusStarlink.Core.Ue4ss;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// One row in Library's UE4SS tab. IsEnabled is the PENDING checkbox state — starts equal to
-/// RealIsEnabled (what's actually true right now) and only diverges once the user toggles it;
-/// clicking Apply is what actually moves the mod and syncs RealIsEnabled back to match. IsDirty
-/// drives whether the page-level Apply button is enabled at all.
+/// One UE4SS row in Library's single Mods list. IsEnabled is the PENDING checkbox state — starts
+/// equal to RealIsEnabled (what's actually true right now) and only diverges once the user toggles
+/// it; Apply UE4SS changes (on the pending bar) is what actually moves the mod and syncs
+/// RealIsEnabled back to match. IsDirty drives whether the pending bar offers that button.
 ///
 /// NexusModId/KnownVersion/MinUe4ssVersion come from the separate Ue4ss_Meta sidecar store (a UE4SS
 /// mod carries no metadata file of its own, unlike a Library EXMOD entry) — set once, at the moment
