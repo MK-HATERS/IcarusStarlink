@@ -32,6 +32,69 @@ public class HttpFileDownloaderTests
         gatedContent.Release();
     }
 
+    [Fact]
+    public async Task GetFromFirstAnsweringAsync_FirstServerTimesOut_UsesTheNextOne()
+    {
+        var asked = new List<string>();
+        using var client = new HttpClient(new PerHostHandler(request =>
+        {
+            asked.Add(request.RequestUri!.Host);
+            return request.RequestUri.Host switch
+            {
+                "la.example" => throw new HttpRequestException("A connection attempt failed (la.example:443)"),
+                "slow.example" => throw new TaskCanceledException("timed out"),
+                "gone.example" => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+                _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([7]) },
+            };
+        }));
+
+        using var response = await HttpFileDownloader.GetFromFirstAnsweringAsync(client,
+            ["https://la.example/f.zip", "https://slow.example/f.zip", "https://gone.example/f.zip", "https://ok.example/f.zip", "https://never.example/f.zip"]);
+
+        Assert.Equal("ok.example", response.RequestMessage!.RequestUri!.Host);
+        Assert.Equal(["la.example", "slow.example", "gone.example", "ok.example"], asked);
+    }
+
+    [Fact]
+    public async Task GetFromFirstAnsweringAsync_NoServerAnswers_SaysSoWithTheLastError()
+    {
+        using var client = new HttpClient(new PerHostHandler(request =>
+            throw new HttpRequestException($"A connection attempt failed ({request.RequestUri!.Host}:443)")));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() =>
+            HttpFileDownloader.GetFromFirstAnsweringAsync(client, ["https://a.example/f.zip", "https://b.example/f.zip"]));
+
+        Assert.Contains("None of the 2 download servers answered", ex.Message);
+        Assert.Contains("b.example:443", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetFromFirstAnsweringAsync_CallerCancels_StopsInsteadOfTryingTheNextServer()
+    {
+        using var cts = new CancellationTokenSource();
+        var asked = 0;
+        using var client = new HttpClient(new PerHostHandler(_ =>
+        {
+            asked++;
+            cts.Cancel();
+            throw new TaskCanceledException();
+        }));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            HttpFileDownloader.GetFromFirstAnsweringAsync(client, ["https://a.example/f.zip", "https://b.example/f.zip"], cts.Token));
+        Assert.Equal(1, asked);
+    }
+
+    private sealed class PerHostHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var response = responder(request);
+            response.RequestMessage = request;
+            return Task.FromResult(response);
+        }
+    }
+
     private sealed class StaticResponseHandler(Func<HttpResponseMessage> responder) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>

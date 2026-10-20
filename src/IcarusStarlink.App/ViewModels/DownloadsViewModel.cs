@@ -926,19 +926,19 @@ public sealed partial class DownloadsViewModel : ObservableObject
         {
             var links = await _nexusApiClient.GetDownloadLinksAsync(
                 apiKey, nxmUrl.GameDomain, nxmUrl.ModId, nxmUrl.FileId, nxmUrl.Key, nxmUrl.Expires);
-            var link = links.FirstOrDefault();
-            if (link is null)
+            if (links.Count == 0)
             {
                 PendingDownloadStatusMessage = "Nexus didn't return a download link for this file.";
                 return;
             }
 
-            using var response = await HttpFileDownloader.GetWithStreamingResponseAsync(_downloadHttpClient, link.Uri);
-            response.EnsureSuccessStatusCode();
+            // Every server Nexus offers, in its order, until one answers.
+            using var response = await HttpFileDownloader.GetFromFirstAnsweringAsync(_downloadHttpClient, [.. links.Select(l => l.Uri)]);
+            var answeredUri = response.RequestMessage?.RequestUri ?? new Uri(links[0].Uri);
 
             var fileName = response.Content.Headers.ContentDisposition?.FileNameStar?.Trim('"')
                 ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
-                ?? Path.GetFileName(new Uri(link.Uri).LocalPath);
+                ?? Path.GetFileName(answeredUri.LocalPath);
             if (string.IsNullOrWhiteSpace(fileName))
             {
                 fileName = $"nexus_{nxmUrl.ModId}_{nxmUrl.FileId}.zip";

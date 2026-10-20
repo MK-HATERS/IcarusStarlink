@@ -208,8 +208,10 @@
                                    TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
                                    Visibility="{Binding NexusStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-                        <!-- Optional and set once, so it folds away; the header says whether it's set up. -->
-                        <Expander IsExpanded="False" AutomationProperties.Name="Download handler">
+                        <!-- Optional and set once, so it folds away once registered; open while it isn't,
+                             so Register is in plain sight (folded, it read as "Register is gone").
+                             The header says whether it's set up. -->
+                        <Expander IsExpanded="{Binding IsNxmProtocolNotRegistered, Mode=OneWay}" AutomationProperties.Name="Download handler">
                             <Expander.Header>
                                 <DockPanel LastChildFill="True">
                                     <TextBlock DockPanel.Dock="Left" Text="Download handler (nxm:// links)" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
