@@ -90,7 +90,7 @@ public sealed partial class ServerViewModel : ObservableObject
 
     private IFtpClient? _connectedClient;
 
-    public string Title => "Server (Beta)";
+    public string Title => "Server";
 
     /// <summary>The "Local server" tab: dedicated servers on this PC (see LocalServerViewModel). Null in tests that only exercise the FTP side.</summary>
     public LocalServerViewModel? Local { get; }

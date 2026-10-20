@@ -71,14 +71,11 @@ public sealed partial class MainViewModel : ObservableObject
             new NavItem("editor", "Editor", typeof(GameEditorViewModel)),
             new NavItem("merge", "Merge & Install", typeof(MergeInstallViewModel)),
             new NavItem("weekly-changes", "Weekly Changes", typeof(WeeklyChangesViewModel)),
-            // A narrower revival of the spec's original "Server" nav item, cut from v1 entirely —
-            // FTP file management for a dedicated server's mods folder (Phase 8.5), not the full
-            // remote-agent/control page the original spec described. Marked Beta per the user's
-            // own call — confirmed live against a real SurvivalServers account that the FTP
-            // delete/overwrite this page's own "Install merged pak"/basic Delete actions need is
-            // blocked account-wide on at least one real host, so the page's core install-to-server
-            // path isn't reliably functional yet.
-            new NavItem("server", "Server (Beta)", typeof(ServerViewModel)),
+            // FTP file management for a rented server's mods folder plus the Local server tab
+            // (install, configure, run and keep a dedicated server up to date on this PC). It was
+            // marked Beta while the FTP install path was unproven on real hosts; it has since left
+            // Beta at the user's call.
+            new NavItem("server", "Server", typeof(ServerViewModel)),
             // Between Server and Settings, matching the real Icarus Workshop's own nav order.
             // Marked Beta while the deeper editing tabs (cosmetics, items, bestiary...) are
             // still landing — per the user's own call before the first release carries it.

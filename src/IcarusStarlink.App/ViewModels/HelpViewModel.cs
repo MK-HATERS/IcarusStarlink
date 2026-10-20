@@ -238,7 +238,7 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Server", """
             # Server
 
-            **Server (Beta)** has two tabs.
+            **Server** has two tabs.
 
             **Local server**: run an Icarus dedicated server on this PC.
 
