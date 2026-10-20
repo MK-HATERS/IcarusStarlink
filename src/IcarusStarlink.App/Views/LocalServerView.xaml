@@ -675,7 +675,7 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
                         <StackPanel Margin="0,0,8,0">
                             <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,10"
-                                       Text="Stop the server before changing its mods. Each change backs up its worlds and settings first, and anything taken off the server is moved into its backups folder, never deleted. Players need the same content mods as the server."/>
+                                       Text="Stop the server before changing its mods. Installing mods backs up its worlds and settings first, and anything taken off the server is moved into its backups folder, never deleted. Players need the same content mods as the server."/>
 
                             <TextBlock Text="PAK MODS ON THE SERVER" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
                             <TextBlock Text="{Binding MergedPakSummary}" FontSize="12" Margin="0,0,0,6"/>

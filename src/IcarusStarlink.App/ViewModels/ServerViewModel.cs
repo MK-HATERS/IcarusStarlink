@@ -819,7 +819,7 @@ public sealed partial class ServerViewModel : ObservableObject
 
         if (!File.Exists(_outputPakPath))
         {
-            ConnectionStatusMessage = "No built pak yet — run Rebuild on Merge & Install first.";
+            ConnectionStatusMessage = "No merged pak yet — build one on the Merge & Install page first.";
             return;
         }
 

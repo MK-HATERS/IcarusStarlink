@@ -24,10 +24,13 @@
             <TabItem Header="Remote (FTP)">
         <Grid Margin="0,12,0,0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="300" MinWidth="240" MaxWidth="560"/>
                 <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*" MinWidth="360"/>
             </Grid.ColumnDefinitions>
+
+            <GridSplitter Grid.Column="1" Style="{StaticResource VerticalPaneSplitterStyle}" Width="16"
+                          AutomationProperties.Name="Resize site list and file browser"/>
 
             <!-- Site Manager -->
             <Grid Grid.Column="0">
@@ -82,7 +85,7 @@
                     <Expander.Header>
                         <DockPanel LastChildFill="False">
                             <TextBlock DockPanel.Dock="Left" Text="Site details" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                            <TextBlock DockPanel.Dock="Left" Text="Name · Host · Port · Username · Password · Remote path · Mods path · Win64 path · Encryption" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                            <TextBlock DockPanel.Dock="Left" Text="Host, login, folders, encryption" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                         </DockPanel>
                     </Expander.Header>
                     <StackPanel>
@@ -111,13 +114,23 @@
                          those assume a fixed SurvivalServers-shaped layout by default (relative to
                          the FTP login root); only needed when this site's own host lays its
                          dedicated server out differently. -->
-                    <TextBlock Text="Mods path" FontSize="12" Margin="0,8,0,2"/>
+                    <Expander Margin="0,10,0,0" IsExpanded="False" AutomationProperties.Name="Server folders">
+                        <Expander.Header>
+                            <DockPanel LastChildFill="True">
+                                <TextBlock DockPanel.Dock="Left" Text="Server folders" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                <TextBlock Text="Only if your host lays the server out differently" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                            </DockPanel>
+                        </Expander.Header>
+                    <StackPanel>
+                    <TextBlock Text="Mods path" FontSize="12" Margin="0,0,0,2"/>
                     <TextBox Text="{Binding ModsPathInput, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Where 'Install merged pak' uploads on THIS site, relative to the FTP login root. Blank = the default Icarus/Content/Paks/mods. Only needed if this host lays out the dedicated server differently."/>
 
                     <TextBlock Text="Win64 path" FontSize="12" Margin="0,8,0,2"/>
                     <TextBox Text="{Binding Win64PathInput, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Where the UE4SS loader/mods sync buttons upload on THIS site, relative to the FTP login root. Blank = the default Icarus/Binaries/Win64. Only needed if this host lays out the dedicated server differently."/>
+                    </StackPanel>
+                    </Expander>
 
                     <TextBlock Text="Encryption" FontSize="12" Margin="0,8,0,2"/>
                     <ComboBox ItemsSource="{Binding EncryptionModes}" SelectedItem="{Binding EncryptionModeInput}"/>
@@ -146,6 +159,7 @@
                             <TextBlock Text="CONNECTED" FontFamily="Consolas" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource SuccessBrush}"/>
                         </Border>
                         <Button Content="Disconnect" Command="{Binding DisconnectCommand}" IsEnabled="{Binding IsNotBusy}"
+                                ToolTip="Closes the connection to this site"
                                 Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     </StackPanel>
                     <TextBlock Text="{Binding ConnectionStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
@@ -163,7 +177,7 @@
                                Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,20,0,6"/>
                     <WrapPanel IsEnabled="{Binding IsNotBusy}" Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Button Content="Install merged pak" Command="{Binding InstallPakToServerCommand}"
-                                ToolTip="Uploads the last built merged pak (Merge &amp; Install's own Rebuild output) to the server's mods folder (Content/Paks/mods by default, or this site's own Mods path override), replacing whatever's already there."/>
+                                ToolTip="Uploads the merged pak your last Merge &amp; Install built to the server's mods folder (Content/Paks/mods by default, or this site's own Mods path override), replacing whatever's already there."/>
                         <Button Content="Sync UE4SS loader" Command="{Binding SyncUe4ssLoaderToServerCommand}" Margin="8,0,0,0"
                                 ToolTip="Checks the server's own UE4SS version and uploads the loader if it's missing or out of date, to Binaries/Win64 by default or this site's own Win64 path override. Never touches the server's own Mods folder or an existing UE4SS-settings.ini."/>
                         <Button Content="Sync UE4SS mods" Command="{Binding SyncUe4ssModsToServerCommand}" Margin="8,0,0,0"
@@ -209,7 +223,7 @@
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="2*"/>
                         <DataGridTextColumn Header="Type" Width="80" Binding="{Binding IsDirectory, Converter={StaticResource BoolToFolderFileConverter}}"/>
-                        <DataGridTextColumn Header="Size" Binding="{Binding SizeBytes}" Width="100"/>
+                        <DataGridTextColumn Header="Size" Binding="{Binding SizeBytes, Converter={StaticResource FileSizeConverter}}" Width="100"/>
                         <DataGridTextColumn Header="Modified" Binding="{Binding ModifiedAt, StringFormat='{}{0:g}'}" Width="150"/>
                     </DataGrid.Columns>
                 </DataGrid>

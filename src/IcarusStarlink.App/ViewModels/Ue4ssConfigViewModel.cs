@@ -280,10 +280,11 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
         }
 
         var what = changed.Count == 1 ? $"{changed[0].Key}" : $"{changed.Count} settings";
-        StatusMessage = (saved.Count > 0
-                ? $"Saved {what} to {string.Join(" and ", saved)} (the old file is in Backups\\UE4SS-Settings). UE4SS reads these when the game or server starts: restart it to use them."
-                : "") +
-            (problems.Count > 0 ? $" Couldn't save to {string.Join("; ", problems)}" : "");
+        var savedText = saved.Count > 0
+            ? $"Saved {what} to {string.Join(" and ", saved)} (the old file is in Backups\\UE4SS-Settings). UE4SS reads these when the game or server starts: restart it to use them."
+            : null;
+        var problemText = problems.Count > 0 ? $"Couldn't save to {string.Join("; ", problems)}." : null;
+        StatusMessage = string.Join(" ", new[] { savedText, problemText }.Where(t => t is not null));
     }
 
     [RelayCommand]

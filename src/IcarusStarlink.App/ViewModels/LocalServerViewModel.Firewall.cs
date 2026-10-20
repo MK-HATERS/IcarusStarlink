@@ -319,12 +319,14 @@ public sealed partial class LocalServerViewModel
         try
         {
             var result = await _firewall!.RunElevatedAsync(commands);
-            StatusMessage = result.Success ? successMessage : $"Firewall not changed: {result.Message}";
+            // Not "not changed": Starlink's own old rules are deleted before the new ones are
+            // added, so a failed add can leave the firewall different from before.
+            StatusMessage = result.Success ? successMessage : $"Firewall: {result.Message.TrimEnd('.')}. The list below shows what's open now.";
             _activityLog.Log(StatusMessage, result.Success ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Firewall not changed: {ex.Message}";
+            StatusMessage = $"Couldn't change the firewall: {ex.Message}";
         }
         finally
         {
