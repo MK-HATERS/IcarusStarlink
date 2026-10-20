@@ -34,7 +34,7 @@ public sealed partial class LocalServerViewModel
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand), nameof(UpdateServerCommand),
-        nameof(CheckForUpdateCommand), nameof(InstallNewServerCommand), nameof(CancelSteamCmdCommand))]
+        nameof(CheckForUpdateCommand), nameof(InstallNewServerCommand), nameof(InstallSteamCmdCommand), nameof(CancelSteamCmdCommand))]
     private bool _isSteamCmdBusy;
 
     /// <summary>Cancels the SteamCMD run in progress (Cancel in the SteamCMD box); a new one per run.</summary>
@@ -186,18 +186,24 @@ public sealed partial class LocalServerViewModel
     private async Task<bool> InstallOwnSteamCmdCoreAsync()
     {
         StartSteamCmdOutput();
+        // The new run's token first: setting IsSteamCmdBusy re-asks whether Cancel can run,
+        // which looks at this run's token, not the last (null or already-cancelled) one.
+        var token = BeginSteamCmdRun();
         IsSteamCmdBusy = true;
         SteamCmdProgress = 0;
         SteamCmdStatus = "Downloading SteamCMD…";
         try
         {
+            await _steamCmd!.InstallOwnCopyAsync(OnSteamCmdLine, token);
+
+            // Only once Starlink's own copy is in: a failed or cancelled download keeps the
+            // user's own SteamCMD set up.
             if (_settings is { } settings && settings.Current.SteamCmdExePath is not null)
             {
                 settings.Current.SteamCmdExePath = null;
                 settings.Save();
             }
 
-            await _steamCmd!.InstallOwnCopyAsync(OnSteamCmdLine, BeginSteamCmdRun());
             StatusMessage = $"SteamCMD installed in {_steamCmd.OwnInstallFolder}.";
             return true;
         }

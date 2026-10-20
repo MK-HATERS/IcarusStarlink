@@ -225,18 +225,20 @@ public sealed partial class LocalServerViewModel : ObservableObject
     // ---- Run state ----
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(RunStateText), nameof(IsStopped))]
+    [NotifyPropertyChangedFor(nameof(RunStateText))]
     [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand))]
     private RunningServer? _running;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(RunStateText))]
-    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand))]
+    [NotifyPropertyChangedFor(nameof(RunStateText), nameof(IsNotBusy))]
+    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand), nameof(UpdateServerCommand),
+        nameof(CheckForUpdateCommand), nameof(InstallNewServerCommand), nameof(InstallSteamCmdCommand))]
     private bool _isBusy;
 
     public bool IsRunning => Running is not null;
 
-    public bool IsStopped => Running is null;
+    /// <summary>The server list is locked while one is starting or stopping: Start/Stop/Restart act on the selected server, so switching mid-way would act on another one.</summary>
+    public bool IsNotBusy => !IsBusy;
 
     public string RunStateText => IsAutomationBusy ? "AUTOMATIC RESTART"
         : IsBusy && Running is null ? "STARTING"
@@ -456,8 +458,16 @@ public sealed partial class LocalServerViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanStop))]
     private async Task RestartAsync()
     {
+        var restarting = SelectedProfile?.Id;
         if (await StopCoreAsync(ask: true))
         {
+            // Never start a different server than the one that was stopped.
+            if (SelectedProfile?.Id != restarting)
+            {
+                StatusMessage += " Another server was selected meanwhile, so it wasn't started again; select it and click Start.";
+                return;
+            }
+
             if (SelectedProfile is { UpdateOnRestart: true } profile)
             {
                 await UpdateProfileIfNewerAsync(GetWatch(profile));

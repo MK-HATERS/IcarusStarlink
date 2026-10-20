@@ -522,10 +522,11 @@ public sealed partial class LocalServerViewModel
         }
 
         var selected = SelectedProfile?.Id == p.Id;
+        var token = BeginSteamCmdRun();
         IsSteamCmdBusy = true;
         try
         {
-            var latest = await _steamCmd.GetLatestBuildIdAsync(SteamCmd.NormalizeBranch(p.Branch), BeginSteamCmdRun());
+            var latest = await _steamCmd.GetLatestBuildIdAsync(SteamCmd.NormalizeBranch(p.Branch), token);
             var (installedBuild, installedBranch) = ReadManifest(p);
             var available = latest is not null
                 && (installedBuild != latest

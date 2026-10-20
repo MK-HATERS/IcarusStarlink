@@ -30,7 +30,7 @@
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="SERVERS ON THIS PC" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
             <!-- No sideways scrolling: a long name or path is cut with … and shown in full on hover. -->
-            <ListBox Grid.Row="1" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}"
+            <ListBox Grid.Row="1" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}" IsEnabled="{Binding IsNotBusy}"
                      BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
                 <ListBox.ItemTemplate>

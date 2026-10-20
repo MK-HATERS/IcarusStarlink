@@ -197,6 +197,28 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Null(vm.SaveOnExitWarning);
     }
 
+    /// <summary>Regression: Restart re-read the selected server after the stop, so picking another one during the wait stopped A and started B.</summary>
+    [Fact]
+    public async Task Restart_AnotherServerSelectedDuringTheStop_DoesNotStartIt()
+    {
+        var (vm, store, processes, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        var first = vm.SelectedProfile!;
+        var other = new DedicatedServerProfile { Name = "Other", InstallFolder = Path.Combine(_root, "Other") };
+        store.Save(other);
+        vm.Profiles.Add(other);
+        vm.SelectedProfile = first;
+        processes.Running = new RunningServer(1234, DateTime.Now);
+        vm.Tick();
+        processes.DuringStop = () => vm.SelectedProfile = other;
+
+        await vm.RestartCommand.ExecuteAsync(null);
+
+        Assert.Equal([1234], processes.Stopped);
+        Assert.Empty(processes.Started);
+        Assert.Contains("wasn't started again", vm.StatusMessage);
+    }
+
     [Fact]
     public async Task Stop_Declined_LeavesTheServerAlone()
     {
@@ -366,6 +388,55 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.False(vm.IsSteamCmdBusy);
         Assert.Contains("Cancelled", vm.StatusMessage);
         Assert.False(vm.CancelSteamCmdCommand.CanExecute(null));
+    }
+
+    /// <summary>
+    /// Regression: the first "Install SteamCMD" set IsSteamCmdBusy (which tells the UI to re-ask
+    /// Cancel) before the run's token existed, so the UI saw Cancel greyed out for the whole run.
+    /// A cancelled download also used to have already cleared the user's own steamcmd.exe.
+    /// </summary>
+    [Fact]
+    public async Task InstallSteamCmd_CancelIsLiveFromTheStart_AndACancelKeepsTheUsersOwnSteamCmd()
+    {
+        var mine = Path.Combine(_root, "steamcmd.exe");
+        File.WriteAllText(mine, "");
+        Settings.Current.SteamCmdExePath = mine;
+        var (vm, _, _, _) = Build();
+        SteamCmd.WaitForCancel = true;
+        var cancelSeen = new List<bool>();
+        vm.CancelSteamCmdCommand.CanExecuteChanged += (_, _) => cancelSeen.Add(vm.CancelSteamCmdCommand.CanExecute(null));
+
+        var install = vm.InstallSteamCmdCommand.ExecuteAsync(null);
+
+        Assert.True(cancelSeen.Last(), "the UI was last told Cancel can't run");
+        vm.CancelSteamCmdCommand.Execute(null);
+        await install;
+
+        Assert.Equal(mine, Settings.Current.SteamCmdExePath);
+        Assert.Contains("Cancelled", vm.StatusMessage);
+    }
+
+    /// <summary>Regression: Install SteamCMD wasn't told when another SteamCMD run or a start/stop began, so it stayed clickable mid-run.</summary>
+    [Fact]
+    public async Task SteamCmdAndServerBusy_GreyOutInstallSteamCmdAndUpdate()
+    {
+        WriteManifest(buildId: 1);
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        var installSeen = new List<bool>();
+        vm.InstallSteamCmdCommand.CanExecuteChanged += (_, _) => installSeen.Add(vm.InstallSteamCmdCommand.CanExecute(null));
+        var updateSeen = new List<bool>();
+        vm.UpdateServerCommand.CanExecuteChanged += (_, _) => updateSeen.Add(vm.UpdateServerCommand.CanExecute(null));
+
+        SteamCmd.WaitForCancel = true;
+        var check = vm.UpdateServerCommand.ExecuteAsync(null);
+        Assert.False(installSeen.LastOrDefault(true), "Install SteamCMD wasn't greyed out during an update");
+        vm.CancelSteamCmdCommand.Execute(null);
+        await check;
+
+        updateSeen.Clear();
+        vm.IsBusy = true;
+        Assert.False(updateSeen.LastOrDefault(true), "Update wasn't greyed out while the server starts or stops");
     }
 
     /// <summary>The user's first install: no server in the list yet, so no Log tab — the SteamCMD box itself must show the output and keep it after the run until dismissed.</summary>
@@ -715,11 +786,15 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         public string OwnInstallFolder => @"C:\Starlink\SteamCMD";
         public int OwnInstalls { get; private set; }
 
-        public Task InstallOwnCopyAsync(Action<string> onLine, CancellationToken cancellationToken = default)
+        public async Task InstallOwnCopyAsync(Action<string> onLine, CancellationToken cancellationToken = default)
         {
             OwnInstalls++;
+            if (WaitForCancel)
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+
             OwnExe = OwnInstallFolder + @"\steamcmd.exe";
-            return Task.CompletedTask;
         }
 
         /// <summary>Makes the next install run until it is cancelled, like a long download.</summary>
@@ -812,8 +887,12 @@ public sealed partial class LocalServerViewModelTests : IDisposable
             }
         }
 
+        /// <summary>Runs while a stop is in progress (for "the user did something during the 60-second wait").</summary>
+        public Action? DuringStop { get; set; }
+
         public Task<bool> StopAsync(RunningServer server, TimeSpan timeout, CancellationToken cancellationToken = default)
         {
+            DuringStop?.Invoke();
             Stopped.Add(server.ProcessId);
             Running = null;
             return Task.FromResult(StopIsClean);
