@@ -164,7 +164,7 @@ public static partial class GameItemEditor
         for (var i = 0; i < recipes.Count; i++)
         {
             var recipeRow = game.Row(Recipes, recipes[i]);
-            var bench = recipeRow?["RecipeSets"]?[0]?["RowName"]?.GetValue<string>();
+            var bench = recipeRow?["RecipeSets"] is JsonArray { Count: > 0 } sets ? sets[0]?["RowName"]?.GetValue<string>() : null;
             // Butchering a carcass is one recipe making several things: its ingredients are all of theirs.
             var others = (recipeRow?["Outputs"] as JsonArray)?.Count(o => !Makes(o?["Element"])) ?? 0;
             var title = (recipes.Count > 1 ? $"Recipe {i + 1} of {recipes.Count}" : "Recipe") + (bench is null ? "" : $" · {Humanize(bench)}")
@@ -200,6 +200,11 @@ public static partial class GameItemEditor
                 rowName = section.Key == BuffSection
                     ? GiveBuffOwnCopy(game, mod, itemName, section, lines)
                     : GiveOwnCopy(game, mod, itemName, section.Key, section.CurrentFile, section.RowName, section.GameRowName, section.SharedBy, lines);
+
+                // The item now links to other rows (the buff's copy also gives it its own consumable
+                // row): sections still to come must be read again, or their changes go to the old,
+                // shared row.
+                view = Describe(game, mod, itemName) ?? view;
             }
 
             foreach (var change in group)
