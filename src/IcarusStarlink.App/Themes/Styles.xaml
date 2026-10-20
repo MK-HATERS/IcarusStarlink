@@ -881,7 +881,7 @@
 
     <!-- A header for an Expander that also shows a dynamic one-line summary of its current state
          when collapsed (matching the redesign mockup's "state" text) — e.g. "2 active" for Merge
-         options, or "Verify · Uninstall" for Advanced actions. Title/state are the header's own
+         options, or "Compare · Copy to game · …" for Advanced actions. Title/state are the header's own
          two TextBlocks; per-usage content supplies the actual text. -->
     <Style x:Key="ExpanderHeaderTitleStyle" TargetType="TextBlock">
         <Setter Property="FontWeight" Value="SemiBold"/>
