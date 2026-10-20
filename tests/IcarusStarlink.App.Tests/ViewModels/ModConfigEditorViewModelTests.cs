@@ -84,6 +84,24 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
         var saved = File.ReadAllText(Path.Combine(game, "config.lua"));
         Assert.Contains("DefendRadius = 7500,", saved);
         Assert.Contains("\"BearCub_Juvenile\"", saved);
+        // Saving keeps the text view open (it used to flip back to the fields).
+        Assert.True(vm.IsTextMode);
+    }
+
+    /// <summary>Text edited down to no settings, then "Edit as text" unticked: it stays in the text view (the box used to grey out with the text out of reach).</summary>
+    [Fact]
+    public void TextMode_TextWithNoSettings_StaysInTheTextView()
+    {
+        var game = Mod("game", "config.lua", Lua);
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+
+        vm.IsTextMode = true;
+        vm.RawText = "return {}\r\n";
+        vm.IsTextMode = false;
+
+        Assert.True(vm.IsTextMode);
+        Assert.True(vm.CanUseFields);
+        Assert.Equal("return {}\r\n", vm.RawText);
     }
 
     [Fact]
