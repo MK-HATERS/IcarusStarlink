@@ -106,6 +106,12 @@ public static class Ue4ssModArchive
             }
         }
 
-        return wrapping;
+        // A zip holding ONLY Scripts/ (or dlls/) is already the mod — that folder is UE4SS's own
+        // layout, not a wrapper (Ue4ssModRepository's folder import makes the same check);
+        // stripping it named the mod "Scripts" and left main.lua where UE4SS never looks.
+        return wrapping is not null
+            && (wrapping.Equals("Scripts", StringComparison.OrdinalIgnoreCase) || wrapping.Equals("dlls", StringComparison.OrdinalIgnoreCase))
+            ? null
+            : wrapping;
     }
 }

@@ -25,7 +25,7 @@ public class Ue4ssModArchiveTests : IDisposable
     }
 
     [Fact]
-    public void DeriveFolderName_SingleWrappingFolder_ReturnsThatFolderName()
+    public void DerivedFolderName_SingleWrappingFolder_ReturnsThatFolderName()
     {
         var zip = MakeZip("download.zip", ("NearbyCrafting/Scripts/main.lua", "-- lua"), ("NearbyCrafting/enabled.txt", "on"));
 
@@ -34,7 +34,7 @@ public class Ue4ssModArchiveTests : IDisposable
     }
 
     [Fact]
-    public void DeriveFolderName_LooseFilesWithNoWrapper_FallsBackToZipFileName()
+    public void DerivedFolderName_LooseFilesWithNoWrapper_FallsBackToZipFileName()
     {
         var zip = MakeZip("MyMod.zip", ("Scripts/main.lua", "-- lua"), ("enabled.txt", "on"));
 
@@ -43,7 +43,7 @@ public class Ue4ssModArchiveTests : IDisposable
     }
 
     [Fact]
-    public void DeriveFolderName_MultipleTopLevelFolders_FallsBackToZipFileName()
+    public void DerivedFolderName_MultipleTopLevelFolders_FallsBackToZipFileName()
     {
         var zip = MakeZip("Bundle.zip", ("ModA/main.lua", "a"), ("ModB/main.lua", "b"));
 
@@ -52,7 +52,7 @@ public class Ue4ssModArchiveTests : IDisposable
     }
 
     [Fact]
-    public void Extract_SingleWrappingFolder_StripsItAndUsesDestinationFolderName()
+    public void ExtractTo_SingleWrappingFolder_StripsItAndUsesDestinationFolderName()
     {
         var zip = MakeZip("download.zip", ("NearbyCrafting/Scripts/main.lua", "-- lua"), ("NearbyCrafting/enabled.txt", "on"));
         var dest = Path.Combine(_dir, "staged", "NearbyCrafting_2"); // deliberately different name than the zip's own folder
@@ -68,7 +68,7 @@ public class Ue4ssModArchiveTests : IDisposable
     }
 
     [Fact]
-    public void Extract_LooseFilesWithNoWrapper_LandsFilesDirectlyUnderDestination()
+    public void ExtractTo_LooseFilesWithNoWrapper_LandsFilesDirectlyUnderDestination()
     {
         var zip = MakeZip("MyMod.zip", ("Scripts/main.lua", "-- lua"), ("enabled.txt", "on"));
         var dest = Path.Combine(_dir, "staged", "MyMod");
@@ -83,7 +83,7 @@ public class Ue4ssModArchiveTests : IDisposable
     }
 
     [Fact]
-    public void Extract_ZipSlipEntry_ThrowsFormatException()
+    public void ExtractTo_ZipSlipEntry_ThrowsFormatException()
     {
         var zip = MakeZip("evil.zip", ("MyMod/../../../evil.dll", "malicious"));
         var dest = Path.Combine(_dir, "staged", "MyMod");
@@ -98,7 +98,7 @@ public class Ue4ssModArchiveTests : IDisposable
     }
 
     [Fact]
-    public void Extract_EntryOverTheSizeLimit_ThrowsInsteadOfFullyDecompressingIt()
+    public void ExtractTo_EntryOverTheSizeLimit_ThrowsInsteadOfFullyDecompressingIt()
     {
         var path = Path.Combine(_dir, "huge.zip");
         using (var stream = File.Create(path))
@@ -132,17 +132,24 @@ public class Ue4ssModArchiveTests : IDisposable
         Assert.Equal("on", File.ReadAllText(Path.Combine(dest, "enabled.txt")));
     }
 
-    [Fact]
-    public void Open_LooseFilesWithNoWrapper_DerivedFolderNameFallsBackToZipFileName()
+    /// <summary>
+    /// A zip holding only Scripts/ (or dlls/) is already the mod: that folder is UE4SS's own layout,
+    /// not a wrapper. Stripped, the mod was named "Scripts" with main.lua at its root, so UE4SS
+    /// never started it. (The same check the folder import already makes.)
+    /// </summary>
+    [Theory]
+    [InlineData("Scripts/main.lua")]
+    [InlineData("dlls/main.dll")]
+    public void Open_OnlyTheUe4ssLayoutFolder_IsNotAWrapper(string entryPath)
     {
-        // A file sitting directly at the zip root (enabled.txt, one path segment) is what makes
-        // this "loose" — a single-entry zip whose one entry happens to sit under a folder would
-        // trivially "wrap", which is a different, already-covered case.
-        var zip = MakeZip("MyMod.zip", ("Scripts/main.lua", "-- lua"), ("enabled.txt", "on"));
+        var zip = MakeZip("MyMod.zip", (entryPath, "x"));
+        var dest = Path.Combine(_dir, "staged", "MyMod");
 
         using var handle = Ue4ssModArchive.Open(zip);
-
         Assert.Equal("MyMod", handle.DerivedFolderName);
+        handle.ExtractTo(dest);
+
+        Assert.True(File.Exists(Path.Combine(dest, entryPath.Replace('/', Path.DirectorySeparatorChar))));
     }
 
     public void Dispose()
