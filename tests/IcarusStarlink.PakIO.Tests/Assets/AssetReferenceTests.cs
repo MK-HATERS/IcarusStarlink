@@ -86,6 +86,16 @@ public sealed class AssetReferenceTests : IDisposable
         Assert.Null(UnrealPackageHeader.TryRead(Header().AsSpan(0, 40)));
     }
 
+    /// <summary>A UE5 package (legacy version -8) has one more version field: read with the UE4 layout, every offset after it is wrong.</summary>
+    [Fact]
+    public void Header_IsNullForAUe5Package()
+    {
+        var ue5 = Header();
+        BitConverter.GetBytes(-8).CopyTo(ue5, 4);
+
+        Assert.Null(UnrealPackageHeader.TryRead(ue5));
+    }
+
     [Fact]
     public void Check_NothingWhenTheGameHasEverything()
     {

@@ -67,9 +67,9 @@ public sealed class UnrealPackageHeader
 
         var at = 4;
         var legacy = Int(data, ref at);
-        if (legacy is > -4 or < -8)
+        if (legacy is > -4 or < -7)
         {
-            return null; // not a UE4 package (UE5 is -8 and later, UE3 positive)
+            return null; // not a UE4 package (UE5 is -8 and later, with one more version field; UE3 positive)
         }
 
         if (legacy != -4)
