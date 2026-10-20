@@ -23,12 +23,20 @@
 
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="260"/>
+                <ColumnDefinition Width="260" MinWidth="180"/>
                 <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*" MinWidth="360"/>
                 <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="300" MinWidth="220"/>
             </Grid.ColumnDefinitions>
+
+            <!-- The gaps are splitters: drag to give the item list, the cards or the save panel more room. -->
+            <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="Transparent"
+                          ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Cursor="SizeWE" ToolTip="Drag to resize"
+                          AutomationProperties.Name="Resize the item list"/>
+            <GridSplitter Grid.Column="3" Width="8" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="Transparent"
+                          ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Cursor="SizeWE" ToolTip="Drag to resize"
+                          AutomationProperties.Name="Resize the save panel"/>
 
             <!-- The game's items -->
             <Grid Grid.Column="0">
@@ -95,13 +103,16 @@
                         <StackPanel Margin="14">
                             <TextBlock Text="{Binding ItemTitle}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
                             <TextBlock TextWrapping="Wrap" Margin="0,4,0,10" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                       Text="Each card is one of the game rows this item uses. An orange border marks a value that differs from the game's."/>
+                                       Text="Each card is one of the game rows this item uses; click its title to fold it away. An orange border marks a value that differs from the game's."/>
                             <ItemsControl ItemsSource="{Binding Sections}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:GameItemSectionViewModel}">
-                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,10" Background="{DynamicResource ContentBackgroundBrush}">
-                                            <StackPanel>
-                                                <DockPanel Margin="10,8">
+                                        <!-- A card per game row, foldable: an item with many rows (armour, buff,
+                                             recipe…) can be narrowed to the one being changed. -->
+                                        <Expander IsExpanded="True" Margin="0,0,0,10" Background="{DynamicResource ContentBackgroundBrush}"
+                                                  AutomationProperties.Name="{Binding Title}">
+                                            <Expander.Header>
+                                                <DockPanel>
                                                     <Border DockPanel.Dock="Right" CornerRadius="9" Padding="8,2" VerticalAlignment="Center">
                                                         <Border.Style>
                                                             <Style TargetType="Border">
@@ -115,12 +126,13 @@
                                                         </Border.Style>
                                                         <TextBlock Text="{Binding SharedText}" FontSize="11.5" FontWeight="SemiBold"/>
                                                     </Border>
-                                                    <TextBlock VerticalAlignment="Center">
+                                                    <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0">
                                                         <Run Text="{Binding Title, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="   "/><Run Text="{Binding Source, Mode=OneWay}" FontFamily="Consolas" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"/>
                                                     </TextBlock>
                                                 </DockPanel>
-
-                                                <Border Margin="10,0,10,6" Padding="9,7" CornerRadius="4" Background="{DynamicResource AccentSoftBrush}"
+                                            </Expander.Header>
+                                            <StackPanel>
+                                                <Border Margin="0,0,0,6" Padding="9,7" CornerRadius="4" Background="{DynamicResource AccentSoftBrush}"
                                                         Visibility="{Binding IsShared, Converter={StaticResource BoolToVisibilityConverter}}">
                                                     <StackPanel>
                                                         <TextBlock Text="Other items use this row too. Changing it changes all of them." TextWrapping="Wrap" FontSize="12.5"/>
@@ -131,7 +143,7 @@
                                                     </StackPanel>
                                                 </Border>
 
-                                                <ItemsControl ItemsSource="{Binding Fields}" Margin="10,0,10,6">
+                                                <ItemsControl ItemsSource="{Binding Fields}" Margin="0,0,0,6">
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate DataType="{x:Type vm:GameItemFieldViewModel}">
                                                             <Grid Margin="0,4">
@@ -177,10 +189,10 @@
                                                     </ItemsControl.ItemTemplate>
                                                 </ItemsControl>
 
-                                                <ContentControl Margin="10,0,10,10" Content="{Binding Picker}" ContentTemplate="{StaticResource StatPickerTemplate}"
+                                                <ContentControl Margin="0,0,0,0" Content="{Binding Picker}" ContentTemplate="{StaticResource StatPickerTemplate}"
                                                                 Visibility="{Binding CanAddStat, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                             </StackPanel>
-                                        </Border>
+                                        </Expander>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>

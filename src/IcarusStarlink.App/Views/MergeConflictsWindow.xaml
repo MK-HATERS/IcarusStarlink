@@ -20,22 +20,37 @@
         <TextBlock Grid.Row="0" Text="{Binding Summary}" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,8"/>
 
         <Expander Grid.Row="1" Margin="0,0,0,8" Visibility="{Binding HasCollisions, Converter={StaticResource BoolToVisibilityConverter}}"
-                  Header="New items with the same name in two mods (both are merged into one; nothing to pick)">
-            <ItemsControl ItemsSource="{Binding Collisions}" Margin="8,4,0,0">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                  AutomationProperties.Name="New items with the same name">
+            <Expander.Header>
+                <DockPanel LastChildFill="False">
+                    <TextBlock DockPanel.Dock="Left" Text="New items with the same name" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource ExpanderHeaderStateStyle}">
+                        <Run Text="{Binding Collisions.Count, Mode=OneWay}"/><Run Text=" in two or more mods, merged into one — nothing to pick"/>
+                    </TextBlock>
+                </DockPanel>
+            </Expander.Header>
+            <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Collisions}" Margin="8,4,0,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
         </Expander>
 
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="320" MinWidth="200"/>
                 <ColumnDefinition Width="14"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*" MinWidth="420"/>
             </Grid.ColumnDefinitions>
+
+            <!-- Drag to give the groups or the conflict list more room. -->
+            <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="Transparent"
+                          ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Cursor="SizeWE" ToolTip="Drag to resize"
+                          AutomationProperties.Name="Resize the groups list"/>
 
             <!-- Which mods collide, and how often; pick a winner for a whole group at once. -->
             <DockPanel Grid.Column="0">
@@ -130,7 +145,8 @@
         </Grid>
 
         <GridSplitter Grid.Row="3" Height="8" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="Transparent"
-                      ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Cursor="SizeNS" ToolTip="Drag to resize"/>
+                      ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Cursor="SizeNS" ToolTip="Drag to resize"
+                      AutomationProperties.Name="Resize the comparison"/>
 
         <!-- The selected line side by side: the game, each mod, the result. Click a mod to make it win. -->
         <Border Grid.Row="4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10"

@@ -586,7 +586,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         RefreshBaseDiff();
         ReloadItems();
         SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == previousFile && i.ItemName == previousName) ?? Items.FirstOrDefault();
-        StatusMessage = $"Added '{currentFile}' with no items yet — use Add item to add one.";
+        StatusMessage = $"Added '{currentFile}' with no rows yet — add one with More ▾ › Copy a game row into this mod…, or Add an empty row.";
     }
 
     /// <summary>
@@ -1153,7 +1153,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(NewItemCurrentFile) || string.IsNullOrWhiteSpace(NewItemName))
         {
-            StatusMessage = "Both file and item name are required.";
+            StatusMessage = "Type both the file and the row name.";
             return;
         }
 
