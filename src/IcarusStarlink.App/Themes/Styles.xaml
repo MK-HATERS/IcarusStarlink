@@ -12,7 +12,6 @@
     <converters:ProgressToWidthConverter x:Key="ProgressToWidthConverter"/>
     <converters:HexToBrushConverter x:Key="HexToBrushConverter"/>
     <converters:VariantSuffixConverter x:Key="VariantSuffixConverter"/>
-    <converters:MountTypeDisplayConverter x:Key="MountTypeDisplayConverter"/>
     <converters:TrackedAutomationNameConverter x:Key="TrackedAutomationNameConverter"/>
     <converters:SortIndicatorConverter x:Key="SortIndicatorConverter"/>
     <converters:QueueConflictVisibilityConverter x:Key="QueueConflictVisibilityConverter"/>

@@ -135,10 +135,13 @@
             <TabItem Header="Characters">
                 <Grid Margin="0,10,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="220"/>
+                        <ColumnDefinition Width="220" MinWidth="160" MaxWidth="420"/>
                         <ColumnDefinition Width="16"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
+
+                    <GridSplitter Grid.Column="1" Style="{StaticResource VerticalPaneSplitterStyle}" Width="16"
+                                  AutomationProperties.Name="Resize character list"/>
 
                     <Grid Grid.Column="0">
                         <Grid.RowDefinitions>
@@ -199,7 +202,7 @@
                                 <TextBlock Text="{Binding SelectedCharacter.XpDisplay}" VerticalAlignment="Center" Margin="10,0,0,0"
                                            Foreground="{DynamicResource SecondaryForegroundBrush}" FontFamily="Consolas" FontSize="12"/>
                             </StackPanel>
-                            <TextBlock Text="Experience points. Higher = a higher level (the level it gives is shown to the right); lower = a lower level."
+                            <TextBlock Text="Experience points. Higher = a higher level; the game works out the level from this."
                                        Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
                             <TextBlock Margin="0,0,0,14" FontSize="12.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -233,11 +236,13 @@
                  up grants it (rank 0 is the format's own "doesn't have it"). -->
             <TabItem Header="Talents">
                 <Grid Margin="0,10,0,0">
+                    <!-- Drag the handle to share the height between this character's talents and the
+                         account-wide Workshop research below. -->
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="150"/>
+                        <RowDefinition Height="*" MinHeight="120"/>
+                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="190" MinHeight="90"/>
                     </Grid.RowDefinitions>
 
                     <WrapPanel Grid.Row="0" Margin="0,0,0,8">
@@ -274,8 +279,11 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
 
-                    <TextBlock Grid.Row="2" Text="Workshop research (account-wide)" Style="{StaticResource FieldLabelStyle}" Margin="0,10,0,4"/>
-                    <ListBox Grid.Row="3" ItemsSource="{Binding WorkshopTalents}" HorizontalContentAlignment="Stretch">
+                    <GridSplitter Grid.Row="2" Style="{StaticResource HorizontalPaneSplitterStyle}"
+                                  AutomationProperties.Name="Resize talents and workshop research"/>
+                    <DockPanel Grid.Row="3">
+                    <TextBlock DockPanel.Dock="Top" Text="Workshop research (account-wide)" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                    <ListBox ItemsSource="{Binding WorkshopTalents}" HorizontalContentAlignment="Stretch">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel Margin="2" ToolTip="{Binding Description}">
@@ -292,6 +300,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                    </DockPanel>
                 </Grid>
             </TabItem>
 
@@ -307,7 +316,15 @@
                                        Visibility="{Binding FlagSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                         </Grid>
 
-                        <TextBlock Text="Character flags" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                        <!-- Each list folds, so a long character list doesn't bury the account ones;
+                             the header counts what the search currently shows. -->
+                        <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Character flags">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Character flags" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="{Binding FilteredCharacterFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
                         <ItemsControl ItemsSource="{Binding FilteredCharacterFlags}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -322,7 +339,15 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
 
-                        <TextBlock Text="Account flags" Style="{StaticResource FieldLabelStyle}" Margin="0,14,0,6"/>
+                        </Expander>
+
+                        <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Account flags">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Account flags" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="{Binding FilteredAccountFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
                         <ItemsControl ItemsSource="{Binding FilteredAccountFlags}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -341,8 +366,17 @@
                              flags_<SteamID>.dat of account-wide character-flag unlocks (mission
                              rewards, talent-granted recipes). Shown only when the game itself has
                              created the file for this slot. -->
-                        <StackPanel Visibility="{Binding HasBinaryFlags, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <TextBlock Text="Account-wide unlocks (binary flags file)" Style="{StaticResource FieldLabelStyle}" Margin="0,14,0,2"/>
+                        </Expander>
+
+                        <Expander IsExpanded="True" AutomationProperties.Name="Account-wide unlocks"
+                                  Visibility="{Binding HasBinaryFlags, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Account-wide unlocks (binary flags file)" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="{Binding FilteredBinaryFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                        <StackPanel>
                             <TextBlock Text="From the slot's own flags file, which the game keeps separately from the JSON flags above — mission and talent-granted unlocks live here."
                                        Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
                             <ItemsControl ItemsSource="{Binding FilteredBinaryFlags}">
@@ -359,6 +393,7 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                         </StackPanel>
+                        </Expander>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

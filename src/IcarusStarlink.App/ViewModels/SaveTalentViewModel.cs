@@ -35,9 +35,7 @@ public sealed partial class SaveTalentViewModel : ObservableObject, IDirtyTracka
 
     public bool IsDirty => Rank != _originalRank;
 
-    public bool IsLearned => Rank > 0;
-
-    /// <summary>What the player actually has in game — a rank in the save OR unlocked-by-default. The filter's "only what this character has" uses this, not IsLearned, or 49 real default talents would look missing.</summary>
+    /// <summary>What the player actually has in game — a rank in the save OR unlocked-by-default. The filter's "only what this character has" uses this, not just Rank > 0, or 49 real default talents would look missing.</summary>
     public bool IsUnlockedInGame => Rank > 0 || IsDefaultUnlocked;
 
     public string RankDisplay =>
@@ -63,7 +61,6 @@ public sealed partial class SaveTalentViewModel : ObservableObject, IDirtyTracka
 
     partial void OnRankChanged(int value)
     {
-        OnPropertyChanged(nameof(IsLearned));
         OnPropertyChanged(nameof(IsUnlockedInGame));
         OnPropertyChanged(nameof(RankDisplay));
         _onDirtyChanged();
