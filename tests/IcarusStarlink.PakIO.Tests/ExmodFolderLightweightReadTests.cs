@@ -30,14 +30,17 @@ public class ExmodFolderLightweightReadTests : IDisposable
     }
 
     [Fact]
-    public void ReadPackageOnly_ReturnsHeaderAndRows_WithoutRequiringAssetFilesToExist()
+    public void ReadPackageOnly_ReturnsHeaderAndRows_WithoutReadingAnyAsset()
     {
         ExmodFolder.Write(_tempDir, BuildFixture());
 
+        // An asset nobody can open: a full Read fails on it, so only a read that skips assets works.
+        using var locked = new FileStream(Path.Combine(_tempDir, "Icarus", "Content", "Data", "Crafting.uasset"), FileMode.Open, FileAccess.Read, FileShare.None);
         var package = ExmodFolder.ReadPackageOnly(_tempDir);
 
         Assert.Equal("Faster Processors", package.Name);
         Assert.Single(package.Rows);
+        Assert.ThrowsAny<IOException>(() => ExmodFolder.Read(_tempDir));
     }
 
     [Fact]
@@ -45,11 +48,12 @@ public class ExmodFolderLightweightReadTests : IDisposable
     {
         ExmodFolder.Write(_tempDir, BuildFixture());
 
+        using var locked = new FileStream(Path.Combine(_tempDir, "Icarus", "Content", "Data", "Crafting.uasset"), FileMode.Open, FileAccess.Read, FileShare.None);
         var paths = ExmodFolder.ListAssetPaths(_tempDir);
 
         Assert.Equal(2, paths.Count);
-        Assert.Contains(paths, p => p.EndsWith(".uasset"));
-        Assert.Contains(paths, p => p == "readme.md");
+        Assert.Contains("Icarus/Content/Data/Crafting.uasset", paths);
+        Assert.Contains("readme.md", paths);
     }
 
     [Fact]

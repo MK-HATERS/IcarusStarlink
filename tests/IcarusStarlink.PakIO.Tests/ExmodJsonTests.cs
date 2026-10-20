@@ -71,7 +71,7 @@ public class ExmodJsonTests
     }
 
     [Fact]
-    public void Parse_MinimalRequiredFieldsOnly_Succeeds()
+    public void Parse_HeaderWithoutRowsOrUrls_Succeeds()
     {
         const string json = """
             {"name": "N", "author": "A", "version": "1", "description": "D", "fileName": "F"}

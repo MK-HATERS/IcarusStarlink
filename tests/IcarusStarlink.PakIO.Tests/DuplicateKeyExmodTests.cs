@@ -81,6 +81,6 @@ public sealed class DuplicateKeyExmodTests
     [Fact]
     public void Parse_StillRejectsGenuinelyMalformedJson()
     {
-        Assert.ThrowsAny<Exception>(() => ExmodJson.Parse("{not json at all"));
+        Assert.Throws<FormatException>(() => ExmodJson.Parse("{not json at all"));
     }
 }

@@ -50,17 +50,18 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         {
             ExtractedPakPaths.Add(pakFilePath);
             LastScratchDirectory = outputDirectory;
-            if (ThrowOnExtract is not null)
-            {
-                throw ThrowOnExtract;
-            }
-
             Directory.CreateDirectory(outputDirectory);
             foreach (var (relativePath, content) in FakeExtractedFiles)
             {
                 var path = Path.Combine(outputDirectory, relativePath);
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 File.WriteAllText(path, content);
+            }
+
+            // After writing, like a real extraction failing partway, so cleanup after a failure is tested too.
+            if (ThrowOnExtract is not null)
+            {
+                throw ThrowOnExtract;
             }
 
             return Task.FromResult(FakeExtractedFiles.Count);
@@ -115,12 +116,15 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
         var report = new MergeReport();
         var pakService = new FakeUnrealPakService { ThrowOnExtract = new InvalidOperationException("UnrealPak.exe exited with code 1") };
+        pakService.FakeExtractedFiles["BP/Half.uasset"] = "partly extracted";
         var converter = new PrebuiltPakToExmodConverter(pakService);
 
         var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
 
         Assert.Null(result);
         Assert.Contains(report.Warnings, w => w.Contains("SomeMod_P") && w.Contains("exited with code 1"));
+        Assert.NotNull(pakService.LastScratchDirectory);
+        Assert.False(Directory.Exists(pakService.LastScratchDirectory)); // cleaned up after the failure too
     }
 
     [Fact]

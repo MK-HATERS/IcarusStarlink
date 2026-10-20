@@ -487,6 +487,7 @@ public class UnrealPakServiceTests : IDisposable
         Assert.Equal(2, count);
     }
 
+    /// <summary>Also the guard for -Filter: with no filter, exactly these three arguments, nothing trailing.</summary>
     [Fact]
     public async Task ExtractPakAsync_PassesPakPathAndExtractFlagAndOutputDirectory()
     {
@@ -534,24 +535,6 @@ public class UnrealPakServiceTests : IDisposable
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.ExtractPakAsync(_unrealPakExePath, pakPath, Path.Combine(_tempDir, "Extracted")));
         Assert.Contains("corrupt pak", ex.Message);
-    }
-
-    [Fact]
-    public async Task ExtractPakAsync_FilterNull_ProducesExactSameArgumentsAsBeforeFilterExisted()
-    {
-        // Regression guard for the filter parameter's own doc comment promise: leaving filter null
-        // (the default) must be purely additive — the exact same 3-argument list this method
-        // always sent to the real UnrealPak.exe before -Filter support existed, with no trailing
-        // empty/null entry sneaking in.
-        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
-        File.WriteAllText(pakPath, "fake pak bytes");
-        var outputDirectory = Path.Combine(_tempDir, "Extracted");
-        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "", ""));
-        var service = new UnrealPakService(runner);
-
-        await service.ExtractPakAsync(_unrealPakExePath, pakPath, outputDirectory, filter: null);
-
-        Assert.Equal([pakPath, "-Extract", outputDirectory], runner.LastArguments);
     }
 
     [Fact]
