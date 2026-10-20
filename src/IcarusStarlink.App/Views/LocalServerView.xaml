@@ -68,12 +68,13 @@
                 <StackPanel Visibility="{Binding ShowSteamCmdBox, Converter={StaticResource BoolToVisibilityConverter}}">
                     <TextBlock Text="STEAMCMD" Style="{StaticResource FieldLabelStyle}" Margin="0,14,0,4"/>
                     <TextBlock Text="{Binding SteamCmdSummary}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                        <Button Content="Install SteamCMD" Command="{Binding InstallSteamCmdCommand}"
+                    <!-- Wraps: the server list is narrow and the second button was cut off. -->
+                    <WrapPanel Margin="0,2,0,0">
+                        <Button Content="Install SteamCMD" Command="{Binding InstallSteamCmdCommand}" Margin="0,4,8,0"
                                 ToolTip="Downloads SteamCMD from Valve into a SteamCMD folder inside Starlink's own folder"/>
-                        <Button Content="Use my SteamCMD…" Command="{Binding UseExistingSteamCmdCommand}" Margin="8,0,0,0"
+                        <Button Content="Use my SteamCMD…" Command="{Binding UseExistingSteamCmdCommand}" Margin="0,4,0,0"
                                 ToolTip="Point at a steamcmd.exe you already have — your own update scripts and Starlink then share it"/>
-                    </StackPanel>
+                    </WrapPanel>
                 </StackPanel>
             </StackPanel>
             <Border Grid.Row="3" Margin="0,10,0,0" Padding="10,8" CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}"

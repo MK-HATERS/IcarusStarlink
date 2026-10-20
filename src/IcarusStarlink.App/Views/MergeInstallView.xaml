@@ -439,15 +439,26 @@
                  Collapsed by default (redesign-round-2 pilot): a new user landing on this page
                  doesn't need to parse 8 controls across 3 groups just to find Install, but the
                  collapsed header's own summary keeps whatever IS active from being hidden. -->
-            <Expander Grid.Column="2" VerticalAlignment="Top" IsExpanded="False" AutomationProperties.Name="Merge options" IsEnabled="{Binding IsNotRebuilding}">
+            <Expander Grid.Column="2" IsExpanded="False" AutomationProperties.Name="Merge options" IsEnabled="{Binding IsNotRebuilding}">
+                <!-- Open, it takes the column's whole height (its list scrolls inside); closed, it's just the header. -->
+                <Expander.Style>
+                    <Style TargetType="Expander" BasedOn="{StaticResource {x:Type Expander}}">
+                        <Setter Property="VerticalAlignment" Value="Top"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsExpanded" Value="True">
+                                <Setter Property="VerticalAlignment" Value="Stretch"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Expander.Style>
                 <Expander.Header>
                     <DockPanel LastChildFill="False">
                         <TextBlock DockPanel.Dock="Left" Text="Merge options" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
                         <TextBlock DockPanel.Dock="Left" Text="{Binding ActiveOptionsSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                     </DockPanel>
                 </Expander.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="620">
-                <StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="0,0,10,0">
                     <!-- Phase 10: the leveled options (multiple values, not on/off) are now pill
                          selectors instead of dropdowns, matching the mockup — real hints from
                          classic IMM's own documented numbers move onto a small (i) icon next to
