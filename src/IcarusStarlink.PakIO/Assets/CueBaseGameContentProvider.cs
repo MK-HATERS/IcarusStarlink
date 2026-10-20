@@ -82,13 +82,29 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
                 return false;
             }
 
-            // Every use of the provider happens under _lock and checks Released first, so nothing
-            // is reading from it while it's disposed here.
-            mounted.Released = true;
             _mountTask = null;
-            mounted.Provider.Dispose();
+            Release(mounted);
             return true;
         }
+    }
+
+    /// <summary>Mounts let go so far (ReleaseIfIdle, or a Content path change): for tests.</summary>
+    internal int ReleasedMountCount { get; private set; }
+
+    /// <summary>
+    /// Every use of the provider happens under _lock and checks Released first, so nothing is
+    /// reading from it while it's disposed here. Under _lock.
+    /// </summary>
+    private void Release(MountedContent mounted)
+    {
+        if (mounted.Released)
+        {
+            return;
+        }
+
+        mounted.Released = true;
+        mounted.Provider.Dispose();
+        ReleasedMountCount++;
     }
 
     public T? TryLoadExport<T>(string assetPath) where T : class =>
@@ -372,6 +388,20 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
             var contentPath = _settingsService.Current.IcarusContentPath;
             if (_mountTask is null || NeedsRemount(_mountTask, contentPath))
             {
+                // The mount being replaced (another Content path) is let go once it's done, or it
+                // would hold its ~100 MB and a reader on every pak of the old install all session.
+                _mountTask?.ContinueWith(
+                    done =>
+                    {
+                        if (done.IsCompletedSuccessfully && done.Result is { } old)
+                        {
+                            lock (_lock)
+                            {
+                                Release(old);
+                            }
+                        }
+                    },
+                    CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
                 _mountedForPath = contentPath;
                 _mountStartedUtc = DateTime.UtcNow;
                 _mountTask = Task.Run(Mount);

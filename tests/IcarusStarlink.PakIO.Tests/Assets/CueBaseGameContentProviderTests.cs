@@ -125,6 +125,32 @@ public class CueBaseGameContentProviderTests
         }
     }
 
+    /// <summary>Moving the Content path mounts the new install; the old mount (about 100 MB and a reader on every pak) is let go, not kept for the session.</summary>
+    [Fact]
+    public void ChangingTheContentPath_LetsGoOfTheOldMount()
+    {
+        var first = Path.Combine(Path.GetTempPath(), "BaseGameMoveA_" + Guid.NewGuid().ToString("N"));
+        var second = Path.Combine(Path.GetTempPath(), "BaseGameMoveB_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(first, "Paks"));
+        Directory.CreateDirectory(Path.Combine(second, "Paks"));
+        try
+        {
+            var settings = new AppSettings { IcarusContentPath = first };
+            var provider = new CueBaseGameContentProvider(new FakeSettingsService(settings));
+            Assert.False(provider.HasAsset("Data/D_ItemsStatic.uasset"));
+
+            settings.IcarusContentPath = second;
+            Assert.False(provider.HasAsset("Data/D_ItemsStatic.uasset"));
+
+            Assert.Equal(1, provider.ReleasedMountCount);
+        }
+        finally
+        {
+            Directory.Delete(first, recursive: true);
+            Directory.Delete(second, recursive: true);
+        }
+    }
+
     private sealed class FakeSettingsService(AppSettings settings) : ISettingsService
     {
         public AppSettings Current { get; } = settings;
