@@ -25,6 +25,26 @@ public class NexusWatchlistStoreTests : IDisposable
         Assert.Equal("Icarus Workshop", Assert.Single(reopened.Entries).Name);
     }
 
+    /// <summary>A watchlist that loaded empty because the file was locked must not be saved over the real one without a copy.</summary>
+    [Fact]
+    public void Add_AfterTheFileCouldNotBeReadAtStartup_KeepsTheOriginalAsideFirst()
+    {
+        CreateStore().Add(MakeEntry(304, "Watched earlier"));
+        var filePath = Path.Combine(_dir, "nexus_watchlist.json");
+        var original = File.ReadAllText(filePath);
+
+        NexusWatchlistStore store;
+        using (new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            store = CreateStore();
+        }
+
+        store.Add(MakeEntry(305, "Watched later"));
+
+        var kept = Assert.Single(Directory.GetFiles(_dir, "nexus_watchlist.json.unreadable-*.bak"));
+        Assert.Equal(original, File.ReadAllText(kept));
+    }
+
     [Fact]
     public void Constructor_OneMalformedEntryAmongValidOnes_SkipsOnlyThatEntryInsteadOfDiscardingEveryOne()
     {

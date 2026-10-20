@@ -3,11 +3,13 @@ using Microsoft.Extensions.Logging;
 
 namespace IcarusStarlink.Storage.Catalog;
 
+/// <summary>The Nexus watchlist, one JSON list next to the app's other data — same unreadable-file guard as FtpSiteStore.</summary>
 public sealed class NexusWatchlistStore : INexusWatchlistStore
 {
     private readonly string _filePath;
     private readonly ILogger<NexusWatchlistStore> _logger;
     private readonly List<NexusWatchlistEntry> _entries;
+    private ListLoadProblem _loadProblem;
 
     public IReadOnlyList<NexusWatchlistEntry> Entries => _entries;
 
@@ -16,7 +18,7 @@ public sealed class NexusWatchlistStore : INexusWatchlistStore
         _logger = logger;
         Directory.CreateDirectory(appDataDirectory);
         _filePath = Path.Combine(appDataDirectory, "nexus_watchlist.json");
-        _entries = JsonFileStore.LoadList<NexusWatchlistEntry>(_filePath, _logger);
+        _entries = JsonFileStore.LoadList<NexusWatchlistEntry>(_filePath, _logger, out _loadProblem);
     }
 
     public void Add(NexusWatchlistEntry entry)
@@ -42,5 +44,9 @@ public sealed class NexusWatchlistStore : INexusWatchlistStore
         }
     }
 
-    private void Save() => JsonFileStore.Save(_filePath, _entries);
+    private void Save()
+    {
+        JsonFileStore.KeepUnreadableOriginal(_filePath, ref _loadProblem, _logger);
+        JsonFileStore.Save(_filePath, _entries);
+    }
 }
