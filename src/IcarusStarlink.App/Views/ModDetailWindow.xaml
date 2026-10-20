@@ -120,8 +120,9 @@
                         </StackPanel>
                     </Button>
                     <Button Margin="0,0,8,4"
-                            Command="{Binding LibraryViewModel.DeleteItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            Command="{Binding LibraryViewModel.DeleteOneItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                             CommandParameter="{Binding}"
+                            ToolTip="Removes this mod from your Library — asks first"
                             AutomationProperties.Name="Delete selected mod">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
@@ -138,8 +139,19 @@
                     </Button>
                 </WrapPanel>
 
-                <TextBlock Text="Notes" Style="{StaticResource FieldLabelStyle}"/>
-                <TextBox Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0" AcceptsReturn="True" Height="60" TextWrapping="Wrap"/>
+                <!-- Folded away unless this mod has notes (code-behind opens it per mod), so the
+                     Changes/Files/Readme tabs below get the room; the header shows the first line. -->
+                <Expander x:Name="NotesExpander" IsExpanded="False" AutomationProperties.Name="Notes">
+                    <Expander.Header>
+                        <DockPanel LastChildFill="False">
+                            <TextBlock DockPanel.Dock="Left" Text="Notes" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                            <TextBlock DockPanel.Dock="Left" Text="{Binding NotesSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                        </DockPanel>
+                    </Expander.Header>
+                    <TextBox Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" Height="60" TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Notes"
+                             ToolTip="Your own notes about this mod — saved as you type, only on this PC"/>
+                </Expander>
             </StackPanel>
 
             <Border Grid.Column="1" Width="120" Height="120" Margin="12,0,0,0" VerticalAlignment="Top"
@@ -160,17 +172,23 @@
                      ToolTip="What this mod actually changes — read-only. To change it, open it in the mod editor.">
                 <DockPanel Margin="0,8,0,0">
                     <!-- In a few lines first ("D_Itemable · MaxStack ×10 on 1337 rows"), then every change. -->
-                    <Border DockPanel.Dock="Top" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,0,0,8"
-                            Visibility="{Binding ChangesSummary, Converter={StaticResource NullToVisibilityConverter}}">
-                        <StackPanel>
-                            <TextBlock Text="IN SHORT" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                    <!-- Collapsible, so the full list below can have the whole tab when wanted. -->
+                    <Expander DockPanel.Dock="Top" Margin="0,0,0,8" IsExpanded="True" AutomationProperties.Name="In short"
+                              Visibility="{Binding ChangesSummary, Converter={StaticResource NullToVisibilityConverter}}">
+                        <Expander.Header>
+                            <DockPanel LastChildFill="False">
+                                <TextBlock DockPanel.Dock="Left" Text="In short" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                <TextBlock DockPanel.Dock="Left" Text="what this mod changes, compared with your game data" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                            </DockPanel>
+                        </Expander.Header>
+                        <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="10,8">
                             <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
                                 <TextBlock Text="{Binding ChangesSummary}" TextWrapping="Wrap" FontSize="12.5"
                                            ToolTip="Compared with your current game data: each line is one field changed the same way across a table."/>
                             </ScrollViewer>
-                        </StackPanel>
-                    </Border>
+                        </Border>
+                    </Expander>
                     <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" MinHeight="110">
                         <TextBox Text="{Binding ChangesContent, Mode=OneWay}"
                                  IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"

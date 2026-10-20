@@ -426,7 +426,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             return;
         }
 
-        StatusMessage = $"Finding '{mod.Name}''s main file…";
+        StatusMessage = $"Finding the main file of '{mod.Name}'…";
         await Downloads.ResolvePrimaryFileAndFetchAsync(mod.ModId, mod.Name);
         StatusMessage = Downloads.PendingDownloadStatusMessage;
         RebuildRows();
@@ -455,7 +455,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             return;
         }
 
-        StatusMessage = $"Loading '{mod.Name}''s changelog…";
+        StatusMessage = $"Loading the changelog of '{mod.Name}'…";
         try
         {
             var changelogs = await _nexusApiClient.GetChangelogsAsync(apiKey, "icarus", mod.ModId);
@@ -526,9 +526,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     /// uses, reusing the same RenameModDialog, with the live Nexus name (not null) as Reset's target:
     /// a tracked watchlist entry always has SOME name, so "reset" here means "back to what Nexus
     /// itself currently calls it" rather than Library's own "clear the override entirely" meaning.
-    /// Only meaningful for a currently-tracked row — RenameTrackedEntry_CanExecute (via IsTracked)
-    /// keeps the command disabled otherwise, matching how a rename affordance shouldn't be visible
-    /// for a row with no stored override to change in the first place.
+    /// Only meaningful for a currently-tracked row — the card hides the button otherwise (IsTracked).
     /// </summary>
     [RelayCommand]
     private void RenameTrackedEntry(NexusCatalogRow? row)

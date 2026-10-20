@@ -23,14 +23,26 @@ internal static class ObservableCollectionSync
             }
         }
 
+        // Equality (not only reference) and a search from i onward: two EQUAL items in the target
+        // (two record rows with the same values) used to find the first one's index again, already
+        // placed before i, and Move it past the end of the list (ArgumentOutOfRangeException).
         for (var i = 0; i < target.Count; i++)
         {
-            if (i < current.Count && ReferenceEquals(current[i], target[i]))
+            if (i < current.Count && Equals(current[i], target[i]))
             {
                 continue;
             }
 
-            var existingIndex = current.IndexOf(target[i]);
+            var existingIndex = -1;
+            for (var j = i + 1; j < current.Count; j++)
+            {
+                if (Equals(current[j], target[i]))
+                {
+                    existingIndex = j;
+                    break;
+                }
+            }
+
             if (existingIndex >= 0)
             {
                 current.Move(existingIndex, i);

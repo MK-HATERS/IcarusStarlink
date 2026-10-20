@@ -66,6 +66,7 @@ public partial class ModDetailWindow : Window
         item.PropertyChanged += OnCurrentItemPropertyChanged;
 
         DataContext = item;
+        NotesExpander.IsExpanded = !string.IsNullOrWhiteSpace(item.Notes);
 
         // FrameMeshCamera is otherwise only ever triggered by SelectedAssetMesh's own
         // PropertyChanged event (see OnCurrentItemPropertyChanged below) — which never fires

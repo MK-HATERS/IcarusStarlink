@@ -148,8 +148,28 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         }
         else
         {
-            // Back to the fields: read them from the edited text.
-            _document = Parse(SelectedFile!.Format, RawText);
+            // Back to the fields: read them from the edited text. Text with no settings left in it
+            // stays in the text view: with no fields, "Edit as text" greys out and the text would be
+            // out of reach.
+            var parsed = Parse(SelectedFile!.Format, RawText);
+            if (!parsed.Settings.Any())
+            {
+                StatusMessage = "No settings found in the text, so it stays in the text view.";
+                // _loading: switching back must not rebuild the text from the fields (losing the edit).
+                _loading = true;
+                try
+                {
+                    IsTextMode = true;
+                }
+                finally
+                {
+                    _loading = false;
+                }
+
+                return;
+            }
+
+            _document = parsed;
             BuildFields();
         }
     }
@@ -337,7 +357,14 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         }
 
         var checkedNames = extra.Select(e => e.Name).ToHashSet();
+        var textMode = IsTextMode;
         Load();
+        // Stays in the text view after a save, the same as Discard changes.
+        if (textMode && CanUseFields)
+        {
+            IsTextMode = true;
+        }
+
         foreach (var also in AlsoSaveTo)
         {
             also.IsChecked = checkedNames.Contains(also.Location.Name);
@@ -346,7 +373,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         StatusMessage = (saved.Count > 0
                 ? $"Saved to {string.Join(" and ", saved)} (the old file is in Backups\\UE4SS-Mod-Configs). The mod reads it when the game or server starts, unless it has its own reload key."
                 : "")
-            + (problemsSaving.Count > 0 ? $" Couldn't save: {string.Join("; ", problemsSaving)}" : "");
+            + (problemsSaving.Count > 0 ? $"{(saved.Count > 0 ? " " : "")}Couldn't save: {string.Join("; ", problemsSaving)}" : "");
     }
 
     [RelayCommand]

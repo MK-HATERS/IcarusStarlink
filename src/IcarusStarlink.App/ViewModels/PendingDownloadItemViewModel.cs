@@ -41,12 +41,6 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     public bool IsCatalog { get; }
 
     [ObservableProperty]
-    private string? _activatedFolderName;
-
-    [ObservableProperty]
-    private PendingDownloadActivationKind? _activatedKind;
-
-    [ObservableProperty]
     private IReadOnlyList<PendingDownloadActivatedItem> _activatedItems = [];
 
     [ObservableProperty]
@@ -66,8 +60,6 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
         IsCatalog = entry.IsCatalog;
         Source = IsCatalog ? PendingDownloadEntry.DatabaseSource : PendingDownloadEntry.NexusSource;
         CatalogEntryId = entry.CatalogEntryId;
-        _activatedFolderName = entry.ActivatedFolderName;
-        _activatedKind = entry.ActivatedKind;
         _activatedItems = entry.AllActivatedItems;
         _requirements = entry.Requirements;
     }
@@ -154,8 +146,6 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     {
         ActivatedItems = items;
         Requirements = requirements;
-        ActivatedFolderName = items.Count > 0 ? items[0].FolderName : null;
-        ActivatedKind = items.Count > 0 ? items[0].Kind : null;
     }
 
     private bool StillPresent(PendingDownloadActivatedItem item) => item.Kind switch
@@ -184,8 +174,6 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
         OnPropertyChanged(nameof(StateLabel));
     }
 
-    partial void OnActivatedFolderNameChanged(string? value) => Refresh();
-    partial void OnActivatedKindChanged(PendingDownloadActivationKind? value) => Refresh();
     partial void OnActivatedItemsChanged(IReadOnlyList<PendingDownloadActivatedItem> value) => Refresh();
     partial void OnRequirementsChanged(IReadOnlyList<string> value) => Refresh();
 }

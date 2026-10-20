@@ -44,8 +44,10 @@ public sealed partial class ModVersionCompareViewModel : ObservableObject
         var changedItemCount = result.DataDifferences.Sum(f => f.FieldChanges.Count + f.RemovedRowNames.Count);
         SummaryMessage = result.IsIdentical
             ? $"No differences between {result.OldLabel} and {result.NewLabel} — the author changed nothing this app can see."
-            : $"{result.OldLabel} → {result.NewLabel}: {changedItemCount} change(s) across {result.DataDifferences.Count} game file(s)"
-              + (result.AssetDifferences.Count > 0 ? $", plus {result.AssetDifferences.Count} changed asset file(s)." : ".");
+            : result.DataDifferences.Count == 0
+                ? $"{result.OldLabel} → {result.NewLabel}: {result.AssetDifferences.Count} changed asset file(s), no data changes."
+                : $"{result.OldLabel} → {result.NewLabel}: {changedItemCount} change(s) across {result.DataDifferences.Count} game file(s)"
+                  + (result.AssetDifferences.Count > 0 ? $", plus {result.AssetDifferences.Count} changed asset file(s)." : ".");
     }
 
     private static string DescribeKind(PakAssetDifferenceKind kind) => kind switch

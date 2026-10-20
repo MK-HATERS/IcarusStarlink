@@ -281,6 +281,24 @@ public sealed class LibraryViewModelTests
         }
     }
 
+    /// <summary>The detail window can show a different mod than the list's selection (Prev/Next): its Delete removes the mod it shows, not the selection.</summary>
+    [Fact]
+    public void DeleteOneItemCommand_DeletesTheGivenModEvenWhenAnotherIsSelected()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("ModA");
+        harness.AddMod("ModB");
+        var vm = harness.Build();
+        var modA = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
+        var modB = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModB");
+        vm.SetBulkSelectionAnchor(modA);
+        Assert.Contains(modA, vm.BulkSelectedItems);
+
+        vm.DeleteOneItemCommand.Execute(modB);
+
+        Assert.Equal("ModB", Assert.Single(harness.Repository.DeleteCalls));
+    }
+
     [Fact]
     public void DeleteItemCommand_Declined_LeavesRepositoryAndBothCachesUntouched()
     {
@@ -834,6 +852,30 @@ public sealed class LibraryViewModelTests
         Assert.Equal("Library refreshed.", vm.StatusMessage);
     }
 
+    /// <summary>A row reused through a refresh: converting a pak to an EXMOD must update the Type column, and linking it to Nexus must re-check Endorse/Abstain (they stayed greyed out).</summary>
+    [Fact]
+    public void RefreshCommand_ConvertedAndLinkedMod_NotifiesTypeLabelAndEndorseCanExecute()
+    {
+        var harness = new TestHarness();
+        var entry = harness.AddMod("ModA", isOpaquePak: true);
+        var vm = harness.Build();
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
+        Assert.Equal("Pak", item.TypeLabel);
+        var changed = new List<string?>();
+        item.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        var endorseRechecked = false;
+        item.EndorseCommand.CanExecuteChanged += (_, _) => endorseRechecked = true;
+
+        entry.IsOpaquePak = false;
+        entry.NexusModId = 42;
+        vm.RefreshCommand.Execute(null);
+
+        Assert.Same(item, vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA"));
+        Assert.Contains(nameof(LibraryItemViewModel.TypeLabel), changed);
+        Assert.Equal("EXMOD", item.TypeLabel);
+        Assert.True(endorseRechecked);
+    }
+
     [Fact]
     public void RefreshCommand_RepositoryRefreshThrows_ReportsFailureWithoutRebuilding()
     {
@@ -1375,7 +1417,7 @@ public sealed class LibraryViewModelTests
 
         Assert.Empty(harness.Repository.DeleteCalls);
         Assert.Empty(harness.Repository.BackupModCalls);
-        Assert.Contains("already in this page's own Mods tab", vm.StatusMessage);
+        Assert.Contains("already on the Downloads page", vm.StatusMessage);
     }
 
     /// <summary>

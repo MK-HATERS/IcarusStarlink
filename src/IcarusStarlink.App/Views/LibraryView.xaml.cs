@@ -135,10 +135,20 @@ public partial class LibraryView : UserControl
     /// SelectedItemChanged always fires first (same ordering MergeInstallView's own double-click
     /// handler relies on), so LibraryViewModel.SelectedItem already reflects whatever was actually
     /// clicked — a real mod row, or null for a group header/empty space, which this simply ignores.
+    /// The click must land on that row itself: MouseDoubleClick fires for the whole tree, so a
+    /// double-click on the scrollbar, or a quick double tick of a row's ON box or one of its
+    /// buttons, used to pop open whichever mod was selected.
     /// </summary>
     private void LibraryTree_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (DataContext is LibraryViewModel { SelectedItem: { } item } viewModel)
+        var source = e.OriginalSource as DependencyObject;
+        if (IsWithinButton(source)
+            || FindTreeViewItemAncestor(source) is not TreeViewItem { DataContext: LibraryItemViewModel clicked })
+        {
+            return;
+        }
+
+        if (DataContext is LibraryViewModel { SelectedItem: { } item } viewModel && ReferenceEquals(item, clicked))
         {
             new ModDetailWindow(item, viewModel) { Owner = Window.GetWindow(this) }.Show();
         }
@@ -178,6 +188,23 @@ public partial class LibraryView : UserControl
         while (element is not null and not TreeViewItem)
         {
             if (element is CheckBox)
+            {
+                return true;
+            }
+
+            element = GetParentAny(element);
+        }
+
+        return false;
+    }
+
+    /// <summary>True if start is (or sits inside) a button or checkbox of the row — clicking those runs their own action.</summary>
+    private static bool IsWithinButton(DependencyObject? start)
+    {
+        var element = start;
+        while (element is not null and not TreeViewItem)
+        {
+            if (element is System.Windows.Controls.Primitives.ButtonBase)
             {
                 return true;
             }
@@ -315,7 +342,16 @@ public partial class LibraryView : UserControl
     {
         if (DataContext is LibraryViewModel viewModel && e.Data.GetData(DataFormats.FileDrop) is string[] paths)
         {
-            await viewModel.ImportPaths(paths);
+            // async void: anything ImportPaths doesn't catch itself (its reload afterwards) would
+            // otherwise take the app down from a drag-and-drop.
+            try
+            {
+                await viewModel.ImportPaths(paths);
+            }
+            catch (Exception ex)
+            {
+                viewModel.StatusMessage = $"Import failed: {ex.Message}";
+            }
         }
     }
 }

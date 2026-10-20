@@ -4,19 +4,12 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
-             xmlns:utilities="clr-namespace:IcarusStarlink.App.Utilities"
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
              mc:Ignorable="d">
 
     <UserControl.Resources>
         <!-- Grey at low opacity: a faint stripe on the dark and the light themes alike. -->
         <SolidColorBrush x:Key="LibraryRowStripeBrush" Color="#14808080"/>
-        <!-- DataGridColumn.Visibility can't reach a nested VM via ElementName (see BindingProxy's
-             own doc comment) — every toggleable IMM Database column binds through this proxy
-             instead. Points at Downloads specifically (not the page's own DataContext), since the
-             column-visibility properties live on DownloadsViewModel, folded in from the former
-             standalone Downloads page along with the IMM Database tab itself. -->
-        <utilities:BindingProxy x:Key="ViewModelProxy" Data="{Binding Downloads}"/>
 
         <!-- The Name column's width, shared by the header and both row templates. A shared-size
              column can't be star-sized, so code-behind (UpdateNameColumnWidth) sets both of these
@@ -312,7 +305,7 @@
                         <MenuItem Header="Check against the game &amp; fix…"
                                   Command="{Binding PlacementTarget.Tag.OpenModFixCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding CanEdit}"
-                                  ToolTip="Compares this mod with the current game: old copies of game data (from a mod made for an older version), lists both changed, renamed rows. Shows each with a fix to choose. Greyed out: a prebuilt pak (make it editable first)."
+                                  ToolTip="Compares this mod with the current game: old copies of game data (from a mod made for an older version), rows both the mod and the game changed, and renamed rows. Shows each with a fix to choose. Greyed out: a prebuilt pak (make it editable first)."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="Convert to EXMOD…"
                                   Command="{Binding PlacementTarget.Tag.ConvertToExmodCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
@@ -696,9 +689,10 @@
                                 <ContextMenu Placement="Bottom">
                                     <MenuItem Header="Import archive…" Command="{Binding ImportFileCommand}"
                                               ToolTip="A .zip/.rar/.7z/.EXMODZ — automatically recognized as an EXMOD-shaped mod, a bare .pak, or a UE4SS mod, whatever's actually inside"/>
-                                    <MenuItem Header="Import folder…" Command="{Binding ImportFolderCommand}"/>
+                                    <MenuItem Header="Import folder…" Command="{Binding ImportFolderCommand}"
+                                              ToolTip="An already-unpacked mod folder — recognized the same way as an archive (EXMOD, .pak or UE4SS mod). You can also drag folders or archives onto this page."/>
                                     <MenuItem Header="Import .pak…" Command="{Binding ImportPakCommand}"
-                                              ToolTip="Import a prebuilt .pak as it is — it installs, but can't be browsed or edited until it's made editable"/>
+                                              ToolTip="A prebuilt .pak — turned into an editable mod when it can be (needs UnrealPak.exe and game data), otherwise imported as it is"/>
                                     <MenuItem Header="Import UE4SS mod…" Command="{Binding ImportUe4ssModCommand}"
                                               ToolTip="A UE4SS (Lua) mod archive — lands in the list unticked; tick it and click Apply"/>
                                 </ContextMenu>
@@ -719,20 +713,23 @@
                                 AutomationProperties.Name="Check">
                             <Button.ContextMenu>
                                 <ContextMenu Placement="Bottom">
+                                    <!-- Grouped by what they look at: mod updates, the game data, Nexus endorsements. -->
                                     <MenuItem Header="Check for updates" Command="{Binding CheckForUpdatesCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Checks every Nexus- or Database-sourced mod against its real current version (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
+                                              ToolTip="Checks every Nexus- or Database-sourced mod against its current version. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Update all" Command="{Binding UpdateAllCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Updates every mod the last check found outdated — catalog mods in place, Nexus mods listed on the Nexus page for one-click download (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
+                                              ToolTip="Updates every mod the last check found outdated — Database mods in place, Nexus mods listed on the Nexus page for one-click download. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
+                                    <Separator/>
                                     <MenuItem Header="Check mods against game data" Command="{Binding CheckModsAgainstCurrentDataCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Diffs every mod against the currently-extracted game data — flags items that look like they're editing a row this game version no longer has, and auto-fixes any confident, unambiguous rename (each mod is backed up first) (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
+                                              ToolTip="Compares every editable mod with the current game data and flags what no longer fits (it only looks — fixes are made from the warning badge or Fix sure problems). Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Fix sure problems in every mod" Command="{Binding FixSureProblemsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="After Check mods against game data: makes every sure fix in every flagged mod (old copies of game data, values that already match the game), each mod backed up first. What needs a look stays flagged. (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
-                                    <MenuItem Header="Check endorsements" Command="{Binding CheckEndorsementsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Fetches your Nexus account's own endorsement history and shows which of your Nexus-linked mods you haven't endorsed yet (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
+                                              ToolTip="After Check mods against game data: makes every sure fix in every flagged mod (old copies of game data, proven broken links and renames), each mod backed up first. What needs a look stays flagged. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
+                                    <MenuItem Header="Make prebuilt paks editable…" Command="{Binding ConvertAllOpaqueModsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
+                                              ToolTip="Tries again to turn every prebuilt .pak mod into an editable mod — useful right after setting up UnrealPak.exe (it also runs by itself after every Refresh game data). Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="What the last game update changed…" Command="{Binding ShowLastGameUpdateCommand}"
                                               ToolTip="What the last Update everything fixed, what still needs a look, and which mods replace game files the update changed. Roll back is there too."/>
-                                    <MenuItem Header="Make prebuilt paks editable…" Command="{Binding ConvertAllOpaqueModsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Tries again to turn every prebuilt .pak mod into an editable mod — useful right after setting up UnrealPak.exe or refreshing game data (it also runs by itself after every Refresh game data) (Greyed out while another library check is running.)" ToolTipService.ShowOnDisabled="True"/>
+                                    <Separator/>
+                                    <MenuItem Header="Check endorsements" Command="{Binding CheckEndorsementsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
+                                              ToolTip="Fetches your Nexus endorsement history and shows which of your Nexus-linked mods you haven't endorsed yet. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                 </ContextMenu>
                             </Button.ContextMenu>
                             <StackPanel Orientation="Horizontal">
@@ -790,12 +787,31 @@
                                    ToolTip="Click to select, Ctrl-click to add, Shift-click for a range. Ticking ON on a selected mod ticks every selected mod. Hover a row for quick actions. Right-click for more (Select all, Add to merge queue, Delete).">
                             <Run Text="{Binding ModCount, Mode=OneWay}"/><Run Text=" mod(s) · "/><Run Text="{Binding GroupCount, Mode=OneWay}"/><Run Text=" group(s)"/><Run Text=" — Double-click for details, right-click for more." Foreground="{DynamicResource FaintForegroundBrush}"/>
                         </TextBlock>
-                        <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding UpdateCheckStatusMessage}"
-                                   Visibility="{Binding UpdateCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-                        <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding StalenessCheckStatusMessage}"
-                                   Visibility="{Binding StalenessCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-                        <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding EndorsementCheckStatusMessage}"
-                                   Visibility="{Binding EndorsementCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <!-- The results of the Check ▾ menu's whole-library checks, in one section the
+                             user can fold away (three result lines used to stack up here and push the
+                             list down). A new result opens it again; Clear empties it. -->
+                        <Expander Margin="0,6,0,0" IsExpanded="{Binding IsCheckResultsExpanded, Mode=TwoWay}"
+                                  AutomationProperties.Name="Check results"
+                                  Visibility="{Binding HasCheckResults, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="False">
+                                    <TextBlock DockPanel.Dock="Left" Text="Check results" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock DockPanel.Dock="Left" Text="{Binding CheckResultsSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearCheckResultsCommand}" VerticalAlignment="Top" Margin="8,0,0,0"
+                                        ToolTip="Hide these results (the badges on the mods stay)" AutomationProperties.Name="Clear check results"/>
+                                <StackPanel>
+                                    <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding UpdateCheckStatusMessage}"
+                                               Visibility="{Binding UpdateCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                    <TextBlock Margin="0,4,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding StalenessCheckStatusMessage}"
+                                               Visibility="{Binding StalenessCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                    <TextBlock Margin="0,4,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Text="{Binding EndorsementCheckStatusMessage}"
+                                               Visibility="{Binding EndorsementCheckStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Expander>
                         <TextBlock Margin="0,4,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}"
                                    Text="{Binding UnreadableFoldersMessage}"
                                    Visibility="{Binding UnreadableFoldersMessage, Converter={StaticResource NullToVisibilityConverter}}"/>

@@ -81,6 +81,7 @@
             </Border>
 
             <Button Command="{Binding Downloads.DownloadAndExtractCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                    CommandParameter="{Binding}"
                     Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,0,8"
                     IsEnabled="{Binding HasDownloadableFile}"
                     ToolTip="Downloads this mod and adds it to your Library. Greyed out: the database has no download link for it — use its page instead." ToolTipService.ShowOnDisabled="True"
@@ -92,6 +93,8 @@
                 </StackPanel>
             </Button>
             <Button Command="{Binding Downloads.OpenCatalogReadmeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                    CommandParameter="{Binding}" IsEnabled="{Binding HasReadme}" ToolTipService.ShowOnDisabled="True"
+                    ToolTip="Opens the mod's readme in your browser. Greyed out: the database has no readme link for it."
                     AutomationProperties.Name="Open readme">
                 <StackPanel Orientation="Horizontal">
                     <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"

@@ -14,10 +14,15 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*" MinWidth="200"/>
             <ColumnDefinition Width="16"/>
-            <ColumnDefinition Width="1.3*"/>
+            <ColumnDefinition Width="1.3*" MinWidth="200"/>
         </Grid.ColumnDefinitions>
+
+        <!-- Drag to give the download or the plan more room. -->
+        <GridSplitter Grid.Column="1" Grid.Row="1" Width="6" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                      Background="{DynamicResource BorderBrush}" ResizeBehavior="PreviousAndNext"
+                      ToolTip="Drag to resize" AutomationProperties.Name="Resize panes"/>
 
         <TextBlock x:Name="HeaderText" Grid.Row="0" Grid.ColumnSpan="3" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
 

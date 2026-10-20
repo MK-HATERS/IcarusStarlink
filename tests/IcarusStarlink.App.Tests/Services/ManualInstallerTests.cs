@@ -63,6 +63,16 @@ public sealed class ManualInstallerTests : IDisposable
         Assert.Null(ManualInstaller.Problem(new ManualInstallItem(ManualInstallKind.PakMod, Path.Combine(_root, "Paks"), "Paks", "Paks")));
     }
 
+    /// <summary>Adding the same piece twice installed it twice (a second "_2" copy): the second add is refused.</summary>
+    [Fact]
+    public void DuplicateProblem_RefusesThePathAlreadyInThePlan()
+    {
+        var plan = new List<ManualInstallItem> { new(ManualInstallKind.PakMod, Path.Combine(_root, "Paks"), "Paks", "Paks") };
+
+        Assert.Contains("already in the list", ManualInstaller.DuplicateProblem(plan, new ManualInstallItem(ManualInstallKind.PakMod, Path.Combine(_root, "Paks"), "Paks", "Other")));
+        Assert.Null(ManualInstaller.DuplicateProblem(plan, new ManualInstallItem(ManualInstallKind.Ue4ssMod, Path.Combine(_root, "UE4SS Mods", "MiniMapa"), "x", "MiniMapa")));
+    }
+
     private sealed class FailingPakImporter : IcarusStarlink.PakIO.Import.IPrebuiltPakImporter
     {
         public Task<IcarusStarlink.Core.Library.LibraryEntry> ImportAsync(

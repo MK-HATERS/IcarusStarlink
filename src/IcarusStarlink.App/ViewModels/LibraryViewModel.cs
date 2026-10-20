@@ -64,14 +64,10 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// <summary>Resolved lazily (Merge & Install is constructed on first navigation, not at DI composition time) — same pattern SettingsViewModel already uses to reach it. Only invoked once the user actually adds something to the queue from here, so opening Library alone never forces Merge & Install into existence.</summary>
     private readonly Func<MergeInstallViewModel> _mergeInstallViewModel;
 
-    /// <summary>The IMM Database tab now lives directly on this page (folded in from the former standalone Downloads page), so DownloadsViewModel is needed immediately on Library's own first render — no more lazy resolution for this one. Nexus stays its own separate page and stays lazy.</summary>
+    /// <summary>The shared DownloadsViewModel: the Database page's IMM Database tab binds through this property (its DataContext is this page VM), and this page reads its pending-download status. Not lazy, unlike Nexus below.</summary>
     public DownloadsViewModel Downloads { get; }
 
     private readonly Func<NexusCatalogViewModel> _nexusCatalogViewModel;
-
-    /// <summary>0 = Mods, 1 = UE4SS mods, 2 = IMM Database — set programmatically by "Find in Database" (a Library row's own context-menu action) to jump straight to the right tab.</summary>
-    [ObservableProperty]
-    private int _selectedTabIndex;
 
     private readonly string _backupDirectory;
 
@@ -188,6 +184,48 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     [ObservableProperty]
     private string? _stalenessCheckStatusMessage;
+
+    /// <summary>Whether the "Check results" section above the list is open. A new result from any of
+    /// the three whole-library checks opens it again, so a fresh result is never hidden in a section
+    /// the user closed earlier.</summary>
+    [ObservableProperty]
+    private bool _isCheckResultsExpanded = true;
+
+    /// <summary>True when any whole-library check (updates, game data, endorsements) has a result to show.</summary>
+    public bool HasCheckResults =>
+        UpdateCheckStatusMessage is not null || StalenessCheckStatusMessage is not null || EndorsementCheckStatusMessage is not null;
+
+    /// <summary>The "Check results" section's one-line header summary: which checks have a result.</summary>
+    public string CheckResultsSummary =>
+        string.Join(" · ", new[]
+        {
+            UpdateCheckStatusMessage is null ? null : "Updates",
+            StalenessCheckStatusMessage is null ? null : "Game data",
+            EndorsementCheckStatusMessage is null ? null : "Endorsements",
+        }.Where(part => part is not null));
+
+    partial void OnUpdateCheckStatusMessageChanged(string? value) => OnCheckResultChanged(value);
+    partial void OnStalenessCheckStatusMessageChanged(string? value) => OnCheckResultChanged(value);
+    partial void OnEndorsementCheckStatusMessageChanged(string? value) => OnCheckResultChanged(value);
+
+    private void OnCheckResultChanged(string? value)
+    {
+        OnPropertyChanged(nameof(HasCheckResults));
+        OnPropertyChanged(nameof(CheckResultsSummary));
+        if (value is not null)
+        {
+            IsCheckResultsExpanded = true;
+        }
+    }
+
+    /// <summary>Clears the "Check results" section (nothing else changes — the badges on the rows stay).</summary>
+    [RelayCommand]
+    private void ClearCheckResults()
+    {
+        UpdateCheckStatusMessage = null;
+        StalenessCheckStatusMessage = null;
+        EndorsementCheckStatusMessage = null;
+    }
 
     /// <summary>The "Check" dropdown's own four whole-library actions (Check for updates/Check
     /// mods against game data/Check endorsements/Convert opaque mods) each run over every mod in
@@ -770,10 +808,6 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     partial void OnUe4ssBuiltInCountChanged(int value) => OnPropertyChanged(nameof(ShowUe4ssBuiltInsLabel));
 
-    /// <summary>How many UE4SS rows the list is showing (stand-alone Lua mods; a Lua half folded into a Mods-tab row doesn't count).</summary>
-    [ObservableProperty]
-    private int _ue4ssCount;
-
     /// <summary>True when an "On" tick differs from what the installed merged pak contains (Merge &amp; Install needed) or a UE4SS tick differs from disk (Apply needed).</summary>
     [ObservableProperty]
     private bool _hasPendingChanges;
@@ -923,7 +957,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             else if (!queued && inGame)
             {
                 status = "In game";
-                detail = "untick + Merge & Install to remove";
+                detail = "not ticked: Merge & Install will take it out";
             }
             else if (queued && inGame)
             {
@@ -1007,12 +1041,6 @@ public sealed partial class LibraryViewModel : ObservableObject
     private sealed record ModPackage(int NexusModId, string DisplayName, IReadOnlyList<string> LibraryFolderNames, IReadOnlyList<string> Ue4ssFolderNames)
     {
         public int PartCount => LibraryFolderNames.Count + Ue4ssFolderNames.Count;
-
-        /// <summary>On the Library row: the mod also has a Lua half living on the UE4SS tab.</summary>
-        public string LibraryLabel => Ue4ssFolderNames.Count == 1 ? "includes a Lua mod (its UE4SS row)" : $"includes {Ue4ssFolderNames.Count} Lua mods (their UE4SS rows)";
-
-        /// <summary>On the UE4SS row: this Lua mod is one half of a Library mod.</summary>
-        public string Ue4ssLabel => $"Lua part of '{DisplayName}'";
     }
 
     private IReadOnlyDictionary<int, ModPackage> _packagesByNexusModId = new Dictionary<int, ModPackage>();
@@ -1441,13 +1469,18 @@ public sealed partial class LibraryViewModel : ObservableObject
         };
     }
 
-    [RelayCommand]
-    private void ImportFolder()
+    /// <summary>
+    /// Goes through ImportPaths, the same as dropping the folder on the page — so a folder holding a
+    /// bare .pak or a UE4SS mod is recognised too, not only one with an .EXMOD inside (this used to
+    /// call the EXMOD-only import directly and failed with "No .EXMOD file found" for those).
+    /// </summary>
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task ImportFolder()
     {
         var dialog = new OpenFolderDialog { Title = "Select the mod's extracted folder" };
         if (dialog.ShowDialog() == true)
         {
-            TryImport(dialog.FolderName, path => _repository.Import(path));
+            await ImportPaths([dialog.FolderName]);
         }
     }
 
@@ -1753,7 +1786,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            // Same UI boundary as TryImport — folder creation can fail for the same reasons any
+            // Same UI boundary as ImportPaths — folder creation can fail for the same reasons any
             // other Extracted_Mods write can (permission denied, disk full, ...).
             StatusMessage = $"Couldn't create the mod: {ex.Message}";
         }
@@ -1803,7 +1836,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                         : !_ue4ssModRepository.GetAll().Any(f => string.Equals(f, activated.FolderName, StringComparison.OrdinalIgnoreCase))));
             if (hasUnclaimedDownload)
             {
-                StatusMessage = "A downloaded file for this mod is already in this page's own Mods tab — Activate/Reinstall it there (or re-download from Nexus if it's older than the update).";
+                StatusMessage = "A downloaded file for this mod is already on the Downloads page — Activate or Reinstall it there (or re-download from Nexus if it's older than the update).";
                 return;
             }
 
@@ -2530,7 +2563,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         var confirmResult = _dialogService.Confirm(
-            $"This replaces '{item.Name}''s current content with its most recent backup — any edit made since then is lost.\n\nContinue?",
+            $"This replaces the current content of '{item.Name}' with its most recent backup — any edit made since then is lost.\n\nContinue?",
             "Restore backup", ThemedConfirmSeverity.Question);
         if (!(confirmResult))
         {
@@ -2906,6 +2939,20 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// problems is running (they write mods too), and not while the mod is open in the editor:
     /// the fix window is modal, so the editor couldn't be closed from behind it.
     /// </summary>
+    /// <summary>Whether the extracted game data folder has any data in it. A folder that can't be read
+    /// counts as none (said as "run Refresh game data") rather than an unhandled error from a click.</summary>
+    private bool HasExtractedGameData()
+    {
+        try
+        {
+            return Directory.Exists(_dataFolder) && Directory.EnumerateFiles(_dataFolder, "*.json", SearchOption.AllDirectories).Any();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     [RelayCommand]
     private async Task OpenModFixAsync(LibraryItemViewModel? item)
     {
@@ -2920,7 +2967,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        if (!Directory.Exists(_dataFolder) || !Directory.EnumerateFiles(_dataFolder, "*.json", SearchOption.AllDirectories).Any())
+        if (!HasExtractedGameData())
         {
             StatusMessage = "No game data found — run Refresh game data in Settings first.";
             return;
@@ -3160,6 +3207,14 @@ public sealed partial class LibraryViewModel : ObservableObject
         DeleteMods(items);
     }
 
+    /// <summary>
+    /// Deletes exactly the given mod, ignoring the list's click selection — for the mod detail
+    /// window, which can show a different mod (Prev/Next) than the one selected in the list. It
+    /// used DeleteItem, which deletes the list's selection whenever there is one.
+    /// </summary>
+    [RelayCommand]
+    private void DeleteOneItem(LibraryItemViewModel? item) => DeleteMods(item is null ? [] : [item]);
+
     /// <summary>Deletes every mod in the Library, regardless of any current selection — its own menu item since this is a much larger blast radius than the ordinary per-selection Delete above; DeleteMods' own count-naming confirmation still gates it.</summary>
     [RelayCommand]
     private void DeleteAll() => DeleteMods([.. AllLibraryItems()]);
@@ -3276,7 +3331,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                // Same UI boundary as TryImport: deleting a folder that's locked by another
+                // Same UI boundary as ImportPaths: deleting a folder that's locked by another
                 // process (Explorer preview, an antivirus scan, ...) throws IOException/
                 // UnauthorizedAccessException — one locked mod shouldn't abort the rest of a batch.
                 failures.Add($"{name}: {ex.Message}");
@@ -3305,8 +3360,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// Tries converting the pak into a real, editable EXMOD first (IPrebuiltPakImporter, which
     /// itself falls back to importing it as an opaque pak whenever conversion isn't possible right
     /// now — UnrealPak.exe not set up, the extracted game data missing, or the pak itself can't be
-    /// read). Async because conversion genuinely extracts and diffs the pak, unlike TryImport's
-    /// synchronous importer delegate below.
+    /// read). Async because conversion genuinely extracts and diffs the pak.
     /// </summary>
     private async Task<LibraryEntry?> TryImportPakAsync(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null)
     {
@@ -3327,7 +3381,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            // Same UI-boundary catch TryImport itself uses — a user-initiated import can fail for
+            // Same UI-boundary catch ImportPaths uses — a user-initiated import can fail for
             // many reasons (malformed pak, permission denied, disk full, ...).
             StatusMessage = $"Import failed: {ex.Message}";
             _activityLog.Log($"Import of '{Path.GetFileName(pakFilePath)}' failed: {ex.Message}", ActivityEntryKind.Warning);
@@ -3336,36 +3390,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Shared by ImportFolder/ImportFile — same try/catch/status/reload shape, differing only in
-    /// which repository method actually reads sourcePath. Returns the imported entry (null on
-    /// failure, already reported via StatusMessage). A .pak import goes through TryImportPakAsync
-    /// above instead, not this — it needs to attempt conversion first, which this synchronous
-    /// importer delegate shape can't express.
-    /// </summary>
-    private LibraryEntry? TryImport(string sourcePath, Func<string, LibraryEntry> importer)
-    {
-        try
-        {
-            var entry = importer(sourcePath);
-            StatusMessage = $"Imported '{entry.Name}'.";
-            Reload();
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-            _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
-            return entry;
-        }
-        catch (Exception ex)
-        {
-            // A user-initiated import can fail for many reasons (malformed archive, permission
-            // denied, disk full, ...) — this is the UI boundary where any of them should show a
-            // friendly message instead of crashing the app.
-            StatusMessage = $"Import failed: {ex.Message}";
-            _activityLog.Log($"Import of '{Path.GetFileName(sourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}' failed: {ex.Message}", ActivityEntryKind.Warning);
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// fullResync is true only for the explicit Refresh() command — every other caller (the
+    /// fullResync is true only for the explicit Refresh() command and the LibraryChangedMessage
+    /// handler (another page changed mods on disk) — every other caller (the
     /// search debounce, import, delete, a pin toggle) reloads because the *set* of visible items
     /// changed, not because any individual still-visible mod's own data did, so those paths must
     /// leave already-cached LibraryItemViewModel instances alone rather than re-syncing them.
@@ -3413,7 +3439,6 @@ public sealed partial class LibraryViewModel : ObservableObject
             ? $"{_repository.UnreadableFolders.Count} folder(s) couldn't be read and aren't shown: {string.Join(", ", _repository.UnreadableFolders)}. Check the mod's own files (a corrupt .EXMOD is the usual cause), or see the log."
             : null;
 
-        var seenFolders = new HashSet<string>();
         var seenGroupKeys = new HashSet<string>();
         var targetRootItems = new List<object>();
 
@@ -3424,7 +3449,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         // the LibraryChangedMessage DownloadsViewModel already sends right after activating it.
         foreach (var download in _activeDownloadsTracker.Current)
         {
-            targetRootItems.Add(new DownloadStubViewModel(download.DisplayName));
+            targetRootItems.Add(new DownloadStubViewModel(download.Key, download.DisplayName));
         }
 
         // One list for every kind of mod: pak/EXMOD rows (groups) and UE4SS rows side by side.
@@ -3442,7 +3467,6 @@ public sealed partial class LibraryViewModel : ObservableObject
             var items = group.Entries.Select(entry => GetOrCreateItem(entry, fullResync)).ToList();
             foreach (var item in items)
             {
-                seenFolders.Add(item.FolderName);
             }
 
             var pinned = group.Entries.Any(e => e.IsPinned);
@@ -3476,7 +3500,6 @@ public sealed partial class LibraryViewModel : ObservableObject
             targetRootItems.AddRange(ue4ssRows.OrderBy(r => r.SortName, StringComparer.OrdinalIgnoreCase).Select(r => r.Row));
         }
 
-        Ue4ssCount = ue4ssRows.Count;
         Ue4ssBuiltInCount = Ue4ssMods.Count(row => row.IsBuiltIn && !row.IsLinkedToLibraryMod);
         SyncRootItems(targetRootItems);
         OnPropertyChanged(nameof(IsAllSelectedForBulk));
@@ -3549,7 +3572,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// notification Clear() raises, even for items whose object identity didn't change — which
     /// was collapsing every expanded family (and losing the selection highlight) on every
     /// debounced search reload despite GetOrCreateGroup/GetOrCreateItem already reusing the same
-    /// instances. LibraryGroupViewModel.SetItems applies the same fix one level down, for a
+    /// instances. LibraryGroupViewModel.Update applies the same fix one level down, for a
     /// family's own children.
     /// </summary>
     private void SyncRootItems(IReadOnlyList<object> target) => ObservableCollectionSync.SyncTo(RootItems, target);
@@ -3718,6 +3741,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         var candidates = AllLibraryItems().Where(i => !i.IsOpaquePak).ToList();
         if (candidates.Count == 0)
         {
+            // Said, not silent: the click otherwise looked like it did nothing.
+            StalenessCheckStatusMessage = "No editable mods to check — prebuilt paks can't be compared with the game data (Make prebuilt paks editable first).";
             return;
         }
 
@@ -3725,7 +3750,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         // mod's own base-file lookup fail silently — every mod would come back as fitting the game,
         // a false all-clear. Same check, same wording, ExmodEditorViewModel's own game-data search
         // already uses for the identical underlying condition.
-        if (!Directory.Exists(_dataFolder) || !Directory.EnumerateFiles(_dataFolder, "*.json", SearchOption.AllDirectories).Any())
+        if (!HasExtractedGameData())
         {
             StatusMessage = "No game data found — run Refresh game data in Settings first.";
             return;

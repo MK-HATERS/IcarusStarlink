@@ -9,7 +9,7 @@
          activated (imported) automatically the moment it lands, so for most people this page is a
          history — the row's Reinstall is the way back after a delete, and "Get X" fetches a
          dependency the mod's README named. The DataContext is the shared DownloadsViewModel (the
-         same instance the Nexus page and Library's IMM Database tab use). -->
+         same instance the Nexus page and the Database page's IMM Database tab use). -->
     <Grid Margin="32,32,32,20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -24,8 +24,10 @@
                    Text="Everything downloaded through this app, from Nexus or the IMM Database. A download is imported the moment it finishes — one download is one mod: its paks and any Lua part all land in Library's list, as linked rows. Reinstall puts a removed mod back; Discard deletes the downloaded file."/>
 
         <DockPanel Grid.Row="2" Margin="0,0,0,8">
+            <!-- ContentStringFormat, not Binding.StringFormat: Content is an object, so a
+                 StringFormat on its binding is ignored and the box read just "3". -->
             <CheckBox DockPanel.Dock="Right" IsChecked="{Binding ShowInstalledDownloads}" VerticalAlignment="Center"
-                      Content="{Binding InstalledDownloadCount, StringFormat='Show installed ({0})'}"
+                      Content="{Binding InstalledDownloadCount}" ContentStringFormat="Show installed ({0})"
                       ToolTip="Downloads that are fully installed are hidden by default — tick to see them (Reinstall lives there)"/>
             <TextBlock Text="{Binding PendingDownloadStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
                        FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"/>
@@ -57,7 +59,7 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Needs" Binding="{Binding RequirementsSummary}" Width="2*"/>
-                <DataGridTextColumn Header="Downloaded" Binding="{Binding DownloadedAtUtc, StringFormat='{}{0:g}'}" Width="140"/>
+                <DataGridTextColumn Header="Downloaded" Binding="{Binding DownloadedAtUtc.LocalDateTime, StringFormat='{}{0:g}'}" Width="140"/>
                 <DataGridTemplateColumn Header="" Width="Auto">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>

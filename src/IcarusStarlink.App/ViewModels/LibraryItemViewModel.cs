@@ -54,7 +54,7 @@ public sealed record MaterialParamsDisplay(
 public sealed partial class LibraryItemViewModel : ObservableObject
 {
     /// <summary>How many .pak files an opaque entry holds (LibraryEntry.PakFileNames) — 0 for an EXMOD mod. A bundle (2+) is one mod that is never converted into an EXMOD.</summary>
-    public int PakCount { get; }
+    public int PakCount { get; private set; }
 
     public bool IsPakBundle => PakCount > 1;
 
@@ -303,8 +303,6 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private NexusEndorsementStatus? _endorsementStatus;
 
-    public bool HasEndorsementStatus => EndorsementStatus is not null;
-
     public string EndorsementStatusDisplay => EndorsementStatus switch
     {
         NexusEndorsementStatus.Endorsed => "Endorsed",
@@ -318,7 +316,6 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     partial void OnEndorsementStatusChanged(NexusEndorsementStatus? value)
     {
-        OnPropertyChanged(nameof(HasEndorsementStatus));
         OnPropertyChanged(nameof(EndorsementStatusDisplay));
         EndorseCommand.NotifyCanExecuteChanged();
         AbstainCommand.NotifyCanExecuteChanged();
@@ -371,7 +368,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             }
 
             EndorsementStatus = await _nexusApiClient.SetEndorsementAsync(apiKey, "icarus", modId, info.Version, endorse);
-            _reportStatus(endorse ? $"Endorsed '{Name}' on Nexus." : $"Marked '{Name}' as abstained on Nexus.");
+            _reportStatus(endorse ? $"Endorsed '{Name}' on Nexus." : $"Told Nexus you won't endorse '{Name}'.");
         }
         catch (Exception ex)
         {
@@ -458,7 +455,12 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// <summary>Phase 10: an opaque .pak entry has no .EXMOD to edit — the inline row Edit action hides itself rather than opening an editor with nothing to show.</summary>
     public bool CanEdit => !IsOpaquePak;
 
-    partial void OnIsOpaquePakChanged(bool value) => OnPropertyChanged(nameof(CanEdit));
+    partial void OnIsOpaquePakChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanEdit));
+        // The Type column reads IsOpaquePak too: a converted or restored mod keeps its row.
+        OnPropertyChanged(nameof(TypeLabel));
+    }
 
     /// <summary>Set once the EXMOD editor's own Save action runs against this mod — the ✎ glyph.</summary>
     [ObservableProperty]
@@ -640,6 +642,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         Description = entry.Description;
         VariantLabel = entry.Variant;
         IsOpaquePak = entry.IsOpaquePak;
+        // Status ("in game") and the bundle check read these: a restore or reinstall can change them.
+        PakCount = entry.IsOpaquePak ? Math.Max(1, entry.PakFileNames.Count) : 0;
+        PakFileNames = entry.PakFileNames;
         IsLocallyEdited = entry.IsLocallyEdited;
         FixedByIslAtUtc = entry.FixedByIslAtUtc;
         ConvertedFromPrebuiltPak = entry.ConvertedFromPrebuiltPak;
@@ -647,6 +652,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         NexusModId = entry.NexusModId;
         OnPropertyChanged(nameof(HasNexusLink));
         OnPropertyChanged(nameof(NexusLinkActionLabel));
+        // Their CanExecute needs a Nexus link: linking a mod must enable them, not only show them.
+        EndorseCommand.NotifyCanExecuteChanged();
+        AbstainCommand.NotifyCanExecuteChanged();
         NexusVersion = entry.NexusVersion;
         NexusFileId = entry.NexusFileId;
         OnPropertyChanged(nameof(HasUpdateAvailable));
@@ -684,6 +692,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         {
             _notes = entry.Notes;
             OnPropertyChanged(nameof(Notes));
+            OnPropertyChanged(nameof(NotesSummary));
         }
 #pragma warning restore MVVMTK0034
 
@@ -735,7 +744,21 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     partial void OnIsFavoriteChanged(bool value) => SaveMetadata();
 
-    partial void OnNotesChanged(string value) => _notesSaveDebounceTimer.Restart();
+    partial void OnNotesChanged(string value)
+    {
+        OnPropertyChanged(nameof(NotesSummary));
+        _notesSaveDebounceTimer.Restart();
+    }
+
+    /// <summary>The detail window's Notes section header: the first line of the notes (shortened), or "None yet".</summary>
+    public string NotesSummary
+    {
+        get
+        {
+            var firstLine = (Notes ?? "").Trim().Split('\n', 2)[0].Trim();
+            return firstLine.Length == 0 ? "None yet" : firstLine.Length > 60 ? firstLine[..60] + "…" : firstLine;
+        }
+    }
 
     partial void OnSelectedAssetPathChanged(string? value)
     {
@@ -848,7 +871,22 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             return;
         }
 
-        var result = await Task.Run(() => DecodeCompiledAsset(modFolderPath, relativeAssetPath));
+        // Fire-and-forget caller: a decoder that throws (rather than returning null) used to leave
+        // the pane on "Decoding this asset..." for good, the error lost.
+        CompiledAssetDecodeResult result;
+        try
+        {
+            result = await Task.Run(() => DecodeCompiledAsset(modFolderPath, relativeAssetPath));
+        }
+        catch (Exception ex)
+        {
+            if (generation == _assetPreviewGeneration)
+            {
+                SelectedAssetPreview = $"(couldn't decode this asset: {ex.Message})";
+            }
+
+            return;
+        }
 
         if (generation != _assetPreviewGeneration)
         {
@@ -1249,7 +1287,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            // Same UI boundary as SaveMetadata/TryImport/DeleteSelected: this runs from
+            // Same UI boundary as SaveMetadata/ImportPaths/DeleteSelected: this runs from
             // OnSelectedItemChanged, off a binding-driven selection change, so an unhandled
             // exception here would crash the app instead of showing a status message.
             _reportStatus($"Couldn't load mod details: {ex.Message}");

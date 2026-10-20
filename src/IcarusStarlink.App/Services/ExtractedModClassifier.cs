@@ -411,8 +411,9 @@ public static class ExtractedModClassifier
                     Directory.Delete(peek, recursive: true);
                 }
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                // Best-effort temp cleanup (a .rar can unpack read-only files) — never the reason an install fails.
             }
         }
     }

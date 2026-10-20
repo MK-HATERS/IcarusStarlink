@@ -156,6 +156,12 @@ public static class ManualInstaller
         };
     }
 
+    /// <summary>Why item can't join the plan: the same file or folder is already on it (adding it twice installed a second "_2" copy). Null when it can.</summary>
+    public static string? DuplicateProblem(IEnumerable<ManualInstallItem> plan, ManualInstallItem item) =>
+        plan.Any(p => string.Equals(Path.GetFullPath(p.FullPath), Path.GetFullPath(item.FullPath), StringComparison.OrdinalIgnoreCase))
+            ? $"'{item.RelativePath}' is already in the list."
+            : null;
+
     /// <summary>Installs every line, in order. Throws (with the reason) on the first line that can't go in, after taking back the lines already in — a manual install is all or nothing.</summary>
     public static async Task<IReadOnlyList<PendingDownloadActivatedItem>> InstallAsync(
         IReadOnlyList<ManualInstallItem> items, ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
