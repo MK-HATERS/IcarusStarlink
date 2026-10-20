@@ -122,10 +122,19 @@ public static class ServerBackups
         Directory.CreateDirectory(backupsFolder);
         var saved = DedicatedServerLayout.SavedFolder(installFolder, savedDirSuffix);
         var safeReason = new string([.. reason.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_')]);
-        var zipPath = Path.Combine(backupsFolder, $"{DateTime.Now:yyyy-MM-dd_HHmmss}_{(safeReason.Length > 0 ? safeReason : "manual")}.zip");
+        if (safeReason.Length == 0)
+        {
+            safeReason = "manual";
+        }
+
+        // One timestamp for the base name and every _2, _3 … retry, so a retry that crosses a
+        // second boundary can't name the zip after a different second (and the reason used for the
+        // retries is the same "manual" fallback as the first try, not an empty one).
+        var stamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        var zipPath = Path.Combine(backupsFolder, $"{stamp}_{safeReason}.zip");
         for (var n = 2; File.Exists(zipPath); n++)
         {
-            zipPath = Path.Combine(backupsFolder, $"{DateTime.Now:yyyy-MM-dd_HHmmss}_{safeReason}_{n}.zip");
+            zipPath = Path.Combine(backupsFolder, $"{stamp}_{safeReason}_{n}.zip");
         }
 
         using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);

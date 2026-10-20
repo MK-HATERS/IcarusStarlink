@@ -11,10 +11,10 @@ namespace IcarusStarlink.Core.Library;
 /// </summary>
 public static partial class VariantGrouping
 {
-    [GeneratedRegex(@"_(\d+)x$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"_([0-9]+)x$", RegexOptions.IgnoreCase)]
     private static partial Regex MultiplierSuffixPattern();
 
-    [GeneratedRegex(@"^(\d+)")]
+    [GeneratedRegex(@"^([0-9]+)")]
     private static partial Regex LeadingNumberPattern();
 
     public static IReadOnlyList<LibraryGroup> Group(IEnumerable<LibraryEntry> entries)
@@ -109,7 +109,7 @@ public static partial class VariantGrouping
         var match = MultiplierSuffixPattern().Match(value);
         if (match.Success)
         {
-            number = double.Parse(match.Groups[1].Value);
+            number = double.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
             return true;
         }
 
@@ -122,7 +122,7 @@ public static partial class VariantGrouping
         var match = LeadingNumberPattern().Match(label);
         if (match.Success)
         {
-            value = double.Parse(match.Groups[1].Value);
+            value = double.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
             return true;
         }
 

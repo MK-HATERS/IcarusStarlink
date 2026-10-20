@@ -4,7 +4,6 @@ using System.Text.Json.Nodes;
 using IcarusStarlink.Core.Saves;
 using IcarusStarlink.Core.Steam;
 using IcarusStarlink.PakIO.Install;
-using IcarusStarlink.Storage;
 
 namespace IcarusStarlink.Storage.Saves;
 
@@ -230,9 +229,7 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         // running game has locked) then leaves nothing under backupsDirectory matching the
         // "{steamId}_*.zip" glob ListBackups/RestoreSlot use, instead of a truncated zip that would
         // otherwise be offered — and later trusted — as a real, complete backup.
-        var tempPath = zipPath + ".tmp";
-        ZipTopLevelFiles(slotFolder, tempPath);
-        File.Move(tempPath, zipPath);
+        ZipTopLevelFilesTo(slotFolder, zipPath);
 
         PruneBackups(steamId);
         return zipPath;
@@ -317,9 +314,7 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         // ever checks before offering it back as "the state right before this restore."
         Directory.CreateDirectory(backupsDirectory);
         var preRestorePath = FolderBackup.MakeUniqueTimestampedPath(backupsDirectory, $"{steamId}_pre_restore", DateTimeOffset.Now, ".zip");
-        var preRestoreTempPath = preRestorePath + ".tmp";
-        ZipTopLevelFiles(slotFolder, preRestoreTempPath);
-        File.Move(preRestoreTempPath, preRestorePath);
+        ZipTopLevelFilesTo(slotFolder, preRestorePath);
 
         // Extracted to a scratch folder FIRST, while the live slot is still fully intact — a
         // corrupt or truncated backup zip (a slow-drive copy, a file that was mid-write when
@@ -490,6 +485,26 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
     /// rolling worlds back (see RestoreSlot), it stops every Save click from zipping hundreds of
     /// megabytes of world data on the UI thread, ten retained copies deep.
     /// </summary>
+    /// <summary>
+    /// Zips under zipPath + ".tmp" and renames into place only once every entry is written (see
+    /// BackupSlotCore). A failed zip — usually a save file the running game has locked — removes
+    /// its half-written .tmp instead of leaving one behind in Backups on every failed save.
+    /// </summary>
+    private static void ZipTopLevelFilesTo(string slotFolder, string zipPath)
+    {
+        var tempPath = zipPath + ".tmp";
+        try
+        {
+            ZipTopLevelFiles(slotFolder, tempPath);
+            File.Move(tempPath, zipPath);
+        }
+        catch
+        {
+            TryDeleteFile(tempPath);
+            throw;
+        }
+    }
+
     private static void ZipTopLevelFiles(string slotFolder, string zipPath)
     {
         using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
@@ -506,5 +521,4 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
             ? folder
             : throw new DirectoryNotFoundException($"No save slot for '{steamId}' under '{playerDataDirectory}'.");
     }
-
 }

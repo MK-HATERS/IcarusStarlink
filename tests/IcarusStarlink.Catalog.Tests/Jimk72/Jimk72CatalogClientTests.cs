@@ -64,6 +64,33 @@ public class Jimk72CatalogClientTests
         Assert.Empty(Assert.Single(entries).Categories);
     }
 
+    /// <summary>An explicit JSON null overrides the DTO's "" default; a null description or name crashed the Downloads page's search and catalog lookup.</summary>
+    [Fact]
+    public async Task FetchAsync_EntriesWithExplicitNullFields_AreSkippedOrCoalescedNotFatal()
+    {
+        const string json = """
+            {
+              "mods": [
+                { "name": "Fine Mod", "author": "Jimk72", "version": null, "compatibility": null, "description": null },
+                { "name": null, "author": "Jimk72", "version": "1.0", "compatibility": "All", "description": "no name" },
+                { "name": "No Author", "author": null, "version": "1.0", "compatibility": "All", "description": "no author" }
+              ]
+            }
+            """;
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://raw.githubusercontent.com/Jimk72/Icarus_Mods/main/modinfo.json"] = json,
+        });
+
+        var entries = await new Jimk72CatalogClient(new HttpClient(handler)).FetchAsync();
+
+        var only = Assert.Single(entries);
+        Assert.Equal("Fine Mod", only.Name);
+        Assert.Equal("", only.Description);
+        Assert.Equal("", only.Version);
+        Assert.Equal("", only.CompatibilityRaw);
+    }
+
     [Fact]
     public async Task FetchAsync_IdIsSynthesizedFromNameAndAuthor()
     {

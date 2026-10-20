@@ -118,6 +118,23 @@ public class GameSessionHealthCheckTests : IDisposable
         Assert.Equal(["line 96", "line 97", "line 98", "line 99", "line 100"], lines);
     }
 
+    /// <summary>UE4SS holds its log open for writing while the game runs; the tail used to come back empty then.</summary>
+    [Fact]
+    public void ReadUe4ssLogTail_LogHeldOpenForWriting_StillReadsIt()
+    {
+        var contentPath = Path.Combine(_tempDir, "Icarus", "Content");
+        var loaderFolder = Path.Combine(_tempDir, "Icarus", "Binaries", "Win64", "ue4ss");
+        Directory.CreateDirectory(contentPath);
+        Directory.CreateDirectory(loaderFolder);
+        var logPath = Path.Combine(loaderFolder, "UE4SS.log");
+        File.WriteAllLines(logPath, ["first", "last"]);
+
+        using (new FileStream(logPath, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+        {
+            Assert.Equal(["first", "last"], GameSessionHealthCheck.ReadUe4ssLogTail(contentPath));
+        }
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))

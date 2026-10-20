@@ -92,15 +92,33 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
         // Both streams are disposed (and the file handle released) before VerifySha256Async
         // re-opens the same path to hash it — a using-declaration here would keep fileStream open
         // for the rest of the method and turn that re-open into a sharing-violation bug.
-        await using (var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken))
-        await using (var fileStream = File.Create(destinationPath))
+        try
         {
+            await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            await using var fileStream = File.Create(destinationPath);
             await contentStream.CopyToAsync(fileStream, cancellationToken);
+        }
+        catch
+        {
+            // A dropped connection or a cancel leaves a truncated zip; don't leave it lying there.
+            TryDelete(destinationPath);
+            throw;
         }
 
         // See AppUpdateAssetDto.Digest's own doc comment for exactly what is and isn't confirmed
         // about GitHub's "sha256:<hex>" digest field shape. Shared with the UE4SS loader install
         // flow — see GitHubAssetIntegrity's own doc comment.
         await GitHubAssetIntegrity.VerifySha256Async(release.AssetDigest, destinationPath, cancellationToken);
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 }

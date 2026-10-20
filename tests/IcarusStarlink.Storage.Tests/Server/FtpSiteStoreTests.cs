@@ -128,6 +128,42 @@ public class FtpSiteStoreTests : IDisposable
         Assert.Equal("Good Site", site.Name);
     }
 
+    /// <summary>
+    /// A file locked at startup loads as an empty list, and every save rewrites the whole file from
+    /// that list — the first site saved afterwards used to wipe every other saved site. The original
+    /// is now kept aside before that first save.
+    /// </summary>
+    [Fact]
+    public void Save_AfterTheFileCouldNotBeReadAtStartup_KeepsTheOriginalAsideFirst()
+    {
+        CreateStore().Save(MakeSite(Guid.NewGuid(), "Saved earlier"));
+        var filePath = Path.Combine(_dir, "ftp_sites.json");
+        var original = File.ReadAllText(filePath);
+
+        FtpSiteStore store;
+        using (new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            store = CreateStore();
+        }
+
+        Assert.Empty(store.GetAll());
+        store.Save(MakeSite(Guid.NewGuid(), "Added later"));
+        store.Save(MakeSite(Guid.NewGuid(), "Added after that"));
+
+        var kept = Assert.Single(Directory.GetFiles(_dir, "ftp_sites.json.unreadable-*.bak"));
+        Assert.Equal(original, File.ReadAllText(kept));
+    }
+
+    [Fact]
+    public void Save_NormalStartup_KeepsNoCopyAside()
+    {
+        CreateStore().Save(MakeSite(Guid.NewGuid(), "First"));
+        CreateStore().Save(MakeSite(Guid.NewGuid(), "Second"));
+
+        Assert.Empty(Directory.GetFiles(_dir, "*.bak"));
+        Assert.Equal(2, CreateStore().GetAll().Count);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

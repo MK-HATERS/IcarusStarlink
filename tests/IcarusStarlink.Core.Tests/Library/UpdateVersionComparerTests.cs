@@ -2,7 +2,7 @@ using IcarusStarlink.Core.Library;
 
 namespace IcarusStarlink.Core.Tests.Library;
 
-public sealed class ModVersionComparerTests
+public sealed class UpdateVersionComparerTests
 {
     [Theory]
     [InlineData("1", "1.0")]

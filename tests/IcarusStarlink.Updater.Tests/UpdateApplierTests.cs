@@ -154,6 +154,17 @@ public sealed class UpdateApplierTests : IDisposable
                 () => UpdateApplier.Apply(_installDirectory, _newFilesDirectory, _ => { }));
 
             Assert.True(Directory.Exists(ex.BackupDirectory));
+            Assert.Equal("old locked", File.ReadAllText(Path.Combine(ex.BackupDirectory, "LockedFile.dll")));
+            DeleteKeptBackup(ex.BackupDirectory);
+        }
+    }
+
+    /// <summary>A rollback that couldn't finish keeps its backup in %TEMP% on purpose; a test must remove it itself.</summary>
+    internal static void DeleteKeptBackup(string? backupDirectory)
+    {
+        if (backupDirectory is not null && Directory.Exists(backupDirectory))
+        {
+            Directory.Delete(backupDirectory, recursive: true);
         }
     }
 

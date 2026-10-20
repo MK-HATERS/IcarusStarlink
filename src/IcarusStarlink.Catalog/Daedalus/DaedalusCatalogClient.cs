@@ -26,10 +26,11 @@ public sealed class DaedalusCatalogClient(HttpClient httpClient) : IDaedalusCata
 
         // An explicit JSON null in a field deserializes as null despite the DTO's "" default — one
         // such entry used to NRE and take the whole catalog down, and a null description NRE'd
-        // later in the search filter and crashed the app (an audit finding). An entry with no name
-        // or author is unusable and skipped; other fields are coalesced.
+        // later in the search filter and crashed the app (an audit finding). An entry with no id,
+        // name or author is unusable and skipped (the id keys the Library's Downloaded lookup, which
+        // throws on a null key); other fields are coalesced.
         return [.. (modsTask.Result ?? [])
-            .Where(dto => !string.IsNullOrWhiteSpace(dto.Name) && !string.IsNullOrWhiteSpace(dto.Author))
+            .Where(dto => dto is not null && !string.IsNullOrWhiteSpace(dto.Id) && !string.IsNullOrWhiteSpace(dto.Name) && !string.IsNullOrWhiteSpace(dto.Author))
             .Select(dto => ToEntry(dto, categoriesByModKey))];
     }
 
@@ -38,6 +39,11 @@ public sealed class DaedalusCatalogClient(HttpClient httpClient) : IDaedalusCata
         var index = new Dictionary<(string, string), List<string>>();
         foreach (var tag in tags)
         {
+            if (tag is null || string.IsNullOrWhiteSpace(tag.Tag))
+            {
+                continue;
+            }
+
             foreach (var modRef in tag.Mods ?? [])
             {
                 if (string.IsNullOrWhiteSpace(modRef.Name) || string.IsNullOrWhiteSpace(modRef.Author))
@@ -73,7 +79,7 @@ public sealed class DaedalusCatalogClient(HttpClient httpClient) : IDaedalusCata
             dto.Version ?? "",
             dto.Description ?? "",
             dto.Compatibility ?? "",
-            CompatibilityWeekParser.Parse(dto.Compatibility ?? ""),
+            CompatibilityWeekParser.Parse(dto.Compatibility),
             dto.ImageUrl,
             dto.ReadmeUrl,
             dto.Files?.Pak,

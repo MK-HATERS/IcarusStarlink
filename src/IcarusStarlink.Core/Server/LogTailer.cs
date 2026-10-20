@@ -47,15 +47,6 @@ public sealed class LogTailer(string path)
         }
     }
 
-    /// <summary>Start from the beginning on the next Poll.</summary>
-    public void Reset()
-    {
-        lock (_gate)
-        {
-            ResetCore();
-        }
-    }
-
     private void ResetCore()
     {
         _position = 0;
@@ -179,7 +170,7 @@ public static class ServerLogFilter
     private static readonly string[] NoiseCategories =
     [
         "LogStreaming", "LogTexture", "LogShaders", "LogMaterial", "LogRHI", "LogD3D11RHI", "LogD3D12RHI",
-        "LogAudio", "LogAudioMixer", "LogSlate", "LogHttp", "LogConfig", "LogAssetRegistry", "LogTemp: Verbose",
+        "LogAudio", "LogAudioMixer", "LogSlate", "LogHttp", "LogConfig", "LogAssetRegistry",
         "LogMeshReduction", "LogAnimation", "LogNiagara", "LogFoliage", "LogLandscape", "LogUObjectArray",
     ];
 
@@ -189,8 +180,6 @@ public static class ServerLogFilter
 
     public static bool IsError(string line) =>
         line.Contains(": Error:", StringComparison.Ordinal) || line.Contains("Fatal error", StringComparison.OrdinalIgnoreCase);
-
-    public static bool IsWarning(string line) => line.Contains(": Warning:", StringComparison.Ordinal);
 
     /// <summary>
     /// A run that ended on purpose logs one of these just before the process exits: Ctrl+C or

@@ -22,6 +22,15 @@ public class Ue4ssVersionComparerTests
         Assert.Equal(Ue4ssVersionCompatibility.Met, Ue4ssVersionComparer.Compare("3.0.1", "3.0.1"));
     }
 
+    /// <summary>System.Version ranks "3.0" below "3.0.0"; a missing part must count as 0, not as "older".</summary>
+    [Theory]
+    [InlineData("3.0.0", "3.0")]
+    [InlineData("3.0.1.0", "3.0.1")]
+    public void Compare_TrailingZeroParts_AreEqualNotBelow(string minimum, string installed)
+    {
+        Assert.Equal(Ue4ssVersionCompatibility.Met, Ue4ssVersionComparer.Compare(minimum, installed));
+    }
+
     // Real-world reason this matters: a plain ordinal string compare would say "3.0.10" < "3.0.9".
     [Fact]
     public void Compare_MultiDigitComponents_ComparesNumericallyNotLexicographically()

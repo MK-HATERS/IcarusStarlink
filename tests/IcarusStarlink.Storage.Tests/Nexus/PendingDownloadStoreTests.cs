@@ -25,6 +25,23 @@ public class PendingDownloadStoreTests : IDisposable
         Assert.Equal("Nearby_Crafting.zip", Assert.Single(reopened.Entries).FileName);
     }
 
+    /// <summary>A corrupt downloads list loads empty; the first save must keep the damaged original aside rather than replace it.</summary>
+    [Fact]
+    public void Add_AfterACorruptFileAtStartup_KeepsTheOriginalAsideFirst()
+    {
+        Directory.CreateDirectory(_dir);
+        var filePath = Path.Combine(_dir, "pending_downloads.json");
+        File.WriteAllText(filePath, "{ not a list");
+
+        var store = CreateStore();
+        Assert.Empty(store.Entries);
+        store.Add(MakeEntry(290));
+
+        var kept = Assert.Single(Directory.GetFiles(_dir, "pending_downloads.json.unreadable-*.bak"));
+        Assert.Equal("{ not a list", File.ReadAllText(kept));
+        Assert.Single(CreateStore().Entries);
+    }
+
     [Fact]
     public void Constructor_OneMalformedEntryAmongValidOnes_SkipsOnlyThatEntryInsteadOfDiscardingEveryOne()
     {

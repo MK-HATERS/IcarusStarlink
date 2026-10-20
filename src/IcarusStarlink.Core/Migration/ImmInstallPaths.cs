@@ -16,8 +16,9 @@ public static class ImmInstallPaths
     {
         var directory = Path.GetDirectoryName(Path.GetFullPath(modListFilePath));
 
-        // Two levels is enough for every real layout seen: the list either sits in the install root
-        // itself, or one folder deeper. Walking further would start matching unrelated folders.
+        // The list's own folder, its parent and its grandparent: every real layout seen has the list
+        // in the install root itself or one folder deeper. Walking further would start matching
+        // unrelated folders.
         for (var depth = 0; depth < 3 && directory is not null; depth++)
         {
             if (LooksLikeInstallRoot(directory))

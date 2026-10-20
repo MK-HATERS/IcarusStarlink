@@ -26,17 +26,17 @@ public static class DedicatedServerCommandLine
 
         if (!string.IsNullOrWhiteSpace(profile.Multihome))
         {
-            args.Add($"-MULTIHOME={profile.Multihome.Trim()}");
+            args.Add($"-MULTIHOME={QuoteIfSpaced(profile.Multihome.Trim())}");
         }
 
         if (!string.IsNullOrWhiteSpace(profile.SavedDirSuffix))
         {
-            args.Add($"-saveddirsuffix={profile.SavedDirSuffix.Trim()}");
+            args.Add($"-saveddirsuffix={QuoteIfSpaced(profile.SavedDirSuffix.Trim())}");
         }
 
         if (!string.IsNullOrWhiteSpace(profile.LogFileName))
         {
-            args.Add($"-LOG={profile.LogFileName.Trim()}");
+            args.Add($"-LOG={QuoteIfSpaced(profile.LogFileName.Trim())}");
         }
 
         return args;
@@ -77,6 +77,14 @@ public static class DedicatedServerCommandLine
     public static bool IsThisProfilesProcess(string? commandLine, DedicatedServerProfile profile) =>
         commandLine is null
         || string.Equals(ReadSavedDirSuffix(commandLine), (profile.SavedDirSuffix ?? "").Trim(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A value with a space is quoted the way -SteamServerName= is: unquoted, "-saveddirsuffix=my
+    /// world" reached the server as "my" plus a stray argument, so it saved to the wrong folder and
+    /// ReadSavedDirSuffix no longer recognised the running server as this profile's.
+    /// </summary>
+    private static string QuoteIfSpaced(string value) =>
+        value.Any(char.IsWhiteSpace) ? $"\"{value.Replace("\"", "")}\"" : value;
 
     /// <summary>Quotes can't be escaped inside a Windows command-line argument the engine parses, and the name is capped at 64 characters by the game.</summary>
     public static string Sanitize(string? serverName)

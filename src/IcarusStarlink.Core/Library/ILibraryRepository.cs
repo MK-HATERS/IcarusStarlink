@@ -13,7 +13,7 @@ public interface ILibraryRepository
     /// <summary>sourcePath is either a loose mod folder or an .EXMODZ file. source (e.g. "Nexus"/"Database") is purely informational, stored as LibraryEntry.Source — null for a manual/local import. nexusModId is stored as LibraryEntry.NexusModId, for later update-checking — only meaningful when source is "Nexus".</summary>
     LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null);
 
-    /// <summary>Imports a prebuilt .pak as an opaque library entry — see LibraryEntry.IsOpaquePak. source/nexusModId are the same provenance tags Import(string, string?, int?) takes. mergedPackProfileName is the Merge &amp; Install profile that produced this pak (only meaningful alongside a sibling ISL-Merged.txt manifest) — shown as this entry's Author in place of "Unknown".</summary>
+    /// <summary>Imports a prebuilt .pak as an opaque library entry — see LibraryEntry.IsOpaquePak. source/nexusModId/catalogEntryId are the same provenance tags Import takes. mergedPackProfileName is the Merge &amp; Install profile that produced this pak (only meaningful alongside a sibling ISL-Merged.txt manifest) — shown as this entry's Author in place of "Unknown".</summary>
     LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null, string? mergedPackProfileName = null);
 
     /// <summary>
@@ -28,9 +28,9 @@ public interface ILibraryRepository
     /// Records real name/author/description/version fetched from the Nexus API for an opaque .pak
     /// entry (which has no embedded metadata of its own to show) — overrides what the detail pane
     /// shows in place of the synthesized "Unknown"/generic description, and gives update-checking
-    /// something to compare a later Nexus lookup against. Pass null for any field to leave it
-    /// unset. No-op fields aren't cleared by a later call with null — only ever set once, right
-    /// after a successful Nexus-sourced Activate.
+    /// something to compare a later Nexus lookup against. Each call replaces all four stored
+    /// values; a null one is stored as "not known", and the shown name/author/description then
+    /// stay as they were.
     /// </summary>
     void SetNexusMetadata(string folderName, string? name, string? author, string? description, string? version);
 

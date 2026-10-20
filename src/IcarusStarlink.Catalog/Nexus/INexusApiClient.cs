@@ -3,7 +3,7 @@ namespace IcarusStarlink.Catalog.Nexus;
 public interface INexusApiClient
 {
     /// <summary>
-    /// Null specifically means "Nexus rejected this key" (HTTP 401) — the caller can show a clear
+    /// Null specifically means "Nexus rejected this key" (HTTP 401 or 403) — the caller can show a clear
     /// "that key isn't valid" message. A genuine network/service failure throws instead, so the
     /// caller can tell those two cases apart ("wrong key" vs. "couldn't reach Nexus right now").
     /// </summary>
@@ -21,15 +21,15 @@ public interface INexusApiClient
     /// <summary>
     /// Looks up a single mod's real name/author/summary by ID — for enriching a Library entry that
     /// otherwise has no metadata of its own (an opaque .pak Activated from a real Nexus download).
-    /// Null if Nexus rejected the key (same 401/403 convention as ValidateKeyAsync) or the mod is
-    /// under moderation (its "name" field is absent per Nexus's own documented behavior).
+    /// Null if Nexus rejected the key (same 401/403 convention as ValidateKeyAsync). A mod under
+    /// moderation still comes back, but with a null Name (Nexus leaves its "name" field out).
     /// </summary>
     Task<NexusModInfo?> GetModInfoAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// One of Nexus's three v1 browse lists (trending / latest added / latest updated — each a
     /// small server-curated set, roughly 10 mods; v1 has no general search endpoint, that's the
-    /// newer GraphQL API's territory). Same 401/403-throws convention as GetUpdatedModsAsync,
+    /// newer GraphQL API's territory). A rejected key (401/403) throws InvalidOperationException,
     /// since a caller reaching this already claims to have a key. Endpoint paths confirmed against
     /// Nexus's own official node-nexus-api client source, same as every other path in this client.
     /// </summary>

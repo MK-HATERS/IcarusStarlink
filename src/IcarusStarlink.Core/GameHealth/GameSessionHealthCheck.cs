@@ -102,7 +102,17 @@ public static class GameSessionHealthCheck
 
         try
         {
-            return File.ReadLines(logPath).TakeLast(maxLines).ToList();
+            // UE4SS keeps its log open for writing while the game runs; File.ReadLines' plain
+            // read-share open failed then, so the tail came back empty exactly when it mattered.
+            using var stream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            var lines = new List<string>();
+            while (reader.ReadLine() is { } line)
+            {
+                lines.Add(line);
+            }
+
+            return lines.TakeLast(maxLines).ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

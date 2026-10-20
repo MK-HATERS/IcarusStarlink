@@ -42,32 +42,37 @@ public sealed class ArrayUnionCombineRule : IFieldMergeRule
         && TryGetEffectiveBaseArray(group, out var baseArray)
         && group.OrderedChanges.All(c => IsPureAdditionOverBase(baseArray, (JsonArray)c.NewValue!, out _));
 
+    /// <summary>
+    /// Base's own entries first, every one of them (duplicates included — collapsing a duplicated
+    /// base entry would be exactly the "removed" edit this rule promises never to make), then each
+    /// mod's additions in queue order. Additions are a multiset union: the same entry added by two
+    /// mods is kept once, but a mod that adds an entry twice keeps both copies.
+    /// </summary>
     public FieldChange Resolve(FieldChangeGroup group)
     {
         TryGetEffectiveBaseArray(group, out var baseArray);
 
         var combined = new JsonArray();
-        var seen = new HashSet<string>();
-
-        void AddIfNew(JsonNode? entry)
-        {
-            var text = entry?.ToJsonString() ?? "null";
-            if (seen.Add(text))
-            {
-                combined.Add(entry?.DeepClone());
-            }
-        }
-
         foreach (var baseEntry in baseArray)
         {
-            AddIfNew(baseEntry);
+            combined.Add(baseEntry?.DeepClone());
         }
 
+        // How many copies of each added entry are already in combined, beyond base's own.
+        var placedAdditions = new Dictionary<string, int>();
         foreach (var change in group.OrderedChanges)
         {
-            foreach (var entry in (JsonArray)change.NewValue!)
+            IsPureAdditionOverBase(baseArray, (JsonArray)change.NewValue!, out var additions);
+            var seenInThisMod = new Dictionary<string, int>();
+            foreach (var entry in additions)
             {
-                AddIfNew(entry);
+                var text = entry?.ToJsonString() ?? "null";
+                var copiesInThisMod = seenInThisMod[text] = seenInThisMod.GetValueOrDefault(text) + 1;
+                if (copiesInThisMod > placedAdditions.GetValueOrDefault(text))
+                {
+                    combined.Add(entry?.DeepClone());
+                    placedAdditions[text] = copiesInThisMod;
+                }
             }
         }
 

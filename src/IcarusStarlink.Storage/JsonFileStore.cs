@@ -179,20 +179,60 @@ internal static class JsonFileStore
     /// collide with each other's in-progress write. Public (not just used by Save&lt;T&gt;) so a
     /// caller writing pre-serialized or non-JSON content — IcarusStarlink.Storage.Saves.SaveRepository
     /// writes the game's own tab/CRLF JSON style plus one raw binary file — gets the same
-    /// crash-safety guarantee without reimplementing this from scratch.
+    /// crash-safety guarantee without reimplementing this from scratch. A write that fails (the
+    /// target locked or read-only, the disk full) removes its temp file before the error goes on,
+    /// so repeated failed saves don't pile up stray .tmp files beside the real one.
     /// </summary>
-    public static void WriteAtomically(string filePath, string content)
-    {
-        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllText(tempPath, content);
-        File.Move(tempPath, filePath, overwrite: true);
-    }
+    public static void WriteAtomically(string filePath, string content) =>
+        WriteViaTempFile(filePath, tempPath => File.WriteAllText(tempPath, content));
 
     /// <summary>Byte-content counterpart to WriteAtomically, for a caller writing something that isn't text (e.g. a raw binary file).</summary>
-    public static void WriteBytesAtomically(string filePath, byte[] bytes)
+    public static void WriteBytesAtomically(string filePath, byte[] bytes) =>
+        WriteViaTempFile(filePath, tempPath => File.WriteAllBytes(tempPath, bytes));
+
+    private static void WriteViaTempFile(string filePath, Action<string> writeTemp)
     {
         var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllBytes(tempPath, bytes);
-        File.Move(tempPath, filePath, overwrite: true);
+        try
+        {
+            writeTemp(tempPath);
+            File.Move(tempPath, filePath, overwrite: true);
+        }
+        catch
+        {
+            try
+            {
+                File.Delete(tempPath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Best effort: the original error is the one worth reporting.
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// For the list stores whose every save rewrites the whole file from memory: when the file
+    /// existed at startup but loaded as an empty list (problem is Unreadable or Corrupt), the first
+    /// save would replace every saved record with only what was added since. This copies the
+    /// original aside as "&lt;file&gt;.unreadable-&lt;time&gt;.bak" first, the same way
+    /// AppSettingsService keeps an unreadable settings.json, and clears problem so it happens once.
+    /// A copy that fails (the file still locked) throws, so the save that called this doesn't
+    /// overwrite the original either.
+    /// </summary>
+    public static void KeepUnreadableOriginal(string filePath, ref ListLoadProblem problem, ILogger logger)
+    {
+        if (problem == ListLoadProblem.None || !File.Exists(filePath))
+        {
+            problem = ListLoadProblem.None;
+            return;
+        }
+
+        var preserved = $"{filePath}.unreadable-{DateTime.UtcNow:yyyyMMdd-HHmmss}.bak";
+        File.Copy(filePath, preserved, overwrite: true);
+        logger.LogWarning("{Path} couldn't be read at startup; the original was kept at {Preserved} before saving over it", filePath, preserved);
+        problem = ListLoadProblem.None;
     }
 }

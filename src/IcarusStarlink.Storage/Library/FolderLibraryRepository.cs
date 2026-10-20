@@ -66,10 +66,8 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         var baseName = SanitizeFolderNameCandidate(Path.GetFileNameWithoutExtension(pakFilePath));
         var folderName = MakeUniqueFolderName(baseName);
         var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
-        Directory.CreateDirectory(targetFolder);
-
         var targetPakPath = Path.Combine(targetFolder, Path.GetFileName(pakFilePath));
-        File.Copy(pakFilePath, targetPakPath);
+        CopyIntoNewModFolder(targetFolder, [(pakFilePath, targetPakPath)]);
 
         // A sibling ISL-Merged.txt next to the pak being imported means this is one of this app's
         // own previously-Rebuild-and-Installed paks, re-imported as its own Library entry (matches
@@ -120,15 +118,9 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         var baseName = SanitizeFolderNameCandidate(name);
         var folderName = MakeUniqueFolderName(baseName);
         var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
-        Directory.CreateDirectory(targetFolder);
-
-        var targetPaths = new List<string>();
-        foreach (var pakFilePath in pakFilePaths)
-        {
-            var targetPakPath = Path.Combine(targetFolder, Path.GetFileName(pakFilePath));
-            File.Copy(pakFilePath, targetPakPath);
-            targetPaths.Add(targetPakPath);
-        }
+        var copies = pakFilePaths.Select(p => (Source: p, Target: Path.Combine(targetFolder, Path.GetFileName(p)))).ToList();
+        CopyIntoNewModFolder(targetFolder, copies);
+        var targetPaths = copies.Select(c => c.Target).ToList();
 
         var meta = new LibraryMeta
         {
@@ -140,6 +132,37 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         _cachedEntries.Add(entry);
         _searchIndex.Insert(entry, entry.Name);
         return entry;
+    }
+
+    /// <summary>
+    /// Creates a brand-new mod folder and copies the given files into it. A copy that fails (a
+    /// missing source, disk full) removes the folder again before the error goes on: left behind,
+    /// an empty folder showed up as an unreadable mod, and a half-copied ImportPaks folder came back
+    /// on the next start as a mod holding only some of the download's paks, with no Library info.
+    /// </summary>
+    private static void CopyIntoNewModFolder(string targetFolder, IReadOnlyList<(string Source, string Target)> copies)
+    {
+        Directory.CreateDirectory(targetFolder);
+        try
+        {
+            foreach (var (source, target) in copies)
+            {
+                File.Copy(source, target);
+            }
+        }
+        catch
+        {
+            try
+            {
+                Directory.Delete(targetFolder, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Best effort: the copy error is the one worth reporting.
+            }
+
+            throw;
+        }
     }
 
     public LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null)
@@ -286,13 +309,6 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             entry => { entry.CatalogEntryId = catalogEntryId; entry.Source = "Database"; });
 
     /// <summary>
-    /// Shared by every "patch one sidecar metadata field, then mirror it into the cache" mutator
-    /// above — ResolveFolder validates the mod exists, then meta is loaded/mutated/saved, then
-    /// (unless mutateCachedEntry is null — SetDisplayNameOverride's own case, see its doc comment)
-    /// the matching cached entry, if any, is patched the same way so a full RescanAll isn't needed
-    /// for these narrow, single/few-field changes.
-    /// </summary>
-    /// <summary>
     /// The read half of every read-modify-write on a sidecar. A sidecar that exists but can't be
     /// read right now (sync client, antivirus) must abort the write (an audit finding): saving the
     /// defaults Load hands back would silently drop the mod's Nexus link / source / catalog ID on
@@ -310,6 +326,13 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         return meta;
     }
 
+    /// <summary>
+    /// Shared by every "patch one sidecar metadata field, then mirror it into the cache" mutator
+    /// above — ResolveFolder validates the mod exists, then meta is loaded/mutated/saved, then
+    /// (unless mutateCachedEntry is null — SetDisplayNameOverride's own case, see its doc comment)
+    /// the matching cached entry, if any, is patched the same way so a full RescanAll isn't needed
+    /// for these narrow, single/few-field changes.
+    /// </summary>
     private void UpdateMeta(string folderName, Action<LibraryMeta> mutateMeta, Action<LibraryEntry>? mutateCachedEntry)
     {
         ResolveFolder(folderName);
@@ -446,10 +469,14 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
                 entry.NexusVersion = version;
                 if (entry is { IsOpaquePak: true } or { ConvertedFromPrebuiltPak: true })
                 {
-                    entry.Name = name ?? entry.Name;
+                    // Same precedence a rescan uses (ToOpaquePakEntry/ToEntry): the user's own
+                    // rename beats the Nexus name, and the exact file's version beats the mod's
+                    // headline version — otherwise the row showed the Nexus name/version until
+                    // the next restart put the rename and file version back.
+                    entry.Name = entry.DisplayNameOverride ?? name ?? entry.Name;
                     entry.Author = author ?? entry.Author;
                     entry.Description = description ?? entry.Description;
-                    entry.Version = version ?? entry.Version;
+                    entry.Version = entry.NexusFileVersion ?? version ?? entry.Version;
                 }
             });
 
@@ -551,10 +578,6 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
 
     /// <summary>See ILibraryRepository — recomputed by every RescanAll (construction, Refresh, restore, rename), so it always reflects the same scan the cached entries came from.</summary>
     public IReadOnlyList<string> UnreadableFolders { get; private set; } = [];
-
-    /// <summary>Convenience overload for a single-folder classification with no precomputed list (ListAssetPaths, ReadReadme) — walks the folder itself, then delegates.</summary>
-    private static (bool HasExmod, IReadOnlyList<string> PakPaths) ClassifyModFolder(string folder) =>
-        ClassifyModFolder(Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).ToList());
 
     /// <summary>
     /// Classifies a folder as EXMOD-based vs. opaque-pak vs. neither, given a file list the caller

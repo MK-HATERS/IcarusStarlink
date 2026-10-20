@@ -357,6 +357,54 @@ public sealed class ServerPhase23Tests : IDisposable
         Assert.Throws<ArgumentException>(() => ServerModFiles.RemovePak(install, "..\\x.pak", backups));
     }
 
+    /// <summary>"." and ".." pass the invalid-character check; removing or copying "the mod" named so would delete the Mods folder or its parent.</summary>
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData(" ")]
+    public void Ue4ssModFolderNames_ThatNameAFolderAboveTheMod_AreRefused(string name)
+    {
+        var install = Path.Combine(_root, "Server");
+        var mods = DedicatedServerLayout.Ue4ssModsFolder(install);
+        Directory.CreateDirectory(Path.Combine(mods, "KeepMe"));
+
+        Assert.Throws<ArgumentException>(() => ServerModFiles.RemoveUe4ssMod(install, name, Path.Combine(_root, "Backups")));
+        Assert.Throws<ArgumentException>(() => ServerModFiles.CopyUe4ssModToServer(Path.Combine(_root, "GameMods"), name, install));
+
+        Assert.True(Directory.Exists(Path.Combine(mods, "KeepMe")));
+    }
+
+    /// <summary>Copying a mod the game no longer has used to delete the server's own copy first, then fail.</summary>
+    [Fact]
+    public void CopyUe4ssModToServer_ModMissingFromTheGame_LeavesTheServersCopyAlone()
+    {
+        var install = Path.Combine(_root, "Server");
+        var serverMod = Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(install), "BetterStacks");
+        Directory.CreateDirectory(serverMod);
+        File.WriteAllText(Path.Combine(serverMod, "main.lua"), "-- server copy");
+        var gameMods = Path.Combine(_root, "GameMods");
+        Directory.CreateDirectory(gameMods);
+
+        Assert.Throws<DirectoryNotFoundException>(() => ServerModFiles.CopyUe4ssModToServer(gameMods, "BetterStacks", install));
+
+        Assert.Equal("-- server copy", File.ReadAllText(Path.Combine(serverMod, "main.lua")));
+    }
+
+    /// <summary>A blank reason files under "manual" — for the first zip and for a same-second second one alike.</summary>
+    [Fact]
+    public void CreateBackup_BlankReasonTwiceInOneSecond_BothFileUnderManual()
+    {
+        var install = Path.Combine(_root, "Server");
+        Directory.CreateDirectory(DedicatedServerLayout.SavedFolder(install, null));
+        var backups = Path.Combine(_root, "Backups");
+
+        var first = ServerBackups.CreateBackup(install, null, backups, "!!");
+        var second = ServerBackups.CreateBackup(install, null, backups, "!!");
+
+        Assert.Equal("manual", ServerBackups.ReasonOf(Path.GetFileNameWithoutExtension(first)));
+        Assert.Equal("manual", ServerBackups.ReasonOf(Path.GetFileNameWithoutExtension(second)));
+    }
+
     /// <summary>The merged pak under an earlier name is moved into the backups folder, not deleted, when one is given.</summary>
     [Fact]
     public void InstallPak_WithABackupsFolder_MovesTheLegacyNamedMergedPakThere()

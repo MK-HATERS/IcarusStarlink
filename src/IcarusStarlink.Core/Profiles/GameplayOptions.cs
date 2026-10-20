@@ -138,12 +138,12 @@ public sealed class GameplayOptions
         if (PlayerBoost != BoostLevel.Off) parts.Add($"Player Boost {DescribeBoostLevel(PlayerBoost)}");
         if (XpBoost != XpBoostLevel.Off) parts.Add($"XP Boost {DescribeXpBoostLevel(XpBoost)}");
         if (CraftCost != CraftCostReduction.Off) parts.Add($"Craft Cost {DescribeCraftCost(CraftCost)}");
-        if (StacksMultiplier is > 0 and var stacks) parts.Add($"Stacks x{stacks:0.##}");
-        if (SlotsMultiplier is > 0 and var slots) parts.Add($"Slots x{slots:0.##}");
-        if (SpeedCraftingReductionPercent is > 0 and var speedCrafting) parts.Add($"Speed Crafting {speedCrafting:0.##}%");
-        if (TamingSpeedReductionPercent is > 0 and var tamingSpeed) parts.Add($"Faster Taming {tamingSpeed:0.##}%");
+        if (StacksMultiplier is > 0 and var stacks) parts.Add(FormattableString.Invariant($"Stacks x{stacks:0.##}"));
+        if (SlotsMultiplier is > 0 and var slots) parts.Add(FormattableString.Invariant($"Slots x{slots:0.##}"));
+        if (SpeedCraftingReductionPercent is > 0 and var speedCrafting) parts.Add(FormattableString.Invariant($"Speed Crafting {speedCrafting:0.##}%"));
+        if (TamingSpeedReductionPercent is > 0 and var tamingSpeed) parts.Add(FormattableString.Invariant($"Faster Taming {tamingSpeed:0.##}%"));
         if (RemoveWeight || WeightReductionPercent >= 100) parts.Add("Remove Weight");
-        else if (WeightReductionPercent is > 0 and var lighter) parts.Add($"Lighter Items {lighter:0.##}%");
+        else if (WeightReductionPercent is > 0 and var lighter) parts.Add(FormattableString.Invariant($"Lighter Items {lighter:0.##}%"));
         if (UnlimitedAmmo) parts.Add("Unlimited Ammo");
         if (DisableTemperatures) parts.Add("Disable Temperatures");
         if (RemoveLevelCap) parts.Add("Remove Level Cap");

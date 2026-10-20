@@ -13,8 +13,8 @@ public class AppUpdateClientTests
     private static AppUpdateClient CreateClient(Dictionary<string, string> responsesByUrl) =>
         new(new HttpClient(new FakeHttpMessageHandler(responsesByUrl)));
 
-    // The exact "digest" value below is a plausible-shaped placeholder, not one confirmed from a
-    // real captured GitHub API response — see AppUpdateAssetDto.Digest's own doc comment.
+    // The "sha256:<hex>" shape GitHub's API uses (see AppUpdateAssetDto.Digest's own doc comment);
+    // the hex itself happens to be SHA-256("zip-bytes"), the same value as MatchingDigestForZipBytes.
     private const string RealisticDigest = "sha256:4b9a4ac59f3c3aa32273260df6cf4bf358d1c46f8415126aa35b6380d0abb8f7";
 
     private const string RealisticReleaseJson = $$"""
@@ -126,6 +126,64 @@ public class AppUpdateClientTests
         finally
         {
             File.Delete(destinationPath);
+        }
+    }
+
+    /// <summary>A download cut off partway (connection dropped, cancelled) used to leave the truncated zip on disk.</summary>
+    [Fact]
+    public async Task DownloadAssetAsync_ConnectionDropsPartway_DeletesThePartialFileAndThrows()
+    {
+        var client = new AppUpdateClient(new HttpClient(new DroppingHandler()));
+        var release = new AppUpdateRelease("0.10.0", "", BrowserDownloadUrl, MatchingDigestForZipBytes);
+        var destinationPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.zip");
+
+        try
+        {
+            await Assert.ThrowsAsync<IOException>(() => client.DownloadAssetAsync(release, destinationPath));
+
+            Assert.False(File.Exists(destinationPath));
+        }
+        finally
+        {
+            if (File.Exists(destinationPath))
+            {
+                File.Delete(destinationPath);
+            }
+        }
+    }
+
+    /// <summary>Serves a body that gives a few bytes and then fails, like a dropped connection.</summary>
+    private sealed class DroppingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StreamContent(new DroppingStream()) });
+
+        private sealed class DroppingStream : Stream
+        {
+            private bool _gaveSome;
+
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                if (_gaveSome)
+                {
+                    throw new IOException("The connection was reset.");
+                }
+
+                _gaveSome = true;
+                buffer[offset] = (byte)'z';
+                return 1;
+            }
+
+            public override void Flush() { }
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         }
     }
 

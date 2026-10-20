@@ -53,6 +53,20 @@ public sealed class DedicatedServerTests : IDisposable
         Assert.True(DedicatedServerCommandLine.IsThisProfilesProcess(DedicatedServerCommandLine.BuildDisplayLine(second), second));
     }
 
+    /// <summary>An unquoted "-saveddirsuffix=my world" reached the server as "my", so it saved elsewhere and the app didn't recognise it as running.</summary>
+    [Fact]
+    public void BuildArguments_ValuesWithASpace_AreQuoted_AndTheSuffixReadsBack()
+    {
+        var profile = new DedicatedServerProfile { InstallFolder = @"F:\IcarusServer", SavedDirSuffix = "my world", LogFileName = "My Log.log", Multihome = "10.0.0.2" };
+
+        var args = DedicatedServerCommandLine.BuildArguments(profile);
+
+        Assert.Contains("-saveddirsuffix=\"my world\"", args);
+        Assert.Contains("-LOG=\"My Log.log\"", args);
+        Assert.Contains("-MULTIHOME=10.0.0.2", args);
+        Assert.True(DedicatedServerCommandLine.IsThisProfilesProcess(DedicatedServerCommandLine.BuildDisplayLine(profile), profile));
+    }
+
     [Fact]
     public void Sanitize_CapsTheNameAt64Characters() =>
         Assert.Equal(64, DedicatedServerCommandLine.Sanitize(new string('x', 100)).Length);

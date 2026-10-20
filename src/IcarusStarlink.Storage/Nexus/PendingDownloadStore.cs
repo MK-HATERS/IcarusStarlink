@@ -3,11 +3,13 @@ using Microsoft.Extensions.Logging;
 
 namespace IcarusStarlink.Storage.Nexus;
 
+/// <summary>The Downloads page's list, one JSON list next to the app's other data — same unreadable-file guard as FtpSiteStore.</summary>
 public sealed class PendingDownloadStore : IPendingDownloadStore
 {
     private readonly string _filePath;
     private readonly ILogger<PendingDownloadStore> _logger;
     private readonly List<PendingDownloadEntry> _entries;
+    private ListLoadProblem _loadProblem;
 
     public IReadOnlyList<PendingDownloadEntry> Entries => _entries;
 
@@ -16,7 +18,7 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
         _logger = logger;
         Directory.CreateDirectory(appDataDirectory);
         _filePath = Path.Combine(appDataDirectory, "pending_downloads.json");
-        _entries = JsonFileStore.LoadList<PendingDownloadEntry>(_filePath, _logger);
+        _entries = JsonFileStore.LoadList<PendingDownloadEntry>(_filePath, _logger, out _loadProblem);
 
         // Older builds stored a README heading's underline as a blank requirement ("Needs: ; UE4SS…").
         foreach (var entry in _entries.Where(e => e.Requirements.Any(string.IsNullOrWhiteSpace)))
@@ -67,5 +69,9 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
         Save();
     }
 
-    private void Save() => JsonFileStore.Save(_filePath, _entries);
+    private void Save()
+    {
+        JsonFileStore.KeepUnreadableOriginal(_filePath, ref _loadProblem, _logger);
+        JsonFileStore.Save(_filePath, _entries);
+    }
 }

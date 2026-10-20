@@ -18,6 +18,9 @@ public class CompatibilityWeekParserTests
     [InlineData(null)]
     [InlineData("w")]
     [InlineData("week139")]
+    [InlineData("w-5")]
+    [InlineData("+215")]
+    [InlineData("1,000")]
     public void Parse_UnrecognizedFormats_ReturnsNullRatherThanThrowing(string? input)
     {
         Assert.Null(CompatibilityWeekParser.Parse(input));

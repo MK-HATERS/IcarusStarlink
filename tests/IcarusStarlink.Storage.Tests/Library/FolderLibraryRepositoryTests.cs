@@ -512,6 +512,64 @@ public class FolderLibraryRepositoryTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Nexus enrichment that runs after a rename or after the exact file was recorded (a later
+    /// update check) used to put the Nexus page's name and headline version on the row until the
+    /// next restart, where the rescan showed the rename and the file's version again.
+    /// </summary>
+    [Fact]
+    public void SetNexusMetadata_AfterARenameAndAFileVersion_CachedEntryMatchesWhatARescanShows()
+    {
+        var pakPath = WriteFixturePakFile();
+        try
+        {
+            using var repo = CreateRepository();
+            var folderName = repo.ImportPak(pakPath, source: "Nexus", nexusModId: 317).FolderName;
+            repo.SetDisplayNameOverride(folderName, "My Name For It");
+            repo.SetNexusFile(folderName, 200, "1.0.5");
+
+            repo.SetNexusMetadata(folderName, "All In One", "Deyvid", "Summary.", "1.0.8");
+
+            var cached = repo.GetAll().Single(e => e.FolderName == folderName);
+            Assert.Equal("My Name For It", cached.Name);
+            Assert.Equal("1.0.5", cached.Version);
+            Assert.Equal("Deyvid", cached.Author);
+
+            repo.Refresh();
+            var rescanned = repo.GetAll().Single(e => e.FolderName == folderName);
+            Assert.Equal(rescanned.Name, cached.Name);
+            Assert.Equal(rescanned.Version, cached.Version);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    /// <summary>A pak that fails to copy partway used to leave its new folder behind: on the next start it showed up as a mod with only some of the download's paks and no Library info.</summary>
+    [Fact]
+    public void ImportPaks_ACopyFailsPartway_LeavesNoFolderBehind()
+    {
+        var firstPak = WriteFixturePakFile("ZZ_First_P");
+        var missingPak = Path.Combine(Path.GetDirectoryName(firstPak)!, "ZZ_Missing_P.pak");
+        try
+        {
+            using var repo = CreateRepository();
+
+            Assert.Throws<FileNotFoundException>(() => repo.ImportPaks([firstPak, missingPak], "TwoPaks"));
+            Assert.Throws<FileNotFoundException>(() => repo.ImportPak(missingPak));
+
+            Assert.Empty(Directory.GetDirectories(_extractedModsDir));
+            repo.Refresh();
+            Assert.Empty(repo.GetAll());
+            Assert.Empty(repo.UnreadableFolders);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(firstPak)!, recursive: true);
+        }
+    }
+
     [Fact]
     public void ImportPak_NoMergedPackProfileName_AuthorFallsBackToUnknown()
     {

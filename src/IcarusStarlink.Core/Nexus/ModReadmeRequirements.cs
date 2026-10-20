@@ -67,12 +67,22 @@ public static partial class ModReadmeRequirements
     public static string ExtractName(string requirement)
     {
         var cut = requirement;
-        foreach (var marker in new[] { "(", ":", "http", " v", " or ", " - " })
+        foreach (var marker in new[] { "(", ":", "http", " or ", " - " })
         {
             var at = cut.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
             if (at > 0)
             {
                 cut = cut[..at];
+            }
+        }
+
+        // " v" only as a version ("v1.2"): a plain " v" also cut "Better Vehicles" down to "Better".
+        for (var at = cut.IndexOf(" v", StringComparison.OrdinalIgnoreCase); at > 0; at = cut.IndexOf(" v", at + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            if (at + 2 < cut.Length && char.IsAsciiDigit(cut[at + 2]))
+            {
+                cut = cut[..at];
+                break;
             }
         }
 
