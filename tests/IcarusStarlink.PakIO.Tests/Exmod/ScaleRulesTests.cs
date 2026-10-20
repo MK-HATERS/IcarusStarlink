@@ -104,6 +104,20 @@ public sealed class ScaleRulesTests : IDisposable
         Assert.Single(mod.ScaleRules);
     }
 
+    /// <summary>The mod's own "item_fiber" is the game's Item_Fiber (row names ignore case): the rule's value joins it, not a second item for the same row.</summary>
+    [Fact]
+    public void AModItemSpelledInAnotherCase_GetsTheValue_InsteadOfASecondItem()
+    {
+        var mod = EmptyMod();
+        mod.Rows.Insert(0, new ExmodFileRow { CurrentFile = "Traits-D_Itemable.json", FileItems = [new ExmodFileItem { Name = "item_fiber", Fields = new() { ["Weight"] = 5 } }] });
+
+        ScaleRules.ApplyToPackage(mod, [Rule("Traits-D_Itemable.json", "MaxStack", 10)], _data, new MergeReport());
+
+        var fiber = Assert.Single(mod.Rows.Single(r => r.CurrentFile == "Traits-D_Itemable.json").FileItems, i => string.Equals(i.Name, "Item_Fiber", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(5, fiber.Fields["Weight"]!.GetValue<int>());
+        Assert.Equal(1000, fiber.Fields["MaxStack"]!.GetValue<long>());
+    }
+
     [Fact]
     public void IncludeInheritedOff_LeavesRowsThatUseTheTableDefault()
     {

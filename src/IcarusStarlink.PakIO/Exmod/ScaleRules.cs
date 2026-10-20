@@ -117,7 +117,7 @@ public static class ScaleRules
                 package.Rows.Insert(end < 0 ? package.Rows.Count : end, row);
             }
 
-            var byName = new Dictionary<string, ExmodFileItem>(StringComparer.Ordinal);
+            var byName = new Dictionary<string, ExmodFileItem>(StringComparer.OrdinalIgnoreCase); // row names ignore case, like the game
             foreach (var existing in row.FileItems)
             {
                 byName.TryAdd(existing.Name, existing);
