@@ -44,9 +44,16 @@
                        Visibility="{Binding Note, Converter={StaticResource NullToVisibilityConverter}}"/>
         </StackPanel>
 
-        <!-- The steps of Update everything. -->
-        <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,8" Margin="0,0,0,12"
-                Visibility="{Binding ShowSteps, Converter={StaticResource BoolToVisibilityConverter}}">
+        <!-- The steps of Update everything: open while they run, foldable afterwards to give the
+             results the room. -->
+        <Expander Grid.Row="1" Margin="0,0,0,12" IsExpanded="True" AutomationProperties.Name="Steps"
+                  Visibility="{Binding ShowSteps, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Expander.Header>
+                <DockPanel LastChildFill="False">
+                    <TextBlock DockPanel.Dock="Left" Text="Steps" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                    <TextBlock DockPanel.Dock="Left" Text="what Update everything did, one line each" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                </DockPanel>
+            </Expander.Header>
             <ItemsControl ItemsSource="{Binding Steps}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
@@ -71,45 +78,77 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-        </Border>
+        </Expander>
 
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel>
                 <TextBlock Text="Nothing needed fixing, nothing to look at and nothing at risk." FontSize="13" Margin="0,0,0,12"
                            Visibility="{Binding IsAllClear, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
-                <StackPanel Visibility="{Binding HasFixedForYou, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,0,0,12">
-                    <TextBlock Text="FIXED FOR YOU" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,2"/>
-                    <TextBlock Text="Only proven fixes: old copies of game data and links to rows the game no longer has. Each mod was backed up first (right-click it in the Library › Restore latest backup undoes it)."
-                               TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"/>
-                    <ItemsControl ItemsSource="{Binding FixedForYou}" ItemTemplate="{StaticResource ReviewRowTemplate}"/>
-                </StackPanel>
+                <!-- Most urgent first: High risk and Needs a look open, Fixed for you (already done,
+                     just to know) folded with its count showing. -->
+                <Expander Visibility="{Binding HasHighRisk, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,0,0,12"
+                          IsExpanded="True" AutomationProperties.Name="High risk">
+                    <Expander.Header>
+                        <DockPanel LastChildFill="False">
+                            <TextBlock DockPanel.Dock="Left" Text="High risk" Style="{StaticResource ExpanderHeaderTitleStyle}" Foreground="{DynamicResource DangerBrush}"/>
+                            <TextBlock DockPanel.Dock="Left" Style="{StaticResource ExpanderHeaderStateStyle}">
+                                <Run Text="{Binding HighRisk.Count, Mode=OneWay}"/><Run Text=" mod(s) replace a game file this update changed"/>
+                            </TextBlock>
+                        </DockPanel>
+                    </Expander.Header>
+                    <StackPanel>
+                        <TextBlock Text="&quot;Out of date&quot; is proven: the mod still has the game's code from before the update. If something stops working, keep the mod off until its author updates it."
+                                   TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"/>
+                        <ItemsControl ItemsSource="{Binding HighRisk}" ItemTemplate="{StaticResource ReviewRowTemplate}"/>
+                    </StackPanel>
+                </Expander>
 
-                <StackPanel Visibility="{Binding HasNeedsALook, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,0,0,12">
-                    <TextBlock Text="NEEDS A LOOK" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,2"/>
-                    <TextBlock Text="Things Starlink wasn't sure enough to change by itself, and mods with a newer version out."
-                               TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"/>
-                    <ItemsControl ItemsSource="{Binding NeedsALook}" ItemTemplate="{StaticResource ReviewRowTemplate}"/>
-                </StackPanel>
+                <Expander Visibility="{Binding HasNeedsALook, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,0,0,12"
+                          IsExpanded="True" AutomationProperties.Name="Needs a look">
+                    <Expander.Header>
+                        <DockPanel LastChildFill="False">
+                            <TextBlock DockPanel.Dock="Left" Text="Needs a look" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                            <TextBlock DockPanel.Dock="Left" Style="{StaticResource ExpanderHeaderStateStyle}">
+                                <Run Text="{Binding NeedsALook.Count, Mode=OneWay}"/><Run Text=" thing(s) to look over or update"/>
+                            </TextBlock>
+                        </DockPanel>
+                    </Expander.Header>
+                    <StackPanel>
+                        <TextBlock Text="Things Starlink wasn't sure enough to change by itself, and mods with a newer version out."
+                                   TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"/>
+                        <ItemsControl ItemsSource="{Binding NeedsALook}" ItemTemplate="{StaticResource ReviewRowTemplate}"/>
+                    </StackPanel>
+                </Expander>
 
-                <StackPanel Visibility="{Binding HasHighRisk, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,0,0,12">
-                    <TextBlock Text="HIGH RISK" Style="{StaticResource FieldLabelStyle}" Foreground="{DynamicResource DangerBrush}" Margin="0,0,0,2"/>
-                    <TextBlock Text="Mods that replace a game file this update changed. &quot;Out of date&quot; is proven: the mod still has the game's code from before the update. If something stops working, keep the mod off until its author updates it."
-                               TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"/>
-                    <ItemsControl ItemsSource="{Binding HighRisk}" ItemTemplate="{StaticResource ReviewRowTemplate}"/>
-                </StackPanel>
+                <Expander Visibility="{Binding HasFixedForYou, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,0,0,12"
+                          IsExpanded="False" AutomationProperties.Name="Fixed for you">
+                    <Expander.Header>
+                        <DockPanel LastChildFill="False">
+                            <TextBlock DockPanel.Dock="Left" Text="Fixed for you" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                            <TextBlock DockPanel.Dock="Left" Style="{StaticResource ExpanderHeaderStateStyle}">
+                                <Run Text="{Binding FixedForYou.Count, Mode=OneWay}"/><Run Text=" mod(s) with proven fixes, each backed up first"/>
+                            </TextBlock>
+                        </DockPanel>
+                    </Expander.Header>
+                    <StackPanel>
+                        <TextBlock Text="Only proven fixes: old copies of game data and links to rows the game no longer has. Each mod was backed up first (right-click it in the Library › Restore latest backup undoes it)."
+                                   TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"/>
+                        <ItemsControl ItemsSource="{Binding FixedForYou}" ItemTemplate="{StaticResource ReviewRowTemplate}"/>
+                    </StackPanel>
+                </Expander>
             </StackPanel>
         </ScrollViewer>
 
         <StackPanel Grid.Row="3" Margin="0,12,0,0">
-        <TextBlock Text="{Binding RollBackText}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"/>
-        <DockPanel LastChildFill="True">
-            <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseWindowCommand}" IsCancel="True" Margin="8,0,0,0" Padding="14,3"/>
-            <Button DockPanel.Dock="Left" Content="Roll back to before the update" Command="{Binding RollBackCommand}" Padding="10,3"
-                    ToolTip="{Binding RollBackText}" ToolTipService.ShowOnDisabled="True"/>
-            <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="12,0,0,0" FontSize="12"
-                       Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-        </DockPanel>
+            <TextBlock Text="{Binding RollBackText}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"/>
+            <DockPanel LastChildFill="True">
+                <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseWindowCommand}" IsCancel="True" Margin="8,0,0,0" Padding="14,3"/>
+                <Button DockPanel.Dock="Left" Content="Roll back to before the update" Command="{Binding RollBackCommand}" Padding="10,3"
+                        ToolTip="{Binding RollBackText}" ToolTipService.ShowOnDisabled="True"/>
+                <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="12,0,0,0" FontSize="12"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+            </DockPanel>
         </StackPanel>
     </Grid>
 </Window>

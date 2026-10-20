@@ -39,17 +39,18 @@
             </Button>
             <Border/>
         </DockPanel>
-        <TextBlock Grid.Row="2" Text="{Binding ProfileStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0"/>
+        <TextBlock Grid.Row="2" Text="{Binding ProfileStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0"
+                   TextWrapping="Wrap" Visibility="{Binding ProfileStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-        <!-- Import & migrate: collapsed by default — exporting/importing a patch is a real but
+        <!-- Sharing a mod list: collapsed by default — exporting/importing a patch is a real but
              occasional action, not something a returning user needs to see every time. Classic IMM
              migration lives only in Settings now (Migrate from IMM tab) — a second, queue-only
              "Import IMM mod list" here looked redundant with it and was removed. -->
-        <Expander Grid.Row="3" Margin="0,16,0,0" IsExpanded="False" AutomationProperties.Name="Import and migrate">
+        <Expander Grid.Row="3" Margin="0,16,0,0" IsExpanded="False" AutomationProperties.Name="Share a mod list">
             <Expander.Header>
                 <DockPanel LastChildFill="False">
-                    <TextBlock DockPanel.Dock="Left" Text="Import &amp; migrate" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                    <TextBlock DockPanel.Dock="Left" Text="Export patch · Import patch" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                    <TextBlock DockPanel.Dock="Left" Text="Share a mod list" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                    <TextBlock DockPanel.Dock="Left" Text="Export patch · Import patch (for friends and servers)" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                 </DockPanel>
             </Expander.Header>
             <StackPanel Orientation="Horizontal">
@@ -73,22 +74,28 @@
                 </Button>
             </StackPanel>
         </Expander>
-        <TextBlock Grid.Row="4" Text="{Binding PatchStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+        <TextBlock Grid.Row="4" Text="{Binding PatchStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
+                   Visibility="{Binding PatchStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
         <!-- Two columns now, not three: Library's own browsing pane left this page entirely
              (redesign-round-2 pilot) — mods reach the queue from Library itself (multi-select +
              right-click "Add to merge queue"), so this page only ever needs to own the queue and
-             the merge options. -->
+             the merge options. The gap between them is a splitter: drag it to widen either one. -->
         <Grid Grid.Row="5" Margin="0,16,0,0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" MinWidth="260"/>
+                <ColumnDefinition Width="*" MinWidth="320"/>
                 <ColumnDefinition Width="16"/>
                 <ColumnDefinition Width="320" MinWidth="260"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Queue + Rebuild + Install pane. The primary action (Install) stays always visible;
-                 Verify and Uninstall — real but occasional — collapse into one "Advanced actions"
-                 section below it. -->
+            <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="Transparent"
+                          ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Cursor="SizeWE" ToolTip="Drag to resize"
+                          AutomationProperties.Name="Resize the queue and merge options"/>
+
+            <!-- Queue + Rebuild + Install pane. The queue's own edit buttons sit right under it;
+                 the checks and Install get their own line below, Install on the right where the
+                 eye ends. Compare, Copy to game, Remove and Restore — real but occasional —
+                 collapse into one "Advanced actions" section at the bottom. -->
             <Grid Grid.Column="0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -98,10 +105,11 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <DockPanel Grid.Row="0" Margin="0,0,0,6" LastChildFill="False">
-                    <TextBlock DockPanel.Dock="Left" Text="Mods in merged pak (later mods win conflicts)" Style="{StaticResource FieldLabelStyle}"/>
+                    <TextBlock DockPanel.Dock="Left" Text="Mods to merge (the one lower in the list wins a conflict)" Style="{StaticResource FieldLabelStyle}"/>
                     <!-- Phase 10: a proactive conflict-count badge — surfaces a problem before the
                          user thinks to click Review conflicts. -->
                     <Border DockPanel.Dock="Right" Background="{DynamicResource DangerSoftBrush}" CornerRadius="9" Padding="7,1"
@@ -163,7 +171,7 @@
                                   StrokeThickness="1.6" StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Top"/>
                             <TextBlock Margin="0,0,10,0" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Center">
                                 <Run Text="{Binding ValidationIssueCount, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"/>
-                                <Run Text=" issue(s) found — a field that isn't real, a broken reference, two mods silently overwriting the same asset, or talent/workshop nodes on top of each other or that can't be unlocked. See Validate mods below."/>
+                                <Run Text=" issue(s) found: changes the game won't use (a field or link that isn't real), two mods overwriting the same file, or talent and workshop nodes on top of each other or that can't be unlocked. Review lists them."/>
                             </TextBlock>
                         </DockPanel>
                     </Border>
@@ -250,11 +258,8 @@
                 </DockPanel>
 
                 <!-- WrapPanel, not StackPanel: at narrower widths the trailing buttons were clipped
-                     off the column's edge with no way to reach them. Review conflicts/Validate
-                     mods/Update install (formerly their own "Build & install" section below) join
-                     the queue-editing buttons here — one compact action bar instead of two stacked
-                     ones, per the user's own request. Their per-action status text moved out to its
-                     own row underneath (Grid.Row="3"), since it no longer fits beside each button. -->
+                     off the column's edge with no way to reach them. Only the queue's own edits live
+                     here; the checks and Install have their own line below (Grid.Row="3"). -->
                 <WrapPanel Grid.Row="2" Margin="0,8,0,0">
                     <!-- The queue edits are off while a build runs (it builds what was queued when it started). -->
                     <StackPanel Orientation="Horizontal" IsEnabled="{Binding IsNotRebuilding}">
@@ -276,7 +281,7 @@
                         </StackPanel>
                     </Button>
                     <Button Content="Clear" Command="{Binding ClearQueueCommand}" Margin="0,0,8,0"/>
-                    <Button Content="More ▾" Click="DropdownButton_Click" Margin="0,0,10,0" ToolTip="Suggest an order, set a baseline">
+                    <Button Content="More ▾" Click="DropdownButton_Click" Margin="0,0,0,0" ToolTip="Suggest an order, set a baseline">
                         <Button.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Suggest order" Command="{Binding SuggestQueueOrderCommand}"
@@ -287,39 +292,44 @@
                         </Button.ContextMenu>
                     </Button>
                     </StackPanel>
+                </WrapPanel>
 
-                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Margin="0,4,10,4"/>
-
-                    <Button Content="Review conflicts" Command="{Binding ReviewConflictsCommand}" Margin="0,0,8,0"
-                            ToolTip="See which fields two or more queued mods both change, and optionally pick a winner per field instead of the default last-mod-wins"/>
-                    <Button Content="Validate mods" Command="{Binding ReviewValidationIssuesCommand}" Margin="0,0,10,0"
-                            ToolTip="Checks every queued mod's own fields, references, and bundled assets against the currently-extracted game data and each other — catches a typo'd/renamed field, a recipe pointing at an item that doesn't exist, or two mods silently overwriting the same file, any of which would otherwise merge and pack fine but silently not work in-game"/>
-
-                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Margin="0,4,10,4"/>
-
+                <!-- Check, then install: the two checks on the left, Install docked right. -->
+                <DockPanel Grid.Row="3" Margin="0,10,0,0" LastChildFill="False">
                     <!-- One button now does the whole "merge, then install" flow — chained internally
                          (RebuildAndInstallCommand), not merged into one method, so the real-game-write
                          confirmation dialog still appears only right before that actual write, after
                          the safe local rebuild step completes. Label reflects whether this app already
                          has something installed (a fresh "Install" vs. re-running it as "Update install"). -->
-                    <Button Command="{Binding RebuildAndInstallCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                    <Button DockPanel.Dock="Right" Command="{Binding RebuildAndInstallCommand}" Style="{StaticResource PrimaryButtonStyle}"
                             AutomationProperties.Name="{Binding InstallButtonLabel}"
-                            ToolTip="Merges the queue into a pak and installs it into the real game folder, in one step">
+                            ToolTip="Merges the queue into a pak and installs it into the real game folder, in one step (it asks before writing to the game)">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconMerge}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
                             <TextBlock Text="{Binding InstallButtonLabel}" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                </WrapPanel>
+                    <Button DockPanel.Dock="Left" Content="Review conflicts" Command="{Binding ReviewConflictsCommand}" Margin="0,0,8,0"
+                            ToolTip="See which values two or more queued mods change differently, and pick a winner per value instead of the default (the mod lower in the list wins)"/>
+                    <Button DockPanel.Dock="Left" Content="Validate mods" Command="{Binding ReviewValidationIssuesCommand}" Margin="0,0,8,0"
+                            ToolTip="Checks the queued mods against the game data and each other: a mistyped or renamed field, a recipe pointing at an item that doesn't exist, two mods overwriting the same file, talent nodes on top of each other. These merge fine but do nothing in game."/>
+                </DockPanel>
 
-                <StackPanel Grid.Row="3" Margin="0,8,0,0">
-                    <TextBlock Text="{Binding ConflictStatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding ValidationStatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0"/>
-                    <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                <!-- What the last action said; a line with nothing to say takes no room. The install
+                     result is here too, not only inside Advanced actions, since Install is the main button. -->
+                <StackPanel Grid.Row="4" Margin="0,8,0,0">
+                    <TextBlock Text="{Binding ConflictStatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"
+                               Visibility="{Binding ConflictStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    <TextBlock Text="{Binding ValidationStatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0"
+                               Visibility="{Binding ValidationStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0"
+                               Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    <TextBlock Text="{Binding InstallStatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0"
+                               Visibility="{Binding InstallStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                 </StackPanel>
 
-                <Grid Grid.Row="4" Margin="0,8,0,0" Visibility="{Binding IsRebuilding, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid Grid.Row="5" Margin="0,8,0,0" Visibility="{Binding IsRebuilding, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -329,37 +339,76 @@
                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
                 </Grid>
 
-                <ListBox Grid.Row="5" ItemsSource="{Binding Warnings}" Margin="0,8,0,0" MaxHeight="120"
-                         Foreground="{DynamicResource AccentBrush}" FontSize="12"/>
+                <!-- The last build's warnings and notes: only shown when there are some, open so
+                     they're read, and foldable once they have been. -->
+                <Expander Grid.Row="6" Margin="0,10,0,0" IsExpanded="True" AutomationProperties.Name="Build warnings and notes">
+                    <Expander.Style>
+                        <Style TargetType="Expander" BasedOn="{StaticResource {x:Type Expander}}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Warnings.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Expander.Style>
+                    <Expander.Header>
+                        <DockPanel LastChildFill="False">
+                            <TextBlock DockPanel.Dock="Left" Text="Build warnings and notes" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                            <TextBlock DockPanel.Dock="Left" Style="{StaticResource ExpanderHeaderStateStyle}">
+                                <Run Text="{Binding Warnings.Count, Mode=OneWay}"/><Run Text=" line(s) from the last build"/>
+                            </TextBlock>
+                        </DockPanel>
+                    </Expander.Header>
+                    <ListBox ItemsSource="{Binding Warnings}" MaxHeight="160" Foreground="{DynamicResource AccentBrush}" FontSize="12"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Expander>
 
-                <!-- Verify + Uninstall: real, occasionally-needed tools, folded into one collapsed
-                     section instead of two always-visible ones — neither competes with Install for
-                     a new user's attention, but both stay one click away. -->
-                <Expander Grid.Row="6" Margin="0,14,0,0" IsExpanded="False" AutomationProperties.Name="Advanced actions">
+                <!-- Compare + the installed pak's tools: real, occasionally-needed, folded into one
+                     collapsed section — none competes with Install for a new user's attention, but
+                     all stay one click away. -->
+                <Expander Grid.Row="7" Margin="0,14,0,0" IsExpanded="False" AutomationProperties.Name="Advanced actions">
                     <Expander.Header>
                         <DockPanel LastChildFill="False">
                             <TextBlock DockPanel.Dock="Left" Text="Advanced actions" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                            <TextBlock DockPanel.Dock="Left" Text="Verify · Uninstall" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                            <TextBlock DockPanel.Dock="Left" Text="Compare · Copy to game · Remove from game · Restore previous install" Style="{StaticResource ExpanderHeaderStateStyle}"
+                                       TextTrimming="CharacterEllipsis"/>
                         </DockPanel>
                     </Expander.Header>
                     <StackPanel>
-                        <TextBlock Text="Verify" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8" FontSize="13"/>
+                        <TextBlock Text="Compare" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8" FontSize="13"/>
                         <StackPanel Orientation="Horizontal">
                             <Button Content="Compare to installed" Command="{Binding CompareToInstalledCommand}"
-                                    ToolTip="Preview what Install would actually change, by reading what this app can tell is currently installed."/>
+                                    ToolTip="Lists which mods Install would add (+), take out (-) or leave (=), against the merged pak in the game now."/>
                             <Button Content="Compare paks…" Command="{Binding ComparePaksCommand}" Margin="8,0,0,0"
-                                    ToolTip="Unpack any two .pak files and see exactly how they differ, row by row — e.g. verify a rebuilt pak matches a known-good one from another tool."/>
-                            <TextBlock Text="{Binding ComparisonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
+                                    ToolTip="Unpack any two .pak files and see exactly how they differ, row by row — e.g. check a rebuilt pak matches a known-good one from another tool."/>
                         </StackPanel>
-                        <ListBox ItemsSource="{Binding ComparisonEntries}" Margin="0,8,0,0" MaxHeight="120" FontSize="12" FontFamily="Consolas"/>
+                        <TextBlock Text="{Binding ComparisonStatusMessage}" Margin="0,6,0,0"
+                                   Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"
+                                   Visibility="{Binding ComparisonStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <ListBox ItemsSource="{Binding ComparisonEntries}" Margin="0,8,0,0" MaxHeight="160" FontSize="12" FontFamily="Consolas">
+                            <ListBox.Style>
+                                <Style TargetType="ListBox" BasedOn="{StaticResource {x:Type ListBox}}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ComparisonEntries.Count}" Value="0">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ListBox.Style>
+                        </ListBox>
 
                         <Border Style="{StaticResource SectionDividerStyle}" Margin="0,14,0,10"/>
-                        <TextBlock Text="Uninstall" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8" FontSize="13"/>
-                        <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="The merged pak in the game" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8" FontSize="13"/>
+                        <WrapPanel IsEnabled="{Binding IsNotRebuilding}">
                             <!-- The spec's "Copy built pack to game" / Retry: installs the already-staged
                                  pak without remerging. Shown only when there is one to copy. -->
-                            <Button Command="{Binding CopyToGameCommand}" Margin="0,0,8,0"
+                            <Button Command="{Binding CopyToGameCommand}" Margin="0,0,8,4"
                                     Visibility="{Binding CanCopyToGame, Converter={StaticResource BoolToVisibilityConverter}}"
                                     ToolTip="Copies the already-built pak into the game without rebuilding it — use this if Icarus was running when Install failed"
                                     AutomationProperties.Name="Copy to game">
@@ -369,8 +418,8 @@
                                     <TextBlock Text="Copy to game" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
-                            <Button Command="{Binding RemoveFromGameCommand}"
-                                    ToolTip="Uninstalls IcarusStarlink's pak from the real game folder — doesn't touch your Library"
+                            <Button Command="{Binding RemoveFromGameCommand}" Margin="0,0,0,4"
+                                    ToolTip="Uninstalls IcarusStarlink's pak from the real game folder (backed up first) — doesn't touch your Library"
                                     AutomationProperties.Name="Remove from game">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
@@ -378,11 +427,9 @@
                                     <TextBlock Text="Remove from game" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
-                            <Button Command="{Binding RestorePreviousInstallCommand}" Content="Restore previous install" Margin="8,0,0,0"
+                            <Button Command="{Binding RestorePreviousInstallCommand}" Content="Restore previous install" Margin="8,0,0,4"
                                     ToolTip="Puts back the merged pak that was installed before the current one, with its mod list. What's installed now is backed up first, so you can switch back."/>
-                            <TextBlock Text="{Binding InstallStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
-                        </StackPanel>
+                        </WrapPanel>
                     </StackPanel>
                 </Expander>
             </Grid>
@@ -492,7 +539,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
                                Text="Higher = bigger stacks (3x fits three times as many in one slot). Off = normal stack sizes."/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
@@ -510,7 +557,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
                                Text="Higher = more slots in backpacks and containers (2x doubles them). Off = normal slot counts."/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
@@ -526,7 +573,7 @@
                     <Slider Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
                             Value="{Binding SpeedCraftingPercent}" Margin="0,4,0,0"
                             ToolTip="Drag or click to set — 0 means unchanged"/>
-                    <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
                                Text="Lower = closer to normal crafting time (0% = unchanged). Higher = faster crafting (50% = half the time)."/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
@@ -542,13 +589,13 @@
                     <Slider Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
                             Value="{Binding TamingSpeedPercent}" Margin="0,4,0,0"
                             ToolTip="Drag or click to set — 0 means unchanged"/>
-                    <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
                                Text="Lower = closer to normal taming time (0% = unchanged). Higher = faster taming (50% = half the time)."/>
 
                     <Border Style="{StaticResource SectionDividerStyle}" Margin="0,16,0,10"/>
-                    <TextBlock Text="OTHER TOGGLES" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                    <TextBlock Text="OTHER" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource FaintForegroundBrush}"/>
 
-                    <!-- Phase 10: genuine on/off toggles for these three, replacing plain checkboxes. -->
+                    <!-- Lighter Items is a slider; the three after it are genuine on/off toggles (Phase 10), replacing plain checkboxes. -->
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Lighter Items" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
@@ -562,7 +609,7 @@
                     <Slider Minimum="0" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True"
                             Value="{Binding WeightReductionPercent}" Margin="0,4,0,0"
                             ToolTip="Drag or click to set — 0 means unchanged, 100 means weightless"/>
-                    <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
                                Text="Lower = closer to normal weight (0% = unchanged). Higher = lighter items (50% = half the weight, 100% = weightless)."/>
                     <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding UnlimitedAmmo}" Margin="0,12,0,0"
                               Content="Unlimited Ammo"

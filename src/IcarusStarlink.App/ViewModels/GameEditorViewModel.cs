@@ -240,7 +240,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
         _activityLog = activityLog;
         _dataFolder = dataFolder;
         NewModAuthor = Environment.UserName;
-        // Game data changes under the page when Settings' Update data folder runs.
+        // Game data changes under the page when Refresh game data runs.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).ResetGameData());
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).RefreshTargets());
         WeakReferenceMessenger.Default.Register<OpenGameItemMessage>(this, (recipient, message) => ((GameEditorViewModel)recipient).Open(message.ItemName, message.TargetFolder));

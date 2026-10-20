@@ -20,10 +20,15 @@
 
     <Grid Margin="16">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="300"/>
+            <ColumnDefinition Width="300" MinWidth="220"/>
             <ColumnDefinition Width="16"/>
-            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*" MinWidth="420"/>
         </Grid.ColumnDefinitions>
+
+        <!-- Drag to give the item list or the views more room. -->
+        <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="Transparent"
+                      ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Cursor="SizeWE" ToolTip="Drag to resize"
+                      AutomationProperties.Name="Resize the item list"/>
 
         <!-- Left: items, grouped implicitly by file via sort order + the "File — Item" display text.
              Extended selection mode + the code-behind SelectionChanged handler feed multi-select
@@ -93,13 +98,13 @@
                         ToolTip="Find any item by name, and everywhere its name is referenced inside other items' JSON — e.g. every recipe that consumes it"/>
                 <Button Content="Check references" Command="{Binding CheckReferencesCommand}" Margin="0,0,8,4"
                         ToolTip="Finds links to rows that exist neither in the game nor in this mod (a typo, or a row a game update renamed), and item rows nothing uses. Also runs on Save."/>
-                <Button x:Name="MoreButton" Content="More ▾" Click="MoreButton_Click" Margin="0,0,8,4" ToolTip="Duplicate, open the original file, insert a file, merge another mod, open the folder">
+                <Button x:Name="MoreButton" Content="More ▾" Click="MoreButton_Click" Margin="0,0,8,4" ToolTip="Copy a game row, duplicate, open the original file, insert a file, merge another mod, open the folder">
                     <Button.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="Copy a game row into this mod…" Command="{Binding AddItemFromGameCommand}" ToolTip="The raw way to change a game item: copy any row of the game's data, with all its values, then edit the fields you want"/>
                             <MenuItem Header="Duplicate (Ctrl+D)" Command="{Binding DuplicateItemCommand}" ToolTip="Clone the selected item's fields under a new name"/>
                             <MenuItem Header="Open original file" Command="{Binding OpenOriginalFileCommand}" ToolTip="Open the real, unmodified base game data file for the selected item"/>
-                            <MenuItem Header="Insert file at location…" Command="{Binding InsertFileAtLocationCommand}" ToolTip="Add one of the game's own real data files to this mod, with no items yet"/>
+                            <MenuItem Header="Insert file at location…" Command="{Binding InsertFileAtLocationCommand}" ToolTip="Add one of the game's own real data files to this mod, with no rows yet"/>
                             <MenuItem Header="Merge existing mod into this one…" Command="{Binding MergeExistingModCommand}" ToolTip="Copy another Library mod's own items into this one — an item already here is left alone"/>
                             <MenuItem Header="Open mods folder" Command="{Binding OpenModsFolderCommand}" ToolTip="Reveal this mod's own folder in Explorer"/>
                         </ContextMenu>
@@ -107,7 +112,15 @@
                 </Button>
             </WrapPanel>
 
-            <Expander Grid.Row="4" Header="Add an empty row (advanced)" Margin="0,4,0,0">
+            <!-- Rare and raw: typing a file and row name by hand. Folded away; the buttons above are
+                 the usual ways in. -->
+            <Expander Grid.Row="4" Margin="0,4,0,0" IsExpanded="False" AutomationProperties.Name="Add an empty row">
+                <Expander.Header>
+                    <DockPanel LastChildFill="False">
+                        <TextBlock DockPanel.Dock="Left" Text="Add an empty row" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                        <TextBlock DockPanel.Dock="Left" Text="advanced: type a file and row name" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                    </DockPanel>
+                </Expander.Header>
                 <StackPanel Margin="0,4,0,0">
                     <Grid>
                         <TextBox Text="{Binding NewItemCurrentFile, UpdateSourceTrigger=PropertyChanged}"
@@ -121,8 +134,8 @@
                         <TextBlock Text="e.g. Item_Wood" Style="{StaticResource PlaceholderTextStyle}"
                                    Visibility="{Binding NewItemName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                     </Grid>
-                    <Button Content="Add item" Command="{Binding AddItemCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"
-                            ToolTip="Adds a new, empty item to this file (or creates the file if it's not already part of this mod)"/>
+                    <Button Content="Add row" Command="{Binding AddItemCommand}" Margin="0,4,0,0" HorizontalAlignment="Left"
+                            ToolTip="Adds a new, empty row to this file (or adds the file if it's not already part of this mod)"/>
                 </StackPanel>
             </Expander>
         </Grid>

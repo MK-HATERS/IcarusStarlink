@@ -44,28 +44,40 @@
                      Content="Map icon — for a blueprint or Lua mod"
                      ToolTip="A map and compass marker. Nothing shows it by itself: your mod's blueprint or Lua script looks it up by its row name, the way the Teleporters mod does."/>
 
-        <TextBlock Text="Classic IMM templates" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,12,0,0"/>
-        <RadioButton x:Name="CraftableRadio" GroupName="Template" Margin="0,6,0,0"
-                     Content="Craftable / deployable item"
-                     ToolTip="A complete placeable/craftable item skeleton (recipe, mesh, icon, all reusing a real vanilla campfire's own assets as placeholders) — the same official template classic IMM itself ships."/>
-        <RadioButton x:Name="ConsumableRadio" GroupName="Template" Margin="0,6,0,0"
-                     Content="Consumable / meta item"
-                     ToolTip="A complete craftable consumable item skeleton (recipe, icon, byproducts) reusing a real vanilla crate icon as a placeholder — the same official template classic IMM itself ships."/>
-        <RadioButton x:Name="BuildingPieceRadio" GroupName="Template" Margin="0,6,0,0"
-                     Content="Building piece"
-                     ToolTip="A craftable wood wall skeleton (recipe, stability/type traits, building-piece entry) reusing the real vanilla wood-kit mesh — its own Blueprint/icon are left as placeholders for your own custom art, the same as classic IMM's own template."/>
-        <RadioButton x:Name="ElectricGeneratorRadio" GroupName="Template" Margin="0,6,0,0"
-                     Content="Electric generator"
-                     ToolTip="A craftable deployable that produces energy (recipe, resource/energy traits) — its own mesh/Blueprint are left as placeholders for your own custom art, the same as classic IMM's own template."/>
-        <RadioButton x:Name="WaterPumpRadio" GroupName="Template" Margin="0,6,0,16"
-                     Content="Water pump"
-                     ToolTip="A craftable deployable that produces water for a resource network (recipe, generator/resource traits) reusing the real vanilla machining-kit mesh — its own Blueprint is left as a placeholder for your own custom art, the same as classic IMM's own template."/>
+        <!-- The five classic IMM skeletons are rarer starting points: folded away so the common
+             choices above stay short, one click to open. -->
+        <Expander Margin="0,12,0,16" IsExpanded="False" AutomationProperties.Name="Classic IMM templates">
+            <Expander.Header>
+                <DockPanel LastChildFill="False">
+                    <TextBlock DockPanel.Dock="Left" Text="Classic IMM templates" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                    <TextBlock DockPanel.Dock="Left" Text="Craftable · Consumable · Building piece · Generator · Pump" Style="{StaticResource ExpanderHeaderStateStyle}"
+                               TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+            </Expander.Header>
+            <StackPanel>
+                <RadioButton x:Name="CraftableRadio" GroupName="Template" Margin="0,6,0,0"
+                             Content="Craftable / deployable item"
+                             ToolTip="A complete placeable/craftable item skeleton (recipe, mesh, icon, all reusing a real vanilla campfire's own assets as placeholders) — the same official template classic IMM itself ships."/>
+                <RadioButton x:Name="ConsumableRadio" GroupName="Template" Margin="0,6,0,0"
+                             Content="Consumable / meta item"
+                             ToolTip="A complete craftable consumable item skeleton (recipe, icon, byproducts) reusing a real vanilla crate icon as a placeholder — the same official template classic IMM itself ships."/>
+                <RadioButton x:Name="BuildingPieceRadio" GroupName="Template" Margin="0,6,0,0"
+                             Content="Building piece"
+                             ToolTip="A craftable wood wall skeleton (recipe, stability/type traits, building-piece entry) reusing the real vanilla wood-kit mesh — its own Blueprint/icon are left as placeholders for your own custom art, the same as classic IMM's own template."/>
+                <RadioButton x:Name="ElectricGeneratorRadio" GroupName="Template" Margin="0,6,0,0"
+                             Content="Electric generator"
+                             ToolTip="A craftable deployable that produces energy (recipe, resource/energy traits) — its own mesh/Blueprint are left as placeholders for your own custom art, the same as classic IMM's own template."/>
+                <RadioButton x:Name="WaterPumpRadio" GroupName="Template" Margin="0,6,0,0"
+                             Content="Water pump"
+                             ToolTip="A craftable deployable that produces water for a resource network (recipe, generator/resource traits) reusing the real vanilla machining-kit mesh — its own Blueprint is left as a placeholder for your own custom art, the same as classic IMM's own template."/>
+            </StackPanel>
+        </Expander>
 
         <TextBlock x:Name="ErrorText" Foreground="{DynamicResource DangerBrush}" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap" Visibility="Collapsed"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0"/>
-            <Button Content="Create" Click="Create_Click" Style="{StaticResource PrimaryButtonStyle}"/>
+            <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0" IsCancel="True"/>
+            <Button Content="Create" Click="Create_Click" Style="{StaticResource PrimaryButtonStyle}" IsDefault="True"/>
         </StackPanel>
     </StackPanel>
 </Window>

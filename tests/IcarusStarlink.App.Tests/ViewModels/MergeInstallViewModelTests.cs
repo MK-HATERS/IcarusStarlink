@@ -24,17 +24,14 @@ using IcarusStarlink.PakIO.Rebuild;
 namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>
-/// MergeInstallViewModel had zero tests before this session despite being ~2000 lines of
-/// safety-critical rebuild/install orchestration. Given its 13 constructor dependencies and the
-/// real, hard limit that several of its own [RelayCommand] methods (ReviewConflictsAsync,
-/// ReviewValidationIssuesAsync, SuggestQueueOrderAsync's own apply step, InstallAsync,
-/// RemoveFromGameAsync) construct a real, modal, blocking WPF Window (ThemedMessageBox/
-/// ConflictPickerWindow/ValidationIssueReportWindow) with no live Application in a headless test
-/// host — this deliberately does NOT try to exercise those end-to-end. Instead it targets the four
-/// highest-risk, currently-completely-unverified pieces called out for this pass, each through a
-/// real, narrow, minimally-invasive internal seam added alongside these tests (see
-/// IsRecomputeDebouncePending/RecomputeConflictCountAsync/RecomputeValidationIssueCountAsync/
-/// ComputeSuggestedQueueOrderAsync/RebuildAsync's own doc comments on MergeInstallViewModel):
+/// MergeInstallViewModel's rebuild/install orchestration, against a fake per constructor
+/// dependency. Every Yes/No question goes through its Confirm seam, names through
+/// PromptForProfileName and the patch file through PickPatchFile, so Install, Remove from game,
+/// Restore previous install, Suggest order and the profile commands all run here; only Review
+/// conflicts and Validate mods still open a real window (MergeConflictsWindow,
+/// ValidationIssueReportWindow), so those are reached through the same recompute the badges use
+/// (RecomputeConflictCountAsync/RecomputeValidationIssueCountAsync, CreateConflictReviewForTesting).
+/// The first groups below cover:
 ///
 ///   1. Queue mutation -&gt; the debounced conflict/validation recompute (does a mutation defer to
 ///      the debounce rather than compute inline, and does the recompute — once actually run —
@@ -87,7 +84,8 @@ public sealed class MergeInstallViewModelTests : IDisposable
         FakeProfileStore? profileStore = null,
         FakeSettingsService? settingsService = null,
         bool gameRunning = false,
-        FakeGameDataFreshness? gameDataFreshness = null)
+        FakeGameDataFreshness? gameDataFreshness = null,
+        FakePatchService? patchService = null)
     {
         settingsService ??= new FakeSettingsService();
 
@@ -105,7 +103,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
             rebuildService ?? new FakeRebuildService(),
             installService ?? new FakeInstallService(),
             profileStore ?? new FakeProfileStore(),
-            new FakePatchService(),
+            patchService ?? new FakePatchService(),
             new FakeDaedalusCatalogClient(),
             new FakeJimk72CatalogClient(),
             settingsService,
@@ -329,6 +327,31 @@ public sealed class MergeInstallViewModelTests : IDisposable
         vm.RenameProfileCommand.Execute(null);
         Assert.Contains("Solo run", store.ProfileNames);
         Assert.DoesNotContain("Coop run", store.ProfileNames);
+    }
+
+    /// <summary>
+    /// A name refused because a profile already has it is asked again on the next click: it used to
+    /// be kept and reused without asking, so New profile failed the same way every time after.
+    /// </summary>
+    [Fact]
+    public void NewProfile_AfterATakenName_AsksAgain()
+    {
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop" });
+        var vm = CreateViewModel(profileStore: store);
+        var answer = "Coop";
+        var asked = 0;
+        vm.PromptForProfileName = (_, _) => { asked++; return answer; };
+
+        vm.NewProfileCommand.Execute(null);
+        Assert.Contains("already exists", vm.ProfileStatusMessage);
+
+        answer = "Solo";
+        vm.NewProfileCommand.Execute(null);
+
+        Assert.Equal(2, asked);
+        Assert.Contains("Solo", store.ProfileNames);
+        Assert.Equal("Solo", vm.SelectedProfileName);
     }
 
     /// <summary>Renaming the profile in use makes it the one selected on the next start.</summary>
@@ -807,13 +830,12 @@ public sealed class MergeInstallViewModelTests : IDisposable
     [Fact]
     public async Task SuggestQueueOrderCommand_FewerThanTwoRealMods_ReportsStatusAndNeverReachesTheConfirmationDialog()
     {
-        // Only ever exercised through the public command here because this particular guard
-        // returns BEFORE the method would ever construct a real ThemedMessageBox dialog — every
-        // other branch of SuggestQueueOrderAsync is covered above via ComputeSuggestedQueueOrderAsync
-        // instead, specifically to avoid that dialog (see this test class' own doc comment).
+        // The guard returns before anything is asked: a prebuilt pak keeps its place, so one alone
+        // has nothing to reorder around it.
         var libraryRepository = new FakeLibraryRepository();
         libraryRepository.FolderPaths["OpaquePak1"] = CreateOpaquePakFolder("OpaquePak1");
         var vm = CreateViewModel(libraryRepository: libraryRepository);
+        vm.Confirm = (_, _) => throw new InvalidOperationException("Must not ask.");
         vm.Queue.Add(MakeEntry("OpaquePak1", isOpaquePak: true));
 
         await vm.SuggestQueueOrderCommand.ExecuteAsync(null);
@@ -1348,6 +1370,108 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Contains("Restored", vm.InstallStatusMessage);
     }
 
+    /// <summary>
+    /// Importing a patch saved under the profile already in use loads it: the page used to keep the
+    /// queue from before (setting the selection to the same name changes nothing), and its next
+    /// auto-save wrote that old queue back over the imported profile.
+    /// </summary>
+    [Fact]
+    public async Task ImportPatch_UnderTheProfileInUse_LoadsTheImportAndKeepsIt()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA"), MakeEntry("ModB")] };
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModA"] });
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest
+                {
+                    ProfileName = "Coop",
+                    Mods = [new PatchModEntry { FolderName = "Theirs", Name = "ModB", Author = "Test", Version = "1", Bundled = false }],
+                },
+                new Dictionary<string, ExmodPackageContents>()),
+        };
+        var vm = CreateViewModel(libraryRepository: library, profileStore: store, patchService: patches);
+        vm.SelectedProfileName = "Coop";
+        vm.UnlimitedAmmo = true; // a pending auto-save of Coop
+        vm.PickPatchFile = () => "patch.json";
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+        vm.SaveWorkingState();
+
+        Assert.Equal(["ModB"], vm.Queue.Select(e => e.FolderName));
+        Assert.Equal(["ModB"], store.Load("Coop").MergeQueueFolderNames);
+        Assert.False(store.Load("Coop").Options.UnlimitedAmmo);
+        Assert.StartsWith("Imported 'Coop'", vm.PatchStatusMessage);
+    }
+
+    /// <summary>Copy to game while a build runs would copy the pak the build is still writing: it's refused with a reason.</summary>
+    [Fact]
+    public async Task CopyToGame_WhileBuilding_IsRefused()
+    {
+        var settings = new FakeSettingsService();
+        settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(installService: install, settingsService: settings);
+        vm.Confirm = (_, _) => true;
+        vm.IsRebuilding = true;
+
+        await vm.CopyToGameCommand.ExecuteAsync(null);
+        await vm.RemoveFromGameCommand.ExecuteAsync(null);
+        await vm.RestorePreviousInstallCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, install.InstallCallCount);
+        Assert.Equal(0, install.RemoveCallCount);
+        Assert.Equal(0, install.RestoreCallCount);
+        Assert.Contains("building", vm.InstallStatusMessage);
+    }
+
+    /// <summary>
+    /// The pak is in the game before the Library copy is made: that copy failing is a note on a
+    /// successful install, not "Install failed" (which also left the install unrecorded).
+    /// </summary>
+    [Fact]
+    public async Task Install_LibraryCopyFails_StillReportsTheInstall()
+    {
+        var settings = new FakeSettingsService();
+        settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
+        var library = new FakeLibraryRepository { ImportPakException = new IOException("folder is locked") };
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(libraryRepository: library, installService: install, settingsService: settings);
+        vm.Confirm = (_, _) => true;
+
+        var outcome = await vm.InstallAsync();
+
+        Assert.Equal(MergeInstallViewModel.InstallOutcome.Installed, outcome);
+        Assert.Equal(1, install.InstallCallCount);
+        Assert.True(vm.HasExistingInstall);
+        Assert.NotNull(settings.Current.LastInstallAtUtc);
+        Assert.StartsWith("Installed to", vm.InstallStatusMessage);
+        Assert.Contains("folder is locked", vm.InstallStatusMessage);
+    }
+
+    /// <summary>Suggest order asks through the same seam as every other question, and applying it saves into the profile in use.</summary>
+    [Fact]
+    public async Task SuggestQueueOrder_Yes_AppliesAndSavesIntoTheProfileInUse()
+    {
+        var libraryRepository = new FakeLibraryRepository { AllEntries = [MakeEntry("SmallTweak"), MakeEntry("BigOverhaul")] };
+        libraryRepository.FolderPaths["BigOverhaul"] = CreateExmodFolder("BigOverhaul", BuildBigOverhaulJson(), out _);
+        libraryRepository.FolderPaths["SmallTweak"] = CreateExmodFolder("SmallTweak", BuildSmallTweakJson(), out _);
+        var rebuildService = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildBaseTables() };
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["SmallTweak", "BigOverhaul"] });
+        var vm = CreateViewModel(libraryRepository: libraryRepository, rebuildService: rebuildService, profileStore: store);
+        vm.SelectedProfileName = "Coop";
+        string? asked = null;
+        vm.Confirm = (message, _) => { asked = message; return true; };
+
+        await vm.SuggestQueueOrderCommand.ExecuteAsync(null);
+
+        Assert.Contains("save it to 'Coop'", asked);
+        Assert.Equal(["BigOverhaul", "SmallTweak"], vm.Queue.Select(e => e.FolderName));
+        Assert.Equal(["BigOverhaul", "SmallTweak"], store.Load("Coop").MergeQueueFolderNames);
+    }
+
     // ---------------------------------------------------------------------------------------
     // Fakes — one per constructor dependency, following this project's established
     // fake-per-interface convention (SavesViewModelTests/LibraryItemViewModelTests) rather than a
@@ -1363,6 +1487,9 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public int ImportPakCallCount { get; private set; }
         public string? LastImportPakPath { get; private set; }
         public string? LastMergedPackProfileName { get; private set; }
+
+        /// <summary>Thrown by ImportPak (the built pack's Library copy) when set.</summary>
+        public Exception? ImportPakException { get; set; }
 
         public IReadOnlyList<LibraryEntry> GetAll() => AllEntries;
 
@@ -1380,6 +1507,11 @@ public sealed class MergeInstallViewModelTests : IDisposable
             ImportPakCallCount++;
             LastImportPakPath = pakFilePath;
             LastMergedPackProfileName = mergedPackProfileName;
+            if (ImportPakException is not null)
+            {
+                throw ImportPakException;
+            }
+
             return new LibraryEntry
             {
                 FolderName = Path.GetFileNameWithoutExtension(pakFilePath), Name = "Built pak", Author = "IcarusStarlink", Version = "1",
@@ -1573,11 +1705,14 @@ public sealed class MergeInstallViewModelTests : IDisposable
 
     private sealed class FakePatchService : IPatchService
     {
+        /// <summary>What ImportAsync reads from any patch file.</summary>
+        public PatchImportContents? ImportResult { get; set; }
+
         public Task ExportAsync(PatchManifest manifest, IReadOnlyDictionary<string, ExmodPackageContents> bundledMods, string outputPath, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
 
         public Task<PatchImportContents> ImportAsync(string patchFilePath, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+            Task.FromResult(ImportResult ?? throw new NotSupportedException("Set ImportResult first."));
     }
 
     private sealed class FakeDaedalusCatalogClient : IDaedalusCatalogClient

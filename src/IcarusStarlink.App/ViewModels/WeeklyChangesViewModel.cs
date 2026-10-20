@@ -21,7 +21,7 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
 
     public string Title => "Weekly Changes";
 
-    /// <summary>Exposed so this page's own "Update data folder" shortcut can run the exact same
+    /// <summary>Exposed so this page's own "Refresh game data" shortcut can run the exact same
     /// command Settings' own button does, rather than duplicating the extraction logic here —
     /// the same reuse pattern NexusCatalogViewModel.Downloads already uses for a sibling page's
     /// command. SettingsViewModel is a DI singleton constructed eagerly at app startup, so this
@@ -47,7 +47,7 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
         Settings = settings;
 
         // This VM is a DI singleton, constructed once on first navigation here — without this, a
-        // report saved later (from Settings' Update data folder, or this page's own shortcut)
+        // report saved later (from Settings' Refresh game data, or this page's own shortcut)
         // wouldn't show up until some unrelated trigger happened to rebuild this page. Same
         // rationale as LibraryViewModel's own LibraryChangedMessage registration.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((WeeklyChangesViewModel)recipient).ReloadHistory());
@@ -106,8 +106,9 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
             ChangedFiles.Add(new ChangedDataFileViewModel(file));
         }
 
-        SelectedFile = previouslySelectedPath is null
-            ? null
-            : ChangedFiles.FirstOrDefault(f => f.RelativePath == previouslySelectedPath);
+        // The same file again when this report has it, else the first one, so the grid isn't
+        // empty until a file is clicked.
+        SelectedFile = (previouslySelectedPath is null ? null : ChangedFiles.FirstOrDefault(f => f.RelativePath == previouslySelectedPath))
+            ?? ChangedFiles.FirstOrDefault();
     }
 }

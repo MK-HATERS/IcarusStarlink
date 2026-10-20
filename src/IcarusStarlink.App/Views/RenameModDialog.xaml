@@ -19,8 +19,8 @@
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="ResetButton" Content="Reset to default" Click="Reset_Click" Margin="0,0,8,0"
                     ToolTip="Clears the override — goes back to the mod's own declared name"/>
-            <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0"/>
-            <Button Content="Save" Click="Save_Click" Style="{StaticResource PrimaryButtonStyle}"/>
+            <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0" IsCancel="True"/>
+            <Button Content="Save" Click="Save_Click" Style="{StaticResource PrimaryButtonStyle}" IsDefault="True"/>
         </StackPanel>
     </StackPanel>
 </Window>

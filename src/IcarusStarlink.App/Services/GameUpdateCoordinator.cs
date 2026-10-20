@@ -305,6 +305,13 @@ public sealed class GameUpdateCoordinator(
             return "Icarus is running. Close it, then Roll back.";
         }
 
+        // Checked before anything is put back: a build running now would install over the restored
+        // pak, and the profile can't be restored while it runs, so only half would be rolled back.
+        if (mergeInstall().IsRebuilding)
+        {
+            return "Merge & Install is building right now. Roll back once it's done.";
+        }
+
         if (!dialogService.Confirm(
                 $"Roll back puts your mod setup back as it was on {snapshot.CreatedAtUtc.ToLocalTime():g}:\n\n"
                 + "• the merged pak in the game (what's there now is backed up first)\n"
@@ -366,6 +373,8 @@ public sealed class GameUpdateCoordinator(
         }
 
         await merge.RefreshInstalledModNamesAsync();
+        // The Install / Update install label follows what's in the mods folder now.
+        await merge.RefreshHasExistingInstallAsync();
         library().ReloadInstalledUe4ssModsCommand.Execute(null);
 
         var message = $"Rolled back: {string.Join(", ", done)}."

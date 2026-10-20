@@ -18,13 +18,13 @@
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
             <TextBlock x:Name="HeaderText" Style="{StaticResource PageHeaderStyle}" FontSize="18" TextWrapping="Wrap" Margin="0,0,0,4"/>
             <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
-                None of these stop the merge or the pak build from succeeding — Icarus's own importer just silently ignores a field it doesn't recognize, and an unresolved reference just quietly does nothing. Fix these in the EXMOD editor, then check again.
+                None of these stop the merge or the pak build — the game just ignores a field it doesn't know and a link to a row that isn't there, and of two mods bundling the same file only the one lower in the queue counts. Fix these in the Mod editor (the pencil on the mod's row in Library), then click Validate mods again.
             </TextBlock>
         </StackPanel>
 
         <DataGrid Grid.Row="1" x:Name="FindingsGrid" IsReadOnly="True" AutoGenerateColumns="False" GridLinesVisibility="Horizontal">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Kind" Binding="{Binding Kind}" Width="80"/>
+                <DataGridTextColumn Header="Kind" Binding="{Binding Kind}" Width="100"/>
                 <DataGridTextColumn Header="Mod" Binding="{Binding ModName}" Width="150"/>
                 <DataGridTextColumn Header="File" Binding="{Binding File}" Width="190"/>
                 <DataGridTextColumn Header="Item" Binding="{Binding ItemName}" Width="130"/>

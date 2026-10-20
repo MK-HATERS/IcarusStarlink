@@ -16,16 +16,21 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Pick one of the game's own real data files to add to this mod, with no items yet — then use Add item below to add items to it."
+        <TextBlock Grid.Row="0" Text="Pick one of the game's own data files to add to this mod, with no rows yet. Then add rows to it: More ▾ › Copy a game row into this mod…, or Add an empty row."
                    Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
-        <TextBox x:Name="FilterBox" Grid.Row="1" Margin="0,0,0,8" TextChanged="FilterBox_TextChanged"/>
+        <Grid Grid.Row="1" Margin="0,0,0,8">
+            <TextBox x:Name="FilterBox" TextChanged="FilterBox_TextChanged" AutomationProperties.Name="Search files"/>
+            <TextBlock Text="Search, e.g. D_Itemable, Recipes…" Style="{StaticResource PlaceholderTextStyle}"
+                       Visibility="{Binding Text, ElementName=FilterBox, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+        </Grid>
 
         <ListBox x:Name="FilesListBox" Grid.Row="2" MouseDoubleClick="FilesListBox_MouseDoubleClick"/>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0"/>
-            <Button Content="Add" Click="Add_Click" Style="{StaticResource PrimaryButtonStyle}"/>
+            <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0" IsCancel="True"/>
+            <Button Content="Add" Click="Add_Click" Style="{StaticResource PrimaryButtonStyle}" IsDefault="True"
+                    ToolTip="Adds the selected file (double-click a file does the same)"/>
         </StackPanel>
     </Grid>
 </Window>

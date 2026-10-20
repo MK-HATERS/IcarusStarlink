@@ -19,13 +19,18 @@
         <TextBlock Grid.Row="0" Text="Copies every item this mod doesn't already have from the picked mod — an item already present here is left alone, never overwritten."
                    Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
-        <TextBox x:Name="FilterBox" Grid.Row="1" Margin="0,0,0,8" TextChanged="FilterBox_TextChanged"/>
+        <Grid Grid.Row="1" Margin="0,0,0,8">
+            <TextBox x:Name="FilterBox" TextChanged="FilterBox_TextChanged" AutomationProperties.Name="Search mods"/>
+            <TextBlock Text="Search your mods by name…" Style="{StaticResource PlaceholderTextStyle}"
+                       Visibility="{Binding Text, ElementName=FilterBox, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+        </Grid>
 
         <ListBox x:Name="ModsListBox" Grid.Row="2" DisplayMemberPath="Name" MouseDoubleClick="ModsListBox_MouseDoubleClick"/>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0"/>
-            <Button Content="Merge" Click="Merge_Click" Style="{StaticResource PrimaryButtonStyle}"/>
+            <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0" IsCancel="True"/>
+            <Button Content="Merge" Click="Merge_Click" Style="{StaticResource PrimaryButtonStyle}" IsDefault="True"
+                    ToolTip="Copies the selected mod's items into this one (double-click a mod does the same)"/>
         </StackPanel>
     </Grid>
 </Window>
