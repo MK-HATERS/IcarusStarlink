@@ -27,10 +27,9 @@ using IcarusStarlink.PakIO.Import;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// Two independent sections (IMM Database, Nexus Mods) in one VM, matching the real app's two
-/// Downloads sub-tabs — kept as one class rather than two, the same single-VM-per-page shape
-/// LibraryViewModel already established for this app, since neither section is complex enough on
-/// its own to justify its own page/VM.
+/// Two independent parts in one shared VM: the IMM Database catalog (the Database page's IMM
+/// Database tab) and the downloads list (the Downloads page) — one instance, also used by the
+/// Nexus page for its downloads.
 /// </summary>
 public sealed partial class DownloadsViewModel : ObservableObject
 {
@@ -493,8 +492,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
         ApplyCatalogFilters();
     }
 
-    // Downloaded/Outdated status is cross-referenced against the Library by (Name, Author),
-    // there being no other shared key — LibraryEntry doesn't record which catalog entry (if any)
     // Downloaded/Outdated status matches by the catalog's own stable entry ID first
     // (LibraryEntry.CatalogEntryId, recorded at Download & extract time — survives a Rename and a
     // mod whose internal name differs from the catalog's curated display name, e.g. the real
@@ -572,7 +569,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         CatalogTotalCount = _allCatalogEntries.Count;
         CatalogFilterSummary = BuildCatalogFilterSummary();
 
-        // Every row above is a brand-new CatalogEntryViewModel, so without this the DataGrid's
+        // A row whose installed version or date changed is a new CatalogEntryViewModel, so without this the DataGrid's
         // two-way SelectedItem binding just drops back to null on every filter/search change (or
         // after Download & extract re-applies filters) even when the same mod still matches —
         // the detail pane and its buttons would disappear for no reason the user did anything
