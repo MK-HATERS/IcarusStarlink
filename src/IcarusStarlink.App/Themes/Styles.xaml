@@ -17,6 +17,7 @@
     <converters:SortIndicatorConverter x:Key="SortIndicatorConverter"/>
     <converters:QueueConflictVisibilityConverter x:Key="QueueConflictVisibilityConverter"/>
     <converters:QueueConflictTooltipConverter x:Key="QueueConflictTooltipConverter"/>
+    <converters:FileSizeConverter x:Key="FileSizeConverter"/>
 
     <!-- The semantic change badge shared by every "what changed" grid (Weekly Changes, pak
          comparison, mod version comparison) — all three render the same ChangedRowViewModel, so
@@ -762,12 +763,17 @@
                                  empty (ControlType.Group/Button, Name='') — the same "icon+text content
                                  defeats WPF's plain-string Name auto-derivation" gap Phase 10 already
                                  caught once for buttons, recurring here for a new control. -->
-                            <ToggleButton DockPanel.Dock="Top" Cursor="Hand"
+                            <!-- The whole header row is the click target (transparent background, not
+                                 just the text). Keyboard focus shows as an accent outline on the
+                                 header instead of WPF's faint dotted rectangle, so tabbing through a
+                                 page of sections shows which one Space/Enter will open. -->
+                            <ToggleButton DockPanel.Dock="Top" Cursor="Hand" FocusVisualStyle="{x:Null}"
                                           AutomationProperties.Name="{Binding (AutomationProperties.Name), RelativeSource={RelativeSource TemplatedParent}}"
                                           IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
                                 <ToggleButton.Template>
                                     <ControlTemplate TargetType="{x:Type ToggleButton}">
-                                        <Border x:Name="HeaderBg" Background="Transparent" Padding="12,10" CornerRadius="8">
+                                        <Border x:Name="HeaderBg" Background="Transparent" Padding="11,9" CornerRadius="8"
+                                                BorderBrush="Transparent" BorderThickness="1">
                                             <DockPanel LastChildFill="True">
                                                 <Path x:Name="Chevron" DockPanel.Dock="Right" Data="{StaticResource IconChevronRight}"
                                                       Stroke="{DynamicResource FaintForegroundBrush}" StrokeThickness="1.6"
@@ -783,6 +789,14 @@
                                             </Trigger>
                                             <Trigger Property="IsMouseOver" Value="True">
                                                 <Setter TargetName="HeaderBg" Property="Background" Value="{DynamicResource NavItemHoverBrush}"/>
+                                                <Setter TargetName="Chevron" Property="Stroke" Value="{DynamicResource ForegroundBrush}"/>
+                                            </Trigger>
+                                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                                <Setter TargetName="HeaderBg" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                                <Setter TargetName="Chevron" Property="Stroke" Value="{DynamicResource ForegroundBrush}"/>
+                                            </Trigger>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter TargetName="HeaderBg" Property="Opacity" Value="0.5"/>
                                             </Trigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
@@ -796,6 +810,69 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsExpanded" Value="False">
                             <Setter TargetName="ContentHost" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Drag handles between two panes (server log | players, profile list | details...). The
+         whole gap is the hit area (transparent), with a thin line in the middle that turns accent
+         on hover or while dragging, so it reads as something you can grab. "Vertical" splits
+         columns (drag left/right); "Horizontal" splits rows (drag up/down). Put them in their own
+         grid column/row (8-16px) with ResizeBehavior="PreviousAndNext". -->
+    <Style x:Key="VerticalPaneSplitterStyle" TargetType="{x:Type GridSplitter}">
+        <Setter Property="Width" Value="12"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="VerticalAlignment" Value="Stretch"/>
+        <Setter Property="ResizeDirection" Value="Columns"/>
+        <Setter Property="ResizeBehavior" Value="PreviousAndNext"/>
+        <Setter Property="Cursor" Value="SizeWE"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="ToolTip" Value="Drag to resize"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type GridSplitter}">
+                    <Grid Background="Transparent">
+                        <Rectangle x:Name="Grip" Width="2" RadiusX="1" RadiusY="1" Margin="0,4"
+                                   HorizontalAlignment="Center" Fill="{DynamicResource BorderBrush}"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Grip" Property="Fill" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="Grip" Property="Fill" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HorizontalPaneSplitterStyle" TargetType="{x:Type GridSplitter}">
+        <Setter Property="Height" Value="12"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="VerticalAlignment" Value="Stretch"/>
+        <Setter Property="ResizeDirection" Value="Rows"/>
+        <Setter Property="ResizeBehavior" Value="PreviousAndNext"/>
+        <Setter Property="Cursor" Value="SizeNS"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="ToolTip" Value="Drag to resize"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type GridSplitter}">
+                    <Grid Background="Transparent">
+                        <Rectangle x:Name="Grip" Height="2" RadiusX="1" RadiusY="1" Margin="4,0"
+                                   VerticalAlignment="Center" Fill="{DynamicResource BorderBrush}"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Grip" Property="Fill" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="Grip" Property="Fill" Value="{DynamicResource AccentBrush}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -818,6 +895,7 @@
         <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
         <Setter Property="Margin" Value="10,0,0,0"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
     </Style>
 
     <!-- Phase 10 redesign: a small (i) glyph carrying a real ToolTip — Merge & Install's leveled
