@@ -145,6 +145,14 @@ public static class ServerModFiles
             throw new ArgumentException($"'{modName}' isn't a folder name.", nameof(modName));
         }
 
+        // Checked before the server's copy is deleted: a mod no longer in the game's Mods folder used
+        // to cost the server its copy too, before the copy step failed.
+        var source = Path.Combine(gameModsFolder, modName);
+        if (!Directory.Exists(source))
+        {
+            throw new DirectoryNotFoundException($"'{modName}' isn't in the game's UE4SS Mods folder.");
+        }
+
         var serverMods = DedicatedServerLayout.Ue4ssModsFolder(installFolder);
         var target = Path.Combine(serverMods, modName);
         if (Directory.Exists(target))
@@ -152,7 +160,7 @@ public static class ServerModFiles
             Directory.Delete(target, recursive: true);
         }
 
-        CopyDirectory(Path.Combine(gameModsFolder, modName), target);
+        CopyDirectory(source, target);
         var txtPath = Path.Combine(serverMods, "mods.txt");
         var txt = Ue4ssModsTxt.Load(txtPath);
         txt.Set(modName, true);
