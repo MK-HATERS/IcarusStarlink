@@ -66,6 +66,38 @@ public sealed class GameRowHistoryTests : IDisposable
         Assert.NotNull(GameRowHistory.Load(local).Find("Items-D_ItemsStatic.json", "Electric_Motor"));
     }
 
+    /// <summary>Readable JSON with the wrong things in it (a hand edit, another tool) is damaged too: Load never throws.</summary>
+    [Theory]
+    [InlineData("""{"versions":[{"label":"x","date":"2099-01-01"}],"tables":{"Items-D_ItemsStatic.json":{"Mod_Row":["a","b"]}}}""")]
+    [InlineData("""{"versions":[{"label":"x","date":"2099-01-01"}],"tables":{"Items-D_ItemsStatic.json":{"Mod_Row":[null,0]}}}""")]
+    [InlineData("""{"versions":[{"label":"x","date":"2099-01-01"}],"tables":{"Items-D_ItemsStatic.json":{"Mod_Row":[0.5,0]}}}""")]
+    public void Load_ALocalFileWithWrongValues_StillHasTheShippedHistory(string json)
+    {
+        var local = GameRowHistory.LocalFileFor(DataFolder);
+        Directory.CreateDirectory(Path.GetDirectoryName(local)!);
+        File.WriteAllText(local, json);
+
+        var history = GameRowHistory.Load(local);
+
+        Assert.NotNull(history.Find("Items-D_ItemsStatic.json", "Electric_Motor"));
+        Assert.Null(history.Find("Items-D_ItemsStatic.json", "Mod_Row"));
+    }
+
+    /// <summary>A damaged entry for a row the game still has doesn't stop Refresh game data: the row starts again from this refresh.</summary>
+    [Fact]
+    public void Record_ADamagedEntryForARow_StartsItAgain()
+    {
+        var local = GameRowHistory.LocalFileFor(DataFolder);
+        Directory.CreateDirectory(Path.GetDirectoryName(local)!);
+        File.WriteAllText(local, """{"versions":[{"label":"2099-01-01","date":"2099-01-01","rows":"x"}],"tables":{"Items-D_ItemsStatic.json":{"Kept_Item_2099":["a",0]}}}""");
+        WriteTable("Kept_Item_2099");
+
+        GameRowHistory.Record(DataFolder, local, new DateTimeOffset(2099, 1, 12, 0, 0, 0, TimeSpan.Zero));
+
+        var kept = GameRowHistory.Load(local).Find("Items-D_ItemsStatic.json", "Kept_Item_2099")!;
+        Assert.Equal(("12 Jan 2099", "12 Jan 2099"), (kept.FirstSeen, kept.LastSeen));
+    }
+
     private static ExmodPackage Package(params (string File, string Row, JsonNode? Value)[] rows)
     {
         var package = new ExmodPackage { Name = "M", Author = "A", Version = "1", Description = "", FileName = "M" };
