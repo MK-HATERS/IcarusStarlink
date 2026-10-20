@@ -258,6 +258,28 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.False(vm.HasUnsavedChanges);
     }
 
+    /// <summary>Regression: an unreadable backups folder failed the whole load, which blocked saving a save that read fine.</summary>
+    [Fact]
+    public async Task UnreadableBackupsFolder_StillLoadsAndSaves()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            BackupsError = new UnauthorizedAccessException("denied"),
+        };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        Assert.Single(vm.Characters);
+        Assert.Contains("Couldn't list backups", vm.LastBackupDisplay);
+        vm.Characters.Single().Name = "Renamed";
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal(1, repository.SaveCharactersCallCount);
+        Assert.StartsWith("Saved", vm.StatusMessage);
+    }
+
     /// <summary>Regression: two loads of the same slot in flight (Reload clicked twice on a slow disk) both added their rows, listing every character twice.</summary>
     [Fact]
     public async Task OverlappingLoadsOfTheSameSlot_FillTheListsOnce()
@@ -878,6 +900,7 @@ public sealed class SavesViewModelTests : IDisposable
         profile["MetaResources"] = new JsonArray(new JsonObject { ["MetaRow"] = "Credits", ["Count"] = 100 });
         var research = new JsonArray(new JsonObject { ["RowName"] = "Workshop_Envirosuit", ["Rank"] = 1 }, new JsonObject { ["RowName"] = "Workshop_Envirosuit", ["Rank"] = 1 });
         profile["Talents"] = research;
+        var before = research.ToJsonString();
         var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = profile };
         var vm = CreateViewModel(repository);
         await vm.WaitForPendingSlotLoadAsync();
@@ -885,7 +908,10 @@ public sealed class SavesViewModelTests : IDisposable
         vm.Currencies.Single().CountText = "250";
         vm.SaveChangesCommand.Execute(null);
 
-        Assert.Equal(2, repository.Profile["Talents"]!.AsArray().Count);
+        // The same list object with the same text, not just the same count: a rebuild that kept
+        // both duplicate entries would still have 2, so a count alone couldn't fail.
+        Assert.Same(research, repository.Profile["Talents"]);
+        Assert.Equal(before, repository.Profile["Talents"]!.ToJsonString());
     }
 
     private sealed class FakeSaveRepository : ISaveRepository
@@ -1017,7 +1043,10 @@ public sealed class SavesViewModelTests : IDisposable
             return "fake_manual_backup.zip";
         }
 
-        public IReadOnlyList<SaveBackupInfo> ListBackups(string steamId) => Backups;
+        public IReadOnlyList<SaveBackupInfo> ListBackups(string steamId) => BackupsError is { } error ? throw error : Backups;
+
+        /// <summary>When set, ListBackups throws it (an unreadable backups folder).</summary>
+        public Exception? BackupsError { get; set; }
 
         public string RestoreSlot(string steamId, string backupFilePath)
         {

@@ -363,7 +363,7 @@ public sealed partial class SavesViewModel : ObservableObject
 
         if (HasUnsavedChanges)
         {
-            var confirm = ThemedMessageBox.Show(
+            var confirm = _dialogService.Confirm(
                 "Switching save slots discards any unsaved edits on this one — they were never written to disk. Continue?",
                 "Unsaved changes", ThemedConfirmSeverity.Warning);
             if (!(confirm))
@@ -685,7 +685,7 @@ public sealed partial class SavesViewModel : ObservableObject
             // A load that threw partway left a half-populated but fully SAVEABLE state (an audit
             // finding): Save rebuilt Profile.json's Talents/UnlockedFlags from the (empty)
             // collections and wiped the account's research. Nothing from a failed load is writable.
-            // Only Profile.json itself (or the backups list) gets here now; every other section
+            // Only Profile.json itself (or its file stamps) gets here now; every other section
             // skips itself (LoadSection).
             _loadFailed = true;
             _profile = null;
@@ -1262,9 +1262,20 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        foreach (var backup in _repository.ListBackups(SelectedSlot.SteamId))
+        // A problem with the backups folder must not fail what called this: a load (which then
+        // blocked saving a save that read fine) or a save that already succeeded ("Save failed").
+        try
         {
-            Backups.Add(backup);
+            foreach (var backup in _repository.ListBackups(SelectedSlot.SteamId))
+            {
+                Backups.Add(backup);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            SelectedBackup = null;
+            LastBackupDisplay = $"Couldn't list backups: {ex.Message}";
+            return;
         }
 
         SelectedBackup = Backups.FirstOrDefault();
@@ -1427,9 +1438,9 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        // Via IDialogService, not ThemedMessageBox.Show directly (unlike OnSelectedSlotChanged's
-        // own confirm above this method) — this method's real write below needs to be testable
-        // without a live WPF Dispatcher, same reasoning DeleteCharacter's own confirm relies on.
+        // Via IDialogService, not ThemedMessageBox.Show directly — this method's real write below
+        // needs to be testable without a live WPF Dispatcher, same reasoning DeleteCharacter's own
+        // confirm relies on.
         var confirm = _dialogService.Confirm(
             $"Replace this save slot's current files with the backup from {SelectedBackup.TakenAtUtc.LocalDateTime:g}?\n\n"
             + "A pre_restore safety zip of the slot as it is right now is written first, so this is itself undoable.\n\n"

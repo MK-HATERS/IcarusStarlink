@@ -5,5 +5,15 @@ namespace IcarusStarlink.App.Services;
 /// <summary>Real, production implementation of IGameProcessChecker — matches the game's own real process name, "Icarus-Win64-Shipping" (confirmed against a live install), unchanged from what SavesViewModel checked directly before this seam existed.</summary>
 public sealed class GameProcessChecker : IGameProcessChecker
 {
-    public bool IsRunning() => Process.GetProcessesByName("Icarus-Win64-Shipping").Length > 0;
+    public bool IsRunning()
+    {
+        // Each Process holds an OS handle until disposed; this runs on every Save, Restore and world check.
+        var processes = Process.GetProcessesByName("Icarus-Win64-Shipping");
+        foreach (var process in processes)
+        {
+            process.Dispose();
+        }
+
+        return processes.Length > 0;
+    }
 }
