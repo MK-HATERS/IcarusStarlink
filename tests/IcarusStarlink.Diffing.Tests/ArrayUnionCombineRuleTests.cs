@@ -63,6 +63,37 @@ public class ArrayUnionCombineRuleTests
         Assert.Equal(["Fiber", "Wood"], entries);
     }
 
+    /// <summary>
+    /// Applies matches base entries one-for-one, so a duplicated base entry counts as kept — but
+    /// Resolve used to dedupe the whole result by JSON text, silently dropping the base's second
+    /// copy: the very "removed a base entry" edit this rule promises never to make.
+    /// </summary>
+    [Fact]
+    public void Merge_BaseArrayWithADuplicatedEntry_KeepsBothBaseCopies()
+    {
+        var baseTables = BaseTableWithArray("Loot_Crate", "Drops", """["Fiber","Fiber"]""");
+        var modA = new List<FieldChange> { CompoundChange("Loot_Crate", "Drops", JsonNode.Parse("""["Fiber","Fiber","Wood"]""")) };
+        var modB = new List<FieldChange> { CompoundChange("Loot_Crate", "Drops", JsonNode.Parse("""["Fiber","Fiber","Stone"]""")) };
+
+        var resolved = MergeEngine.Merge([modA, modB], new MergeRuleRegistry(), baseTablesByFile: baseTables);
+
+        var entries = Assert.Single(resolved).NewValue!.AsArray().Select(n => n!.GetValue<string>()).ToList();
+        Assert.Equal(["Fiber", "Fiber", "Wood", "Stone"], entries);
+    }
+
+    [Fact]
+    public void Merge_OneModAddsTheSameEntryTwice_KeepsBothCopies_ButAnotherModsSameAdditionOnlyOnce()
+    {
+        var baseTables = BaseTableWithArray("Loot_Crate", "Drops", """["Fiber"]""");
+        var modA = new List<FieldChange> { CompoundChange("Loot_Crate", "Drops", JsonNode.Parse("""["Fiber","Wood","Wood"]""")) };
+        var modB = new List<FieldChange> { CompoundChange("Loot_Crate", "Drops", JsonNode.Parse("""["Fiber","Wood","Stone"]""")) };
+
+        var resolved = MergeEngine.Merge([modA, modB], new MergeRuleRegistry(), baseTablesByFile: baseTables);
+
+        var entries = Assert.Single(resolved).NewValue!.AsArray().Select(n => n!.GetValue<string>()).ToList();
+        Assert.Equal(["Fiber", "Wood", "Wood", "Stone"], entries);
+    }
+
     [Fact]
     public void Merge_OneModRemovesABaseEntry_FallsThroughToLastWriteWinsInsteadOfSilentlyUnioning()
     {
@@ -201,12 +232,15 @@ public class ArrayUnionCombineRuleTests
     [Fact]
     public void Merge_IsNewItemIsOredAcrossCandidatesEvenWhenTheUnionRuleResolvesTheField()
     {
-        var modA = new List<FieldChange> { CompoundChange("Stone_Pickaxe", "Inputs", JsonNode.Parse("""["Fiber"]"""), isNewItem: true) };
+        // Values chosen so the union ("Stone","Fiber","Wood") differs from what last-write-wins
+        // would give ("Fiber","Wood") — proving the union rule is the one that resolved it.
+        var modA = new List<FieldChange> { CompoundChange("Stone_Pickaxe", "Inputs", JsonNode.Parse("""["Stone"]"""), isNewItem: true) };
         var modB = new List<FieldChange> { CompoundChange("Stone_Pickaxe", "Inputs", JsonNode.Parse("""["Fiber","Wood"]"""), isNewItem: false) };
 
         var resolved = MergeEngine.Merge([modA, modB], new MergeRuleRegistry());
 
         var change = Assert.Single(resolved);
+        Assert.Equal(["Stone", "Fiber", "Wood"], change.NewValue!.AsArray().Select(n => n!.GetValue<string>()));
         Assert.True(change.IsNewItem);
     }
 }
