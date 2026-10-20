@@ -150,7 +150,7 @@ public sealed class ModHealthCheckerTests : IDisposable
         Assert.False(ModHealthChecker.Check(broken, _data, rowsOtherModsAdd: addOnFor).HasIssues);
     }
 
-    /// <summary>Converting a prebuilt pak can't see the other Library mods, so it never makes broken-link fixes itself.</summary>
+    /// <summary>What a mod adds, collected over the Library for rowsOtherModsAdd: rows the game doesn't have, not edits of its own (Canteen, Juice).</summary>
     [Fact]
     public void AddedRows_ListsTheRowsAModAdds_NotTheGamesOwn()
     {
@@ -172,6 +172,7 @@ public sealed class ModHealthCheckerTests : IDisposable
         Assert.False(ModHealthChecker.Check(package, _data).HasIssues);
         Assert.Equal(2, ModHealthChecker.Check(package, _data).AuthorChangeCount);
         Assert.False(ModHealthChecker.Check(swapped, _data).HasIssues);
+        Assert.Equal(1, ModHealthChecker.Check(swapped, _data).AuthorChangeCount);
     }
 
     [Fact]

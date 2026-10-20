@@ -175,11 +175,8 @@ public sealed class GameRowHistoryTests : IDisposable
         // Pickaxe_Steell never was a game row: the mod's own, so no rename is offered for it.
         Assert.DoesNotContain(issues, i => i.ItemName == "Pickaxe_Steell");
         var renamed = Assert.Single(issues, i => i.ItemName == "Old_Pickaxe_Steel");
-        if (renamed is not null)
-        {
-            Assert.Equal(ModIssueFix.RenameRow, renamed.DefaultFix);
-            Assert.Contains("renamed this row to 'Pickaxe_Steel' in the update after", renamed.Why);
-        }
+        Assert.Equal(ModIssueFix.RenameRow, renamed.DefaultFix);
+        Assert.Contains("renamed this row to 'Pickaxe_Steel' in the update after", renamed.Why);
     }
 
     /// <summary>A similar name that only appeared a few updates later isn't a proven rename: offered, never made by itself.</summary>
