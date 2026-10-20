@@ -278,7 +278,21 @@ public sealed partial class ModFixViewModel : ObservableObject
             }
 
             var sure = _all.Count(i => i.Issue.IsSure && !i.Issue.IsTidyOnly);
-            return $"{problems} thing(s) in this mod don't fit the current game: {sure} sure fix(es), and {problems - sure} best guess(es), already chosen, for you to look over. "
+            // Only listed: nothing Starlink can change (a game file that's gone, a link to nothing), only kept or not asked again.
+            var listed = _all.Count(i => !i.Issue.IsSure && !i.Issue.IsTidyOnly && i.Issue.Choices.All(c => c == ModIssueFix.KeepMod));
+            var guesses = problems - sure - listed;
+            var parts = new List<string> { $"{sure} sure fix(es)" };
+            if (guesses > 0)
+            {
+                parts.Add($"{guesses} best guess(es), already chosen, for you to look over");
+            }
+
+            if (listed > 0)
+            {
+                parts.Add($"{listed} only listed: Starlink can't fix them, the mod's author has to");
+            }
+
+            return $"{problems} thing(s) in this mod don't fit the current game: {string.Join(", ", parts)}. "
                 + tidyText + authors
                 + " Your choices are remembered for this mod: what you keep isn't asked again, and the rest is done by itself next time.";
         }
@@ -484,6 +498,7 @@ public sealed partial class ModFixViewModel : ObservableObject
     {
         ModIssueFix.UseGame when kind == ModIssueKind.SameAsGame => "Take them all out",
         ModIssueFix.KeepMod when kind == ModIssueKind.SameAsGame => "Leave them all",
+        ModIssueFix.KeepMod when kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart => "Leave them all as they are",
         ModIssueFix.UseGame => "Use the game's for all",
         ModIssueFix.KeepMod => "Keep the mod's for all",
         ModIssueFix.Merge => "Merge all",
