@@ -140,10 +140,7 @@ public static class ServerModFiles
     /// <summary>Copies one UE4SS mod folder from the game to the server (replacing the server's copy) and turns it on in the server's mods.txt.</summary>
     public static void CopyUe4ssModToServer(string gameModsFolder, string modName, string installFolder)
     {
-        if (modName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-        {
-            throw new ArgumentException($"'{modName}' isn't a folder name.", nameof(modName));
-        }
+        RequireFolderName(modName);
 
         // Checked before the server's copy is deleted: a mod no longer in the game's Mods folder used
         // to cost the server its copy too, before the copy step failed.
@@ -170,10 +167,7 @@ public static class ServerModFiles
     /// <summary>Moves a UE4SS mod folder off the server into the backups folder and drops its mods.txt line.</summary>
     public static void RemoveUe4ssMod(string installFolder, string modName, string backupsFolder)
     {
-        if (modName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-        {
-            throw new ArgumentException($"'{modName}' isn't a folder name.", nameof(modName));
-        }
+        RequireFolderName(modName);
 
         var serverMods = DedicatedServerLayout.Ue4ssModsFolder(installFolder);
         var source = Path.Combine(serverMods, modName);
@@ -190,6 +184,15 @@ public static class ServerModFiles
             var txt = Ue4ssModsTxt.Load(txtPath);
             txt.Remove(modName);
             txt.Save(txtPath);
+        }
+    }
+
+    /// <summary>"." and ".." pass the invalid-character check but name the Mods folder itself or its parent — deleting "the mod" would delete those.</summary>
+    private static void RequireFolderName(string modName)
+    {
+        if (string.IsNullOrWhiteSpace(modName) || modName.Trim('.').Length == 0 || modName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new ArgumentException($"'{modName}' isn't a folder name.", nameof(modName));
         }
     }
 

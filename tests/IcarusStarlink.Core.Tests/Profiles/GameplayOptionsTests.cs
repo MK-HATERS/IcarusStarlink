@@ -56,6 +56,27 @@ public class GameplayOptionsTests
         Assert.Contains("Remove Weight", descriptions);
         Assert.Contains("Unlimited Ammo", descriptions);
         Assert.Equal(7, descriptions.Count);
+
+        // WeightReductionPercent is the other half of the weight option (Remove Weight wins when both are set).
+        Assert.Equal(["Lighter Items 50%"], new GameplayOptions { WeightReductionPercent = 50 }.DescribeActiveOptions());
+    }
+
+    /// <summary>These lines go into ISL-Merged.txt: "Stacks x1,5" on a German PC used to be written there.</summary>
+    [Fact]
+    public void DescribeActiveOptions_WritesNumbersTheSameOnEveryPc()
+    {
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+        try
+        {
+            var descriptions = new GameplayOptions { StacksMultiplier = 1.5, WeightReductionPercent = 12.5 }.DescribeActiveOptions();
+
+            Assert.Equal(["Stacks x1.5", "Lighter Items 12.5%"], descriptions);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previous;
+        }
     }
 
     [Fact]

@@ -145,7 +145,7 @@ public sealed partial class ServerLogEvents
         {
             _online.Clear();
             _closing.Clear();
-            return new ServerLogEvent(ServerLogEventKind.ShutdownRequested, time, "Shutdown requested — saving and exiting");
+            return new ServerLogEvent(ServerLogEventKind.ShutdownRequested, time, "Shutdown requested");
         }
 
         if (MountPattern().Match(line) is { Success: true } mount)
