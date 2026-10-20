@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace IcarusStarlink.PakIO.Install;
@@ -57,7 +58,9 @@ public static class FolderBackup
     /// </summary>
     public static string MakeUniqueTimestampedPath(string directory, string baseName, DateTimeOffset timestamp, string extension = "")
     {
-        var stamp = timestamp.ToString("yyyyMMdd-HHmmss");
+        // Invariant: BackupCleanup reads the stamp back as a Gregorian date, and a PC set to another
+        // calendar (Thai, Hijri) would otherwise write a different year.
+        var stamp = timestamp.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         var path = Path.Combine(directory, $"{baseName}_{stamp}{extension}");
         var suffix = 1;
         while (File.Exists(path) || Directory.Exists(path))
