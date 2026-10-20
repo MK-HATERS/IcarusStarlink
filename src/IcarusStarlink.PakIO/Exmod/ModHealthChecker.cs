@@ -38,6 +38,17 @@ public enum ModIssueKind
     /// carried by another Library mod too. Harmless, so only tidying.
     /// </summary>
     OldGameRow,
+
+    /// <summary>
+    /// A file of the mod uses a game file (a material, mesh, class…) the game doesn't have under
+    /// that path: the game stops when it loads something built on it, or that part of the mod does
+    /// nothing. Sure when the game moved it (same name and objects, one other folder): the fix
+    /// points the mod there. Otherwise only listed.
+    /// </summary>
+    MissingAsset,
+
+    /// <summary>A file of the mod uses parts of a game file the game has since taken out of it (a component of a game blueprint): those parts of the mod do nothing. Only listed.</summary>
+    MissingAssetPart,
 }
 
 /// <summary>How to handle one issue.</summary>
@@ -48,6 +59,9 @@ public enum ModIssueFix
     Merge,
     RenameRow,
     RemoveRow,
+
+    /// <summary>Point the mod's file at the game's new place for what it uses (MissingAsset; the place is SuggestedRow).</summary>
+    Repoint,
 }
 
 /// <param name="FieldName">Null for a whole-row issue (MissingRow). A path ("Inputs[0].Element") for a link inside a field.</param>
@@ -72,6 +86,8 @@ public sealed record ModIssue(
     {
         ModIssueKind.MissingRow => SuggestedRow is null ? [ModIssueFix.RemoveRow, ModIssueFix.KeepMod] : [ModIssueFix.RenameRow, ModIssueFix.RemoveRow, ModIssueFix.KeepMod],
         ModIssueKind.OldGameRow => [ModIssueFix.RemoveRow, ModIssueFix.KeepMod],
+        ModIssueKind.MissingAsset when SuggestedRow is not null => [ModIssueFix.Repoint, ModIssueFix.KeepMod],
+        ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart => [ModIssueFix.KeepMod],
         // A link inside a field, or in the mod's own row: no game value to go back to, only to look at.
         ModIssueKind.BrokenLink when GameValue is null => [ModIssueFix.KeepMod],
         _ when MergedValue is not null => [ModIssueFix.Merge, ModIssueFix.UseGame, ModIssueFix.KeepMod],
@@ -141,6 +157,7 @@ public static class ModHealthChecker
 
     /// <param name="gameHistory">Old values from recent game updates (build once per pass, share across mods).</param>
     /// <param name="decisions">This mod's remembered choices: a kept value stops being flagged, any other choice becomes automatic.</param>
+    /// <param name="assetIssues">What the mod's cooked files use that the game doesn't have (AssetReferenceIssues.From), listed with the rest.</param>
     /// <param name="fromPrebuiltPak">
     /// The mod was converted from a prebuilt pak, which ships whole tables: a shorter list or a
     /// missing field there is the old game version's, not a choice. In a hand-made mod, which
@@ -160,7 +177,8 @@ public static class ModHealthChecker
         GameTableIndex? gameIndex = null,
         IReadOnlySet<string>? rowsOtherModsAdd = null,
         IReadOnlySet<string>? rowsSeveralModsAdd = null,
-        GameRowHistory? rowHistory = null)
+        GameRowHistory? rowHistory = null,
+        IReadOnlyList<ModIssue>? assetIssues = null)
     {
         // Which table a link field points into, and whether a row is there (share one across a pass).
         gameIndex ??= new GameTableIndex(dataFolder);
@@ -444,6 +462,13 @@ public static class ModHealthChecker
                 removed is not null
                     ? $"{links} to '{link.Row}' in {link.Table}, which the game removed after {removed.LastSeen}, so this link does nothing in game. Edit the mod to link it to a row the game has now."
                     : $"{links} to '{link.Row}' in {link.Table}, which neither the game nor any mod in your Library has: it needs a mod that adds '{link.Row}'. Without one this link does nothing in game."));
+        }
+
+        // What the mod's cooked files use that the game doesn't have (AssetReferenceIssues): its
+        // remembered choices apply to them too.
+        if (assetIssues is { Count: > 0 })
+        {
+            issues.AddRange(assetIssues);
         }
 
         // What the user decided before for this mod: a value they kept is theirs now (unless either

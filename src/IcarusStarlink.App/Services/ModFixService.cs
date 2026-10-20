@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Diffing;
+using IcarusStarlink.PakIO.Assets;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
 
@@ -17,13 +18,18 @@ namespace IcarusStarlink.App.Services;
 /// re-converted against each new game version, and exactly the fixes made to it before (each one
 /// remembered) are made again right after (ReapplyRemembered). Plain file work, safe off the UI thread.
 ///
+/// With the game's content (gameAssets), the mod's cooked files are checked too: every game file
+/// they use must still be where they look for it (AssetReferenceChecker), and one the game moved
+/// can be pointed at its new place (AssetReferenceRewriter).
+///
 /// One call at a time: the fix window, Fix sure problems, the whole-library check and the
 /// post-refresh ReapplyRemembered can all reach this one service from different threads. Every
 /// public call takes the same lock, so the lazily-filled table index is never filled by two
 /// threads at once, and two writers never back up and rewrite the same .EXMOD together.
 /// </summary>
 public sealed class ModFixService(
-    ILibraryRepository repository, string dataFolder, Func<IEnumerable<FieldChange>>? gameHistory = null, string? decisionsDirectory = null)
+    ILibraryRepository repository, string dataFolder, Func<IEnumerable<FieldChange>>? gameHistory = null, string? decisionsDirectory = null,
+    IGameAssetCatalog? gameAssets = null)
     : IcarusStarlink.Core.Memory.IIdleReleasable
 {
     private static readonly JsonSerializerOptions DecisionJson = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
@@ -107,11 +113,45 @@ public sealed class ModFixService(
         lock (_gate)
         {
             var package = ExmodFolder.ReadPackageOnly(repository.GetFolderPath(folderName));
-            return ModHealthChecker.Check(package, dataFolder, baseTableCache, history ?? History(), repository.ListAssetPaths(folderName),
+            var assetPaths = repository.ListAssetPaths(folderName);
+            libraryAddedRows ??= LibraryAddedRows();
+            return ModHealthChecker.Check(package, dataFolder, baseTableCache, history ?? History(), assetPaths,
                 decisions: LoadDecisions(folderName), fromPrebuiltPak: Entry(folderName)?.ConvertedFromPrebuiltPak == true, gameIndex: GameIndex,
-                rowsOtherModsAdd: libraryAddedRows ??= LibraryAddedRows(),
+                rowsOtherModsAdd: libraryAddedRows,
                 rowsSeveralModsAdd: (libraryAddedRows as LibraryAddedRowSet)?.AddedBySeveral,
-                rowHistory: RowHistory);
+                rowHistory: RowHistory,
+                assetIssues: AssetIssues(folderName, assetPaths, (libraryAddedRows as LibraryAddedRowSet)?.Packages));
+        }
+    }
+
+    /// <summary>What the mod's cooked files use that the game doesn't have (nothing when the game's content can't be read). Under _gate.</summary>
+    private IReadOnlyList<ModIssue> AssetIssues(string folderName, IReadOnlyList<string> assetPaths, IReadOnlySet<string>? libraryPackages)
+    {
+        if (gameAssets is null || !assetPaths.Any(p => p.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".umap", StringComparison.OrdinalIgnoreCase)))
+        {
+            return [];
+        }
+
+        try
+        {
+            var found = AssetReferenceChecker.Check(assetPaths, file =>
+            {
+                try
+                {
+                    return repository.ReadAssetContent(folderName, file);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return null;
+                }
+            }, gameAssets, libraryPackages ?? LibraryPackages());
+            return found is null ? [] : AssetReferenceIssues.From(found);
+        }
+        catch (Exception ex)
+        {
+            // Only an extra check: the rest of the report stands without it.
+            Serilog.Log.Warning(ex, "Couldn't check the game files '{Mod}' uses", folderName);
+            return [];
         }
     }
 
@@ -286,13 +326,14 @@ public sealed class ModFixService(
 
         var folderPath = repository.GetFolderPath(folderName);
         var package = ExmodFolder.ReadPackageOnly(folderPath);
-        var applied = ModHealthChecker.Apply(package, changing);
+        var applied = ModHealthChecker.Apply(package, changing.Where(f => f.Fix != ModIssueFix.Repoint));
+        var repointed = Repointed(folderName, folderPath, changing.Where(f => f.Fix == ModIssueFix.Repoint).Select(f => f.Issue));
         // Advanced log: each change made to the mod.
         foreach (var (issue, fix) in changing)
         {
             Serilog.Log.Debug("Fix '{Mod}': {Kind} {File}/{Row}.{Field} -> {Fix}", folderName, issue.Kind, issue.CurrentFile, issue.ItemName, issue.FieldName ?? "(row)", fix);
         }
-        if (applied == 0)
+        if (applied == 0 && repointed.Count == 0)
         {
             return 0;
         }
@@ -302,7 +343,17 @@ public sealed class ModFixService(
             repository.BackupMod(folderName);
         }
 
-        ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
+        if (applied > 0)
+        {
+            ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
+        }
+
+        foreach (var (rewritten, _) in repointed)
+        {
+            AssetReferenceRewriter.Commit(rewritten);
+        }
+
+        applied += repointed.Sum(r => r.Fixes);
         repository.MarkFixedByIsl(folderName);
 
         // A converted pak that hasn't been hand-edited stays "live": it keeps re-converting against
@@ -315,12 +366,43 @@ public sealed class ModFixService(
         return applied;
     }
 
+    /// <summary>
+    /// Each of the mod's cooked files with the chosen game files pointed at their new place,
+    /// checked and ready to write (each with how many fixes it makes). A file AssetReferenceRewriter
+    /// refuses stays as it is (logged), and its issues stay listed.
+    /// </summary>
+    private static List<(RewrittenAsset Asset, int Fixes)> Repointed(string folderName, string folderPath, IEnumerable<ModIssue> issues)
+    {
+        var result = new List<(RewrittenAsset, int)>();
+        foreach (var file in issues.Where(i => i.SuggestedRow is not null).GroupBy(i => i.CurrentFile, StringComparer.OrdinalIgnoreCase))
+        {
+            var moves = file.GroupBy(i => i.ItemName, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().SuggestedRow!, StringComparer.OrdinalIgnoreCase);
+            var path = Path.Combine(folderPath, file.Key.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            if (AssetReferenceRewriter.TryRewrite(path, moves, out var why) is { } rewritten)
+            {
+                result.Add((rewritten, moves.Count));
+            }
+            else
+            {
+                Serilog.Log.Warning("Fix '{Mod}': left {File} as it is: {Why}", folderName, file.Key, why);
+            }
+        }
+
+        return result;
+    }
+
     /// <summary>Every row the mods in the Library add (not in the game): a link to one of them is a dependency, not a broken link.</summary>
     public IReadOnlySet<string> LibraryAddedRows()
     {
         lock (_gate)
         {
             var rows = new LibraryAddedRowSet();
+            rows.Packages.UnionWith(LibraryPackages());
             foreach (var entry in repository.GetAll().Where(e => !e.IsOpaquePak))
             {
                 try
@@ -341,6 +423,45 @@ public sealed class ModFixService(
 
             return rows;
         }
+    }
+
+    /// <summary>
+    /// Every game package path ("/Game/…") a Library mod has a file of, prebuilt paks included
+    /// (merged packs aren't: they hold copies of other mods' files): a reference to one of them
+    /// is a dependency on that mod, not a missing game file.
+    /// </summary>
+    private HashSet<string> LibraryPackages()
+    {
+        var packages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (gameAssets is null)
+        {
+            return packages;
+        }
+
+        foreach (var entry in repository.GetAll().Where(e => e.MergedPackModNames is null && e.MergedPackOptionDescriptions is null))
+        {
+            try
+            {
+                IReadOnlyList<string> files;
+                if (entry.IsOpaquePak)
+                {
+                    using var paks = ModPakContents.TryOpen(repository.GetFolderPath(entry.FolderName));
+                    files = paks?.ContentPaths ?? [];
+                }
+                else
+                {
+                    files = repository.ListAssetPaths(entry.FolderName);
+                }
+
+                packages.UnionWith(files.Select(AssetReferenceChecker.PackagePathOf).OfType<string>());
+            }
+            catch (Exception)
+            {
+                // An unreadable mod adds nothing to the set.
+            }
+        }
+
+        return packages;
     }
 
     private LibraryEntry? Entry(string folderName) =>
@@ -380,8 +501,11 @@ public sealed class ModFixService(
         decisionsDirectory is null ? null : Path.Combine(decisionsDirectory, string.Join("_", folderName.Split(Path.GetInvalidFileNameChars())) + ".json");
 }
 
-/// <summary>The rows every Library mod adds (AddedRowKey keys), and which of them more than one mod adds (old game rows two prebuilt paks both carry).</summary>
+/// <summary>The rows every Library mod adds (AddedRowKey keys), which of them more than one mod adds (old game rows two prebuilt paks both carry), and the game files Library mods have.</summary>
 public sealed class LibraryAddedRowSet() : HashSet<string>(StringComparer.Ordinal)
 {
     public HashSet<string> AddedBySeveral { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Every game package path a Library mod has a file of (see ModFixService.LibraryPackages).</summary>
+    public HashSet<string> Packages { get; } = new(StringComparer.OrdinalIgnoreCase);
 }

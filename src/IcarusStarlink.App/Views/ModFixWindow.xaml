@@ -81,8 +81,8 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="180"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="ROW" Style="{StaticResource FieldLabelStyle}"/>
-                    <TextBlock Grid.Column="1" Text="FIELD" Style="{StaticResource FieldLabelStyle}"/>
+                    <TextBlock Grid.Column="0" Text="ROW / FILE" Style="{StaticResource FieldLabelStyle}"/>
+                    <TextBlock Grid.Column="1" Text="FIELD / USES" Style="{StaticResource FieldLabelStyle}"/>
                     <TextBlock Grid.Column="2" Text="THE MOD HAS" Style="{StaticResource FieldLabelStyle}"/>
                     <TextBlock Grid.Column="3" Text="THE GAME HAS NOW" Style="{StaticResource FieldLabelStyle}"/>
                     <TextBlock Grid.Column="4" Text="FIX" Style="{StaticResource FieldLabelStyle}"/>

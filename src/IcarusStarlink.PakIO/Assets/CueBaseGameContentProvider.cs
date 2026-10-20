@@ -34,7 +34,7 @@ namespace IcarusStarlink.PakIO.Assets;
 /// all session): it's tried again once the Content path changes, or after RetryFailedMountAfter —
 /// never on every call, so a doomed mount isn't redone per lookup.
 /// </summary>
-public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IIdleReleasable
+public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGameAssetCatalog, IIdleReleasable
 {
     // GAME_UE4_27 never varies for this app (Icarus is a fixed UE4.27 title) — same shared
     // instance convention CueAssetProviderLocator already uses for its own mod-folder provider.
@@ -163,6 +163,123 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IIdle
             mounted.Summaries[matchedKey] = summary;
             return summary;
         }
+    }
+
+    public bool? HasPackage(string packagePath) => GetOrMountProvider() is { } mounted ? PackageKey(mounted, packagePath) is not null : null;
+
+    public IReadOnlyDictionary<string, string>? Objects(string packagePath) =>
+        UnderLock(mounted =>
+        {
+            if (PackageKey(mounted, packagePath) is not { } key)
+            {
+                return null;
+            }
+
+            // Only the package's header is read (its .uasset: the objects' data is in the .uexp),
+            // once per package per mount.
+            if (!mounted.Objects.TryGetValue(key, out var objects))
+            {
+                try
+                {
+                    objects = UnrealPackageHeader.TryRead(mounted.Provider.Files[key].Read())?.ExportedObjects();
+                }
+                catch (Exception)
+                {
+                    objects = null;
+                }
+
+                mounted.Objects[key] = objects;
+            }
+
+            return objects;
+        });
+
+    public IReadOnlyList<string> PackagesNamed(string assetName) =>
+        UnderLock(mounted =>
+        {
+            mounted.PackagesByName ??= IndexByName(mounted.ContentPathIndex);
+            return mounted.PackagesByName.TryGetValue(assetName, out var packages) ? packages : (IReadOnlyList<string>)[];
+        }) ?? [];
+
+    /// <summary>The mounted file key of a package ("/Game/ASS/DEP/M_X" or "/Engine/…"), whichever of .uasset/.umap the game has; null when it has neither.</summary>
+    private static string? PackageKey(MountedContent mounted, string packagePath)
+    {
+        var path = packagePath.Replace('\\', '/');
+        string relative;
+        if (path.StartsWith("/Game/", StringComparison.OrdinalIgnoreCase))
+        {
+            relative = path["/Game/".Length..];
+        }
+        else if (path.StartsWith("/Engine/", StringComparison.OrdinalIgnoreCase))
+        {
+            relative = "Engine/Content/" + path["/Engine/".Length..];
+        }
+        else
+        {
+            return null;
+        }
+
+        return mounted.ContentPathIndex.TryGetValue(relative + ".uasset", out var key) || mounted.ContentPathIndex.TryGetValue(relative + ".umap", out key) ? key : null;
+    }
+
+    /// <summary>Every game package by its asset name, for finding where the game moved one.</summary>
+    private static Dictionary<string, List<string>> IndexByName(IReadOnlyDictionary<string, string> contentPathIndex)
+    {
+        var byName = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (path, key) in contentPathIndex)
+        {
+            if (!path.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase) && !path.EndsWith(".umap", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var withoutExtension = path[..path.LastIndexOf('.')];
+            string package;
+            if (key.StartsWith(ContentKeyPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                package = "/Game/" + withoutExtension;
+            }
+            else if (withoutExtension.StartsWith("Engine/Content/", StringComparison.OrdinalIgnoreCase))
+            {
+                package = "/Engine/" + withoutExtension["Engine/Content/".Length..];
+            }
+            else
+            {
+                continue; // an engine plugin's content: not something a mod's reference is checked against
+            }
+
+            var name = package[(package.LastIndexOf('/') + 1)..];
+            if (!byName.TryGetValue(name, out var list))
+            {
+                byName[name] = list = [];
+            }
+
+            list.Add(package);
+        }
+
+        return byName;
+    }
+
+    /// <summary>Runs <paramref name="use"/> on the mounted content under _lock (twice at most: the mount may be let go between getting it and locking); null when nothing is mounted.</summary>
+    private T? UnderLock<T>(Func<MountedContent, T?> use) where T : class
+    {
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            if (GetOrMountProvider() is not { } mounted)
+            {
+                return null;
+            }
+
+            lock (_lock)
+            {
+                if (!mounted.Released)
+                {
+                    return use(mounted);
+                }
+            }
+        }
+
+        return null;
     }
 
     public TResult? TryLoadExportAndProject<T, TResult>(string assetPath, Func<T, TResult> project)
@@ -344,5 +461,11 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IIdle
 
         /// <summary>Let go by ReleaseIfIdle: its provider is disposed (set and read under _lock).</summary>
         public bool Released { get; set; }
+
+        /// <summary>Each package's objects read so far, by file key (under _lock).</summary>
+        public Dictionary<string, IReadOnlyDictionary<string, string>?> Objects { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Every package by asset name, built on first use (under _lock).</summary>
+        public Dictionary<string, List<string>>? PackagesByName { get; set; }
     }
 }

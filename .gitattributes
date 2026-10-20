@@ -12,3 +12,7 @@
 *.zip binary
 *.dll binary
 *.pdb binary
+*.uasset binary
+*.uexp binary
+*.ubulk binary
+*.pak binary

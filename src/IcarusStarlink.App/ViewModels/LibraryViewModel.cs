@@ -2895,7 +2895,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
 
-    private ModFixService FixService => _modFixService ??= ModFixService.Registered(new ModFixService(_repository, _dataFolder, GameHistory, FixDecisionsDirectory));
+    private ModFixService FixService => _modFixService ??= ModFixService.Registered(new ModFixService(_repository, _dataFolder, GameHistory, FixDecisionsDirectory,
+        BaseGameContent as IGameAssetCatalog));
 
     /// <summary>
     /// The row's warning badge, and right-click › Check against the game &amp; fix…: the fix window,

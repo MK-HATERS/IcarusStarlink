@@ -369,7 +369,8 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Data"),
             () => sp.GetRequiredService<IWeeklyChangeReportStore>().History
                 .SelectMany(report => report.ChangedFiles).SelectMany(file => file.FieldChanges),
-            Path.Combine(appDataDirectory, "Library_Meta", "Fix_Choices"))));
+            Path.Combine(appDataDirectory, "Library_Meta", "Fix_Choices"),
+            sp.GetRequiredService<IBaseGameContentProvider>() as IGameAssetCatalog)));
         // How every copy of a mod is replaced: Downloads' Activate/Reinstall, Library's Get update and Reinstall original.
         builder.Services.AddSingleton(sp => new ModReplacementService(
             sp.GetRequiredService<ILibraryRepository>(),

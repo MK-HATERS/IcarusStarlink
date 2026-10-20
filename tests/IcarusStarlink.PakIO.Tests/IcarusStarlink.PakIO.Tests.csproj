@@ -19,6 +19,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Real cooked Icarus files to test asset reading on (Wax's MIT-licensed sample, see its LICENSE.txt). -->
+    <None Include="Fixtures\WaxSample\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\IcarusStarlink.PakIO\IcarusStarlink.PakIO.csproj" />
     <ProjectReference Include="..\..\src\IcarusStarlink.Storage\IcarusStarlink.Storage.csproj" />
   </ItemGroup>

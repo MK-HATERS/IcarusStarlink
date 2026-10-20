@@ -73,7 +73,10 @@ Each finding says how sure it is. **Fix sure problems** applies only the certain
 first); everything else opens in a fix window with a side-by-side, line-by-line view of the mod's
 value against the game's, where you choose what to keep. Your choices are remembered, so the same
 question isn't asked again after the next game update. A link to a row another Library mod adds
-counts as a dependency, not a problem.
+counts as a dependency, not a problem. A mod's own cooked files (meshes, materials, blueprints) are
+checked too: every game file they use must still be where they look for it. Where the game only
+moved one (same name, same contents, another folder), the fix points the mod to the new place;
+what the game removed is listed for the mod's author to update.
 
 **Merge & Install** — a merge queue with proactive conflict detection (including two mods adding a
 same-named new item, and a queue-wide check for a mod referencing something only another queued mod

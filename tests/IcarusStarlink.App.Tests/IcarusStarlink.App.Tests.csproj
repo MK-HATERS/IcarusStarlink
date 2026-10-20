@@ -27,6 +27,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The real cooked Icarus file PakIO's tests use too (Wax's MIT-licensed sample). -->
+    <None Include="..\IcarusStarlink.PakIO.Tests\Fixtures\WaxSample\**" Link="Fixtures\WaxSample\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\IcarusStarlink.App\IcarusStarlink.App.csproj" />
   </ItemGroup>
 

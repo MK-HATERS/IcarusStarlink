@@ -17,6 +17,10 @@
          with a known high-severity advisory (GHSA-73j8-2gch-69rq) — pinned up to a patched
          version directly rather than accepting the transitive one. -->
     <PackageReference Include="Microsoft.Bcl.Memory" Version="10.0.11" />
+    <!-- Writes a mod's cooked file after pointing a reference elsewhere (AssetReferenceRewriter):
+         it moves every header offset when the name map changes length. Checked to write all 326
+         cooked files of a real Library back byte for byte before anything changes. -->
+    <PackageReference Include="UAssetAPI" Version="1.1.0" />
   </ItemGroup>
 
   <PropertyGroup>

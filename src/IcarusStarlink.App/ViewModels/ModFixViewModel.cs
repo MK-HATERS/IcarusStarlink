@@ -30,25 +30,49 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
 
     public ModIssue Issue { get; }
 
-    public string Row => Issue.ItemName;
+    /// <summary>A game file a mod's cooked file uses (MissingAsset, MissingAssetPart): the file and what it uses, not a table row.</summary>
+    private bool IsAsset => Issue.Kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart;
 
-    public string Table => GameTableIndex.TableNameOf(Issue.CurrentFile).Replace("D_", "", StringComparison.Ordinal);
+    public string Row => IsAsset ? NameOf(Issue.CurrentFile) : Issue.ItemName;
 
-    public string Field => Issue.FieldName ?? "(whole row)";
+    public string Table => IsAsset ? "Mod file in " + FolderOf(Issue.CurrentFile)
+        : GameTableIndex.TableNameOf(Issue.CurrentFile).Replace("D_", "", StringComparison.Ordinal);
 
-    public string ModText => Issue.Kind == ModIssueKind.OldGameRow ? $"carries an old copy of '{Issue.ItemName}'"
+    public string Field => IsAsset ? NameOf(Issue.ItemName) : Issue.FieldName ?? "(whole row)";
+
+    public string ModText => IsAsset ? $"uses it from {FolderOf(Issue.ItemName)}"
+        : Issue.Kind == ModIssueKind.OldGameRow ? $"carries an old copy of '{Issue.ItemName}'"
         : Issue.Kind == ModIssueKind.MissingRow ? $"changes '{Issue.ItemName}'"
         : Issue.Kind == ModIssueKind.SameAsGame ? ModFixViewModel.Describe(Issue.ModValue)
         : ModFixViewModel.OnlyIn(Issue.ModValue, Issue.GameValue) ?? ModFixViewModel.Describe(Issue.ModValue);
 
-    public string GameText => Issue.Kind == ModIssueKind.OldGameRow ? "doesn't have it any more"
+    public string GameText => Issue.Kind == ModIssueKind.MissingAssetPart ? $"took out: {Issue.FieldName}"
+        : Issue.Kind == ModIssueKind.MissingAsset ? (Issue.SuggestedRow is null ? "doesn't have it any more" : $"has it in {FolderOf(Issue.SuggestedRow)}")
+        : Issue.Kind == ModIssueKind.OldGameRow ? "doesn't have it any more"
         : Issue.Kind == ModIssueKind.MissingRow ? (Issue.SuggestedRow is null ? "doesn't have it any more" : $"has '{Issue.SuggestedRow}'")
         : Issue.Kind == ModIssueKind.BrokenLink && Issue.GameValue is null ? "doesn't have what it links to"
         : Issue.Kind == ModIssueKind.SameAsGame ? "the same (no change)"
         : ModFixViewModel.OnlyIn(Issue.GameValue, Issue.ModValue) ?? ModFixViewModel.Describe(Issue.GameValue);
 
     /// <summary>A renamed row has no values to compare, only the names; nor has a link with no game value to go back to.</summary>
-    public bool ShowValues => Issue.Kind is not (ModIssueKind.MissingRow or ModIssueKind.OldGameRow) && !(Issue.Kind == ModIssueKind.BrokenLink && Issue.GameValue is null);
+    public bool ShowValues => Issue.Kind is not (ModIssueKind.MissingRow or ModIssueKind.OldGameRow or ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart)
+        && !(Issue.Kind == ModIssueKind.BrokenLink && Issue.GameValue is null);
+
+    /// <summary>"ASS/DEP/SM_X.uasset" or "/Game/ASS/DEP/M_X" → "SM_X" / "M_X".</summary>
+    private static string NameOf(string path)
+    {
+        var name = path[(path.LastIndexOf('/') + 1)..];
+        return name.Contains('.') ? name[..name.LastIndexOf('.')] : name;
+    }
+
+    /// <summary>"ASS/DEP/SM_X.uasset" or "/Game/ASS/DEP/M_X" → "ASS/DEP" (the game's Content folder for a file at its top).</summary>
+    private static string FolderOf(string path)
+    {
+        var folder = path.Replace('\\', '/')[..Math.Max(0, path.LastIndexOf('/'))];
+        folder = folder.StartsWith("/Game", StringComparison.OrdinalIgnoreCase) ? folder["/Game".Length..] : folder;
+        folder = folder.Trim('/');
+        return folder.Length == 0 ? "Content" : folder;
+    }
 
     public string KindLabel => ModFixViewModel.KindTitle(Issue.Kind);
 
@@ -403,6 +427,8 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.LikelyOld => 1,
         ModIssueKind.MixedList => 2,
         ModIssueKind.BrokenLink => -1,
+        ModIssueKind.MissingAsset => -3,
+        ModIssueKind.MissingAssetPart => -2,
         ModIssueKind.MissingRow => 3,
         ModIssueKind.OldGameRow => 5,
         _ => 4,
@@ -417,6 +443,8 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.BrokenLink => "Links to things the game doesn't have",
         ModIssueKind.MissingRow => "Rows the game no longer has",
         ModIssueKind.OldGameRow => "Old game rows (tidy-up)",
+        ModIssueKind.MissingAsset => "Game files it can't find",
+        ModIssueKind.MissingAssetPart => "Parts the game took out",
         _ => kind.ToString(),
     };
 
@@ -428,6 +456,8 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.MixedList => "The mod added entries to a list, and the game has entries the mod lacks (most likely added since). Merge keeps both.",
         ModIssueKind.BrokenLink => "The mod links these to something the game (and no mod in your Library) doesn't have, so in game they do nothing: a canteen you can't drink from, food with no model. Where the game removed what it links to, the fix links it back to what the game uses; otherwise it may need a mod that adds it, so it's kept as it is.",
         ModIssueKind.MissingRow => "The mod changes rows the game no longer has under that name: renamed since (it can be renamed to match), or removed (the change has nothing left to change).",
+        ModIssueKind.MissingAsset => "The mod's own files (meshes, materials, blueprints) use these game files where the game doesn't have them any more, so that part of the mod is broken: a missing look, a missing sound, or, if something is built on it, the game stopping when it loads. Where the game only moved a file (same name, same contents), the fix points the mod to the new place and changes nothing else. The rest needs the mod's author.",
+        ModIssueKind.MissingAssetPart => "The game still has these files, but has taken out parts the mod's files use (a component of a game blueprint, say). Those parts of the mod do nothing now; nothing to fix here, the mod's author has to update it. Keep the mod's to stop it being listed.",
         ModIssueKind.OldGameRow => "Nothing wrong in game: the mod was made from an older game version and still carries whole rows the game has since removed (the game's own row history shows it had them, or another mod in your Library carries the same rows). Nothing uses them, so they do nothing. Removing them only makes the mod smaller.",
         _ => "",
     };
@@ -435,12 +465,20 @@ public sealed partial class ModFixViewModel : ObservableObject
     internal static string ChoiceLabel(ModIssueFix fix, ModIssue issue) => fix switch
     {
         ModIssueFix.UseGame => issue.Kind == ModIssueKind.SameAsGame ? "Take it out" : "Use the game's",
-        ModIssueFix.KeepMod => "Keep the mod's",
+        ModIssueFix.KeepMod => issue.Kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart ? "Leave it as it is" : "Keep the mod's",
         ModIssueFix.Merge => "Merge both",
         ModIssueFix.RenameRow => $"Rename to {issue.SuggestedRow}",
         ModIssueFix.RemoveRow => "Remove the row",
+        ModIssueFix.Repoint => issue.SuggestedRow is null ? "Point to the new place" : $"Use the one in {FolderOfPackage(issue.SuggestedRow)}",
         _ => fix.ToString(),
     };
+
+    /// <summary>"/Game/ASS/ITM/M_X" → "ASS/ITM".</summary>
+    private static string FolderOfPackage(string package)
+    {
+        var folder = package[..Math.Max(0, package.LastIndexOf('/'))];
+        return folder.StartsWith("/Game/", StringComparison.OrdinalIgnoreCase) ? folder["/Game/".Length..] : folder.TrimStart('/');
+    }
 
     internal static string GroupChoiceLabel(ModIssueFix fix, ModIssueKind kind) => fix switch
     {
@@ -451,6 +489,7 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueFix.Merge => "Merge all",
         ModIssueFix.RenameRow => "Rename all",
         ModIssueFix.RemoveRow => "Remove all",
+        ModIssueFix.Repoint => "Point all to the new places",
         _ => fix.ToString(),
     };
 

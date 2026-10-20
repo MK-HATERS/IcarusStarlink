@@ -33,10 +33,15 @@ NAudio.Core (2.2.1) · NETStandard.Library (1.6.1) · Newtonsoft.Json (13.0.4) �
 OffiUtils (3.2.0) · OggVorbisEncoder (1.2.2) · Oodle.NET / OodleSharp (2.2.0 / 0.0.1) ·
 SharpCompress (1.0.0) · SharpGLTF.Core / .Runtime / .Toolkit (1.0.6) ·
 SkiaSharp / SkiaSharp.NativeAssets.Win32 / .macOS (2.88.9) · SubstreamSharp (1.0.3) ·
-System.IO.Hashing (10.0.8) · System.Numerics.Tensors (10.0.10) · VGAudio (2.2.1) ·
-Zlib-ng.NET (1.2.0) · ZstdSharp.Port (0.8.8)
+System.IO.Hashing (10.0.8) · System.Numerics.Tensors (10.0.10) ·
+UAssetAPI (1.1.0, Copyright atenfyr — rewrites a mod's cooked file when the game moved a file it
+uses) · VGAudio (2.2.1) · Zlib-ng.NET (1.2.0) · ZstdSharp.Port (0.8.8)
 
 Full license text: <https://opensource.org/license/mit>
+
+Not shipped, in the repository only: the test fixture `tests/IcarusStarlink.PakIO.Tests/Fixtures/WaxSample`
+is a cooked blueprint from [Wax for ICARUS](https://github.com/bostonstrong567/icarus-wax)
+(MIT, Copyright 2026 bostonstrong567; its licence is beside it).
 
 ## BSD 2-Clause License
 
