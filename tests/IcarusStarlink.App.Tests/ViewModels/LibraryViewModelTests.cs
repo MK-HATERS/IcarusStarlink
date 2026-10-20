@@ -403,7 +403,7 @@ public sealed class LibraryViewModelTests
     [InlineData("  ", "")]
     [InlineData("1.2.0", "v1.2.0")]
     [InlineData("v1.0", "v1.0")]
-    [InlineData("Beta", "vBeta")]
+    [InlineData("Beta", "Beta")]
     public void VersionLabel_NeverABareV(string? version, string expected) =>
         Assert.Equal(expected, IcarusStarlink.App.Utilities.VersionLabel.For(version));
 

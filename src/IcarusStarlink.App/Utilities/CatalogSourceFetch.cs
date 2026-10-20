@@ -21,8 +21,10 @@ public static class CatalogSourceFetch
         {
             return await fetch(default);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            // Soft for the caller (the other source's result is kept), but not silent.
+            Serilog.Log.Warning(ex, "Catalog source {Source} couldn't be fetched", sourceName);
             lock (failedSources)
             {
                 failedSources.Add(sourceName);

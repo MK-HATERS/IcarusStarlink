@@ -26,8 +26,6 @@ public static class LogDetail
     /// <summary>Where the log files are; set by the app at startup.</summary>
     public static string LogsDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, "Logs");
 
-    public static bool IsAdvanced => AppLevel.MinimumLevel <= LogEventLevel.Debug;
-
     /// <summary>One log file's size cap: past it the day's log rolls to a new file.</summary>
     public const long MaxFileBytes = 5 * 1024 * 1024;
 
@@ -88,7 +86,7 @@ public static class LogDetail
         }
     }
 
-    public static void Apply(bool advanced)
+    private static void Apply(bool advanced)
     {
         AppLevel.MinimumLevel = advanced ? LogEventLevel.Debug : LogEventLevel.Information;
         NoiseLevel.MinimumLevel = advanced ? LogEventLevel.Debug : LogEventLevel.Warning;

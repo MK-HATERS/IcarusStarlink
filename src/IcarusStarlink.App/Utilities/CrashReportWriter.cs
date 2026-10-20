@@ -52,12 +52,19 @@ public static class CrashReportWriter
         try
         {
             Directory.CreateDirectory(logsDirectory);
-            var reportPath = Path.Combine(logsDirectory, $"crash-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+            // Milliseconds plus a counter: a second crash in the same second (a crash while handling
+            // the first one is common) must not overwrite the first, which is usually the real one.
+            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", System.Globalization.CultureInfo.InvariantCulture);
+            var reportPath = Path.Combine(logsDirectory, $"crash-{stamp}.txt");
+            for (var n = 2; File.Exists(reportPath); n++)
+            {
+                reportPath = Path.Combine(logsDirectory, $"crash-{stamp}-{n}.txt");
+            }
 
             var version = Assembly.GetExecutingAssembly()
                 .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
 
-            using var writer = new StreamWriter(reportPath, append: false);
+            using var writer = new StreamWriter(new FileStream(reportPath, FileMode.CreateNew, FileAccess.Write));
             writer.WriteLine("IcarusStarlink crash report");
             writer.WriteLine($"Timestamp: {DateTimeOffset.Now:O}");
             writer.WriteLine($"Source: {source}");

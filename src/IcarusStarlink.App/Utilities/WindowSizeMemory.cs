@@ -25,7 +25,9 @@ public static class WindowSizeMemory
 
         window.Closing += (_, _) =>
         {
-            var bounds = window.WindowState == WindowState.Maximized ? window.RestoreBounds : new Rect(0, 0, window.ActualWidth, window.ActualHeight);
+            // RestoreBounds whenever it isn't Normal: closed while minimized, ActualWidth/Height are
+            // the minimized size, not the window's.
+            var bounds = window.WindowState != WindowState.Normal ? window.RestoreBounds : new Rect(0, 0, window.ActualWidth, window.ActualHeight);
             if (bounds.Width > 0 && bounds.Height > 0)
             {
                 settings.Current.WindowSizes[key] = new Core.Settings.SavedWindowSize { Width = bounds.Width, Height = bounds.Height, Maximized = window.WindowState == WindowState.Maximized };

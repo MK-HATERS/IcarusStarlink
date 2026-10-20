@@ -25,18 +25,41 @@ public static class DiagnosticsExporter
 
     public static void Export(string logsDirectory, string settingsFilePath, string outputZipPath)
     {
-        // ZipArchiveMode.Create opens with FileMode.CreateNew under the hood, which throws
-        // IOException if outputZipPath already exists — SettingsViewModel's own SaveFileDialog
-        // already asks (and gets a "yes") via its native overwrite-confirmation prompt whenever the
-        // user picks an existing file, but that prompt only confirms intent; it doesn't delete
-        // anything. Without this, confirming that prompt still ended in "Export failed: ... already
-        // exists.", directly contradicting the answer the user just gave.
-        if (File.Exists(outputZipPath))
+        // Written next to the target first and moved over it only once complete: the file the
+        // user picked (and confirmed overwriting in the save dialog) is replaced only by a whole
+        // zip, never deleted up front and left missing or half-written when the export fails.
+        var tempZipPath = outputZipPath + ".tmp";
+        try
         {
-            File.Delete(outputZipPath);
-        }
+            if (File.Exists(tempZipPath))
+            {
+                File.Delete(tempZipPath);
+            }
 
-        using var archive = ZipFile.Open(outputZipPath, ZipArchiveMode.Create);
+            using (var archive = ZipFile.Open(tempZipPath, ZipArchiveMode.Create))
+            {
+                WriteEntries(archive, logsDirectory, settingsFilePath);
+            }
+
+            File.Move(tempZipPath, outputZipPath, overwrite: true);
+        }
+        catch
+        {
+            try
+            {
+                File.Delete(tempZipPath);
+            }
+            catch (Exception)
+            {
+                // Best effort: the export's own error is the one worth reporting.
+            }
+
+            throw;
+        }
+    }
+
+    private static void WriteEntries(ZipArchive archive, string logsDirectory, string settingsFilePath)
+    {
 
         // A plain, always-present entry rather than relying on whoever reads this zip to notice a
         // version/OS line buried inside one specific day's rolling log (or find none at all, if
@@ -78,7 +101,7 @@ public static class DiagnosticsExporter
                     using var entryStream = entry.Open();
                     source.CopyTo(entryStream);
                 }
-                catch (IOException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     // One unreadable log file (locked by something other than this app's own
                     // Serilog sink, or deleted mid-enumeration) shouldn't sink the whole export —
@@ -89,9 +112,20 @@ public static class DiagnosticsExporter
 
         if (File.Exists(settingsFilePath))
         {
+            string settingsText;
+            try
+            {
+                settingsText = RedactSettings(File.ReadAllText(settingsFilePath));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Same as an unreadable log: say so in the zip, keep everything else.
+                settingsText = $"settings.json couldn't be read: {ex.Message}";
+            }
+
             var entry = archive.CreateEntry("settings.json");
             using var writer = new StreamWriter(entry.Open());
-            writer.Write(RedactSettings(File.ReadAllText(settingsFilePath)));
+            writer.Write(settingsText);
         }
     }
 
@@ -115,14 +149,36 @@ public static class DiagnosticsExporter
             return json;
         }
 
-        foreach (var propertyName in settingsObject.Select(kv => kv.Key).ToList())
-        {
-            if (SensitiveKeyMarkers.Any(marker => propertyName.Contains(marker, StringComparison.OrdinalIgnoreCase)))
-            {
-                settingsObject[propertyName] = "[REDACTED]";
-            }
-        }
-
+        Redact(settingsObject);
         return settingsObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    /// <summary>Every level, not just the top: a secret nested in a sub-object (or a list of them) is redacted too.</summary>
+    private static void Redact(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var propertyName in obj.Select(kv => kv.Key).ToList())
+                {
+                    if (SensitiveKeyMarkers.Any(marker => propertyName.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        obj[propertyName] = "[REDACTED]";
+                    }
+                    else
+                    {
+                        Redact(obj[propertyName]);
+                    }
+                }
+
+                break;
+            case JsonArray array:
+                foreach (var item in array)
+                {
+                    Redact(item);
+                }
+
+                break;
+        }
     }
 }
