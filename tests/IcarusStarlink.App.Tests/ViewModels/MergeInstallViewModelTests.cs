@@ -329,6 +329,31 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.DoesNotContain("Coop run", store.ProfileNames);
     }
 
+    /// <summary>
+    /// A name refused because a profile already has it is asked again on the next click: it used to
+    /// be kept and reused without asking, so New profile failed the same way every time after.
+    /// </summary>
+    [Fact]
+    public void NewProfile_AfterATakenName_AsksAgain()
+    {
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop" });
+        var vm = CreateViewModel(profileStore: store);
+        var answer = "Coop";
+        var asked = 0;
+        vm.PromptForProfileName = (_, _) => { asked++; return answer; };
+
+        vm.NewProfileCommand.Execute(null);
+        Assert.Contains("already exists", vm.ProfileStatusMessage);
+
+        answer = "Solo";
+        vm.NewProfileCommand.Execute(null);
+
+        Assert.Equal(2, asked);
+        Assert.Contains("Solo", store.ProfileNames);
+        Assert.Equal("Solo", vm.SelectedProfileName);
+    }
+
     /// <summary>Renaming the profile in use makes it the one selected on the next start.</summary>
     [Fact]
     public void RenameProfile_RemembersTheNewNameForTheNextStart()

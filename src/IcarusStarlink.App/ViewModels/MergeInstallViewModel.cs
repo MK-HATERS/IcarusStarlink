@@ -248,9 +248,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     private string? _selectedProfileName;
 
     [ObservableProperty]
-    private string _profileNameInput = "";
-
-    [ObservableProperty]
     private string? _profileStatusMessage;
 
     // --- Export/Import patch (6.3) ---
@@ -1027,26 +1024,28 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(ProfileNameInput) && PromptForProfileName("New profile", "") is { } typed)
+        // Asked every time: a name kept from a refused try (it already existed) used to skip the
+        // question on every later click, so New profile failed the same way until a restart.
+        var name = PromptForProfileName("New profile", "")?.Trim();
+        if (name is null)
         {
-            ProfileNameInput = typed.Trim();
+            return;
         }
 
-        if (string.IsNullOrWhiteSpace(ProfileNameInput))
+        if (name.Length == 0)
         {
             ProfileStatusMessage = "Give the profile a name.";
             return;
         }
 
-        if (ProfileNames.Contains(ProfileNameInput, StringComparer.OrdinalIgnoreCase))
+        if (ProfileNames.Contains(name, StringComparer.OrdinalIgnoreCase))
         {
-            ProfileStatusMessage = $"A profile named '{ProfileNameInput}' already exists.";
+            ProfileStatusMessage = $"A profile named '{name}' already exists.";
             return;
         }
 
         try
         {
-            var name = ProfileNameInput;
             _profileStore.Save(new Profile
             {
                 Name = name,
@@ -1056,7 +1055,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             });
             ReloadProfileNames();
             SelectedProfileName = name;
-            ProfileNameInput = "";
             ProfileStatusMessage = $"Created '{name}'.";
             _activityLog.Log($"Created profile '{name}'.", ActivityEntryKind.Success);
         }
@@ -1113,27 +1111,25 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(ProfileNameInput) && PromptForProfileName("Rename profile", oldName) is { } typed)
+        if (PromptForProfileName("Rename profile", oldName)?.Trim() is not { } newName)
         {
-            ProfileNameInput = typed.Trim();
+            return;
         }
 
-        if (string.IsNullOrWhiteSpace(ProfileNameInput) || string.Equals(ProfileNameInput, oldName, StringComparison.Ordinal))
+        if (newName.Length == 0 || string.Equals(newName, oldName, StringComparison.Ordinal))
         {
-            ProfileNameInput = "";
             ProfileStatusMessage = "Give the profile a new name.";
             return;
         }
 
-        if (ProfileNames.Contains(ProfileNameInput, StringComparer.OrdinalIgnoreCase))
+        if (ProfileNames.Contains(newName, StringComparer.OrdinalIgnoreCase))
         {
-            ProfileStatusMessage = $"A profile named '{ProfileNameInput}' already exists.";
+            ProfileStatusMessage = $"A profile named '{newName}' already exists.";
             return;
         }
 
         try
         {
-            var newName = ProfileNameInput;
             // A pending auto-save would otherwise write the old name back as a second profile.
             SaveWorkingState();
             _profileStore.Rename(oldName, newName);
@@ -1155,7 +1151,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
                 // Only a convenience for the next start.
             }
 
-            ProfileNameInput = "";
             ProfileStatusMessage = $"Renamed '{oldName}' to '{newName}'.";
         }
         catch (Exception ex)
