@@ -5,6 +5,8 @@ namespace IcarusStarlink.App.ViewModels;
 /// on disk yet to have become a real LibraryItemViewModel. A record (not a class) so two Reload()
 /// passes while the same download is still active produce equal instances rather than a new
 /// reference each time — ObservableCollectionSync.SyncTo compares by equality, so this keeps the
-/// row stable in place instead of removing and re-inserting it on every unrelated reload.
+/// row stable in place instead of removing and re-inserting it on every unrelated reload. Key (the
+/// download's own unique key) is part of the value so two files of the same mod downloading at once
+/// are two different rows, not two equal ones.
 /// </summary>
-public sealed record DownloadStubViewModel(string DisplayName);
+public sealed record DownloadStubViewModel(string Key, string DisplayName);
