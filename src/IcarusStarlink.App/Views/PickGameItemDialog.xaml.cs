@@ -6,7 +6,7 @@ using IcarusStarlink.App.ViewModels;
 namespace IcarusStarlink.App.Views;
 
 /// <summary>
-/// "Add item from game data" — picks one real DataTable row out of the whole extracted game data
+/// "Copy a game row into this mod" — picks one real DataTable row out of the whole extracted game data
 /// (classic IMM's own "Add Item to Mod", its changelog's most-iterated editor feature). The index
 /// is built once by ExmodEditorViewModel and handed in, so reopening the dialog costs nothing.
 /// The "hide items already in this mod" toggle is classic IMM's other companion workflow ("View

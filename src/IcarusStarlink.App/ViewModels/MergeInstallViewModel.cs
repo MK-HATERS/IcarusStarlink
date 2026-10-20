@@ -1011,7 +1011,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// <summary>Asks for a profile name (title, starting text) → the name, or null when cancelled. Tests swap in an answer.</summary>
     internal Func<string, string, string?> PromptForProfileName { get; set; } = (title, current) =>
     {
-        var dialog = new Views.RenameModDialog(current, "A name for this saved set of queued mods and merge options.", title: title, fieldLabel: "Profile name")
+        var dialog = new Views.RenameModDialog(current, "A name for this saved set of queued mods and merge options.", title: title, fieldLabel: "Profile name", showReset: false)
         {
             Owner = Application.Current?.MainWindow,
         };

@@ -13,7 +13,8 @@ namespace IcarusStarlink.App.Views;
 /// distinct from Cancel (DialogResult stays false, caller does nothing at all). Despite the name,
 /// this is really this app's one generic "prompt for a single line of text" dialog — title is
 /// parameterized too so a non-rename caller (e.g. declaring a UE4SS mod's minimum loader version)
-/// doesn't show a literal "Rename mod" window title.
+/// doesn't show a literal "Rename mod" window title, and showReset: false hides Reset for a caller
+/// where it means nothing (naming a profile: there's no default name to go back to).
 /// </summary>
 public partial class RenameModDialog : Window
 {
@@ -28,7 +29,8 @@ public partial class RenameModDialog : Window
         string resetLabel = "Reset to default",
         string resetTooltip = "Clears the override — goes back to the mod's own declared name",
         string title = "Rename mod",
-        string fieldLabel = "Display name")
+        string fieldLabel = "Display name",
+        bool showReset = true)
     {
         InitializeComponent();
         Title = title;
@@ -41,6 +43,7 @@ public partial class RenameModDialog : Window
         _resetValue = resetValue;
         ResetButton.Content = resetLabel;
         ResetButton.ToolTip = resetTooltip;
+        ResetButton.Visibility = showReset ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)

@@ -12,6 +12,7 @@ public partial class NewModDialog : Window
     public NewModDialog()
     {
         InitializeComponent();
+        Loaded += (_, _) => NameBox.Focus();
     }
 
     private void Create_Click(object sender, RoutedEventArgs e)

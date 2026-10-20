@@ -11,9 +11,9 @@
 
     <Grid Margin="20">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="320"/>
+            <ColumnDefinition Width="320" MinWidth="220"/>
             <ColumnDefinition Width="20"/>
-            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*" MinWidth="320"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
@@ -38,6 +38,11 @@
             </Grid>
             <ListBox Grid.Row="3" ItemsSource="{Binding FilteredItems}" SelectedItem="{Binding SelectedSource}" DisplayMemberPath="Display"/>
         </Grid>
+
+        <!-- Drag to give the item list or the choices more room. -->
+        <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="Transparent"
+                      ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Cursor="SizeWE" ToolTip="Drag to resize"
+                      AutomationProperties.Name="Resize the item list"/>
 
         <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
             <StackPanel>
@@ -136,7 +141,7 @@
 
         <DockPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,14,0,0">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0"/>
+                <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0" IsCancel="True"/>
                 <Button Content="Add to mod" Click="Create_Click" Style="{StaticResource PrimaryButtonStyle}"/>
             </StackPanel>
             <TextBlock Text="{Binding Error}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"/>

@@ -4,7 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         mc:Ignorable="d"
-        Title="Add item from game data" Height="520" Width="560"
+        Title="Copy a game row into this mod" Height="520" Width="560"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource ContentBackgroundBrush}">
 
@@ -17,7 +17,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Pick any real in-game item — its complete current values are copied into this mod as a starting point, ready to edit. Nothing changes in-game until you actually edit a field (a copy identical to the game's own data merges as a no-op)."
+        <TextBlock Grid.Row="0" Text="Pick any row of the game's data: all its current values are copied into this mod, ready to edit. Nothing changes in game until you change a value (an unchanged copy merges as nothing)."
                    Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
         <Grid Grid.Row="1" Margin="0,0,0,8">
@@ -46,8 +46,9 @@
                    Foreground="{DynamicResource SecondaryForegroundBrush}"/>
 
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-            <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0"/>
-            <Button Content="Add item" Click="Add_Click" Style="{StaticResource PrimaryButtonStyle}"/>
+            <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0" IsCancel="True"/>
+            <Button Content="Copy row" Click="Add_Click" Style="{StaticResource PrimaryButtonStyle}" IsDefault="True"
+                    ToolTip="Copies the selected row into this mod (double-click a row does the same)"/>
         </StackPanel>
     </Grid>
 </Window>
