@@ -51,8 +51,6 @@ public sealed partial class LuaConfigDocument
         return new LuaConfigDocument(lines, endings);
     }
 
-    public static LuaConfigDocument Load(string path) => Parse(File.ReadAllText(path));
-
     public string ToText() => TextLines.Join(_lines, _endings);
 
     public IReadOnlyList<LuaConfigSetting> Settings =>
@@ -72,6 +70,13 @@ public sealed partial class LuaConfigDocument
             return $"{key} isn't in this file";
         }
 
+        // An unchanged value is left exactly as written: the editor sends every field on Save, and
+        // re-writing an untouched string must not respell its escapes.
+        if (DisplayValue(entry) == value)
+        {
+            return null;
+        }
+
         if (Format(entry.Kind, entry.Quote, value) is not { } text)
         {
             return $"{key}: {ExpectedText(entry.Kind)}";
@@ -88,10 +93,6 @@ public sealed partial class LuaConfigDocument
         _entries[index] = entry with { ValueLength = text.Length };
         return null;
     }
-
-    /// <summary>Null when <paramref name="value"/> can be written as a <paramref name="kind"/>, else what's expected.</summary>
-    public static string? Check(LuaConfigValueKind kind, string value) =>
-        Format(kind, '"', value) is null ? ExpectedText(kind) : null;
 
     private static string ExpectedText(LuaConfigValueKind kind) => kind switch
     {
@@ -111,7 +112,8 @@ public sealed partial class LuaConfigDocument
 
     private static string? Format(LuaConfigValueKind kind, char quote, string value)
     {
-        if (value.Contains('\n') || value.Contains('\r'))
+        // A string writes a line break as \n (see Escape); no other kind can hold one.
+        if (kind != LuaConfigValueKind.String && (value.Contains('\n') || value.Contains('\r')))
         {
             return null;
         }
@@ -133,22 +135,42 @@ public sealed partial class LuaConfigDocument
         }
     }
 
+    /// <summary>The inverse of Unescape: a backslash, the quote, and line break / carriage return / tab are written as Lua escapes.</summary>
     private static string Escape(string value, char quote)
     {
         var sb = new StringBuilder();
         foreach (var c in value)
         {
-            if (c == '\\' || c == quote)
+            switch (c)
             {
-                sb.Append('\\');
-            }
+                case '\n':
+                    sb.Append("\\n");
+                    break;
+                case '\r':
+                    sb.Append("\\r");
+                    break;
+                case '\t':
+                    sb.Append("\\t");
+                    break;
+                default:
+                    if (c == '\\' || c == quote)
+                    {
+                        sb.Append('\\');
+                    }
 
-            sb.Append(c);
+                    sb.Append(c);
+                    break;
+            }
         }
 
         return sb.ToString();
     }
 
+    /// <summary>
+    /// What the editor shows for a quoted Lua string: \n, \r, \t, \\ and the escaped quotes become
+    /// the characters they stand for. Any other escape (a decimal \065, a hex \x41, \z …) is shown
+    /// as written, backslash included — it used to lose the backslash, so "\065" showed as "065".
+    /// </summary>
     private static string Unescape(string raw)
     {
         var sb = new StringBuilder();
@@ -157,7 +179,25 @@ public sealed partial class LuaConfigDocument
             if (raw[i] == '\\' && i + 1 < raw.Length)
             {
                 i++;
-                sb.Append(raw[i] switch { 'n' => '\n', 't' => '\t', _ => raw[i] });
+                switch (raw[i])
+                {
+                    case 'n':
+                        sb.Append('\n');
+                        break;
+                    case 'r':
+                        sb.Append('\r');
+                        break;
+                    case 't':
+                        sb.Append('\t');
+                        break;
+                    case '\\' or '"' or '\'':
+                        sb.Append(raw[i]);
+                        break;
+                    default:
+                        sb.Append('\\').Append(raw[i]);
+                        break;
+                }
+
                 continue;
             }
 

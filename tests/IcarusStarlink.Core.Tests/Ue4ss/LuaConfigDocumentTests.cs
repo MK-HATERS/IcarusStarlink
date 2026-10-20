@@ -59,6 +59,38 @@ public class LuaConfigDocumentTests
         Assert.Contains("    DefendRadius = 1,          -- how far", doc.ToText());
     }
 
+    /// <summary>
+    /// The mod config editor sends every field back on Save. An untouched string holding \r, \065
+    /// or \x41 used to come back without its backslashes, and one holding \n came back refused
+    /// ("can't span lines"), so saving any other field failed.
+    /// </summary>
+    [Fact]
+    public void SetValue_EveryFieldSentBackUnchanged_LeavesEscapedStringsExactlyAsWritten()
+    {
+        const string text = "return {\n    Sep = \"a\\r\\nb\",\n    Code = \"\\065\\x41\",\n    Tab = \"x\\ty\",\n    Speed = 1,\n}\n";
+        var doc = LuaConfigDocument.Parse(text);
+
+        foreach (var setting in doc.Settings)
+        {
+            Assert.Null(doc.SetValue(setting.Key, setting.Value));
+        }
+
+        Assert.Equal(text, doc.ToText());
+        Assert.Equal("a\r\nb", doc.GetValue("Sep"));
+        Assert.Equal("\\065\\x41", doc.GetValue("Code"));
+    }
+
+    [Fact]
+    public void SetValue_AStringWithALineBreak_IsWrittenAsAnEscape()
+    {
+        var doc = LuaConfigDocument.Parse("return {\n    Sep = \"a\",\n}\n");
+
+        Assert.Null(doc.SetValue("Sep", "one\ntwo\tthree"));
+
+        Assert.Equal("return {\n    Sep = \"one\\ntwo\\tthree\",\n}\n", doc.ToText());
+        Assert.Equal("one\ntwo\tthree", LuaConfigDocument.Parse(doc.ToText()).GetValue("Sep"));
+    }
+
     [Theory]
     [InlineData("DefendRadius", "far")]
     [InlineData("Enabled", "yes")]
