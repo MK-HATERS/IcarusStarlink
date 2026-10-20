@@ -155,6 +155,22 @@ public sealed class SaveRepositoryTests : IDisposable
         Assert.Equal(777, reloaded["MetaResources"]![0]!["Count"]!.GetValue<int>());
     }
 
+    /// <summary>A save file the running game holds locked fails the backup — which used to leave a half-written .zip.tmp in Backups every time.</summary>
+    [Fact]
+    public void SaveProfile_BackupFailsOnALockedFile_ThrowsWithoutWritingAndLeavesNoTempZip()
+    {
+        var profile = _repository.LoadProfile(SteamId);
+        profile["NextChrSlot"] = 9;
+
+        using (new FileStream(Path.Combine(_playerData, SteamId, "Characters.json"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.Throws<IOException>(() => _repository.SaveProfile(SteamId, profile));
+        }
+
+        Assert.Empty(Directory.GetFiles(_backups));
+        Assert.Equal(1, _repository.LoadProfile(SteamId)["NextChrSlot"]!.GetValue<int>());
+    }
+
     [Fact]
     public void RestoreSlot_WritesPreRestoreZipThenReplacesTheSlot()
     {
