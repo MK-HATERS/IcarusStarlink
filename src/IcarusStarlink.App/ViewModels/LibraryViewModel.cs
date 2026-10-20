@@ -683,6 +683,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 }
 
                 row.LoaderMissing = !IsUe4ssLoaderInstalled;
+                row.NotStartedReason = state.IsSwitchedOffInGame ? state.WhyNotStarted : null;
                 row.NexusFileId = meta.NexusFileId;
                 row.HasConfig = ModHasConfig(modsFolder, state);
                 Ue4ssMods.Add(row);
@@ -720,7 +721,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     {
         try
         {
-            return Ue4ssModConfigFiles.HasAny(state.IsEnabled ? Path.Combine(modsFolder, state.Name) : _ue4ssModRepository.GetFolderPath(state.Name));
+            return Ue4ssModConfigFiles.HasAny(state.IsInGame ? Path.Combine(modsFolder, state.Name) : _ue4ssModRepository.GetFolderPath(state.Name));
         }
         catch (Exception)
         {
@@ -1151,7 +1152,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         var confirm = _dialogService.Confirm(
-            item.RealIsEnabled
+            item.IsFolderInGame
                 ? $"Delete '{item.Name}'?\n\nIt is removed from the game's Mods folder (a backup is kept under Backups\\UE4SS) and from this app's staging. Re-download it to get it back."
                 : $"Delete '{item.Name}'?\n\nIts staged folder is removed from disk. Re-download it to get it back.",
             "Delete UE4SS mod", ThemedConfirmSeverity.Warning);
@@ -1197,7 +1198,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         {
             var locations = new List<ModConfigLocation>();
             var contentPath = _settingsService.Current.IcarusContentPath;
-            if (row.RealIsEnabled && !string.IsNullOrWhiteSpace(contentPath))
+            if (row.IsFolderInGame && !string.IsNullOrWhiteSpace(contentPath))
             {
                 locations.Add(new ModConfigLocation("Your game", Path.Combine(Ue4ssGamePaths.ResolveModsFolder(contentPath), row.Name), IsServer: false));
             }
@@ -1242,7 +1243,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             var contentPath = _settingsService.Current.IcarusContentPath;
-            var path = item.RealIsEnabled && !string.IsNullOrWhiteSpace(contentPath)
+            var path = item.IsFolderInGame && !string.IsNullOrWhiteSpace(contentPath)
                 ? Path.Combine(Ue4ssGamePaths.ResolveModsFolder(contentPath), item.Name)
                 : _ue4ssModRepository.GetFolderPath(item.Name);
             if (!Directory.Exists(path))

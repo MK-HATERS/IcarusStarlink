@@ -8,6 +8,11 @@ namespace IcarusStarlink.PakIO.Install;
 /// discipline before ever removing something from the real game folder, matching InstallService's
 /// and Ue4ssLoaderInstallService's own backup-before-write pattern for anything under the user's
 /// real Icarus install.
+///
+/// A mod is on when UE4SS starts it, not merely when its folder is in the game: UE4SS starts a
+/// folder only through a "Name : 1" line in mods.txt or an enabled.txt inside it (Ue4ssModStart).
+/// Turning on a folder already in the game writes its enabled.txt; one copied in from staging gets
+/// one too unless mods.txt already starts it. Turning off still moves the folder out of the game.
 /// </summary>
 public sealed class Ue4ssModStateService(IUe4ssModRepository stagingRepository) : IUe4ssModStateService
 {
@@ -17,27 +22,42 @@ public sealed class Ue4ssModStateService(IUe4ssModRepository stagingRepository) 
         var staged = stagingRepository.GetAll();
         var allNames = installed.Concat(staged).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.OrdinalIgnoreCase);
 
-        return [.. allNames.Select(name => new Ue4ssModState(name, installed.Contains(name)))];
+        var list = Directory.Exists(gameModsFolderPath) ? Ue4ssModStart.ReadList(gameModsFolderPath) : Core.Server.Ue4ssModsTxt.Parse(null);
+        return [.. allNames.Select(name => !installed.Contains(name)
+            ? new Ue4ssModState(name, IsEnabled: false)
+            // A folder that isn't a mod (UE4SS's shared\ library) is just there: never started, never "off".
+            : !Ue4ssModStart.IsMod(gameModsFolderPath, name) ? new Ue4ssModState(name, IsEnabled: true, IsInGame: true)
+            : new Ue4ssModState(name, Ue4ssModStart.Starts(gameModsFolderPath, name, list), IsInGame: true, Ue4ssModStart.WhyNotStarted(gameModsFolderPath, name, list)))];
     }
 
     public IReadOnlyList<Ue4ssModApplyFailure> Apply(string gameModsFolderPath, IReadOnlyDictionary<string, bool> desiredEnabledByName, string backupDirectory)
     {
         Directory.CreateDirectory(gameModsFolderPath);
         var installed = stagingRepository.ListInstalledInGame(gameModsFolderPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var list = Ue4ssModStart.ReadList(gameModsFolderPath);
         var ue4ssBackupDirectory = Path.Combine(backupDirectory, "UE4SS");
         var failures = new List<Ue4ssModApplyFailure>();
 
         foreach (var (name, desiredEnabled) in desiredEnabledByName)
         {
-            var currentlyEnabled = installed.Contains(name);
-            if (desiredEnabled == currentlyEnabled)
+            var inGame = installed.Contains(name);
+            var started = inGame && Ue4ssModStart.Starts(gameModsFolderPath, name, list);
+
+            // Off means out of the game: a folder UE4SS doesn't start is still taken out when asked.
+            if (desiredEnabled ? started : !inGame)
             {
                 continue;
             }
 
             try
             {
-                if (desiredEnabled)
+                if (desiredEnabled && inGame)
+                {
+                    // In the game but not started (mods.txt says 0, or nothing starts it): its
+                    // enabled.txt is all it takes; nothing is copied or moved.
+                    Ue4ssModStart.SwitchOn(gameModsFolderPath, name);
+                }
+                else if (desiredEnabled)
                 {
                     // Disabled (staging) -> Enabled (game). Refusing an empty/missing staged
                     // folder up front, rather than letting CopyDirectory "succeed" at copying
@@ -70,6 +90,13 @@ public sealed class Ue4ssModStateService(IUe4ssModRepository stagingRepository) 
                         }
 
                         throw;
+                    }
+
+                    // In the game it has to start too: a folder with no enabled.txt and no "1" line in
+                    // mods.txt would sit there doing nothing.
+                    if (!Ue4ssModStart.Starts(gameModsFolderPath, name, list))
+                    {
+                        Ue4ssModStart.SwitchOn(gameModsFolderPath, name);
                     }
 
                     stagingRepository.Delete(name);

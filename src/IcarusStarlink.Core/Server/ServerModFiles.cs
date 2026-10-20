@@ -83,7 +83,7 @@ public static class ServerModFiles
         return dest;
     }
 
-    /// <summary>UE4SS mod folders on the server with their mods.txt state (an enabled.txt inside a folder also counts as on).</summary>
+    /// <summary>UE4SS mod folders on the server, on when UE4SS starts them (mods.txt says 1, or the folder has an enabled.txt: Ue4ssModStart).</summary>
     public static IReadOnlyList<ServerUe4ssMod> ListUe4ssMods(string installFolder)
     {
         var mods = DedicatedServerLayout.Ue4ssModsFolder(installFolder);
@@ -96,7 +96,7 @@ public static class ServerModFiles
         return [.. Directory.GetDirectories(mods)
             .Select(Path.GetFileName)
             .Where(n => n is not null)
-            .Select(n => new ServerUe4ssMod(n!, txt.IsEnabled(n!) ?? File.Exists(Path.Combine(mods, n!, "enabled.txt"))))
+            .Select(n => new ServerUe4ssMod(n!, Ue4ss.Ue4ssModStart.Starts(mods, n!, txt)))
             .OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase)];
     }
 

@@ -53,12 +53,25 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     /// <summary>The Type column.</summary>
     public string TypeLabel => "UE4SS";
 
-    /// <summary>"Needs Apply" while the checkbox differs from what's on disk, "In game" when enabled and applied, else "Not enabled".</summary>
-    public string InstallStatus => LoaderMissing && IsEnabled ? "Needs UE4SS" : IsDirty ? "Needs Apply" : RealIsEnabled ? "In game" : "Not enabled";
+    /// <summary>"Needs Apply" while the checkbox differs from what's on disk, "In game" when UE4SS starts it, "Off in UE4SS" when its folder is in the game but nothing starts it, else "Not enabled".</summary>
+    public string InstallStatus => LoaderMissing && IsEnabled ? "Needs UE4SS" : IsDirty ? "Needs Apply" : RealIsEnabled ? "In game" : IsSwitchedOffInGame ? "Off in UE4SS" : "Not enabled";
 
     public string InstallStatusDetail => LoaderMissing && IsEnabled
         ? "UE4SS itself isn't installed in the game, so this mod can't run. Install it from the bar below the list or in Settings."
-        : IsDirty ? (IsEnabled ? "ticked — click Apply to put it in the game" : "unticked — click Apply to take it out") : "";
+        : IsDirty ? (IsEnabled ? (IsSwitchedOffInGame ? "ticked — click Apply to turn it on (its enabled.txt)" : "ticked — click Apply to put it in the game") : "unticked — click Apply to take it out")
+        : IsSwitchedOffInGame ? $"Its folder is in the game, but UE4SS doesn't start it: {NotStartedReason}. Tick it and Apply to turn it on."
+        : "";
+
+    /// <summary>Set by LibraryViewModel for a mod whose folder is in the game but that UE4SS doesn't start: why (Ue4ssModStart.WhyNotStarted).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSwitchedOffInGame), nameof(InstallStatus), nameof(InstallStatusDetail), nameof(NeedsAction))]
+    private string? _notStartedReason;
+
+    /// <summary>In the game folder, doing nothing: UE4SS doesn't start it.</summary>
+    public bool IsSwitchedOffInGame => NotStartedReason is not null;
+
+    /// <summary>Its folder is in the game's Mods folder (started or not), not in Starlink's staging: where its files are.</summary>
+    public bool IsFolderInGame => RealIsEnabled || IsSwitchedOffInGame;
 
     /// <summary>Set by LibraryViewModel: the game has no UE4SS loader (dwmapi.dll + ue4ss\UE4SS.dll), so a ticked Lua mod can't run.</summary>
     [ObservableProperty]
@@ -78,7 +91,7 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasConfig;
 
-    public bool NeedsAction => IsDirty || (LoaderMissing && IsEnabled);
+    public bool NeedsAction => IsDirty || (LoaderMissing && IsEnabled) || IsSwitchedOffInGame;
 
     /// <summary>
     /// Set by LibraryViewModel when this Lua mod is the "Lua half" of a Mods-tab row (same Nexus

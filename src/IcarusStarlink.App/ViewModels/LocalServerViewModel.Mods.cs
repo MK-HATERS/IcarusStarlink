@@ -120,7 +120,7 @@ public sealed partial class LocalServerViewModel
             var gameTxt = Ue4ssModsTxt.Load(Path.Combine(gameMods, "mods.txt"));
             foreach (var folder in Directory.GetDirectories(gameMods).Select(Path.GetFileName).Where(n => n is not null && !Ue4ssFrameworkMods.Contains(n)).Order(StringComparer.OrdinalIgnoreCase))
             {
-                var enabled = gameTxt.IsEnabled(folder!) ?? File.Exists(Path.Combine(gameMods, folder!, "enabled.txt"));
+                var enabled = Ue4ssModStart.Starts(gameMods, folder!, gameTxt);
                 GameUe4ssMods.Add(new Ue4ssServerPick(folder!, enabled, onServer.Contains(folder!)));
             }
         }
