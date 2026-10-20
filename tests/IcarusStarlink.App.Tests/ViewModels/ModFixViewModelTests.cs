@@ -354,4 +354,32 @@ public sealed class ModFixViewModelTests : IDisposable
 
     private static JsonObject Tags(params string[] tags) =>
         new() { ["GameplayTags"] = new JsonArray(tags.Select(t => (JsonNode)new JsonObject { ["TagName"] = t }).ToArray()) };
+
+    [Fact]
+    public void MissingGameFile_RowSaysWhatTheFilesAreAndWhereInPlainWords()
+    {
+        var found = new IcarusStarlink.PakIO.Assets.MissingAssetReference(
+            "ASS/DEP/Wires/SM_Cable.uasset", "/Game/ASS/DEP/M_ITM_CableHand",
+            new Dictionary<string, string> { ["M_ITM_CableHand"] = "Material" },
+            IcarusStarlink.PakIO.Assets.MissingReferenceKind.Moved, "/Game/ASS/ITM/M_ITM_CableHand", ["/Game/ASS/ITM/M_ITM_CableHand"]);
+        var row = new ModFixIssueViewModel(Assert.Single(AssetReferenceIssues.From([found])));
+
+        Assert.Equal("SM_Cable", row.Row);
+        Assert.Equal("Mod's mesh · Deployables", row.Table);
+        Assert.Equal("M_ITM_CableHand", row.Field);
+        Assert.Equal("game's material", row.FieldSubtitle);
+        Assert.Equal("uses it from Deployables (ASS/DEP)", row.ModText);
+        Assert.Equal("has it in Items (ASS/ITM)", row.GameText);
+        Assert.Contains("SM_Cable is a mesh (3D model) the mod brings, kept in Deployables (benches, machines, things you place), folder ASS/DEP/Wires", row.AssetHint);
+        Assert.Contains("the game keeps it in Items (tools, food, resources), folder ASS/ITM now", row.AssetHint);
+    }
+
+    [Fact]
+    public void TableRow_HasNoGameFileHint()
+    {
+        var rows = Open().Groups.SelectMany(g => g.Issues).ToList();
+        Assert.NotEmpty(rows);
+        Assert.All(rows, i => Assert.Null(i.AssetHint));
+        Assert.All(rows, i => Assert.Null(i.FieldSubtitle));
+    }
 }

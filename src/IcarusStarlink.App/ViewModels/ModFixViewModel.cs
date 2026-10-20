@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
+using IcarusStarlink.PakIO.Assets;
 using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -35,19 +36,61 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
 
     public string Row => IsAsset ? NameOf(Issue.CurrentFile) : Issue.ItemName;
 
-    public string Table => IsAsset ? "Mod file in " + FolderOf(Issue.CurrentFile)
+    /// <summary>Under the row: the table, or for a mod's file what kind of file it is and where ("mesh · Deployables").</summary>
+    public string Table => IsAsset ? AssetSubtitle(Issue.CurrentFile, "Mod's")
         : GameTableIndex.TableNameOf(Issue.CurrentFile).Replace("D_", "", StringComparison.Ordinal);
 
     public string Field => IsAsset ? NameOf(Issue.ItemName) : Issue.FieldName ?? "(whole row)";
 
-    public string ModText => IsAsset ? $"uses it from {FolderOf(Issue.ItemName)}"
+    /// <summary>Under the field: for a game file the mod uses, what kind it is ("game's material").</summary>
+    public string? FieldSubtitle => IsAsset && GameContentNames.KindOf(NameOf(Issue.ItemName)) is { } kind
+        ? "game's " + GameContentNames.Short(kind)
+        : null;
+
+    /// <summary>
+    /// The longer hint for a mod's file and the game file it uses, in plain words: what each is
+    /// and which part of the game its folder holds. Null for table rows (they have their own words).
+    /// </summary>
+    public string? AssetHint
+    {
+        get
+        {
+            if (!IsAsset)
+            {
+                return null;
+            }
+
+            var file = NameOf(Issue.CurrentFile);
+            var used = NameOf(Issue.ItemName);
+            var fileKind = GameContentNames.KindOf(file);
+            var usedKind = GameContentNames.KindOf(used);
+            var hint = $"{file} is {(fileKind is null ? "a file" : GameContentNames.WithArticle(fileKind))} the mod brings, kept in {Area(FolderOf(Issue.CurrentFile))}. "
+                + $"It uses {used}, {(usedKind is null ? "a game file" : GameContentNames.WithArticle(usedKind))} the game kept in {Area(FolderOf(Issue.ItemName))}";
+            return Issue.SuggestedRow is null ? hint + "." : hint + $"; the game keeps it in {Area(FolderOf(Issue.SuggestedRow))} now.";
+        }
+    }
+
+    /// <summary>"ASS/DEP/DEP_Turret_T4" → "Deployables (benches, machines, things you place), folder ASS/DEP/DEP_Turret_T4".</summary>
+    private static string Area(string folder) =>
+        GameContentNames.AreaOf(folder) is { } area ? $"{area}, folder {folder}" : $"the folder {folder}";
+
+    private static string AssetSubtitle(string path, string owner)
+    {
+        var folder = FolderOf(path);
+        var area = GameContentNames.AreaOf(folder) is { } a ? GameContentNames.Short(a) : folder;
+        return GameContentNames.KindOf(NameOf(path)) is { } kind
+            ? $"{owner} {GameContentNames.Short(kind)} · {area}"
+            : $"{owner} file · {area}";
+    }
+
+    public string ModText => IsAsset ? $"uses it from {GameContentNames.FolderWithArea(FolderOf(Issue.ItemName))}"
         : Issue.Kind == ModIssueKind.OldGameRow ? $"carries an old copy of '{Issue.ItemName}'"
         : Issue.Kind == ModIssueKind.MissingRow ? $"changes '{Issue.ItemName}'"
         : Issue.Kind == ModIssueKind.SameAsGame ? ModFixViewModel.Describe(Issue.ModValue)
         : ModFixViewModel.OnlyIn(Issue.ModValue, Issue.GameValue) ?? ModFixViewModel.Describe(Issue.ModValue);
 
     public string GameText => Issue.Kind == ModIssueKind.MissingAssetPart ? $"took out: {Issue.FieldName}"
-        : Issue.Kind == ModIssueKind.MissingAsset ? (Issue.SuggestedRow is null ? "doesn't have it any more" : $"has it in {FolderOf(Issue.SuggestedRow)}")
+        : Issue.Kind == ModIssueKind.MissingAsset ? (Issue.SuggestedRow is null ? "doesn't have it any more" : $"has it in {GameContentNames.FolderWithArea(FolderOf(Issue.SuggestedRow))}")
         : Issue.Kind == ModIssueKind.OldGameRow ? "doesn't have it any more"
         : Issue.Kind == ModIssueKind.MissingRow ? (Issue.SuggestedRow is null ? "doesn't have it any more" : $"has '{Issue.SuggestedRow}'")
         : Issue.Kind == ModIssueKind.BrokenLink && Issue.GameValue is null ? "doesn't have what it links to"
@@ -188,7 +231,8 @@ public sealed partial class ModFixViewModel : ObservableObject
         IssuesView = CollectionViewSource.GetDefaultView(_all);
         IssuesView.Filter = o => o is ModFixIssueViewModel i
             && (SelectedGroup is null || i.Issue.Kind == SelectedGroup.Kind)
-            && (SearchText.Length == 0 || i.Row.Contains(SearchText, StringComparison.OrdinalIgnoreCase) || i.Field.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+            && (SearchText.Length == 0 || i.Row.Contains(SearchText, StringComparison.OrdinalIgnoreCase) || i.Field.Contains(SearchText, StringComparison.OrdinalIgnoreCase)
+                || i.Table.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
         Load(report);
     }
 

@@ -69,8 +69,8 @@
             <!-- Every flagged difference, with its fix. -->
             <DockPanel Grid.Column="2">
                 <Grid DockPanel.Dock="Top" Margin="0,0,0,6">
-                    <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" ToolTip="Find a row or field by name"/>
-                    <TextBlock Text="Find a row or field…" Style="{StaticResource PlaceholderTextStyle}"
+                    <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" ToolTip="Find a row, field or table by name (for a mod's files: the file, the kind, like mesh, or the part of the game, like Deployables)"/>
+                    <TextBlock Text="Find a row, field, table or file…" Style="{StaticResource PlaceholderTextStyle}"
                                Visibility="{Binding SearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                 </Grid>
                 <Grid DockPanel.Dock="Top" Margin="8,0,8,2">
@@ -103,9 +103,15 @@
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0" Margin="0,0,8,0">
                                         <TextBlock Text="{Binding Row}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Row}"/>
-                                        <TextBlock Text="{Binding Table}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                        <TextBlock Text="{Binding Table}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding Table}"/>
                                     </StackPanel>
-                                    <TextBlock Grid.Column="1" Text="{Binding Field}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Field}" Margin="0,0,8,0"/>
+                                    <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                                        <TextBlock Text="{Binding Field}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Field}"/>
+                                        <TextBlock Text="{Binding FieldSubtitle}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding FieldSubtitle, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                    </StackPanel>
                                     <TextBlock Grid.Column="2" Text="{Binding ModText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding ModText}" Margin="0,0,8,0"
                                                Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                                     <TextBlock Grid.Column="3" Text="{Binding GameText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding GameText}" Margin="0,0,8,0"/>
@@ -132,6 +138,13 @@
                 <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,6">
                     <Run Text="{Binding KindLabel, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=": "/><Run Text="{Binding Issue.Why, Mode=OneWay}"/>
                 </TextBlock>
+                <!-- A mod's file and the game file it uses: what each one is, and what that part of the game holds. -->
+                <Border DockPanel.Dock="Top" Margin="0,0,0,6" Padding="8,6" CornerRadius="3" Background="{DynamicResource CardBackgroundBrush}"
+                        Visibility="{Binding AssetHint, Converter={StaticResource NullToVisibilityConverter}}">
+                    <TextBlock TextWrapping="Wrap" FontSize="11.5">
+                        <Run Text="What these are: " FontWeight="SemiBold"/><Run Text="{Binding AssetHint, Mode=OneWay}"/>
+                    </TextBlock>
+                </Border>
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6" Visibility="{Binding ShowValues, Converter={StaticResource BoolToVisibilityConverter}}">
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                         <Border Width="12" Height="12" CornerRadius="2" Background="#5539A845" Margin="0,0,4,0"/>
