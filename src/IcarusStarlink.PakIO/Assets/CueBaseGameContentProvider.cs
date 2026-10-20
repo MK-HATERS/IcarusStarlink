@@ -324,10 +324,8 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
             return null;
         }
 
-        // Same PathBoundaryMatch suffix rule, and the same reason it's needed, as
-        // CueAssetProviderLocator's own doc comment already explains: CUE4Parse's real internal
-        // file keys carry their own pakchunk-relative prefix ahead of the plain path a caller
-        // hands in here.
+        // Looked up exactly (ignoring case) in the index Mount built, whose keys have CUE4Parse's
+        // "Icarus/Content/" prefix taken off so they match the plain path a caller hands in here.
         var normalizedAssetPath = assetPath.Replace('\\', '/').TrimStart('/');
 
         // This provider is a single DI singleton shared by every real caller (CueUassetMaterialDecoder's
