@@ -169,6 +169,9 @@ public sealed partial class SavesViewModel : ObservableObject
     /// <summary>Set when LoadSlotAsync threw partway — see its catch. Nothing may be saved from that state.</summary>
     private bool _loadFailed;
 
+    /// <summary>Bumped by every LoadSlotAsync, so a slower earlier load of the same slot knows it was overtaken.</summary>
+    private int _slotLoadGeneration;
+
     /// <summary>The Worlds tab: the slot's saved worlds and their custom settings.</summary>
     public WorldSettingsViewModel WorldSettings { get; }
 
@@ -322,6 +325,7 @@ public sealed partial class SavesViewModel : ObservableObject
     {
         var previous = SelectedSlot?.SteamId;
         Slots.Clear();
+        string? readError = null;
         try
         {
             foreach (var slot in _repository.ListSlots())
@@ -331,13 +335,16 @@ public sealed partial class SavesViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Couldn't read the game's PlayerData folder: {ex.Message}";
+            readError = $"Couldn't read the game's PlayerData folder: {ex.Message}";
         }
 
         SelectedSlot = Slots.FirstOrDefault(s => s.SteamId == previous) ?? Slots.FirstOrDefault();
-        StatusMessage = Slots.Count == 0
+
+        // A read error used to be overwritten straight away by "No player saves found", which
+        // told someone with a locked or unreadable folder that they had never run the game.
+        StatusMessage = readError ?? (Slots.Count == 0
             ? "No player saves found — Icarus keeps them under %LocalAppData%\\Icarus\\Saved\\PlayerData once you've run the game."
-            : null;
+            : null);
     }
 
     /// <summary>
@@ -539,6 +546,7 @@ public sealed partial class SavesViewModel : ObservableObject
 
         _lastLoadedSlot = SelectedSlot;
         _loadFailed = false;
+        var loadGeneration = ++_slotLoadGeneration;
 
         // Started before the await below, so the world files (often many MB each) are parsed on a
         // background thread alongside the player files instead of on the UI thread first.
@@ -575,12 +583,17 @@ public sealed partial class SavesViewModel : ObservableObject
                 MetaInventory: TryLoad(() => _repository.LoadMetaInventory(steamId)),
                 Mounts: TryLoad(() => _repository.LoadMounts(steamId))));
 
-            if (!ReferenceEquals(SelectedSlot, slotBeingLoaded))
+            // A newer load started meanwhile (another slot, or this one again: Reload, Restore, a
+            // game-data refresh). Only the newest may fill the lists; two loads of the same slot
+            // used to both add their rows, listing every character twice.
+            if (!ReferenceEquals(SelectedSlot, slotBeingLoaded) || loadGeneration != _slotLoadGeneration)
             {
                 return;
             }
 
-            _loadedStamps = files.Stamps.Value;
+            // Required, not optional: without the load-time stamps Save can't tell whether the game
+            // wrote the files since, and would silently write an older copy over newer progress.
+            _loadedStamps = files.Stamps.Require();
             _profile = files.Profile;
 
             LoadSection("characters", () =>
@@ -1420,7 +1433,8 @@ public sealed partial class SavesViewModel : ObservableObject
         var confirm = _dialogService.Confirm(
             $"Replace this save slot's current files with the backup from {SelectedBackup.TakenAtUtc.LocalDateTime:g}?\n\n"
             + "A pre_restore safety zip of the slot as it is right now is written first, so this is itself undoable.\n\n"
-            + "Your single-player worlds, each character's list of worlds and map data are never restored: they stay as they are now.",
+            + "Your single-player worlds, each character's list of worlds and map data are never restored: they stay as they are now."
+            + (HasUnsavedChanges ? "\n\nYour unsaved edits on this page will be lost." : ""),
             "Restore save backup", ThemedConfirmSeverity.Warning);
         if (!(confirm))
         {
@@ -1445,7 +1459,11 @@ public sealed partial class SavesViewModel : ObservableObject
 
             _repository.RestoreSlot(SelectedSlot.SteamId, SelectedBackup.FilePath);
             await LoadSlotAsync();
-            StatusMessage = "Restored. The replaced state was saved as a pre_restore zip.";
+
+            // The reload's own "Couldn't read this save" must not be covered by "Restored."
+            StatusMessage = _loadFailed
+                ? $"Restored, but the restored save couldn't be read back: {StatusMessage} The replaced state was saved as a pre_restore zip."
+                : "Restored. The replaced state was saved as a pre_restore zip.";
             _activityLog.Log($"Restored save slot {SelectedSlot.Display} from backup.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
@@ -1494,6 +1512,7 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
+        var backedUp = false;
         try
         {
             // Each file is written only when its own section changed: Characters.json for the
@@ -1540,6 +1559,7 @@ public sealed partial class SavesViewModel : ObservableObject
             // MetaInventory whenever dirty), each one blocking the UI in turn, when one pre-save
             // snapshot already covers everything this pass is about to change.
             _repository.BackupSlot(SelectedSlot.SteamId);
+            backedUp = true;
 
             // Characters first, then profile — keeps write ORDER consistent with before, even
             // though backup ordering no longer matters now that there's just the one upfront zip.
@@ -1626,7 +1646,27 @@ public sealed partial class SavesViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Save failed: {ex.Message}";
+            if (backedUp)
+            {
+                // Some files may already be written. Their new stamps are this page's own doing, so
+                // they become the baseline: otherwise the next Save took them for the game's and
+                // refused, leaving "reload and lose your edits" as the only way out.
+                try
+                {
+                    _loadedStamps = _repository.GetFileStamps(SelectedSlot.SteamId);
+                }
+                catch (Exception stampEx) when (stampEx is IOException or UnauthorizedAccessException)
+                {
+                }
+
+                RefreshBackupsList();
+                StatusMessage = $"Save failed partway: {ex.Message} Some files may already be written. Click Save to try again, or Restore the newest backup (taken just before this save) to undo it.";
+            }
+            else
+            {
+                StatusMessage = $"Save failed, nothing was written: {ex.Message}";
+            }
+
             _activityLog.Log($"Player save not written: {ex.Message}", ActivityEntryKind.Warning);
         }
     }

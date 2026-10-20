@@ -177,6 +177,106 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
+    /// <summary>Regression: an unreadable PlayerData folder was reported as "No player saves found" (the read error was overwritten at once).</summary>
+    [Fact]
+    public async Task UnreadablePlayerDataFolder_IsReportedAsSuch()
+    {
+        var repository = new FakeSaveRepository { ListSlotsError = new UnauthorizedAccessException("Access denied") };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        Assert.Contains("Couldn't read the game's PlayerData folder", vm.StatusMessage);
+        Assert.DoesNotContain("No player saves found", vm.StatusMessage);
+    }
+
+    /// <summary>Regression: the Characters list's " *" unsaved marker never showed, because nothing raised IsDirty.</summary>
+    [Fact]
+    public async Task EditingACharacter_RaisesIsDirty_AndSavingClearsIt()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+        var character = vm.Characters.Single();
+        var raised = 0;
+        character.PropertyChanged += (_, e) => raised += e.PropertyName == nameof(SaveCharacterViewModel.IsDirty) ? 1 : 0;
+
+        character.Name = "Renamed";
+        Assert.True(character.IsDirty);
+        Assert.Equal(1, raised);
+
+        vm.SaveChangesCommand.Execute(null);
+        Assert.False(character.IsDirty);
+        Assert.True(raised >= 2, "saving didn't tell the list the marker cleared");
+    }
+
+    /// <summary>
+    /// Regression: when Profile.json failed after Characters.json was written, the next Save took
+    /// the app's own Characters.json write for the game's and refused, leaving "reload and lose
+    /// your edits" as the only way out.
+    /// </summary>
+    [Fact]
+    public async Task SaveFailingPartway_SaysSo_AndTheRetryIsNotRefusedAsAnOutsideChange()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            BumpStampOnWrite = true,
+            SaveProfileError = new IOException("disk full"),
+        };
+        var dialogs = new FakeDialogService(confirmResult: true);
+        var vm = CreateViewModel(repository, dialogs);
+        await vm.WaitForPendingSlotLoadAsync();
+        vm.DuplicateCharacterCommand.Execute(vm.Characters.Single()); // changes Characters.json and Profile.json (NextChrSlot)
+
+        vm.SaveChangesCommand.Execute(null);
+        Assert.Contains("partway", vm.StatusMessage);
+        Assert.Contains("Restore", vm.StatusMessage);
+
+        var confirmsBefore = dialogs.ConfirmCallCount;
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal(2, repository.SaveProfileCallCount);
+        Assert.Equal(confirmsBefore + 1, dialogs.ConfirmCallCount); // just the save confirm, no "changed on disk"
+        Assert.StartsWith("Saved", vm.StatusMessage);
+    }
+
+    /// <summary>Regression: when the file stamps couldn't be read at load, the "changed on disk" guard switched off silently and Save could write over newer progress.</summary>
+    [Fact]
+    public async Task UnreadableFileStamps_BlockSaving()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            StampsError = new IOException("locked"),
+        };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        Assert.Contains("Couldn't read this save", vm.StatusMessage);
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    /// <summary>Regression: two loads of the same slot in flight (Reload clicked twice on a slow disk) both added their rows, listing every character twice.</summary>
+    [Fact]
+    public async Task OverlappingLoadsOfTheSameSlot_FillTheListsOnce()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0), MakeCharacter("Beta", 1)], Profile = MakeProfile(nextChrSlot: 2) };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        repository.LoadGate = new SemaphoreSlim(0);
+        vm.ReloadCommand.Execute(null);
+        var first = vm.WaitForPendingSlotLoadAsync();
+        vm.ReloadCommand.Execute(null);
+        var second = vm.WaitForPendingSlotLoadAsync();
+        repository.LoadGate.Release(2);
+        await Task.WhenAll(first, second);
+
+        Assert.Equal(2, vm.Characters.Count);
+    }
+
     [Fact]
     public async Task DuplicateCharacterCommand_ProducesADistinctEntryWithAFreshChrSlot()
     {
@@ -811,20 +911,43 @@ public sealed class SavesViewModelTests : IDisposable
         /// <summary>When set, LoadMounts throws it (an unreadable Mounts.json).</summary>
         public Exception? MountsLoadError { get; set; }
 
-        public IReadOnlyDictionary<string, SaveFileStamp?> GetFileStamps(string steamId) => new Dictionary<string, SaveFileStamp?>(Stamps);
+        public IReadOnlyDictionary<string, SaveFileStamp?> GetFileStamps(string steamId) =>
+            StampsError is { } error ? throw error : new Dictionary<string, SaveFileStamp?>(Stamps);
+
+        /// <summary>When set, GetFileStamps throws it.</summary>
+        public Exception? StampsError { get; set; }
+
+        /// <summary>When set, ListSlots throws it (an unreadable PlayerData folder).</summary>
+        public Exception? ListSlotsError { get; set; }
+
+        /// <summary>When set, SaveProfile throws it once (a write that fails after Characters.json was written).</summary>
+        public Exception? SaveProfileError { get; set; }
+
+        /// <summary>When set, LoadProfile waits for it (a slow disk), so a second load can start meanwhile.</summary>
+        public SemaphoreSlim? LoadGate { get; set; }
         public int RestoreSlotCallCount { get; private set; }
         public IReadOnlyList<JsonObject>? LastSavedCharacters { get; private set; }
         public JsonObject? LastSavedMounts { get; private set; }
 
-        public IReadOnlyList<SaveSlot> ListSlots() => [Slot];
+        public IReadOnlyList<SaveSlot> ListSlots() => ListSlotsError is { } error ? throw error : [Slot];
 
-        public JsonObject LoadProfile(string steamId) => Profile;
+        public JsonObject LoadProfile(string steamId)
+        {
+            LoadGate?.Wait();
+            return Profile;
+        }
 
         public IReadOnlyList<JsonObject> LoadCharacters(string steamId) => Characters;
 
         public string? SaveProfile(string steamId, JsonObject profile, bool takeBackup = true)
         {
             SaveProfileCallCount++;
+            if (SaveProfileError is { } error)
+            {
+                SaveProfileError = null;
+                throw error;
+            }
+
             Profile = profile;
             return null;
         }

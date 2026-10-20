@@ -65,7 +65,13 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
     public SaveCharacterViewModel(JsonObject node, SaveGameNames names, Action onDirtyChanged)
     {
         _node = node;
-        _onDirtyChanged = onDirtyChanged;
+        // Every edit (this character's own fields and its flags/talents/cosmetics) also tells the
+        // Characters list its " *" unsaved marker may have changed; nothing raised IsDirty before.
+        _onDirtyChanged = () =>
+        {
+            OnPropertyChanged(nameof(IsDirty));
+            onDirtyChanged();
+        };
         _originalName = SaveJson.String(node["CharacterName"]) ?? "";
         _originalXp = SaveJson.Long(node["XP"]) ?? 0;
         _name = _originalName;
@@ -269,6 +275,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         }
 
         _originalIsMale = IsMale;
+        OnPropertyChanged(nameof(IsDirty));
     }
 
     private static List<int> ReadIntArray(JsonNode? node) =>
