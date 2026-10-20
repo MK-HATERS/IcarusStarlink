@@ -55,7 +55,9 @@ public sealed class WeeklyChangeReportStore : IWeeklyChangeReportStore
         Prune();
     }
 
-    private static string FileNameFor(DateTimeOffset currentUpdateAt) => $"{currentUpdateAt.UtcDateTime:yyyyMMdd-HHmmss}.json";
+    /// <summary>Invariant, so the name Prune builds matches the one Save wrote whatever calendar the PC uses.</summary>
+    private static string FileNameFor(DateTimeOffset currentUpdateAt) =>
+        currentUpdateAt.UtcDateTime.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".json";
 
     /// <summary>A real pre-existing single weekly_changes.json (the store's original, pre-history
     /// design) gets folded in as this history's own first entry rather than silently discarded —

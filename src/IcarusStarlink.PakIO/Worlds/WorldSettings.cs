@@ -27,13 +27,24 @@ public static class WorldSettingsCatalog
             return [];
         }
 
-        var table = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+        // Never throws: the world settings page reads this when a world is picked, and an
+        // unreadable table only means there are no settings to show.
+        JsonObject? table;
+        try
+        {
+            table = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return [];
+        }
+
         var defaults = table?["Defaults"] as JsonObject ?? [];
         var result = new List<WorldSettingDefinition>();
         foreach (var row in (table?["Rows"] as JsonArray ?? []).OfType<JsonObject>())
         {
             JsonNode? Get(string key) => row[key] ?? defaults[key];
-            if (Get("bHidden")?.GetValue<bool>() == true || row["Name"]?.ToString() is not { Length: > 0 } name)
+            if (Get("bHidden") is JsonValue hidden && hidden.TryGetValue<bool>(out var isHidden) && isHidden || row["Name"]?.ToString() is not { Length: > 0 } name)
             {
                 continue;
             }
@@ -161,7 +172,7 @@ public sealed class WorldSave
         var updated = ReplaceCustomSettings(text, merged);
 
         Directory.CreateDirectory(backupFolder);
-        var backup = System.IO.Path.Combine(backupFolder, $"{DateTime.Now:yyyy-MM-dd_HHmmss_fff}_{System.IO.Path.GetFileName(Path)}");
+        var backup = System.IO.Path.Combine(backupFolder, $"{DateTime.Now.ToString("yyyy-MM-dd_HHmmss_fff", System.Globalization.CultureInfo.InvariantCulture)}_{System.IO.Path.GetFileName(Path)}");
         File.Copy(Path, backup, overwrite: true);
         var temp = Path + ".isl-tmp";
         File.WriteAllText(temp, updated, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));

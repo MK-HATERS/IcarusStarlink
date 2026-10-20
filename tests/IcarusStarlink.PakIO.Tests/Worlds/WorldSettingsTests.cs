@@ -26,6 +26,21 @@ public sealed class WorldSettingsTests : IDisposable
         return path;
     }
 
+    /// <summary>Picking a world reads the game's settings table: a damaged one means no settings to show, never a crash.</summary>
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("""{"Defaults":{},"Rows":[{"Name":"Odd","bHidden":1,"StatType":"Bool"},{"Name":"Fine","StatType":"Bool"}]}""")]
+    public void Catalog_ADamagedTable_DoesntThrow(string json)
+    {
+        var data = Path.Combine(_root, "Data");
+        Directory.CreateDirectory(Path.Combine(data, "Stats"));
+        File.WriteAllText(Path.Combine(data, "Stats", "D_CustomGameStats.json"), json);
+
+        var settings = WorldSettingsCatalog.Load(data);
+
+        Assert.All(settings, s => Assert.Contains(s.Name, new[] { "Odd", "Fine" }));
+    }
+
     [Fact]
     public void Load_ReadsWhatTheWorldIs()
     {
