@@ -67,7 +67,7 @@ public sealed class Ue4ssUninstallTests : IDisposable
         var log = Path.Combine(Win64, "ue4ss", "UE4SS.log");
         File.WriteAllText(log, "log");
 
-        using (new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.Read)) // readable (so the backup works), not deletable
         {
             await Assert.ThrowsAnyAsync<IOException>(() => _service.UninstallAsync(_contentPath, _stagingDirectory, _backupDirectory));
         }
