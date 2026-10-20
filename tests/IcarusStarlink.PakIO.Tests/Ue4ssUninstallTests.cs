@@ -56,6 +56,25 @@ public sealed class Ue4ssUninstallTests : IDisposable
         File.WriteAllText(Path.Combine(ModsFolder, "mods.json"), manifest);
     }
 
+    /// <summary>
+    /// dwmapi.dll is what makes the game load UE4SS, so it goes first: a ue4ss folder that can't be
+    /// fully deleted (a file locked while the game runs) must not leave the game loading half of it.
+    /// </summary>
+    [Fact]
+    public async Task Uninstall_ALockedFileInTheUe4ssFolder_StillStopsTheGameLoadingIt()
+    {
+        CreateInstall(frameworkMods: ["Keybinds"], userMods: []);
+        var log = Path.Combine(Win64, "ue4ss", "UE4SS.log");
+        File.WriteAllText(log, "log");
+
+        using (new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            await Assert.ThrowsAnyAsync<IOException>(() => _service.UninstallAsync(_contentPath, _stagingDirectory, _backupDirectory));
+        }
+
+        Assert.False(File.Exists(Path.Combine(Win64, "dwmapi.dll")));
+    }
+
     [Fact]
     public void ListUserAddedMods_TellsUserModsApartFromFrameworkOnes()
     {

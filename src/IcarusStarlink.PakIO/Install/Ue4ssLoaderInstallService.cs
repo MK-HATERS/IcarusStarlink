@@ -222,7 +222,7 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
             //    a failure right after this point has lost nothing of the user's.
             // 2. BACKUP the whole ue4ss folder + dwmapi.dll (keep-last-5, the installer's own
             //    rotation) — the full-undo path, framework mods and all.
-            // 3. DELETE — only after both of the above have succeeded.
+            // 3. DELETE — only after both of the above have succeeded, dwmapi.dll first.
             var preservedMods = new List<string>();
             foreach (var modName in ListUserAddedMods(icarusContentPath))
             {
@@ -235,14 +235,17 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
             FolderBackup.BackupFolder(loaderFolder, ue4ssBackupDirectory);
             FolderBackup.BackupFile(dwmapiPath, ue4ssBackupDirectory);
 
-            if (Directory.Exists(loaderFolder))
-            {
-                Directory.Delete(loaderFolder, recursive: true);
-            }
-
+            // dwmapi.dll first: it's what makes the game load UE4SS, so if the folder delete below
+            // fails partway (a file locked while the game runs) the game is left clean, not
+            // loading a half-deleted UE4SS.
             if (File.Exists(dwmapiPath))
             {
                 File.Delete(dwmapiPath);
+            }
+
+            if (Directory.Exists(loaderFolder))
+            {
+                Directory.Delete(loaderFolder, recursive: true);
             }
 
             return new Ue4ssUninstallResult(preservedMods, ue4ssBackupDirectory);
