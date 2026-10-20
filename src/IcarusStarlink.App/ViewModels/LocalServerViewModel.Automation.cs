@@ -36,13 +36,58 @@ public sealed partial class LocalServerViewModel
 
     // ---- Automation settings (saved straight into the profile, no Save button) ----
 
-    [ObservableProperty] private bool _autoRestartOnCrash;
-    [ObservableProperty] private bool _startWithApp;
-    [ObservableProperty] private bool _startMinimized;
-    [ObservableProperty] private bool _dailyRestartEnabled;
-    [ObservableProperty] private string _dailyRestartTime = "05:00";
-    [ObservableProperty] private bool _updateOnRestart;
-    [ObservableProperty] private bool _autoUpdate;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AutomationSummary))] private bool _autoRestartOnCrash;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AutomationSummary))] private bool _startWithApp;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AutomationSummary))] private bool _startMinimized;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AutomationSummary))] private bool _dailyRestartEnabled;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AutomationSummary))] private string _dailyRestartTime = "05:00";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AutomationSummary))] private bool _updateOnRestart;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AutomationSummary))] private bool _autoUpdate;
+
+    /// <summary>The Automation section's one-line header: which of its options are on, or "All off".</summary>
+    public string AutomationSummary
+    {
+        get
+        {
+            var on = new List<string>();
+            if (AutoRestartOnCrash)
+            {
+                on.Add("crash restart");
+            }
+
+            if (DailyRestartEnabled)
+            {
+                on.Add($"daily restart {DailyRestartTime}");
+            }
+
+            if (UpdateOnRestart)
+            {
+                on.Add("update on restart");
+            }
+
+            if (AutoUpdate)
+            {
+                on.Add("auto-update");
+            }
+
+            if (DailyBackup)
+            {
+                on.Add("daily backup");
+            }
+
+            if (StartWithApp)
+            {
+                on.Add("starts with Starlink");
+            }
+
+            if (StartMinimized)
+            {
+                on.Add("minimized");
+            }
+
+            return on.Count == 0 ? "All off" : "On: " + string.Join(" · ", on);
+        }
+    }
 
     [ObservableProperty] private string? _dailyRestartTimeError;
 
