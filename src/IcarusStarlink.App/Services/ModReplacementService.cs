@@ -279,7 +279,7 @@ public sealed class ModReplacementService(
             }
             catch (Exception ex)
             {
-                warnings.Add($"Couldn't carry '{old.Entry.Name}''s pin/notes over: {ex.Message}");
+                warnings.Add($"Couldn't carry the pin/notes of '{old.Entry.Name}' over: {ex.Message}");
             }
 
             if (fixService is null || request.Pristine)

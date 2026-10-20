@@ -108,6 +108,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
     [ObservableProperty]
     private bool _hideOlderWeeks;
 
+    /// <summary>The IMM Database tab's Filters section header: the filters now narrowing the list
+    /// (search not included — it's always visible), or "None". Set by ApplyCatalogFilters, which
+    /// every filter change runs.</summary>
+    [ObservableProperty]
+    private string _catalogFilterSummary = "None";
+
     [ObservableProperty]
     private CatalogEntryViewModel? _selectedCatalogEntry;
 
@@ -120,7 +126,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     [ObservableProperty]
     private int _catalogShownCount;
 
-    /// <summary>DataGrid.SelectedItems isn't a bindable DependencyProperty — set from LibraryView's own code-behind SelectionChanged handler (the IMM Database tab now lives there), same limitation/workaround the EXMOD editor's mass-edit selection already uses.</summary>
+    /// <summary>DataGrid.SelectedItems isn't a bindable DependencyProperty — set from ImmDatabaseView's own code-behind SelectionChanged handler, same limitation/workaround the EXMOD editor's mass-edit selection already uses.</summary>
     private IReadOnlyList<CatalogEntryViewModel> _selectedCatalogEntriesForBatch = [];
 
     [ObservableProperty]
@@ -241,9 +247,17 @@ public sealed partial class DownloadsViewModel : ObservableObject
         {
             var self = (DownloadsViewModel)recipient;
             self.ApplyCatalogFilters();
-            foreach (var item in self.PendingDownloads)
+            // Refreshes every row AND re-sorts them into the visible list — a mod deleted in
+            // Library must come back out from under "Show installed" as removed. Send is
+            // synchronous, so a disk error here would surface in whatever import or delete sent
+            // the message — it is reported on this page instead.
+            try
             {
-                item.Refresh();
+                self.RefreshVisiblePendingDownloads();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                self.PendingDownloadStatusMessage = $"Couldn't refresh the downloads list: {ex.Message}";
             }
         });
     }
@@ -556,6 +570,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         CatalogShownCount = rows.Count;
         CatalogTotalCount = _allCatalogEntries.Count;
+        CatalogFilterSummary = BuildCatalogFilterSummary();
 
         // Every row above is a brand-new CatalogEntryViewModel, so without this the DataGrid's
         // two-way SelectedItem binding just drops back to null on every filter/search change (or
@@ -567,15 +582,57 @@ public sealed partial class DownloadsViewModel : ObservableObject
             : CatalogEntries.FirstOrDefault(row => row.Entry.Id == previouslySelectedId);
     }
 
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
-    private async Task DownloadAndExtractAsync()
+    private string BuildCatalogFilterSummary()
     {
-        if (SelectedCatalogEntry is null)
+        var parts = new List<string>();
+        if (SelectedAuthor != AllAuthors)
+        {
+            parts.Add($"Author: {SelectedAuthor}");
+        }
+
+        if (SelectedCategory != AllCategories)
+        {
+            parts.Add($"Category: {SelectedCategory}");
+        }
+
+        if (ShowUpdatesOnly)
+        {
+            parts.Add("Updates only");
+        }
+
+        if (ExtractedOnly)
+        {
+            parts.Add("Downloaded only");
+        }
+
+        if (NotDownloadedOnly)
+        {
+            parts.Add("Not downloaded only");
+        }
+
+        if (HideOlderWeeks && GameWeek > 0)
+        {
+            parts.Add($"Week {GameWeek} and newer");
+        }
+
+        return parts.Count == 0 ? "None" : string.Join(" · ", parts);
+    }
+
+    /// <summary>
+    /// Downloads the given catalog row, or the selected one when none is given. The "More details"
+    /// pop-out passes its own row: it is non-modal, so the grid's selection may have moved on to
+    /// another mod since it opened (that used to download the wrong mod).
+    /// </summary>
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task DownloadAndExtractAsync(CatalogEntryViewModel? entry)
+    {
+        entry ??= SelectedCatalogEntry;
+        if (entry is null)
         {
             return;
         }
 
-        var (success, message) = await DownloadAndExtractEntryAsync(SelectedCatalogEntry);
+        var (success, message) = await DownloadAndExtractEntryAsync(entry);
         CatalogStatusMessage = message;
         if (success)
         {
@@ -740,10 +797,11 @@ public sealed partial class DownloadsViewModel : ObservableObject
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
     }
 
+    /// <summary>Opens the given row's readme, or the selected row's — same reason as DownloadAndExtractAsync.</summary>
     [RelayCommand]
-    private void OpenCatalogReadme()
+    private void OpenCatalogReadme(CatalogEntryViewModel? entry)
     {
-        if (SelectedCatalogEntry?.Entry.ReadmeUrl is not { } url)
+        if ((entry ?? SelectedCatalogEntry)?.Entry.ReadmeUrl is not { } url)
         {
             return;
         }
@@ -1370,7 +1428,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         if (missing.Count > 0)
         {
             _activityLog.Log(
-                $"This mod needs other downloads you don't have yet: {string.Join(", ", missing)} — find them on the Nexus tab.",
+                $"This mod needs other downloads you don't have yet: {string.Join(", ", missing)} — find them on the Database page's Nexus tab.",
                 ActivityEntryKind.Warning);
         }
 

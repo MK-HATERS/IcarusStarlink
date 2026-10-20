@@ -36,4 +36,5 @@ public sealed class CatalogEntryViewModel(CatalogEntry entry, string? installedV
     public bool IsOutdated => installedVersion is not null && installedVersion != Entry.Version;
     public string Status => IsOutdated ? "Outdated" : IsDownloaded ? "Downloaded" : "Available";
     public bool HasDownloadableFile => Entry.ExmodzUrl is not null || Entry.PakUrl is not null;
+    public bool HasReadme => !string.IsNullOrWhiteSpace(Entry.ReadmeUrl);
 }

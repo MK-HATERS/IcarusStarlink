@@ -59,7 +59,7 @@
             </StackPanel>
             <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Hide ones you have"
                       IsChecked="{Binding HideOwned}" Margin="0,0,16,4" VerticalAlignment="Center"
-                      ToolTip="Hides mods already in your Library or waiting in Pending Downloads — what's left is what you don't have yet"/>
+                      ToolTip="Hides mods already in your Library or on the Downloads page — what's left is what you don't have yet"/>
             <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Updates only"
                       IsChecked="{Binding UpdatesOnly}" Margin="0,0,16,4" VerticalAlignment="Center"
                       ToolTip="Shows only mods whose Nexus version differs from your Library copy's — works best on the All list"/>
@@ -158,7 +158,7 @@
                                                     <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
                                                     <Setter Property="BorderThickness" Value="0"/>
                                                     <Setter Property="FontWeight" Value="SemiBold"/>
-                                                    <Setter Property="ToolTip" Value="Downloads the mod's main file straight into Pending Downloads — needs a Nexus Premium account"/>
+                                                    <Setter Property="ToolTip" Value="Downloads the mod and adds it to your Library (it's listed on the Downloads page too) — needs a Nexus Premium account"/>
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding DataContext.IsKnownNonPremium, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="True">
                                                             <Setter Property="IsEnabled" Value="False"/>
@@ -181,7 +181,7 @@
                                                 AutomationProperties.Name="{Binding IsTracked, Converter={StaticResource TrackedAutomationNameConverter}}">
                                             <Button.Style>
                                                 <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                                    <Setter Property="ToolTip" Value="Add to Downloads' Nexus watchlist, so it's checked for updates"/>
+                                                    <Setter Property="ToolTip" Value="Track this mod, so the Tracked switch above can show just the mods you follow"/>
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding IsTracked}" Value="True">
                                                             <Setter Property="ToolTip" Value="Stop tracking this mod"/>

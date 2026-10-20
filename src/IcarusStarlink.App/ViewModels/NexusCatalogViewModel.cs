@@ -426,7 +426,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             return;
         }
 
-        StatusMessage = $"Finding '{mod.Name}''s main file…";
+        StatusMessage = $"Finding the main file of '{mod.Name}'…";
         await Downloads.ResolvePrimaryFileAndFetchAsync(mod.ModId, mod.Name);
         StatusMessage = Downloads.PendingDownloadStatusMessage;
         RebuildRows();
@@ -455,7 +455,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             return;
         }
 
-        StatusMessage = $"Loading '{mod.Name}''s changelog…";
+        StatusMessage = $"Loading the changelog of '{mod.Name}'…";
         try
         {
             var changelogs = await _nexusApiClient.GetChangelogsAsync(apiKey, "icarus", mod.ModId);

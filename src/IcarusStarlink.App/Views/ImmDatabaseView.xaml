@@ -24,7 +24,8 @@
 
                     <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="True">
                         <Grid DockPanel.Dock="Right" Margin="8,0,0,0">
-                            <Button x:Name="ColumnsButton" Command="{Binding Downloads.ToggleColumnsMenuCommand}" AutomationProperties.Name="Columns">
+                            <Button x:Name="ColumnsButton" Command="{Binding Downloads.ToggleColumnsMenuCommand}" AutomationProperties.Name="Columns"
+                                    ToolTip="Choose which columns the list shows">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconGearTeeth}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
                                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -49,7 +50,8 @@
                                 </Border>
                             </Popup>
                         </Grid>
-                        <Button DockPanel.Dock="Right" Content="Clear filters" Command="{Binding Downloads.ClearCatalogFiltersCommand}" Margin="8,0,0,0"/>
+                        <Button DockPanel.Dock="Right" Content="Clear filters" Command="{Binding Downloads.ClearCatalogFiltersCommand}" Margin="8,0,0,0"
+                                ToolTip="Empties the search box and turns every filter off"/>
                         <Button DockPanel.Dock="Right" Command="{Binding Downloads.DownloadAndExtractSelectedCommand}" Margin="8,0,0,0"
                                 ToolTip="Downloads and imports every selected mod, one after another — Ctrl/Shift-click rows to select more than one"
                                 Visibility="{Binding Downloads.HasCatalogSelectionForBatch, Converter={StaticResource BoolToVisibilityConverter}}"
@@ -60,7 +62,8 @@
                                 <TextBlock Text="{Binding Downloads.SelectedCatalogEntryCount, StringFormat='Download selected ({0})'}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <Button DockPanel.Dock="Right" Command="{Binding Downloads.RefreshCatalogCommand}" Style="{StaticResource PrimaryButtonStyle}" AutomationProperties.Name="Refresh">
+                        <Button DockPanel.Dock="Right" Command="{Binding Downloads.RefreshCatalogCommand}" Style="{StaticResource PrimaryButtonStyle}" AutomationProperties.Name="Refresh"
+                                ToolTip="Fetch the latest mod list from the IMM Database">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource AccentForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
                                 <TextBlock Text="Refresh" VerticalAlignment="Center"/>
@@ -74,29 +77,48 @@
                         </Grid>
                     </DockPanel>
 
-                    <!-- WrapPanel, not a horizontal StackPanel — at a narrow window width this row has
-                         more controls than fit on one line, and a StackPanel would just clip the
-                         overflow off the right edge with no way to reach it; WrapPanel drops the
-                         overflow onto a second line instead. -->
-                    <WrapPanel Grid.Row="1" Margin="0,0,0,8">
-                        <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
-                            <TextBlock Text="Author:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                            <ComboBox ItemsSource="{Binding Downloads.AvailableAuthors}" SelectedItem="{Binding Downloads.SelectedAuthor}" Width="160"/>
+                    <!-- Author/category/status/week filters, folded into one section (collapsed by
+                         default) whose header names whatever filters are on, so a narrowed list never
+                         looks like a missing mod. WrapPanel inside: at a narrow width the controls
+                         drop onto a second line instead of clipping off the right edge. -->
+                    <Expander Grid.Row="1" Margin="0,0,0,8" IsExpanded="False" AutomationProperties.Name="Filters">
+                        <Expander.Header>
+                            <DockPanel LastChildFill="False">
+                                <TextBlock DockPanel.Dock="Left" Text="Filters" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                <TextBlock DockPanel.Dock="Left" Text="{Binding Downloads.CatalogFilterSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                            </DockPanel>
+                        </Expander.Header>
+                        <StackPanel>
+                            <WrapPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
+                                    <TextBlock Text="Author:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                    <ComboBox ItemsSource="{Binding Downloads.AvailableAuthors}" SelectedItem="{Binding Downloads.SelectedAuthor}" Width="160"
+                                              AutomationProperties.Name="Author filter"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
+                                    <TextBlock Text="Category:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                    <ComboBox ItemsSource="{Binding Downloads.AvailableCategories}" SelectedItem="{Binding Downloads.SelectedCategory}" Width="160"
+                                              AutomationProperties.Name="Category filter"/>
+                                </StackPanel>
+                                <CheckBox Content="Updates only" IsChecked="{Binding Downloads.ShowUpdatesOnly}" VerticalAlignment="Center" Margin="0,0,12,4"
+                                          ToolTip="Only mods where the database has a newer version than your Library copy"/>
+                                <CheckBox Content="Downloaded only" IsChecked="{Binding Downloads.ExtractedOnly}" VerticalAlignment="Center" Margin="0,0,12,4"
+                                          ToolTip="Only mods already in your Library"/>
+                                <CheckBox Content="Not downloaded only" IsChecked="{Binding Downloads.NotDownloadedOnly}" VerticalAlignment="Center" Margin="0,0,0,4"
+                                          ToolTip="Only mods not in your Library yet"/>
+                            </WrapPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <TextBlock Text="Game week:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                <TextBox Text="{Binding Downloads.GameWeek, UpdateSourceTrigger=PropertyChanged}" Width="60" Margin="0,0,12,0"
+                                         AutomationProperties.Name="Game week"
+                                         ToolTip="The Icarus game week to compare mods against. Higher = only mods made for newer weeks count as current; lower = older mods count too. 0 = not set."/>
+                                <CheckBox Content="Hide older weeks" IsChecked="{Binding Downloads.HideOlderWeeks}" VerticalAlignment="Center"
+                                          ToolTip="Hides mods made for a week before the game week on the left (mods with no week stay). Does nothing until a game week is set."/>
+                            </StackPanel>
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
-                            <TextBlock Text="Category:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                            <ComboBox ItemsSource="{Binding Downloads.AvailableCategories}" SelectedItem="{Binding Downloads.SelectedCategory}" Width="160"/>
-                        </StackPanel>
-                        <CheckBox Content="Show updates only" IsChecked="{Binding Downloads.ShowUpdatesOnly}" VerticalAlignment="Center" Margin="0,0,12,4"/>
-                        <CheckBox Content="Extracted only" IsChecked="{Binding Downloads.ExtractedOnly}" VerticalAlignment="Center" Margin="0,0,12,4"/>
-                        <CheckBox Content="Not downloaded only" IsChecked="{Binding Downloads.NotDownloadedOnly}" VerticalAlignment="Center" Margin="0,0,0,4"/>
-                    </WrapPanel>
+                    </Expander>
 
                     <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Game week:" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                        <TextBox Text="{Binding Downloads.GameWeek, UpdateSourceTrigger=PropertyChanged}" Width="60" Margin="0,0,12,0"
-                                 ToolTip="The Icarus game week to compare mods against. Higher = only mods made for newer weeks count as current; lower = older mods count too."/>
-                        <CheckBox Content="Hide older weeks" IsChecked="{Binding Downloads.HideOlderWeeks}" VerticalAlignment="Center" Margin="0,0,16,0"/>
                         <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12">
                             <Run Text="{Binding Downloads.CatalogShownCount, Mode=OneWay}"/><Run Text=" shown / "/><Run Text="{Binding Downloads.CatalogTotalCount, Mode=OneWay}"/><Run Text=" in catalog"/>
                         </TextBlock>
@@ -105,10 +127,11 @@
                     </StackPanel>
 
                     <Grid Grid.Row="3">
+                        <!-- Drag the bar between the list and the details to give either more room. -->
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*" MinWidth="300"/>
                             <ColumnDefinition Width="16"/>
-                            <ColumnDefinition Width="280"/>
+                            <ColumnDefinition Width="280" MinWidth="200" MaxWidth="600"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- IsReadOnly is load-bearing, not cosmetic: without it, double-clicking any
@@ -194,7 +217,12 @@
                             </DataGrid.Columns>
                         </DataGrid>
 
-                        <Grid Grid.Column="2">
+                        <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                                      Background="{DynamicResource BorderBrush}" ResizeBehavior="PreviousAndNext"
+                                      ToolTip="Drag to resize the details" AutomationProperties.Name="Resize details"/>
+
+                        <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
@@ -225,7 +253,7 @@
                                     <Run Text=" · v"/>
                                     <Run Text="{Binding Downloads.SelectedCatalogEntry.Version, Mode=OneWay}"/>
                                 </TextBlock>
-                                <TextBlock Text="{Binding Downloads.SelectedCatalogEntry.Entry.Description}" Style="{StaticResource PageBodyTextStyle}" MaxWidth="260" Margin="0,0,0,12"/>
+                                <TextBlock Text="{Binding Downloads.SelectedCatalogEntry.Entry.Description}" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
                                 <Button Command="{Binding Downloads.DownloadAndExtractCommand}"
                                         Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,0,8"
                                         IsEnabled="{Binding Downloads.SelectedCatalogEntry.HasDownloadableFile}"
@@ -237,7 +265,9 @@
                                         <TextBlock Text="Download &amp; extract" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-                                <Button Command="{Binding Downloads.OpenCatalogReadmeCommand}" AutomationProperties.Name="Open readme" Margin="0,0,0,8">
+                                <Button Command="{Binding Downloads.OpenCatalogReadmeCommand}" AutomationProperties.Name="Open readme" Margin="0,0,0,8"
+                                        IsEnabled="{Binding Downloads.SelectedCatalogEntry.HasReadme}" ToolTipService.ShowOnDisabled="True"
+                                        ToolTip="Opens the mod's readme in your browser. Greyed out: the database has no readme link for it.">
                                     <StackPanel Orientation="Horizontal">
                                         <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
                                               StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -254,6 +284,7 @@
                                 </Button>
                             </StackPanel>
                         </Grid>
+                        </ScrollViewer>
                     </Grid>
 
                     <TextBlock Grid.Row="4" Margin="0,8,0,0" Text="{Binding Downloads.CatalogStatusMessage}"

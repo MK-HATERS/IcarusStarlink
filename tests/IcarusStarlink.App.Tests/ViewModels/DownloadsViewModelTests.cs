@@ -1,6 +1,8 @@
 using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.ViewModels;
@@ -501,6 +503,38 @@ public sealed class DownloadsViewModelTests : IDisposable
         Assert.Contains("Downloaded and imported 'Steadfast Structures'", vm.CatalogStatusMessage);
     }
 
+    /// <summary>The non-modal "More details" window passes its own row: the download is that mod, not whatever the grid has selected now.</summary>
+    [Fact]
+    public async Task CatalogDownload_GivenARow_DownloadsThatRowNotTheSelectedOne()
+    {
+        var exmodJson = """{"name":"Steadfast","author":"Ferani","version":"1.0","description":"D","fileName":"Ferani_Steadfast_Structures","Rows":[]}""";
+        byte[] exmodz;
+        using (var stream = new MemoryStream())
+        {
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                WriteEntry(archive, "Extracted Mods/Ferani_Steadfast_Structures.EXMOD", exmodJson);
+            }
+
+            exmodz = stream.ToArray();
+        }
+
+        var harness = new Harness(_root) { HttpResponseBytes = exmodz };
+        var vm = harness.Build();
+        var selected = new CatalogEntry(
+            CatalogSource.Daedalus, "daedalus:other", "Other Mod", "Someone", "1.0", "D", "", null, null, null,
+            PakUrl: null, ExmodzUrl: "https://example.com/Other.EXMODZ", Categories: []);
+        var shownInWindow = new CatalogEntry(
+            CatalogSource.Daedalus, "daedalus:steadfast", "Steadfast Structures", "Ferani", "1.0", "D", "", null, null, null,
+            PakUrl: null, ExmodzUrl: "https://example.com/Steadfast.EXMODZ", Categories: []);
+        vm.SelectedCatalogEntry = new CatalogEntryViewModel(selected, null, null);
+
+        await vm.DownloadAndExtractCommand.ExecuteAsync(new CatalogEntryViewModel(shownInWindow, null, null));
+
+        var stored = Assert.Single(harness.PendingStore.Entries);
+        Assert.Equal("daedalus:steadfast", stored.CatalogEntryId);
+    }
+
     /// <summary>Reinstalling a catalog download replaces the existing copy linked to the same catalog entry rather than adding a "_2" twin.</summary>
     [Fact]
     public async Task CatalogDownload_ReinstallReplacesTheExistingCopyInsteadOfDoublingIt()
@@ -550,6 +584,26 @@ public sealed class DownloadsViewModelTests : IDisposable
         vm.ShowInstalledDownloads = true;
 
         Assert.Equal(2, vm.VisiblePendingDownloads.Count);
+    }
+
+    /// <summary>A mod deleted elsewhere (Library) comes back out from under "Show installed" as removed once the Library says it changed.</summary>
+    [Fact]
+    public void PendingList_ModDeletedElsewhere_ReappearsAfterLibraryChanged()
+    {
+        var harness = new Harness(_root);
+        harness.AddDownload("b.zip", a => WriteEntry(a, "Scripts/main.lua", "x"), modId: 2, fileId: 2);
+        var stagedFolder = Path.Combine(_root, "Staged_UE4SS", "ModB");
+        Directory.CreateDirectory(stagedFolder);
+        harness.PendingStore.SetActivation(2, 2, [new PendingDownloadActivatedItem("ModB", PendingDownloadActivationKind.Ue4ssMod)], []);
+        var vm = harness.Build();
+        Assert.Empty(vm.VisiblePendingDownloads);
+
+        Directory.Delete(stagedFolder);
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+
+        var row = Assert.Single(vm.VisiblePendingDownloads);
+        Assert.True(row.WasDeleted);
+        Assert.Equal(0, vm.InstalledDownloadCount);
     }
 
     /// <summary>
