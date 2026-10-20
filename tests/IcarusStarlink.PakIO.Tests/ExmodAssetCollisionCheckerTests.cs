@@ -85,7 +85,7 @@ public class ExmodAssetCollisionCheckerTests
 
         var collisions = ExmodAssetCollisionChecker.Check(queued);
 
-        Assert.Single(collisions);
+        Assert.False(Assert.Single(collisions).AreIdentical);
     }
 
     [Fact]

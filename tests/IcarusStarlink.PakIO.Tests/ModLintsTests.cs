@@ -1,4 +1,3 @@
-using IcarusStarlink.PakIO.Pak;
 using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.PakIO.Tests;

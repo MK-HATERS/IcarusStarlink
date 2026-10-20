@@ -16,7 +16,7 @@ public class StaleItemFixSuggesterTests
     }
 
     [Fact]
-    public void Suggest_UnambiguousCloseMatchWithGoodFieldOverlap_CanAutoApply()
+    public void Suggest_UnambiguousMatchDifferingOnlyInCase_WithGoodFieldOverlap_CanAutoApply()
     {
         var baseTable = new JsonObject
         {
@@ -47,6 +47,7 @@ public class StaleItemFixSuggesterTests
         var suggestion = StaleItemFixSuggester.Suggest("Item_Variant_C", ["BuildingTier"], baseTable);
 
         Assert.NotNull(suggestion);
+        Assert.Equal("Item_Variant_A", suggestion.SuggestedItemName);
         Assert.False(suggestion.CanAutoApply);
     }
 
@@ -64,6 +65,7 @@ public class StaleItemFixSuggesterTests
             "Stone_Pickaxe_MK2X", ["RequiredMillijoules", "Weight", "Durability"], baseTable);
 
         Assert.NotNull(suggestion);
+        Assert.Equal("Stone_Pickaxe_Mk2", suggestion.SuggestedItemName);
         Assert.False(suggestion.CanAutoApply);
     }
 

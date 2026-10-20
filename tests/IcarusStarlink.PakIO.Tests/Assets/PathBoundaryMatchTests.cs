@@ -19,7 +19,7 @@ public class PathBoundaryMatchTests
     [Theory]
     [InlineData("MyIcon.png", "Icon.png")]
     [InlineData("OldVersionsWeapons/Ammo.uasset", "Weapons/Ammo.uasset")]
-    public void EndsWithSegmentBoundary_SharesOnlyATrailingSubstringAcrossAFolderBoundary_ReturnsFalse(string longerPath, string shorterPath) =>
+    public void EndsWithSegmentBoundary_SuffixNotPrecededBySlash_ReturnsFalse(string longerPath, string shorterPath) =>
         Assert.False(PathBoundaryMatch.EndsWithSegmentBoundary(longerPath, shorterPath));
 
     [Fact]

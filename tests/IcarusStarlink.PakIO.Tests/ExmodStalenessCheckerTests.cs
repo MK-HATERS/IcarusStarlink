@@ -86,8 +86,8 @@ public class ExmodStalenessCheckerTests : IDisposable
     {
         // Real EXMOD mods can list the same item name more than once in FileItems (see the field
         // notes: "A single mod's File_Items can list the SAME item name more than once, with
-        // different values" — a legal, observed pattern). Both entries feed TableDiffer against the
-        // same missing base row, so they must group into one StaleItem, not two.
+        // different values" — a legal, observed pattern). The last entry wins, as in the merge
+        // (ExmodBaseDiffer.ToKeyedObject), so this is one StaleItem with that entry's two fields.
         WriteBaseTable("Traits/D_Fuel.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
         var package = MakePackage(new ExmodFileRow
         {
@@ -103,6 +103,7 @@ public class ExmodStalenessCheckerTests : IDisposable
 
         var item = Assert.Single(stale);
         Assert.Equal("Old_Item", item.ItemName);
+        Assert.Equal(2, item.FieldCount);
     }
 
     [Fact]
@@ -115,7 +116,7 @@ public class ExmodStalenessCheckerTests : IDisposable
         var package = MakePackage(new ExmodFileRow
         {
             CurrentFile = "Building-D_BuildingPieces.json",
-            FileItems = [MakeItem("BP_Custom_Tower", fieldCount: 1)],
+            FileItems = [MakeItem("Custom_Tower", fieldCount: 1)], // the real case: row "Custom_Tower", asset "BP_Custom_Tower"
         });
         var ownAssetPaths = new[] { "BP/Building/BP_Custom_Tower.uasset", "BP/Building/BP_Custom_Tower.uexp" };
 
@@ -228,6 +229,8 @@ public class ExmodStalenessCheckerTests : IDisposable
         var cache = new Dictionary<string, JsonObject?>();
 
         var first = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier, cache);
+        // Gone from disk: the second call can only work from the cache.
+        File.Delete(Path.Combine(_dataFolder, "Traits", "D_Fuel.json"));
         var second = ExmodStalenessChecker.FindLikelyStaleItems(package, _dataFolder, _classifier, cache);
 
         Assert.Single(first);

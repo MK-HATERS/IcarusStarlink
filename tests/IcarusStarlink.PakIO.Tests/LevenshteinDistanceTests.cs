@@ -24,10 +24,10 @@ public class LevenshteinDistanceTests
     }
 
     [Fact]
-    public void Compute_NearIdenticalNamesAreClose()
+    public void Compute_IsCaseSensitive_ACaseOnlyDifferenceCountsOnce()
     {
-        // A case-only rename should be a very small distance.
-        Assert.True(LevenshteinDistance.Compute("stonepickaxe", "Stonepickaxe") <= 1);
+        // Callers normalize case first (StaleItemFixSuggester lowercases); here 's' and 'S' differ.
+        Assert.Equal(1, LevenshteinDistance.Compute("stonepickaxe", "Stonepickaxe"));
     }
 
     [Fact]
@@ -36,7 +36,6 @@ public class LevenshteinDistanceTests
         // Real Icarus building-piece naming: siblings differing only by "Left"/"Right" must not
         // collapse to a near-zero distance, or the fix suggester's ambiguity guard has nothing to
         // work with.
-        var distance = LevenshteinDistance.Compute("concretewallangleleftwwood", "concretewallanglerightwwood");
-        Assert.True(distance >= 3, $"expected a real distance for genuinely different words, got {distance}");
+        Assert.Equal(4, LevenshteinDistance.Compute("concretewallangleleftwwood", "concretewallanglerightwwood"));
     }
 }

@@ -250,12 +250,16 @@ public class ExmodBaseDifferTests : IDisposable
     [Fact]
     public void StripFieldsIdenticalToBase_EndOfModMarker_KeptCompletelyAsIs()
     {
-        var package = MakePackage(new ExmodFileRow { CurrentFile = "EndOfMod", FileItems = [] });
+        var package = MakePackage(new ExmodFileRow { CurrentFile = "EndOfMod", FileItems = [new ExmodFileItem { Name = "X", Fields = { ["Y"] = JsonValue.Create(1) } }] });
+        var report = new MergeReport();
 
-        var result = ExmodBaseDiffer.StripFieldsIdenticalToBase(package, _dataFolder);
+        var result = ExmodBaseDiffer.StripFieldsIdenticalToBase(package, _dataFolder, report);
 
         Assert.Single(result);
         Assert.Equal("EndOfMod", result[0].CurrentFile);
+        Assert.Single(result[0].FileItems);
+        // Without the skip it would look for a base file and warn there is none.
+        Assert.Empty(report.Warnings);
     }
 
     /// <summary>"Insert file at location" adds a row with no items yet, meant to be filled in later — it must survive a Save (and thus this strip pass) even though it currently has nothing to strip or keep.</summary>
