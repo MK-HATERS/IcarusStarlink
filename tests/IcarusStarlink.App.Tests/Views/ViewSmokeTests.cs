@@ -11,9 +11,15 @@ namespace IcarusStarlink.App.Tests.Views;
 /// XAML mistake (a StaticResource key that doesn't exist, a bad property, a malformed template)
 /// fails here instead of only when a user opens that screen. Bindings aren't checked: there's no
 /// view model behind them, and WPF reports a broken binding without throwing.
+/// It needs an Application for the styles, and app code sends work to Application.Current's
+/// dispatcher when there is one; so it runs alone after every other test (its own collection with
+/// parallel runs off) and takes the Application away again when it's done.
 /// </summary>
+[Collection(Name)]
 public sealed class ViewSmokeTests
 {
+    public const string Name = "Views built alone";
+
     private static readonly string[] Dictionaries =
     [
         "/IcarusStarlink.App;component/Themes/Icons.xaml",
@@ -74,9 +80,18 @@ public sealed class ViewSmokeTests
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
         thread.Join();
+        ForgetTheApplication();
+        Assert.Null(Application.Current);
 
         Assert.Null(setupError);
         Assert.True(built >= 15, $"Only {built} views were built; the type scan or the styles didn't load.");
         Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
     }
+
+    /// <summary>Application.Current would otherwise point at this test's finished thread for the rest of the run.</summary>
+    private static void ForgetTheApplication() =>
+        typeof(Application).GetField("_appInstance", BindingFlags.NonPublic | BindingFlags.Static)?.SetValue(null, null);
 }
+
+[CollectionDefinition(ViewSmokeTests.Name, DisableParallelization = true)]
+public sealed class ViewSmokeCollection;
