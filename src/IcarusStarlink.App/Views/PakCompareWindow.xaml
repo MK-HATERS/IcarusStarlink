@@ -54,10 +54,15 @@
 
         <Grid Grid.Row="4">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="260"/>
+                <ColumnDefinition Width="260" MinWidth="160" MaxWidth="700"/>
                 <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*" MinWidth="200"/>
             </Grid.ColumnDefinitions>
+
+            <!-- Drag to give the file list or the details more room. -->
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                          Background="{DynamicResource BorderBrush}" ResizeBehavior="PreviousAndNext"
+                          ToolTip="Drag to resize" AutomationProperties.Name="Resize panes"/>
 
             <ListBox Grid.Column="0" ItemsSource="{Binding ChangedFiles}" SelectedItem="{Binding SelectedFile}">
                 <ListBox.ItemTemplate>

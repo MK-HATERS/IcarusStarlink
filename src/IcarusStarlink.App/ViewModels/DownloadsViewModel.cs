@@ -982,9 +982,17 @@ public sealed partial class DownloadsViewModel : ObservableObject
             }
             finally
             {
-                if (File.Exists(partPath))
+                // Guarded: a .part locked by antivirus must not replace the real error (a network
+                // failure, say) with "can't access the file".
+                try
                 {
-                    File.Delete(partPath);
+                    if (File.Exists(partPath))
+                    {
+                        File.Delete(partPath);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
                 }
             }
 

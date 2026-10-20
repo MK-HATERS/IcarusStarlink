@@ -84,7 +84,7 @@ public partial class ManualInstallWindow : Window
         // The whole download is named after the mod, not the scratch folder it was unpacked into.
         var name = node.FullPath == _root ? _modName : Path.GetFileNameWithoutExtension(node.FullPath);
         var item = new ManualInstallItem(kind, node.FullPath, ManualInstaller.Relative(_root, node.FullPath), name);
-        if (ManualInstaller.Problem(item) is { } problem)
+        if ((ManualInstaller.DuplicateProblem(_plan, item) ?? ManualInstaller.Problem(item)) is { } problem)
         {
             ShowProblem(problem);
             return;
