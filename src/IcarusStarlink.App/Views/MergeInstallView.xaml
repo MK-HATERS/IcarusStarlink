@@ -163,7 +163,7 @@
                                   StrokeThickness="1.6" StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Top"/>
                             <TextBlock Margin="0,0,10,0" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Center">
                                 <Run Text="{Binding ValidationIssueCount, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"/>
-                                <Run Text=" issue(s) found — a field that isn't real, a broken reference, or two mods silently overwriting the same asset. See Validate mods below."/>
+                                <Run Text=" issue(s) found — a field that isn't real, a broken reference, two mods silently overwriting the same asset, or talent/workshop nodes on top of each other or that can't be unlocked. See Validate mods below."/>
                             </TextBlock>
                         </DockPanel>
                     </Border>

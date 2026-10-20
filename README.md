@@ -79,8 +79,10 @@ moved one (same name, same contents, another folder), the fix points the mod to 
 what the game removed is listed for the mod's author to update.
 
 **Merge & Install** — a merge queue with proactive conflict detection (including two mods adding a
-same-named new item, and a queue-wide check for a mod referencing something only another queued mod
-declares) and a manual per-field conflict picker that shows the live base-game value plus a
+same-named new item, a queue-wide check for a mod referencing something only another queued mod
+declares, and a check of the talent, blueprint and workshop trees as the whole queue leaves them:
+nodes on top of each other, nodes that wait for each other and can never be unlocked, nodes needing
+another tree's) and a manual per-field conflict picker that shows the live base-game value plus a
 buff/nerf hint alongside each candidate; array-shaped fields (recipe lists, loot tables) combine
 automatically when every mod's change is a clean addition rather than picking just one and dropping
 the rest; a baseline mod list that auto-joins every profile's queue, gameplay-option toggles

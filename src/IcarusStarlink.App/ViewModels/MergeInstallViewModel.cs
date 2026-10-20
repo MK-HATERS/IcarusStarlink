@@ -2966,9 +2966,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// do something in-game") from a different angle, combined into one report rather than three
     /// near-identical warning strips in this page: ExmodFieldValidityChecker ("is this field
     /// name/type real", per mod), ExmodReferenceChecker ("does this reference point at something
-    /// real", per mod), and ExmodAssetCollisionChecker ("do two queued mods silently overwrite each
+    /// real", per mod), ExmodAssetCollisionChecker ("do two queued mods silently overwrite each
     /// other's binary asset", across the whole queue — unlike the other two, this one only makes
-    /// sense computed once over every mod together, not mod-by-mod).
+    /// sense computed once over every mod together, not mod-by-mod), and TalentTreeChecker (the
+    /// talent/blueprint/workshop trees as the whole queue leaves them: nodes on top of each other,
+    /// circles, nodes needing another tree's).
     ///
     /// Deliberately scoped to only the real EXMOD mods in the queue (LoadQueuedPackagesAsync's own
     /// Packages) — an attached prebuilt pak's own compiled DataTable JSON was already written by
@@ -3051,6 +3053,20 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
                     : $"{collision.ModNames.Count} queued mods bundle DIFFERENT versions of this file — '{collision.ModNames[^1]}' silently wins, the others are discarded.";
                 rows.Add(new ValidationIssueRowViewModel(
                     "Asset collision", string.Join(", ", collision.ModNames), collision.RelativePath, "—", "—", reason));
+            }
+
+            // The talent, blueprint and workshop trees as the whole queue leaves them (later mods
+            // win, as in the merge): nodes on top of each other, circles, another tree's nodes.
+            foreach (var finding in TalentTreeChecker.Check([.. queuedForCollisionCheck.Select(q => (q.Name, q.package.Package))], new GameTableIndex(_dataFolder)))
+            {
+                var field = finding.Kind switch
+                {
+                    TalentTreeChecker.FindingKind.Overlap => "Position",
+                    TalentTreeChecker.FindingKind.MissingTree => "TalentTree",
+                    _ => "RequiredTalents",
+                };
+                rows.Add(new ValidationIssueRowViewModel(
+                    "Talent tree", string.Join(", ", finding.Mods), "Talents/D_Talents.json", finding.Node, field, finding.Reason));
             }
 
             return (IReadOnlyList<ValidationIssueRowViewModel>)rows;

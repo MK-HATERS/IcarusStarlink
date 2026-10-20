@@ -590,6 +590,36 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Equal(1, vm.ValidationIssueCount);
     }
 
+    /// <summary>Two queued mods each adding a workshop node to the same spot of one tree: fine alone, one hides the other together.</summary>
+    [Fact]
+    public async Task RecomputeValidationIssueCountAsync_FlagsTwoModsNodesOnTopOfEachOther()
+    {
+        const string treeRow = """{"CurrentFile": "Talents-D_TalentTrees.json", "File_Items": [{"Name": "Workshop_Extras"}]},""";
+        static string Node(string mod, string node, bool addsTree) => $$$"""
+            {
+                "name": "{{{mod}}}", "author": "Test", "version": "1", "description": "D", "fileName": "{{{mod}}}",
+                "Rows": [
+                    {{{(addsTree ? treeRow : "")}}}
+                    {"CurrentFile": "Talents-D_Talents.json",
+                     "File_Items": [{"Name": "{{{node}}}", "TalentTree": {"RowName": "Workshop_Extras"},
+                                     "Position": {"X": 500, "Y": 450}, "Size": {"X": 250, "Y": 250}}]}
+                ]
+            }
+            """;
+        var libraryRepository = new FakeLibraryRepository();
+        libraryRepository.FolderPaths["ModA"] = CreateExmodFolder("ModA", Node("ModA", "Workshop_Gold_Axe", addsTree: true), out _);
+        libraryRepository.FolderPaths["ModB"] = CreateExmodFolder("ModB", Node("ModB", "Workshop_Bone_Axe", addsTree: false), out _);
+        var vm = CreateViewModel(libraryRepository: libraryRepository);
+        vm.Queue.Add(MakeEntry("ModA"));
+        await vm.RecomputeValidationIssueCountAsync();
+        Assert.Equal(0, vm.ValidationIssueCount);
+
+        vm.Queue.Add(MakeEntry("ModB"));
+        await vm.RecomputeValidationIssueCountAsync();
+
+        Assert.Equal(1, vm.ValidationIssueCount);
+    }
+
     // ---------------------------------------------------------------------------------------
     // 1b. Manual conflict picks must be invalidated whenever a queued mod's own content or the
     //     base data folder changes — not just on a Queue mutation. MergeEngine.Merge applies a
