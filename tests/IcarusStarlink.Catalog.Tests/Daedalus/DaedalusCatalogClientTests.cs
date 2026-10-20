@@ -83,13 +83,18 @@ public class DaedalusCatalogClientTests
             [
               { "id": "a", "name": "Fine Mod", "author": "Someone", "version": null, "compatibility": null, "description": null, "files": { "pak": "https://example.com/fine.pak" } },
               { "id": "b", "name": null, "author": "Nobody", "version": "1.0", "compatibility": "All", "description": "no name", "files": { "pak": "https://example.com/b.pak" } },
-              { "id": "c", "name": "No Author", "author": null, "version": "1.0", "compatibility": "All", "description": "no author", "files": { "pak": "https://example.com/c.pak" } }
+              { "id": "c", "name": "No Author", "author": null, "version": "1.0", "compatibility": "All", "description": "no author", "files": { "pak": "https://example.com/c.pak" } },
+              { "id": null, "name": "No Id", "author": "Someone", "version": "1.0", "compatibility": "All", "description": "no id", "files": { "pak": "https://example.com/d.pak" } }
             ]
+            """;
+        // A null tag name used to land in the entry's categories as a null string.
+        const string tagsWithNull = """
+            [ { "tag": null, "mods": [ { "name": "Fine Mod", "author": "Someone" } ] } ]
             """;
         var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
         {
             ["https://agentkush.github.io/daedalus-static-poc/api/v1/mods.json"] = modsWithNulls,
-            ["https://agentkush.github.io/daedalus-static-poc/api/v1/tags.json"] = "[]",
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/tags.json"] = tagsWithNull,
         });
         var client = new DaedalusCatalogClient(new HttpClient(handler));
 
@@ -99,6 +104,7 @@ public class DaedalusCatalogClientTests
         Assert.Equal("Fine Mod", only.Name);
         Assert.Equal("", only.Description);
         Assert.Equal("", only.Version);
+        Assert.Empty(only.Categories);
     }
 
     [Fact]
@@ -153,13 +159,14 @@ public class DaedalusCatalogClientTests
     }
 
     [Fact]
-    public async Task FetchAsync_TagsJsonReferencingAModAbsentFromModsJson_DoesNotThrow()
+    public async Task FetchAsync_TagsJsonReferencingAModAbsentFromModsJson_IsIgnored()
     {
         // "A Mod Not In mods.json" / Ghost, in the "balance" tag fixture above, has no
         // corresponding mods.json entry — mirrors the ~10% mismatch rate observed on the real
-        // live snapshot. Should be silently ignored, not fail the whole fetch.
-        var exception = await Record.ExceptionAsync(async () => await CreateClient().FetchAsync());
+        // live snapshot. Should be silently ignored, not fail the whole fetch or invent an entry.
+        var entries = await CreateClient().FetchAsync();
 
-        Assert.Null(exception);
+        Assert.Equal(3, entries.Count);
+        Assert.DoesNotContain(entries, e => e.Author == "Ghost");
     }
 }

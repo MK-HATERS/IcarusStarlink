@@ -15,7 +15,12 @@ public sealed class Jimk72CatalogClient(HttpClient httpClient) : IJimk72CatalogC
     public async Task<IReadOnlyList<CatalogEntry>> FetchAsync(CancellationToken cancellationToken = default)
     {
         var response = await httpClient.GetFromJsonAsync<Jimk72ModInfoDto>(ModInfoUrl, CatalogJsonOptions.Instance, cancellationToken);
-        return [.. (response?.Mods ?? []).Select(ToEntry)];
+        // Same explicit-null guard as DaedalusCatalogClient: a JSON null overrides the DTO's ""
+        // default, and a null name/author/description crashed the Downloads page (its search
+        // filter and catalog key). An entry with no name or author is skipped; the rest coalesce.
+        return [.. (response?.Mods ?? [])
+            .Where(dto => dto is not null && !string.IsNullOrWhiteSpace(dto.Name) && !string.IsNullOrWhiteSpace(dto.Author))
+            .Select(ToEntry)];
     }
 
     private static CatalogEntry ToEntry(Jimk72ModDto dto) => new(
@@ -23,9 +28,9 @@ public sealed class Jimk72CatalogClient(HttpClient httpClient) : IJimk72CatalogC
         $"jimk72:{dto.Name}:{dto.Author}",
         dto.Name,
         dto.Author,
-        dto.Version,
-        dto.Description,
-        dto.Compatibility,
+        dto.Version ?? "",
+        dto.Description ?? "",
+        dto.Compatibility ?? "",
         CompatibilityWeekParser.Parse(dto.Compatibility),
         dto.ImageUrl,
         dto.ReadmeUrl,

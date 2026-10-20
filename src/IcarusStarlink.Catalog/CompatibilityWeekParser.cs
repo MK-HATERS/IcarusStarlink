@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace IcarusStarlink.Catalog;
 
 /// <summary>
@@ -21,6 +23,7 @@ public static class CompatibilityWeekParser
             ? trimmed[1..]
             : trimmed;
 
-        return int.TryParse(digits, out var week) ? week : null;
+        // Digits only, culture-free: a sign ("w-5") or thousands separator isn't a week number.
+        return int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var week) ? week : null;
     }
 }
