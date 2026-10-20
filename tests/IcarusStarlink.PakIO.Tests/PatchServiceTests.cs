@@ -141,6 +141,19 @@ public class PatchServiceTests : IDisposable
         await Assert.ThrowsAsync<FormatException>(() => _service.ImportAsync(path));
     }
 
+    /// <summary>A hand-edited or foreign manifest with no mod list (or a null entry) is a corrupt patch, not a crash later on.</summary>
+    [Theory]
+    [InlineData("""{"ProfileName":"x","Mods":null}""")]
+    [InlineData("""{"ProfileName":"x","Mods":[null]}""")]
+    [InlineData("""{"ProfileName":"x","Mods":[],"Options":null}""")]
+    public async Task ImportAsync_ManifestWithNullParts_ThrowsFormatException(string json)
+    {
+        var path = Path.Combine(_dir, "nulls.json");
+        await File.WriteAllTextAsync(path, json);
+
+        await Assert.ThrowsAsync<FormatException>(() => _service.ImportAsync(path));
+    }
+
     [Fact]
     public async Task ImportAsync_CorruptJsonFile_ThrowsFormatException()
     {

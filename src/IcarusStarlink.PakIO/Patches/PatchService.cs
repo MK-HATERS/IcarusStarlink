@@ -120,8 +120,17 @@ public sealed class PatchService : IPatchService
     {
         try
         {
-            return JsonSerializer.Deserialize<PatchManifest>(json, JsonOptions)
+            var manifest = JsonSerializer.Deserialize<PatchManifest>(json, JsonOptions)
                 ?? throw new FormatException("Patch manifest is empty or corrupt.");
+
+            // An explicit null (a hand edit, another tool) gets past the deserializer's defaults and
+            // used to surface later as a NullReferenceException instead of this documented one.
+            if (manifest.Mods is null || manifest.Mods.Any(m => m is null) || manifest.Options is null)
+            {
+                throw new FormatException("Patch manifest is corrupt: its mod list or options are missing.");
+            }
+
+            return manifest;
         }
         catch (JsonException ex)
         {
