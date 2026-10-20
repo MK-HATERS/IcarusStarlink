@@ -101,6 +101,7 @@ public sealed class UpdateRunnerTests : IDisposable
         Assert.True(result.Relaunched);
         Assert.Equal(1, relaunchCallCount);
         Assert.NotNull(result.BackupDirectory);
+        UpdateApplierTests.DeleteKeptBackup(result.BackupDirectory);
     }
 
     /// <summary>A rolled-back update used to relaunch the old version without a word: the outcome is now recorded, before the relaunch, for the app to show.</summary>
