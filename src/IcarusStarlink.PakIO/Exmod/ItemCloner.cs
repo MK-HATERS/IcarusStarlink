@@ -257,7 +257,7 @@ public static partial class ItemCloner
                 Add(Recipes, UniqueName(game, existingMod, Recipes, newName), BuildRecipe(game, source, request, newName));
                 break;
             case ObtainMethod.Workshop:
-                BuildWorkshop(game, existingMod, source, request, newName, rows, Add);
+                BuildWorkshop(game, existingMod, request, newName, rows, Add);
                 break;
         }
 
@@ -332,7 +332,7 @@ public static partial class ItemCloner
     }
 
     private static void BuildWorkshop(
-        GameTableIndex game, ExmodPackage? existingMod, ItemCloneSource source, ItemCloneRequest request, string newName,
+        GameTableIndex game, ExmodPackage? existingMod, ItemCloneRequest request, string newName,
         Dictionary<string, List<ExmodFileItem>> rows, Action<string, string, JsonObject> add)
     {
         var workshopName = UniqueName(game, existingMod, WorkshopItems, "Meta_" + newName);

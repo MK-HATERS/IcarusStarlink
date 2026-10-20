@@ -1,7 +1,8 @@
 namespace IcarusStarlink.PakIO.Exmod;
 
 /// <summary>
-/// Real, compiled Unreal binary assets are always .uasset/.uexp/.ubulk — confirmed repeatedly
+/// Real, compiled Unreal binary assets are .uasset/.uexp/.ubulk (plus .umap for a level and .uptnl
+/// for optional bulk data) — confirmed repeatedly
 /// throughout this project's own history (CueUassetTextureDecoder/CueUassetStaticMeshDecoder,
 /// ExmodStalenessChecker's own asset-correlation, ExmodAssetEntry's own doc comment). Everything
 /// else a mod folder's Assets list can legitimately contain — a Readme.txt, an "ImageOnly.png"
