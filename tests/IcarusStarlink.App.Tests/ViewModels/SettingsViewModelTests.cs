@@ -55,10 +55,10 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// FakeDialogService shape, copied from SavesViewModelTests.
 ///
 /// A second, harder-to-remove risk this class alone has (SavesViewModel's constructor does no such
-/// thing): the constructor itself fires five fire-and-forget async checks
-/// (CheckForGameUpdateAsync/InitializeNexusStatusAsync/CheckUe4ssLatestReleaseAsync/
-/// CheckForAppUpdatesOnLaunchAsync/EnsureUnrealPakOnLaunchAsync), unawaited, with no seam like
-/// SavesViewModel's own WaitForPendingSlotLoadAsync to await them from a test. Harness's own
+/// thing): the constructor itself starts several async checks (CheckForGameUpdateAsync,
+/// InitializeNexusStatusAsync, RunFirstLaunchSetupAsync — which runs EnsureUnrealPakOnLaunchAsync —
+/// then CheckForAppUpdatesAfterSetupAsync and RefreshBackupsSizeAsync). Only first-launch setup has
+/// a seam to await (FirstLaunchSetupTask); the rest are fire-and-forget. Harness's own
 /// default fakes are deliberately shaped so every one of these returns/no-ops synchronously (a
 /// non-null, already-on-disk UnrealPakExePath so EnsureUnrealPakOnLaunchAsync's very first check
 /// short-circuits before any await; null LastDataPakHash/stored Nexus key so the other two return
@@ -78,6 +78,13 @@ public sealed class SettingsViewModelTests
         Enumerable.Range(0, changedFileCount)
             .Select(i => new ChangedDataFile($"Crafting/D_Fuel{i}.json", IsNewFile: false, IsRemovedFile: false, RemovedRowNames: [], FieldChanges: []))
             .ToList());
+
+    private static HttpMessageHandler CountingHandler(Action onRequest) =>
+        new StubHttpMessageHandler(_ =>
+        {
+            onRequest();
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([1, 2, 3]) };
+        });
 
     private static HttpMessageHandler SucceedingHandler(byte[] bytes) =>
         new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
@@ -476,12 +483,17 @@ public sealed class SettingsViewModelTests
     [Fact]
     public async Task InstallOrUpdateUe4ssCommand_Declined_DoesNotDownloadOrInstall()
     {
-        using var harness = new Harness(dialogConfirmResult: false);
+        // The check runs first so the install would really download (the GitHub build is newer
+        // than the bundled one); without it the bundled copy is used and no download is possible.
+        var requests = 0;
+        using var harness = new Harness(dialogConfirmResult: false, httpHandler: CountingHandler(() => requests++));
         harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
         var vm = harness.BuildViewModel();
+        await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null);
 
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
 
+        Assert.Equal(0, requests);
         Assert.Equal(1, harness.DialogService.ConfirmCallCount);
         Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
         Assert.False(vm.IsInstallingUe4ss);
@@ -637,12 +649,15 @@ public sealed class SettingsViewModelTests
     [Fact]
     public async Task InstallOrUpdateUe4ssCommand_GameRunning_RefusesAndNeverDownloads()
     {
-        using var harness = new Harness(dialogConfirmResult: true, gameProcessChecker: new FakeGameProcessChecker(true));
+        var requests = 0;
+        using var harness = new Harness(dialogConfirmResult: true, httpHandler: CountingHandler(() => requests++), gameProcessChecker: new FakeGameProcessChecker(true));
         harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
         var vm = harness.BuildViewModel();
+        await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null);
 
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
 
+        Assert.Equal(0, requests);
         Assert.Contains("Icarus is running", vm.Ue4ssStatusMessage);
         Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
         Assert.False(vm.IsInstallingUe4ss);
@@ -657,6 +672,7 @@ public sealed class SettingsViewModelTests
             dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes), gameProcessChecker: new FakeGameProcessChecker(false, true));
         harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
         var vm = harness.BuildViewModel();
+        await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null); // so the install downloads, as the name says
 
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
 
@@ -1186,10 +1202,8 @@ public sealed class SettingsViewModelTests
 
     private sealed class FakeUe4ssReleaseClient : IUe4ssReleaseClient
     {
-        public Ue4ssReleaseInfo? ReleaseToReturn { get; set; }
-
         public Task<Ue4ssReleaseInfo?> GetLatestStableReleaseAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(ReleaseToReturn);
+            Task.FromResult<Ue4ssReleaseInfo?>(null);
 
         public Ue4ssReleaseInfo? DevBuildToReturn { get; set; }
         public int DevBuildCallCount { get; private set; }

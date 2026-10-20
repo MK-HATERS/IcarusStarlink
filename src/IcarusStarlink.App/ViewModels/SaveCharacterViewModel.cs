@@ -228,8 +228,8 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         _node["Talents"] = talentArrayNew;
 
         // Cosmetics: values updated in place on the existing sub-object — every field this class
-        // doesn't know about (there are none here, since Cosmetics enumerates the whole object on
-        // load) stays exactly as-is, and IsMale is written alongside the raw hashes since it lives
+        // doesn't know about (non-number fields like IsReworkedCharacter, which BuildCosmetics
+        // skips) stays exactly as-is, and IsMale is written alongside the raw hashes since it lives
         // in the same sub-object.
         if (_node["Cosmetic"] is JsonObject cosmetic)
         {

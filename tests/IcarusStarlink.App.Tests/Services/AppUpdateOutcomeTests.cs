@@ -42,9 +42,13 @@ public sealed class AppUpdateOutcomeTests : IDisposable
         File.SetLastWriteTimeUtc(temp, DateTime.UtcNow.AddDays(-2));
         File.WriteAllText(logs, "Applied\nThe update installed.\n");
 
-        var outcome = AppUpdateOutcome.TakeLast(logs, temp);
+        // The older note is passed first, so "the first one found wins" can't pass: only the
+        // write-time comparison picks the newer one.
+        var outcome = AppUpdateOutcome.TakeLast(temp, logs);
 
         Assert.True(outcome!.Installed);
+        Assert.Equal("The update installed.", outcome.Message);
         Assert.False(File.Exists(temp));
+        Assert.False(File.Exists(logs));
     }
 }
