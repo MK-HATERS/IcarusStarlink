@@ -117,7 +117,9 @@ public class ExmodFieldValidityCheckerTests : IDisposable
     [Fact]
     public void Check_EndOfModSentinelRow_IsSkippedWithoutAFalseWarning()
     {
-        var package = MakePackage(new ExmodFileRow { CurrentFile = "EndOfMod", FileItems = [] });
+        // A file the marker would resolve to and an unknown field, so only the skip keeps this clean.
+        WriteBaseTable("EndOfMod", """{"RowStruct":"S","Defaults":{"A":1},"Rows":[]}""");
+        var package = MakePackage(MakeRow("EndOfMod", "X", new() { ["Bogus"] = JsonValue.Create(1) }));
 
         var findings = ExmodFieldValidityChecker.Check(package, _dataFolder);
 
@@ -148,6 +150,8 @@ public class ExmodFieldValidityCheckerTests : IDisposable
             new() { ["MaxStackk"] = JsonValue.Create(5) }));
 
         var firstResult = ExmodFieldValidityChecker.Check(goodPackage, _dataFolder, cache);
+        // Gone from disk: the second check can only work from the cache.
+        File.Delete(Path.Combine(_dataFolder, "Traits", "D_Itemable.json"));
         var secondResult = ExmodFieldValidityChecker.Check(badPackage, _dataFolder, cache);
 
         Assert.Empty(firstResult);

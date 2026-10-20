@@ -94,7 +94,7 @@ public static class PrebuiltPakFieldChangeExtractor
                 // JsonException-or-IOException-or-UnauthorizedAccessException shape this codebase
                 // already uses for every other untrusted-file-parse of this kind (e.g. JsonFileStore).
                 report.AddWarning(
-                    $"Prebuilt pak '{pakName}''s own '{currentFile}' couldn't be read ({ex.Message}) — copied through as-is instead of field-merged.");
+                    $"'{currentFile}' in prebuilt pak '{pakName}' couldn't be read ({ex.Message}), so it was copied into the merge as it is instead of being merged field by field.");
                 continue;
             }
 

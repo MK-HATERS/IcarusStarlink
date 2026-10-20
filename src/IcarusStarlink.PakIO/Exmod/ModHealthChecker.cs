@@ -91,7 +91,6 @@ public sealed record ModIssue(
         // A link inside a field, or in the mod's own row: no game value to go back to, only to look at.
         ModIssueKind.BrokenLink when GameValue is null => [ModIssueFix.KeepMod],
         _ when MergedValue is not null => [ModIssueFix.Merge, ModIssueFix.UseGame, ModIssueFix.KeepMod],
-        ModIssueKind.SameAsGame => [ModIssueFix.UseGame, ModIssueFix.KeepMod],
         _ => [ModIssueFix.UseGame, ModIssueFix.KeepMod],
     };
 
@@ -109,8 +108,6 @@ public sealed record ModIssue(
 /// <param name="BuiltFor">Which game version the mod's rows come from (when the game's row history is known).</param>
 public sealed record ModHealthReport(IReadOnlyList<ModIssue> Issues, int AuthorChangeCount, ModGameVersion? BuiltFor = null)
 {
-    public static ModHealthReport Healthy { get; } = new([], 0);
-
     public int SureCount => Issues.Count(i => i.IsSure);
 
     /// <summary>What Fix sure problems would change by itself (<see cref="ModIssue.IsAutomatic"/>): never tidying alone.</summary>
@@ -411,8 +408,8 @@ public static class ModHealthChecker
             }
 
             var fields = package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, stale.CurrentFile, StringComparison.OrdinalIgnoreCase))
-                ?.FileItems.LastOrDefault(i => i.Name == stale.ItemName)?.Fields.Keys ?? Enumerable.Empty<string>();
-            var suggestion = baseTableCache.TryGetValue(stale.CurrentFile, out var baseTable) && baseTable is not null ?StaleItemFixSuggester.Suggest(stale.ItemName, fields, baseTable) : null;
+                ?.FileItems.LastOrDefault(i => string.Equals(i.Name, stale.ItemName, StringComparison.OrdinalIgnoreCase))?.Fields.Keys ?? Enumerable.Empty<string>();
+            var suggestion = baseTableCache.TryGetValue(stale.CurrentFile, out var baseTable) && baseTable is not null ? StaleItemFixSuggester.Suggest(stale.ItemName, fields, baseTable) : null;
             if (suggestion is null)
             {
                 // No likely new name, but the history proves the game had this row and removed it:

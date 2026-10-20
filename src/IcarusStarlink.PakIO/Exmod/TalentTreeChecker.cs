@@ -211,7 +211,7 @@ public static class TalentTreeChecker
     private static IEnumerable<string> Requires(Node node) =>
         (node.Row["RequiredTalents"] as JsonArray ?? [])
             .Select(e => Text((e as JsonObject)?["RowName"]))
-            .Where(r => r is { Length: > 0 } and not "None")!;
+            .Where(r => r is { Length: > 0 } && !string.Equals(r, "None", StringComparison.OrdinalIgnoreCase))!;
 
     private static string TreeOf(Node node, JsonObject defaults) =>
         Text(((node.Row["TalentTree"] ?? defaults["TalentTree"]) as JsonObject)?["RowName"]) ?? "None";

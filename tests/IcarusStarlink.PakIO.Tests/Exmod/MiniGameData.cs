@@ -2,8 +2,10 @@ namespace IcarusStarlink.PakIO.Tests.Exmod;
 
 /// <summary>
 /// A few rows of each table a new item touches, copied in shape from the real game data: the basic
-/// envirosuit (a workshop item), bread (a recipe with a blueprint unlock and a buff), and the
-/// envirosuit workshop tab.
+/// envirosuit (a workshop item), bread (a recipe with a blueprint unlock and a buff), the stone
+/// furnace (a template named unlike its item), a carbon chest workshop item, and the envirosuit
+/// workshop tab with its talent tree. Rows they link to but nothing here tests (Dough_Bread,
+/// Stone, the talents' ExtraData) are left out on purpose.
 /// </summary>
 internal static class MiniGameData
 {

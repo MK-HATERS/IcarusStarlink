@@ -53,6 +53,7 @@ public class BaseDataFileReaderTests : IDisposable
         var result = BaseDataFileReader.ParseFile(_dataFolder, "Crafting-D_ProcessorRecipes.json", report: null);
 
         Assert.NotNull(result);
+        Assert.Equal("Stone_Pickaxe", result["Rows"]![0]!["Name"]!.GetValue<string>());
     }
 
     public void Dispose()

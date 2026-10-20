@@ -262,6 +262,43 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.Equal("Bread", GameItemEditor.Describe(game, mod, "Food_Toast")!.Sections.Single(s => s.Key == GameItemEditor.BuffSection).RowName);
     }
 
+    /// <summary>
+    /// The buff's own copy also gives the item its own consumable row, so a consumable change made
+    /// in the same Apply must land on that new row: it used to go to the game's shared row, changing
+    /// Toast and not this bread.
+    /// </summary>
+    [Fact]
+    public void ABuffOwnCopy_ThenAConsumableChange_InOneApply_BothLandOnTheItemsOwnRows()
+    {
+        var game = WithToastSharingBreadsConsumable();
+        var mod = EmptyMod();
+        var view = GameItemEditor.Describe(game, mod, "Food_Bread")!;
+        var buff = view.Sections.Single(s => s.Key == GameItemEditor.BuffSection);
+        var consumable = view.Sections.Single(s => s.Key == "Consumable");
+        var lifetime = consumable.Fields.First(f => f.Path.Key.Contains("Lifetime", StringComparison.Ordinal)).Path;
+
+        GameItemEditor.Apply(game, mod, "Food_Bread",
+            [new(buff.Key, Field(buff, "Maximum stamina").Path, JsonValue.Create(200)), new(consumable.Key, lifetime, JsonValue.Create(1800))],
+            new HashSet<string> { buff.Key });
+
+        Assert.Null(Item(mod, "Traits-D_Consumable.json", "Food_Bread")); // Toast's row untouched
+        var ownConsumable = Item(mod, "Traits-D_Consumable.json", "Food_Bread_Food_Bread")!;
+        Assert.Equal("Bread_Food_Bread", ownConsumable.Fields["Modifier"]!["Modifier"]!["RowName"]!.GetValue<string>());
+        Assert.Equal(1800, ownConsumable.Fields["Modifier"]!["ModifierLifetime"]!.GetValue<int>());
+    }
+
+    /// <summary>A recipe with no bench listed ("RecipeSets": []) still shows, titled without one, instead of failing the whole item.</summary>
+    [Fact]
+    public void ARecipeWithNoBench_IsShownWithoutOne()
+    {
+        var recipes = Path.Combine(_root, "Crafting", "D_ProcessorRecipes.json");
+        File.WriteAllText(recipes, File.ReadAllText(recipes).Replace("\"RecipeSets\":[{\"RowName\":\"Kitchen_Stove\",\"DataTableName\":\"D_RecipeSets\"}]", "\"RecipeSets\":[]"));
+
+        var view = GameItemEditor.Describe(new GameTableIndex(_root), null, "Food_Bread")!;
+
+        Assert.Contains(view.Sections, s => s.Title == "Recipe");
+    }
+
     /// <summary>A review finding: "back to the game's value" on an own copy read a row the game doesn't have, writing the table default.</summary>
     [Fact]
     public void OnAnOwnCopy_BackToTheGamesValue_UsesTheRowItWasCopiedFrom()

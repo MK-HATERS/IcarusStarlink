@@ -290,9 +290,8 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         EnsureSuccess(result);
 
         // Counted from stdout's own "Extracted "..."" lines, not a directory-wide file count —
-        // outputDirectory can already hold other files (RebuildService extracts each attached
-        // prebuilt pak into the same staging folder the merge output already populated), which a
-        // bare Directory.GetFiles count would wrongly include.
+        // outputDirectory can already hold other files (extraction is additive), which a bare
+        // Directory.GetFiles count would wrongly include.
         return result.StandardOutput.Split('\n').Count(line => line.Contains("LogPakFile: Display: Extracted \"", StringComparison.Ordinal));
     }
 

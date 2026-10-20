@@ -127,7 +127,7 @@ public static class ReferenceChecker
             case JsonObject obj:
                 if (obj["RowName"] is JsonValue v && v.TryGetValue<string>(out var rowName))
                 {
-                    if (rowName.Length > 0 && rowName != "None")
+                    if (rowName.Length > 0 && !string.Equals(rowName, "None", StringComparison.OrdinalIgnoreCase))
                     {
                         var explicitTable = obj["DataTableName"] is JsonValue t && t.TryGetValue<string>(out var s) && s.Length > 0 ? s : null;
                         var defaultsTable = (shape as JsonObject)?["DataTableName"] is JsonValue d && d.TryGetValue<string>(out var ds) && ds.Length > 0 ? ds : null;

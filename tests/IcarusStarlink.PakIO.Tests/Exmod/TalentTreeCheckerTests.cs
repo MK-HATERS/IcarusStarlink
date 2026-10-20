@@ -7,7 +7,10 @@ namespace IcarusStarlink.PakIO.Tests.Exmod;
 /// <summary>
 /// The talent and workshop trees after a merge, on a small game tree shaped like the real one
 /// (Workshop_Axes: a printed axe, then a Shengong axe that needs it, 250×250 workshop nodes and a
-/// reroute joint). The real game's own trees have none of these findings.
+/// reroute joint). The real game's own trees have none of these findings; this one plants each
+/// of them among game-only nodes (Game_Stacked_A/B on top of each other, waiting for each other,
+/// one needing a node in another tree; Game_Lost in a tree that doesn't exist), which must never
+/// be reported unless a mod changes those nodes.
 /// </summary>
 public sealed class TalentTreeCheckerTests : IDisposable
 {
@@ -30,7 +33,12 @@ public sealed class TalentTreeCheckerTests : IDisposable
               {"Name":"Workshop_Axe_Shengong","TalentTree":{"RowName":"Workshop_Axes"},"Position":{"X":1000,"Y":1150},"Size":{"X":250,"Y":250},
                "RequiredTalents":[{"RowName":"Workshop_Axe_Printed","DataTableName":"D_Talents"}]},
               {"Name":"Workshop_Axe_Reroute","TalentType":"Reroute","TalentTree":{"RowName":"Workshop_Axes"},"Position":{"X":1000,"Y":1150}},
-              {"Name":"Workshop_Pick_Printed","TalentTree":{"RowName":"Workshop_Pickaxes"},"Position":{"X":500,"Y":450},"Size":{"X":250,"Y":250}}
+              {"Name":"Workshop_Pick_Printed","TalentTree":{"RowName":"Workshop_Pickaxes"},"Position":{"X":500,"Y":450},"Size":{"X":250,"Y":250}},
+              {"Name":"Game_Stacked_A","TalentTree":{"RowName":"Workshop_Pickaxes"},"Position":{"X":3000,"Y":3000},"Size":{"X":250,"Y":250},
+               "RequiredTalents":[{"RowName":"Game_Stacked_B","DataTableName":"D_Talents"}]},
+              {"Name":"Game_Stacked_B","TalentTree":{"RowName":"Workshop_Pickaxes"},"Position":{"X":3000,"Y":3000},"Size":{"X":250,"Y":250},
+               "RequiredTalents":[{"RowName":"Game_Stacked_A","DataTableName":"D_Talents"},{"RowName":"Workshop_Axe_Printed","DataTableName":"D_Talents"}]},
+              {"Name":"Game_Lost","TalentTree":{"RowName":"Gone_Tree"},"Position":{"X":0,"Y":0}}
             ]}
             """);
         W("Talents/D_TalentTrees.json", """
@@ -72,7 +80,7 @@ public sealed class TalentTreeCheckerTests : IDisposable
     }
 
     [Fact]
-    public void TheGameAlone_HasNothing()
+    public void TheGamesOwnProblems_AreNeverReported()
     {
         Assert.Empty(Check([], Game));
     }
@@ -130,13 +138,26 @@ public sealed class TalentTreeCheckerTests : IDisposable
         Assert.Empty(Check([Mod("Lines", moved)], Game));
     }
 
-    /// <summary>A mod changing only what a game node gives isn't blamed for where the game put it.</summary>
+    /// <summary>A mod changing only what a game node gives isn't blamed for where the game put it, or its tree.</summary>
     [Fact]
     public void ChangingOnlyAGameNodesReward_SaysNothingAboutItsPlace()
     {
-        var reward = new ExmodFileItem { Name = "Workshop_Axe_Shengong", Fields = new() { ["Rewards"] = new JsonArray() } };
+        var stacked = new ExmodFileItem { Name = "Game_Stacked_A", Fields = new() { ["Rewards"] = new JsonArray() } };
+        var lost = new ExmodFileItem { Name = "Game_Lost", Fields = new() { ["Rewards"] = new JsonArray() } };
 
-        Assert.Empty(Check([Mod("Cheaper", reward)], Game));
+        Assert.Empty(Check([Mod("Cheaper", stacked, lost)], Game));
+    }
+
+    /// <summary>The control for the test above: once the mod sets where the node sits, the overlap is its own.</summary>
+    [Fact]
+    public void SettingAGameNodesPosition_MakesItsOverlapTheMods()
+    {
+        var placed = new ExmodFileItem { Name = "Game_Stacked_A", Fields = new() { ["Position"] = new JsonObject { ["X"] = 3010, ["Y"] = 3000 } } };
+
+        var found = Assert.Single(Check([Mod("Mover", placed)], Game));
+
+        Assert.Equal(FindingKind.Overlap, found.Kind);
+        Assert.Equal(["Mover"], found.Mods);
     }
 
     [Fact]

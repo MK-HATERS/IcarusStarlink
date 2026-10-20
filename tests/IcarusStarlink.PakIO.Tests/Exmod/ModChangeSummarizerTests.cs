@@ -7,6 +7,31 @@ namespace IcarusStarlink.PakIO.Tests.Exmod;
 /// <summary>"What this mod changes" in a few lines — checked line-for-line against a real QoL mod (Deyvid's All-in-One) during development; these pin each pattern.</summary>
 public sealed class ModChangeSummarizerTests
 {
+    /// <summary>Unreal row names ignore case: "item_bread" edits the game's Item_Bread, it doesn't add a row.</summary>
+    [Fact]
+    public void SummarizePackage_ARowSpelledInAnotherCase_IsAnEditOfTheGamesRow()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "Summary_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            MiniGameData.Write(root);
+            var package = new ExmodPackage
+            {
+                Name = "m", Author = "a", Version = "1", Description = "", FileName = "m",
+                Rows = [new ExmodFileRow { CurrentFile = "Traits-D_Itemable.json", FileItems = [new ExmodFileItem { Name = "item_bread", Fields = new() { ["Weight"] = 500 } }] }],
+            };
+
+            var lines = ModChangeSummarizer.SummarizePackage(package, root);
+
+            Assert.DoesNotContain(lines, l => l.Contains("new row", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(lines, l => l.Contains("Weight", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static FieldChange Change(string file, string row, string field, JsonNode? before, JsonNode? after, bool isNew = false) =>
         new(file, row, field, before, after, ValueSemantic.Scalar, IsNewItem: isNew);
 

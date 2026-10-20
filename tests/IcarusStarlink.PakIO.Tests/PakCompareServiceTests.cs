@@ -168,24 +168,20 @@ public sealed class PakCompareServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task DuplicateJsonKey_FallsBackToRawComparison()
+    public async Task DuplicateJsonKey_IsStillComparedFieldByField_LastValueWinning()
     {
         // Seen in a real classic-IMM merged pak: one row object carrying the same property name
-        // twice. JsonNode throws ArgumentException (not JsonException) on materializing that —
-        // the file must fall back to raw content comparison, not kill the whole compare.
-        const string duplicated = "{\"Rows\":[{\"Name\":\"X\",\"ResourceCostMultipliers\":1,\"ResourceCostMultipliers\":2}]}";
-        Write("first", "data/Dup.json", duplicated);
-        Write("second", "data/Dup.json", duplicated);
-        Write("first", "data/Traits/D_Fuel.json", Table(("Composter", 10)));
-        Write("second", "data/Traits/D_Fuel.json", Table(("Composter", 77)));
+        // twice. It's read the way the game reads it (the last one wins), so a real difference in
+        // that value shows as a data difference, not a raw "content differs" or a failed compare.
+        Write("first", "data/Dup.json", "{\"Rows\":[{\"Name\":\"X\",\"ResourceCostMultipliers\":1,\"ResourceCostMultipliers\":2}]}");
+        Write("second", "data/Dup.json", "{\"Rows\":[{\"Name\":\"X\",\"ResourceCostMultipliers\":1,\"ResourceCostMultipliers\":3}]}");
 
         var result = await CompareAsync();
 
-        // The duplicate-key file is byte-identical, so nothing is reported for it — and the rest
-        // of the compare still ran.
         Assert.Empty(result.AssetDifferences);
         var file = Assert.Single(result.DataDifferences);
-        Assert.Equal("data/Traits/D_Fuel.json", file.RelativePath);
+        Assert.Equal("data/Dup.json", file.RelativePath);
+        Assert.Equal(3, Assert.Single(file.FieldChanges).NewValue!.GetValue<int>());
     }
 
     [Fact]

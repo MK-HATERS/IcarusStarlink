@@ -133,7 +133,9 @@ public class ExmodReferenceCheckerTests : IDisposable
     [Fact]
     public void Check_EndOfModSentinelRow_IsSkippedWithoutAFalseWarning()
     {
-        var package = MakePackage(new ExmodFileRow { CurrentFile = "EndOfMod", FileItems = [] });
+        // An item with a broken link, so the check would find it if it didn't skip the marker.
+        WriteBaseTable("Items/D_ItemsStatic.json", """{"RowStruct":"S","Defaults":{},"Rows":[]}""");
+        var package = MakePackage(MakeRow("EndOfMod", "X", new() { ["Element"] = MakeReference("Ghost", "D_ItemsStatic") }));
 
         var findings = ExmodReferenceChecker.Check(package, _dataFolder);
 
@@ -146,8 +148,10 @@ public class ExmodReferenceCheckerTests : IDisposable
         WriteBaseTable("Items/D_ItemsStatic.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Fiber"}]}""");
         var index = DataTableRowIndex.Build(_dataFolder);
 
-        var goodPackage = MakePackage(MakeRow("Crafting-D_ProcessorRecipes.json", "A",
-            new() { ["Element"] = MakeReference("Fiber", "D_ItemsStatic") }));
+        // The first mod adds Ghost itself; that mustn't leak into the shared index for the second.
+        var goodPackage = MakePackage(
+            MakeRow("Crafting-D_ProcessorRecipes.json", "A", new() { ["Element"] = MakeReference("Ghost", "D_ItemsStatic") }),
+            MakeRow("Items-D_ItemsStatic.json", "Ghost", new()));
         var badPackage = MakePackage(MakeRow("Crafting-D_ProcessorRecipes.json", "B",
             new() { ["Element"] = MakeReference("Ghost", "D_ItemsStatic") }));
 
@@ -197,6 +201,8 @@ public class ExmodReferenceCheckerTests : IDisposable
     [Fact]
     public void WithDeclaredRows_MultiplePackages_DoesNotMutateTheOriginalIndex()
     {
+        // The base index already has this table, so a copy that shared its row list would leak.
+        WriteBaseTable("Items/D_ItemTemplate.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Envirosuit"}]}""");
         var index = DataTableRowIndex.Build(_dataFolder);
         var modA = MakePackage(MakeRow("Items-D_ItemTemplate.json", "My_New_Gadget", new()));
 

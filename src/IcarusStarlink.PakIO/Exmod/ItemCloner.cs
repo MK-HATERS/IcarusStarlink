@@ -222,13 +222,13 @@ public static partial class ItemCloner
         {
             var copyName = UniqueName(game, existingMod, link.CurrentFile, CopyName(link, source.ItemName, newName));
             var copy = (JsonObject)game.Row(link.CurrentFile, link.RowName)!.DeepClone();
-            RewriteLocalization(copy, copyName, link.Field == "Itemable" ? ItemTexts(request) : null);
+            RewriteLocalization(copy, copyName, GameTableIndex.TableNameOf(link.CurrentFile), link.Field == "Itemable" ? ItemTexts(request) : null);
             if (link.Field == "Consumable" && request.CopyBuff && source.BuffName is { } buff && game.Row(ModifierStates, buff) is { } buffRow)
             {
                 // The buff the item gives: its own copy so its stats can change without touching the game's food.
                 var buffName = UniqueName(game, existingMod, ModifierStates, newName);
                 var buffCopy = (JsonObject)buffRow.DeepClone();
-                RewriteLocalization(buffCopy, buffName, new Dictionary<string, string?> { ["ModifierName"] = request.DisplayName });
+                RewriteLocalization(buffCopy, buffName, GameTableIndex.TableNameOf(ModifierStates), new Dictionary<string, string?> { ["ModifierName"] = request.DisplayName });
                 Add(ModifierStates, buffName, buffCopy);
                 copy["Modifier"]!["Modifier"] = new JsonObject { ["RowName"] = buffName };
             }
@@ -257,7 +257,7 @@ public static partial class ItemCloner
                 Add(Recipes, UniqueName(game, existingMod, Recipes, newName), BuildRecipe(game, source, request, newName));
                 break;
             case ObtainMethod.Workshop:
-                BuildWorkshop(game, existingMod, source, request, newName, rows, Add);
+                BuildWorkshop(game, existingMod, request, newName, rows, Add);
                 break;
         }
 
@@ -332,7 +332,7 @@ public static partial class ItemCloner
     }
 
     private static void BuildWorkshop(
-        GameTableIndex game, ExmodPackage? existingMod, ItemCloneSource source, ItemCloneRequest request, string newName,
+        GameTableIndex game, ExmodPackage? existingMod, ItemCloneRequest request, string newName,
         Dictionary<string, List<ExmodFileItem>> rows, Action<string, string, JsonObject> add)
     {
         var workshopName = UniqueName(game, existingMod, WorkshopItems, "Meta_" + newName);
@@ -358,7 +358,7 @@ public static partial class ItemCloner
             {
                 var archetype = (JsonObject?)game.Row(TalentArchetypes, "Workshop_Envirosuits")?.DeepClone()
                     ?? new JsonObject { ["Model"] = new JsonObject { ["RowName"] = "Workshop" } };
-                archetype["DisplayName"] = $"NSLOCTEXT(\"D_TalentArchetypes\", \"{tree}-DisplayName\", \"{Escape(tab)}\")";
+                archetype["DisplayName"] = $"NSLOCTEXT(\"D_TalentArchetypes\", \"{tree}-DisplayName\", \"{NsLocText.Escape(tab)}\")";
                 add(TalentArchetypes, tree, archetype);
 
                 var treeRow = (JsonObject?)game.Row(TalentTrees, "Workshop_Envirosuits")?.DeepClone() ?? [];
@@ -458,8 +458,10 @@ public static partial class ItemCloner
     private static Dictionary<string, string?> ItemTexts(ItemCloneRequest request) =>
         new() { ["DisplayName"] = request.DisplayName, ["Description"] = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description };
 
-    private static void RewriteLocalization(JsonObject row, string newRow, IReadOnlyDictionary<string, string?>? texts)
+    /// <param name="table">The row's table, for a text the row doesn't have yet (the game's bread has no Description).</param>
+    private static void RewriteLocalization(JsonObject row, string newRow, string table, IReadOnlyDictionary<string, string?>? texts)
     {
+        var written = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (field, value) in row.ToList())
         {
             if (value is not JsonValue text || !text.TryGetValue<string>(out var s) || LocText().Match(s) is not { Success: true } m)
@@ -470,14 +472,23 @@ public static partial class ItemCloner
             var key = m.Groups["key"].Value;
             var dash = key.LastIndexOf('-');
             var newKey = dash > 0 ? $"{newRow}-{key[(dash + 1)..]}" : $"{newRow}-{field}";
-            var newText = texts?.GetValueOrDefault(field) is { } replacement ? Escape(replacement) : m.Groups["text"].Value;
+            var newText = texts?.GetValueOrDefault(field) is { } replacement ? NsLocText.Escape(replacement) : m.Groups["text"].Value;
             row[field] = $"NSLOCTEXT(\"{m.Groups["table"].Value}\", \"{newKey}\", \"{newText}\")";
+            written.Add(field);
+        }
+
+        // A text typed for a field the copied row has no localized text in (missing, empty, plain)
+        // is still the new row's: it used to be dropped silently.
+        foreach (var (field, replacement) in texts ?? new Dictionary<string, string?>())
+        {
+            if (!string.IsNullOrWhiteSpace(replacement) && !written.Contains(field))
+            {
+                row[field] = NsLocText.Make(table, $"{newRow}-{field}", replacement!);
+            }
         }
     }
 
     /// <summary>What players see (escapes undone: Larkwell "Haulier", not Larkwell \"Haulier\").</summary>
     private static string? LocalizedText(JsonNode? node) =>
         node is JsonValue v && v.TryGetValue<string>(out var s) ? NsLocText.TextOf(s) : null;
-
-    private static string Escape(string text) => text.Replace("\\", "\\\\").Replace("\"", "\\\"");
 }

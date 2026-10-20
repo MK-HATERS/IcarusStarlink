@@ -26,6 +26,24 @@ public class WeeklyChangeReportStoreTests : IDisposable
     // value within a single test run, not because the time-of-day component matters anywhere here.
     private static readonly DateTimeOffset Now = DateTimeOffset.UtcNow.Date;
 
+    /// <summary>The file name is the Gregorian date whatever calendar the PC uses, so Prune finds the file Save wrote.</summary>
+    [Fact]
+    public void Save_OnAPcWithAnotherCalendar_NamesTheFileByTheGregorianDate()
+    {
+        var before = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("th-TH");
+            CreateStore().Save(MakeReport(Now));
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = before;
+        }
+
+        Assert.Equal(Now.UtcDateTime.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".json", Path.GetFileName(Assert.Single(Directory.GetFiles(_dir, "*.json", SearchOption.AllDirectories))));
+    }
+
     [Fact]
     public void Current_NoFileYet_IsNull()
     {

@@ -46,7 +46,9 @@ public class InstallServiceTests : IDisposable
         Assert.Null(result.BackupPakPath);
         Assert.Equal(TargetPakPath, result.InstalledPakPath);
         Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(TargetPakPath));
-        Assert.True(File.Exists(TargetManifestPath));
+        // The manifest is found beside the staged pak; nothing passes its path in.
+        Assert.Equal(await File.ReadAllTextAsync(_stagedManifestPath), await File.ReadAllTextAsync(TargetManifestPath));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(TargetPakPath)!, "*.tmp"));
     }
 
     [Fact]
@@ -58,21 +60,6 @@ public class InstallServiceTests : IDisposable
 
         Assert.True(File.Exists(result.InstalledPakPath));
         Assert.False(File.Exists(TargetManifestPath));
-    }
-
-    [Fact]
-    public async Task InstallAsync_ManifestPresentButNotPassedIn_IsStillCopied()
-    {
-        // Regression test for the bug this signature change fixes: the manifest path used to be a
-        // caller-supplied, in-memory-cached parameter (MergeInstallViewModel's _lastManifestPath)
-        // that went stale after an app restart. It's now always derived from stagedPakPath itself,
-        // so a manifest sitting right next to the staged pak is found and copied even though
-        // nothing in this test ever told InstallAsync where it was.
-        var result = await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
-
-        Assert.True(File.Exists(TargetManifestPath));
-        Assert.Equal(await File.ReadAllTextAsync(_stagedManifestPath), await File.ReadAllTextAsync(TargetManifestPath));
-        Assert.NotNull(result);
     }
 
     [Fact]
@@ -97,16 +84,13 @@ public class InstallServiceTests : IDisposable
         for (var i = 1; i <= 4; i++)
         {
             await File.WriteAllTextAsync(_stagedPakPath, $"staged pak v{i} bytes");
+            // No wait between installs: same-second backups get a _2, _3… suffix and are ordered by it.
             await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
-            // Backup filenames are timestamped to the second — without this, two installs in the
-            // same second would collide on the same backup filename and silently overwrite each
-            // other instead of producing four distinct backups to prune from.
-            await Task.Delay(1100);
         }
 
-        var backups = Directory.GetFiles(_backupDirectory, "zz_zz_ISL-Merged_9999_P_*.pak");
-        Assert.Equal(3, backups.Length);
-        Assert.DoesNotContain(backups, b => File.ReadAllText(b) == "initial pak bytes");
+        // Backed up: the initial pak, then v1, v2, v3 (each replaced by the next install); the newest three stay.
+        var backups = Directory.GetFiles(_backupDirectory, "zz_zz_ISL-Merged_9999_P_*.pak").Select(File.ReadAllText).Order().ToList();
+        Assert.Equal(["staged pak v1 bytes", "staged pak v2 bytes", "staged pak v3 bytes"], backups);
     }
 
     [Fact]
@@ -183,16 +167,23 @@ public class InstallServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task InstallAsync_UnrelatedFileAlreadyInModsFolder_DoesNotTouchThisAppsOwnFiles()
+    public async Task InstallAsync_UnrelatedFileAlreadyInModsFolder_ThisAppsOwnFilesAreReplacedNotCleared()
     {
+        // The app's own pak and list go through backup-and-replace (one backup each), not the
+        // stale-file clear-out the unrelated pak gets.
         var modsDirectory = Path.Combine(_fakeContentPath, "Paks", "mods");
         Directory.CreateDirectory(modsDirectory);
         await File.WriteAllTextAsync(Path.Combine(modsDirectory, "SomeOtherMod_P.pak"), "unrelated");
+        await File.WriteAllTextAsync(TargetPakPath, "old pak bytes");
+        await File.WriteAllTextAsync(TargetManifestPath, "Includes the following mods:\nOld Mod");
 
         var result = await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
 
         Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(result.InstalledPakPath));
-        Assert.True(File.Exists(TargetManifestPath));
+        Assert.Equal("old pak bytes", await File.ReadAllTextAsync(result.BackupPakPath!));
+        Assert.Single(Directory.GetFiles(_backupDirectory, "zz_zz_ISL-Merged_9999_P_*.pak"));
+        Assert.Single(Directory.GetFiles(_backupDirectory, "ISL-Merged_*.txt"));
+        Assert.Contains("Mod A", await File.ReadAllTextAsync(TargetManifestPath));
     }
 
     [Fact]
@@ -340,7 +331,7 @@ public class InstallServiceTests : IDisposable
         await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
         await File.WriteAllTextAsync(_stagedPakPath, "staged pak v2 bytes");
         await File.WriteAllTextAsync(_stagedManifestPath, "Includes the following mods:\nMod B");
-        // Backups are named by the second; a new second keeps the two installs apart.
+        // A second apart, as installs are in real use: a mod list backup is paired with its pak by time.
         await Task.Delay(1100);
         await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
         await Task.Delay(1100);

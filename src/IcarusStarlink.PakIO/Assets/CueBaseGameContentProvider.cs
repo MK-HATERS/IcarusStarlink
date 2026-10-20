@@ -82,13 +82,29 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
                 return false;
             }
 
-            // Every use of the provider happens under _lock and checks Released first, so nothing
-            // is reading from it while it's disposed here.
-            mounted.Released = true;
             _mountTask = null;
-            mounted.Provider.Dispose();
+            Release(mounted);
             return true;
         }
+    }
+
+    /// <summary>Mounts let go so far (ReleaseIfIdle, or a Content path change): for tests.</summary>
+    internal int ReleasedMountCount { get; private set; }
+
+    /// <summary>
+    /// Every use of the provider happens under _lock and checks Released first, so nothing is
+    /// reading from it while it's disposed here. Under _lock.
+    /// </summary>
+    private void Release(MountedContent mounted)
+    {
+        if (mounted.Released)
+        {
+            return;
+        }
+
+        mounted.Released = true;
+        mounted.Provider.Dispose();
+        ReleasedMountCount++;
     }
 
     public T? TryLoadExport<T>(string assetPath) where T : class =>
@@ -308,10 +324,8 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
             return null;
         }
 
-        // Same PathBoundaryMatch suffix rule, and the same reason it's needed, as
-        // CueAssetProviderLocator's own doc comment already explains: CUE4Parse's real internal
-        // file keys carry their own pakchunk-relative prefix ahead of the plain path a caller
-        // hands in here.
+        // Looked up exactly (ignoring case) in the index Mount built, whose keys have CUE4Parse's
+        // "Icarus/Content/" prefix taken off so they match the plain path a caller hands in here.
         var normalizedAssetPath = assetPath.Replace('\\', '/').TrimStart('/');
 
         // This provider is a single DI singleton shared by every real caller (CueUassetMaterialDecoder's
@@ -372,6 +386,20 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
             var contentPath = _settingsService.Current.IcarusContentPath;
             if (_mountTask is null || NeedsRemount(_mountTask, contentPath))
             {
+                // The mount being replaced (another Content path) is let go once it's done, or it
+                // would hold its ~100 MB and a reader on every pak of the old install all session.
+                _mountTask?.ContinueWith(
+                    done =>
+                    {
+                        if (done.IsCompletedSuccessfully && done.Result is { } old)
+                        {
+                            lock (_lock)
+                            {
+                                Release(old);
+                            }
+                        }
+                    },
+                    CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
                 _mountedForPath = contentPath;
                 _mountStartedUtc = DateTime.UtcNow;
                 _mountTask = Task.Run(Mount);

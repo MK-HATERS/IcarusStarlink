@@ -149,7 +149,9 @@ public sealed class GameRowHistory
 
             foreach (var name in names)
             {
-                var first = rows[name] is JsonArray seen && seen.Count == 2 ? seen[0]!.GetValue<int>() : index;
+                var first = rows[name] is JsonArray { Count: 2 } seen && seen[0] is JsonValue firstValue && firstValue.TryGetValue<int>(out var firstAt) && firstAt >= 0 && firstAt < index
+                    ? firstAt
+                    : index;
                 rows[name] = new JsonArray(first, index);
             }
         }
@@ -224,13 +226,15 @@ public sealed class GameRowHistory
 
             foreach (var (row, seenNode) in rows)
             {
-                if (seenNode is not JsonArray { Count: 2 } seen)
+                // Anything but two whole numbers is a damaged entry (Load never throws): left out.
+                if (seenNode is not JsonArray { Count: 2 } seen
+                    || seen[0] is not JsonValue firstValue || !firstValue.TryGetValue<int>(out var firstAt)
+                    || seen[1] is not JsonValue lastValue || !lastValue.TryGetValue<int>(out var lastAt))
                 {
                     continue;
                 }
 
                 // Seen only in versions left out: the history already here covers that time.
-                var (firstAt, lastAt) = (seen[0]!.GetValue<int>(), seen[1]!.GetValue<int>());
                 if (firstAt < 0 || lastAt >= position.Length || firstAt > lastAt || position[lastAt] < 0)
                 {
                     continue;

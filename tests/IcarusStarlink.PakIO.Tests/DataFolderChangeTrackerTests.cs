@@ -151,6 +151,20 @@ public class DataFolderChangeTrackerTests : IDisposable
         Assert.Equal("Crafting/D_Fuel.json", file.RelativePath);
     }
 
+    /// <summary>Valid JSON that isn't an object (a list at the top) is just as unusable, and skipped the same way.</summary>
+    [Fact]
+    public void Compute_OneFileIsAJsonListNotAnObject_SkipsItButStillReportsOtherFilesChanges()
+    {
+        WritePrevious("Broken/D_Broken.json", "[]");
+        WriteCurrent("Broken/D_Broken.json", """{"Rows":[{"Name":"Composter","Amount":10}]}""");
+        WritePrevious("Crafting/D_Fuel.json", """{"Rows":[{"Name":"Generator","Amount":5}]}""");
+        WriteCurrent("Crafting/D_Fuel.json", """{"Rows":[{"Name":"Generator","Amount":15}]}""");
+
+        var report = DataFolderChangeTracker.Compute(_previousDir, _currentDir, PreviousAt, CurrentAt);
+
+        Assert.Equal("Crafting/D_Fuel.json", Assert.Single(report.ChangedFiles).RelativePath);
+    }
+
     [Fact]
     public void Compute_UnparseableFileOnlyOnThePreviousSide_SkipsItRatherThanThrowing()
     {

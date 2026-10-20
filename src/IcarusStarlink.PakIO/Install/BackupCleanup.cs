@@ -161,6 +161,9 @@ public static class BackupCleanup
             .Select(e => (Entry: e, Ok: TryParseStamp(e.SortStamp, out var t), Time: t))
             .Where(m => m.Ok && m.Time >= pakTime - TimeSpan.FromMinutes(1) && m.Time <= pakTime + ManifestPairWindow)
             .OrderBy(m => (m.Time - pakTime).Duration())
+            // Two installs in one second: the list with the pak's own collision number is its pair.
+            .ThenBy(m => m.Entry.Suffix == newestPak.Suffix ? 0 : 1)
+            .ThenByDescending(m => m.Entry.Suffix)
             .Select(m => m.Entry.Path)
             .FirstOrDefault();
         return new PreviousInstall(newestPak.Path, manifest, pakTime);

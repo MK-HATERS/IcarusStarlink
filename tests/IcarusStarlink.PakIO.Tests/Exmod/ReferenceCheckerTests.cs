@@ -56,6 +56,13 @@ public sealed class ReferenceCheckerTests : IDisposable
         Assert.True(ReferenceChecker.Check(Mod(("Items-D_ItemsStatic.json", "Food_Bread", """{"Meshable":{"RowName":"FIREPIT"}}""")), _game).IsClean);
     }
 
+    /// <summary>"None" is Unreal's "no row", and Unreal names ignore case: "none" is no link either, not a link to a row called none.</summary>
+    [Fact]
+    public void ALinkToNone_InAnyCase_IsNoLink()
+    {
+        Assert.True(ReferenceChecker.Check(Mod(("Items-D_ItemsStatic.json", "Food_Bread", """{"Meshable":{"RowName":"none"},"Armour":{"RowName":"NONE"}}""")), _game).IsClean);
+    }
+
     [Fact]
     public void NestedLinks_UseTheirOwnDataTableName_OrTheDefaultsShape()
     {
@@ -106,9 +113,12 @@ public sealed class ReferenceCheckerTests : IDisposable
         Assert.True(report.IsClean);
     }
 
-    /// <summary>What the new-item wizard builds must pass its own check.</summary>
+    /// <summary>
+    /// What the new-item wizard builds must pass its own check. The cloned bread recipe keeps the
+    /// game's Dough_Bread input, which the mini data leaves out, so that one link is allowed.
+    /// </summary>
     [Fact]
-    public void AClonedItem_IsClean()
+    public void AClonedItem_AddsNoBrokenLinksOrUnusedRows()
     {
         var mod = Mod();
         ItemCloner.AddToPackage(mod, ItemCloner.Build(_game, new ItemCloneRequest
@@ -125,7 +135,7 @@ public sealed class ReferenceCheckerTests : IDisposable
 
         var report = ReferenceChecker.Check(mod, _game);
 
-        Assert.DoesNotContain(report.Broken, b => b.MissingRow != "Dough_Bread"); // the mini data has no dough item
+        Assert.All(report.Broken, b => Assert.Equal("Dough_Bread", b.MissingRow));
         Assert.Empty(report.Unused);
     }
 }

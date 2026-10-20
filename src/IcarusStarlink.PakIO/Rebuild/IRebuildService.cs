@@ -19,11 +19,10 @@ public interface IRebuildService
     /// </summary>
     /// <param name="prebuiltPakFilePaths">
     /// Attached opaque/prebuilt Library paks (LibraryEntry.IsOpaquePak — no .EXMOD, nothing to
-    /// field-merge). Each one is unpacked via UnrealPak -Extract straight into the same staging
-    /// folder the merge output populates, so the final -Create produces one single merged pak —
-    /// matching classic IMM's own real behavior, confirmed directly rather than the original spec
-    /// text's own "installed alongside as a separate file" reading, which turned out to describe
-    /// a different (and, per that direct confirmation, incorrect) design.
+    /// field-merge). Each one is extracted to its own scratch folder; its DataTable JSON is merged
+    /// field by field like a queued mod's, and everything else is folded into the staging folder,
+    /// so the final -Create produces one single merged pak — matching classic IMM's own real
+    /// behavior rather than installing the pak alongside as a separate file.
     /// </param>
     /// <param name="manualPicks">
     /// The advanced conflict picker's own overrides, passed straight through to MergeEngine.Merge —

@@ -12,18 +12,17 @@ namespace IcarusStarlink.PakIO.Assets;
 /// TryLoadExport mirrors CueAssetProviderLocator.TryLoadExport's own shape (a relative asset
 /// path in, a resolved export of type T out) so a caller that already knows that pattern doesn't
 /// need to learn a new one — the only real difference is there's no modFolderPath parameter,
-/// since this is always the ONE fixed base-game location, mounted at most once per app session
-/// (confirmed ~550ms for all 33 paks' trailing directory indices — real per-asset decoding is
-/// separately lazy, 20-150ms each) and reused for every call after that.
+/// since this is always the ONE fixed base-game location, mounted on first use (confirmed ~550ms
+/// for all 33 paks' trailing directory indices — real per-asset decoding is separately lazy,
+/// 20-150ms each), let go while the app sits idle, and mounted again on the next lookup.
 /// </summary>
 public interface IBaseGameContentProvider
 {
     /// <param name="assetPath">
-    /// A /Game/-relative (or plain relative — a leading "/Game/" is stripped the same way) asset
-    /// path, e.g. "Weapons/Materials/M_BaseWeapon.uasset" — matched against the mounted base
-    /// game's own file keys the same PathBoundaryMatch suffix rule CueAssetProviderLocator itself
-    /// uses, since CUE4Parse's real internal keys carry their own pakchunk-relative prefix ahead
-    /// of this plain path.
+    /// A Content-relative asset path without the "/Game/" prefix, e.g.
+    /// "Weapons/Materials/M_BaseWeapon.uasset" (callers strip "/Game/" themselves; only leading
+    /// slashes are trimmed here) — looked up exactly, ignoring case, in an index of the mounted
+    /// game's file keys with their "Icarus/Content/" prefix taken off.
     /// </param>
     /// <returns>
     /// The first export of type T in the matched package, or null if IcarusContentPath isn't set,

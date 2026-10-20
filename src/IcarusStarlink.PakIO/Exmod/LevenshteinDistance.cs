@@ -1,6 +1,6 @@
 namespace IcarusStarlink.PakIO.Exmod;
 
-/// <summary>Classic O(n*m) dynamic-programming edit distance — used only for short DataTable row names, so no need for a memory-optimized variant.</summary>
+/// <summary>Classic O(n*m) dynamic-programming edit distance, keeping two rows of the table — used only for short DataTable row names. Case-sensitive: callers normalize first.</summary>
 public static class LevenshteinDistance
 {
     public static int Compute(string a, string b)

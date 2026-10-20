@@ -53,11 +53,10 @@ public interface IUnrealPakService
     /// <summary>
     /// Extracts an arbitrary pak's full contents into outputDirectory, additively — confirmed live
     /// that UnrealPak -Extract writes into a pre-populated folder without disturbing what's already
-    /// there, which is exactly what RebuildService relies on to fold an attached opaque/prebuilt
-    /// pak's own contents into the same staging folder as the merged EXMOD output, so the final
-    /// -Create produces one single pak (matching classic IMM's own real behavior) rather than a
-    /// separate sidecar file. Returns the number of files extracted. Throws on failure, same
-    /// convention as the other methods here.
+    /// there. Files land relative to the pak's own mount point; readers of a prebuilt pak go
+    /// through PakExtraction.ExtractUnderGameContentAsync, which restages them under Content.
+    /// Returns the number of files extracted. Throws on failure, same convention as the other
+    /// methods here.
     ///
     /// filter (optional, defaults to null): passed straight through as UnrealPak.exe's own
     /// -Filter=&lt;value&gt; argument to the real -Extract invocation when non-null — confirmed live

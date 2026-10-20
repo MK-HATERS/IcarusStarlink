@@ -46,7 +46,7 @@ public static partial class ModChangeSummarizer
             var defaults = game.Defaults(row.CurrentFile);
             foreach (var item in row.FileItems)
             {
-                var baseRow = baseRows?[item.Name] as JsonObject;
+                var baseRow = baseRows is null ? null : game.Row(row.CurrentFile, item.Name); // ignoring case, like the game
                 foreach (var (field, value) in item.Fields)
                 {
                     var before = baseRow is null ? null : baseRow[field] ?? defaults?[field];

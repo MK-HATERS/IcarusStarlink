@@ -14,6 +14,7 @@ public class AssetPathGuardTests
         var sanitized = AssetPathGuard.SanitizeToSimpleFileName(candidate);
 
         Assert.True(AssetPathGuard.IsSimpleFileName(sanitized), $"'{sanitized}' should itself be a safe simple file name.");
+        Assert.Equal("_" + candidate, sanitized); // prefixed, so the name is kept otherwise
     }
 
     [Fact]
@@ -68,7 +69,7 @@ public class AssetPathGuardTests
 
         var resolved = AssetPathGuard.ResolveWithinDirectory(baseDir, "a/b/file.txt");
 
-        Assert.StartsWith(Path.GetFullPath(baseDir), resolved);
+        Assert.Equal(Path.Combine(Path.GetFullPath(baseDir), "a", "b", "file.txt"), resolved);
     }
 
     [Theory]

@@ -121,6 +121,24 @@ public sealed class ItemClonerTests : IDisposable
         Assert.Equal("Dragon_Suit", RowName(Row(rows, "MetaWorkshop-D_WorkshopItems.json", "Meta_Dragon_Suit")["Item"]));
     }
 
+    /// <summary>
+    /// The game's bread has no description: the one typed in the wizard is still the new item's
+    /// (it used to be dropped), escaped the way the game writes text (a line break as \n).
+    /// </summary>
+    [Fact]
+    public void Build_ADescriptionTheSourceDoesntHave_IsStillWritten()
+    {
+        var rows = ItemCloner.Build(_game, new ItemCloneRequest
+        {
+            SourceItem = "Food_Bread", NewName = "Super_Bread", DisplayName = "Super Bread", Description = "Fresh\nand 'warm'",
+            OwnCopyFields = new HashSet<string> { "Itemable" },
+        });
+
+        var itemable = Row(rows, "Traits-D_Itemable.json", "Item_Super_Bread");
+        Assert.Equal("""NSLOCTEXT("D_Itemable", "Item_Super_Bread-Description", "Fresh\nand \'warm\'")""", itemable["Description"]!.GetValue<string>());
+        Assert.Equal("Fresh\nand 'warm'", NsLocText.TextOf(itemable["Description"]!.GetValue<string>()));
+    }
+
     [Fact]
     public void Build_OwnCopiesAreRenamedAndRelinked_SharedLinksStayOnTheGamesRows()
     {

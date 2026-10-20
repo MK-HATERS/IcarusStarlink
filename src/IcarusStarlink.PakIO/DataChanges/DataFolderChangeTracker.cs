@@ -40,7 +40,7 @@ public static class DataFolderChangeTracker
                 previousTable = hasPrevious ? DataTableJson.RowsToKeyedObject(ReadJsonObject(previousAbsolutePath!)) : null;
                 currentTable = hasCurrent ? DataTableJson.RowsToKeyedObject(ReadJsonObject(currentAbsolutePath!)) : null;
             }
-            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException)
             {
                 // A single malformed/truncated/locked JSON file must not abort this whole weekly-
                 // change computation — UnrealPakService.ExtractDataPakAsync's own caller throws away
@@ -75,5 +75,6 @@ public static class DataFolderChangeTracker
     // files (the same "Update data folder" snapshots RebuildService's own ReadBaseTables reads),
     // confirmed elsewhere to sometimes repeat a JSON key — which JsonNode.Parse throws on and
     // would abort this whole weekly-change computation instead of degrading gracefully.
+    // AsObject throws InvalidOperationException for a file whose top level is a list; caught above.
     private static JsonObject ReadJsonObject(string path) => DuplicateTolerantJson.Parse(File.ReadAllText(path))?.AsObject() ?? [];
 }

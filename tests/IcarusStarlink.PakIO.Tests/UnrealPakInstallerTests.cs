@@ -122,6 +122,35 @@ public sealed class UnrealPakInstallerTests : IDisposable
         Assert.True(File.Exists(installer.InstalledExePath));
     }
 
+    /// <summary>A Reinstall that can't get a new copy (no local payload, no internet) keeps the working one.</summary>
+    [Fact]
+    public async Task Reinstall_WhenTheDownloadFails_KeepsTheWorkingCopy()
+    {
+        WritePayload();
+        await CreateInstaller().InstallAsync();
+        File.Delete(Path.Combine(_appBase, "Tools", "UnrealPak.zip"));
+        var offline = CreateInstaller(httpHandler: new FakeHttpMessageHandler(_ => throw new HttpRequestException("No such host is known.")));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => offline.InstallAsync());
+
+        Assert.True(File.Exists(offline.InstalledExePath));
+    }
+
+    /// <summary>A payload without the exe is refused before the working copy is touched.</summary>
+    [Fact]
+    public async Task Reinstall_WithAMispackagedPayload_KeepsTheWorkingCopy()
+    {
+        WritePayload();
+        var installer = CreateInstaller();
+        await installer.InstallAsync();
+        WritePayload(includeExe: false);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
+
+        Assert.True(File.Exists(installer.InstalledExePath));
+        Assert.Single(Directory.GetDirectories(Path.Combine(_appBase, "Tools")));
+    }
+
     /// <summary>Audit finding: extraction straight into InstallRoot wasn't transactional — a corrupt payload left a half-extracted tool behind for VerifyAsync to misreport, and surfaced a raw InvalidDataException.</summary>
     [Fact]
     public async Task Install_CorruptLocalPayload_ThrowsPlainMessageAndLeavesNothingUnderInstallRoot()
@@ -144,7 +173,7 @@ public sealed class UnrealPakInstallerTests : IDisposable
         var installer = CreateInstaller();
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
-        Assert.Contains("mis-packaged", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("can't be used", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -196,7 +225,7 @@ public sealed class UnrealPakInstallerTests : IDisposable
         var installer = CreateInstaller(httpHandler: handler);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
-        Assert.Contains("mis-packaged", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("can't be used", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class FakeRunner(string output = "", bool throwOnRun = false) : IProcessRunner

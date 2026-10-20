@@ -58,8 +58,9 @@ public sealed class PakMountRestageTests : IDisposable
     {
         Write(Path.Combine("Icarus", "Content", "BP", "Biomes", "Curves", "TimeScaleCurve.uasset"));
 
-        PakMountPoints.RestageUnderGameContent(_dir, "../../../");
+        var outside = PakMountPoints.RestageUnderGameContent(_dir, "../../../");
 
+        Assert.Empty(outside);
         Assert.True(Has(Path.Combine("BP", "Biomes", "Curves", "TimeScaleCurve.uasset")));
         Assert.False(Directory.Exists(Path.Combine(_dir, "Icarus")));
     }

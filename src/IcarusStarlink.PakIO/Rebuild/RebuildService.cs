@@ -135,13 +135,6 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     }
 
     /// <summary>
-    /// The synchronous half of RebuildAsync (see its own remarks on why this runs via Task.Run):
-    /// reads every required base-game JSON file, resolves field conflicts across the queue (plus
-    /// any prebuilt paks' reverse-engineered changes and Category 1 gameplay options), and applies
-    /// Category 2 gameplay options as a final pass. Split out of RebuildAsync purely for
-    /// readability — same body, same closures-turned-parameters, no behavior change.
-    /// </summary>
-    /// <summary>
     /// The queue's true order: each prebuilt pak sits after the number of queued EXMOD mods its
     /// position says (prebuiltPakQueuePositions, one per pak; null puts every pak after the mods,
     /// the order before positions were passed). One entry per participant, lowest priority first:
@@ -175,6 +168,13 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
         return order;
     }
 
+    /// <summary>
+    /// The synchronous half of RebuildAsync (see its own remarks on why this runs via Task.Run):
+    /// reads every required base-game JSON file, resolves field conflicts across the queue (plus
+    /// any prebuilt paks' reverse-engineered changes and Category 1 gameplay options), and applies
+    /// Category 2 gameplay options as a final pass. Split out of RebuildAsync purely for
+    /// readability — same body, same closures-turned-parameters, no behavior change.
+    /// </summary>
     private static (Dictionary<string, JsonObject> Merged, Dictionary<string, JsonObject> Original, Dictionary<string, IReadOnlySet<string>> PrebuiltPakDiffedPaths) ComputeMergedTables(
         IReadOnlyList<ExmodPackageContents> queuedMods, GameplayOptions gameplayOptions, string dataFolder,
         IReadOnlyList<string> lowPriorityPrebuiltPakFilePaths,
