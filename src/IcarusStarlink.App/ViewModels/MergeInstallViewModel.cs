@@ -724,7 +724,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// merge options to game with no mods selected") still produces a real pak but lists zero mod
     /// names in the manifest, which would make a Count-based check wrongly say nothing's installed.
     /// </summary>
-    private Task RefreshHasExistingInstallAsync() => Task.Run(() =>
+    internal Task RefreshHasExistingInstallAsync() => Task.Run(() =>
     {
         // A staged pak on disk is all Copy to game needs — independent of whether anything is
         // currently installed in the game folder.
@@ -1008,7 +1008,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         }
     }
 
-    /// <summary>Captures whatever's currently in the queue under a new profile name — lets a user build a queue first, then decide to save it, rather than New always starting empty.</summary>
     /// <summary>Asks for a profile name (title, starting text) → the name, or null when cancelled. Tests swap in an answer.</summary>
     internal Func<string, string, string?> PromptForProfileName { get; set; } = (title, current) =>
     {
@@ -1019,6 +1018,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         return dialog.ShowDialog() == true ? dialog.NewDisplayName : null;
     };
 
+    /// <summary>Captures whatever's currently in the queue under a new profile name — lets a user build a queue first, then decide to save it, rather than New always starting empty.</summary>
     [RelayCommand]
     private void NewProfile()
     {
@@ -1466,6 +1466,17 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// properly rather than blocking the UI thread on a zip read/extract that can take real time
     /// for a patch with bundled EXMODZ content.
     /// </summary>
+    /// <summary>Asks for the patch file to import → its path, or null when cancelled. Tests swap in an answer.</summary>
+    internal Func<string?> PickPatchFile { get; set; } = () =>
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Import a patch",
+            Filter = "IcarusStarlink patch (*.json;*.zip)|*.json;*.zip",
+        };
+        return dialog.ShowDialog() == true ? dialog.FileName : null;
+    };
+
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportPatchAsync()
     {
@@ -1474,19 +1485,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             return;
         }
 
-        var dialog = new OpenFileDialog
-        {
-            Title = "Import a patch",
-            Filter = "IcarusStarlink patch (*.json;*.zip)|*.json;*.zip",
-        };
-        if (dialog.ShowDialog() != true)
+        if (PickPatchFile() is not { } patchPath)
         {
             return;
         }
 
         try
         {
-            var contents = await _patchService.ImportAsync(dialog.FileName);
+            var contents = await _patchService.ImportAsync(patchPath);
             var resolvedFolderNames = new List<string>();
             var missing = new List<string>();
 
@@ -1510,13 +1516,34 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
                 }
             }
 
+            // A pending auto-save of the profile in use is written first: written after the import,
+            // it put the old queue back over a patch imported under the same profile name.
+            SaveWorkingState();
             _profileStore.Save(new Profile { Name = contents.Manifest.ProfileName, MergeQueueFolderNames = resolvedFolderNames, Options = contents.Manifest.Options });
             _messenger.Send(new LibraryChangedMessage());
-            ReloadProfileNames();
-            // Triggers OnSelectedProfileNameChanged, which populates Queue from the just-saved
-            // profile and reports its own "N mod(s) no longer in your Library" count — reused as-is
-            // rather than duplicating that population logic here.
-            SelectedProfileName = contents.Manifest.ProfileName;
+            var importedName = contents.Manifest.ProfileName;
+            if (string.Equals(SelectedProfileName, importedName, StringComparison.OrdinalIgnoreCase))
+            {
+                // Already selected, so setting it again changes nothing: load it here, or the page
+                // kept showing (and the next auto-save wrote back) the queue from before the import.
+                _loadingProfile = true;
+                try
+                {
+                    LoadProfileIntoUi(SelectedProfileName!, verb: "Imported");
+                }
+                finally
+                {
+                    _loadingProfile = false;
+                }
+            }
+            else
+            {
+                ReloadProfileNames();
+                // Triggers OnSelectedProfileNameChanged, which populates Queue from the just-saved
+                // profile and reports its own "N mod(s) no longer in your Library" count — reused as-is
+                // rather than duplicating that population logic here.
+                SelectedProfileName = ProfileNames.FirstOrDefault(n => string.Equals(n, importedName, StringComparison.OrdinalIgnoreCase)) ?? importedName;
+            }
 
             PatchStatusMessage = missing.Count > 0
                 ? $"Imported '{contents.Manifest.ProfileName}' — {missing.Count} mod(s) missing, get them from Library's IMM Database tab first: {string.Join(", ", missing)}."
@@ -1613,21 +1640,18 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             return;
         }
 
-        // Named here (not just implied) because a plain queue reorder is otherwise easy to lose:
-        // NOTHING about Queue.CollectionChanged persists it, only an explicit Save profile click
-        // does — a real, reported point of confusion once ("I applied it, but it wasn't there after
-        // relaunch"). Saving right here when a profile is already selected treats the user's
-        // explicit "Apply this order? Yes" as the real, deliberate confirmation it is, instead of
-        // silently leaving it as unsaved scratch state on top of an already-loaded profile.
+        // The queue saves itself into the profile in use anyway (MarkWorkingStateChanged); with a
+        // profile selected, the explicit "Apply this order? Yes" also makes a Save profile, so the
+        // order before it is kept as that profile's backup.
         var saveNote = SelectedProfileName is { } selectedProfileName
             ? $" and save it to '{selectedProfileName}'"
-            : " (no profile is selected, so this won't survive a restart until you create/select one and Save profile)";
+            : "";
         var preview = string.Join("\n", newOrder.Select((e, i) => $"{i + 1}. {e.Name}"));
-        var confirmed = ThemedMessageBox.Show(
+        var confirmed = Confirm(
             "Suggests putting mods that make fewer real edits (compared to current game data) later in the queue, " +
             "so a small, deliberate change doesn't lose to a bigger mod that happens to also touch the same field.\n\n" +
             $"New order:\n{preview}\n\nApply this order{saveNote}?",
-            "Suggested order", ThemedConfirmSeverity.Question);
+            "Suggested order");
         if (!confirmed)
         {
             return;
@@ -1646,7 +1670,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         }
         else
         {
-            StatusMessage = "Applied the suggested order — create or select a profile, then Save profile, to keep it across a restart.";
+            StatusMessage = "Applied the suggested order.";
         }
 
         _activityLog.Log("Applied a suggested queue order.", ActivityEntryKind.Info);
@@ -1790,11 +1814,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         _activityLog.Log($"Added {addedCount} mod(s) to the merge queue from Library.", ActivityEntryKind.Info);
     }
 
-    /// <summary>
-    /// Spec: "skip mods already inside it; pack can replace individuals; new mods can sit beside
-    /// the pack and merge on top" — the queue rules for a merged pack re-imported into Library.
-    /// Returns whether the entry actually got added, so a bulk caller can tally a real count.
-    /// </summary>
     /// <summary>Whether this Library folder is in the merge queue — the Library's own "On" checkbox for a pak/EXMOD mod reads this.</summary>
     public bool IsQueued(string folderName) =>
         Queue.Any(q => string.Equals(q.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
@@ -1887,6 +1906,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         }
     }
 
+    /// <summary>
+    /// Adds one Library mod to the end of the queue: a pack Merge &amp; Install built is refused (see
+    /// IsIslBuiltPack), a mod already queued is left where it is, and a greyed missing row for it
+    /// takes the real mod back in its place. Returns whether the entry actually got added, so a bulk
+    /// caller can tally a real count; the reason it wasn't is in StatusMessage.
+    /// </summary>
     private bool AddEntryToQueue(LibraryEntry entry)
     {
         // ISL's own merged pack (the Library keeps a copy of every build): queuing it folded the
@@ -2152,14 +2177,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
                 return false;
             }
 
-            // A queue never saved under a real profile lives only as this ViewModel's own in-memory
-            // Queue — nothing on disk records it at all, so an app crash or a forgotten "Save" loses
-            // it outright, with only the last INSTALLED pak's own flat manifest (names, no options) as
-            // any record of what produced it. Snapshotting into a real, reloadable "Default" profile
-            // right before every Rebuild — not on every queue edit, which would mean saving on every
-            // keystroke-equivalent — ties this to an actual checkpoint ("this queue really did get
-            // built") without ever overriding a profile the user picked themselves. Best-effort: a
-            // failure here must never block the real Rebuild the user actually asked for.
+            // The queue saves itself into "Default" a moment after the first change
+            // (MarkWorkingStateChanged); a build started before any change (or before that save)
+            // still files what it built under a real, reloadable "Default" profile here, without
+            // ever overriding a profile the user picked themselves. Best-effort: a failure here must
+            // never block the real Rebuild the user actually asked for.
             if (SelectedProfileName is null)
             {
                 try
@@ -2852,6 +2874,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     {
         if (SelectedProfileName is not { } name)
         {
+            // No profile yet: the auto-save creates "Default" with the queue, options and winners.
+            MarkWorkingStateChanged();
             return;
         }
 
@@ -3144,13 +3168,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         }
     }
 
-    /// <summary>
-    /// The one method in this whole app that writes into the real game's Content\Paks\mods.
-    /// No [RelayCommand] — reached only through RebuildAndInstallAsync's chain since the combined
-    /// Install button replaced the separate pair; re-running that button after a locked-file
-    /// failure still covers the spec's own "Copy built pack to game" retry case (the rebuild step
-    /// just re-produces the same staged pak before this re-copies it).
-    /// </summary>
+    /// <summary>Whether Icarus is running; a failing process query counts as not running.</summary>
     private bool IsGameRunning()
     {
         try
@@ -3172,6 +3190,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         Failed,
     }
 
+    /// <summary>
+    /// The one method in this whole app that writes into the real game's Content\Paks\mods.
+    /// No [RelayCommand] — reached through RebuildAndInstallAsync's chain (the Install button),
+    /// Copy to game (the staged pak again, without rebuilding) and Update everything.
+    /// </summary>
     internal async Task<InstallOutcome> InstallAsync()
     {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
@@ -3182,7 +3205,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
 
         if (!File.Exists(_outputPakPath))
         {
-            InstallStatusMessage = "Nothing staged yet — click Rebuild first.";
+            InstallStatusMessage = "Nothing built yet — click Install to build one.";
             return InstallOutcome.Failed;
         }
 
@@ -3261,12 +3284,21 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             // reached through the combined Install button (nothing about the pak's own content
             // changes between the two) — but InstallAsync is also reachable on its own via Copy to
             // game, without a fresh Rebuild immediately before it, where this is the only thing that
-            // keeps the Library entry current.
-            ImportBuiltPakIntoLibrary(SelectedProfileName ?? "Default");
+            // keeps the Library entry current. The pak is in the game by now: a failure here (a locked
+            // Library folder) is a note, not "Install failed" with the install left unrecorded.
+            string? libraryNote = null;
+            try
+            {
+                ImportBuiltPakIntoLibrary(SelectedProfileName ?? "Default");
+            }
+            catch (Exception ex)
+            {
+                libraryNote = $" The built pack couldn't be added to your Library ({ex.Message}).";
+            }
 
-            InstallStatusMessage = result.BackupPakPath is not null
+            InstallStatusMessage = (result.BackupPakPath is not null
                 ? $"Installed to '{result.InstalledPakPath}'. Backed up the previous pak to '{result.BackupPakPath}'."
-                : $"Installed to '{result.InstalledPakPath}'.";
+                : $"Installed to '{result.InstalledPakPath}'.") + libraryNote;
             _activityLog.Log($"Installed pack to {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityEntryKind.Success);
             HasExistingInstall = true;
             _ = RefreshInstalledModNamesAsync();
@@ -3299,6 +3331,22 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         }
     }
 
+    /// <summary>
+    /// Copy to game, Remove from game and Restore previous install while a build runs: refused with
+    /// a reason (true). The build is rewriting the staged pak, so Copy to game could put a half-written
+    /// pak in the game, and the other two would be undone by the install that follows the build.
+    /// </summary>
+    private bool RefuseInstallWhileRebuilding()
+    {
+        if (!IsRebuilding)
+        {
+            return false;
+        }
+
+        InstallStatusMessage = "Merge & Install is building — wait for it to finish first.";
+        return true;
+    }
+
     /// <summary>Shown once an install has failed on a locked file, or whenever a staged pak already exists — the spec's own "Copy built pack to game" / Retry affordance.</summary>
     [ObservableProperty]
     private bool _canCopyToGame;
@@ -3313,6 +3361,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task CopyToGameAsync()
     {
+        if (RefuseInstallWhileRebuilding())
+        {
+            return;
+        }
+
         if (!File.Exists(_outputPakPath))
         {
             InstallStatusMessage = "Nothing staged yet — click Install first to build one.";
@@ -3332,6 +3385,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task RemoveFromGameAsync()
     {
+        if (RefuseInstallWhileRebuilding())
+        {
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
             InstallStatusMessage = "Set the Icarus Content folder in Settings first.";
@@ -3397,6 +3455,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task RestorePreviousInstallAsync()
     {
+        if (RefuseInstallWhileRebuilding())
+        {
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
             InstallStatusMessage = "Set the Icarus Content folder in Settings first.";
