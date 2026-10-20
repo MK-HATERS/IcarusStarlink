@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
@@ -7,7 +8,7 @@ namespace IcarusStarlink.Catalog.Nexus;
 
 /// <summary>
 /// Nexus's own public REST API (https://api.nexusmods.com/v1) — base URL, the "apikey" header
-/// name, and both endpoint paths below are confirmed against Nexus's own official node-nexus-api
+/// name, and every endpoint path below are confirmed against Nexus's own official node-nexus-api
 /// client source during Phase 8 planning, not guessed. The API key is a per-call parameter, not a
 /// fixed header baked in at construction time, since it's entered by the user at runtime and can
 /// change (Settings' Authorize/Sign out flow) — a typed HttpClient's own DefaultRequestHeaders
@@ -88,7 +89,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
     private static DateTimeOffset? TryGetHeaderDateTimeOffset(HttpResponseMessage response, string headerName) =>
         response.Headers.TryGetValues(headerName, out var values)
-        && DateTimeOffset.TryParse(values.FirstOrDefault(), out var parsed)
+        && DateTimeOffset.TryParse(values.FirstOrDefault(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed)
             ? parsed
             : null;
 
@@ -506,7 +507,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
     {
         if (dto is { Data: null, Errors: { Count: > 0 } errors })
         {
-            throw new HttpRequestException($"Nexus rejected the search request: {errors[0].Message ?? "unknown GraphQL error"}");
+            throw new HttpRequestException($"Nexus rejected the request: {errors[0].Message ?? "unknown GraphQL error"}");
         }
     }
 

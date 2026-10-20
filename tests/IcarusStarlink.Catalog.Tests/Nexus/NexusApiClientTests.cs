@@ -433,14 +433,14 @@ public class NexusApiClientTests
             new Dictionary<string, string> { [url] = """{"message":"Too Many Requests"}""" },
             new Dictionary<string, HttpStatusCode> { [url] = HttpStatusCode.TooManyRequests });
 
-        var ex = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => client.ValidateKeyAsync("some-key"));
+        var ex = await Assert.ThrowsAsync<NexusRateLimitedException>(() => client.ValidateKeyAsync("some-key"));
 
         Assert.Contains("rate limit", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("later", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task SearchModsAsync_RateLimited_ThrowsInvalidOperation()
+    public async Task SearchModsAsync_And_ListAllModsAsync_RateLimited_ThrowNexusRateLimited()
     {
         // The v2 GraphQL endpoints (SearchModsAsync/ListAllModsAsync) don't go through
         // SendAuthenticatedAsync, so the rate-limit check has to be called explicitly there too.
@@ -448,6 +448,9 @@ public class NexusApiClientTests
             new Dictionary<string, string> { ["https://api.nexusmods.com/v2/graphql"] = """{"message":"Too Many Requests"}""" },
             new Dictionary<string, HttpStatusCode> { ["https://api.nexusmods.com/v2/graphql"] = HttpStatusCode.TooManyRequests });
 
-        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => client.SearchModsAsync("some-key", "icarus", "cheat"));
+        // The distinct type is the point (see NexusRateLimitedException) — a plain
+        // InvalidOperationException is what the "not Premium" rejection throws.
+        await Assert.ThrowsAsync<NexusRateLimitedException>(() => client.SearchModsAsync("some-key", "icarus", "cheat"));
+        await Assert.ThrowsAsync<NexusRateLimitedException>(() => client.ListAllModsAsync("some-key", "icarus", 0, 20));
     }
 }
