@@ -185,7 +185,7 @@ public static class GameUpdateOrchestrator
 
             if (steps.IsGameRunning())
             {
-                const string running = "Icarus is running, so the new merge was built but not installed. Close the game, then click Copy to game on Merge & Install.";
+                const string running = "Icarus is running, so the new merge was built but not installed. Close the game, then click Copy to game on Merge & Install (under Advanced actions).";
                 Report(GameUpdateStepState.Skipped, running);
                 return Finished(running, installSkippedGameRunning: true);
             }

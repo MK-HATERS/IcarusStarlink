@@ -3316,7 +3316,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             // is the right next click, so offer it.
             InstallStatusMessage =
                 $"Install failed — the pak is in use: {ex.Message} "
-                + "Close Icarus if it's running, then click 'Copy to game' (no need to rebuild).";
+                + "Close Icarus if it's running, then click Copy to game under Advanced actions (no need to rebuild).";
             _activityLog.Log(InstallStatusMessage, ActivityEntryKind.Warning);
             CanCopyToGame = true;
             return InstallOutcome.Failed;
@@ -3368,7 +3368,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
 
         if (!File.Exists(_outputPakPath))
         {
-            InstallStatusMessage = "Nothing staged yet — click Install first to build one.";
+            InstallStatusMessage = "Nothing built yet — click Install to build one.";
             return;
         }
 
