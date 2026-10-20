@@ -148,6 +148,32 @@ public sealed class SettingsViewModelTests
         Assert.NotNull(harness.Settings.LastDataFolderUpdatedAt);
     }
 
+    /// <summary>
+    /// Regression: a second request while an extraction ran started another one into the same
+    /// Data folder, and RefreshGameDataAsync answered "done" at once while the first still ran.
+    /// </summary>
+    [Fact]
+    public async Task RefreshGameData_WhileOneRuns_JoinsItInsteadOfStartingAnother()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+        harness.UnrealPakService.ExtractResultFactory = () => new UnrealPakExtractResult(10, null);
+        var gate = new TaskCompletionSource();
+        harness.UnrealPakService.ExtractGate = gate;
+
+        var first = vm.RefreshGameDataAsync();
+        var second = vm.UpdateDataFolderCommand.ExecuteAsync(null);
+        var third = vm.RefreshGameDataAsync();
+
+        Assert.False(third.IsCompleted, "a caller was told the data was refreshed while the extraction still ran");
+        Assert.False(vm.UpdateDataFolderCommand.CanExecute(null));
+        gate.SetResult();
+        await Task.WhenAll(first, second, third);
+
+        Assert.Equal(1, harness.UnrealPakService.ExtractCallCount);
+        Assert.True(vm.UpdateDataFolderCommand.CanExecute(null));
+    }
+
     [Fact]
     public async Task UpdateDataFolderCommand_ExtractThrows_UnrealPakHealthy_ShowsRawExceptionMessage()
     {
@@ -158,7 +184,7 @@ public sealed class SettingsViewModelTests
 
         await vm.UpdateDataFolderCommand.ExecuteAsync(null);
 
-        Assert.Equal("Update failed: disk full", vm.DataFolderStatusMessage);
+        Assert.Equal("Refresh failed: disk full", vm.DataFolderStatusMessage);
         Assert.Equal(0, harness.WeeklyChangeReportStore.SaveCallCount);
         Assert.False(vm.IsUpdatingDataFolder);
         Assert.Null(harness.Settings.LastDataFolderUpdatedAt);
@@ -285,8 +311,21 @@ public sealed class SettingsViewModelTests
         Assert.Contains("ue4ss/LICENSE", harness.Ue4ssLoaderInstallService.LastZipEntries);
         Assert.Equal(BundledUe4ss.Commit, harness.Ue4ssLoaderInstallService.LastKnownCommit);
         Assert.False(File.Exists(harness.Ue4ssLoaderInstallService.LastDownloadedZipPath));
-        Assert.Equal($"Installed to {BundledUe4ss.Label}.", vm.Ue4ssStatusMessage);
+        Assert.Equal($"Installed UE4SS {BundledUe4ss.Label}.", vm.Ue4ssStatusMessage);
         Assert.Equal("Reinstall", vm.Ue4ssInstallButtonLabel);
+    }
+
+    /// <summary>Regression: the Library's "install UE4SS" bar runs this command directly, and nothing stopped it starting while an uninstall (or another install) was writing Binaries\Win64.</summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_WhileUninstalling_DoesNothing()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        var vm = harness.BuildViewModel();
+        vm.IsUninstallingUe4ss = true;
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
     }
 
     /// <summary>GitHub is only asked when the user presses Check for updates, never on its own.</summary>
@@ -467,7 +506,7 @@ public sealed class SettingsViewModelTests
         Assert.True(vm.IsUe4ssInstalled);
         Assert.Equal("abcdef12", vm.Ue4ssInstalledCommit);
         Assert.Equal("abcdef12", harness.Ue4ssLoaderInstallService.LastKnownCommit);
-        Assert.Equal("Installed to 3.0.1 dev build 1200.", vm.Ue4ssStatusMessage);
+        Assert.Equal("Installed UE4SS 3.0.1 dev build 1200.", vm.Ue4ssStatusMessage);
         Assert.Empty(harness.Ue4ssLoaderInstallService.LastZipEntries); // the fake download isn't a real zip
         Assert.False(vm.IsInstallingUe4ss);
     }
@@ -907,17 +946,25 @@ public sealed class SettingsViewModelTests
         public Exception? ExtractException { get; set; }
         public string? HashToReturn { get; set; } = "fake-hash";
 
-        public Task<UnrealPakExtractResult> ExtractDataPakAsync(
+        /// <summary>When set, an extraction waits for it (a slow one), so a second request can arrive meanwhile.</summary>
+        public TaskCompletionSource? ExtractGate { get; set; }
+
+        public async Task<UnrealPakExtractResult> ExtractDataPakAsync(
             string unrealPakExePath, string icarusContentPath, string outputDirectory,
             DateTimeOffset? previousUpdateAt, CancellationToken cancellationToken = default)
         {
             ExtractCallCount++;
+            if (ExtractGate is { } gate)
+            {
+                await gate.Task;
+            }
+
             if (ExtractException is not null)
             {
                 throw ExtractException;
             }
 
-            return Task.FromResult(ExtractResultFactory!());
+            return ExtractResultFactory!();
         }
 
         public Task<string?> TryGetDataPakHashAsync(string icarusContentPath, CancellationToken cancellationToken = default) =>
