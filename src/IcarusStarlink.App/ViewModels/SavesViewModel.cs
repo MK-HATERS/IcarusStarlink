@@ -913,7 +913,7 @@ public sealed partial class SavesViewModel : ObservableObject
                 newArray.Add(new JsonObject
                 {
                     ["Accolade"] = new JsonObject { ["RowName"] = accolade.RowName, ["DataTableName"] = "D_Accolades" },
-                    ["TimeCompleted"] = DateTime.Now.ToString("yyyy.MM.dd-HH.mm.ss"),
+                    ["TimeCompleted"] = DateTime.Now.ToString("yyyy.MM.dd-HH.mm.ss", System.Globalization.CultureInfo.InvariantCulture),
                     ["ProspectID"] = "",
                 });
             }

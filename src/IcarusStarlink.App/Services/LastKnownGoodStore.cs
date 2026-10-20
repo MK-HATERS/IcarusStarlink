@@ -73,7 +73,7 @@ public sealed class LastKnownGoodStore(string rootDirectory)
     public LastKnownGoodSnapshot Create(Profile? profile, string? icarusContentPath, IReadOnlyList<string> enabledUe4ssMods, string? gameBuildId, DateTimeOffset nowUtc)
     {
         Directory.CreateDirectory(rootDirectory);
-        var stamp = nowUtc.ToLocalTime().ToString("yyyyMMdd-HHmmss");
+        var stamp = nowUtc.ToLocalTime().ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
         var folder = Path.Combine(rootDirectory, stamp);
         for (var n = 2; Directory.Exists(folder); n++)
         {

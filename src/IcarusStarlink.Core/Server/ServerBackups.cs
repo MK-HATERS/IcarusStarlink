@@ -137,27 +137,52 @@ public static class ServerBackups
             zipPath = Path.Combine(backupsFolder, $"{stamp}_{safeReason}_{n}.zip");
         }
 
-        using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
-        var playerData = DedicatedServerLayout.PlayerDataFolder(installFolder, savedDirSuffix);
-        if (Directory.Exists(playerData))
+        // Written under a .tmp name and renamed only once whole: a file that can't be read (locked,
+        // access denied) used to leave a cut-off zip that List showed as a normal backup.
+        var tempPath = zipPath + ".tmp";
+        try
         {
-            foreach (var file in Directory.EnumerateFiles(playerData, "*", SearchOption.AllDirectories))
+            using (var archive = ZipFile.Open(tempPath, ZipArchiveMode.Create))
             {
-                AddShared(archive, file, Path.GetRelativePath(saved, file));
-            }
-        }
+                var playerData = DedicatedServerLayout.PlayerDataFolder(installFolder, savedDirSuffix);
+                if (Directory.Exists(playerData))
+                {
+                    foreach (var file in Directory.EnumerateFiles(playerData, "*", SearchOption.AllDirectories))
+                    {
+                        AddShared(archive, file, Path.GetRelativePath(saved, file));
+                    }
+                }
 
-        foreach (var single in new[]
-                 {
-                     DedicatedServerLayout.SettingsIniPath(installFolder, savedDirSuffix),
-                     DedicatedServerLayout.AdminWhitelistPath(installFolder, savedDirSuffix),
-                     DedicatedServerLayout.BanListPath(installFolder, savedDirSuffix),
-                 })
-        {
-            if (File.Exists(single))
-            {
-                AddShared(archive, single, Path.GetRelativePath(saved, single));
+                foreach (var single in new[]
+                         {
+                             DedicatedServerLayout.SettingsIniPath(installFolder, savedDirSuffix),
+                             DedicatedServerLayout.AdminWhitelistPath(installFolder, savedDirSuffix),
+                             DedicatedServerLayout.BanListPath(installFolder, savedDirSuffix),
+                         })
+                {
+                    if (File.Exists(single))
+                    {
+                        AddShared(archive, single, Path.GetRelativePath(saved, single));
+                    }
+                }
             }
+
+            File.Move(tempPath, zipPath);
+        }
+        catch
+        {
+            try
+            {
+                File.Delete(tempPath);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+
+            throw;
         }
 
         return zipPath;
@@ -200,9 +225,9 @@ public static class ServerBackups
             using var target = archive.CreateEntry(entryName.Replace('\\', '/'), CompressionLevel.Optimal).Open();
             source.CopyTo(target);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Skipped: locked beyond sharing. The rest of the backup is still worth having.
+            // Skipped: locked beyond sharing, or not ours to read. The rest of the backup is still worth having.
         }
     }
 }

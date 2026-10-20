@@ -405,6 +405,47 @@ public sealed class ServerPhase23Tests : IDisposable
         Assert.Equal("manual", ServerBackups.ReasonOf(Path.GetFileNameWithoutExtension(second)));
     }
 
+    /// <summary>
+    /// A file Windows won't let us read (access denied) is skipped like a locked one; it used to
+    /// abort the backup and leave a cut-off zip that List showed as a good backup.
+    /// </summary>
+    [Fact]
+    public void CreateBackup_AFileWeMayNotRead_IsSkipped_AndTheBackupIsWhole()
+    {
+        var install = Path.Combine(_root, "Server");
+        var prospects = DedicatedServerLayout.ProspectsFolder(install, null);
+        Directory.CreateDirectory(prospects);
+        File.WriteAllText(Path.Combine(prospects, "A.json"), "{}");
+        var denied = new FileInfo(Path.Combine(prospects, "B.json"));
+        File.WriteAllText(denied.FullName, "{}");
+        var backups = Path.Combine(_root, "Backups");
+        var me = System.Security.Principal.WindowsIdentity.GetCurrent().User!;
+        var rule = new System.Security.AccessControl.FileSystemAccessRule(
+            me, System.Security.AccessControl.FileSystemRights.ReadData, System.Security.AccessControl.AccessControlType.Deny);
+        var acl = denied.GetAccessControl();
+        acl.AddAccessRule(rule);
+        denied.SetAccessControl(acl);
+
+        string zip;
+        try
+        {
+            zip = ServerBackups.CreateBackup(install, null, backups, "manual");
+        }
+        finally
+        {
+            acl.RemoveAccessRule(rule);
+            denied.SetAccessControl(acl);
+        }
+
+        using (var archive = ZipFile.OpenRead(zip))
+        {
+            Assert.Equal(["PlayerData/DedicatedServer/Prospects/A.json"], archive.Entries.Select(e => e.FullName).ToList());
+        }
+
+        Assert.Single(ServerBackups.List(backups));
+        Assert.Equal([zip], Directory.GetFiles(backups));
+    }
+
     /// <summary>The merged pak under an earlier name is moved into the backups folder, not deleted, when one is given.</summary>
     [Fact]
     public void InstallPak_WithABackupsFolder_MovesTheLegacyNamedMergedPakThere()
