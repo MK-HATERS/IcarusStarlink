@@ -48,6 +48,34 @@ public class DebounceTimerTests
     }
 
     [Fact]
+    public void Flush_WhenPending_RunsTheActionOnceAndStops()
+    {
+        var runs = 0;
+        var timer = new DebounceTimer(TimeSpan.FromMinutes(5), () => runs++);
+        timer.Restart();
+
+        timer.Flush();
+        timer.Flush();
+
+        Assert.Equal(1, runs);
+        Assert.False(timer.IsRunning);
+    }
+
+    [Fact]
+    public void Flush_WhenIdle_DoesNothing()
+    {
+        var runs = 0;
+        var timer = new DebounceTimer(TimeSpan.FromMinutes(5), () => runs++);
+
+        timer.Flush();
+        timer.Restart();
+        timer.Cancel();
+        timer.Flush();
+
+        Assert.Equal(0, runs);
+    }
+
+    [Fact]
     public void Cancel_AfterRestart_StopsTheTimer()
     {
         var timer = new DebounceTimer(TimeSpan.FromMilliseconds(500), () => { });

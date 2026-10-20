@@ -27,6 +27,9 @@ public sealed partial class LocalServerViewModel
 
     [ObservableProperty] private string? _firewallSummary;
 
+    /// <summary>The Windows firewall section's short header: "All ports open", "2 port(s) not open"... Empty until read.</summary>
+    [ObservableProperty] private string _firewallState = "";
+
     /// <summary>"This PC is on a Public network." Rules only count for the network type the PC is on.</summary>
     [ObservableProperty] private string? _firewallNetworkText;
 
@@ -51,6 +54,7 @@ public sealed partial class LocalServerViewModel
     {
         FirewallPorts.Clear();
         FirewallSummary = null;
+        FirewallState = "";
         if (SelectedProfile is not { } p)
         {
             return;
@@ -83,6 +87,7 @@ public sealed partial class LocalServerViewModel
         if (_firewall is null || SelectedProfile is null)
         {
             FirewallSummary = "Firewall status isn't available.";
+            FirewallState = "Not available";
             return;
         }
 
@@ -100,6 +105,7 @@ public sealed partial class LocalServerViewModel
             {
                 _firewallRules = rules;
                 FirewallSummary = $"Couldn't read Windows Firewall: {ex.Message}";
+                FirewallState = "Couldn't read it";
             }
 
             return;
@@ -134,6 +140,7 @@ public sealed partial class LocalServerViewModel
         if (!TryFirewallPorts(out var game, out var query))
         {
             FirewallSummary = "Ports must be numbers from 1 to 65535.";
+            FirewallState = "Check the ports";
             return;
         }
 
@@ -158,6 +165,12 @@ public sealed partial class LocalServerViewModel
                 : otherNetworksOnly
                     ? $"{missing} port(s) aren't open on the network this PC is on now ({_firewallNetwork.Name}): a rule opens them only on other network types. 'Open these ports' adds rules for every network type."
                     : $"{missing} port(s) aren't open yet. 'Open these ports' adds the missing rules.";
+
+        FirewallState = FirewallHasBlockRule
+            ? "A block rule shuts a port"
+            : missing == 0
+                ? "All ports open"
+                : $"{missing} port(s) not open";
 
         if (game != p.Port || query != p.QueryPort)
         {
@@ -306,12 +319,14 @@ public sealed partial class LocalServerViewModel
         try
         {
             var result = await _firewall!.RunElevatedAsync(commands);
-            StatusMessage = result.Success ? successMessage : $"Firewall not changed: {result.Message}";
+            // Not "not changed": Starlink's own old rules are deleted before the new ones are
+            // added, so a failed add can leave the firewall different from before.
+            StatusMessage = result.Success ? successMessage : $"Firewall: {result.Message.TrimEnd('.')}. The list below shows what's open now.";
             _activityLog.Log(StatusMessage, result.Success ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Firewall not changed: {ex.Message}";
+            StatusMessage = $"Couldn't change the firewall: {ex.Message}";
         }
         finally
         {

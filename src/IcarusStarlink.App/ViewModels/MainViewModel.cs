@@ -71,14 +71,11 @@ public sealed partial class MainViewModel : ObservableObject
             new NavItem("editor", "Editor", typeof(GameEditorViewModel)),
             new NavItem("merge", "Merge & Install", typeof(MergeInstallViewModel)),
             new NavItem("weekly-changes", "Weekly Changes", typeof(WeeklyChangesViewModel)),
-            // A narrower revival of the spec's original "Server" nav item, cut from v1 entirely —
-            // FTP file management for a dedicated server's mods folder (Phase 8.5), not the full
-            // remote-agent/control page the original spec described. Marked Beta per the user's
-            // own call — confirmed live against a real SurvivalServers account that the FTP
-            // delete/overwrite this page's own "Install merged pak"/basic Delete actions need is
-            // blocked account-wide on at least one real host, so the page's core install-to-server
-            // path isn't reliably functional yet.
-            new NavItem("server", "Server (Beta)", typeof(ServerViewModel)),
+            // FTP file management for a rented server's mods folder plus the Local server tab
+            // (install, configure, run and keep a dedicated server up to date on this PC). It was
+            // marked Beta while the FTP install path was unproven on real hosts; it has since left
+            // Beta at the user's call.
+            new NavItem("server", "Server", typeof(ServerViewModel)),
             // Between Server and Settings, matching the real Icarus Workshop's own nav order.
             // Marked Beta while the deeper editing tabs (cosmetics, items, bestiary...) are
             // still landing — per the user's own call before the first release carries it.
@@ -203,15 +200,10 @@ public sealed partial class MainViewModel : ObservableObject
     private void LaunchGame() => UrlOpener.TryOpen("steam://run/1149460");
 
     /// <summary>
-    /// Defaults to Library specifically, not NavItems[0] — Downloads (now first, matching the
-    /// real app's nav order) is still an empty placeholder page until Phase 4, and landing there
-    /// on launch would be a worse first impression than the one page that's actually functional.
-    /// Only sets it if nothing else already has — both this and a real nxm:// handoff's own nav
-    /// switch to Downloads are queued via Dispatcher.BeginInvoke from App.xaml.cs's OnStartup, and
-    /// which one the dispatcher actually runs first is a genuine race (the handoff arrives on a
-    /// background named-pipe thread, this one is queued synchronously near the end of OnStartup) —
-    /// without this guard, the handoff arriving first would just get silently clobbered back to
-    /// Library a moment later.
+    /// Defaults to Library, not NavItems[0] (the first nav item is Database). Only sets it if
+    /// nothing else already has: a real nxm:// handoff's switch to Downloads arrives on a
+    /// background named-pipe thread while startup is still finishing, and without this guard it
+    /// could be clobbered back to Library a moment later.
     ///
     /// A real bug found live: a genuinely first-ever launch (IcarusContentPath never set) still
     /// landed on Library — an empty list, with nothing on screen explaining that Settings needs

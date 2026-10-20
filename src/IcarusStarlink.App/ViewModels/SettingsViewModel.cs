@@ -73,7 +73,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string? _savedMessage;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(UpdateDataFolderCommand))]
     private bool _isUpdatingDataFolder;
+
+    /// <summary>The extraction in progress, so a second caller waits for it instead of starting another into the same folder.</summary>
+    private Task _dataFolderUpdate = Task.CompletedTask;
 
     [ObservableProperty]
     private string? _dataFolderStatusMessage;
@@ -318,8 +322,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         // Fire-and-forget, same shape as DownloadsViewModel's constructor-triggered
-        // RefreshCatalogAsync: constructors can't be async, and CheckForGameUpdateAsync has its
-        // own top-level try/catch so nothing here can produce an unobserved exception.
+        // RefreshCatalogAsync: constructors can't be async. CheckForGameUpdateAsync can't throw:
+        // TryGetDataPakHashAsync catches its own failures and answers null.
         _ = CheckForGameUpdateAsync();
         _ = InitializeNexusStatusAsync();
         // No UE4SS check here: GitHub is only asked about a newer UE4SS when the user presses
@@ -408,7 +412,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             // A list taken from the game's own Paks\mods folder has no IMM install anywhere near
             // it, so the mods themselves can't be found without being told where they live.
-            MigrationStatusMessage = "That list isn't inside a classic IMM folder — pick your Icarus Software folder so the mods can be found.";
+            MigrationStatusMessage = "That list isn't inside a classic IMM folder — pick your classic IMM folder so the mods can be found.";
             var folderDialog = new OpenFolderDialog { Title = "Select your classic IMM folder (the one containing Extracted_Mods)" };
             if (folderDialog.ShowDialog() != true)
             {
@@ -674,7 +678,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         IcarusContentPath = detected;
-        SavedMessage = "Found via Steam — click Save to keep it.";
+        SavedMessage = "Found via Steam — click Save settings to keep it.";
     }
 
     [RelayCommand]
@@ -842,7 +846,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
         }
 
-        SavedMessage = "Icarus folder not set yet — use Auto-detect or Browse… above, then Save.";
+        SavedMessage = "Icarus folder not set yet — use Auto-detect or Browse… above, then Save settings.";
     }
 
     private async Task OfferFirstDataExtractionAsync()
@@ -961,10 +965,27 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>Refresh game data, for Merge &amp; Install's "Refresh game data, then build" (a no-op while one is already running).</summary>
-    public Task RefreshGameDataAsync() => IsUpdatingDataFolder ? Task.CompletedTask : UpdateDataFolderAsync();
+    /// <remarks>While one is running this returns THAT run (it used to return an already-finished
+    /// task, so a caller checked "is the data fresh now?" while the extraction was still going).</remarks>
+    public Task RefreshGameDataAsync() => IsUpdatingDataFolder ? _dataFolderUpdate : UpdateDataFolderAsync();
 
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
-    private async Task UpdateDataFolderAsync()
+    private bool CanUpdateDataFolder() => !IsUpdatingDataFolder;
+
+    [RelayCommand(FlowExceptionsToTaskScheduler = true, CanExecute = nameof(CanUpdateDataFolder))]
+    private Task UpdateDataFolderAsync()
+    {
+        // Two extractions into the same Data folder at once (the button, first-launch setup and
+        // the game-update run can all start one) would overwrite each other's files.
+        if (IsUpdatingDataFolder)
+        {
+            return _dataFolderUpdate;
+        }
+
+        _dataFolderUpdate = UpdateDataFolderCoreAsync();
+        return _dataFolderUpdate;
+    }
+
+    private async Task UpdateDataFolderCoreAsync()
     {
         if (string.IsNullOrWhiteSpace(IcarusContentPath) || string.IsNullOrWhiteSpace(UnrealPakExePath))
         {
@@ -1028,10 +1049,10 @@ public sealed partial class SettingsViewModel : ObservableObject
             var verify = await _unrealPakInstaller.VerifyAsync(UnrealPakExePath);
             DataFolderStatusMessage = verify.Health switch
             {
-                UnrealPakHealth.Ok => $"Update failed: {ex.Message}",
-                UnrealPakHealth.Missing => $"Update failed — UnrealPak.exe isn't at that path ({verify.Detail}) "
+                UnrealPakHealth.Ok => $"Refresh failed: {ex.Message}",
+                UnrealPakHealth.Missing => $"Refresh failed: {(verify.Detail ?? "UnrealPak.exe isn't at that path").TrimEnd('.')}. "
                     + "Reinstall in the UnrealPak section above.",
-                _ => $"Update failed — your UnrealPak.exe copy looks broken ({verify.Detail}) "
+                _ => $"Refresh failed: your UnrealPak.exe copy looks broken ({verify.Detail?.TrimEnd('.')}). "
                     + "Reinstall in the UnrealPak section above fixes this.",
             };
         }
@@ -1334,6 +1355,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task InstallOrUpdateUe4ssAsync()
     {
+        // The Library's "install UE4SS" bar calls this command directly, so the button's own
+        // IsEnabled isn't the only way in: never two installs (or install + uninstall) at once.
+        if (IsInstallingUe4ss || IsUninstallingUe4ss)
+        {
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(IcarusContentPath))
         {
             Ue4ssStatusMessage = "Set the Icarus Content folder first.";
@@ -1412,7 +1440,13 @@ public sealed partial class SettingsViewModel : ObservableObject
 
             RefreshUe4ssStatus();
             Ue4ssCheckedOrder = Ue4ssBuildOrder.Unknown;
-            Ue4ssStatusMessage = $"{(wasInstalled ? "Updated" : "Installed")} to {label}.";
+            // From the same verb the confirm used: a reinstall or an older build isn't an "update".
+            Ue4ssStatusMessage = verb switch
+            {
+                "Install" => $"Installed UE4SS {label}.",
+                "Update" => $"Updated to UE4SS {label}.",
+                _ => $"Reinstalled UE4SS {label}.",
+            };
             WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage($"UE4SS {label} is installed in the game."));
         }
         catch (Exception ex)
@@ -1523,9 +1557,25 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        if (IsInstallingUe4ss || IsUninstallingUe4ss)
+        {
+            return;
+        }
+
         // The user's own mods are named in the warning itself, so what's about to be preserved is
         // visible BEFORE anything happens, not discovered from a report afterwards.
-        var userMods = _ue4ssLoaderInstallService.ListUserAddedMods(IcarusContentPath);
+        IReadOnlyList<string> userMods;
+        try
+        {
+            userMods = _ue4ssLoaderInstallService.ListUserAddedMods(IcarusContentPath);
+        }
+        catch (Exception ex)
+        {
+            // Outside the try below, a failure here ended up only in the crash log with nothing on screen.
+            Ue4ssStatusMessage = $"Couldn't read UE4SS's Mods folder: {ex.Message}";
+            return;
+        }
+
         var userModsLine = userMods.Count > 0
             ? $"Your own {userMods.Count} mod(s) — {string.Join(", ", userMods)} — are moved back to this app's staging first (re-enable them if you ever reinstall UE4SS).\n\n"
             : "No mods of your own were found in its Mods folder.\n\n";
@@ -1995,7 +2045,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void OpenReleasesPage() => UrlOpener.TryOpen("https://github.com/MK-HATERS/IcarusStarlink/releases");
 
     /// <summary>
-    /// Silent once-per-launch check, same shape as InitializeNexusStatusAsync/CheckUe4ssLatestReleaseAsync
+    /// Silent once-per-launch check, same shape as InitializeNexusStatusAsync
     /// — no nag on a transient failure (offline, rate-limited). Only a genuine newer release
     /// prompts, via a real Yes/No, matching every other "ask before doing something visible" gate
     /// already established in this app.

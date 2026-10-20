@@ -43,7 +43,7 @@ public sealed partial class LocalServerViewModel
     [ObservableProperty] private string? _backupsToKeepError;
 
     /// <summary>The once-a-day automatic backup (Overview, Automation).</summary>
-    [ObservableProperty] private bool _dailyBackup;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AutomationSummary))] private bool _dailyBackup;
 
     partial void OnDailyBackupChanged(bool value) => SaveAutomation(p => p.DailyBackup = value);
 

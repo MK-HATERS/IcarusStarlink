@@ -145,8 +145,10 @@ public sealed class SteamCmdService(HttpClient httpClient, Core.Settings.ISettin
                 {
                     process.Kill(entireProcessTree: true);
                 }
-                catch (InvalidOperationException)
+                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
                 {
+                    // Already exiting (or access denied as it goes): a throw here would come out
+                    // of Cancel() on the UI thread, in the Cancel button's own command.
                 }
             });
 

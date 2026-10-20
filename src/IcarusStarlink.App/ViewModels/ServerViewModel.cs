@@ -90,7 +90,7 @@ public sealed partial class ServerViewModel : ObservableObject
 
     private IFtpClient? _connectedClient;
 
-    public string Title => "Server (Beta)";
+    public string Title => "Server";
 
     /// <summary>The "Local server" tab: dedicated servers on this PC (see LocalServerViewModel). Null in tests that only exercise the FTP side.</summary>
     public LocalServerViewModel? Local { get; }
@@ -325,6 +325,14 @@ public sealed partial class ServerViewModel : ObservableObject
 
             ReloadSites();
             SelectedSite = Sites.FirstOrDefault(s => s.Id == id);
+
+            // Editing the connected site (say, a corrected Mods path) applies to the live
+            // connection too: the sync buttons read their folders from _connectedSite.
+            if (_connectedSite is { } connected && connected.Id == site.Id)
+            {
+                _connectedSite = site;
+            }
+
             SiteStatusMessage = $"Saved '{site.Name}'.";
         }
         catch (Exception ex)
@@ -429,19 +437,29 @@ public sealed partial class ServerViewModel : ObservableObject
         }
 
         string password;
-        if (!string.IsNullOrEmpty(PasswordInput))
+        try
         {
-            password = PasswordInput;
-            _credentialStore.Save(CredentialTargets.FtpSite(site.Id), password);
-            PasswordInput = "";
+            if (!string.IsNullOrEmpty(PasswordInput))
+            {
+                password = PasswordInput;
+                _credentialStore.Save(CredentialTargets.FtpSite(site.Id), password);
+                PasswordInput = "";
+            }
+            else if (_credentialStore.Read(CredentialTargets.FtpSite(site.Id)) is { } savedPassword)
+            {
+                password = savedPassword;
+            }
+            else
+            {
+                ConnectionStatusMessage = "No saved password for this site — type one and Connect again.";
+                return;
+            }
         }
-        else if (_credentialStore.Read(CredentialTargets.FtpSite(site.Id)) is { } savedPassword)
+        catch (Exception ex)
         {
-            password = savedPassword;
-        }
-        else
-        {
-            ConnectionStatusMessage = "No saved password for this site — type one and Connect again.";
+            // A Credential Manager failure used to escape the command (it flows exceptions to the
+            // task scheduler), so Connect silently did nothing.
+            ConnectionStatusMessage = $"Couldn't read or save this site's password in Windows Credential Manager: {ex.Message}";
             return;
         }
 
@@ -530,7 +548,16 @@ public sealed partial class ServerViewModel : ObservableObject
         finally
         {
             var disconnectedSiteName = _connectedSite?.Name;
-            await _connectedClient.DisposeAsync();
+            try
+            {
+                await _connectedClient.DisposeAsync();
+            }
+            catch (Exception)
+            {
+                // Best-effort as above: a failed dispose must not leave the page locked busy
+                // with a dead client still "connected".
+            }
+
             _connectedClient = null;
             _connectedSite = null;
             IsConnected = false;
@@ -792,7 +819,7 @@ public sealed partial class ServerViewModel : ObservableObject
 
         if (!File.Exists(_outputPakPath))
         {
-            ConnectionStatusMessage = "No built pak yet — run Rebuild on Merge & Install first.";
+            ConnectionStatusMessage = "No merged pak yet — build one on the Merge & Install page first.";
             return;
         }
 

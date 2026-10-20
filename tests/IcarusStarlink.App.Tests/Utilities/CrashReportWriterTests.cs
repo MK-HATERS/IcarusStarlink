@@ -16,6 +16,18 @@ public class CrashReportWriterTests : IDisposable
         }
     }
 
+    /// <summary>Regression: reports were named to the second and overwritten, so a crash while handling a crash replaced the first (usually the real) report.</summary>
+    [Fact]
+    public void Write_TwoCrashesInTheSameSecond_KeepsBothReports()
+    {
+        CrashReportWriter.Write(_tempDir, new InvalidOperationException("first, the real one"), "UI thread", activityLog: null);
+        CrashReportWriter.Write(_tempDir, new InvalidOperationException("second, while handling it"), "UI thread", activityLog: null);
+
+        var reports = Directory.GetFiles(_tempDir, "crash-*.txt").Select(File.ReadAllText).ToList();
+        Assert.Equal(2, reports.Count);
+        Assert.Contains(reports, r => r.Contains("first, the real one"));
+    }
+
     [Fact]
     public void Write_RealException_ProducesAFileWithExceptionDetailsAndSource()
     {

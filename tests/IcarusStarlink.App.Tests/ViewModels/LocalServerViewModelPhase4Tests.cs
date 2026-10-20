@@ -65,6 +65,26 @@ public sealed partial class LocalServerViewModelTests
         Assert.True(after.StartMinimized);
     }
 
+    /// <summary>The folded Automation section's header names what is on, and follows the toggles.</summary>
+    [Fact]
+    public void AutomationSummary_NamesWhatIsOn()
+    {
+        var (vm, _, _, _) = BuildWithServer();
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        Assert.Equal("On: crash restart", vm.AutomationSummary);
+
+        vm.AutoRestartOnCrash = false;
+        Assert.Equal("All off", vm.AutomationSummary);
+
+        vm.DailyRestartEnabled = true;
+        vm.DailyRestartTime = "04:30";
+        vm.DailyBackup = true;
+        Assert.Equal("On: daily restart 04:30 · daily backup", vm.AutomationSummary);
+        Assert.Contains(nameof(LocalServerViewModel.AutomationSummary), changed);
+    }
+
     /// <summary>A run whose log just stops is a crash and is started again; one that logged a clean exit is left alone.</summary>
     [Fact]
     public async Task Crash_IsRestarted_ButACleanExitIsNot()
@@ -302,6 +322,7 @@ public sealed partial class LocalServerViewModelTests
 
         Assert.True(vm.FirewallIncludeTcp, "a TCP rule already exists, so TCP is carried over");
         Assert.Equal([true, false, true], vm.FirewallPorts.Select(p => p.Open));
+        Assert.Equal("1 port(s) not open", vm.FirewallState);
         Assert.Contains("Icarus Server UDP", vm.FirewallPorts[0].Summary);
 
         await vm.OpenFirewallPortsCommand.ExecuteAsync(null);
@@ -324,6 +345,7 @@ public sealed partial class LocalServerViewModelTests
 
         Assert.True(vm.FirewallHasBlockRule);
         Assert.Contains("block rule", vm.FirewallSummary);
+        Assert.Equal("A block rule shuts a port", vm.FirewallState);
 
         await vm.OpenFirewallPortsCommand.ExecuteAsync(null);
 

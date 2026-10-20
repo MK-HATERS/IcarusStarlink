@@ -95,6 +95,9 @@ public sealed class Ue4ssConfigSection(string name, IReadOnlyList<Ue4ssConfigFie
 {
     public string Name { get; } = name;
     public IReadOnlyList<Ue4ssConfigField> Fields { get; } = fields;
+
+    /// <summary>The folding section header's count: "1 setting", "12 settings".</summary>
+    public string Summary => Fields.Count == 1 ? "1 setting" : $"{Fields.Count} settings";
 }
 
 /// <summary>
@@ -173,7 +176,9 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
         foreach (var profile in _serverStore.GetAll())
         {
             var ini = Path.Combine(DedicatedServerLayout.Win64Folder(profile.InstallFolder), "ue4ss", "UE4SS-settings.ini");
-            if (File.Exists(ini))
+            // Two profiles on one install (different Saved suffixes) share one UE4SS-settings.ini:
+            // list it once, or "also save to" would write and back up the same file twice.
+            if (File.Exists(ini) && !Targets.Any(t => string.Equals(t.IniPath, ini, StringComparison.OrdinalIgnoreCase)))
             {
                 Targets.Add(new Ue4ssConfigTarget($"Server: {profile.Name}", ini, IsServer: true));
             }
@@ -277,10 +282,11 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
         }
 
         var what = changed.Count == 1 ? $"{changed[0].Key}" : $"{changed.Count} settings";
-        StatusMessage = (saved.Count > 0
-                ? $"Saved {what} to {string.Join(" and ", saved)} (the old file is in Backups\\UE4SS-Settings). UE4SS reads these when the game or server starts: restart it to use them."
-                : "") +
-            (problems.Count > 0 ? $" Couldn't save to {string.Join("; ", problems)}" : "");
+        var savedText = saved.Count > 0
+            ? $"Saved {what} to {string.Join(" and ", saved)} (the old file is in Backups\\UE4SS-Settings). UE4SS reads these when the game or server starts: restart it to use them."
+            : null;
+        var problemText = problems.Count > 0 ? $"Couldn't save to {string.Join("; ", problems)}." : null;
+        StatusMessage = string.Join(" ", new[] { savedText, problemText }.Where(t => t is not null));
     }
 
     [RelayCommand]

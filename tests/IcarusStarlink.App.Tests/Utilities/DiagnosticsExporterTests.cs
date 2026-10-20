@@ -91,6 +91,36 @@ public class DiagnosticsExporterTests : IDisposable
         Assert.Equal("Icarus", settings["ThemeName"]!.GetValue<string>()); // untouched
     }
 
+    /// <summary>Redaction reaches nested objects and lists too, not just top-level fields.</summary>
+    [Fact]
+    public void Export_RedactsNestedSensitiveFields()
+    {
+        File.WriteAllText(_settingsFilePath, """{"Servers": [{"Name": "Mine", "AdminPassword": "hunter2"}], "Nexus": {"ApiKey": "secret"}}""");
+
+        DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath);
+
+        using var archive = ZipFile.OpenRead(_outputZipPath);
+        var entry = Assert.Single(archive.Entries, e => e.FullName == "settings.json");
+        using var reader = new StreamReader(entry.Open());
+        var text = reader.ReadToEnd();
+        Assert.DoesNotContain("hunter2", text);
+        Assert.DoesNotContain("secret", text);
+        Assert.Contains("Mine", text);
+    }
+
+    /// <summary>Regression: the chosen file was deleted before writing, so a failed export left the user's existing zip gone.</summary>
+    [Fact]
+    public void Export_Fails_LeavesTheExistingZipAlone()
+    {
+        File.WriteAllText(_outputZipPath, "the user's existing file");
+        var blocker = _outputZipPath + ".tmp";
+        Directory.CreateDirectory(blocker); // the temp zip can't be created where a folder is
+
+        Assert.ThrowsAny<Exception>(() => DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath));
+
+        Assert.Equal("the user's existing file", File.ReadAllText(_outputZipPath));
+    }
+
     [Fact]
     public void Export_NoLogsDirectory_StillProducesAZipWithJustSystemInfoAndSettings()
     {

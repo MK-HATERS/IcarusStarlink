@@ -50,7 +50,7 @@ public class StartupThreadingTests
         Assert.True(ran);
     }
 
-    /// <summary>Records every Post call rather than actually executing callbacks inline — a real DispatcherSynchronizationContext queues onto the UI thread's message loop, which this test has none of; only whether the runtime routed the continuation through this context at all matters here.</summary>
+    /// <summary>Counts every Post call, then runs the callback inline (a real DispatcherSynchronizationContext would queue it onto the UI thread's message loop, which this test has none of); only whether the runtime routed the continuation through this context at all matters here.</summary>
     private sealed class RecordingSynchronizationContext : SynchronizationContext
     {
         private int _postCount;

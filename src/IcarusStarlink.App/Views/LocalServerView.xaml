@@ -7,14 +7,19 @@
              mc:Ignorable="d">
 
     <!-- The Server page's "Local server" tab (LocalServerViewModel): dedicated servers on this PC.
-         Left: the profiles. Right: run state + Start/Stop/Restart, then a Log tab (live tail of the
-         server's own log file) and a Settings tab (launch options + ServerSettings.ini). -->
+         Left: the profiles (drag the gap to widen it). Right: run state + Start/Stop/Restart, live
+         tiles, then tabs: Overview (automation, firewall), Log (live tail of the server's own log
+         file), Settings (launch options + ServerSettings.ini), Mods, Worlds & backups, World
+         settings, Admins & bans. -->
     <Grid Margin="0,12,0,0">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="250"/>
+            <ColumnDefinition Width="250" MinWidth="180" MaxWidth="480"/>
             <ColumnDefinition Width="16"/>
-            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*" MinWidth="400"/>
         </Grid.ColumnDefinitions>
+
+        <GridSplitter Grid.Column="1" Style="{StaticResource VerticalPaneSplitterStyle}" Width="16"
+                      AutomationProperties.Name="Resize server list"/>
 
         <Grid Grid.Column="0">
             <Grid.RowDefinitions>
@@ -25,7 +30,7 @@
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="SERVERS ON THIS PC" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
             <!-- No sideways scrolling: a long name or path is cut with … and shown in full on hover. -->
-            <ListBox Grid.Row="1" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}"
+            <ListBox Grid.Row="1" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}" IsEnabled="{Binding IsNotBusy}"
                      BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
                 <ListBox.ItemTemplate>
@@ -118,8 +123,10 @@
                                 ToolTip="Saves the settings below, then launches IcarusServer.exe in its own console window"/>
                         <Button Content="Stop" Command="{Binding StopCommand}" Margin="8,0,0,0"
                                 ToolTip="Asks the server to shut down cleanly (it saves then only if 'Save on exit' is on in Settings); ends it after 60 seconds if it hasn't closed"/>
-                        <Button Content="Restart" Command="{Binding RestartCommand}" Margin="8,0,0,0"/>
-                        <Button Content="Open folder" Command="{Binding OpenInstallFolderCommand}" Margin="16,0,0,0"/>
+                        <Button Content="Restart" Command="{Binding RestartCommand}" Margin="8,0,0,0"
+                                ToolTip="Stops the server cleanly, then starts it again (with 'Update on restart' on, a newer build is installed in between)"/>
+                        <Button Content="Open folder" Command="{Binding OpenInstallFolderCommand}" Margin="16,0,0,0"
+                                ToolTip="The server's install folder (the one with IcarusServer.exe)"/>
                         <Button Content="Open Saved" Command="{Binding OpenSavedFolderCommand}" Margin="8,0,0,0"
                                 ToolTip="The server's Saved folder: settings, logs, worlds (PlayerData\DedicatedServer\Prospects)"/>
                     </StackPanel>
@@ -151,7 +158,8 @@
                             </Border>
                             <TextBlock Text="{Binding SelectedProfile.Name}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </StackPanel>
-                        <TextBlock Text="{Binding InstallFolder}" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding InstallFolder}" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding InstallFolder}"/>
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                             <TextBlock Text="{Binding BuildSummary}" FontSize="11.5" VerticalAlignment="Center">
                                 <TextBlock.Style>
@@ -263,8 +271,16 @@
                                 </Style>
                             </Grid.Resources>
 
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="AUTOMATION" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                            <!-- Automation: open by default (it's what the Overview is for); the header
+                                 says which options are on, so it can be folded away once set. -->
+                            <Expander Grid.Column="0" VerticalAlignment="Top" IsExpanded="True" AutomationProperties.Name="Automation">
+                                <Expander.Header>
+                                    <DockPanel LastChildFill="True">
+                                        <TextBlock DockPanel.Dock="Left" Text="Automation" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                        <TextBlock Text="{Binding AutomationSummary}" Style="{StaticResource ExpanderHeaderStateStyle}" ToolTip="{Binding AutomationSummary}"/>
+                                    </DockPanel>
+                                </Expander.Header>
+                            <StackPanel>
                                 <CheckBox IsChecked="{Binding AutoRestartOnCrash}" Margin="0,0,0,2">
                                     <TextBlock Text="Restart it if it crashes" FontWeight="SemiBold"/>
                                 </CheckBox>
@@ -299,7 +315,7 @@
                                     <TextBlock Text="Back up every day" FontWeight="SemiBold"/>
                                 </CheckBox>
                                 <TextBlock Style="{StaticResource OptionHintStyle}"
-                                           Text="While it runs, zips its worlds and settings once a day (Backups tab). Older daily backups are tidied by the keep count there."/>
+                                           Text="While it runs, zips its worlds and settings once a day (Worlds &amp; backups tab). Older daily backups are tidied by the keep count there."/>
 
                                 <CheckBox IsChecked="{Binding StartWithApp}" Margin="0,0,0,2">
                                     <TextBlock Text="Start with Starlink" FontWeight="SemiBold"/>
@@ -316,6 +332,7 @@
                                 <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}"
                                            Text="Automation runs only while Starlink is open. Every server in the list is watched, not just the selected one."/>
                             </StackPanel>
+                            </Expander>
 
                             <StackPanel Grid.Column="2">
                                 <TextBlock Text="{Binding SaveOnExitWarning}" Foreground="{DynamicResource DangerBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,10"
@@ -329,9 +346,20 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
 
+                                <!-- Firewall: a set-once job, so folded by default; the header says
+                                     whether every port gets through, so a problem is still seen. -->
+                                <Expander IsExpanded="False" AutomationProperties.Name="Windows firewall">
+                                    <Expander.Header>
+                                        <DockPanel LastChildFill="True">
+                                            <TextBlock DockPanel.Dock="Left" Text="Windows firewall" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                            <TextBlock Text="{Binding FirewallState}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                        </DockPanel>
+                                    </Expander.Header>
+                                <StackPanel>
                                 <DockPanel Margin="0,0,0,6">
-                                    <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshFirewallCommand}" Padding="8,1" FontSize="11"/>
-                                    <TextBlock Text="WINDOWS FIREWALL" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center"/>
+                                    <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshFirewallCommand}" Padding="8,1" FontSize="11"
+                                            ToolTip="Reads Windows Firewall's rules again (after changing them outside Starlink)"/>
+                                    <TextBlock Text="Ports to check" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                                 </DockPanel>
                                 <WrapPanel>
                                     <StackPanel>
@@ -377,6 +405,8 @@
                                 </StackPanel>
                                 <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,8,0,0"
                                            Text="Players outside your home network also need both UDP ports forwarded on your router to this PC. Starlink can't change router settings."/>
+                                </StackPanel>
+                                </Expander>
                             </StackPanel>
                         </Grid>
                     </ScrollViewer>
@@ -389,21 +419,26 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
                         <DockPanel Grid.Row="0" Margin="0,0,0,6">
-                            <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearLogCommand}" Margin="8,0,0,0"/>
+                            <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearLogCommand}" Margin="8,0,0,0"
+                                    ToolTip="Clears this view only; the server's log file is not touched"/>
                             <TextBox DockPanel.Dock="Right" Width="180" Text="{Binding LogFilter, UpdateSourceTrigger=PropertyChanged}"
                                      ToolTip="Show only lines containing this text" AutomationProperties.Name="Filter log"/>
-                            <CheckBox DockPanel.Dock="Right" Content="Follow" IsChecked="{Binding FollowLog}" Margin="12,0,12,0" VerticalAlignment="Center"/>
+                            <CheckBox DockPanel.Dock="Right" Content="Follow" IsChecked="{Binding FollowLog}" Margin="12,0,12,0" VerticalAlignment="Center"
+                                      ToolTip="Keeps the newest line in view as the server writes"/>
                             <CheckBox DockPanel.Dock="Right" Content="Hide noise" IsChecked="{Binding HideNoise}" VerticalAlignment="Center"
                                       ToolTip="Hides engine chatter (texture streaming, shaders, audio, HTTP…) — joins, prospect loads, mods, warnings and errors stay"/>
                             <TextBlock Text="{Binding LogPath}" FontFamily="Consolas" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"
                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                         </DockPanel>
+                        <!-- Drag the gap to give the log or the players/events side more room. -->
                         <Grid Grid.Row="1">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*" MinWidth="240"/>
                                 <ColumnDefinition Width="12"/>
-                                <ColumnDefinition Width="260"/>
+                                <ColumnDefinition Width="260" MinWidth="160"/>
                             </Grid.ColumnDefinitions>
+                            <GridSplitter Grid.Column="1" Style="{StaticResource VerticalPaneSplitterStyle}"
+                                          AutomationProperties.Name="Resize log and events"/>
                             <ListBox x:Name="LogList" Grid.Column="0" ItemsSource="{Binding LogLines}" FontFamily="Consolas" FontSize="11.5"
                                      BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
                                      VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
@@ -451,141 +486,196 @@
                 </TabItem>
 
                 <TabItem Header="Settings">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+                    <!-- Grouped into folding sections so the everyday ones (name, passwords, ports,
+                         world) stay in view and the rare ones (lobby timers, advanced launch
+                         options, the command line) fold away. Save stays pinned under the list. -->
+                    <Grid Margin="0,8,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                    <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
                         <Grid Margin="0,0,8,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="20"/>
+                                <ColumnDefinition Width="16"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <StackPanel Grid.Row="0" Grid.Column="0">
-                                <TextBlock Text="SERVER" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
-                                <TextBlock Text="Profile name (only in this app)" FontSize="12"/>
-                                <TextBox Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
-                                <TextBlock Text="Server name in the browser (64 characters max)" FontSize="12"/>
-                                <TextBox Text="{Binding SteamServerName, UpdateSourceTrigger=PropertyChanged}" MaxLength="64" Margin="0,2,0,8"
-                                         ToolTip="Sent as -SteamServerName — the ini's SessionName key does nothing, per the official docs"/>
-                                <TextBlock Text="Max players (1-8, blank = game default)" FontSize="12"/>
-                                <TextBox Text="{Binding MaxPlayersText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,2"/>
-                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Higher = more people can play at once; lower = a smaller group."/>
-                                <TextBlock Text="Join password (blank = anyone can join)" FontSize="12"/>
-                                <TextBox Text="{Binding JoinPassword, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
-                                <TextBlock Text="Admin password" FontSize="12"/>
-                                <TextBox Text="{Binding AdminPassword, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,2"/>
-                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource AccentBrush}" Margin="0,0,0,8"
-                                           Visibility="{Binding AdminPasswordIsEmpty, Converter={StaticResource BoolToVisibilityConverter}}"
-                                           Text="Empty: any player who types /AdminLogin in chat becomes admin. Set one."/>
-                            </StackPanel>
-
-                            <StackPanel Grid.Row="0" Grid.Column="2">
-                                <TextBlock Text="STEAM BRANCH" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
-                                <ComboBox ItemsSource="{Binding BranchOptions}" SelectedItem="{Binding Branch}" Width="160" HorizontalAlignment="Left" Margin="0,0,0,2"/>
-                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,12"
-                                           Text="Players on Icarus's Experimental branch can only join an experimental server. Changing this takes effect when you click Update."/>
-                                <TextBlock Text="NETWORK" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
-                                <StackPanel Orientation="Horizontal">
-                                    <StackPanel>
-                                        <TextBlock Text="Game port (UDP)" FontSize="12"/>
-                                        <TextBox Text="{Binding PortText, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="0,2,16,8"/>
-                                    </StackPanel>
-                                    <StackPanel>
-                                        <TextBlock Text="Query port (UDP)" FontSize="12"/>
-                                        <TextBox Text="{Binding QueryPortText, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="0,2,0,8"/>
-                                    </StackPanel>
+                            <Expander Grid.Row="0" Grid.Column="0" VerticalAlignment="Top" IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Server">
+                                <Expander.Header>
+                                    <DockPanel LastChildFill="True">
+                                        <TextBlock DockPanel.Dock="Left" Text="Server" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                        <TextBlock Text="{Binding SteamServerName}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                    </DockPanel>
+                                </Expander.Header>
+                                <StackPanel>
+                                    <TextBlock Text="Profile name (only in this app)" FontSize="12"/>
+                                    <TextBox Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
+                                    <TextBlock Text="Server name in the browser (64 characters max)" FontSize="12"/>
+                                    <TextBox Text="{Binding SteamServerName, UpdateSourceTrigger=PropertyChanged}" MaxLength="64" Margin="0,2,0,8"
+                                             ToolTip="Sent as -SteamServerName — the ini's SessionName key does nothing, per the official docs"/>
+                                    <TextBlock Text="Max players (1-8, blank = game default)" FontSize="12"/>
+                                    <TextBox Text="{Binding MaxPlayersText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,2"/>
+                                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Higher = more people can play at once; lower = a smaller group."/>
+                                    <TextBlock Text="Join password (blank = anyone can join)" FontSize="12"/>
+                                    <TextBox Text="{Binding JoinPassword, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
+                                    <TextBlock Text="Admin password" FontSize="12"/>
+                                    <TextBox Text="{Binding AdminPassword, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,2"/>
+                                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource AccentBrush}" Margin="0,0,0,8"
+                                               Visibility="{Binding AdminPasswordIsEmpty, Converter={StaticResource BoolToVisibilityConverter}}"
+                                               Text="Empty: any player who types /AdminLogin in chat becomes admin. Set one."/>
                                 </StackPanel>
-                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"
-                                           Text="Forward both ports on your router for players outside your network. Defaults: 17777 and 27015."/>
-                                <TextBlock Text="Bind to IP (-MULTIHOME, blank = all)" FontSize="12"/>
-                                <TextBox Text="{Binding Multihome, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
-                                <TextBlock Text="Saved folder suffix (for a second server on the same install)" FontSize="12"/>
-                                <TextBox Text="{Binding SavedDirSuffix, UpdateSourceTrigger=PropertyChanged}" Width="140" HorizontalAlignment="Left" Margin="0,2,0,8"
-                                         ToolTip="-saveddirsuffix — e.g. _2 makes this profile use Icarus\Saved_2 for its settings, logs and worlds"/>
-                                <TextBlock Text="Log file name (blank = Icarus.log)" FontSize="12"/>
-                                <TextBox Text="{Binding LogFileName, UpdateSourceTrigger=PropertyChanged}" Width="200" HorizontalAlignment="Left" Margin="0,2,0,8"/>
-                            </StackPanel>
-
-                            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,8,0,0">
-                                <TextBlock Text="WORLD" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
-                                <CheckBox Content="Resume the last prospect on start" IsChecked="{Binding ResumeProspect}" IsThreeState="True" Margin="0,0,0,4"
-                                          ToolTip="A dash means: not set, the game's own default applies"/>
-                                <TextBlock FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="20,0,0,6">
-                                    <Run Text="Last prospect: "/><Run Text="{Binding LastProspectName, Mode=OneWay, TargetNullValue='(none yet)'}"/>
-                                </TextBlock>
-                                <TextBlock Text="Load prospect on start (blank = none)" FontSize="12"/>
-                                <ComboBox ItemsSource="{Binding Prospects}" Text="{Binding LoadProspect, UpdateSourceTrigger=PropertyChanged}" IsEditable="True" Margin="0,2,0,8"
-                                          ToolTip="A save under Saved\PlayerData\DedicatedServer\Prospects. Applied before Resume and Create."/>
-                                <TextBlock Text="Create a new world on start" FontSize="12"/>
-                                <StackPanel Visibility="{Binding HasProspectChoices, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,2,0,2">
-                                    <ComboBox ItemsSource="{Binding ProspectChoices}" SelectedItem="{Binding NewProspectType}" DisplayMemberPath="Display"
-                                              ToolTip="The prospect the server creates when it starts: an open world, an outpost or a mission (the game's own list)"/>
-                                    <WrapPanel Margin="0,4,0,0" Visibility="{Binding IsCreatingProspect, Converter={StaticResource BoolToVisibilityConverter}}">
-                                        <ComboBox ItemsSource="{Binding ProspectDifficulties}" SelectedItem="{Binding NewProspectDifficulty}" DisplayMemberPath="Label" Width="110" Margin="0,0,8,4"
-                                                  ToolTip="Difficulty: Easy to Extreme. Higher = tougher creatures and harsher conditions."/>
-                                        <CheckBox Content="Hardcore (no respawns)" IsChecked="{Binding NewProspectHardcore}" VerticalAlignment="Center" Margin="0,0,8,4"/>
-                                        <Grid Width="180" Margin="0,0,0,4">
-                                            <TextBox Text="{Binding NewProspectName, UpdateSourceTrigger=PropertyChanged}" ToolTip="The world's save name (spaces become _). Needed for an outpost; a blank one gets a random name."/>
-                                            <TextBlock Text="World name" Style="{StaticResource PlaceholderTextStyle}"
-                                                       Visibility="{Binding NewProspectName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                                        </Grid>
-                                    </WrapPanel>
+                            </Expander>
+                            <Expander Grid.Row="0" Grid.Column="2" VerticalAlignment="Top" IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Branch and ports">
+                                <Expander.Header>
+                                    <DockPanel LastChildFill="True">
+                                        <TextBlock DockPanel.Dock="Left" Text="Branch &amp; ports" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                        <TextBlock Style="{StaticResource ExpanderHeaderStateStyle}">
+                                            <TextBlock.Text>
+                                                <MultiBinding StringFormat="{}{0} · ports {1} / {2}">
+                                                    <Binding Path="Branch"/>
+                                                    <Binding Path="PortText"/>
+                                                    <Binding Path="QueryPortText"/>
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                        </TextBlock>
+                                    </DockPanel>
+                                </Expander.Header>
+                                <StackPanel>
+                                    <TextBlock Text="Steam branch" FontSize="12"/>
+                                    <ComboBox ItemsSource="{Binding BranchOptions}" SelectedItem="{Binding Branch}" Width="160" HorizontalAlignment="Left" Margin="0,2,0,2"/>
+                                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,12"
+                                               Text="Players on Icarus's Experimental branch can only join an experimental server. Changing this takes effect when you click Update."/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <StackPanel>
+                                            <TextBlock Text="Game port (UDP)" FontSize="12"/>
+                                            <TextBox Text="{Binding PortText, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="0,2,16,8"/>
+                                        </StackPanel>
+                                        <StackPanel>
+                                            <TextBlock Text="Query port (UDP)" FontSize="12"/>
+                                            <TextBox Text="{Binding QueryPortText, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="0,2,0,8"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"
+                                               Text="Forward both ports on your router for players outside your network. Defaults: 17777 and 27015."/>
                                 </StackPanel>
-                                <TextBox Text="{Binding CreateProspect, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,2"
-                                         Visibility="{Binding HasNoProspectChoices, Converter={StaticResource BoolToVisibilityConverter}}"
-                                         ToolTip="[ProspectType] [Difficulty 1-4] [Hardcore True/False] [SaveName] — run Refresh game data in Settings to pick from a list instead"/>
-                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"
-                                           Text="{Binding ProspectHint}"/>
-                                <TextBlock Text="Autosave every (minutes, blank = game default)" FontSize="12"/>
-                                <TextBox Text="{Binding GameSaveFrequencyText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,2"/>
-                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Lower = saves more often, so less is lost if the server crashes; higher = fewer saves (slightly less load)."/>
-                                <CheckBox Content="Save on exit" IsChecked="{Binding SaveGameOnExit}" IsThreeState="True" Margin="0,0,0,4"/>
-                                <CheckBox Content="Fiber foliage regrows over time" IsChecked="{Binding FiberFoliageRespawn}" IsThreeState="True" Margin="0,0,0,4"/>
-                                <CheckBox Content="Mined large stones respawn" IsChecked="{Binding LargeStonesRespawn}" IsThreeState="True" Margin="0,0,0,4"/>
-                            </StackPanel>
-
-                            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,8,0,0">
-                                <TextBlock Text="LOBBY" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
-                                <TextBlock Text="Return to lobby if nobody joins for (seconds, -1 = never)" FontSize="12"/>
-                                <TextBox Text="{Binding ShutdownIfNotJoinedForText, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" Margin="0,2,0,2"/>
-                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Lower = an unused world closes sooner (frees the server); higher = it waits longer for someone to join."/>
-                                <TextBlock Text="Return to lobby after the last player leaves (seconds, -1 = never)" FontSize="12"/>
-                                <TextBox Text="{Binding ShutdownIfEmptyForText, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" Margin="0,2,0,2"/>
-                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Lower = the world closes sooner after everyone leaves; higher = it stays up longer for people to come back."/>
-                                <CheckBox Content="Players who aren't admins can create or load prospects" IsChecked="{Binding AllowNonAdminsToLaunchProspects}" IsThreeState="True" Margin="0,0,0,4"/>
-                                <CheckBox Content="Players who aren't admins can delete prospects" IsChecked="{Binding AllowNonAdminsToDeleteProspects}" IsThreeState="True" Margin="0,0,0,4"/>
-                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,4,0,0"
-                                           Text="A checkbox showing a dash isn't set in the file, so the game's own default applies."/>
-                            </StackPanel>
-
-                            <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,12,0,4">
-                                <TextBlock Text="COMMAND LINE STARLINK RUNS" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
-                                <DockPanel>
-                                    <Button DockPanel.Dock="Right" Content="Copy" Command="{Binding CopyCommandLineCommand}" Margin="8,0,0,0" VerticalAlignment="Top"/>
-                                    <TextBox Text="{Binding CommandLinePreview, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="11.5" TextWrapping="Wrap"/>
-                                </DockPanel>
-                                <TextBlock FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0" TextTrimming="CharacterEllipsis">
-                                    <Run Text="Settings file: "/><Run Text="{Binding SettingsIniPath, Mode=OneWay}"/>
-                                </TextBlock>
-                                <TextBlock Text="{Binding ValidationMessage}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" Margin="0,8,0,0"
-                                           Visibility="{Binding ValidationMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                <Button Content="Save settings" Command="{Binding SaveSettingsCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                        HorizontalAlignment="Left" Margin="0,10,0,0"
-                                        ToolTip="Writes the launch options here and the game settings into ServerSettings.ini (every other line in that file is kept). A running server picks them up on restart."/>
-                            </StackPanel>
+                            </Expander>
+                            <Expander Grid.Row="1" Grid.Column="0" VerticalAlignment="Top" IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="World">
+                                <Expander.Header>
+                                    <DockPanel LastChildFill="True">
+                                        <TextBlock DockPanel.Dock="Left" Text="World" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                        <TextBlock Text="Which world starts · autosave · respawns" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                    </DockPanel>
+                                </Expander.Header>
+                                <StackPanel>
+                                    <CheckBox Content="Resume the last prospect on start" IsChecked="{Binding ResumeProspect}" IsThreeState="True" Margin="0,0,0,4"
+                                              ToolTip="A dash means: not set, the game's own default applies"/>
+                                    <TextBlock FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="20,0,0,6">
+                                        <Run Text="Last prospect: "/><Run Text="{Binding LastProspectName, Mode=OneWay, TargetNullValue='(none yet)'}"/>
+                                    </TextBlock>
+                                    <TextBlock Text="Load prospect on start (blank = none)" FontSize="12"/>
+                                    <ComboBox ItemsSource="{Binding Prospects}" Text="{Binding LoadProspect, UpdateSourceTrigger=PropertyChanged}" IsEditable="True" Margin="0,2,0,8"
+                                              ToolTip="A save under Saved\PlayerData\DedicatedServer\Prospects. Applied before Resume and Create."/>
+                                    <TextBlock Text="Create a new world on start" FontSize="12"/>
+                                    <StackPanel Visibility="{Binding HasProspectChoices, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,2,0,2">
+                                        <ComboBox ItemsSource="{Binding ProspectChoices}" SelectedItem="{Binding NewProspectType}" DisplayMemberPath="Display"
+                                                  ToolTip="The prospect the server creates when it starts: an open world, an outpost or a mission (the game's own list)"/>
+                                        <WrapPanel Margin="0,4,0,0" Visibility="{Binding IsCreatingProspect, Converter={StaticResource BoolToVisibilityConverter}}">
+                                            <ComboBox ItemsSource="{Binding ProspectDifficulties}" SelectedItem="{Binding NewProspectDifficulty}" DisplayMemberPath="Label" Width="110" Margin="0,0,8,4"
+                                                      ToolTip="Difficulty: Easy to Extreme. Higher = tougher creatures and harsher conditions."/>
+                                            <CheckBox Content="Hardcore (no respawns)" IsChecked="{Binding NewProspectHardcore}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                                            <Grid Width="180" Margin="0,0,0,4">
+                                                <TextBox Text="{Binding NewProspectName, UpdateSourceTrigger=PropertyChanged}" ToolTip="The world's save name (spaces become _). Needed for an outpost; a blank one gets a random name."/>
+                                                <TextBlock Text="World name" Style="{StaticResource PlaceholderTextStyle}"
+                                                           Visibility="{Binding NewProspectName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                            </Grid>
+                                        </WrapPanel>
+                                    </StackPanel>
+                                    <TextBox Text="{Binding CreateProspect, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,2"
+                                             Visibility="{Binding HasNoProspectChoices, Converter={StaticResource BoolToVisibilityConverter}}"
+                                             ToolTip="[ProspectType] [Difficulty 1-4] [Hardcore True/False] [SaveName] — run Refresh game data in Settings to pick from a list instead"/>
+                                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"
+                                               Text="{Binding ProspectHint}"/>
+                                    <TextBlock Text="Autosave every (minutes, blank = game default)" FontSize="12"/>
+                                    <TextBox Text="{Binding GameSaveFrequencyText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,2"/>
+                                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Lower = saves more often, so less is lost if the server crashes; higher = fewer saves (slightly less load)."/>
+                                    <CheckBox Content="Save on exit" IsChecked="{Binding SaveGameOnExit}" IsThreeState="True" Margin="0,0,0,4"/>
+                                    <CheckBox Content="Fiber foliage regrows over time" IsChecked="{Binding FiberFoliageRespawn}" IsThreeState="True" Margin="0,0,0,4"/>
+                                    <CheckBox Content="Mined large stones respawn" IsChecked="{Binding LargeStonesRespawn}" IsThreeState="True" Margin="0,0,0,4"/>
+                                </StackPanel>
+                            </Expander>
+                            <Expander Grid.Row="1" Grid.Column="2" VerticalAlignment="Top" IsExpanded="False" Margin="0,0,0,10" AutomationProperties.Name="Lobby">
+                                <Expander.Header>
+                                    <DockPanel LastChildFill="True">
+                                        <TextBlock DockPanel.Dock="Left" Text="Lobby" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                        <TextBlock Text="Empty-world timers · who can launch or delete prospects" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                    </DockPanel>
+                                </Expander.Header>
+                                <StackPanel>
+                                    <TextBlock Text="Return to lobby if nobody joins for (seconds, -1 = never)" FontSize="12"/>
+                                    <TextBox Text="{Binding ShutdownIfNotJoinedForText, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" Margin="0,2,0,2"/>
+                                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Lower = an unused world closes sooner (frees the server); higher = it waits longer for someone to join."/>
+                                    <TextBlock Text="Return to lobby after the last player leaves (seconds, -1 = never)" FontSize="12"/>
+                                    <TextBox Text="{Binding ShutdownIfEmptyForText, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" Margin="0,2,0,2"/>
+                                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Lower = the world closes sooner after everyone leaves; higher = it stays up longer for people to come back."/>
+                                    <CheckBox Content="Players who aren't admins can create or load prospects" IsChecked="{Binding AllowNonAdminsToLaunchProspects}" IsThreeState="True" Margin="0,0,0,4"/>
+                                    <CheckBox Content="Players who aren't admins can delete prospects" IsChecked="{Binding AllowNonAdminsToDeleteProspects}" IsThreeState="True" Margin="0,0,0,4"/>
+                                    <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,4,0,0"
+                                               Text="A checkbox showing a dash isn't set in the file, so the game's own default applies."/>
+                                </StackPanel>
+                            </Expander>
+                            <Expander Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" VerticalAlignment="Top" IsExpanded="False" Margin="0,0,0,10" AutomationProperties.Name="Advanced launch options">
+                                <Expander.Header>
+                                    <DockPanel LastChildFill="True">
+                                        <TextBlock DockPanel.Dock="Left" Text="Advanced" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                        <TextBlock Text="Bind IP · Saved folder suffix · log file name · command line" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                    </DockPanel>
+                                </Expander.Header>
+                                <StackPanel>
+                                    <TextBlock Text="Bind to IP (-MULTIHOME, blank = all)" FontSize="12"/>
+                                    <TextBox Text="{Binding Multihome, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
+                                    <TextBlock Text="Saved folder suffix (for a second server on the same install)" FontSize="12"/>
+                                    <TextBox Text="{Binding SavedDirSuffix, UpdateSourceTrigger=PropertyChanged}" Width="140" HorizontalAlignment="Left" Margin="0,2,0,8"
+                                             ToolTip="-saveddirsuffix — e.g. _2 makes this profile use Icarus\Saved_2 for its settings, logs and worlds"/>
+                                    <TextBlock Text="Log file name (blank = Icarus.log)" FontSize="12"/>
+                                    <TextBox Text="{Binding LogFileName, UpdateSourceTrigger=PropertyChanged}" Width="200" HorizontalAlignment="Left" Margin="0,2,0,8"/>
+                                    <TextBlock Text="Command line Starlink runs" FontSize="12" Margin="0,4,0,2"/>
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right" Content="Copy" Command="{Binding CopyCommandLineCommand}" Margin="8,0,0,0" VerticalAlignment="Top"
+                                                ToolTip="Copies this command line, to run the server the same way from your own script"/>
+                                        <TextBox Text="{Binding CommandLinePreview, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="11.5" TextWrapping="Wrap"/>
+                                    </DockPanel>
+                                    <TextBlock FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0" TextTrimming="CharacterEllipsis">
+                                        <Run Text="Settings file: "/><Run Text="{Binding SettingsIniPath, Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Expander>
                         </Grid>
                     </ScrollViewer>
+                        <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,4,8,0" Margin="0,4,0,0">
+                            <StackPanel>
+                                <TextBlock Text="{Binding ValidationMessage}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                           Visibility="{Binding ValidationMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                <Button Content="Save settings" Command="{Binding SaveSettingsCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                        HorizontalAlignment="Left" Margin="0,6,0,0"
+                                        ToolTip="Writes the launch options here and the game settings into ServerSettings.ini (every other line in that file is kept). A running server picks them up on restart."/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
                 </TabItem>
 
                 <TabItem Header="Mods">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
                         <StackPanel Margin="0,0,8,0">
                             <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,10"
-                                       Text="Stop the server before changing its mods. Each change backs up its worlds and settings first, and anything taken off the server is moved into its backups folder, never deleted. Players need the same content mods as the server."/>
+                                       Text="Stop the server before changing its mods. Installing mods backs up its worlds and settings first, and anything taken off the server is moved into its backups folder, never deleted. Players need the same content mods as the server."/>
 
                             <TextBlock Text="PAK MODS ON THE SERVER" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
                             <TextBlock Text="{Binding MergedPakSummary}" FontSize="12" Margin="0,0,0,6"/>
@@ -698,7 +788,7 @@
                                     <DataTemplate>
                                         <TextBlock>
                                             <Run Text="{Binding Name, Mode=OneWay}"/>
-                                            <Run Text="{Binding SizeBytes, Mode=OneWay, StringFormat='  {0:N0} bytes'}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
+                                            <Run Text="  " FontSize="11"/><Run Text="{Binding SizeBytes, Mode=OneWay, Converter={StaticResource FileSizeConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
                                         </TextBlock>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>

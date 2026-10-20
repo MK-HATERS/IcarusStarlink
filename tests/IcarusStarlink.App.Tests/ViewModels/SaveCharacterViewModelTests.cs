@@ -8,7 +8,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 public class SaveCharacterViewModelTests
 {
     // No real game-data files needed — SaveGameNames degrades to empty lists for every lookup when
-    // the backing files don't exist, and this test only exercises the XP field.
+    // the backing files don't exist; these tests cover XP, talents and cosmetics, none of which need names.
     private static readonly SaveGameNames EmptyNames = new(Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "NoSuchDataFolder"));
 
     private static (SaveCharacterViewModel ViewModel, JsonObject Node) Make(long initialXp = 1000)

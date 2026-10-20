@@ -32,9 +32,9 @@ public sealed class ServerViewModelTests
         ModsPath = modsPath, Win64Path = win64Path,
     };
 
-    private static ServerViewModel CreateViewModel(FakeFtpSiteStore siteStore, IFtpClient ftpClient, FakeDialogService? dialogService = null, string? outputPakPath = null) => new(
+    private static ServerViewModel CreateViewModel(FakeFtpSiteStore siteStore, IFtpClient ftpClient, FakeDialogService? dialogService = null, string? outputPakPath = null, ICredentialStore? credentialStore = null) => new(
         siteStore,
-        new FakeCredentialStore(),
+        credentialStore ?? new FakeCredentialStore(),
         () => ftpClient,
         new FakeActivityLog(),
         new FakeSettingsService(),
@@ -157,6 +157,35 @@ public sealed class ServerViewModelTests
         // of their own, so a Win64Path override moves them along with it.
         Assert.Equal("gameserver/Binaries/Win64/ue4ss", vm.RemoteLoaderPath);
         Assert.Equal("gameserver/Binaries/Win64/ue4ss/Mods", vm.RemoteModsRootPath);
+    }
+
+    /// <summary>Regression: correcting the connected site's Mods path and saving kept the old path for the live connection until a reconnect.</summary>
+    [Fact]
+    public async Task SaveSite_EditingTheConnectedSitesModsPath_AppliesToTheLiveConnection()
+    {
+        var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), new FakeFtpClient());
+        vm.SelectedSite = vm.Sites.Single();
+        vm.PasswordInput = "irrelevant-password";
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        vm.ModsPathInput = "gameserver/Content/Paks/mods";
+        vm.SaveSiteCommand.Execute(null);
+
+        Assert.True(vm.IsConnected);
+        Assert.Equal("gameserver/Content/Paks/mods", vm.RemoteModsPath);
+    }
+
+    /// <summary>Regression: a Credential Manager failure escaped Connect (it flows exceptions to the task scheduler), so the button silently did nothing.</summary>
+    [Fact]
+    public async Task ConnectAsync_CredentialManagerFails_SaysSo()
+    {
+        var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), new FakeFtpClient(), credentialStore: new ThrowingCredentialStore());
+        vm.SelectedSite = vm.Sites.Single();
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.False(vm.IsConnected);
+        Assert.Contains("Credential Manager", vm.ConnectionStatusMessage);
     }
 
     [Fact]
@@ -494,6 +523,15 @@ public sealed class ServerViewModelTests
         public Task DisconnectAsync() => Task.CompletedTask;
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class ThrowingCredentialStore : ICredentialStore
+    {
+        public void Save(string target, string secret) => throw new InvalidOperationException("Credential Manager is unavailable");
+
+        public string? Read(string target) => throw new InvalidOperationException("Credential Manager is unavailable");
+
+        public void Delete(string target) { }
     }
 
     private sealed class FakeCredentialStore : ICredentialStore
