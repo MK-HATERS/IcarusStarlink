@@ -232,6 +232,21 @@ public class BackupCleanupTests : IDisposable
         Assert.Null(BackupCleanup.FindNewestMergedPakBackup(Path.Combine(_tempDir, "nowhere")));
     }
 
+    /// <summary>Two installs in one second: the pak backup numbered _2 pairs with the mod list numbered _2, not the first one's.</summary>
+    [Fact]
+    public void FindNewestMergedPakBackup_TwoInstallsInOneSecond_PairsTheSameNumber()
+    {
+        WriteFile("zz_zz_ISL-Merged_9999_P_20261016-220125.pak");
+        var newest = WriteFile("zz_zz_ISL-Merged_9999_P_20261016-220125_2.pak");
+        WriteFile("ISL-Merged_20261016-220125.txt");
+        var paired = WriteFile("ISL-Merged_20261016-220125_2.txt");
+
+        var found = BackupCleanup.FindNewestMergedPakBackup(_backups)!;
+
+        Assert.Equal(newest, found.PakBackupPath);
+        Assert.Equal(paired, found.ManifestBackupPath);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))
