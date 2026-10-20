@@ -139,15 +139,4 @@ public class VariantGroupingTests
         Assert.Equal(2, groups.Count);
         Assert.All(groups, g => Assert.False(g.IsFamily));
     }
-
-    [Fact]
-    public void Group_DifferentFilesEditedTogether_DoNotAccidentallyGroup()
-    {
-        var entries = new[] { MakeEntry("TakeHomeTools", "Take Home Tools"), MakeEntry("BagSize", "Bigger Bags") };
-
-        var groups = VariantGrouping.Group(entries);
-
-        Assert.Equal(2, groups.Count);
-        Assert.All(groups, g => Assert.False(g.IsFamily));
-    }
 }

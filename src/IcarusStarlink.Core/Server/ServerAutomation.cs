@@ -77,8 +77,6 @@ public sealed class ServerAutomation
 
     public void NoteDailyBackup(DateTime? madeLocal) => LastDailyBackup = madeLocal;
 
-    public int RecentCrashRestarts => _crashRestarts.Count;
-
     /// <summary>
     /// The app (or the owner through the app) is stopping this process: its exit is not a crash,
     /// however long it takes the next beat to notice. Null when the process id isn't known; that

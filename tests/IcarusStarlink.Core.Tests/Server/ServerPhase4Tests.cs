@@ -234,7 +234,7 @@ public sealed class ServerPhase4Tests
         Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Up(Day.AddHours(2))).Kind);
         Assert.Contains(a.DescribeUpcoming(p, Day.AddHours(2), 0), l => l.StartsWith("Next daily backup", StringComparison.Ordinal));
 
-        a.Evaluate(p, Down(Day.AddHours(30), clean: true));
+        // Due, but the server is stopped: nothing until it is up again.
         Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Down(Day.AddHours(30), clean: true)).Kind);
         Assert.Equal(AutomationActionKind.DailyBackup, a.Evaluate(p, Up(Day.AddHours(31))).Kind);
     }
