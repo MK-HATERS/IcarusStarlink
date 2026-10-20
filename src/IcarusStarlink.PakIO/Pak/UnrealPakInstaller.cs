@@ -53,13 +53,10 @@ public sealed class UnrealPakInstaller(IProcessRunner processRunner, HttpClient 
 
     public async Task<string> InstallAsync(CancellationToken cancellationToken = default)
     {
-        // Delete-then-extract rather than extract-over: a Reinstall's whole purpose is repairing
-        // a corrupt copy, and extracting over one leaves any extra/renamed stale file in place.
-        if (Directory.Exists(InstallRoot))
-        {
-            await Task.Run(() => Directory.Delete(InstallRoot, recursive: true), cancellationToken);
-        }
-
+        // Replaced rather than extracted over (a Reinstall's whole purpose is repairing a corrupt
+        // copy, and extracting over one leaves any extra/renamed stale file in place) — but only
+        // once the new copy is fully unpacked and checked (ExtractPayloadIntoInstallRootAsync): a
+        // Reinstall with no internet used to delete the working copy first and leave none at all.
         if (File.Exists(PayloadZipPath))
         {
             await ExtractPayloadIntoInstallRootAsync(PayloadZipPath, cancellationToken);
@@ -67,12 +64,6 @@ public sealed class UnrealPakInstaller(IProcessRunner processRunner, HttpClient 
         else
         {
             await DownloadAndExtractRemotePayloadAsync(cancellationToken);
-        }
-
-        if (!File.Exists(InstalledExePath))
-        {
-            throw new InvalidOperationException(
-                $"The payload extracted but doesn't contain '{ExeRelativePath}' — the UnrealPak payload is mis-packaged.");
         }
 
         return InstalledExePath;
@@ -125,16 +116,37 @@ public sealed class UnrealPakInstaller(IProcessRunner processRunner, HttpClient 
     /// extracted — possibly UnrealPak.exe itself — sitting under InstallRoot, so a later
     /// VerifyAsync reported a half-installed tool as Ok (or Broken with a baffling message), and
     /// the raw InvalidDataException surfaced instead of the plain-language errors every other
-    /// failure here produces. Extracting into a sibling scratch folder and renaming it into place
-    /// means InstallRoot either fully appears or never does.
+    /// failure here produces. Extracting into a sibling scratch folder, checking it holds the exe,
+    /// and only then swapping it in means InstallRoot is either the whole new copy or, on any
+    /// failure, whatever was there before (the previous copy is put back if the swap fails).
     /// </summary>
     private async Task ExtractPayloadIntoInstallRootAsync(string zipPath, CancellationToken cancellationToken)
     {
         var partialRoot = $"{InstallRoot}_partial_{Guid.NewGuid():N}";
+        var retiredRoot = $"{InstallRoot}_old_{Guid.NewGuid():N}";
         try
         {
             await Task.Run(() => ZipFile.ExtractToDirectory(zipPath, partialRoot), cancellationToken);
-            Directory.Move(partialRoot, InstallRoot);
+            if (!File.Exists(Path.Combine(partialRoot, ExeRelativePath)))
+            {
+                throw new InvalidOperationException(
+                    $"The download doesn't contain '{ExeRelativePath}', so it can't be used. Your current UnrealPak (if any) was left as it was.");
+            }
+
+            if (Directory.Exists(InstallRoot))
+            {
+                Directory.Move(InstallRoot, retiredRoot);
+            }
+
+            try
+            {
+                Directory.Move(partialRoot, InstallRoot);
+            }
+            catch when (Directory.Exists(retiredRoot) && !Directory.Exists(InstallRoot))
+            {
+                Directory.Move(retiredRoot, InstallRoot);
+                throw;
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not InvalidOperationException)
         {
@@ -143,17 +155,25 @@ public sealed class UnrealPakInstaller(IProcessRunner processRunner, HttpClient 
         }
         finally
         {
-            if (Directory.Exists(partialRoot))
-            {
-                try
-                {
-                    Directory.Delete(partialRoot, recursive: true);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    // Scratch only — nothing reads it, and the next Install attempt uses a fresh name.
-                }
-            }
+            DeleteScratch(partialRoot);
+            DeleteScratch(retiredRoot);
+        }
+    }
+
+    private static void DeleteScratch(string folder)
+    {
+        if (!Directory.Exists(folder))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Scratch only — nothing reads it, and the next Install attempt uses a fresh name.
         }
     }
 
