@@ -71,6 +71,15 @@ public static partial class Ue4ssVersionComparer
         // this method's own definition but Version.TryParse rejects it with no dot at all, so pad it
         // rather than let a single-component version incorrectly fall back to Unknown.
         var normalized = trimmed.Contains('.') ? trimmed : $"{trimmed}.0";
-        return Version.TryParse(normalized, out version!);
+        if (!Version.TryParse(normalized, out var parsed))
+        {
+            version = new Version();
+            return false;
+        }
+
+        // Missing parts count as 0: System.Version alone ranks "3.0" below "3.0.0" (an absent
+        // Build is -1), which flagged an installed "3.0.1" as below a "3.0.1.0" minimum.
+        version = new Version(parsed.Major, parsed.Minor, Math.Max(parsed.Build, 0), Math.Max(parsed.Revision, 0));
+        return true;
     }
 }

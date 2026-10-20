@@ -49,6 +49,14 @@ public sealed class ModReadmeRequirementsTests
         Assert.Equal(["Some Library 2.0", "Other Thing"], requirements);
     }
 
+    /// <summary>The " v" version marker used to match any word starting with v: "Better Vehicles" became "Better", which any installed "Better…" mod then satisfied.</summary>
+    [Theory]
+    [InlineData("Better Vehicles 1.0", "Better Vehicles")]
+    [InlineData("Valheim Style Building v2.1", "Valheim Style Building")]
+    [InlineData("Some Mod V3", "Some Mod")]
+    public void ExtractName_CutsAtAVersionNotAtAWordStartingWithV(string requirement, string expected) =>
+        Assert.Equal(expected, ModReadmeRequirements.ExtractName(requirement));
+
     [Fact]
     public void ExtractName_StopsBeforeVersionAndParenthesis() =>
         Assert.Equal("ArcFission Library", ModReadmeRequirements.ExtractName("ArcFission Library 1.2.0 or newer (separate download)"));
