@@ -176,7 +176,9 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
         foreach (var profile in _serverStore.GetAll())
         {
             var ini = Path.Combine(DedicatedServerLayout.Win64Folder(profile.InstallFolder), "ue4ss", "UE4SS-settings.ini");
-            if (File.Exists(ini))
+            // Two profiles on one install (different Saved suffixes) share one UE4SS-settings.ini:
+            // list it once, or "also save to" would write and back up the same file twice.
+            if (File.Exists(ini) && !Targets.Any(t => string.Equals(t.IniPath, ini, StringComparison.OrdinalIgnoreCase)))
             {
                 Targets.Add(new Ue4ssConfigTarget($"Server: {profile.Name}", ini, IsServer: true));
             }

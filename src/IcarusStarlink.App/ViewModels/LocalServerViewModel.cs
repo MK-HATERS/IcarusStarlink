@@ -290,7 +290,17 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
-        var ini = ServerSettingsIni.Load(DedicatedServerLayout.SettingsIniPath(root, null)).Read();
+        DedicatedServerSettings ini;
+        try
+        {
+            ini = ServerSettingsIni.Load(DedicatedServerLayout.SettingsIniPath(root, null)).Read();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = $"Couldn't read that server's ServerSettings.ini: {ex.Message}";
+            return;
+        }
+
         var profile = new DedicatedServerProfile
         {
             Name = new DirectoryInfo(root).Name,
@@ -596,7 +606,15 @@ public sealed partial class LocalServerViewModel : ObservableObject
         SavedDirSuffix = p.SavedDirSuffix;
         LogFileName = p.LogFileName;
 
-        var s = ServerSettingsIni.Load(DedicatedServerLayout.SettingsIniPath(p.InstallFolder, p.SavedDirSuffix)).Read();
+        // Guarded like ReadIniSettings: this runs inside the SelectedProfile setter, so a locked or
+        // unreadable ini used to throw straight out of a binding.
+        var s = ReadIniSettings(p);
+        if (s is null)
+        {
+            ValidationMessage = "Couldn't read this server's ServerSettings.ini, so the game settings below are blank. Check the file before you save.";
+            s = new DedicatedServerSettings();
+        }
+
         JoinPassword = s.JoinPassword ?? "";
         AdminPassword = s.AdminPassword ?? "";
         MaxPlayersText = s.MaxPlayers?.ToString(CultureInfo.InvariantCulture) ?? "";

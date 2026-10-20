@@ -52,6 +52,21 @@ public class Ue4ssConfigViewModelTests : IDisposable
         Assert.Equal(["Server: Server #1"], vm.AlsoSaveTo.Select(a => a.Target.Name));
     }
 
+    /// <summary>Regression: two profiles on one install (a second one via a Saved folder suffix) listed the same UE4SS-settings.ini twice.</summary>
+    [Fact]
+    public void TwoProfilesOnOneInstall_ShareOneTarget()
+    {
+        var vm = new Ue4ssConfigViewModel(
+            new FakeSettings { Current = { IcarusContentPath = _contentPath } },
+            new FakeStore([
+                new DedicatedServerProfile { Name = "Server #1", InstallFolder = _serverFolder },
+                new DedicatedServerProfile { Name = "Server #2", InstallFolder = _serverFolder, SavedDirSuffix = "_2" },
+            ]),
+            Path.Combine(_root, "Backups"));
+
+        Assert.Equal(["Game", "Server: Server #1"], vm.Targets.Select(t => t.Name));
+    }
+
     [Fact]
     public void Save_WritesTheGame_AndOnlyTheChangedSettingToATickedServer_WithBackups()
     {
