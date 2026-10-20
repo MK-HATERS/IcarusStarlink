@@ -95,6 +95,9 @@ public sealed class Ue4ssConfigSection(string name, IReadOnlyList<Ue4ssConfigFie
 {
     public string Name { get; } = name;
     public IReadOnlyList<Ue4ssConfigField> Fields { get; } = fields;
+
+    /// <summary>The folding section header's count: "1 setting", "12 settings".</summary>
+    public string Summary => Fields.Count == 1 ? "1 setting" : $"{Fields.Count} settings";
 }
 
 /// <summary>
