@@ -108,8 +108,10 @@ one-click downloads from the website.
 
 **UE4SS** — the official UE4SS loader ships inside the app (hash-checked) and installs in one
 click, no download needed. Enable/disable installed UE4SS (Lua scripting framework) mods without
-touching the framework's own built-in ones, install/update/fully uninstall the loader itself (uninstall
-correctly tells your own mods apart from the framework's bundled ones and only ever removes the
+touching the framework's own built-in ones — "on" means UE4SS really starts the mod (a `1` in
+`mods.txt` or an `enabled.txt` in its folder, UE4SS's own rule), so a mod sitting in the game that
+UE4SS skips shows as **Off in UE4SS** and one tick turns it on — install/update/fully uninstall
+the loader itself (uninstall correctly tells your own mods apart from the framework's bundled ones and only ever removes the
 latter), link a UE4SS mod to its real Nexus page so it participates in update-checking the same way
 Library mods do, and declare a mod's own minimum required UE4SS version (there's no per-mod manifest
 to read this from automatically) to get a warning if your installed loader is older.
