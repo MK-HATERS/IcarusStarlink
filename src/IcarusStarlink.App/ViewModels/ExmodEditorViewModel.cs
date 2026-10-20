@@ -135,8 +135,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// </summary>
     public string? NoDataRowsMessage => _package.Rows.Any(r => r.FileItems.Count > 0) ? null
         : (ExmodChangesFormatter.DescribeReplacedGameFiles(_replacedGameFiles) is { } replaced
-            ? $"This mod has no data-table changes. {replaced}\n\nYou can still add data changes to it: New item from a game item…, Change a game row…, or Scale rules."
-            : "This mod has no data-table changes yet. Add some with New item from a game item…, Change a game row…, or Scale rules.");
+            ? $"This mod has no data-table changes. {replaced}\n\nYou can still add data changes to it: New item from a game item…, More ▾ › Copy a game row into this mod…, or Scale rules."
+            : "This mod has no data-table changes yet. Add some with New item from a game item…, More ▾ › Copy a game row into this mod…, or Scale rules.");
 
     public ObservableCollection<EditorItemViewModel> Items { get; } = [];
 
@@ -294,6 +294,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
+        MassEditFieldName = MassEditFieldName.Trim();
         if (string.IsNullOrWhiteSpace(MassEditFieldName))
         {
             MassEditStatusMessage = "Field name is required.";
@@ -687,6 +688,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [RelayCommand]
     private void SetViewMode(string mode) => ViewMode = Enum.Parse<ExmodEditorViewMode>(mode);
 
+    /// <summary>Every pane currently popped out of this editor, one per ExmodEditorViewMode — this is what makes PopOutCurrentView idempotent instead of piling up duplicate windows for the same view on repeated clicks.</summary>
+    private readonly List<ExmodPaneWindow> _openPaneWindows = [];
+
     /// <summary>
     /// Detaches whichever view is currently showing into its own floating window — a real gap the
     /// pre-Phase-10 review flagged and the plan deliberately left cut ("arrangement, not
@@ -696,15 +700,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// Application.Windows (a ViewModel has no stored back-reference to it) so the pop-out is owned
     /// by the editor window it came from, not the main app window.
     /// </summary>
-    /// <summary>Every pane currently popped out of this editor, one per ExmodEditorViewMode — this is what makes PopOutCurrentView idempotent instead of piling up duplicate windows for the same view on repeated clicks.</summary>
-    private readonly List<ExmodPaneWindow> _openPaneWindows = [];
-
     [RelayCommand]
     private void PopOutCurrentView()
     {
         if (ViewMode == ExmodEditorViewMode.ScaleRules)
         {
-            StatusMessage = "Scale rules stay in this window — pop out Item fields or a JSON view to watch the rows they write.";
+            StatusMessage = "Scale rules stay in this window — pop out Fields or a JSON view to watch the rows they write.";
             return;
         }
 
@@ -768,6 +769,15 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
+        // A changed "CurrentFile" naming another file this mod already has would leave that file
+        // in the mod twice, and only one of the two would be merged.
+        if (!string.Equals(newRow.CurrentFile, SelectedItem.CurrentFile, StringComparison.OrdinalIgnoreCase)
+            && _package.Rows.Any(r => string.Equals(r.CurrentFile, newRow.CurrentFile, StringComparison.OrdinalIgnoreCase)))
+        {
+            RawJsonStatusMessage = $"Not applied: this mod already has \"{newRow.CurrentFile}\". Edit it there, or keep \"CurrentFile\" as \"{SelectedItem.CurrentFile}\".";
+            return;
+        }
+
         PushUndoSnapshot();
         var existingIndex = _package.Rows.FindIndex(r => r.CurrentFile == SelectedItem.CurrentFile);
         if (existingIndex >= 0)
@@ -780,9 +790,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         }
 
         RefreshBaseDiff();
-        var previousFile = SelectedItem.CurrentFile;
+        var appliedFile = newRow.CurrentFile;
         ReloadItems();
-        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == previousFile) ?? Items.FirstOrDefault();
+        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == appliedFile) ?? Items.FirstOrDefault();
         RawJsonStatusMessage = "Applied.";
     }
 
@@ -1076,6 +1086,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
+        NewFieldName = NewFieldName.Trim();
         if (string.IsNullOrWhiteSpace(NewFieldName))
         {
             StatusMessage = "Field name is required.";
@@ -1149,6 +1160,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         // Matches the real EXMOD CurrentFile convention confirmed throughout Phase 6:
         // "Traits/D_Fuel.json" typed by a user -> "Traits-D_Fuel.json" as stored.
         var currentFile = NewItemCurrentFile.Trim().Replace('/', '-').Replace('\\', '-');
+        NewItemName = NewItemName.Trim();
 
         // Validated BEFORE the undo snapshot (an audit finding): a refused add used to leave a no-op
         // snapshot on the stack, so the user's next Undo "undid" nothing.

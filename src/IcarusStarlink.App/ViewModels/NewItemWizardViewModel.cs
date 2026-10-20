@@ -325,7 +325,7 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
                 RecipeBench = string.IsNullOrWhiteSpace(SelectedBench) ? "Crafting_Bench" : SelectedBench.Trim(),
                 UnlockWithSource = UnlockWithSource && CanUnlockWithSource,
                 WorkshopTree = UseExistingTree ? SelectedTree : null,
-                NewWorkshopTab = UseExistingTree ? null : (string.IsNullOrWhiteSpace(NewTabName) ? DisplayName : NewTabName),
+                NewWorkshopTab = UseExistingTree ? null : (string.IsNullOrWhiteSpace(NewTabName) ? DisplayName.Trim() : NewTabName.Trim()),
                 ResearchCredits = research,
                 ReplicationCredits = replication,
             }, _mod);
