@@ -145,4 +145,69 @@ public sealed class SaveGameNamesTests : IDisposable
         // The mission row in the save -> the reward its completion gives.
         Assert.Equal(["GrantedBlueprint_Bait"], names.MissionRewardFlags["Prospect_RL_Extermination"]);
     }
+
+    /// <summary>Warm reads each table once and keeps what it built; only Invalidate (Refresh game data) reads the folder again.</summary>
+    [Fact]
+    public void Warm_KeepsTheNames_UntilInvalidate()
+    {
+        Write(@"Talents\D_Talents.json", """
+            { "Rows": [ { "Name": "Wood_Sticks", "TalentTree": { "RowName": "Survival_Resources" } } ] }
+            """);
+        Write(@"Items\D_ItemsStatic.json", """
+            { "Rows": [ { "Name": "Wood" } ] }
+            """);
+        var names = new SaveGameNames(_data);
+
+        names.Warm();
+        Directory.Delete(_data, recursive: true);
+
+        Assert.True(names.Talents.ContainsKey("Wood_Sticks"));
+        Assert.Contains("Wood", names.RowNameSet("Items/D_ItemsStatic.json"));
+        names.Invalidate();
+        Assert.Empty(names.Talents);
+        Assert.Empty(names.RowNameSet("Items/D_ItemsStatic.json"));
+    }
+
+    /// <summary>The page warms the names in the background while SaveModSources reads them on another thread.</summary>
+    [Fact]
+    public async Task Lookups_FromSeveralThreadsAtOnce_AllSeeTheSameTable()
+    {
+        Write(@"Talents\D_Talents.json", """
+            { "Rows": [ { "Name": "A" }, { "Name": "B" }, { "Name": "C" } ] }
+            """);
+        var names = new SaveGameNames(_data);
+
+        var counts = await Task.WhenAll(Enumerable.Range(0, 8).Select(i => Task.Run(() =>
+        {
+            if (i % 2 == 0)
+            {
+                names.Warm();
+            }
+
+            return names.Talents.Count + names.RowNameSet("Talents/D_Talents.json").Count;
+        })));
+
+        Assert.All(counts, c => Assert.Equal(6, c));
+    }
+
+    /// <summary>D_PlayerTalentModifiers and D_Talents rows that leave a field out take the table's Defaults, as the game does.</summary>
+    [Fact]
+    public void TalentPointsAndGrantedFlags_TakeTheTablesDefaults()
+    {
+        Write(@"Talents\D_PlayerTalentModifiers.json", """
+            { "Defaults": { "TalentPointModifier": 2 },
+              "Rows": [ { "Name": "Story", "RequiredFlags": [ { "RowName": "GrantedTalent_Story" } ] } ] }
+            """);
+        Write(@"Talents\D_Talents.json", """
+            { "Defaults": { "Rewards": [ { "GrantedFlags": [ { "RowName": "Talent_Default_Flag" } ] } ] },
+              "Rows": [ { "Name": "Plain_Talent" } ] }
+            """);
+        Write(@"Flags\D_CharacterFlags.json", """
+            { "Rows": [ { "Name": "Talent_Default_Flag" } ] }
+            """);
+        var names = new SaveGameNames(_data);
+
+        Assert.Equal(2, names.TalentPointModifiers["GrantedTalent_Story"]);
+        Assert.Equal(FlagKind.FromTalent, names.CharacterFlagInfo(0).Kind);
+    }
 }

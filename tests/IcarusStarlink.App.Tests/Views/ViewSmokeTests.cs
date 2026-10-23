@@ -71,6 +71,22 @@ public sealed class ViewSmokeTests
                         failures.Add($"{type.Name}: {ex.InnerException!.Message}");
                     }
                 }
+
+                // Templates only load when something uses them: the Saves page's shared ones are built here.
+                try
+                {
+                    var saves = new ResourceDictionary { Source = new Uri("/IcarusStarlink.App;component/Views/SavesResources.xaml", UriKind.Relative) };
+                    foreach (var template in saves.Values.OfType<DataTemplate>())
+                    {
+                        template.LoadContent();
+                    }
+
+                    new TextBox { Style = (Style)saves["SaveSearchBoxStyle"] }.ApplyTemplate();
+                }
+                catch (Exception ex) when (ex is XamlParseException or InvalidOperationException)
+                {
+                    failures.Add($"SavesResources: {ex.Message}");
+                }
             }
             catch (Exception ex)
             {

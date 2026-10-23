@@ -5,9 +5,8 @@ using CommunityToolkit.Mvvm.Input;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>One trackable creature's encounter points — same deferred-apply text-box pattern as SaveCurrencyViewModel. A creature with no prior save entry starts at 0, same as an untracked currency would.</summary>
-public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirtyTrackable
+public sealed partial class SaveBestiaryEntryViewModel : DirtyRow
 {
-    private readonly Action _onDirtyChanged;
     private int _originalPoints;
 
     public string RowName { get; }
@@ -29,7 +28,7 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
     [ObservableProperty]
     private string _pointsText;
 
-    public bool IsDirty => int.TryParse(PointsText, out var points) ? points != _originalPoints : PointsText != _originalPoints.ToString();
+    public override bool IsDirty => int.TryParse(PointsText, out var points) ? points != _originalPoints : PointsText != _originalPoints.ToString();
 
     /// <summary>What Save should actually write: the parsed text, or the last-known-good value if the box is currently unparsable (e.g. mid-edit, cleared) — a save must never drop this entry just because the text box isn't a valid number right now.</summary>
     public int EffectivePoints => int.TryParse(PointsText, out var points) ? points : _originalPoints;
@@ -41,6 +40,7 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
     public bool IsComplete => PointsRequired > 0 && EffectivePoints >= PointsRequired;
 
     public SaveBestiaryEntryViewModel(string rowName, string displayName, int pointsRequired, bool isBoss, int currentPoints, string? imagePath, Action onDirtyChanged, string group = "")
+        : base(onDirtyChanged)
     {
         Group = group.Length > 0 ? group : "Not in the game's tables";
         RowName = rowName;
@@ -50,7 +50,6 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
         ImagePath = imagePath;
         _originalPoints = currentPoints;
         _pointsText = currentPoints.ToString();
-        _onDirtyChanged = onDirtyChanged;
     }
 
     // Caps NEW input at PointsRequired — the real ceiling ("Set max" fills in this exact value,
@@ -74,7 +73,7 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
             {
                 _pointsText = "0";
                 OnPropertyChanged(nameof(PointsText));
-                Changed();
+                PointsChanged();
                 return;
             }
 
@@ -85,13 +84,13 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
                 {
                     _pointsText = ceiling.ToString();
                     OnPropertyChanged(nameof(PointsText));
-                    Changed();
+                    PointsChanged();
                     return;
                 }
             }
         }
 
-        Changed();
+        PointsChanged();
     }
 
     /// <summary>0 means "the current data extraction doesn't recognize this creature," not "already maxed" — writing 0 here would zero out real tracked progress instead of maxing it, so this only fires when a real cap is known.</summary>
@@ -100,20 +99,17 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
     [RelayCommand(CanExecute = nameof(CanSetMax))]
     private void SetMax() => PointsText = PointsRequired.ToString();
 
-    public void MarkClean()
+    protected override void Snapshot()
     {
         if (int.TryParse(PointsText, out var points))
         {
             _originalPoints = points;
         }
-
-        OnPropertyChanged(nameof(IsDirty));
     }
 
-    private void Changed()
+    private void PointsChanged()
     {
-        OnPropertyChanged(nameof(IsDirty));
         OnPropertyChanged(nameof(IsComplete));
-        _onDirtyChanged();
+        Changed();
     }
 }

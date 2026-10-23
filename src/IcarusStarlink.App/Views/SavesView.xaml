@@ -7,35 +7,7 @@
              mc:Ignorable="d">
 
     <UserControl.Resources>
-        <!-- A row changed since the last load or save: a small dot before it. -->
-        <Style x:Key="ChangedMarkStyle" TargetType="Ellipse">
-            <Setter Property="Width" Value="7"/>
-            <Setter Property="Height" Value="7"/>
-            <Setter Property="Margin" Value="0,0,6,0"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-            <Setter Property="DockPanel.Dock" Value="Left"/>
-            <Setter Property="Fill" Value="{DynamicResource AccentBrush}"/>
-            <Setter Property="ToolTip" Value="Changed, not saved yet"/>
-            <Setter Property="Visibility" Value="Hidden"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsDirty}" Value="True">
-                    <Setter Property="Visibility" Value="Visible"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        <!-- Where a row the game doesn't have comes from (SaveModSources): faint for a mod you have,
-             accent for a leftover that Remove leftovers would take out. -->
-        <Style x:Key="SaveRowSourceStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Source}" Value="{x:Null}">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Source.IsRemovable}" Value="True">
-                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
+        <ResourceDictionary Source="SavesResources.xaml"/>
     </UserControl.Resources>
 
     <Grid Margin="32,32,32,20">
@@ -99,151 +71,7 @@
             <!-- Overview: character cards + account snapshot, per Icarus Workshop's own save
                  editor layout ("character cards plus account snapshot ... Click a card to edit"). -->
             <TabItem Header="Overview">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
-                    <StackPanel>
-                        <ItemsControl ItemsSource="{Binding Characters}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <WrapPanel/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Button Command="{Binding DataContext.EditCharacterCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                            CommandParameter="{Binding}" Padding="0" Margin="0,0,12,12"
-                                            AutomationProperties.Name="{Binding Name}"
-                                            ToolTip="Click to edit this character">
-                                        <Border Width="240" Background="{DynamicResource CardBackgroundBrush}"
-                                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="16,12">
-                                            <StackPanel>
-                                                <StackPanel Orientation="Horizontal">
-                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="15" TextTrimming="CharacterEllipsis"/>
-                                                    <Border Margin="8,0,0,0" CornerRadius="8" Padding="6,1" VerticalAlignment="Center"
-                                                            Background="{DynamicResource DangerSoftBrush}"
-                                                            Visibility="{Binding IsDead, Converter={StaticResource BoolToVisibilityConverter}}">
-                                                        <TextBlock Text="DEAD" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource DangerBrush}"/>
-                                                    </Border>
-                                                    <Border Margin="6,0,0,0" CornerRadius="8" Padding="6,1" VerticalAlignment="Center" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
-                                                            Visibility="{Binding OverBudget, Converter={StaticResource NullToVisibilityConverter}}"
-                                                            ToolTip="{Binding OverBudget, StringFormat='More ranks than points: {0}. The game keeps them; see the Talents tab.'}">
-                                                        <TextBlock Text="OVER BUDGET" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource AccentBrush}"/>
-                                                    </Border>
-                                                </StackPanel>
-                                                <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}">
-                                                    <Run Text="Slot "/><Run Text="{Binding ChrSlot, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding LocationDisplay, Mode=OneWay}"/>
-                                                </TextBlock>
-                                                <TextBlock Margin="0,8,0,0" FontFamily="Consolas" FontSize="13">
-                                                    <Run Text="XP " Foreground="{DynamicResource FaintForegroundBrush}"/><Run Text="{Binding XpDisplay, Mode=OneWay}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"/>
-                                                </TextBlock>
-                                            </StackPanel>
-                                        </Border>
-                                    </Button>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-
-                        <!-- Account snapshot -->
-                        <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1" CornerRadius="6" Padding="16,12" HorizontalAlignment="Left" MinWidth="360" Margin="0,4,0,0">
-                            <StackPanel>
-                                <TextBlock Text="Account" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
-                                <ItemsControl ItemsSource="{Binding Currencies}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <UniformGrid Columns="2"/>
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <DockPanel Margin="0,2,18,2" LastChildFill="False">
-                                                <TextBlock DockPanel.Dock="Left" Text="{Binding Label}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12.5" VerticalAlignment="Center"/>
-                                                <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" FontFamily="Consolas" FontSize="12.5" VerticalAlignment="Center" Margin="14,0,0,0"/>
-                                            </DockPanel>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Save check (SaveChecker) -->
-                        <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1" CornerRadius="6" Padding="16,12" HorizontalAlignment="Left" MaxWidth="900" Margin="0,12,0,0">
-                            <StackPanel>
-                                <DockPanel>
-                                    <Button DockPanel.Dock="Right" Content="Check again" Command="{Binding RunSaveCheckCommand}" Padding="10,3"/>
-                                    <Button DockPanel.Dock="Right" Content="Fix all sure ones…" Command="{Binding FixAllFindingsCommand}" Padding="10,3" Margin="0,0,8,0"
-                                            Visibility="{Binding HasFixableFindings, Converter={StaticResource BoolToVisibilityConverter}}"
-                                            ToolTip="Makes every fix offered for a problem or warning below; notes stay your choice (DLC ones too, unless the switch is on)"/>
-                                    <CheckBox DockPanel.Dock="Right" Style="{StaticResource ToggleSwitchStyle}" Content="Include DLC and Supporter" IsChecked="{Binding FixAllIncludesDlc}"
-                                              VerticalAlignment="Center" Margin="0,0,12,0" ToolTip="Fix all also turns on the DLC and Supporters Edition packs named in the notes below"/>
-                                    <TextBlock VerticalAlignment="Center">
-                                        <Run Text="Save check" FontWeight="SemiBold" FontSize="14"/><Run Text="   "/><Run Text="{Binding CheckSummary, Mode=OneWay}" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                                    </TextBlock>
-                                </DockPanel>
-                                <TextBlock TextWrapping="Wrap" FontSize="11.5" Margin="0,4,0,6" Foreground="{DynamicResource FaintForegroundBrush}"
-                                           Text="Checks what Save would write, unsaved edits included. DLC and Supporter Edition content is checked against the cached DLC list, as notes only: the game checks ownership itself."/>
-                                <ItemsControl ItemsSource="{Binding CheckFindings}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <DockPanel Margin="0,3">
-                                                <Button DockPanel.Dock="Right" Content="{Binding FixLabel}" Padding="8,1" Margin="10,0,0,0" VerticalAlignment="Top"
-                                                        Command="{Binding DataContext.FixFindingCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"
-                                                        Visibility="{Binding CanFix, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                                <Border DockPanel.Dock="Left" CornerRadius="8" Padding="6,0" Margin="0,1,8,0" VerticalAlignment="Top" MinWidth="58">
-                                                    <Border.Style>
-                                                        <Style TargetType="Border">
-                                                            <Setter Property="Background" Value="{DynamicResource CardRaisedBackgroundBrush}"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding Severity}" Value="Problem">
-                                                                    <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Border.Style>
-                                                    <TextBlock Text="{Binding SeverityLabel}" FontSize="10.5" TextAlignment="Center">
-                                                        <TextBlock.Style>
-                                                            <Style TargetType="TextBlock">
-                                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding Severity}" Value="Problem">
-                                                                        <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
-                                                                    </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Severity}" Value="Warning">
-                                                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </TextBlock.Style>
-                                                    </TextBlock>
-                                                </Border>
-                                                <TextBlock TextWrapping="Wrap" FontSize="12.5">
-                                                    <Run Text="{Binding Area, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=": "/><Run Text="{Binding Message, Mode=OneWay}"/>
-                                                </TextBlock>
-                                            </DockPanel>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Leftovers from mods the user no longer has (SaveModSources) -->
-                        <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource AccentBrush}"
-                                BorderThickness="1" CornerRadius="6" Padding="16,12" HorizontalAlignment="Left" MaxWidth="720" Margin="0,12,0,0"
-                                Visibility="{Binding HasLeftovers, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <StackPanel>
-                                <TextBlock Text="Leftovers from old mods" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,6"/>
-                                <TextBlock TextWrapping="Wrap" FontSize="12.5" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                           Text="This save still has talents, research or items that no installed mod and no mod in your Library gives (or that the game itself removed). The game ignores them; taking them out tidies the save and gives back the talent points they used."/>
-                                <TextBlock Text="{Binding LeftoversSummary}" FontFamily="Consolas" FontSize="12.5" Margin="0,8,0,0" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding ModsInUseSummary}" FontSize="12" Margin="0,4,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
-                                           Visibility="{Binding ModsInUseSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                <TextBlock FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}"
-                                           Text="Before removing a UE4SS mod, check here first: rows a mod gives are marked &quot;From &lt;mod&gt;&quot; on the Talents, Workshop, Missions and Items tabs, and once the mod is gone they show up in this list. UE4SS mods that add rows the ArcFission way (like WirelessPower) are read; a script mod that adds talents some other way can't be, so look over the list before removing."/>
-                                <Button Content="Remove leftovers…" Command="{Binding RemoveLeftoversCommand}" HorizontalAlignment="Left" Padding="12,4" Margin="0,10,0,0"/>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-                </ScrollViewer>
+                <views:SavesOverviewTab/>
             </TabItem>
 
             <!-- Characters: edit the selected character + profile currencies (spec: "Profile
@@ -382,11 +210,8 @@
                 </TabItem.Resources>
                 <DockPanel Margin="0,10,0,0">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                        <Grid Width="260" VerticalAlignment="Center">
-                            <TextBox Text="{Binding TalentSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search talents (name or tree)"/>
-                            <TextBlock Text="Search talents (name or tree)…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding TalentSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <TextBox Width="260" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search talents (name or tree)…"
+                                 Text="{Binding TalentSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search talents (name or tree)"/>
                         <TextBlock Text="Show" VerticalAlignment="Center" Margin="14,0,6,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                         <ComboBox ItemsSource="{Binding TalentKindOptions}" SelectedItem="{Binding TalentKind}" Width="110" AutomationProperties.Name="Which trees"/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Show unlearned" IsChecked="{Binding ShowUnlearnedTalents}"
@@ -441,37 +266,10 @@
                         </StackPanel>
                     </Expander>
                     <ListBox ItemsSource="{Binding Source={StaticResource TalentGroups}}" HorizontalContentAlignment="Stretch"
-                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling" ItemTemplate="{StaticResource SaveTalentRowTemplate}">
                         <ListBox.GroupStyle>
-                            <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
-                            </GroupStyle>
+                            <GroupStyle HeaderTemplate="{StaticResource SaveGroupHeaderTemplate}"/>
                         </ListBox.GroupStyle>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <DockPanel Margin="2" ToolTip="{Binding Description}">
-                                    <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
-                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
-                                        <TextBlock Text="{Binding RankDisplay}" MinWidth="44" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
-                                        <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" IsEnabled="{Binding CanRankUp}" AutomationProperties.Name="Rank up"
-                                                ToolTip="One rank higher. Greyed out: already at the highest rank this talent has." ToolTipService.ShowOnDisabled="True"/>
-                                    </StackPanel>
-                                    <StackPanel VerticalAlignment="Center">
-                                        <TextBlock FontSize="12.5">
-                                            <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
-                                        </TextBlock>
-                                        <TextBlock Text="{Binding Source.Label}" FontSize="11" TextWrapping="Wrap" Style="{StaticResource SaveRowSourceStyle}"/>
-                                        <TextBlock Text="{Binding PackNote}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                                   Visibility="{Binding PackNote, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                    </StackPanel>
-                                </DockPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
                     </ListBox>
                 </DockPanel>
             </TabItem>
@@ -487,47 +285,17 @@
                 </TabItem.Resources>
                 <DockPanel Margin="0,10,0,0">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                        <Grid Width="260" VerticalAlignment="Center">
-                            <TextBox Text="{Binding WorkshopSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search research"/>
-                            <TextBlock Text="Search research…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding WorkshopSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <TextBox Width="260" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search research…"
+                                 Text="{Binding WorkshopSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search research"/>
                         <TextBlock Text="{Binding WorkshopSummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                     </WrapPanel>
                     <TextBlock DockPanel.Dock="Top" Text="Account-wide: every character can buy what's researched here from the Workshop." FontSize="12"
                                Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"/>
                     <ListBox ItemsSource="{Binding Source={StaticResource WorkshopGroups}}" HorizontalContentAlignment="Stretch"
-                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling" ItemTemplate="{StaticResource SaveTalentRowTemplate}">
                         <ListBox.GroupStyle>
-                            <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
-                            </GroupStyle>
+                            <GroupStyle HeaderTemplate="{StaticResource SaveGroupHeaderTemplate}"/>
                         </ListBox.GroupStyle>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <DockPanel Margin="2" ToolTip="{Binding RowName}">
-                                    <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
-                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
-                                        <TextBlock Text="{Binding RankDisplay}" MinWidth="44" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
-                                        <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" IsEnabled="{Binding CanRankUp}" AutomationProperties.Name="Rank up"
-                                                ToolTip="One rank higher. Greyed out: already at the highest rank this talent has." ToolTipService.ShowOnDisabled="True"/>
-                                    </StackPanel>
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Cost}" VerticalAlignment="Center" Margin="0,0,14,0" FontSize="11.5"
-                                               Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                                    <StackPanel VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding DisplayName}" FontSize="12.5"/>
-                                        <TextBlock Text="{Binding Source.Label}" FontSize="11" TextWrapping="Wrap" Style="{StaticResource SaveRowSourceStyle}"/>
-                                        <TextBlock Text="{Binding PackNote}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                                   Visibility="{Binding PackNote, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                    </StackPanel>
-                                </DockPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
                     </ListBox>
                 </DockPanel>
             </TabItem>
@@ -543,11 +311,8 @@
                 </TabItem.Resources>
                 <DockPanel Margin="0,10,0,0">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                        <Grid Width="260" VerticalAlignment="Center">
-                            <TextBox Text="{Binding MissionSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search missions"/>
-                            <TextBlock Text="Search missions…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding MissionSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <TextBox Width="260" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search missions…"
+                                 Text="{Binding MissionSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search missions"/>
                         <TextBlock Text="{Binding MissionsSummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                     </WrapPanel>
                     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"
@@ -555,13 +320,7 @@
                     <ListBox ItemsSource="{Binding Source={StaticResource MissionGroups}}" HorizontalContentAlignment="Stretch"
                              VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>
-                            <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
-                            </GroupStyle>
+                            <GroupStyle HeaderTemplate="{StaticResource SaveGroupHeaderTemplate}"/>
                         </ListBox.GroupStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -589,122 +348,7 @@
                  editing; markers, prompts and talent-granted flags sit under Advanced; flags the game
                  doesn't use hide unless asked for. -->
             <TabItem Header="Unlocks">
-                <TabItem.Resources>
-                    <DataTemplate x:Key="UnlockRowTemplate">
-                        <Border Padding="6,4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
-                            <DockPanel>
-                                <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
-                                <CheckBox DockPanel.Dock="Left" Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding IsUnlocked}" IsEnabled="{Binding IsEditable}"
-                                          VerticalAlignment="Center" Margin="0,0,10,0" AutomationProperties.Name="{Binding Name}"/>
-                                <StackPanel ToolTip="{Binding RowName}">
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
-                                    <TextBlock Text="{Binding Detail}" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"
-                                               Visibility="{Binding Detail, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                    <TextBlock Text="{Binding LinkHint}" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" TextWrapping="Wrap"
-                                               Visibility="{Binding LinkHint, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                    <TextBlock Text="{Binding LearnedNote}" FontSize="11.5" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"
-                                               Visibility="{Binding ShowLearnedNote, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                </StackPanel>
-                            </DockPanel>
-                        </Border>
-                    </DataTemplate>
-                </TabItem.Resources>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
-                    <StackPanel>
-                        <DockPanel Margin="0,0,0,10">
-                            <CheckBox DockPanel.Dock="Right" Content="{Binding ShowUnusedFlagsLabel}" IsChecked="{Binding ShowUnusedFlags}" VerticalAlignment="Center" FontSize="12"
-                                      ToolTip="Deprecated, tooltip-only, test and never-granted flags: nothing in the game reads them."/>
-                            <Grid Width="260" HorizontalAlignment="Left">
-                                <TextBox Text="{Binding FlagSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search unlocks"/>
-                                <TextBlock Text="Search unlocks (name or what it unlocks)…" Style="{StaticResource PlaceholderTextStyle}"
-                                           Visibility="{Binding FlagSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                            </Grid>
-                        </DockPanel>
-
-                        <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Mission reward unlocks">
-                            <Expander.Header>
-                                <DockPanel LastChildFill="True">
-                                    <TextBlock DockPanel.Dock="Left" Text="Mission reward unlocks" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                                    <TextBlock Text="{Binding RewardFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
-                                </DockPanel>
-                            </Expander.Header>
-                        <StackPanel>
-                            <TextBlock Text="Account-wide. Each comes from finishing a mission and unlocks the blueprints or workshop items named under it." Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
-                            <ItemsControl ItemsSource="{Binding RewardFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
-                        </StackPanel>
-                        </Expander>
-
-                        <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Bonus talent points">
-                            <Expander.Header>
-                                <DockPanel LastChildFill="True">
-                                    <TextBlock DockPanel.Dock="Left" Text="Bonus talent points" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                                    <TextBlock Text="{Binding TalentPointFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
-                                </DockPanel>
-                            </Expander.Header>
-                        <StackPanel>
-                            <TextBlock Text="Account-wide. Each adds talent points to every character." Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
-                            <ItemsControl ItemsSource="{Binding TalentPointFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
-                        </StackPanel>
-                        </Expander>
-
-                        <Expander IsExpanded="False" Margin="0,0,0,10" AutomationProperties.Name="Advanced flags">
-                            <Expander.Header>
-                                <DockPanel LastChildFill="True">
-                                    <TextBlock DockPanel.Dock="Left" Text="Advanced" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                                    <TextBlock Text="{Binding AdvancedFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
-                                </DockPanel>
-                            </Expander.Header>
-                        <StackPanel>
-                            <TextBlock Text="Markers the game sets itself (level boosts claimed, refunds done, story steps), pop-ups already seen, and this character's flags. Talent-granted flags follow their talent and can't be switched here." Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
-                            <ItemsControl ItemsSource="{Binding AdvancedFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
-                        </StackPanel>
-                        </Expander>
-
-                        <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Unused flags"
-                                  Visibility="{Binding ShowUnusedFlags, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <Expander.Header>
-                                <DockPanel LastChildFill="True">
-                                    <TextBlock DockPanel.Dock="Left" Text="Flags the game doesn't use" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                                    <TextBlock Text="{Binding UnusedFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
-                                </DockPanel>
-                            </Expander.Header>
-                            <ItemsControl ItemsSource="{Binding UnusedFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
-                        </Expander>
-
-                        <!-- flags_<SteamID>.dat is the game's cached list of owned DLC, not flags
-                             (SavesViewModel.BuildBinaryFlags): one toggle per pack, by its real name. -->
-                        <Expander IsExpanded="True" AutomationProperties.Name="Owned DLC"
-                                  Visibility="{Binding HasBinaryFlags, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <Expander.Header>
-                                <DockPanel LastChildFill="True">
-                                    <TextBlock DockPanel.Dock="Left" Text="Owned DLC" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                                    <TextBlock Text="{Binding OwnedDlcSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
-                                </DockPanel>
-                            </Expander.Header>
-                        <StackPanel>
-                            <TextBlock Text="The game's cached list of the DLC it last saw this account own (the slot's flags file). The game also checks DLC itself when it starts (Steam, or a DLC unlocker), so a pack that's off here can still work in game, and a change here can be undone by that check."
-                                       Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
-                            <ItemsControl ItemsSource="{Binding FilteredBinaryFlags}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <WrapPanel/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Margin="0,2,16,2" MaxWidth="420">
-                                            <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding Name}" IsChecked="{Binding IsUnlocked}"
-                                                      ToolTip="{Binding RowName}"/>
-                                            <TextBlock Text="{Binding LearnedNote}" FontSize="11" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap" Margin="40,0,0,0"
-                                                       Visibility="{Binding ShowLearnedNote, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                        </Expander>
-                    </StackPanel>
-                </ScrollViewer>
+                <views:SavesUnlocksTab/>
             </TabItem>
 
             <!-- Bestiary: encounter points per creature, from the account-wide BestiaryData.json.
@@ -725,11 +369,8 @@
                     </Grid.RowDefinitions>
 
                     <WrapPanel Grid.Row="0" Margin="0,0,0,10">
-                        <Grid Width="240" VerticalAlignment="Center">
-                            <TextBox Text="{Binding BestiarySearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search creatures"/>
-                            <TextBlock Text="Search creatures…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding BestiarySearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <TextBox Width="240" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search creatures…"
+                                 Text="{Binding BestiarySearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search creatures"/>
                         <TextBlock Text="{Binding BestiarySummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Only not complete" IsChecked="{Binding ShowIncompleteBestiaryOnly}" Margin="14,0,0,0" VerticalAlignment="Center"/>
                         <Button Content="Complete all shown" Command="{Binding CompleteShownBestiaryCommand}" Padding="10,3" Margin="14,0,0,0"
@@ -739,13 +380,7 @@
                     <ListBox Grid.Row="1" ItemsSource="{Binding Source={StaticResource BestiaryGroups}}" HorizontalContentAlignment="Stretch"
                              VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>
-                            <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
-                            </GroupStyle>
+                            <GroupStyle HeaderTemplate="{StaticResource SaveGroupHeaderTemplate}"/>
                         </ListBox.GroupStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -795,24 +430,15 @@
                 </TabItem.Resources>
                 <DockPanel Margin="0,10,0,0">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                        <Grid Width="260" VerticalAlignment="Center">
-                            <TextBox Text="{Binding AccoladeSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search accolades"/>
-                            <TextBlock Text="Search accolades…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding AccoladeSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <TextBox Width="260" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search accolades…"
+                                 Text="{Binding AccoladeSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search accolades"/>
                         <TextBlock Text="{Binding AccoladesSummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Only not earned" IsChecked="{Binding ShowUnearnedAccoladesOnly}" Margin="14,0,0,0" VerticalAlignment="Center"/>
                     </WrapPanel>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding Source={StaticResource AccoladeGroups}}">
                             <ItemsControl.GroupStyle>
-                                <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
-                            </GroupStyle>
+                                <GroupStyle HeaderTemplate="{StaticResource SaveGroupHeaderTemplate}"/>
                             </ItemsControl.GroupStyle>
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -843,11 +469,8 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0" Width="240" HorizontalAlignment="Left" Margin="0,0,0,10">
-                        <TextBox Text="{Binding ItemSearchText, UpdateSourceTrigger=PropertyChanged}"/>
-                        <TextBlock Text="Search items…" Style="{StaticResource PlaceholderTextStyle}"
-                                   Visibility="{Binding ItemSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                    </Grid>
+                    <TextBox Grid.Row="0" Width="240" HorizontalAlignment="Left" Margin="0,0,0,10" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search items…"
+                             Text="{Binding ItemSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search items"/>
 
                     <ListBox Grid.Row="1" ItemsSource="{Binding FilteredMetaInventoryItems}" HorizontalContentAlignment="Stretch">
                         <ListBox.ItemTemplate>
@@ -884,128 +507,7 @@
                  genetics, lineage and look. Inside editing only for a mount whose data writes back
                  byte for byte; species is never changed. -->
             <TabItem Header="Mounts">
-                <Grid Margin="0,10,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="360" MinWidth="260" MaxWidth="560"/>
-                        <ColumnDefinition Width="16"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <GridSplitter Grid.Column="1" Style="{StaticResource VerticalPaneSplitterStyle}" Width="16" AutomationProperties.Name="Resize mount list"/>
-
-                    <DockPanel Grid.Column="0">
-                        <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
-                            <TextBox Text="{Binding MountSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search mounts"/>
-                            <TextBlock Text="Search mounts…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding MountSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
-                        <ListBox ItemsSource="{Binding FilteredMounts}" SelectedItem="{Binding SelectedMount}" HorizontalContentAlignment="Stretch">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <DockPanel Margin="2,4,2,4">
-                                        <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
-                                        <Button DockPanel.Dock="Right" Content="Delete" Padding="8,2"
-                                                Command="{Binding DataContext.DeleteMountCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                                CommandParameter="{Binding}" ToolTip="Removes this mount; nothing else in the list is touched"/>
-                                        <Border DockPanel.Dock="Left" Width="28" Height="28" Margin="0,0,10,0"
-                                                Background="{DynamicResource CardRaisedBackgroundBrush}"
-                                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
-                                                Visibility="{Binding Icon, Converter={StaticResource NullToVisibilityConverter}}">
-                                            <Image Source="{Binding Icon}" Stretch="Uniform" Margin="2"/>
-                                        </Border>
-                                        <StackPanel VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
-                                                <Run Text="{Binding TypeDisplayName, Mode=OneWay}"/><Run Text=" · Lv "/><Run Text="{Binding LevelText, Mode=OneWay}"/>
-                                            </TextBlock>
-                                        </StackPanel>
-                                    </DockPanel>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </DockPanel>
-
-                    <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto"
-                                  Visibility="{Binding SelectedMount, Converter={StaticResource NullToVisibilityConverter}}">
-                        <StackPanel DataContext="{Binding SelectedMount}" MaxWidth="720" HorizontalAlignment="Left">
-                            <TextBlock Text="{Binding TypeDisplayName}" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                       ToolTip="The species can't be changed: its talents and stats are stored with it."/>
-                            <WrapPanel Margin="0,6,0,0">
-                                <StackPanel Margin="0,0,16,8">
-                                    <TextBlock Text="Name" Style="{StaticResource FieldLabelStyle}"/>
-                                    <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="220" Margin="0,4,0,0"/>
-                                </StackPanel>
-                                <StackPanel Margin="0,0,16,8">
-                                    <TextBlock Text="Level" Style="{StaticResource FieldLabelStyle}"/>
-                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                        <TextBox Text="{Binding LevelText, UpdateSourceTrigger=PropertyChanged}" Width="60" FontFamily="Consolas" TextAlignment="Right"/>
-                                        <TextBlock Text="{Binding ExperienceDisplay}" VerticalAlignment="Center" Margin="8,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                                    </StackPanel>
-                                </StackPanel>
-                                <StackPanel Margin="0,0,16,8" Visibility="{Binding CanEditInside, Converter={StaticResource BoolToVisibilityConverter}}">
-                                    <TextBlock Text="Lineage" Style="{StaticResource FieldLabelStyle}"/>
-                                    <ComboBox ItemsSource="{Binding LineageTitles}" SelectedItem="{Binding LineageTitle}" Width="140" Margin="0,4,0,0"/>
-                                </StackPanel>
-                                <StackPanel Margin="0,0,16,8" Visibility="{Binding CanEditInside, Converter={StaticResource BoolToVisibilityConverter}}">
-                                    <TextBlock Text="Look" Style="{StaticResource FieldLabelStyle}"/>
-                                    <ComboBox ItemsSource="{Binding VariationOptions}" SelectedItem="{Binding Variation}" Width="70" Margin="0,4,0,0"
-                                              ToolTip="Which of its species' looks (colours and patterns), counted from 0"/>
-                                </StackPanel>
-                            </WrapPanel>
-                            <TextBlock Text="{Binding GrowthNote}" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" TextWrapping="Wrap"
-                                       Visibility="{Binding GrowthNote, Converter={StaticResource NullToVisibilityConverter}}"/>
-                            <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="{DynamicResource AccentBrush}"
-                                       Visibility="{Binding InsideRefusal, Converter={StaticResource NullToVisibilityConverter}}">
-                                <Run Text="Only the name and level in the mount list can be changed: "/><Run Text="{Binding InsideRefusal, Mode=OneWay}"/><Run Text=". The game may keep its own copies of them."/>
-                            </TextBlock>
-
-                            <StackPanel Visibility="{Binding CanEditInside, Converter={StaticResource BoolToVisibilityConverter}}">
-                                <TextBlock Text="Genetics" FontWeight="SemiBold" FontSize="13" Margin="0,14,0,2"/>
-                                <TextBlock Text="0 to 10; 3 is the middle." FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}"/>
-                                <ItemsControl ItemsSource="{Binding Genes}" Margin="0,4,0,0">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <WrapPanel/>
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Orientation="Horizontal" Margin="0,2,18,2">
-                                                <TextBlock Text="{Binding Title}" Width="80" VerticalAlignment="Center" FontSize="12.5"/>
-                                                <Button Content="−" Padding="8,0" Command="{Binding DownCommand}" AutomationProperties.Name="{Binding Title, StringFormat='Lower {0}'}"/>
-                                                <TextBlock Text="{Binding Value}" Width="28" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
-                                                <Button Content="+" Padding="8,0" Command="{Binding UpCommand}" AutomationProperties.Name="{Binding Title, StringFormat='Raise {0}'}"/>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-
-                                <TextBlock Margin="0,14,0,2">
-                                    <Run Text="Talents" FontWeight="SemiBold" FontSize="13"/><Run Text="   "/><Run Text="{Binding TalentSummary, Mode=OneWay}" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                                </TextBlock>
-                                <Border BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="6" Padding="10,4" Margin="0,4,0,4"
-                                        Visibility="{Binding OverBudget, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="{Binding OverBudget}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AccentBrush}"/>
-                                </Border>
-                                <ItemsControl ItemsSource="{Binding TalentRows}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <DockPanel Margin="0,1">
-                                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                                                    <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
-                                                    <TextBlock Text="{Binding RankDisplay}" MinWidth="52" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
-                                                    <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" AutomationProperties.Name="Rank up"/>
-                                                </StackPanel>
-                                                <TextBlock VerticalAlignment="Center" FontSize="12.5">
-                                                    <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding Tree, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
-                                                </TextBlock>
-                                            </DockPanel>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
-                        </StackPanel>
-                    </ScrollViewer>
-                </Grid>
+                <views:SavesMountsTab/>
             </TabItem>
             <TabItem Header="Worlds">
                 <views:WorldSettingsView DataContext="{Binding WorldSettings}" Margin="0,10,0,0"/>

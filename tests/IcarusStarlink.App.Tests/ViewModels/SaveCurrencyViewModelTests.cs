@@ -57,4 +57,18 @@ public class SaveCurrencyViewModelTests
         Assert.Equal(250, node["Count"]!.GetValue<long>());
         Assert.False(vm.IsDirty);
     }
+
+    /// <summary>Currency rows never raised IsDirty, so a "changed" mark bound to it never showed.</summary>
+    [Fact]
+    public void Edit_RaisesIsDirty()
+    {
+        var (vm, _) = Make();
+        var raised = false;
+        vm.PropertyChanged += (_, e) => raised |= e.PropertyName == nameof(SaveCurrencyViewModel.IsDirty);
+
+        vm.CountText = "150";
+
+        Assert.True(raised);
+        Assert.True(vm.IsDirty);
+    }
 }

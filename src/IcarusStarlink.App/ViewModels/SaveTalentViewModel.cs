@@ -11,9 +11,8 @@ namespace IcarusStarlink.App.ViewModels;
 /// rank 0 entries are simply not written, which is exactly how the game itself represents
 /// "doesn't have it".
 /// </summary>
-public sealed partial class SaveTalentViewModel : ObservableObject, IDirtyTrackable
+public sealed partial class SaveTalentViewModel : DirtyRow
 {
-    private readonly Action _onDirtyChanged;
     private int _originalRank;
 
     public string RowName { get; }
@@ -61,7 +60,7 @@ public sealed partial class SaveTalentViewModel : ObservableObject, IDirtyTracka
     [ObservableProperty]
     private string? _packNote;
 
-    public bool IsDirty => Rank != _originalRank;
+    public override bool IsDirty => Rank != _originalRank;
 
     /// <summary>What the player actually has in game — a rank in the save OR unlocked-by-default. The filter's "only what this character has" uses this, not just Rank > 0, or 49 real default talents would look missing.</summary>
     public bool IsUnlockedInGame => Rank > 0 || IsDefaultUnlocked;
@@ -72,6 +71,7 @@ public sealed partial class SaveTalentViewModel : ObservableObject, IDirtyTracka
         : Rank.ToString();
 
     public SaveTalentViewModel(string rowName, TalentDisplayInfo info, int rank, Action onDirtyChanged)
+        : base(onDirtyChanged)
     {
         RowName = rowName;
         DisplayName = info.DisplayName;
@@ -87,16 +87,14 @@ public sealed partial class SaveTalentViewModel : ObservableObject, IDirtyTracka
         // user's save just by opening it, which the editor must never do.
         _rank = rank;
         _originalRank = rank;
-        _onDirtyChanged = onDirtyChanged;
     }
 
     partial void OnRankChanged(int value)
     {
-        OnPropertyChanged(nameof(IsDirty));
         OnPropertyChanged(nameof(IsDone));
         OnPropertyChanged(nameof(IsUnlockedInGame));
         OnPropertyChanged(nameof(RankDisplay));
-        _onDirtyChanged();
+        Changed();
     }
 
     public bool CanRankUp => MaxRank == 0 || Rank < MaxRank;
@@ -119,11 +117,7 @@ public sealed partial class SaveTalentViewModel : ObservableObject, IDirtyTracka
         OnPropertyChanged(nameof(CanRankUp));
     }
 
-    public void MarkClean()
-    {
-        _originalRank = Rank;
-        OnPropertyChanged(nameof(IsDirty));
-    }
+    protected override void Snapshot() => _originalRank = Rank;
 }
 
 /// <summary>The slice of TalentInfo the row needs, with a fallback for talents the game table doesn't know (an ID from a different game version) — those show by RowName, uncapped.</summary>

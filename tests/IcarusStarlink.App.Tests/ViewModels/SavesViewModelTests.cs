@@ -303,6 +303,102 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
+    /// <summary>Where mod rows come from doesn't depend on the slot: read again only once the Library (or the game's content) may have changed.</summary>
+    [Fact]
+    public async Task Reload_ReusesTheModSourcesRead_UntilTheLibraryChanges()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+        };
+        var reads = 0;
+        var vm = CreateViewModel(repository, readModSources: () =>
+        {
+            reads++;
+            return SaveModSources.Index.Empty;
+        });
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForModSourcesAsync();
+            vm.ReloadCommand.Execute(null);
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForModSourcesAsync();
+            Assert.Equal(1, reads);
+
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            vm.ReloadCommand.Execute(null);
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForModSourcesAsync();
+            Assert.Equal(2, reads);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Complete all shown used to re-check every list per creature; the page now hears about it once.</summary>
+    [Fact]
+    public async Task CompleteShownBestiary_TellsThePageOnce()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+        };
+        var data = CreateGameDataFolder();
+        File.WriteAllText(Path.Combine(data, "Bestiary", "D_BestiaryData.json"), """
+            { "Defaults": { "TotalPointsRequired": 100 }, "Rows": [ { "Name": "Wolf" }, { "Name": "Bear" }, { "Name": "Moa" } ] }
+            """);
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(data));
+        await vm.WaitForPendingSlotLoadAsync();
+        Assert.Equal(3, vm.FilteredBestiaryEntries.Count);
+        var summaries = 0;
+        vm.PropertyChanged += (_, e) => summaries += e.PropertyName == nameof(SavesViewModel.ChangesSummary) ? 1 : 0;
+
+        vm.CompleteShownBestiaryCommand.Execute(null);
+
+        Assert.Equal(1, summaries);
+        Assert.All(vm.BestiaryEntries.Where(b => b.CanSetMax), b => Assert.True(b.IsComplete));
+    }
+
+    /// <summary>A duplicated character's talents had no Source, so Remove leftovers missed the copy's leftovers.</summary>
+    [Fact]
+    public async Task DuplicateCharacter_ItsLeftoverTalents_AreLabelledAndCounted()
+    {
+        var character = MakeCharacter("Alpha", 0);
+        character["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "Old_Mod_Talent", ["Rank"] = 1 });
+        var repository = new FakeSaveRepository
+        {
+            Characters = [character],
+            Profile = MakeProfile(nextChrSlot: 1),
+        };
+        var index = new SaveModSources.Index(
+            new Dictionary<string, HashSet<string>>(),
+            new Dictionary<string, HashSet<string>>(),
+            new Dictionary<string, Dictionary<string, List<string>>>(),
+            IcarusStarlink.PakIO.Exmod.GameRowHistory.Empty,
+            canTellInstalled: true);
+        var vm = CreateViewModel(repository, readModSources: () => index);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForModSourcesAsync();
+
+            vm.DuplicateCharacterCommand.Execute(vm.Characters.Single());
+
+            var copy = vm.Characters.Single(c => c.Name == "Alpha (Copy)");
+            Assert.True(copy.Talents.Single(t => t.RowName == "Old_Mod_Talent").Source?.IsRemovable);
+            Assert.Contains("Alpha (Copy): 1", vm.LeftoversSummary);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     /// <summary>The user's ask (2026-10-23): talents and items from mods that are gone can be taken out; a mod's that's installed stay.</summary>
     [Fact]
     public async Task RemoveLeftovers_TakesOutOnlyWhatNoModGives()
@@ -683,6 +779,31 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.Equal("/Game/Assets/2DArt/UI/FieldGuide/Creatures/Conifer/T_Bestiary_PackWolf.T_Bestiary_PackWolf", creature.ImagePath);
         Assert.Contains(creature.ImagePath, iconDecoder.RequestedPaths);
         Assert.NotNull(creature.Icon);
+    }
+
+    /// <summary>One Bestiary edit used to rebuild every entry as bare {BestiaryGroup, NumPoints}, dropping other fields and RowName-less entries.</summary>
+    [Fact]
+    public async Task SaveBestiary_ChangesOnlyTheEditedEntry_InPlace()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+        };
+        repository.Bestiary["BestiaryTracking"] = JsonNode.Parse("""
+            [ { "Odd": 1 },
+              { "BestiaryGroup": { "RowName": "OldCreature", "DataTableName": "D_BestiaryData" }, "NumPoints": 7 },
+              { "BestiaryGroup": { "RowName": "PackWolf", "DataTableName": "D_BestiaryData" }, "NumPoints": 10, "Extra": "kept" } ]
+            """);
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateGameDataFolder()));
+        await vm.WaitForPendingSlotLoadAsync();
+
+        vm.BestiaryEntries.Single(b => b.RowName == "PackWolf").PointsText = "50";
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal(
+            """[{"Odd":1},{"BestiaryGroup":{"RowName":"OldCreature","DataTableName":"D_BestiaryData"},"NumPoints":7},{"BestiaryGroup":{"RowName":"PackWolf","DataTableName":"D_BestiaryData"},"NumPoints":50,"Extra":"kept"}]""",
+            repository.Bestiary["BestiaryTracking"]!.ToJsonString());
     }
 
     [Fact]

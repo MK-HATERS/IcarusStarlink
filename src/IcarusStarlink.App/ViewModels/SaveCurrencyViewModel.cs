@@ -4,10 +4,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>One profile currency (a MetaResources entry) — same deferred-apply pattern as SaveCharacterViewModel: the box edits a copy, ApplyToNode() writes it into the raw save node only at save time.</summary>
-public sealed partial class SaveCurrencyViewModel : ObservableObject, IDirtyTrackable
+public sealed partial class SaveCurrencyViewModel : DirtyRow
 {
     private readonly JsonObject _node;
-    private readonly Action _onDirtyChanged;
     private long _originalCount;
 
     public string Label { get; }
@@ -15,18 +14,18 @@ public sealed partial class SaveCurrencyViewModel : ObservableObject, IDirtyTrac
     [ObservableProperty]
     private string _countText;
 
-    public bool IsDirty => long.TryParse(CountText, out var count) ? count != _originalCount : CountText != _originalCount.ToString();
+    public override bool IsDirty => long.TryParse(CountText, out var count) ? count != _originalCount : CountText != _originalCount.ToString();
 
     public SaveCurrencyViewModel(JsonObject node, string label, Action onDirtyChanged)
+        : base(onDirtyChanged)
     {
         _node = node;
-        _onDirtyChanged = onDirtyChanged;
         Label = label;
         _originalCount = SaveJson.Long(node["Count"]) ?? 0;
         _countText = _originalCount.ToString();
     }
 
-    partial void OnCountTextChanged(string value) => _onDirtyChanged();
+    partial void OnCountTextChanged(string value) => Changed();
 
     public void ApplyToNode()
     {
@@ -43,7 +42,7 @@ public sealed partial class SaveCurrencyViewModel : ObservableObject, IDirtyTrac
     /// compare CountText against itself and read false, showing "Saved" with the Save button
     /// disabled while the on-disk value is actually still whatever it was before the edit.
     /// </summary>
-    public void MarkClean()
+    protected override void Snapshot()
     {
         if (int.TryParse(CountText, out var count) && count >= 0)
         {

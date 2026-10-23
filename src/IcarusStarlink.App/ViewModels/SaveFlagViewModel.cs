@@ -4,9 +4,8 @@ using IcarusStarlink.App.Services;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>One unlockable flag chip — the save stores just the int ID; the name comes from the game's own flag table (row index = ID). Toggling stays in the ViewModel until save-time apply, like every other save-editor edit.</summary>
-public sealed partial class SaveFlagViewModel : ObservableObject, IDirtyTrackable
+public sealed partial class SaveFlagViewModel : DirtyRow
 {
-    private readonly Action _onDirtyChanged;
     private bool _originalUnlocked;
 
     public int Id { get; }
@@ -32,7 +31,7 @@ public sealed partial class SaveFlagViewModel : ObservableObject, IDirtyTrackabl
     [ObservableProperty]
     private string? _linkHint;
 
-    public bool IsDirty => IsUnlocked != _originalUnlocked;
+    public override bool IsDirty => IsUnlocked != _originalUnlocked;
 
     /// <summary>What the flag does / where it comes from (FlagInfo.Detail); empty for DLC packs.</summary>
     public string Detail { get; }
@@ -51,6 +50,7 @@ public sealed partial class SaveFlagViewModel : ObservableObject, IDirtyTrackabl
     }
 
     public SaveFlagViewModel(int id, FlagInfo info, bool isUnlocked, Action onDirtyChanged)
+        : base(onDirtyChanged)
     {
         Id = id;
         Name = info.Display;
@@ -59,18 +59,9 @@ public sealed partial class SaveFlagViewModel : ObservableObject, IDirtyTrackabl
         RowName = info.RowName;
         _isUnlocked = isUnlocked;
         _originalUnlocked = isUnlocked;
-        _onDirtyChanged = onDirtyChanged;
     }
 
-    partial void OnIsUnlockedChanged(bool value)
-    {
-        OnPropertyChanged(nameof(IsDirty));
-        _onDirtyChanged();
-    }
+    partial void OnIsUnlockedChanged(bool value) => Changed();
 
-    public void MarkClean()
-    {
-        _originalUnlocked = IsUnlocked;
-        OnPropertyChanged(nameof(IsDirty));
-    }
+    protected override void Snapshot() => _originalUnlocked = IsUnlocked;
 }
