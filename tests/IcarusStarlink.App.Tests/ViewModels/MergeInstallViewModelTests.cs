@@ -1525,6 +1525,49 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.True(vm.IsInstallIdle);
     }
 
+    /// <summary>
+    /// The build already put its pak in the Library: Install doesn't import it again (which filed it
+    /// under whichever profile was selected by then and dropped the picks). When the build's import
+    /// failed, Install imports it under the profile it was built from, keeping the picks.
+    /// </summary>
+    [Fact]
+    public async Task Install_AfterABuild_ImportsTheBuiltPackOnlyIfTheBuildCouldnt_UnderTheBuildsProfile()
+    {
+        var libraryRepository = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA")] };
+        libraryRepository.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        var rebuildService = new FakeRebuildService
+        {
+            Result = new RebuildResult(
+                MergedFileCount: 1, PackedFileCount: 1, OutputPakPath: "out.pak", ManifestPath: "out.manifest", Warnings: [], Notes: []),
+        };
+        var settingsService = new FakeSettingsService();
+        settingsService.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        settingsService.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModA"] });
+        store.Save(new Profile { Name = "Solo" });
+        var vm = CreateViewModel(libraryRepository: libraryRepository, rebuildService: rebuildService, settingsService: settingsService, profileStore: store);
+        vm.SelectedProfileName = "Coop";
+        vm.Confirm = (_, _) => true;
+
+        Assert.True(await vm.RebuildAsync());
+        await vm.InstallAsync();
+        Assert.Equal(1, libraryRepository.ImportPakCallCount);
+
+        libraryRepository.ImportPakException = new IOException("folder is locked");
+        Assert.True(await vm.RebuildAsync());
+        libraryRepository.ImportPakException = null;
+        vm.SelectedProfileName = "Solo";
+        var pick = new Dictionary<(string, string, string), int> { [("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime")] = 0 };
+        vm.ManualPicksForTesting = pick;
+
+        Assert.Equal(MergeInstallViewModel.InstallOutcome.Installed, await vm.InstallAsync());
+
+        Assert.Equal(3, libraryRepository.ImportPakCallCount);
+        Assert.Equal("Coop", libraryRepository.LastMergedPackProfileName);
+        Assert.Same(pick, vm.ManualPicksForTesting);
+    }
+
     /// <summary>Suggest order asks through the same seam as every other question, and applying it saves into the profile in use.</summary>
     [Fact]
     public async Task SuggestQueueOrder_Yes_AppliesAndSavesIntoTheProfileInUse()

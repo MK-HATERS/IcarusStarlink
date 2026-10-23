@@ -2182,6 +2182,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         // From here on the queue, profile and options are locked (RefuseWhileRebuilding, and the
         // page's controls), including while game data refreshes below.
         IsRebuilding = true;
+        // The staged pak is about to be replaced: whatever the Library holds is of the old one.
+        _builtPackInLibrary = false;
         try
         {
             // The merge writes whole tables from the extracted game data: built after a game update
@@ -2296,29 +2298,17 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             // The Server page's "Install my merged pak" shows the new build without a page switch.
             _messenger.Send(new MergedPakBuiltMessage());
 
-            // The Library import below sends LibraryChangedMessage, and this VM's own handler for
-            // that message invalidates manual conflict picks — right for an external change (a
-            // queued mod's content moved under the picks), wrong here, where the only change is the
-            // app's own built pack landing in the Library, which no pick refers to. An audit
-            // finding: every successful Rebuild silently discarded the picks, so a second Install
-            // of the same queue resolved last-wins instead of what the user had reviewed. The picks
-            // are carried across the self-sent message. And the import is bookkeeping AFTER a
-            // verified pak exists, so its own failure (a locked ISL-Merged folder, antivirus) is a
-            // warning, never "Rebuild failed" with Install withheld.
-            var picksBeforeImport = _manualPicks;
-            var pickStatusBeforeImport = ConflictStatusMessage;
+            // The import is bookkeeping AFTER a verified pak exists, so its own failure (a locked
+            // ISL-Merged folder, antivirus) is a warning, never "Rebuild failed" with Install
+            // withheld (Install tries it again).
+            _stagedBuildProfileName = snapshot.ProfileName;
             try
             {
-                ImportBuiltPakIntoLibrary(snapshot.ProfileName);
+                ImportBuiltPakKeepingPicks(snapshot.ProfileName);
             }
             catch (Exception ex)
             {
                 Warnings.Add($"The built pack couldn't be added to your Library ({ex.Message}) — the pak itself is fine and can still be installed.");
-            }
-            finally
-            {
-                _manualPicks = picksBeforeImport;
-                ConflictStatusMessage = pickStatusBeforeImport;
             }
 
             var pickNote = picks is { Count: > 0 } ? $", {picks.Count} conflict(s) won by your pick" : "";
@@ -2449,6 +2439,46 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// name every time (its own collision-avoidance rule), leaving one stale Library entry behind
     /// per build instead of one that stays current.
     /// </summary>
+    /// <summary>The profile the staged pak was built from (this session); null when it was built before the app started.</summary>
+    private string? _stagedBuildProfileName;
+
+    /// <summary>Whether the staged pak is already the Library's built pack (the build imported it, or an install after it did).</summary>
+    private bool _builtPackInLibrary;
+
+    /// <summary>
+    /// ImportBuiltPakIntoLibrary without losing the conflict picks. The import sends
+    /// LibraryChangedMessage, and this VM's own handler for that message invalidates manual
+    /// conflict picks — right for an external change (a queued mod's content moved under the
+    /// picks), wrong here, where the only change is the app's own built pack landing in the
+    /// Library, which no pick refers to. An audit finding: every successful Rebuild silently
+    /// discarded the picks, so a second Install of the same queue resolved last-wins instead of
+    /// what the user had reviewed. The picks and their status line are carried across it.
+    /// </summary>
+    private void ImportBuiltPakKeepingPicks(string profileName)
+    {
+        var picksBeforeImport = _manualPicks;
+        var pickStatusBeforeImport = ConflictStatusMessage;
+        try
+        {
+            ImportBuiltPakIntoLibrary(profileName);
+            _builtPackInLibrary = true;
+        }
+        finally
+        {
+            _manualPicks = picksBeforeImport;
+            ConflictStatusMessage = pickStatusBeforeImport;
+        }
+    }
+
+    /// <summary>The profile the Library's built pack was filed under (its Author), when there is one.</summary>
+    private string? BuiltPackProfileInLibrary()
+    {
+        var builtFolderName = Path.GetFileNameWithoutExtension(_outputPakPath);
+        return _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, builtFolderName, StringComparison.OrdinalIgnoreCase)) is { MergedPackModNames: not null } built
+            ? built.Author
+            : null;
+    }
+
     private void ImportBuiltPakIntoLibrary(string profileName)
     {
         // The built pack under the merged pak's earlier name is replaced too.
@@ -3363,20 +3393,23 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             var result = await _installService.InstallAsync(
                 _outputPakPath, _settingsService.Current.IcarusContentPath!, _backupDirectory, keepArcFissionDataPak: keepArcFission);
 
-            // Also done right after a successful RebuildAsync now, so this is redundant when
-            // reached through the combined Install button (nothing about the pak's own content
-            // changes between the two) — but InstallAsync is also reachable on its own via Copy to
-            // game, without a fresh Rebuild immediately before it, where this is the only thing that
-            // keeps the Library entry current. The pak is in the game by now: a failure here (a locked
-            // Library folder) is a note, not "Install failed" with the install left unrecorded.
+            // The build already put this pak in the Library; it's only imported here when that
+            // didn't happen (it failed then, or the pak was built before the app started). It used
+            // to be imported again on every install, filed under whichever profile was selected by
+            // then and dropping the conflict picks on the way (review 2026-10-23). The pak is in
+            // the game by now: a failure here (a locked Library folder) is a note, not "Install
+            // failed" with the install left unrecorded.
             string? libraryNote = null;
-            try
+            if (!_builtPackInLibrary)
             {
-                ImportBuiltPakIntoLibrary(SelectedProfileName ?? "Default");
-            }
-            catch (Exception ex)
-            {
-                libraryNote = $" The built pack couldn't be added to your Library ({ex.Message}).";
+                try
+                {
+                    ImportBuiltPakKeepingPicks(_stagedBuildProfileName ?? BuiltPackProfileInLibrary() ?? SelectedProfileName ?? "Default");
+                }
+                catch (Exception ex)
+                {
+                    libraryNote = $" The built pack couldn't be added to your Library ({ex.Message}).";
+                }
             }
 
             InstallStatusMessage = (result.BackupPakPath is not null
