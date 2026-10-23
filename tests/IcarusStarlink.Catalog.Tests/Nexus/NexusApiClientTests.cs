@@ -319,6 +319,36 @@ public class NexusApiClientTests
         Assert.Null(result[1].PictureUrl);
     }
 
+    [Fact]
+    public async Task GetModsByIdAsync_RealisticGraphShape_ParsesLegacyModsByDomainNodes()
+    {
+        // Captured from the real endpoint on 2026-10-23 (no key): unknown IDs are left out.
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://api.nexusmods.com/v2/graphql"] = """
+                {"data":{"legacyModsByDomain":{"nodes":[
+                  {"modId":20,"name":"No more tree damage &amp; fire","version":"1.0","summary":"Stops trees falling.",
+                   "pictureUrl":null,"author":"Crywolf","createdAt":"2024-04-03T01:14:20Z","updatedAt":"2024-05-08T10:08:38Z"}
+                ]}}}
+                """,
+        });
+
+        var result = await client.GetModsByIdAsync(null, "icarus", [20, 99999]);
+
+        var mod = Assert.Single(result);
+        Assert.Equal(20, mod.ModId);
+        Assert.Equal("No more tree damage & fire", mod.Name);
+        Assert.Equal("Crywolf", mod.Author);
+    }
+
+    [Fact]
+    public async Task GetModsByIdAsync_NoIds_ReturnsEmptyWithoutARequest()
+    {
+        var client = CreateClient([]);
+
+        Assert.Empty(await client.GetModsByIdAsync(null, "icarus", []));
+    }
+
     /// <summary>Audit finding: GraphQL reports a bad query / schema change as HTTP 200 with "errors" and null data, which read as "no results" instead of a failure.</summary>
     [Fact]
     public async Task SearchModsAsync_GraphQlErrorsWithNullData_ThrowsInsteadOfReportingNoResults()

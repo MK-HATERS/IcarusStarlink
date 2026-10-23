@@ -155,6 +155,41 @@ public class NexusCatalogViewModelTests
         Assert.Contains("API key", vm.StatusMessage);
     }
 
+    /// <summary>
+    /// User report 2026-10-23: Library's Update filled the Nexus search with the mod's Library
+    /// name, which often isn't its Nexus title, so the mod wasn't found. The ID (or a pasted mod
+    /// link) now finds that exact mod.
+    /// </summary>
+    [Theory]
+    [InlineData("412")]
+    [InlineData("#412")]
+    [InlineData("https://www.nexusmods.com/icarus/mods/412?tab=files")]
+    public async Task Search_ModIdOrLink_FindsThatModById(string searchText)
+    {
+        var harness = new Harness();
+        harness.NexusApiClient.ModsById[412] = new NexusModInfo(412, "Wireless Power (Nexus title)", "x", null, "2.0", null);
+        var vm = harness.Build();
+
+        vm.SearchText = searchText;
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal(412, Assert.Single(vm.Mods).Mod.ModId);
+        Assert.Empty(harness.NexusApiClient.SearchedNames);
+    }
+
+    [Fact]
+    public async Task Search_NumberThatIsNoMod_FallsBackToNameSearch()
+    {
+        var harness = new Harness();
+        var vm = harness.Build();
+
+        vm.SearchText = "100";
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal(["100"], harness.NexusApiClient.SearchedNames);
+        Assert.Single(vm.Mods);
+    }
+
     private sealed class FakeNexusApiClient : INexusApiClient
     {
         public NexusUserInfo? UserToReturn { get; set; }
@@ -174,8 +209,18 @@ public class NexusCatalogViewModelTests
             throw new NotSupportedException("Not exercised by these tests.");
         public Task<IReadOnlyList<NexusModFile>> GetModFilesAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
-        public Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+        /// <summary>Mods by ID for GetModsByIdAsync; SearchedNames records each name search.</summary>
+        public Dictionary<int, NexusModInfo> ModsById { get; } = [];
+        public List<string> SearchedNames { get; } = [];
+
+        public Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default)
+        {
+            SearchedNames.Add(searchText);
+            return Task.FromResult<IReadOnlyList<NexusModInfo>>([new NexusModInfo(1, $"Name match for {searchText}", "a", null, "1.0", null)]);
+        }
+
+        public Task<IReadOnlyList<NexusModInfo>> GetModsByIdAsync(string? apiKey, string gameDomain, IReadOnlyList<int> modIds, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<NexusModInfo>>([.. modIds.Where(ModsById.ContainsKey).Select(id => ModsById[id])]);
         /// <summary>When set, what the All list's fetch returns (a never-finished task keeps a load in flight).</summary>
         public Task<NexusModPage>? AllModsPage { get; set; }
 

@@ -60,6 +60,16 @@ public interface INexusApiClient
     Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The same cards as SearchModsAsync, looked up by mod ID instead of name — what Library's
+    /// Update / Find on Nexus use, since a Library mod's name often isn't its Nexus title. Same v2
+    /// GraphQL endpoint (legacyModsByDomain, confirmed live 2026-10-23; works without a key). An ID
+    /// Nexus doesn't know is simply missing from the result. The default serves clients without
+    /// the lookup: nothing found.
+    /// </summary>
+    Task<IReadOnlyList<NexusModInfo>> GetModsByIdAsync(string? apiKey, string gameDomain, IReadOnlyList<int> modIds, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<NexusModInfo>>([]);
+
+    /// <summary>
     /// A page of the game's WHOLE mod catalog, most-endorsed first — the "browse everything" view
     /// the three curated v1 lists can't provide. Served by the same v2 GraphQL endpoint as search
     /// (offset/count paging and endorsement sort both confirmed by live probing), so it also

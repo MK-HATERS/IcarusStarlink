@@ -403,6 +403,41 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         return [.. (dto?.Data?.Mods?.Nodes ?? []).Select(ToModInfo)];
     }
 
+    public async Task<IReadOnlyList<NexusModInfo>> GetModsByIdAsync(
+        string? apiKey, string gameDomain, IReadOnlyList<int> modIds, CancellationToken cancellationToken = default)
+    {
+        if (modIds.Count == 0)
+        {
+            return [];
+        }
+
+        // mods(filter: { modId }) refuses without a numeric gameId ("gameId is required when
+        // filtering by modId"); legacyModsByDomain takes the domain + v1 mod ID pairs this app
+        // already stores. Both checked live against the real endpoint on 2026-10-23.
+        var payload = new Dictionary<string, object?>
+        {
+            ["query"] = "query ById($ids: [CompositeDomainWithIdInput!]!) { legacyModsByDomain(ids: $ids) { nodes { modId name version summary pictureUrl author createdAt updatedAt } } }",
+            ["variables"] = new Dictionary<string, object?>
+            {
+                ["ids"] = modIds.Distinct().Select(id => new Dictionary<string, object?> { ["gameDomain"] = gameDomain, ["modId"] = id }).ToList(),
+            },
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, GraphQlUrl) { Content = JsonContent.Create(payload) };
+        if (apiKey is not null)
+        {
+            request.Headers.Add("apikey", apiKey);
+        }
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        EnsureNotRateLimited(response);
+        response.EnsureSuccessStatusCode();
+        var dto = await response.Content.ReadFromJsonAsync<GraphResponseDto>(cancellationToken);
+        EnsureNoGraphErrors(dto);
+
+        return [.. (dto?.Data?.LegacyModsByDomain?.Nodes ?? []).Select(ToModInfo)];
+    }
+
     public async Task<NexusModPage> ListAllModsAsync(
         string? apiKey, string gameDomain, int offset, int count, CancellationToken cancellationToken = default)
     {
@@ -515,6 +550,9 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
     {
         [JsonPropertyName("mods")]
         public GraphModsDto? Mods { get; init; }
+
+        [JsonPropertyName("legacyModsByDomain")]
+        public GraphModsDto? LegacyModsByDomain { get; init; }
     }
 
     private sealed class GraphModsDto

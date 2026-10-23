@@ -265,7 +265,16 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             IReadOnlyList<NexusModInfo> mods;
             if (isSearch)
             {
-                mods = await _nexusApiClient.SearchModsAsync(apiKey, "icarus", searchText);
+                // A mod ID ("123", "#123") or a pasted mod-page link finds that exact mod — Library's
+                // Update / Find on Nexus fill in the ID, since a Library name often isn't the Nexus
+                // title. A number that isn't a mod still gets the name search ("100" in "100x Stacks").
+                mods = NexusModWebUrl.TryParseModId(searchText.TrimStart('#'), out var modId)
+                    ? await _nexusApiClient.GetModsByIdAsync(apiKey, "icarus", [modId])
+                    : [];
+                if (mods.Count == 0)
+                {
+                    mods = await _nexusApiClient.SearchModsAsync(apiKey, "icarus", searchText);
+                }
             }
             else if (isAll)
             {
