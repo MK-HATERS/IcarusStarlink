@@ -233,6 +233,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         SelectedItem = Items.FirstOrDefault();
         LoadScaleRules();
 
+        WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((ExmodEditorViewModel)recipient).OnGameDataRefreshed());
+
         // The window's own Save / Don't save / Cancel can't stop the app closing (WPF ignores
         // Cancel in an owned window during shutdown), so the main window's close prompt asks here
         // first. Unregistered when the window closes (Detach): a closed editor has nothing to lose.
@@ -582,10 +584,17 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// <summary>"Name" is the row-identity key in EXMOD JSON (see ReservedFieldNames in PakIO) — an item carrying a field by that name can't be serialized, and every structural command snapshots by serializing, so it has to be refused at entry rather than crash the next click.</summary>
     private static bool IsReservedFieldName(string fieldName) => string.Equals(fieldName.Trim(), "Name", StringComparison.Ordinal);
 
+    /// <summary>
+    /// The base tables RefreshBaseDiff reads, parsed once for this editor (until Refresh game data):
+    /// every Add field, Duplicate, mass edit, Undo and Redo re-read and re-parsed each multi-MB
+    /// table the mod touches, on the UI thread.
+    /// </summary>
+    private readonly Dictionary<string, JsonObject?> _baseTableCache = new(StringComparer.OrdinalIgnoreCase);
+
     private void RefreshBaseDiff()
     {
         var report = new MergeReport();
-        var baseDiff = ExmodBaseDiffer.DiffAgainstBase(_package, _dataFolder, new DefaultSemanticClassifier(), report);
+        var baseDiff = ExmodBaseDiffer.DiffAgainstBase(_package, _dataFolder, new DefaultSemanticClassifier(), report, _baseTableCache);
         _baseValuesByKey = baseDiff.ToDictionary(c => (c.CurrentFile, c.ItemName, c.FieldName), c => c.OriginalValue);
 
         // Explicitly clears a stale warning from an earlier refresh (e.g. a prior package version

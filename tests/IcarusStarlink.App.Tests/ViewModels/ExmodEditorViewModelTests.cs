@@ -107,4 +107,21 @@ public sealed class ExmodEditorViewModelTests : IDisposable
         editor.Detach();
         Assert.False(WeakReferenceMessenger.Default.IsRegistered<UnsavedEditsRequestMessage>(editor));
     }
+
+    /// <summary>The editor kept the game tables it read for its whole life, so after Refresh game data it compared with the old game.</summary>
+    [Fact]
+    public void RefreshGameData_IsReadAgain()
+    {
+        var editor = OpenMod();
+        Assert.Equal(1, editor.Items.Single().ChangeCount);
+        editor.SelectedItem = editor.Items.Single();
+        editor.Fields.Single(f => f.FieldName == "Weight").ValueText = "40";
+
+        Write("Traits/D_Itemable.json", """{"RowStruct":"S","Defaults":{"Weight":0},"Rows":[{"Name":"Item_Envirosuit","Weight":40}]}""");
+        WeakReferenceMessenger.Default.Send(new WeeklyChangeReportUpdatedMessage());
+
+        Assert.Equal(0, editor.Items.Single().ChangeCount);
+        Assert.Equal("game: 40", editor.Fields.Single(f => f.FieldName == "Weight").BasePlainText);
+        Assert.True(editor.HasUnsavedChanges); // the typed value is still there
+    }
 }

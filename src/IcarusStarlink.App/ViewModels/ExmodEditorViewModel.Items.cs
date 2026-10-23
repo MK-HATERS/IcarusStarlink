@@ -16,7 +16,7 @@ public sealed partial class ExmodEditorViewModel
 {
     private GameTableIndex? _gameTables;
 
-    /// <summary>The game's tables, read lazily and kept for this editor's lifetime (the data folder doesn't change under an open editor).</summary>
+    /// <summary>The game's tables, read lazily and kept until Refresh game data rewrites them (OnGameDataRefreshed).</summary>
     private GameTableIndex GameTables => _gameTables ??= new GameTableIndex(_dataFolder);
 
     public ObservableCollection<ReferenceProblemViewModel> ReferenceProblems { get; } = [];
@@ -138,6 +138,26 @@ public sealed partial class ExmodEditorViewModel
         }
 
         return [.. Directory.EnumerateFiles(folder, "*.uasset", SearchOption.AllDirectories).Select(File.ReadAllBytes)];
+    }
+
+    /// <summary>
+    /// Refresh game data (Settings) rewrites the data folder under an open editor: every table,
+    /// name and choice read from it is dropped and read again, so game values, change counts and
+    /// "new row" marks match the new data. The mod itself (typed values included) is untouched.
+    /// </summary>
+    private void OnGameDataRefreshed()
+    {
+        _gameTables = null;
+        _baseTableCache.Clear();
+        _itemNames = null;
+        _statChoices = null;
+        _gameDataMissing = false;
+        _fieldChoices.Clear();
+        _fieldOptionsCache.Clear();
+        _scaleTables = null;
+        OnPropertyChanged(nameof(ScaleTables));
+        RefreshBaseDiff();
+        ApplyFilter();
     }
 
     private Window? OwnerWindow() =>
