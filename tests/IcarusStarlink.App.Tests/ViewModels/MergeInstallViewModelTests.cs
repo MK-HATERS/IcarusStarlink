@@ -1568,6 +1568,26 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Same(pick, vm.ManualPicksForTesting);
     }
 
+    /// <summary>An install in progress is reported to AppBusyCheck's question (the update, the close prompt and Refresh game data ask it); nothing once it's done.</summary>
+    [Fact]
+    public async Task Install_WhileItRuns_IsReportedAsRunningWork()
+    {
+        var settings = new FakeSettingsService();
+        settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
+        var vm = CreateViewModel(settingsService: settings);
+        IReadOnlyList<string> during = [];
+        vm.Confirm = (_, _) =>
+        {
+            during = [.. _messenger.Send(new BackgroundWorkRequestMessage()).Responses];
+            return true;
+        };
+
+        await vm.InstallAsync();
+
+        Assert.Equal(["a merge being installed"], during);
+        Assert.Empty(_messenger.Send(new BackgroundWorkRequestMessage()).Responses);
+    }
+
     /// <summary>Suggest order asks through the same seam as every other question, and applying it saves into the profile in use.</summary>
     [Fact]
     public async Task SuggestQueueOrder_Yes_AppliesAndSavesIntoTheProfileInUse()

@@ -533,9 +533,19 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
                 viewModel._cachedBaseDataTableIndex = null;
                 // A prebuilt pak's changes are its diff against the game data, which just changed.
                 viewModel._prebuiltPakChangesCache.Clear();
+                viewModel._prebuiltPakChangesGeneration++;
             }
 
             viewModel.InvalidateManualPicks();
+        });
+
+        // Closing the app, an update or Refresh game data mid-build or mid-install: asked first.
+        _messenger.Register<BackgroundWorkRequestMessage>(this, (recipient, message) =>
+        {
+            foreach (var work in ((MergeInstallViewModel)recipient).DescribeWorkInProgress())
+            {
+                message.Reply(work);
+            }
         });
 
         _ = RefreshHasExistingInstallAsync();
@@ -2334,6 +2344,29 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         }
     }
 
+    /// <summary>True while a build runs the Refresh game data it asked for (EnsureGameDataCurrentAsync).</summary>
+    private bool _refreshingGameDataForBuild;
+
+    /// <summary>
+    /// What this page has running that must not be cut off or have the game data changed under it:
+    /// the answer to BackgroundWorkRequestMessage (AppBusyCheck), which the in-app update, the
+    /// window's close prompt and Refresh game data ask. A build reads the extracted game data
+    /// throughout, so a Refresh game data started meanwhile (Settings, or Weekly Changes' button)
+    /// could swap tables out from under it.
+    /// </summary>
+    internal IEnumerable<string> DescribeWorkInProgress()
+    {
+        if (IsRebuilding && !_refreshingGameDataForBuild)
+        {
+            yield return "a merge is being built";
+        }
+
+        if (IsInstalling)
+        {
+            yield return "a merge being installed";
+        }
+    }
+
     /// <summary>
     /// The game-update guard before a build: when Icarus was updated since the last Refresh game
     /// data, asks to refresh first (Yes runs it, then the build goes on with the fresh data) and
@@ -2376,6 +2409,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         StatusMessage = "Refreshing game data…";
         RebuildStageText = "Refreshing game data…";
         bool refreshed;
+        // Refresh game data refuses while a build is reported running (DescribeWorkInProgress): this
+        // one is the build's own, so the build isn't reported until it's done.
+        _refreshingGameDataForBuild = true;
         try
         {
             refreshed = await _gameDataFreshness.RefreshGameDataAsync();
@@ -2384,6 +2420,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         {
             StatusMessage = $"Not built: Refresh game data failed ({ex.Message}).";
             return false;
+        }
+        finally
+        {
+            _refreshingGameDataForBuild = false;
         }
 
         if (!refreshed)
@@ -2690,23 +2730,34 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     private readonly Dictionary<string, (long Length, DateTime WriteUtc, IReadOnlyList<FieldChange> Changes)> _prebuiltPakChangesCache =
         new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Bumped with every clear of _prebuiltPakChangesCache for new game data (under _packageCacheLock).</summary>
+    private int _prebuiltPakChangesGeneration;
+
     private async Task<IReadOnlyList<FieldChange>> GetPrebuiltPakChangesAsync(string pakPath, string unrealPakExePath)
     {
         var file = new FileInfo(pakPath);
         var stamp = (file.Exists ? file.Length : -1, file.Exists ? file.LastWriteTimeUtc : DateTime.MinValue);
+        int generation;
         lock (_packageCacheLock)
         {
             if (_prebuiltPakChangesCache.TryGetValue(pakPath, out var cached) && (cached.Length, cached.WriteUtc) == stamp)
             {
                 return cached.Changes;
             }
+
+            generation = _prebuiltPakChangesGeneration;
         }
 
         var results = await _rebuildService.ComputePrebuiltPakFieldChangesAsync([pakPath], _dataFolder, unrealPakExePath, new MergeReport());
         IReadOnlyList<FieldChange> changes = results.Count > 0 ? results[0].Changes : [];
         lock (_packageCacheLock)
         {
-            _prebuiltPakChangesCache[pakPath] = (stamp.Item1, stamp.Item2, changes);
+            // Diffed against game data a Refresh game data has replaced since: not kept, or the
+            // badge and the picks would count the old diff until the pak itself changed.
+            if (generation == _prebuiltPakChangesGeneration)
+            {
+                _prebuiltPakChangesCache[pakPath] = (stamp.Item1, stamp.Item2, changes);
+            }
         }
 
         return changes;
