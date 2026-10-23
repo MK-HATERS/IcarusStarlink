@@ -91,7 +91,9 @@ public sealed class GameUpdateCoordinator(
         var viewModel = new GameUpdateReviewViewModel(this);
         var snapshot = snapshots.Latest();
         var record = snapshot is null ? null : snapshots.LoadRunRecord(snapshot);
-        viewModel.Snapshot = snapshot;
+        // Roll back from here goes to the setup before this game update's first run: a retry's
+        // own snapshot already holds what the earlier run changed.
+        viewModel.Snapshot = snapshots.PreUpdate() ?? snapshot;
         viewModel.Summary = (snapshot, record) switch
         {
             (null, _) => "Update everything hasn't run yet. When Icarus updates, the Library's bar offers it. Below is how your mods look against the game now.",
@@ -317,6 +319,7 @@ public sealed class GameUpdateCoordinator(
                 + "• the merged pak in the game (what's there now is backed up first)\n"
                 + $"• what's ticked, in what order, merge options and conflict picks{(snapshot.ProfileName is { } name ? $" (profile '{name}')" : "")}\n"
                 + "• which UE4SS mods are on\n\n"
+                + "Other paks Install took out of the mods folder aren't put back (they're in Starlink's Backups folder).\n\n"
                 + "The game itself can't be rolled back, only your mod setup. That merge was made for the game before its update, so some things in it may not fit. "
                 + "Fixes made to mods stay (right-click a mod › Restore latest backup undoes them).\n\nRoll back?",
                 "Roll back", ThemedConfirmSeverity.Warning))

@@ -77,6 +77,40 @@ public sealed class LastKnownGoodStoreTests : IDisposable
         Assert.Equal(LastKnownGoodStore.Kept, Directory.GetDirectories(Path.Combine(Backups, "LastKnownGood")).Length);
     }
 
+    /// <summary>Retries on the same game build make more snapshots of an already-changed setup: the first one on that build (before any run changed anything) is kept and is the pre-update one.</summary>
+    [Fact]
+    public void RetriesOnOneBuild_KeepTheFirstSnapshotOfThatBuild()
+    {
+        var start = new DateTimeOffset(2026, 10, 1, 8, 0, 0, TimeSpan.Zero);
+        Store.Create(Profile("Old"), null, [], "build1", start);
+        for (var i = 0; i < 5; i++)
+        {
+            Store.Create(Profile($"Try{i}"), null, [], "build2", start.AddDays(1).AddHours(i));
+        }
+
+        var kept = Store.List();
+        Assert.Equal(["Try4", "Try3", "Try2", "Try0"], kept.Select(s => s.Profile!.MergeQueueFolderNames[0]));
+        Assert.Equal(["Try0"], Store.PreUpdate()!.Profile!.MergeQueueFolderNames);
+    }
+
+    /// <summary>A snapshot copy that can't be read leaves the game's merged pak in place: the copies go in before anything is removed.</summary>
+    [Fact]
+    public void RestoreMergedPak_CopyFails_TheCurrentMergeStays()
+    {
+        Install("old pak", "old list");
+        var snapshot = Store.Create(Profile("A"), Content, [], "1", DateTimeOffset.UtcNow);
+        Install("new pak", "new list");
+        var savedPak = Path.Combine(snapshot.FolderPath, "mods", InstallManifestNames.MergedPakFileName);
+
+        using (new FileStream(savedPak, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.ThrowsAny<IOException>(() => Store.RestoreMergedPak(snapshot, Content, Backups));
+        }
+
+        Assert.Equal("new pak", File.ReadAllText(Path.Combine(ModsFolder, InstallManifestNames.MergedPakFileName)));
+        Assert.Equal("new list", File.ReadAllText(Path.Combine(ModsFolder, InstallManifestNames.PakManifest)));
+    }
+
     [Fact]
     public void RestoreMergedPak_PutsTheOldOneBack_AfterBackingUpTheCurrent()
     {
