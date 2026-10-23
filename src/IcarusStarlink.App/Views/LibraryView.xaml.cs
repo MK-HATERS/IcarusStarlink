@@ -24,8 +24,11 @@ public partial class LibraryView : UserControl
                 newVm.PropertyChanged += ViewModel_PropertyChanged;
             }
         };
-        LayoutUpdated += (_, _) => UpdateColumnWidths();
-        Loaded += (_, _) => ArrangePanels();
+        Loaded += (_, _) =>
+        {
+            ArrangePanels();
+            HookColumnWidthUpdates();
+        };
         PanelsGrid.SizeChanged += (_, _) => ArrangePanels();
     }
 
@@ -47,6 +50,34 @@ public partial class LibraryView : UserControl
     /// empty column before the row buttons — the other columns stay next to the name instead of
     /// being pushed across a wide window (user report 2026-10-23: a 1,200px gap after every name).
     /// </summary>
+    private bool _columnWidthsHooked;
+
+    /// <summary>
+    /// The widths depend only on each list's size and what its rows need (its scroll extent and
+    /// viewport — a scrollbar appearing, a wider author, a column switched on). LayoutUpdated was
+    /// used before, which fires on every layout pass anywhere in the app.
+    /// </summary>
+    private void HookColumnWidthUpdates()
+    {
+        if (!_columnWidthsHooked)
+        {
+            _columnWidthsHooked = true;
+            foreach (var tree in new[] { LibraryTree, Ue4ssTree })
+            {
+                tree.SizeChanged += (_, _) => UpdateColumnWidths();
+                tree.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, e) =>
+                {
+                    if (e.ExtentWidthChange != 0 || e.ViewportWidthChange != 0)
+                    {
+                        UpdateColumnWidths();
+                    }
+                }));
+            }
+        }
+
+        UpdateColumnWidths();
+    }
+
     private void UpdateColumnWidths()
     {
         _dataTreeScrollViewer ??= FindDescendant<ScrollViewer>(LibraryTree);

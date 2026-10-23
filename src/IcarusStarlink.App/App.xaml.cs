@@ -390,7 +390,8 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Backups"),
             sp.GetRequiredService<IDialogService>(),
             sp.GetRequiredService<ModFixService>(),
-            sp.GetRequiredService<IPrebuiltPakSourceStore>()));
+            sp.GetRequiredService<IPrebuiltPakSourceStore>(),
+            Path.Combine(appDataDirectory, "Cache", "PakPreviews")));
         builder.Services.AddSingleton(sp => new MergeInstallViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
             sp.GetRequiredService<IRebuildService>(),

@@ -346,6 +346,87 @@ public sealed class LibraryViewModelTests
         Assert.Contains("Run Merge & Install", vm.StatusMessage);
     }
 
+    /// <summary>
+    /// Two separate files from one Nexus page (a main file with a Lua half, and an optional pak)
+    /// are two downloads: the optional pak isn't part of the main file's package, so deleting it
+    /// leaves the main file and its Lua half alone (packages used to be keyed by mod ID only).
+    /// </summary>
+    [Fact]
+    public void DeleteItemCommand_OnAnotherFileOfTheSameNexusMod_DeletesOnlyThatFile()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("Main", source: "Nexus", nexusModId: 361, isOpaquePak: true).NexusFileId = 10;
+        harness.AddMod("Optional", source: "Nexus", nexusModId: 361, isOpaquePak: true).NexusFileId = 11;
+        harness.Ue4ssModRepository.Staged.Add("MainLua");
+        harness.Ue4ssModMetaStore.Metas["MainLua"] = new Ue4ssModMeta { NexusModId = 361, NexusFileId = 10 };
+        var vm = harness.Build();
+        var main = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Main");
+        var optional = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Optional");
+        Assert.Equal(["MainLua"], main.LinkedUe4ssNames);
+        Assert.Empty(optional.LinkedUe4ssNames);
+
+        vm.DeleteItemCommand.Execute(optional);
+
+        Assert.Equal(["Optional"], harness.Repository.DeleteCalls);
+        Assert.Empty(harness.Ue4ssModRepository.DeleteCalls);
+    }
+
+    /// <summary>A part recorded before file IDs were kept still goes with its mod's one download.</summary>
+    [Fact]
+    public void Packages_PartWithoutAFileId_JoinsItsModsOnlyDownload()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("WirelessPower", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.Ue4ssModRepository.Staged.Add("WirelessPower");
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusFileId = 10 };
+        var vm = harness.Build();
+
+        Assert.Equal(["WirelessPower"], vm.RootItems.OfType<LibraryItemViewModel>().Single().LinkedUe4ssNames);
+    }
+
+    /// <summary>Delete, Restore latest backup and Reinstall original refuse while the mod is open in the editor (its next Save would write the old copy back), like the fix window.</summary>
+    [Fact]
+    public void DestructiveCommands_WhileTheModIsOpenInTheEditor_RefuseWithoutAsking()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("ModA");
+        var vm = harness.Build();
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single();
+        vm.MarkFolderEditorOpenForTesting("ModA");
+
+        vm.DeleteItemCommand.Execute(item);
+        Assert.Contains("open in the mod editor", vm.StatusMessage);
+        vm.StatusMessage = null;
+        vm.RestoreModBackupCommand.Execute(item);
+        Assert.Contains("open in the mod editor", vm.StatusMessage);
+
+        Assert.Empty(harness.DialogService.ConfirmMessages);
+        Assert.Empty(harness.Repository.DeleteCalls);
+        Assert.Empty(harness.Repository.RestoreLatestModBackupCalls);
+        Assert.Equal(1, vm.ModCount);
+    }
+
+    /// <summary>Clearing the Content path empties the right panel (it used to keep the old rows, and their selection).</summary>
+    [Fact]
+    public void ReloadInstalledUe4ssMods_ContentPathCleared_EmptiesTheUe4ssPanelAndItsSelection()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("ArcFissionLibrary", IsEnabled: true));
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        var row = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single();
+        vm.SetBulkSelectionAnchor(row);
+
+        harness.SettingsService.Current.IcarusContentPath = null;
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+
+        Assert.Empty(vm.Ue4ssRootItems);
+        Assert.Empty(vm.BulkSelectedUe4ssRows);
+        Assert.False(row.IsSelectedForBulk);
+        Assert.Equal("Set the Icarus Content folder in Settings first.", vm.Ue4ssEmptyText);
+    }
+
     // ---------------------------------------------------------------------------------------
     // The single Mods list: UE4SS rows live in the same list as pak/EXMOD rows, a Lua half is
     // folded into its Mods-tab row, every row has a Type, a Status and the same "On" checkbox.
@@ -1298,7 +1379,7 @@ public sealed class LibraryViewModelTests
         [
             new CatalogEntry(CatalogSource.Daedalus, "cat1", "ModA", "SomeAuthor", "2.0", "d", "", null, null, null, null, "http://fake.test/ModA.exmodz", []),
         ];
-        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler("fake-exmodz-bytes"u8.ToArray()));
+        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler(FakeExmodzBytes()));
         harness.Repository.ImportHandler = (path, source, nexusId, catalogId) => new LibraryEntry
         {
             FolderName = "ModA_v2", Name = "ModA", Author = "SomeAuthor", Version = "2.0", Description = "d",
@@ -1317,7 +1398,8 @@ public sealed class LibraryViewModelTests
         Assert.Empty(harness.Repository.RestoreLatestModBackupCalls);
 
         var importCall = Assert.Single(harness.Repository.ImportCalls);
-        Assert.True(importCall.SourcePath.EndsWith(".EXMODZ", StringComparison.OrdinalIgnoreCase), $"expected a .EXMODZ temp path, got '{importCall.SourcePath}'");
+        // Through Downloads' Activate (like Download & extract): the download is unpacked and the
+        // .EXMOD inside imported, not the .EXMODZ itself.
         Assert.Equal("Database", importCall.Source);
         Assert.Equal("cat1", importCall.CatalogEntryId);
 
@@ -1327,7 +1409,8 @@ public sealed class LibraryViewModelTests
         Assert.Contains(("ModA_v2", true, false, "great mod"), harness.Repository.UpdateMetadataCalls);
         Assert.Contains(("ModA_v2", "My Custom Name"), harness.Repository.SetDisplayNameOverrideCalls);
 
-        Assert.Contains("Updated 'ModA' to v2.0.", vm.StatusMessage);
+        // Named as the Library shows it now (the rename carried over).
+        Assert.Contains("Updated 'My Custom Name' to v2.0.", vm.StatusMessage);
         Assert.Equal(1, vm.ModCount);
         Assert.Contains(vm.RootItems.OfType<LibraryItemViewModel>(), i => i.FolderName == "ModA_v2");
         Assert.DoesNotContain(vm.RootItems.OfType<LibraryItemViewModel>(), i => i.FolderName == "ModA_v1");
@@ -1354,7 +1437,7 @@ public sealed class LibraryViewModelTests
         [
             new CatalogEntry(CatalogSource.Daedalus, "cat1", "ModA", "SomeAuthor", "2.0", "d", "", null, null, null, null, "http://fake.test/ModA.exmodz", []),
         ];
-        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler("fake-exmodz-bytes"u8.ToArray()));
+        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler(FakeExmodzBytes()));
         harness.Repository.ImportHandler = (path, source, nexusId, catalogId) => new LibraryEntry
         {
             FolderName = "ModA", Name = "ModA", Author = "SomeAuthor", Version = "2.0", Description = "d",
@@ -1388,7 +1471,7 @@ public sealed class LibraryViewModelTests
         [
             new CatalogEntry(CatalogSource.Daedalus, "cat1", "ModA", "SomeAuthor", "2.0", "d", "", null, null, null, null, "http://fake.test/ModA.exmodz", []),
         ];
-        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler("fake-exmodz-bytes"u8.ToArray()));
+        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler(FakeExmodzBytes()));
         // Simulates a real-world data mismatch: the catalog LISTS this release as "2.0", but the
         // .EXMODZ file's own internal metadata (what Import actually reads Version from) says
         // something subtly different — e.g. the author bumped the catalog entry but forgot to bump
@@ -1448,7 +1531,7 @@ public sealed class LibraryViewModelTests
         [
             new CatalogEntry(CatalogSource.Daedalus, "cat1", "ModA", "SomeAuthor", "2.0", "d", "", null, null, null, null, "http://fake.test/ModA.exmodz", []),
         ];
-        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler("fake-exmodz-bytes"u8.ToArray()));
+        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler(FakeExmodzBytes()));
         harness.Repository.ImportHandler = (path, source, nexusId, catalogId) => new LibraryEntry
         {
             FolderName = "ModA_v2", Name = "ModA", Author = "SomeAuthor", Version = "2.0", Description = "d",
@@ -1488,10 +1571,12 @@ public sealed class LibraryViewModelTests
         [
             new CatalogEntry(CatalogSource.Daedalus, "cat1", "ModA", "SomeAuthor", "2.0", "d", "", null, null, null, null, "http://fake.test/ModA.exmodz", []),
         ];
-        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler("corrupt-bytes"u8.ToArray()));
+        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler(FakeExmodzBytes()));
         harness.Repository.ImportHandler = (path, source, nexusId, catalogId) => throw new FormatException("corrupt download");
 
         var vm = harness.Build();
+        // A failed install offers Mod Organizer's manual install (a window): declined here.
+        vm.Downloads.ManualInstall = (_, _, _, _) => null;
         await vm.Downloads.GetOrFetchCatalogAsync();
         var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
 
@@ -1855,6 +1940,19 @@ public sealed class LibraryViewModelTests
                 SharedFixService = FixService,
             };
         }
+    }
+
+    /// <summary>A catalog download Get update can install: Downloads' Activate unpacks it and finds an .EXMOD (the fake repository's Import does the rest).</summary>
+    private static byte[] FakeExmodzBytes()
+    {
+        using var stream = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using var writer = new StreamWriter(zip.CreateEntry("ModA.EXMOD").Open());
+            writer.Write("{}");
+        }
+
+        return stream.ToArray();
     }
 
     private sealed class StaticByteResponseHandler(byte[] bytes) : HttpMessageHandler

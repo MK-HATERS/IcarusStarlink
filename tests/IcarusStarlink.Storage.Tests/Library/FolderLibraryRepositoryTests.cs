@@ -176,6 +176,25 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(_extractedModsDir, entry.FolderName)));
     }
 
+    [Fact]
+    public void GetAll_ListTakenBeforeAnImportOrDelete_IsLeftAsItWas()
+    {
+        // Read on background threads (the risk pass, the fix service) while the UI thread imports
+        // or deletes: the list handed out must never change under the reader.
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var first = repo.Import(_sourceDir);
+        var before = repo.GetAll();
+
+        var second = repo.Import(_sourceDir);
+        var afterImport = repo.GetAll();
+        repo.Delete(first.FolderName);
+
+        Assert.Single(before);
+        Assert.Equal(2, afterImport.Count);
+        Assert.Equal([second.FolderName], repo.GetAll().Select(e => e.FolderName));
+    }
+
     [Theory]
     [InlineData("faster")] // matches name
     [InlineData("testauthor")] // matches author
