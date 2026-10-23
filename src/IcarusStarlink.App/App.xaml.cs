@@ -186,7 +186,7 @@ public partial class App : Application
         // LoggingActivityLog's own doc comment.
         builder.Services.AddSingleton<ActivityLog>();
         builder.Services.AddSingleton<IActivityLog>(sp =>
-            new LoggingActivityLog(sp.GetRequiredService<ActivityLog>(), sp.GetRequiredService<ILogger<LoggingActivityLog>>()));
+            new LoggingActivityLog(sp.GetRequiredService<ActivityLog>(), sp.GetRequiredService<ILogger<LoggingActivityLog>>(), Current.Dispatcher));
         builder.Services.AddSingleton<IActiveDownloadsTracker, ActiveDownloadsTracker>();
         builder.Services.AddSingleton<ActivityPanelViewModel>();
         builder.Services.AddSingleton<ToastsViewModel>();
