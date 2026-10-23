@@ -55,7 +55,7 @@ public sealed partial class ExmodEditorViewModel
         }
 
         PushUndoSnapshot();
-        var existingIndex = _package.Rows.FindIndex(r => r.CurrentFile == SelectedItem.CurrentFile);
+        var existingIndex = _package.Rows.FindIndex(r => Same(r.CurrentFile, SelectedItem.CurrentFile));
         if (existingIndex >= 0)
         {
             _package.Rows[existingIndex] = newRow;
@@ -68,7 +68,7 @@ public sealed partial class ExmodEditorViewModel
         RefreshBaseDiff();
         var appliedFile = newRow.CurrentFile;
         ReloadItems();
-        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == appliedFile) ?? Items.FirstOrDefault();
+        SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, appliedFile)) ?? Items.FirstOrDefault();
         RawJsonStatusMessage = "Applied.";
     }
 
@@ -132,7 +132,7 @@ public sealed partial class ExmodEditorViewModel
             return;
         }
 
-        var row = _package.Rows.FirstOrDefault(r => r.CurrentFile == SelectedItem.CurrentFile);
+        var row = _package.Rows.FirstOrDefault(r => Same(r.CurrentFile, SelectedItem.CurrentFile));
         FileJsonText = row is null ? "" : ExmodJson.RowToJsonObject(row).ToJsonString(DisplayOptions);
     }
 

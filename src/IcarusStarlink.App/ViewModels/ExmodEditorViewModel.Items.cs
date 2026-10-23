@@ -55,8 +55,8 @@ public sealed partial class ExmodEditorViewModel
         RefreshBaseDiff();
         ReloadItems();
 
-        var item = rows.FirstOrDefault(r => r.CurrentFile == "Items-D_ItemsStatic.json")?.FileItems.FirstOrDefault();
-        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == "Items-D_ItemsStatic.json" && i.ItemName == item?.Name) ?? SelectedItem;
+        var item = rows.FirstOrDefault(r => Same(r.CurrentFile, "Items-D_ItemsStatic.json"))?.FileItems.FirstOrDefault();
+        SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, "Items-D_ItemsStatic.json") && Same(i.ItemName, item?.Name)) ?? SelectedItem;
         var tables = string.Join(", ", rows.Select(r => GameTableIndex.TableNameOf(r.CurrentFile)));
         StatusMessage = $"Added '{item?.Name}': {rows.Sum(r => r.FileItems.Count)} row(s) in {tables}. Change what you like, then Save.";
     }
@@ -90,7 +90,7 @@ public sealed partial class ExmodEditorViewModel
             ReloadItems();
         }
 
-        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == problem.CurrentFile && i.ItemName == problem.RowName) ?? SelectedItem;
+        SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, problem.CurrentFile) && Same(i.ItemName, problem.RowName)) ?? SelectedItem;
         ViewMode = ExmodEditorViewMode.ItemFields;
     }
 

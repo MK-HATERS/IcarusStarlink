@@ -84,7 +84,7 @@ public sealed partial class ExmodEditorViewModel
         }
 
         var sourceItem = FindItem(SelectedItem.CurrentFile, SelectedItem.ItemName);
-        var row = _package.Rows.FirstOrDefault(r => r.CurrentFile == SelectedItem.CurrentFile);
+        var row = _package.Rows.FirstOrDefault(r => Same(r.CurrentFile, SelectedItem.CurrentFile));
         if (sourceItem is null || row is null)
         {
             return;
@@ -92,7 +92,7 @@ public sealed partial class ExmodEditorViewModel
 
         var newName = $"{sourceItem.Name}_Copy";
         var suffix = 2;
-        while (row.FileItems.Any(i => i.Name == newName))
+        while (row.FileItems.Any(i => Same(i.Name, newName)))
         {
             newName = $"{sourceItem.Name}_Copy{suffix}";
             suffix++;
@@ -159,10 +159,10 @@ public sealed partial class ExmodEditorViewModel
         }
 
         var row = _package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, picked.CurrentFile, StringComparison.OrdinalIgnoreCase));
-        if (row is not null && row.FileItems.Any(i => i.Name == picked.ItemName))
+        if (row is not null && row.FileItems.Any(i => Same(i.Name, picked.ItemName)))
         {
             StatusMessage = $"'{picked.ItemName}' is already part of this mod.";
-            SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == picked.CurrentFile && i.ItemName == picked.ItemName) ?? SelectedItem;
+            SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, picked.CurrentFile) && Same(i.ItemName, picked.ItemName)) ?? SelectedItem;
             return;
         }
 
@@ -203,7 +203,7 @@ public sealed partial class ExmodEditorViewModel
 
         RefreshBaseDiff();
         ReloadItems();
-        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == picked.CurrentFile && i.ItemName == picked.ItemName);
+        SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, picked.CurrentFile) && Same(i.ItemName, picked.ItemName));
         StatusMessage = $"Added '{picked.ItemName}' with all {item.Fields.Count} of its real game values — edit what you want changed.";
     }
 
@@ -234,7 +234,7 @@ public sealed partial class ExmodEditorViewModel
         _package.Rows.Add(new ExmodFileRow { CurrentFile = currentFile });
         RefreshBaseDiff();
         ReloadItems();
-        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == previousFile && i.ItemName == previousName) ?? Items.FirstOrDefault();
+        SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, previousFile) && Same(i.ItemName, previousName)) ?? Items.FirstOrDefault();
         StatusMessage = $"Added '{currentFile}' with no rows yet — add one with More ▾ › Copy a game row into this mod…, or Add an empty row.";
     }
 
@@ -285,7 +285,7 @@ public sealed partial class ExmodEditorViewModel
 
             foreach (var sourceItem in sourceRow.FileItems)
             {
-                if (targetRow.FileItems.Any(i => i.Name == sourceItem.Name))
+                if (targetRow.FileItems.Any(i => Same(i.Name, sourceItem.Name)))
                 {
                     continue;
                 }
@@ -305,7 +305,7 @@ public sealed partial class ExmodEditorViewModel
 
         RefreshBaseDiff();
         ReloadItems();
-        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == previousFile && i.ItemName == previousName) ?? Items.FirstOrDefault();
+        SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, previousFile) && Same(i.ItemName, previousName)) ?? Items.FirstOrDefault();
         StatusMessage = addedCount == 0
             ? $"Nothing new to merge — every item in '{selected.Name}' is already here."
             : $"Merged {addedCount} item(s) from '{selected.Name}'.";

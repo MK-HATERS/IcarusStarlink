@@ -555,7 +555,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         try
         {
             ApplyParsedPackage(snapshot, reloadRules: !_scaleRulesDirty);
-            SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == previousFile && i.ItemName == previousName) ?? Items.FirstOrDefault();
+            SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, previousFile) && Same(i.ItemName, previousName)) ?? Items.FirstOrDefault();
         }
         finally
         {
@@ -735,8 +735,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         // Validated BEFORE the undo snapshot (an audit finding): a refused add used to leave a no-op
         // snapshot on the stack, so the user's next Undo "undid" nothing.
-        var row = _package.Rows.FirstOrDefault(r => r.CurrentFile == currentFile);
-        if (row is not null && row.FileItems.Any(i => i.Name == NewItemName))
+        var row = _package.Rows.FirstOrDefault(r => Same(r.CurrentFile, currentFile));
+        if (row is not null && row.FileItems.Any(i => Same(i.Name, NewItemName)))
         {
             StatusMessage = $"'{NewItemName}' already exists in '{currentFile}'.";
             return;
@@ -751,7 +751,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         row.FileItems.Add(new ExmodFileItem { Name = NewItemName });
 
-        var newItem = MakeItem(currentFile, NewItemName);
+        // The file as the mod already spells it ("Items-D_ItemsStatic.json" for a typed "items/d_itemsstatic.json").
+        var newItem = MakeItem(row.CurrentFile, NewItemName);
         Items.Add(newItem);
         SyncItemOrder();
         SelectedItem = newItem;
@@ -882,11 +883,18 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     {
         var previous = SelectedItem;
         ReloadItems();
-        SelectedItem = previous is null ? null : Items.FirstOrDefault(i => i.CurrentFile == previous.CurrentFile && i.ItemName == previous.ItemName);
+        SelectedItem = previous is null ? null : Items.FirstOrDefault(i => Same(i.CurrentFile, previous.CurrentFile) && Same(i.ItemName, previous.ItemName));
     }
 
+    /// <summary>
+    /// File and row names ignore case, like the game (and ItemCloner, InsertFile, Merge): comparing
+    /// them exactly let "items/d_itemsstatic.json" in beside "Items-D_ItemsStatic.json", and
+    /// "envirosuit" beside "Envirosuit", as a second copy only one of which the merge uses.
+    /// </summary>
+    private static bool Same(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
     private ExmodFileItem? FindItem(string currentFile, string itemName) =>
-        _package.Rows.FirstOrDefault(r => r.CurrentFile == currentFile)?.FileItems.FirstOrDefault(i => i.Name == itemName);
+        _package.Rows.FirstOrDefault(r => Same(r.CurrentFile, currentFile))?.FileItems.FirstOrDefault(i => Same(i.Name, itemName));
 
     private void ReloadItems()
     {
