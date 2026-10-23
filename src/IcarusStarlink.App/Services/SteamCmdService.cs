@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
 using System.Text;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Server;
 
 namespace IcarusStarlink.App.Services;
@@ -34,12 +35,7 @@ public sealed class SteamCmdService(HttpClient httpClient, Core.Settings.ISettin
         onLine("[Starlink] Downloading SteamCMD from Valve…");
         Directory.CreateDirectory(OwnInstallFolder);
         var zipPath = Path.Combine(OwnInstallFolder, "steamcmd.zip");
-        using (var response = await httpClient.GetAsync(SteamCmd.WindowsDownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
-        {
-            response.EnsureSuccessStatusCode();
-            await using var file = File.Create(zipPath);
-            await response.Content.CopyToAsync(file, cancellationToken);
-        }
+        await HttpFileDownloader.DownloadToFileAsync(httpClient, [SteamCmd.WindowsDownloadUrl], zipPath, HttpFileDownloader.DefaultIdleTimeout, cancellationToken);
 
         ZipFile.ExtractToDirectory(zipPath, OwnInstallFolder, overwriteFiles: true);
         File.Delete(zipPath);

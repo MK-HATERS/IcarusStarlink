@@ -18,6 +18,7 @@ using IcarusStarlink.Catalog.Ue4ss;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.Core.GameHealth;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Migration;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
@@ -1493,8 +1494,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             if (fromGitHub)
             {
                 var release = Ue4ssLatestRelease!;
-                var bytes = await _httpClient.GetByteArrayAsync(release.DownloadUrl);
-                await File.WriteAllBytesAsync(tempZipPath, bytes);
+                await HttpFileDownloader.DownloadToFileAsync(_httpClient, [release.DownloadUrl], tempZipPath, HttpFileDownloader.DefaultIdleTimeout);
 
                 // A real bug found live: unlike this app's own self-update (AppUpdateClient), this
                 // download had no integrity check at all — it writes a third-party DLL loader straight

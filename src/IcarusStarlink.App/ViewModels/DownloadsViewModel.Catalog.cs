@@ -560,7 +560,7 @@ public sealed partial class DownloadsViewModel
         // A real catalog entry can point at a github.com "view this file" page instead of its raw
         // content (a common submission mistake — see GitHubBlobUrl's own doc comment) — downloading
         // that HTML page and treating it as an archive fails opaquely, so this is normalized before
-        // ever reaching the actual GetByteArrayAsync call below.
+        // the download below.
         downloadUrl = GitHubBlobUrl.ToRawContentUrl(downloadUrl);
 
         var isExmodz = catalogEntry.ExmodzUrl is not null;
@@ -576,55 +576,30 @@ public sealed partial class DownloadsViewModel
             _pendingDownloadsDirectory, fileName, 0, fileId,
             path => _pendingDownloadStore.Entries.Any(e => e.ModId == 0 && e.FileId == fileId && e.LocalFilePath == path));
         var localPath = Path.Combine(_pendingDownloadsDirectory, fileName);
-        var partPath = $"{localPath}.{Guid.NewGuid():N}.part";
 
-        try
+        // Streamed to disk through a .part file, same as the Nexus path (an audit finding):
+        // GetByteArrayAsync buffered the whole pak in memory AND put the entire transfer under
+        // HttpClient's 100 s timeout, so a large catalog pak on a slow connection failed every time.
+        await HttpFileDownloader.DownloadToFileAsync(_downloadHttpClient, [downloadUrl], localPath, HttpFileDownloader.DefaultIdleTimeout);
+
+        // catalogEntryId is the Database counterpart of the Nexus pipeline's nexusModId — the
+        // stable link that keeps the Downloaded badge and update-checking working after a
+        // Rename, which name-matching alone can't survive.
+        _pendingDownloadStore.Add(new PendingDownloadEntry
         {
-            // Streamed to disk, same as the Nexus path (an audit finding): GetByteArrayAsync buffered
-            // the whole pak in memory AND put the entire transfer under HttpClient's 100 s timeout,
-            // so a large catalog pak on a slow connection failed every time.
-            using (var response = await HttpFileDownloader.GetWithStreamingResponseAsync(_downloadHttpClient, downloadUrl))
-            {
-                response.EnsureSuccessStatusCode();
-                await using var fileStream = File.Create(partPath);
-                await response.Content.CopyToAsync(fileStream);
-            }
+            ModId = 0,
+            FileId = fileId,
+            FileName = fileName,
+            LocalFilePath = localPath,
+            DownloadedAtUtc = DateTimeOffset.UtcNow,
+            Source = PendingDownloadEntry.DatabaseSource,
+            CatalogEntryId = catalogEntry.Id,
+            DisplayName = catalogEntry.Name,
+        });
+        ReloadPendingDownloads();
 
-            File.Move(partPath, localPath, overwrite: true);
-
-            // catalogEntryId is the Database counterpart of the Nexus pipeline's nexusModId — the
-            // stable link that keeps the Downloaded badge and update-checking working after a
-            // Rename, which name-matching alone can't survive.
-            _pendingDownloadStore.Add(new PendingDownloadEntry
-            {
-                ModId = 0,
-                FileId = fileId,
-                FileName = fileName,
-                LocalFilePath = localPath,
-                DownloadedAtUtc = DateTimeOffset.UtcNow,
-                Source = PendingDownloadEntry.DatabaseSource,
-                CatalogEntryId = catalogEntry.Id,
-                DisplayName = catalogEntry.Name,
-            });
-            ReloadPendingDownloads();
-
-            return PendingDownloads.FirstOrDefault(p => p.ModId == 0 && p.FileId == fileId)
-                ?? throw new InvalidOperationException($"'{catalogEntry.Name}' downloaded but couldn't be recorded.");
-        }
-        finally
-        {
-            try
-            {
-                if (File.Exists(partPath))
-                {
-                    File.Delete(partPath);
-                }
-            }
-            catch (Exception)
-            {
-                // Best-effort temp cleanup — a leftover file in %TEMP% isn't worth surfacing.
-            }
-        }
+        return PendingDownloads.FirstOrDefault(p => p.ModId == 0 && p.FileId == fileId)
+            ?? throw new InvalidOperationException($"'{catalogEntry.Name}' downloaded but couldn't be recorded.");
     }
 
     /// <summary>Called from LibraryView's own DataGrid.SelectionChanged code-behind (the IMM Database tab lives there now) — DataGrid.SelectedItems isn't a bindable DependencyProperty, same limitation the EXMOD editor's own mass-edit selection already works around.</summary>

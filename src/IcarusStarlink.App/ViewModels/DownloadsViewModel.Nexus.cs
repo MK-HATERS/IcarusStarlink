@@ -166,66 +166,17 @@ public sealed partial class DownloadsViewModel
                 return;
             }
 
-            // Every server Nexus offers, in its order, until one answers.
-            using var response = await HttpFileDownloader.GetFromFirstAnsweringAsync(_downloadHttpClient, [.. links.Select(l => l.Uri)]);
-            var answeredUri = response.RequestMessage?.RequestUri ?? new Uri(links[0].Uri);
-
-            var fileName = response.Content.Headers.ContentDisposition?.FileNameStar?.Trim('"')
-                ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
-                ?? Path.GetFileName(answeredUri.LocalPath);
-            if (string.IsNullOrWhiteSpace(fileName))
+            // Every server Nexus offers, in its order, until one answers — streamed to a .part file
+            // and renamed into place on completion (an audit finding): writing straight to the final
+            // path truncated an already-complete earlier download of the same file the moment a
+            // re-download started, so a mid-stream failure left a truncated file that the Pending
+            // Downloads row still presented as good.
+            var fileName = "";
+            var localPath = await HttpFileDownloader.DownloadToFileAsync(_downloadHttpClient, [.. links.Select(l => l.Uri)], response =>
             {
-                fileName = $"nexus_{nxmUrl.ModId}_{nxmUrl.FileId}.zip";
-            }
-
-            // fileName came straight from the CDN response's own Content-Disposition header (or,
-            // failing that, the download URL's own path) — neither is trustworthy: a rooted or
-            // "../"-laden value would otherwise let Path.Combine below write anywhere the app
-            // process can write.
-            // Nexus's "<name> <modId> <fileId> <timestamp> <hash>" tail dropped from the saved name
-            // (a real complaint: it rode into staged mod names). The (ModId, FileId) pair below is
-            // what keeps same-named files apart, not the hash.
-            fileName = DownloadFileNameSanitizer.Sanitize(
-                NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(fileName), nxmUrl.ModId) + Path.GetExtension(fileName));
-
-            Directory.CreateDirectory(_pendingDownloadsDirectory);
-            // See DownloadFileNameSanitizer.ResolveUniqueFileName's own doc comment: disambiguates
-            // against a DIFFERENT (ModId, FileId) pair's download that happens to share this exact
-            // file name, without disturbing a legitimate re-download of this same pair.
-            fileName = DownloadFileNameSanitizer.ResolveUniqueFileName(
-                _pendingDownloadsDirectory, fileName, nxmUrl.ModId, nxmUrl.FileId,
-                path => _pendingDownloadStore.Entries.Any(e => e.ModId == nxmUrl.ModId && e.FileId == nxmUrl.FileId && e.LocalFilePath == path));
-            var localPath = Path.Combine(_pendingDownloadsDirectory, fileName);
-
-            // Streamed to a .part file and renamed into place on completion (an audit finding):
-            // writing straight to the final path truncated an already-complete earlier download of
-            // the same file the moment a re-download started, so a mid-stream failure left a
-            // truncated file that the Pending Downloads row still presented as good.
-            var partPath = $"{localPath}.{Guid.NewGuid():N}.part";
-            try
-            {
-                await using (var fileStream = File.Create(partPath))
-                {
-                    await response.Content.CopyToAsync(fileStream);
-                }
-
-                File.Move(partPath, localPath, overwrite: true);
-            }
-            finally
-            {
-                // Guarded: a .part locked by antivirus must not replace the real error (a network
-                // failure, say) with "can't access the file".
-                try
-                {
-                    if (File.Exists(partPath))
-                    {
-                        File.Delete(partPath);
-                    }
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                }
-            }
+                fileName = ChooseNexusFileName(response, nxmUrl, links[0].Uri);
+                return Path.Combine(_pendingDownloadsDirectory, fileName);
+            }, HttpFileDownloader.DefaultIdleTimeout);
 
             _pendingDownloadStore.Add(new PendingDownloadEntry
             {
@@ -273,6 +224,40 @@ public sealed partial class DownloadsViewModel
         {
             _activeDownloadsTracker.Finish(trackerKey);
         }
+    }
+
+    /// <summary>
+    /// The name a Nexus download is saved under: the server's Content-Disposition name (or the URL's
+    /// last segment), made safe, Nexus's id/timestamp tail dropped, and kept apart from a different
+    /// file's download of the same name.
+    /// </summary>
+    private string ChooseNexusFileName(HttpResponseMessage response, NxmUrl nxmUrl, string firstLink)
+    {
+        var answeredUri = response.RequestMessage?.RequestUri ?? new Uri(firstLink);
+        var fileName = response.Content.Headers.ContentDisposition?.FileNameStar?.Trim('"')
+            ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
+            ?? Path.GetFileName(answeredUri.LocalPath);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            fileName = $"nexus_{nxmUrl.ModId}_{nxmUrl.FileId}.zip";
+        }
+
+        // fileName came straight from the CDN response's own Content-Disposition header (or,
+        // failing that, the download URL's own path) — neither is trustworthy: a rooted or
+        // "../"-laden value would otherwise let Path.Combine write anywhere the app process can
+        // write. Nexus's "<name> <modId> <fileId> <timestamp> <hash>" tail dropped from the saved
+        // name (a real complaint: it rode into staged mod names). The (ModId, FileId) pair is what
+        // keeps same-named files apart, not the hash.
+        fileName = DownloadFileNameSanitizer.Sanitize(
+            NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(fileName), nxmUrl.ModId) + Path.GetExtension(fileName));
+
+        Directory.CreateDirectory(_pendingDownloadsDirectory);
+        // See DownloadFileNameSanitizer.ResolveUniqueFileName's own doc comment: disambiguates
+        // against a DIFFERENT (ModId, FileId) pair's download that happens to share this exact
+        // file name, without disturbing a legitimate re-download of this same pair.
+        return DownloadFileNameSanitizer.ResolveUniqueFileName(
+            _pendingDownloadsDirectory, fileName, nxmUrl.ModId, nxmUrl.FileId,
+            path => _pendingDownloadStore.Entries.Any(e => e.ModId == nxmUrl.ModId && e.FileId == nxmUrl.FileId && e.LocalFilePath == path));
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
+using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.PakIO.Pak;
 
@@ -71,42 +72,27 @@ public sealed class UnrealPakInstaller(IProcessRunner processRunner, HttpClient 
 
     private async Task DownloadAndExtractRemotePayloadAsync(CancellationToken cancellationToken)
     {
-        HttpResponseMessage response;
+        // Downloads to a temp file rather than straight into InstallRoot — ZipFile.ExtractToDirectory
+        // needs a real file on disk (no stream overload), and a partial/corrupt download must not
+        // leave anything behind under InstallRoot for VerifyAsync to later find and misreport as "Ok".
+        var tempZipPath = Path.Combine(Path.GetTempPath(), $"UnrealPak-{Guid.NewGuid():N}.zip");
         try
         {
-            response = await httpClient.GetAsync(RemotePayloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new InvalidOperationException(
-                $"Couldn't reach GitHub to download UnrealPak — check your internet connection. ({ex.Message})", ex);
-        }
-
-        using (response)
-        {
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new InvalidOperationException(
-                    $"Couldn't download UnrealPak from GitHub ({(int)response.StatusCode} {response.ReasonPhrase}).");
-            }
-
-            // Downloads to a temp file rather than straight into InstallRoot — ZipFile.ExtractToDirectory
-            // needs a real file on disk (no stream overload), and a partial/corrupt download must not
-            // leave anything behind under InstallRoot for VerifyAsync to later find and misreport as "Ok".
-            var tempZipPath = Path.Combine(Path.GetTempPath(), $"UnrealPak-{Guid.NewGuid():N}.zip");
             try
             {
-                await using (var fileStream = File.Create(tempZipPath))
-                {
-                    await response.Content.CopyToAsync(fileStream, cancellationToken);
-                }
-
-                await ExtractPayloadIntoInstallRootAsync(tempZipPath, cancellationToken);
+                await HttpFileDownloader.DownloadToFileAsync(httpClient, [RemotePayloadUrl], tempZipPath, HttpFileDownloader.DefaultIdleTimeout, cancellationToken);
             }
-            finally
+            catch (Exception ex) when (ex is HttpRequestException or TimeoutException)
             {
-                File.Delete(tempZipPath);
+                throw new InvalidOperationException(
+                    $"Couldn't download UnrealPak from GitHub — check your internet connection. ({ex.Message})", ex);
             }
+
+            await ExtractPayloadIntoInstallRootAsync(tempZipPath, cancellationToken);
+        }
+        finally
+        {
+            File.Delete(tempZipPath);
         }
     }
 

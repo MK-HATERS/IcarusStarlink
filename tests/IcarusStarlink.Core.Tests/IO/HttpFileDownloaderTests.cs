@@ -85,6 +85,106 @@ public class HttpFileDownloaderTests
         Assert.Equal(1, asked);
     }
 
+    [Fact]
+    public async Task DownloadToFileAsync_Completes_WritesTheFileAndLeavesNoPartFile()
+    {
+        var folder = Directory.CreateTempSubdirectory("HttpFileDownloaderTests").FullName;
+        try
+        {
+            using var client = new HttpClient(new StaticResponseHandler(() => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([1, 2, 3]) }));
+            var destination = Path.Combine(folder, "sub", "mod.zip");
+
+            var saved = await HttpFileDownloader.DownloadToFileAsync(client, ["https://example.invalid/mod.zip"], destination, TimeSpan.FromSeconds(5));
+
+            Assert.Equal(destination, saved);
+            Assert.Equal([1, 2, 3], await File.ReadAllBytesAsync(destination));
+            Assert.Single(Directory.GetFiles(Path.Combine(folder, "sub")));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadToFileAsync_ConnectionStopsSending_TimesOutAndKeepsTheEarlierCopy()
+    {
+        var folder = Directory.CreateTempSubdirectory("HttpFileDownloaderTests").FullName;
+        try
+        {
+            var destination = Path.Combine(folder, "mod.zip");
+            await File.WriteAllBytesAsync(destination, [9]);
+            using var client = new HttpClient(new StaticResponseHandler(() => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StallingStream()) }));
+
+            var download = HttpFileDownloader.DownloadToFileAsync(client, ["https://example.invalid/mod.zip"], destination, TimeSpan.FromMilliseconds(200));
+            var finished = await Task.WhenAny(download, Task.Delay(TimeSpan.FromSeconds(10)));
+
+            Assert.Same(download, finished);
+            await Assert.ThrowsAsync<TimeoutException>(() => download);
+            Assert.Equal([9], await File.ReadAllBytesAsync(destination));
+            Assert.Equal([destination], Directory.GetFiles(folder));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadToFileAsync_CallerCancels_ThrowsCancelledNotTimeout()
+    {
+        var folder = Directory.CreateTempSubdirectory("HttpFileDownloaderTests").FullName;
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            using var client = new HttpClient(new StaticResponseHandler(() => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StallingStream()) }));
+
+            var download = HttpFileDownloader.DownloadToFileAsync(client, ["https://example.invalid/mod.zip"], Path.Combine(folder, "mod.zip"), TimeSpan.FromMinutes(5), cts.Token);
+            cts.CancelAfter(100);
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => download);
+            Assert.Empty(Directory.GetFiles(folder));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>A body that sends one byte, then nothing ever again — a connection gone quiet.</summary>
+    private sealed class StallingStream : Stream
+    {
+        private bool _sentFirst;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (!_sentFirst)
+            {
+                _sentFirst = true;
+                buffer.Span[0] = 1;
+                return 1;
+            }
+
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     private sealed class PerHostHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
