@@ -8,6 +8,7 @@ public sealed class NexusDownloadFileNameTests
     [InlineData("ArcFissionLibrary V1.2.2 356 3 2026-10-12T13-50Z b0gYfPbb2", "ArcFissionLibrary V1.2.2")]
     [InlineData("WirelessPower 1.0.0 361 1 2026-10-12T13-49Z UAfrx4UUt", "WirelessPower 1.0.0")]
     [InlineData("Ferani_Steadfast_Structures_EXMODZ 339 1 2026-09-25T13-25Z qdbjUuqbO", "Ferani_Steadfast_Structures_EXMODZ")]
+    [InlineData("Synthetic Miasma V1 1 376 1.1 2026-10-22T10-52Z AHkozS8Ru", "Synthetic Miasma V1 1")]
     public void StripNexusSuffix_RealNexusNames_KeepsOnlyTheUploadName(string input, string expected) =>
         Assert.Equal(expected, NexusDownloadFileName.StripNexusSuffix(input));
 

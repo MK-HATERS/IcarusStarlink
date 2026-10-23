@@ -16,10 +16,14 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Downloads" Style="{StaticResource PageHeaderStyle}"/>
+        <StackPanel Grid.Row="0" Orientation="Horizontal">
+            <TextBlock Text="Downloads" Style="{StaticResource PageHeaderStyle}"/>
+            <!-- How many downloads in all, installed ones included. -->
+            <TextBlock Text="{Binding PendingDownloads.Count, StringFormat='· {0}'}" Style="{StaticResource SectionCountTextStyle}"
+                       FontSize="16" Margin="8,0,0,8" ToolTip="Downloads in all, installed ones included"/>
+        </StackPanel>
         <TextBlock Grid.Row="1" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,4,0,12"
                    Text="Everything downloaded through this app, from Nexus or the IMM Database. A download is imported the moment it finishes — one download is one mod: its paks and any Lua part all land in Library's list, as linked rows. Reinstall puts a removed mod back; Discard deletes the downloaded file."/>
 
@@ -40,14 +44,23 @@
         </DockPanel>
 
         <DataGrid Grid.Row="3" ItemsSource="{Binding VisiblePendingDownloads}" AutoGenerateColumns="False" IsReadOnly="True">
+            <!-- Every cell's text centred in the row, level with the buttons on the right. -->
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Mod" Binding="{Binding DisplayName}" Width="3*"/>
-                <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="90"/>
-                <DataGridTextColumn Header="Contains" Binding="{Binding PartsSummary}" Width="1.2*"/>
-                <DataGridTemplateColumn Header="Status" Width="1.2*">
+                <DataGridTemplateColumn Header="Mod" Width="*" MinWidth="200">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                            <TextBlock Text="{Binding StateLabel}" VerticalAlignment="Center">
+                            <!-- The downloaded file's own name (Nexus appends version/date/hash) is a hover away. -->
+                            <TextBlock Text="{Binding DisplayName}" Style="{StaticResource CenteredCellTextStyle}" FontWeight="SemiBold"
+                                       ToolTip="{Binding FileName}" ToolTipService.InitialShowDelay="600"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="Auto" MinWidth="80" ElementStyle="{StaticResource CenteredCellTextStyle}"/>
+                <DataGridTextColumn Header="Contains" Binding="{Binding PartsSummary}" Width="Auto" MinWidth="100" ElementStyle="{StaticResource CenteredCellTextStyle}"/>
+                <DataGridTemplateColumn Header="Status" Width="Auto" MinWidth="110">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding StateLabel}" VerticalAlignment="Center" Margin="4,0">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
                                         <Style.Triggers>
@@ -64,12 +77,20 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Needs" Binding="{Binding RequirementsSummary}" Width="2*"/>
-                <DataGridTextColumn Header="Downloaded" Binding="{Binding DownloadedAtUtc.LocalDateTime, StringFormat='{}{0:g}'}" Width="140"/>
+                <!-- Sized to what the rows need (usually nothing), capped so one long README line can't take the row. -->
+                <DataGridTemplateColumn Header="Needs" Width="Auto" MaxWidth="320">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding RequirementsSummary}" Style="{StaticResource CenteredCellTextStyle}" ToolTip="{Binding RequirementsSummary}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Downloaded" Binding="{Binding DownloadedAtUtc.LocalDateTime, StringFormat='{}{0:d MMM yyyy, HH:mm}'}" Width="Auto" MinWidth="130"
+                                    ElementStyle="{StaticResource CenteredCellTextStyle}"/>
                 <DataGridTemplateColumn Header="" Width="Auto">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                            <StackPanel Orientation="Horizontal">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <Button Margin="4,2"
                                         Command="{Binding DataContext.ActivatePendingDownloadCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                         CommandParameter="{Binding}"
@@ -107,18 +128,8 @@
             </DataGrid.Columns>
         </DataGrid>
 
-        <TextBlock Grid.Row="4" Margin="0,8,0,0" FontSize="12" Foreground="{DynamicResource FaintForegroundBrush}" TextWrapping="Wrap"
-                   Text="Nothing here yet? Download a mod from the Nexus page, or click a Mod Manager Download button on nexusmods.com (nxm:// links open in this app).">
-            <TextBlock.Style>
-                <Style TargetType="TextBlock">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding PendingDownloads.Count}" Value="0">
-                            <Setter Property="Visibility" Value="Visible"/>
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </TextBlock.Style>
-        </TextBlock>
+        <!-- Instead of a blank table: nothing downloaded yet, or every download installed and hidden. -->
+        <TextBlock Grid.Row="3" Text="{Binding DownloadsEmptyText}" Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
+                   Visibility="{Binding DownloadsEmptyText, Converter={StaticResource NullToVisibilityConverter}}"/>
     </Grid>
 </UserControl>

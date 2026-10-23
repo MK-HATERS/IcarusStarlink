@@ -295,7 +295,17 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         ObservableCollectionSync.SyncTo(VisiblePendingDownloads, [.. PendingDownloads.Where(item => ShowInstalledDownloads || !item.IsInstalled)]);
         OnPropertyChanged(nameof(InstalledDownloadCount));
+        OnPropertyChanged(nameof(DownloadsEmptyText));
     }
+
+    /// <summary>What the Downloads page says instead of an empty table; null while it has rows.</summary>
+    public string? DownloadsEmptyText => VisiblePendingDownloads.Count > 0
+        ? null
+        : PendingDownloads.Count == 0
+            ? "Nothing downloaded yet — get mods from Database, or click Mod Manager Download on nexusmods.com."
+            : InstalledDownloadCount == 1
+                ? "Your one download is installed — tick Show installed to see it."
+                : $"All {InstalledDownloadCount} downloads are installed — tick Show installed to see them.";
 
     [RelayCommand]
     private void CancelDownloads()
