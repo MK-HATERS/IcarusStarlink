@@ -164,90 +164,6 @@ public sealed partial class LocalServerViewModel
         to.BackupsToKeep = from.BackupsToKeep;
     }
 
-    // ---- Overview tiles (selected server) ----
-
-    [ObservableProperty] private string _playersTile = "0";
-    [ObservableProperty] private string _playersHint = "";
-    [ObservableProperty] private string _worldTile = "";
-    [ObservableProperty] private string _worldHint = "";
-    [ObservableProperty] private string _uptimeTile = "";
-    [ObservableProperty] private string _uptimeHint = "";
-    [ObservableProperty] private string _memoryTile = "";
-    [ObservableProperty] private string _memoryHint = "";
-    [ObservableProperty] private string _buildTile = "";
-    [ObservableProperty] private string _buildHint = "";
-    [ObservableProperty] private string _backupTile = "";
-    [ObservableProperty] private string _backupHint = "";
-
-    public ObservableCollection<string> NextUp { get; } = [];
-
-    /// <summary>Automation restarts this server on its own while 'Save on exit' is off: each restart loses progress since the last autosave.</summary>
-    [ObservableProperty] private string? _saveOnExitWarning;
-
-    partial void OnSaveGameOnExitChanged(bool? value) => RefreshOverview();
-
-    private void RefreshOverview()
-    {
-        if (SelectedProfile is not { } p)
-        {
-            NextUp.Clear();
-            return;
-        }
-
-        var maxPlayers = int.TryParse(MaxPlayersText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var mp) ? mp : DedicatedServerDefaults.MaxPlayers;
-        PlayersTile = Running is null ? "-" : $"{OnlinePlayers.Count} / {maxPlayers}";
-        PlayersHint = Running is null ? "server stopped" : OnlinePlayers.Count == 0 ? "nobody online" : string.Join(", ", OnlinePlayers.Select(o => o.Name));
-
-        WorldTile = Running is null ? "-" : CurrentProspect ?? "Lobby";
-        WorldHint = CurrentProspect is null ? $"last: {LastProspectName ?? "none yet"}" : "loaded prospect";
-
-        if (Running is { } r)
-        {
-            UptimeTile = FormatUptime(DateTime.Now - r.StartTime);
-            UptimeHint = $"started {r.StartTime:HH:mm}";
-            MemoryTile = _memoryBytes is { } b ? $"{b / (1024.0 * 1024 * 1024):0.0} GB" : "-";
-            MemoryHint = $"PID {r.ProcessId}";
-        }
-        else
-        {
-            UptimeTile = "-";
-            UptimeHint = "not running";
-            MemoryTile = "-";
-            MemoryHint = "";
-        }
-
-        BuildTile = InstalledBuildId is null ? "Unknown"
-            : UpdateAvailable ? "Update available"
-            : LatestBuildId is not null ? "Up to date"
-            : InstalledBuildId.Value.ToString(CultureInfo.InvariantCulture);
-        BuildHint = InstalledBuildId is null ? "no Steam manifest" : $"build {InstalledBuildId} · {InstalledBranch ?? "public"}";
-
-        var newest = Backups.OrderByDescending(b => b.CreatedLocal).FirstOrDefault();
-        BackupTile = newest is null ? "None" : newest.CreatedLocal.Date == DateTime.Today ? newest.CreatedLocal.ToString("HH:mm", CultureInfo.CurrentCulture) : newest.CreatedLocal.ToString("d MMM", CultureInfo.CurrentCulture);
-        BackupHint = $"{Backups.Count} kept";
-
-        // The form's values: what the Settings tab shows (saved or about to be).
-        var saveFrequency = double.TryParse(GameSaveFrequencyText, NumberStyles.Float, CultureInfo.InvariantCulture, out var f) ? f : (double?)null;
-        SaveOnExitWarning = ServerShutdownNotes.AutomationWarning(p, new DedicatedServerSettings { SaveGameOnExit = SaveGameOnExit, GameSaveFrequency = saveFrequency });
-
-        var watch = _watches.GetValueOrDefault(p.Id);
-        var players = watch?.Events.Online.Count ?? OnlinePlayers.Count;
-        var lines = (watch?.Automation ?? new ServerAutomation()).DescribeUpcoming(p, Clock(), players).ToList();
-        if (watch?.LastAutomationEvent is { } last)
-        {
-            lines.Add($"Last: {last}");
-        }
-
-        if (!NextUp.SequenceEqual(lines))
-        {
-            NextUp.Clear();
-            foreach (var line in lines)
-            {
-                NextUp.Add(line);
-            }
-        }
-    }
-
     // ---- The automation beat ----
 
     /// <summary>Called by Tick every second: minimizes consoles still waiting for it, and runs the automation beat every few seconds.</summary>
@@ -305,8 +221,9 @@ public sealed partial class LocalServerViewModel
         {
             foreach (var profile in Profiles.ToList())
             {
-                // The owner is doing something to this server (or SteamCMD is busy): look again next beat.
-                if (IsSteamCmdBusy || (IsBusy && profile.Id == SelectedProfile?.Id))
+                // The owner is doing something to this server (starting, stopping, updating, a backup,
+                // restore or mod change), or SteamCMD is busy: look again next beat.
+                if (IsSteamCmdBusy || (IsBusy && profile.Id == SelectedProfile?.Id) || (IsBackupBusy && profile.Id == _backupBusyFor))
                 {
                     continue;
                 }
@@ -390,6 +307,13 @@ public sealed partial class LocalServerViewModel
                 break;
 
             case AutomationActionKind.UpdateNow:
+                // Checked before stopping anything: otherwise the server was stopped, the update
+                // skipped and the server started again on every beat.
+                if (await SkipUpdateForRunningSiblingsAsync(watch))
+                {
+                    break;
+                }
+
                 ReportAutomation(watch, $"'{p.Name}': {action.Reason}. Updating.", ActivityEntryKind.Info);
                 await RunAsAutomationAsync(watch, () => AutomatedRestartAsync(watch, checkForUpdate: true));
                 break;
@@ -491,7 +415,18 @@ public sealed partial class LocalServerViewModel
     /// <summary>Stop (if running), update when asked and Steam has something newer, start.</summary>
     private async Task AutomatedRestartAsync(ServerWatch watch, bool checkForUpdate)
     {
-        if (watch.Running is { } running)
+        // Looked up again: the watch's Running is from the last beat, up to several seconds old.
+        RunningServer? running;
+        try
+        {
+            running = await OffUiThread(() => _processes.FindRunning(watch.Profile));
+        }
+        catch (Exception)
+        {
+            running = watch.Running;
+        }
+
+        if (running is not null)
         {
             watch.Automation.NoteIntentionalStop(running.ProcessId);
             await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
@@ -565,6 +500,11 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        if (await SkipUpdateForRunningSiblingsAsync(watch))
+        {
+            return;
+        }
+
         var backup = await TryBackupAsync(p, "before-update");
         var result = await RunSteamCmdAsync(token => _steamCmd.InstallOrUpdateAsync(p.InstallFolder, SteamCmd.NormalizeBranch(p.Branch), line => OnSteamCmdLineFor(p.Id, line), token));
         watch.Automation.NoteUpdateFinished();
@@ -584,6 +524,23 @@ public sealed partial class LocalServerViewModel
 
             RefreshBackups();
         }
+    }
+
+    /// <summary>
+    /// Another profile on the same install is running: the server build is shared, so its files
+    /// can't be replaced under it. Reported, and the next hourly check finds the update again.
+    /// </summary>
+    private async Task<bool> SkipUpdateForRunningSiblingsAsync(ServerWatch watch)
+    {
+        var p = watch.Profile;
+        if (DescribeRunningSiblings(p, await OffUiThread(() => RunningSiblings(p)), "update it") is not { } refusal)
+        {
+            return false;
+        }
+
+        watch.Automation.NoteUpdateCheck(Clock(), updateAvailable: false);
+        ReportAutomation(watch, $"'{p.Name}': skipped the update. {refusal}", ActivityEntryKind.Warning);
+        return true;
     }
 
     /// <summary>Starts a server the way Start does, minus the form save (automation never writes half-typed settings).</summary>

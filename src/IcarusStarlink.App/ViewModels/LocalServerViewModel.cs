@@ -12,7 +12,6 @@ using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Server;
-using Microsoft.Win32;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -60,8 +59,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
         _processes = processes;
         _dialogService = dialogService;
         _activityLog = activityLog;
-        _pickFolder = pickFolder ?? PickFolderWithDialog;
-        _pickSteamCmdExe = pickSteamCmdExe ?? PickSteamCmdWithDialog;
+        _pickFolder = pickFolder ?? (title => dialogService.PickFolder(title));
+        _pickSteamCmdExe = pickSteamCmdExe ?? (() => dialogService.PickFile("Select your steamcmd.exe", "steamcmd.exe|steamcmd.exe|Programs (*.exe)|*.exe"));
         WorldSettings = new WorldSettingsViewModel(
             () => SelectedProfile is { } p ? DedicatedServerLayout.ProspectsFolder(p.InstallFolder, p.SavedDirSuffix) : null,
             () => DataFolder,
@@ -149,6 +148,9 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
+        // What automation last saw for this server, straight away: until the next process scan,
+        // Running used to stay the PREVIOUS server's, so Stop or Update in that second acted on it.
+        Running = value is not null && _watches.TryGetValue(value.Id, out var watch) ? watch.Running : null;
         LoadForm();
         AttachLog();
         Tick();
@@ -162,65 +164,6 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
     [ObservableProperty]
     private string? _validationMessage;
-
-    // ---- Launch options (stored in the profile) ----
-
-    [ObservableProperty] private string _profileName = "";
-    [ObservableProperty] private string _steamServerName = "";
-    [ObservableProperty] private string _portText = "";
-    [ObservableProperty] private string _queryPortText = "";
-    [ObservableProperty] private string _multihome = "";
-    [ObservableProperty] private string _savedDirSuffix = "";
-    [ObservableProperty] private string _logFileName = "";
-
-    public string InstallFolder => SelectedProfile?.InstallFolder ?? "";
-
-    // ---- ServerSettings.ini (stored in the server's own file) ----
-
-    [ObservableProperty] private string _joinPassword = "";
-    [ObservableProperty] private string _adminPassword = "";
-    [ObservableProperty] private string _maxPlayersText = "";
-    [ObservableProperty] private string _shutdownIfNotJoinedForText = "";
-    [ObservableProperty] private string _shutdownIfEmptyForText = "";
-    [ObservableProperty] private string _gameSaveFrequencyText = "";
-    [ObservableProperty] private string _loadProspect = "";
-    [ObservableProperty] private string _createProspect = "";
-    [ObservableProperty] private bool? _allowNonAdminsToLaunchProspects;
-    [ObservableProperty] private bool? _allowNonAdminsToDeleteProspects;
-    [ObservableProperty] private bool? _resumeProspect;
-    [ObservableProperty] private bool? _saveGameOnExit;
-    [ObservableProperty] private bool? _fiberFoliageRespawn;
-    [ObservableProperty] private bool? _largeStonesRespawn;
-
-    /// <summary>Written by the server — shown, never edited.</summary>
-    [ObservableProperty] private string? _lastProspectName;
-
-    public ObservableCollection<string> Prospects { get; } = [];
-
-    /// <summary>The World settings tab: each saved world's custom settings.</summary>
-    public WorldSettingsViewModel WorldSettings { get; }
-
-    /// <summary>The ini key every guide warns about: empty means anyone who types /AdminLogin becomes admin.</summary>
-    public bool AdminPasswordIsEmpty => string.IsNullOrWhiteSpace(AdminPassword);
-
-    partial void OnAdminPasswordChanged(string value) => OnPropertyChanged(nameof(AdminPasswordIsEmpty));
-
-    public string SettingsIniPath => SelectedProfile is null ? "" : DedicatedServerLayout.SettingsIniPath(SelectedProfile.InstallFolder, SavedDirSuffix);
-
-    /// <summary>The exact line Start runs, rebuilt from the form as you type.</summary>
-    public string CommandLinePreview => SelectedProfile is null ? "" : DedicatedServerCommandLine.BuildDisplayLine(BuildProfileFromForm(SelectedProfile, strict: false) ?? SelectedProfile);
-
-    partial void OnSteamServerNameChanged(string value) => OnPropertyChanged(nameof(CommandLinePreview));
-    partial void OnPortTextChanged(string value) => OnPropertyChanged(nameof(CommandLinePreview));
-    partial void OnQueryPortTextChanged(string value) => OnPropertyChanged(nameof(CommandLinePreview));
-    partial void OnMultihomeChanged(string value) => OnPropertyChanged(nameof(CommandLinePreview));
-    partial void OnLogFileNameChanged(string value) => OnPropertyChanged(nameof(CommandLinePreview));
-
-    partial void OnSavedDirSuffixChanged(string value)
-    {
-        OnPropertyChanged(nameof(CommandLinePreview));
-        OnPropertyChanged(nameof(SettingsIniPath));
-    }
 
     // ---- Run state ----
 
@@ -237,32 +180,20 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
     public bool IsRunning => Running is not null;
 
-    /// <summary>The server list is locked while one is starting or stopping: Start/Stop/Restart act on the selected server, so switching mid-way would act on another one.</summary>
+    /// <summary>The server list is locked while one is starting, stopping or updating: Start/Stop/Restart/Update act on the selected server, so switching mid-way would act on another one.</summary>
     public bool IsNotBusy => !IsBusy;
 
+    /// <summary>What the server is busy with when it's neither starting nor stopping ("UPDATING"); set before IsBusy, which refreshes the state text.</summary>
+    private string? _busyWith;
+
     public string RunStateText => IsAutomationBusy ? "AUTOMATIC RESTART"
+        : IsBusy && _busyWith is { } busyWith ? busyWith
         : IsBusy && Running is null ? "STARTING"
         : IsBusy ? "STOPPING"
         : Running is { } r ? $"RUNNING · up {FormatUptime(DateTime.Now - r.StartTime)}"
         : "STOPPED";
 
     partial void OnRunningChanged(RunningServer? value) => OnPropertyChanged(nameof(IsRunning));
-
-    // ---- Log ----
-
-    public ObservableCollection<string> LogLines { get; } = [];
-
-    [ObservableProperty] private bool _hideNoise = true;
-    [ObservableProperty] private bool _followLog = true;
-    [ObservableProperty] private string _logFilter = "";
-
-    public string LogPath => SelectedProfile is null ? "" : DedicatedServerLayout.LogPath(SelectedProfile.InstallFolder, SelectedProfile.SavedDirSuffix, SelectedProfile.LogFileName);
-
-    partial void OnHideNoiseChanged(bool value) => RebuildVisibleLog();
-    partial void OnLogFilterChanged(string value) => RebuildVisibleLog();
-
-    /// <summary>Raised after new lines are shown and FollowLog is on — the view scrolls to the end.</summary>
-    public event EventHandler? LogAppended;
 
     // ---- Commands ----
 
@@ -335,7 +266,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
         if (IsBusy)
         {
-            yield return "the server starting or stopping";
+            yield return "the server starting, stopping or updating";
         }
 
         if (IsBackupBusy)
@@ -404,7 +335,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanUseProfile))]
     private void SaveSettings() => TrySave();
 
-    private bool CanStart() => SelectedProfile is not null && Running is null && !IsBusy && !IsSteamCmdBusy && !IsAutomationBusy;
+    private bool CanStart() => SelectedProfile is not null && Running is null && !IsBusy && !IsSteamCmdBusy && !IsAutomationBusy && !IsBackupBusy;
 
     [RelayCommand(CanExecute = nameof(CanStart))]
     private async Task StartAsync()
@@ -416,6 +347,12 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
+        await StartCoreAsync(profile);
+    }
+
+    /// <summary>Launches this profile (already saved) and waits for its process to show up.</summary>
+    private async Task StartCoreAsync(DedicatedServerProfile profile)
+    {
         IsBusy = true;
         try
         {
@@ -463,33 +400,62 @@ public sealed partial class LocalServerViewModel : ObservableObject
     private bool CanStop() => SelectedProfile is not null && Running is not null && !IsBusy && !IsAutomationBusy;
 
     [RelayCommand(CanExecute = nameof(CanStop))]
-    private async Task StopAsync() => await StopCoreAsync(ask: true);
+    private async Task StopAsync()
+    {
+        if (SelectedProfile is { } profile)
+        {
+            await StopCoreAsync(profile, ask: true);
+        }
+    }
 
     [RelayCommand(CanExecute = nameof(CanStop))]
     private async Task RestartAsync()
     {
-        var restarting = SelectedProfile?.Id;
-        if (await StopCoreAsync(ask: true))
+        // The server being restarted, from the first click to the start: an update on restart takes
+        // minutes, and the start at the end used to launch whichever server was selected by then.
+        if (SelectedProfile is not { } profile || !await StopCoreAsync(profile, ask: true))
         {
-            // Never start a different server than the one that was stopped.
-            if (SelectedProfile?.Id != restarting)
-            {
-                StatusMessage += " Another server was selected meanwhile, so it wasn't started again; select it and click Start.";
-                return;
-            }
+            return;
+        }
 
-            if (SelectedProfile is { UpdateOnRestart: true } profile)
+        // Never start a different server than the one that was stopped.
+        if (SelectedProfile?.Id != profile.Id)
+        {
+            StatusMessage += " Another server was selected meanwhile, so it wasn't started again; select it and click Start.";
+            return;
+        }
+
+        if (profile.UpdateOnRestart)
+        {
+            // Busy for the whole update, so the server list stays locked on this server.
+            _busyWith = "UPDATING";
+            IsBusy = true;
+            try
             {
                 await UpdateProfileIfNewerAsync(GetWatch(profile));
             }
+            finally
+            {
+                IsBusy = false;
+                _busyWith = null;
+                OnPropertyChanged(nameof(RunStateText));
+            }
+        }
 
-            await StartAsync();
+        if (SelectedProfile?.Id == profile.Id && TrySave() && SelectedProfile is { } saved)
+        {
+            await StartCoreAsync(saved);
         }
     }
 
-    private async Task<bool> StopCoreAsync(bool ask)
+    /// <summary>
+    /// Stops this profile's server. What is stopped is looked up again right before acting (not the
+    /// Running the page last showed, which can be a few seconds old or another server's), and the
+    /// process service checks it is still that same process.
+    /// </summary>
+    private async Task<bool> StopCoreAsync(DedicatedServerProfile profile, bool ask)
     {
-        if (SelectedProfile is not { } profile || Running is not { } running)
+        if (Running is null)
         {
             return false;
         }
@@ -504,6 +470,13 @@ public sealed partial class LocalServerViewModel : ObservableObject
         IsBusy = true;
         try
         {
+            if (await OffUiThread(() => _processes.FindRunning(profile)) is not { } running)
+            {
+                await TickAsync();
+                StatusMessage = $"'{profile.Name}' isn't running any more.";
+                return true;
+            }
+
             StatusMessage = $"Stopping '{profile.Name}'…";
             GetWatch(profile).Automation.NoteOwnerStop(running.ProcessId);
             var clean = await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
@@ -522,6 +495,47 @@ public sealed partial class LocalServerViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>
+    /// Every server in the list that runs from this profile's install folder, itself included. Two
+    /// profiles can share one install (each with its own Saved suffix): its paks, UE4SS and the
+    /// server build are shared, so changing them needs every one of them stopped, not just the
+    /// selected one.
+    /// </summary>
+    internal IReadOnlyList<DedicatedServerProfile> RunningSiblings(DedicatedServerProfile profile)
+    {
+        var running = new List<DedicatedServerProfile>();
+        foreach (var other in Profiles.Where(p => string.Equals(
+                     Path.TrimEndingDirectorySeparator(p.InstallFolder), Path.TrimEndingDirectorySeparator(profile.InstallFolder), StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            try
+            {
+                if (_processes.FindRunning(other) is not null)
+                {
+                    running.Add(other);
+                }
+            }
+            catch (Exception)
+            {
+                // Couldn't look: a process scan hiccup. The selected server's own state still applies.
+            }
+        }
+
+        return running;
+    }
+
+    /// <summary>"Stop 'A' and 'B' first: they run from the same install." for a refused install-wide change; null when nothing else runs from it.</summary>
+    private static string? DescribeRunningSiblings(DedicatedServerProfile profile, IReadOnlyList<DedicatedServerProfile> running, string action)
+    {
+        var others = running.Where(p => p.Id != profile.Id).ToList();
+        if (others.Count == 0)
+        {
+            return null;
+        }
+
+        var names = string.Join(" and ", others.Select(p => $"'{p.Name}'"));
+        return $"Stop {names} before you {action}: {(others.Count == 1 ? "it runs" : "they run")} from the same install as '{profile.Name}'.";
     }
 
     [RelayCommand]
@@ -561,367 +575,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
-    private void ClearLog()
-    {
-        _allLogLines.Clear();
-        LogLines.Clear();
-    }
-
     // ---- Internals ----
-
-    /// <summary>The server's ServerSettings.ini as it is on disk now (not the form, which may hold unsaved edits); null when it can't be read.</summary>
-    private static DedicatedServerSettings? ReadIniSettings(DedicatedServerProfile p)
-    {
-        try
-        {
-            return ServerSettingsIni.Load(DedicatedServerLayout.SettingsIniPath(p.InstallFolder, p.SavedDirSuffix)).Read();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
-
-    private void LoadForm()
-    {
-        ValidationMessage = null;
-        Prospects.Clear();
-        if (SelectedProfile is not { } p)
-        {
-            ProfileName = SteamServerName = PortText = QueryPortText = Multihome = SavedDirSuffix = LogFileName = "";
-            LoadAutomation(null);
-            JoinPassword = AdminPassword = MaxPlayersText = ShutdownIfNotJoinedForText = ShutdownIfEmptyForText = GameSaveFrequencyText = LoadProspect = CreateProspect = "";
-            OnPropertyChanged(nameof(InstallFolder));
-            return;
-        }
-
-        ProfileName = p.Name;
-        LoadAutomation(p);
-        Branch = SteamCmd.NormalizeBranch(p.Branch);
-        SteamServerName = p.SteamServerName;
-        PortText = p.Port.ToString(CultureInfo.InvariantCulture);
-        QueryPortText = p.QueryPort.ToString(CultureInfo.InvariantCulture);
-        Multihome = p.Multihome;
-        SavedDirSuffix = p.SavedDirSuffix;
-        LogFileName = p.LogFileName;
-
-        // Guarded like ReadIniSettings: this runs inside the SelectedProfile setter, so a locked or
-        // unreadable ini used to throw straight out of a binding.
-        var s = ReadIniSettings(p);
-        if (s is null)
-        {
-            ValidationMessage = "Couldn't read this server's ServerSettings.ini, so the game settings below are blank. Check the file before you save.";
-            s = new DedicatedServerSettings();
-        }
-
-        JoinPassword = s.JoinPassword ?? "";
-        AdminPassword = s.AdminPassword ?? "";
-        MaxPlayersText = s.MaxPlayers?.ToString(CultureInfo.InvariantCulture) ?? "";
-        ShutdownIfNotJoinedForText = FormatNumber(s.ShutdownIfNotJoinedFor);
-        ShutdownIfEmptyForText = FormatNumber(s.ShutdownIfEmptyFor);
-        GameSaveFrequencyText = FormatNumber(s.GameSaveFrequency);
-        LoadProspect = s.LoadProspect ?? "";
-        CreateProspect = s.CreateProspect ?? "";
-        AllowNonAdminsToLaunchProspects = s.AllowNonAdminsToLaunchProspects;
-        AllowNonAdminsToDeleteProspects = s.AllowNonAdminsToDeleteProspects;
-        ResumeProspect = s.ResumeProspect;
-        SaveGameOnExit = s.SaveGameOnExit;
-        FiberFoliageRespawn = s.FiberFoliageRespawn;
-        LargeStonesRespawn = s.LargeStonesRespawn;
-        LastProspectName = s.LastProspectName;
-
-        foreach (var name in DedicatedServerLayout.ListProspects(p.InstallFolder, p.SavedDirSuffix))
-        {
-            Prospects.Add(name);
-        }
-
-        WorldSettings.Reload();
-        OnPropertyChanged(nameof(InstallFolder));
-        OnPropertyChanged(nameof(SettingsIniPath));
-        OnPropertyChanged(nameof(CommandLinePreview));
-        OnPropertyChanged(nameof(LogPath));
-    }
-
-    /// <summary>
-    /// Re-reads the saved worlds and LastProspectName without reloading the rest of the form (which
-    /// would throw away unsaved edits). Used when the server starts or stops.
-    /// </summary>
-    private void RefreshProspectList(DedicatedServerProfile p)
-    {
-        try
-        {
-            LastProspectName = ServerSettingsIni.Load(DedicatedServerLayout.SettingsIniPath(p.InstallFolder, p.SavedDirSuffix)).Read().LastProspectName;
-            var names = DedicatedServerLayout.ListProspects(p.InstallFolder, p.SavedDirSuffix).ToList();
-            if (!names.SequenceEqual(Prospects))
-            {
-                Prospects.Clear();
-                foreach (var name in names)
-                {
-                    Prospects.Add(name);
-                }
-            }
-
-            // The server just wrote its worlds: show what they hold now.
-            WorldSettings.Reload();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // The server may still hold the files — the next start/stop tries again.
-        }
-    }
-
-    /// <summary>Validates the form; on success writes the profile and the ini. Returns false (with ValidationMessage set) when anything is out of range.</summary>
-    internal bool TrySave()
-    {
-        if (SelectedProfile is not { } current)
-        {
-            return false;
-        }
-
-        var updated = BuildProfileFromForm(current, strict: true);
-        var settings = updated is null ? null : BuildSettingsFromForm();
-        if (updated is null || settings is null)
-        {
-            return false;
-        }
-
-        if (Profiles.Any(p => p.Id != updated.Id
-                && string.Equals(p.InstallFolder, updated.InstallFolder, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(p.SavedDirSuffix, updated.SavedDirSuffix, StringComparison.OrdinalIgnoreCase)))
-        {
-            ValidationMessage = "Another profile already uses this install with the same Saved suffix — give this one its own suffix (e.g. _2) so their worlds and settings don't collide.";
-            return false;
-        }
-
-        try
-        {
-            var iniPath = DedicatedServerLayout.SettingsIniPath(updated.InstallFolder, updated.SavedDirSuffix);
-            var ini = ServerSettingsIni.Load(iniPath);
-            ini.Write(settings);
-            ini.Save(iniPath);
-        }
-        catch (Exception ex)
-        {
-            ValidationMessage = $"Couldn't write ServerSettings.ini: {ex.Message}";
-            return false;
-        }
-
-        var index = Profiles.IndexOf(current);
-        var stored = SaveToStore(updated);
-        SyncFirewallPortsAfterSave(current, updated);
-
-        // Swap the list entry and re-select it without reloading the form from disk (it already
-        // holds what was saved) — the ListBox briefly pushes a null selection while the item is
-        // replaced, which must not clear the form either.
-        _suppressFormReload = true;
-        try
-        {
-            if (index >= 0)
-            {
-                Profiles[index] = updated;
-            }
-
-            SelectedProfile = updated;
-        }
-        finally
-        {
-            _suppressFormReload = false;
-        }
-
-        OnPropertyChanged(nameof(LogPath));
-        AttachLog();
-
-        ValidationMessage = null;
-        if (stored)
-        {
-            StatusMessage = Running is not null ? "Saved. Restart the server to apply." : "Saved.";
-        }
-        return true;
-    }
-
-    private DedicatedServerProfile? BuildProfileFromForm(DedicatedServerProfile current, bool strict)
-    {
-        string? error = null;
-        if (!TryParsePort(PortText, out var port))
-        {
-            error = "Game port must be a number from 1 to 65535.";
-        }
-        else if (!TryParsePort(QueryPortText, out var queryPort))
-        {
-            error = "Query port must be a number from 1 to 65535.";
-        }
-        else if (port == queryPort)
-        {
-            error = "Game port and query port must differ.";
-        }
-        else if (string.IsNullOrWhiteSpace(ProfileName))
-        {
-            error = "Give the profile a name.";
-        }
-        else if (SavedDirSuffix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || LogFileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-        {
-            error = "Saved suffix and log file name can't contain \\ / : * ? \" < > |.";
-        }
-        else
-        {
-            var built = new DedicatedServerProfile
-            {
-                Id = current.Id,
-                Name = ProfileName.Trim(),
-                InstallFolder = current.InstallFolder,
-                SteamServerName = DedicatedServerCommandLine.Sanitize(SteamServerName),
-                Port = port,
-                QueryPort = queryPort,
-                Multihome = Multihome.Trim(),
-                SavedDirSuffix = SavedDirSuffix.Trim(),
-                LogFileName = LogFileName.Trim(),
-                Branch = SteamCmd.NormalizeBranch(Branch),
-            };
-            CopyAutomation(current, built);
-            return built;
-        }
-
-        if (strict)
-        {
-            ValidationMessage = error;
-        }
-
-        return null;
-    }
-
-    private DedicatedServerSettings? BuildSettingsFromForm()
-    {
-        int? maxPlayers = null;
-        if (MaxPlayersText.Trim().Length > 0)
-        {
-            if (!int.TryParse(MaxPlayersText.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var mp)
-                || mp < DedicatedServerDefaults.MinPlayers || mp > DedicatedServerDefaults.MaxPlayers)
-            {
-                ValidationMessage = $"Max players must be {DedicatedServerDefaults.MinPlayers} to {DedicatedServerDefaults.MaxPlayers} (or blank for the game default).";
-                return null;
-            }
-
-            maxPlayers = mp;
-        }
-
-        if (!TryParseOptionalNumber(ShutdownIfNotJoinedForText, out var notJoined)
-            || !TryParseOptionalNumber(ShutdownIfEmptyForText, out var empty))
-        {
-            ValidationMessage = "Shutdown timers are seconds: a number, -1 for never, or blank for the game default.";
-            return null;
-        }
-
-        if (!TryParseOptionalNumber(GameSaveFrequencyText, out var saveFrequency) || saveFrequency <= 0)
-        {
-            ValidationMessage = "Autosave interval is minutes: a positive number, or blank for the game default.";
-            return null;
-        }
-
-        return new DedicatedServerSettings
-        {
-            SessionName = DedicatedServerCommandLine.Sanitize(SteamServerName) is { Length: > 0 } n ? n : null,
-            JoinPassword = Blank(JoinPassword),
-            AdminPassword = Blank(AdminPassword),
-            MaxPlayers = maxPlayers,
-            ShutdownIfNotJoinedFor = notJoined,
-            ShutdownIfEmptyFor = empty,
-            GameSaveFrequency = saveFrequency,
-            LoadProspect = Blank(LoadProspect),
-            CreateProspect = Blank(CreateProspect),
-            AllowNonAdminsToLaunchProspects = AllowNonAdminsToLaunchProspects,
-            AllowNonAdminsToDeleteProspects = AllowNonAdminsToDeleteProspects,
-            ResumeProspect = ResumeProspect,
-            SaveGameOnExit = SaveGameOnExit,
-            FiberFoliageRespawn = FiberFoliageRespawn,
-            LargeStonesRespawn = LargeStonesRespawn,
-        };
-    }
-
-    /// <summary>Puts lines in the Log panel (the server's own lines come from its watch, already read and fed to the players list).</summary>
-    private void AppendLog(IReadOnlyList<string> lines)
-    {
-        if (lines.Count == 0)
-        {
-            return;
-        }
-
-        // The server logs the join password in plain text on every login — never show or keep it.
-        lines = [.. lines.Select(ServerLogFilter.Redact)];
-        _allLogLines.AddRange(lines);
-        if (_allLogLines.Count > MaxLogLines)
-        {
-            _allLogLines.RemoveRange(0, _allLogLines.Count - MaxLogLines);
-        }
-
-        var added = false;
-        foreach (var line in lines.Where(IsVisible))
-        {
-            LogLines.Add(line);
-            added = true;
-        }
-
-        while (LogLines.Count > MaxLogLines)
-        {
-            LogLines.RemoveAt(0);
-        }
-
-        if (added && FollowLog)
-        {
-            LogAppended?.Invoke(this, EventArgs.Empty);
-        }
-    }
-
-    private void RebuildVisibleLog()
-    {
-        LogLines.Clear();
-        foreach (var line in _allLogLines.Where(IsVisible))
-        {
-            LogLines.Add(line);
-        }
-    }
-
-    private bool IsVisible(string line) =>
-        line.Length > 0
-        && (!HideNoise || !ServerLogFilter.IsNoise(line))
-        && (string.IsNullOrWhiteSpace(LogFilter) || line.Contains(LogFilter.Trim(), StringComparison.OrdinalIgnoreCase));
-
-    private static string? PickSteamCmdWithDialog()
-    {
-        var dialog = new OpenFileDialog { Title = "Select your steamcmd.exe", Filter = "steamcmd.exe|steamcmd.exe|Programs (*.exe)|*.exe" };
-        return dialog.ShowDialog() == true ? dialog.FileName : null;
-    }
-
-    private static string? PickFolderWithDialog(string title)
-    {
-        var dialog = new OpenFolderDialog { Title = title };
-        return dialog.ShowDialog() == true ? dialog.FolderName : null;
-    }
-
-    private static bool TryParsePort(string text, out int port) =>
-        int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out port) && port is > 0 and <= 65535;
-
-    private static bool TryParseOptionalNumber(string text, out double? value)
-    {
-        value = null;
-        if (text.Trim().Length == 0)
-        {
-            return true;
-        }
-
-        if (double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
-        {
-            value = v;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static string FormatNumber(double? value) =>
-        value is null ? "" : value.Value.ToString(value.Value % 1 == 0 ? "0" : "0.###", CultureInfo.InvariantCulture);
-
-    private static string? Blank(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
 
     private static string FormatUptime(TimeSpan span) =>
         span.TotalHours >= 1 ? $"{(int)span.TotalHours}h {span.Minutes:00}m" : span.TotalMinutes >= 1 ? $"{span.Minutes}m {span.Seconds:00}s" : $"{Math.Max(0, span.Seconds)}s";

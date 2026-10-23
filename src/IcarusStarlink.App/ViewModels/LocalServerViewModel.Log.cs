@@ -1,4 +1,7 @@
+using System.Collections.ObjectModel;
 using System.IO;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.Core.Server;
 
@@ -340,4 +343,75 @@ public sealed partial class LocalServerViewModel
 
         RefreshOverview();
     }
+
+    // ---- Log ----
+
+    public ObservableCollection<string> LogLines { get; } = [];
+
+    [ObservableProperty] private bool _hideNoise = true;
+    [ObservableProperty] private bool _followLog = true;
+    [ObservableProperty] private string _logFilter = "";
+
+    public string LogPath => SelectedProfile is null ? "" : DedicatedServerLayout.LogPath(SelectedProfile.InstallFolder, SelectedProfile.SavedDirSuffix, SelectedProfile.LogFileName);
+
+    partial void OnHideNoiseChanged(bool value) => RebuildVisibleLog();
+    partial void OnLogFilterChanged(string value) => RebuildVisibleLog();
+
+    /// <summary>Raised after new lines are shown and FollowLog is on — the view scrolls to the end.</summary>
+    public event EventHandler? LogAppended;
+
+    [RelayCommand]
+    private void ClearLog()
+    {
+        _allLogLines.Clear();
+        LogLines.Clear();
+    }
+
+    /// <summary>Puts lines in the Log panel (the server's own lines come from its watch, already read and fed to the players list).</summary>
+    private void AppendLog(IReadOnlyList<string> lines)
+    {
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        // The server logs the join password in plain text on every login — never show or keep it.
+        lines = [.. lines.Select(ServerLogFilter.Redact)];
+        _allLogLines.AddRange(lines);
+        if (_allLogLines.Count > MaxLogLines)
+        {
+            _allLogLines.RemoveRange(0, _allLogLines.Count - MaxLogLines);
+        }
+
+        var added = false;
+        foreach (var line in lines.Where(IsVisible))
+        {
+            LogLines.Add(line);
+            added = true;
+        }
+
+        while (LogLines.Count > MaxLogLines)
+        {
+            LogLines.RemoveAt(0);
+        }
+
+        if (added && FollowLog)
+        {
+            LogAppended?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private void RebuildVisibleLog()
+    {
+        LogLines.Clear();
+        foreach (var line in _allLogLines.Where(IsVisible))
+        {
+            LogLines.Add(line);
+        }
+    }
+
+    private bool IsVisible(string line) =>
+        line.Length > 0
+        && (!HideNoise || !ServerLogFilter.IsNoise(line))
+        && (string.IsNullOrWhiteSpace(LogFilter) || line.Contains(LogFilter.Trim(), StringComparison.OrdinalIgnoreCase));
 }

@@ -180,7 +180,23 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
 
         using (process)
         {
-            if (!TrySendCtrlC(server.ProcessId))
+            // The PID may be minutes old (automation's last look): if that server has exited since,
+            // Windows can have given its number to something else. Never touch a process that isn't
+            // the one recorded — same name, same start time.
+            try
+            {
+                if (!IsRecordedServer(process.ProcessName, process.StartTime, server))
+                {
+                    return true; // the recorded server is gone
+                }
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                return true; // exited while looking (or can't be read, so it isn't ours to stop)
+            }
+
+            // Off the UI thread: sending Ctrl+C waits for it to be delivered.
+            if (!await Task.Run(() => TrySendCtrlC(server.ProcessId), cancellationToken))
             {
                 try
                 {
@@ -214,6 +230,12 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
             }
         }
     }
+
+    /// <summary>A process is the recorded server: one of the server's two exe names, started when the recorded one was (FindRunning took its start time from the process itself).</summary>
+    internal static bool IsRecordedServer(string processName, DateTime startTime, RunningServer server) =>
+        (string.Equals(processName, DedicatedServerLayout.ShippingProcessName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(processName, DedicatedServerLayout.LauncherProcessName, StringComparison.OrdinalIgnoreCase))
+        && (startTime - server.StartTime).Duration() < TimeSpan.FromSeconds(1);
 
     public long? GetMemoryBytes(int processId)
     {

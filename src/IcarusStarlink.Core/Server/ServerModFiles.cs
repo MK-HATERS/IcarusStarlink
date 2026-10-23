@@ -1,3 +1,6 @@
+using IcarusStarlink.Core.IO;
+using IcarusStarlink.Core.Ue4ss;
+
 namespace IcarusStarlink.Core.Server;
 
 public sealed record ServerPakFile(string FileName, long SizeBytes, DateTime ModifiedLocal);
@@ -102,9 +105,10 @@ public static class ServerModFiles
 
     /// <summary>
     /// Puts UE4SS on the server from the game client's own install (same game, same engine build —
-    /// verified to load on the server through dwmapi.dll): dwmapi.dll, UE4SS.dll, UE4SS-settings.ini,
-    /// and the framework's Mods\shared + Keybinds + mods.txt. Never overwrites a settings file or
-    /// mods.txt the server already has. Returns false when the game has no UE4SS to copy.
+    /// verified to load on the server through dwmapi.dll): dwmapi.dll, the loader's files
+    /// (Ue4ssServerFiles.LoaderFiles: no logs, no Mods), and the framework's Mods\shared + Keybinds +
+    /// mods.txt. Never overwrites a settings file or mods.txt the server already has. Returns false
+    /// when the game has no UE4SS to copy.
     /// </summary>
     public static bool InstallUe4ssFromGame(string gameWin64Folder, string installFolder)
     {
@@ -118,50 +122,35 @@ public static class ServerModFiles
         var serverUe4ss = Path.Combine(serverWin64, "ue4ss");
         Directory.CreateDirectory(Path.Combine(serverUe4ss, "Mods"));
         File.Copy(Path.Combine(gameWin64Folder, "dwmapi.dll"), Path.Combine(serverWin64, "dwmapi.dll"), overwrite: true);
-        File.Copy(Path.Combine(gameUe4ss, "UE4SS.dll"), Path.Combine(serverUe4ss, "UE4SS.dll"), overwrite: true);
-        CopyIfMissing(Path.Combine(gameUe4ss, "UE4SS-settings.ini"), Path.Combine(serverUe4ss, "UE4SS-settings.ini"));
+        foreach (var relative in Ue4ssServerFiles.LoaderFiles(gameUe4ss))
+        {
+            var source = Path.Combine(gameUe4ss, relative);
+            var target = Path.Combine(serverUe4ss, relative);
+            if (string.Equals(relative, Ue4ssServerFiles.SettingsFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                CopyIfMissing(source, target);
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(source, target, overwrite: true);
+        }
+
         CopyIfMissing(Path.Combine(gameUe4ss, "Mods", "mods.txt"), Path.Combine(serverUe4ss, "Mods", "mods.txt"));
         foreach (var framework in new[] { "shared", "Keybinds" })
         {
             var source = Path.Combine(gameUe4ss, "Mods", framework);
             if (Directory.Exists(source))
             {
-                CopyDirectory(source, Path.Combine(serverUe4ss, "Mods", framework));
+                Directories.Copy(source, Path.Combine(serverUe4ss, "Mods", framework));
             }
         }
 
         // The server now runs the game's build: drop its stale UE4SS.log and say which build that is.
-        var (version, commit) = Ue4ss.Ue4ssInstalledBuild.Read(gameUe4ss);
-        Ue4ss.Ue4ssInstalledBuild.RecordInstalled(serverUe4ss, version, commit);
+        var (version, commit) = Ue4ssInstalledBuild.Read(gameUe4ss);
+        Ue4ssInstalledBuild.RecordInstalled(serverUe4ss, version, commit);
 
         return true;
-    }
-
-    /// <summary>Copies one UE4SS mod folder from the game to the server (replacing the server's copy) and turns it on in the server's mods.txt.</summary>
-    public static void CopyUe4ssModToServer(string gameModsFolder, string modName, string installFolder)
-    {
-        RequireFolderName(modName);
-
-        // Checked before the server's copy is deleted: a mod no longer in the game's Mods folder used
-        // to cost the server its copy too, before the copy step failed.
-        var source = Path.Combine(gameModsFolder, modName);
-        if (!Directory.Exists(source))
-        {
-            throw new DirectoryNotFoundException($"'{modName}' isn't in the game's UE4SS Mods folder.");
-        }
-
-        var serverMods = DedicatedServerLayout.Ue4ssModsFolder(installFolder);
-        var target = Path.Combine(serverMods, modName);
-        if (Directory.Exists(target))
-        {
-            Directory.Delete(target, recursive: true);
-        }
-
-        CopyDirectory(source, target);
-        var txtPath = Path.Combine(serverMods, "mods.txt");
-        var txt = Ue4ssModsTxt.Load(txtPath);
-        txt.Set(modName, true);
-        txt.Save(txtPath);
     }
 
     /// <summary>Moves a UE4SS mod folder off the server into the backups folder and drops its mods.txt line.</summary>
@@ -174,7 +163,7 @@ public static class ServerModFiles
         if (Directory.Exists(source))
         {
             var dest = Path.Combine(backupsFolder, "removed-ue4ss", $"{DateTime.Now:yyyy-MM-dd_HHmmss}_{modName}");
-            CopyDirectory(source, dest);
+            Directories.Copy(source, dest);
             Directory.Delete(source, recursive: true);
         }
 
@@ -188,7 +177,7 @@ public static class ServerModFiles
     }
 
     /// <summary>"." and ".." pass the invalid-character check but name the Mods folder itself or its parent — deleting "the mod" would delete those.</summary>
-    private static void RequireFolderName(string modName)
+    internal static void RequireFolderName(string modName)
     {
         if (string.IsNullOrWhiteSpace(modName) || modName.Trim('.').Length == 0 || modName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
         {
@@ -201,17 +190,6 @@ public static class ServerModFiles
         if (File.Exists(source) && !File.Exists(target))
         {
             File.Copy(source, target);
-        }
-    }
-
-    private static void CopyDirectory(string source, string target)
-    {
-        Directory.CreateDirectory(target);
-        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
-        {
-            var dest = Path.Combine(target, Path.GetRelativePath(source, file));
-            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-            File.Copy(file, dest, overwrite: true);
         }
     }
 }

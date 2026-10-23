@@ -369,14 +369,14 @@ public sealed class ServerPhase23Tests : IDisposable
         Directory.CreateDirectory(Path.Combine(mods, "KeepMe"));
 
         Assert.Throws<ArgumentException>(() => ServerModFiles.RemoveUe4ssMod(install, name, Path.Combine(_root, "Backups")));
-        Assert.Throws<ArgumentException>(() => ServerModFiles.CopyUe4ssModToServer(Path.Combine(_root, "GameMods"), name, install));
+        Assert.Throws<ArgumentException>(() => ServerUe4ssSync.CopyToServer(Path.Combine(_root, "GameMods"), name, install, Path.Combine(_root, "Backups")));
 
         Assert.True(Directory.Exists(Path.Combine(mods, "KeepMe")));
     }
 
     /// <summary>Copying a mod the game no longer has used to delete the server's own copy first, then fail.</summary>
     [Fact]
-    public void CopyUe4ssModToServer_ModMissingFromTheGame_LeavesTheServersCopyAlone()
+    public void CopyToServer_ModMissingFromTheGame_LeavesTheServersCopyAlone()
     {
         var install = Path.Combine(_root, "Server");
         var serverMod = Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(install), "BetterStacks");
@@ -385,7 +385,7 @@ public sealed class ServerPhase23Tests : IDisposable
         var gameMods = Path.Combine(_root, "GameMods");
         Directory.CreateDirectory(gameMods);
 
-        Assert.Throws<DirectoryNotFoundException>(() => ServerModFiles.CopyUe4ssModToServer(gameMods, "BetterStacks", install));
+        Assert.Throws<DirectoryNotFoundException>(() => ServerUe4ssSync.CopyToServer(gameMods, "BetterStacks", install, Path.Combine(_root, "Backups")));
 
         Assert.Equal("-- server copy", File.ReadAllText(Path.Combine(serverMod, "main.lua")));
     }

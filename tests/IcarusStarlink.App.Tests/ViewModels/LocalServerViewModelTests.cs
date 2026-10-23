@@ -712,6 +712,34 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.True(File.Exists(before), "other kinds keep their own count");
     }
 
+    /// <summary>Typing "15" over "10" passes through "1": that used to delete all but one backup of each kind on the keystroke. Now nothing goes until the box is left.</summary>
+    [Fact]
+    public void BackupsToKeep_IsSavedPerKeystroke_ButPrunesOnlyWhenApplied()
+    {
+        var (vm, store, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        Directory.CreateDirectory(vm.BackupsFolderPath);
+        for (var i = 1; i <= 3; i++)
+        {
+            var zip = Path.Combine(vm.BackupsFolderPath, $"2026-01-0{i}_000000_manual.zip");
+            File.WriteAllText(zip, "");
+            File.SetLastWriteTimeUtc(zip, new DateTime(2026, 1, i, 0, 0, 0, DateTimeKind.Utc));
+        }
+
+        vm.BackupsToKeepText = "";
+        vm.BackupsToKeepText = "1";
+        Assert.Equal(1, store.Profiles.Single().BackupsToKeep);
+        vm.BackupsToKeepText = "15";
+
+        Assert.Equal(3, Directory.GetFiles(vm.BackupsFolderPath, "*.zip").Length);
+        Assert.Equal(15, store.Profiles.Single().BackupsToKeep);
+
+        vm.BackupsToKeepText = "2";
+        vm.ApplyBackupsToKeep();
+        Assert.Equal(2, Directory.GetFiles(vm.BackupsFolderPath, "*.zip").Length);
+        Assert.False(File.Exists(Path.Combine(vm.BackupsFolderPath, "2026-01-01_000000_manual.zip")));
+    }
+
     [Fact]
     public void SaveAccessLists_RequiresSteam64IdsForAdmins()
     {
@@ -839,12 +867,16 @@ public sealed partial class LocalServerViewModelTests : IDisposable
             OwnExe = OwnInstallFolder + @"\steamcmd.exe";
         }
 
+        /// <summary>Runs while SteamCMD "downloads" (for "what can the user do during an update").</summary>
+        public Action? DuringInstall { get; set; }
+
         /// <summary>Makes the next install run until it is cancelled, like a long download.</summary>
         public bool WaitForCancel { get; set; }
 
         public async Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, Action<string> onLine, CancellationToken cancellationToken = default)
         {
             Installs.Add((installFolder, branch));
+            DuringInstall?.Invoke();
             onLine(" Update state (0x61) downloading, progress: 50.00 (1 / 2)");
             if (WaitForCancel)
             {
@@ -914,10 +946,13 @@ public sealed partial class LocalServerViewModelTests : IDisposable
 
         public int FindRunningCalls { get; private set; }
 
+        /// <summary>Set to answer per profile (several servers, some running); otherwise every profile gets Running.</summary>
+        public Func<DedicatedServerProfile, RunningServer?>? RunningFor { get; set; }
+
         public RunningServer? FindRunning(DedicatedServerProfile profile)
         {
             FindRunningCalls++;
-            return FindRunningHook is { } hook ? hook() : Running;
+            return FindRunningHook is { } hook ? hook() : RunningFor is { } perProfile ? perProfile(profile) : Running;
         }
 
         public void Start(DedicatedServerProfile profile)

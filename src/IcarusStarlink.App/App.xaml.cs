@@ -497,7 +497,6 @@ public partial class App : Application
             sp.GetRequiredService<Func<IFtpClient>>(),
             sp.GetRequiredService<IActivityLog>(),
             sp.GetRequiredService<ISettingsService>(),
-            sp.GetRequiredService<IUe4ssModRepository>(),
             sp.GetRequiredService<IDialogService>(),
             Path.Combine(appDataDirectory, "Staged_Build", IcarusStarlink.PakIO.InstallManifestNames.MergedPakFileName),
             sp.GetRequiredService<LocalServerViewModel>()));
