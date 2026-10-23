@@ -74,6 +74,16 @@ public sealed class AppUpdateInstaller(IAppUpdateClient appUpdateClient)
             }
         }
 
+        // A release from before the rename (the Stable channel can offer an older one on a beta
+        // build) has only the old name. Once this PC was moved over, installing it would leave the
+        // newer IcarusStarlink.exe its shortcuts open next to an older app.
+        var releaseHasNewName = File.Exists(Path.Combine(newFilesRoot, StarlinkExe.FileName));
+        if (skipOldExe && !releaseHasNewName)
+        {
+            return $"v{release.Version} is from before Starlink's exe was renamed, so it can't be installed over this version. "
+                + "Download it from GitHub into a new folder if you need it.";
+        }
+
         // The updater must run from OUTSIDE the install folder or it couldn't replace its own
         // files: stage it into the temp work folder and launch from there. In a published
         // release the Updater is a single self-contained exe (see IcarusStarlink.App.csproj's
@@ -106,8 +116,8 @@ public sealed class AppUpdateInstaller(IAppUpdateClient appUpdateClient)
             return startedMeanwhile;
         }
 
-        // The updater falls back to the other exe name when this one isn't there after the copy.
-        var appExePath = Path.Combine(installDirectory, StarlinkExe.FileName);
+        // Started again under the name the release itself uses (an older release only has the old one).
+        var appExePath = Path.Combine(installDirectory, releaseHasNewName ? StarlinkExe.FileName : StarlinkExe.OldFileName);
         var updater = new ProcessStartInfo(Path.Combine(updaterStaging, "IcarusStarlink.Updater.exe"))
         {
             ArgumentList = { Environment.ProcessId.ToString(), installDirectory, newFilesRoot, appExePath },
