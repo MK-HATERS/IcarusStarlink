@@ -86,6 +86,8 @@
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="TextWrapping" Value="Wrap"/>
         <Setter Property="MaxWidth" Value="560"/>
+        <!-- Left, under the page title: a MaxWidth'd TextBlock otherwise centres in a wide page. -->
+        <Setter Property="HorizontalAlignment" Value="Left"/>
         <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
     </Style>
 
