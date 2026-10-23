@@ -50,15 +50,11 @@ public sealed partial class MainViewModel : ObservableObject
         get => _settingsService.Current.NavCollapsed;
         set
         {
-            if (_settingsService.Current.NavCollapsed == value)
+            if (_settingsService.SetAndSave(s => s.NavCollapsed, (s, v) => s.NavCollapsed = v, value))
             {
-                return;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(NavToggleToolTip));
             }
-
-            _settingsService.Current.NavCollapsed = value;
-            _settingsService.Save();
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(NavToggleToolTip));
         }
     }
 

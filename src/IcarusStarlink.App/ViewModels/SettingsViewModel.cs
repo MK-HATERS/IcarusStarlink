@@ -132,14 +132,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         get => _settingsService.Current.KeepNxmHandler;
         set
         {
-            if (_settingsService.Current.KeepNxmHandler == value)
+            if (_settingsService.SetAndSave(s => s.KeepNxmHandler, (s, v) => s.KeepNxmHandler = v, value))
             {
-                return;
+                OnPropertyChanged();
             }
-
-            _settingsService.Current.KeepNxmHandler = value;
-            _settingsService.Save();
-            OnPropertyChanged();
         }
     }
 
@@ -1765,11 +1761,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void OpenLogFolder()
     {
-        try
-        {
-            LogDetail.OpenFolder();
-        }
-        catch (Exception ex)
+        if (LogDetail.OpenFolder() is { } ex)
         {
             DiagnosticsStatusMessage = $"Couldn't open the log folder: {ex.Message}";
         }
@@ -1779,21 +1771,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string? _diagnosticsStatusMessage;
 
     /// <summary>Saves immediately on toggle, matching Downloads' own column-visibility checkboxes — this isn't gated behind the Save Settings button, since a diagnostic on/off switch has no reason to wait.</summary>
-    partial void OnPerformanceTrackingEnabledChanged(bool value)
-    {
-        _settingsService.Current.PerformanceTrackingEnabled = value;
-        _settingsService.Save();
-    }
+    partial void OnPerformanceTrackingEnabledChanged(bool value) =>
+        _settingsService.SetAndSave(s => s.PerformanceTrackingEnabled, (s, v) => s.PerformanceTrackingEnabled = v, value);
 
     /// <summary>Settings › Appearance › Show pop-up messages. Saved straight away like Performance tracking; turning it off also clears any cards showing.</summary>
     [ObservableProperty]
     private bool _showPopUpMessages;
 
-    partial void OnShowPopUpMessagesChanged(bool value)
-    {
-        _settingsService.Current.ShowPopUpMessages = value;
-        _settingsService.Save();
-    }
+    partial void OnShowPopUpMessagesChanged(bool value) =>
+        _settingsService.SetAndSave(s => s.ShowPopUpMessages, (s, v) => s.ShowPopUpMessages = v, value);
 
     [RelayCommand]
     private void ExportDiagnostics()
@@ -1947,8 +1933,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 return;
             }
 
-            _settingsService.Current.UpdateChannel = channel;
-            _settingsService.Save();
+            _settingsService.SetAndSave(s => s.UpdateChannel, (s, v) => s.UpdateChannel = v, channel);
             OnPropertyChanged();
             RaiseAppUpdateOfferChanged();
             CheckForAppUpdatesCommand.Execute(null);
@@ -1970,14 +1955,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         get => _settingsService.Current.AutoCheckAppUpdates;
         set
         {
-            if (_settingsService.Current.AutoCheckAppUpdates == value)
+            if (_settingsService.SetAndSave(s => s.AutoCheckAppUpdates, (s, v) => s.AutoCheckAppUpdates = v, value))
             {
-                return;
+                OnPropertyChanged();
             }
-
-            _settingsService.Current.AutoCheckAppUpdates = value;
-            _settingsService.Save();
-            OnPropertyChanged();
         }
     }
 
