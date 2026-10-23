@@ -160,6 +160,17 @@ public sealed partial class ExmodEditorViewModel
         ApplyFilter();
     }
 
-    private Window? OwnerWindow() =>
-        Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => ReferenceEquals(w.DataContext, this)) ?? Application.Current?.MainWindow;
+    /// <summary>
+    /// What a dialog opens over: whichever of this editor's windows is in front (the editor, or a
+    /// pane popped out of it), else its editor window. Dialogs owned by the main window opened
+    /// behind the editor, and the close prompt could pick another mod's active editor.
+    /// </summary>
+    private Window? OwnerWindow()
+    {
+        var mine = Application.Current?.Windows.OfType<Window>().Where(w => ReferenceEquals(w.DataContext, this)).ToList() ?? [];
+        return mine.FirstOrDefault(w => w.IsActive) ?? EditorWindow() ?? mine.FirstOrDefault() ?? Application.Current?.MainWindow;
+    }
+
+    private ExmodEditorWindow? EditorWindow() =>
+        Application.Current?.Windows.OfType<ExmodEditorWindow>().FirstOrDefault(w => ReferenceEquals(w.DataContext, this));
 }

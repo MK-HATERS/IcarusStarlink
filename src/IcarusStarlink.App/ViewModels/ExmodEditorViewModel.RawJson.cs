@@ -133,8 +133,8 @@ public sealed partial class ExmodEditorViewModel
         }
 
         var row = _package.Rows.FirstOrDefault(r => Same(r.CurrentFile, SelectedItem.CurrentFile));
-        FileJsonText = row is null ? "" : ExmodJson.RowToJsonObject(row).ToJsonString(DisplayOptions);
+        FileJsonText = row is null ? "" : ExmodJson.RowToJsonObject(row).ToJsonString(ExmodJson.DisplayOptions);
     }
 
-    private void RefreshFullExmodJsonText() => FullExmodJsonText = ExmodJson.ToJsonObject(_package).ToJsonString(DisplayOptions);
+    private void RefreshFullExmodJsonText() => FullExmodJsonText = ExmodJson.ToJsonObject(_package).ToJsonString(ExmodJson.DisplayOptions);
 }

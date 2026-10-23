@@ -145,7 +145,7 @@ public sealed partial class ExmodEditorViewModel
             .SelectMany(r => r.FileItems.Select(i => PickGameItemDialog.CoverageKey(r.CurrentFile, i.Name)))
             .ToHashSet();
 
-        var dialog = new PickGameItemDialog(gameItemIndex, coveredKeys) { Owner = Application.Current.MainWindow };
+        var dialog = new PickGameItemDialog(gameItemIndex, coveredKeys) { Owner = OwnerWindow() };
         if (dialog.ShowDialog() != true || dialog.SelectedItem is not { } picked)
         {
             return;
@@ -202,7 +202,7 @@ public sealed partial class ExmodEditorViewModel
     [RelayCommand]
     private void InsertFileAtLocation()
     {
-        var dialog = new PickFileDialog(_dataFolder) { Owner = Application.Current.MainWindow };
+        var dialog = new PickFileDialog(_dataFolder) { Owner = OwnerWindow() };
         if (dialog.ShowDialog() != true || dialog.SelectedCurrentFile is not { } currentFile)
         {
             return;
@@ -239,7 +239,7 @@ public sealed partial class ExmodEditorViewModel
         var candidates = _repository.GetAll()
             .Where(e => !e.IsOpaquePak && !string.Equals(e.FolderName, _folderName, StringComparison.OrdinalIgnoreCase));
 
-        var dialog = new PickModDialog(candidates) { Owner = Application.Current.MainWindow };
+        var dialog = new PickModDialog(candidates) { Owner = OwnerWindow() };
         if (dialog.ShowDialog() != true || dialog.SelectedEntry is not { } selected)
         {
             return;

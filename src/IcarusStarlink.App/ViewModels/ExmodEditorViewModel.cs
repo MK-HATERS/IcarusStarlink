@@ -1,7 +1,5 @@
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Text.Encodings.Web;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -50,12 +48,6 @@ public enum ExmodEditorViewMode
 /// </summary>
 public sealed partial class ExmodEditorViewModel : ObservableObject
 {
-    private static readonly JsonSerializerOptions DisplayOptions = new()
-    {
-        WriteIndented = true,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
     private readonly ILibraryRepository _repository;
     private readonly string _folderName;
     private readonly string _dataFolder;
@@ -330,7 +322,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         try
         {
-            new TextFileViewerWindow(SelectedItem.RealPath, realPath) { Owner = Application.Current.MainWindow }.Show();
+            new TextFileViewerWindow(SelectedItem.RealPath, realPath) { Owner = OwnerWindow() }.Show();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -373,7 +365,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
-        var window = new SearchGameDataWindow(gameSearchIndex, _dataFolder) { Owner = Application.Current.MainWindow };
+        var window = new SearchGameDataWindow(gameSearchIndex, _dataFolder) { Owner = OwnerWindow() };
         window.Show();
     }
 
@@ -439,8 +431,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             return;
         }
 
-        var owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(w => ReferenceEquals(w.DataContext, this));
-        var pane = new ExmodPaneWindow(this, ViewMode) { Owner = owner };
+        // Owned by the editor window, never by another pane: closing that pane would take this one with it.
+        var pane = new ExmodPaneWindow(this, ViewMode) { Owner = EditorWindow() ?? OwnerWindow() };
         _openPaneWindows.Add(pane);
         pane.Closed += (_, _) => _openPaneWindows.Remove(pane);
         pane.Show();
@@ -786,9 +778,14 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     public bool HasUnsavedChanges => _scaleRulesDirty || ExmodJson.Serialize(_package) != _savedJson;
 
     /// <summary>Asks what to do with unsaved changes on close: true = Save, false = Don't save, null = Cancel. Tests swap in an answer.</summary>
-    internal Func<string, bool?> AskSaveOnClose { get; set; } = message => ThemedConfirmDialog.ShowWithCancel(
-        Application.Current?.Windows.OfType<ExmodEditorWindow>().FirstOrDefault(w => w.IsActive) ?? Application.Current?.MainWindow,
-        message, "Unsaved changes", ThemedConfirmSeverity.Question, "Save", "Don't save");
+    internal Func<string, bool?> AskSaveOnClose
+    {
+        get => _askSaveOnClose ??= message => ThemedConfirmDialog.ShowWithCancel(
+            OwnerWindow(), message, "Unsaved changes", ThemedConfirmSeverity.Question, "Save", "Don't save");
+        set => _askSaveOnClose = value;
+    }
+
+    private Func<string, bool?>? _askSaveOnClose;
 
     /// <summary>
     /// Called as the window closes: true when it may close. Unsaved changes ask Save / Don't save /

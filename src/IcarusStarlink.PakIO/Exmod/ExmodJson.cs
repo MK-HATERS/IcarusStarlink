@@ -17,6 +17,13 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// </summary>
 public static class ExmodJson
 {
+    /// <summary>How the editor shows JSON: indented, and accents and symbols left readable instead of escaped.</summary>
+    public static readonly JsonSerializerOptions DisplayOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     public static ExmodPackage Parse(string json)
     {
         JsonNode? parsed;

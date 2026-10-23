@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -55,12 +54,6 @@ public sealed record FieldChoices(string? LinkTable, IReadOnlyList<string> Optio
 /// </summary>
 public sealed partial class EditorFieldViewModel : ObservableObject
 {
-    private static readonly JsonSerializerOptions DisplayOptions = new()
-    {
-        WriteIndented = true,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
     private readonly Dictionary<string, JsonNode?> _fields;
     private readonly JsonNode? _baseValue;
     private readonly JsonNode? _originalValue;
@@ -185,7 +178,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             var encoded = previous is not null && NsLocText.TryParse(previous, out var table, out var key, out _)
                 ? NsLocText.Make(table, key, value)
                 : value;
-            ValueText = JsonValue.Create(encoded)!.ToJsonString(DisplayOptions);
+            ValueText = JsonValue.Create(encoded)!.ToJsonString(ExmodJson.DisplayOptions);
             OnPropertyChanged();
         }
     }
@@ -226,11 +219,11 @@ public sealed partial class EditorFieldViewModel : ObservableObject
                 // Keep the link's other parts (its DataTableName); only the row changes.
                 var link = ((_fields.TryGetValue(FieldName, out var v) ? v : null) ?? _baseValue)?.DeepClone() as JsonObject ?? new JsonObject();
                 link["RowName"] = match;
-                ValueText = link.ToJsonString(DisplayOptions);
+                ValueText = link.ToJsonString(ExmodJson.DisplayOptions);
             }
             else
             {
-                ValueText = JsonValue.Create(match)!.ToJsonString(DisplayOptions);
+                ValueText = JsonValue.Create(match)!.ToJsonString(ExmodJson.DisplayOptions);
             }
 
             OnPropertyChanged();
@@ -243,7 +236,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         get => CurrentString() ?? "";
         set
         {
-            ValueText = JsonValue.Create(value)!.ToJsonString(DisplayOptions);
+            ValueText = JsonValue.Create(value)!.ToJsonString(ExmodJson.DisplayOptions);
             OnPropertyChanged();
         }
     }
@@ -299,7 +292,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             obj[stat.Key] = stat.LastGoodValue?.DeepClone();
         }
 
-        ValueText = obj.ToJsonString(DisplayOptions);
+        ValueText = obj.ToJsonString(ExmodJson.DisplayOptions);
     }
 
     private string? AddStat(StatChoice choice)
@@ -380,7 +373,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         }
     }
 
-    private static string FormatForDisplay(JsonNode? value) => value?.ToJsonString(DisplayOptions) ?? "null";
+    private static string FormatForDisplay(JsonNode? value) => value?.ToJsonString(ExmodJson.DisplayOptions) ?? "null";
 }
 
 /// <summary>One stat in a stats field: "Backpack slots" 72, game 6.</summary>
