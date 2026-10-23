@@ -146,24 +146,56 @@
                                                 <ItemsControl ItemsSource="{Binding Fields}" Margin="0,0,0,6">
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate DataType="{x:Type vm:GameItemFieldViewModel}">
+                                                            <!-- A number gets a short box with the game's value right beside it, so
+                                                                 every number lines up at the same place; text gets the whole width. -->
                                                             <Grid Margin="0,4">
                                                                 <Grid.ColumnDefinitions>
                                                                     <ColumnDefinition Width="190"/>
-                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition>
+                                                                        <ColumnDefinition.Style>
+                                                                            <Style TargetType="ColumnDefinition">
+                                                                                <Setter Property="Width" Value="Auto"/>
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding IsText}" Value="True">
+                                                                                        <Setter Property="Width" Value="*"/>
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </ColumnDefinition.Style>
+                                                                    </ColumnDefinition>
                                                                     <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition>
+                                                                        <ColumnDefinition.Style>
+                                                                            <Style TargetType="ColumnDefinition">
+                                                                                <Setter Property="Width" Value="*"/>
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding IsText}" Value="True">
+                                                                                        <Setter Property="Width" Value="0"/>
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </ColumnDefinition.Style>
+                                                                    </ColumnDefinition>
                                                                 </Grid.ColumnDefinitions>
                                                                 <Grid.RowDefinitions>
                                                                     <RowDefinition Height="Auto"/>
                                                                     <RowDefinition Height="Auto"/>
                                                                 </Grid.RowDefinitions>
-                                                                <TextBlock Text="{Binding Label}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                                                                <TextBlock Text="{Binding Label}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"
+                                                                           ToolTip="{Binding Label}"/>
                                                                 <TextBox Grid.Column="1" Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="{Binding Label}"
                                                                          AcceptsReturn="{Binding IsText}" TextWrapping="Wrap">
                                                                     <TextBox.Style>
                                                                         <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
                                                                             <Setter Property="BorderThickness" Value="1"/>
                                                                             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                                                                            <Setter Property="Width" Value="130"/>
+                                                                            <Setter Property="TextAlignment" Value="Right"/>
                                                                             <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding IsText}" Value="True">
+                                                                                    <Setter Property="Width" Value="NaN"/>
+                                                                                    <Setter Property="TextAlignment" Value="Left"/>
+                                                                                </DataTrigger>
                                                                                 <DataTrigger Binding="{Binding DiffersFromGame}" Value="True">
                                                                                     <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                                                                                     <Setter Property="BorderThickness" Value="2"/>
@@ -173,15 +205,17 @@
                                                                     </TextBox.Style>
                                                                 </TextBox>
                                                                 <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding ValueHint}" FontSize="11.5" Margin="0,0,8,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                                               Visibility="{Binding ValueHint, Converter={StaticResource NullToVisibilityConverter}}"/>
                                                                     <TextBlock Text="{Binding GameText}" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" MaxWidth="180" TextTrimming="CharacterEllipsis"
                                                                                ToolTip="{Binding GameText}"/>
-                                                                    <Button Content="↺" Command="{Binding UseGameValueCommand}" Margin="6,0,0,0" Padding="5,0"
+                                                                    <Button Content="&#x21BA;" Command="{Binding UseGameValueCommand}" Margin="6,0,0,0" Padding="5,0"
                                                                             ToolTip="Back to the game's value" AutomationProperties.Name="Back to the game's value"
                                                                             Visibility="{Binding DiffersFromGame, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                                 </StackPanel>
-                                                                <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2">
+                                                                <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3">
                                                                     <TextBlock Text="{Binding Description}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                                                                    <TextBlock Text="{Binding Error}" FontSize="11.5" Foreground="{DynamicResource DangerBrush}"
+                                                                    <TextBlock Text="{Binding Error}" FontSize="11.5" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"
                                                                                Visibility="{Binding Error, Converter={StaticResource NullToVisibilityConverter}}"/>
                                                                 </StackPanel>
                                                             </Grid>
@@ -219,7 +253,9 @@
                         <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,8,0,12"
                                    Text="Only mods you made in Starlink are listed: changes can't go into a mod from Nexus or the IMM Database."/>
 
-                        <TextBlock Text="YOUR CHANGES" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Style="{StaticResource FieldLabelStyle}">
+                            <Run Text="YOUR CHANGES"/><Run Text="{Binding PendingCount, Mode=OneWay, StringFormat=' ({0})'}"/>
+                        </TextBlock>
                     </StackPanel>
 
                     <StackPanel DockPanel.Dock="Bottom">
@@ -235,8 +271,27 @@
                                 ToolTip="Ticks the saved mod ON (adds it to the merge queue) and opens Merge &amp; Install, where Install puts it in the game"/>
                     </StackPanel>
 
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
-                        <TextBlock Text="{Binding PendingSummary}" TextWrapping="Wrap" FontSize="12.5"/>
+                    <!-- One line per changed value; the x puts that one back as it was shown. -->
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,6,0,0" HorizontalScrollBarVisibility="Disabled">
+                        <Grid>
+                            <TextBlock Text="Nothing changed yet." FontSize="12.5" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                       Visibility="{Binding HasNoPendingChanges, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            <ItemsControl ItemsSource="{Binding PendingChanges}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:EditorPendingChange}">
+                                        <DockPanel Margin="0,0,0,4">
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource IconButtonStyle}" Width="20" Height="20" VerticalAlignment="Top" Margin="4,0,0,0"
+                                                    Command="{Binding Field.UndoChangeCommand}"
+                                                    ToolTip="Undo this change" AutomationProperties.Name="Undo this change">
+                                                <Path Data="M1,1 L9,9 M9,1 L1,9" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.5"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="8" Height="8" Stretch="Uniform"/>
+                                            </Button>
+                                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12.5"/>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Grid>
                     </ScrollViewer>
                 </DockPanel>
             </Border>

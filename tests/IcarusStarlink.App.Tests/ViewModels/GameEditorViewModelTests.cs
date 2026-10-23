@@ -116,6 +116,38 @@ public sealed class GameEditorViewModelTests : IDisposable
         Assert.True(_library.GetAll().Single(e => e.FolderName == mine.FolderName).MadeInStarlink);
     }
 
+    /// <summary>"Your changes" lists each changed value, and its x puts that one back.</summary>
+    [Fact]
+    public void YourChanges_ListsEachChange_AndItsUndoPutsItBack()
+    {
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        var weight = vm.Sections.Single(s => s.Section.Key == "Itemable").Fields.Single(f => f.Label == "Weight");
+        var before = weight.ValueText;
+        Assert.True(vm.HasNoPendingChanges);
+
+        weight.ValueText = "50";
+        var change = Assert.Single(vm.PendingChanges);
+        Assert.Contains("Weight: 50", change.Text);
+        Assert.False(vm.HasNoPendingChanges);
+
+        change.Field.UndoChangeCommand.Execute(null);
+        Assert.Equal(before, weight.ValueText);
+        Assert.Empty(vm.PendingChanges);
+        Assert.Equal(0, vm.PendingCount);
+    }
+
+    [Theory]
+    [InlineData(10800, "3 h")]
+    [InlineData(900, "15 min")]
+    [InlineData(5400, "1 h 30 min")]
+    [InlineData(90, "1 min 30 s")]
+    [InlineData(90061, "1 d 1 h")]
+    public void FieldDuration_ReadsSecondsAsPeopleSayThem(double seconds, string expected)
+    {
+        Assert.Equal(expected, GameItemFieldViewModel.Duration(seconds));
+    }
+
     [Fact]
     public void Save_ToANewMod_CreatesItWithJustTheChange()
     {
