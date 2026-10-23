@@ -88,7 +88,8 @@ public class LoggingActivityLogTests
 
             sut.Log("Downloaded a mod");
 
-            var count = dispatcher!.Invoke(() => inner.Entries.Count);
+            // Background runs after the Normal-priority add (a plain Invoke is Send and would jump the queue).
+            var count = dispatcher!.Invoke(() => inner.Entries.Count, System.Windows.Threading.DispatcherPriority.Background);
             Assert.Equal(1, count);
             Assert.Equal(uiThread.ManagedThreadId, addedOnThread);
         }
