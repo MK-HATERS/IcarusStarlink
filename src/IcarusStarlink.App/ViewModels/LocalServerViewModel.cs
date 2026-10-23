@@ -66,7 +66,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
             () => DataFolder,
             () => IsRunning ? "Stop the server first: it rewrites its worlds when it shuts down, which would undo this." : null,
             Path.Combine(_backupsRoot, "WorldSettings"),
-            activityLog);
+            activityLog,
+            dialogService);
 
         foreach (var profile in store.GetAll())
         {
