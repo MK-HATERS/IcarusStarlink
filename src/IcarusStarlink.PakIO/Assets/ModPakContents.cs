@@ -85,6 +85,24 @@ public sealed class ModPakContents : IDisposable
         }
     }
 
+    /// <summary>The first export of type T in the paks' package at this Content path (a growth curve); null when it isn't there or can't be read.</summary>
+    public T? TryLoadFirstExport<T>(string contentPath) where T : class
+    {
+        if (!_keyByContentPath.TryGetValue(contentPath.Replace('\\', '/').TrimStart('/'), out var key))
+        {
+            return null;
+        }
+
+        try
+        {
+            return _provider.LoadPackage(key).GetExports().OfType<T>().FirstOrDefault();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     /// <summary>The pak's copy of a blueprint, summarised for comparing with the game's; null when it isn't there or can't be read.</summary>
     public BlueprintSummary? TrySummarizeBlueprint(string contentPath)
     {

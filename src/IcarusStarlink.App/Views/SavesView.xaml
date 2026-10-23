@@ -388,9 +388,20 @@
                                   Margin="14,0,0,0" VerticalAlignment="Center"
                                   ToolTip="Lists every talent the game defines, not just this character's — set a rank above 0 to grant one"/>
                     </WrapPanel>
-                    <TextBlock DockPanel.Dock="Top" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6">
+                    <TextBlock DockPanel.Dock="Top" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,2">
                         <Run Text="{Binding SelectedCharacter.Name, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text=" · "/><Run Text="{Binding TalentRanksSummary, Mode=OneWay}"/>
                     </TextBlock>
+                    <!-- Where the budgets come from: level cap, which curves keep rising, bonuses, mods. -->
+                    <Expander DockPanel.Dock="Top" Header="How these points work" Margin="0,0,0,6"
+                              Visibility="{Binding HasPointsNotes, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <ItemsControl ItemsSource="{Binding PointsNotes}" Margin="4,4,0,0" MaxWidth="900" HorizontalAlignment="Left">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding StringFormat='• {0}'}" TextWrapping="Wrap" FontSize="12" Margin="0,1" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Expander>
                     <ListBox ItemsSource="{Binding Source={StaticResource TalentGroups}}" HorizontalContentAlignment="Stretch"
                              VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>

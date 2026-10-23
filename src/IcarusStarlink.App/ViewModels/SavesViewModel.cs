@@ -51,6 +51,11 @@ public sealed partial class SavesViewModel : ObservableObject
     private readonly IActivityLog _activityLog;
     /// <summary>SaveModSources.Read: where the save's mod rows come from (null: not labelled).</summary>
     private readonly Func<SaveModSources.Index>? _readModSources;
+
+    /// <summary>PlayerGrowthReader.Read: the player's level cap and point curves as installed (null: not shown).</summary>
+    private readonly Func<IcarusStarlink.PakIO.Assets.PlayerGrowth?>? _readPlayerGrowth;
+
+    private IcarusStarlink.PakIO.Assets.PlayerGrowth? _playerGrowth;
     private readonly SaveGameNames _gameNames;
     private readonly IDialogService _dialogService;
     private readonly IGameProcessChecker _gameProcessChecker;
@@ -195,8 +200,10 @@ public sealed partial class SavesViewModel : ObservableObject
     public SavesViewModel(
         ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames,
         IDialogService dialogService, IGameProcessChecker gameProcessChecker, IBaseGameIconDecoder baseGameIconDecoder,
-        string? worldBackupFolder = null, Func<SaveModSources.Index>? readModSources = null)
+        string? worldBackupFolder = null, Func<SaveModSources.Index>? readModSources = null,
+        Func<IcarusStarlink.PakIO.Assets.PlayerGrowth?>? readPlayerGrowth = null)
     {
+        _readPlayerGrowth = readPlayerGrowth;
         _readModSources = readModSources;
         _repository = repository;
         _activityLog = activityLog;
@@ -414,14 +421,122 @@ public sealed partial class SavesViewModel : ObservableObject
         _ => true,
     };
 
-    /// <summary>"Talents 583 ranks · Blueprints 701 · Solo 45" for the selected character.</summary>
+    // --- Points used and available (the user's ask, 2026-10-23: their own points are modded, so
+    //     budgets come from the curves as installed, mods and Remove Level Cap included). ---
+
+    private Task _pendingPlayerGrowth = Task.CompletedTask;
+
+    internal Task WaitForPlayerGrowthAsync() => _pendingPlayerGrowth;
+
+    private async Task ReadPlayerGrowthAsync()
+    {
+        if (_readPlayerGrowth is not { } read)
+        {
+            return;
+        }
+
+        try
+        {
+            _playerGrowth = await Task.Run(read);
+        }
+        catch (Exception)
+        {
+            _playerGrowth = null;
+        }
+
+        OnPropertyChanged(nameof(TalentRanksSummary));
+        OnPropertyChanged(nameof(PointsNotes));
+        OnPropertyChanged(nameof(HasPointsNotes));
+    }
+
+    /// <summary>The selected character's level, from its XP on the installed XP curve; null when it can't be worked out.</summary>
+    private int? SelectedLevel =>
+        _playerGrowth is { Experience: { } xpCurve } growth && SelectedCharacter is { } character && long.TryParse(character.XpText, out var xp)
+            ? xpCurve.LevelFor(xp, growth.MaxLevel > 0 ? growth.MaxLevel : int.MaxValue)
+            : null;
+
+    /// <summary>Bonus talent points from the account's mission rewards that are on (D_PlayerTalentModifiers).</summary>
+    private int TalentPointBonus => AccountFlags.Where(f => f.IsUnlocked).Sum(f => _gameNames.TalentPointModifiers.GetValueOrDefault(f.RowName));
+
+    private int RanksSpent(string model) => (SelectedCharacter?.Talents ?? []).Where(t => t.Model == model).Sum(t => t.Rank);
+
+    /// <summary>"Level 313 · Talents 583 of 111 (over) · Blueprints 701 of 1,096 · Solo 45 of 30 (over)" for the selected character.</summary>
     public string TalentRanksSummary
     {
         get
         {
-            var talents = SelectedCharacter?.Talents ?? [];
-            int Sum(string model) => talents.Where(t => t.Model == model).Sum(t => t.Rank);
-            return $"Ranks spent — Talents {Sum("Player"):N0} · Blueprints {Sum("Blueprint"):N0} · Solo {Sum("Solo"):N0}";
+            if (SelectedLevel is not { } level || _playerGrowth is not { } growth)
+            {
+                return $"Ranks spent: Talents {RanksSpent("Player"):N0} · Blueprints {RanksSpent("Blueprint"):N0} · Solo {RanksSpent("Solo"):N0}";
+            }
+
+            string Part(string label, string model, IcarusStarlink.PakIO.Assets.GrowthCurve? curve, int bonus)
+            {
+                var used = RanksSpent(model);
+                if (curve is null)
+                {
+                    return $"{label} {used:N0} used";
+                }
+
+                var available = (int)Math.Floor(curve.Evaluate(level)) + bonus;
+                return $"{label} {used:N0} of {available:N0}{(used > available ? " (over)" : "")}";
+            }
+
+            return $"Level {level:N0} · {Part("Talents", "Player", growth.TalentPoints, TalentPointBonus)} · "
+                + $"{Part("Blueprints", "Blueprint", growth.BlueprintPoints, 0)} · {Part("Solo", "Solo", growth.SoloPoints, 0)}";
+        }
+    }
+
+    public bool HasPointsNotes => PointsNotes.Count > 0;
+
+    /// <summary>Where the numbers above come from, in plain words.</summary>
+    public IReadOnlyList<string> PointsNotes
+    {
+        get
+        {
+            if (SelectedLevel is not { } level || _playerGrowth is not { Experience: { } xpCurve } growth || SelectedCharacter is not { } character)
+            {
+                return [];
+            }
+
+            var notes = new List<string>();
+            var xp = long.TryParse(character.XpText, out var parsed) ? parsed : 0;
+            notes.Add($"Level {level:N0} comes from {xp:N0} XP. "
+                + (xpCurve.SlopeAfter > 0 ? $"Past level {xpCurve.Last.Time:0} each level takes {xpCurve.SlopeAfter:N0} XP. " : "")
+                + $"Levels go up to {growth.MaxLevel:N0}; the game's menus show up to {growth.MaxDisplayLevel:N0}."
+                + (growth.IsStarlinkLevelCap ? " That's Starlink's Remove Level Cap (Merge & Install), which is installed."
+                    : growth.LevelCapChanged ? $" An installed mod changes it (the game's own cap is {growth.GameMaxLevel:N0}); it isn't Starlink's Remove Level Cap."
+                    : " That's the game's own cap: no installed mod changes it."));
+
+            void Curve(string label, IcarusStarlink.PakIO.Assets.GrowthCurve? curve)
+            {
+                if (curve is null)
+                {
+                    return;
+                }
+
+                notes.Add(curve.SlopeAfter > 0
+                    ? $"{label} keep rising past level {curve.Last.Time:0} ({curve.Last.Value:N0} there), {curve.SlopeAfter:0.##} a level."
+                    : $"{label} stop rising at level {curve.Last.Time:0}: {curve.Last.Value:N0} at most.");
+            }
+
+            Curve("Talent points", growth.TalentPoints);
+            Curve("Blueprint points", growth.BlueprintPoints);
+            Curve("Solo points", growth.SoloPoints);
+            if (TalentPointBonus > 0)
+            {
+                notes.Add($"+{TalentPointBonus} talent points from mission rewards that are on (Unlocks tab, bonus talent points).");
+            }
+
+            notes.Add(growth.CurvesFromMods.Count > 0
+                ? $"From an installed mod: {string.Join(", ", growth.CurvesFromMods)}. The rest are the game's own."
+                : "All four curves are the game's own; no installed mod changes them.");
+            if (TalentRanksSummary.Contains("(over)", StringComparison.Ordinal))
+            {
+                notes.Add("Over: more ranks than the budget. The save keeps every rank and the game doesn't take any away; the tree just shows no points left to spend.");
+            }
+
+            return notes;
         }
     }
 
@@ -434,6 +549,8 @@ public sealed partial class SavesViewModel : ObservableObject
             t => (ShowUnlearnedTalents || t.IsUnlockedInGame || t.IsDirty) && MatchesTalentKind(t),
             t => t.DisplayName, t => t.RowName, t => t.Group);
         OnPropertyChanged(nameof(TalentRanksSummary));
+        OnPropertyChanged(nameof(PointsNotes));
+        OnPropertyChanged(nameof(HasPointsNotes));
     }
 
     // --- Workshop research and Missions: both live in the profile's Talents list (WorkshopTalents
@@ -908,6 +1025,7 @@ public sealed partial class SavesViewModel : ObservableObject
         OnPropertyChanged(nameof(HasUnsavedChanges));
         OnPropertyChanged(nameof(ChangesSummary));
         _pendingModSources = ClassifyModRowsAsync();
+        _pendingPlayerGrowth = ReadPlayerGrowthAsync();
         ApplyPackNotes();
         RunSaveCheck();
         await worldsLoad;
@@ -1165,6 +1283,8 @@ public sealed partial class SavesViewModel : ObservableObject
         OnPropertyChanged(nameof(AccoladesSummary));
         OnPropertyChanged(nameof(BestiarySummary));
         OnPropertyChanged(nameof(TalentRanksSummary));
+        OnPropertyChanged(nameof(PointsNotes));
+        OnPropertyChanged(nameof(HasPointsNotes));
         OnPropertyChanged(nameof(WorkshopSummary));
         OnPropertyChanged(nameof(MissionsSummary));
         OnPropertyChanged(nameof(HasUnsavedChanges));

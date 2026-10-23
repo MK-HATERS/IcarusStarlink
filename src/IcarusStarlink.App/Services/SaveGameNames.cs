@@ -90,6 +90,7 @@ public sealed class SaveGameNames(string dataFolder)
         _talentsGatedByFlag = null;
         _missionRewardFlags = null;
         _talentRules = null;
+        _talentPointModifiers = null;
     }
 
     /// <summary>What each talent needs and gives (D_Talents RequiredFlags, RequiredTalents, Rewards[].GrantedFlags), for the save check.</summary>
@@ -452,6 +453,11 @@ public sealed class SaveGameNames(string dataFolder)
 
         return names;
     }
+
+    private IReadOnlyDictionary<string, int>? _talentPointModifiers;
+
+    /// <summary>Account flag -> the bonus talent points it gives ("GrantedTalent_Nullsector_Story" -> 3).</summary>
+    public IReadOnlyDictionary<string, int> TalentPointModifiers => _talentPointModifiers ??= LoadTalentPointModifiers();
 
     /// <summary>Account flag -> the bonus talent points it gives (D_PlayerTalentModifiers' TalentPointModifier, keyed by its RequiredFlags).</summary>
     private Dictionary<string, int> LoadTalentPointModifiers()
