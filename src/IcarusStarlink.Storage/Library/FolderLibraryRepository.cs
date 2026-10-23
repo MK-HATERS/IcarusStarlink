@@ -26,7 +26,12 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     private readonly LibraryMetaStore _metaStore;
     private readonly LibrarySearchIndex _searchIndex;
     private readonly ILogger<FolderLibraryRepository> _logger;
-    private List<LibraryEntry> _cachedEntries = [];
+    /// <summary>
+    /// Copy-on-write: an import or delete replaces the list, never changes it, so a GetAll() being
+    /// read on a background thread (the risk pass, the fix service) never sees it change under it
+    /// ("Collection was modified"). Volatile so that thread always picks up the latest list.
+    /// </summary>
+    private volatile List<LibraryEntry> _cachedEntries = [];
 
     public FolderLibraryRepository(string extractedModsDirectory, string metaDirectory, string modBackupsDirectory, ILogger<FolderLibraryRepository> logger)
     {
@@ -100,7 +105,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
 
         // Surgical, same as Import(): only this one entry is new.
         var entry = ToOpaquePakEntry(folderName, [targetPakPath], meta);
-        _cachedEntries.Add(entry);
+        _cachedEntries = [.. _cachedEntries, entry];
         _searchIndex.Insert(entry, entry.Name);
 
         return entry;
@@ -129,7 +134,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         _metaStore.Save(folderName, meta);
 
         var entry = ToOpaquePakEntry(folderName, [.. targetPaths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase)], meta);
-        _cachedEntries.Add(entry);
+        _cachedEntries = [.. _cachedEntries, entry];
         _searchIndex.Insert(entry, entry.Name);
         return entry;
     }
@@ -198,7 +203,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         // Surgical: this is the only mod whose content is actually new — no need to re-read
         // every other mod's package just to add one entry.
         var entry = ToEntry(folderName, contents.Package, meta);
-        _cachedEntries.Add(entry);
+        _cachedEntries = [.. _cachedEntries, entry];
         _searchIndex.Insert(entry, BuildSearchableContent(contents.Package));
 
         return entry;
@@ -225,7 +230,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         _metaStore.Save(folderName, meta);
 
         var entry = ToEntry(folderName, package, meta);
-        _cachedEntries.Add(entry);
+        _cachedEntries = [.. _cachedEntries, entry];
         _searchIndex.Insert(entry, BuildSearchableContent(package));
 
         return entry;
@@ -238,7 +243,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         // deleted mod's pin/favorite/notes.
         _metaStore.Delete(folderName);
 
-        _cachedEntries.RemoveAll(e => e.FolderName == folderName);
+        _cachedEntries = [.. _cachedEntries.Where(e => e.FolderName != folderName)];
         _searchIndex.Remove(folderName);
     }
 

@@ -2929,44 +2929,54 @@ public sealed partial class LibraryViewModel : ObservableObject
             do
             {
                 _fileRiskPassAgain = false;
-                var items = AllLibraryItems().Where(i => !i.IsMergedPack).ToList();
-                var folders = items.Select(i => (i.FolderName, i.Name)).ToList();
-                // The build on disk: the game's own copies of the files mods replace are recorded
-                // for it, so what a later game update changes in them is known.
-                var build = GameUpdates is { } updates ? await updates.ReadCurrentBuildAsync() : null;
-                // The game's content is read once per app session: after Steam updated the game
-                // while the app ran, what's read is still the build from before, so nothing is
-                // recorded (or said) until the next start.
-                _sessionGameBuild ??= build;
-                var fingerprints = build is not null && string.Equals(build, _sessionGameBuild, StringComparison.OrdinalIgnoreCase) ? GameFileFingerprints : null;
-                var risks = await Task.Run(() =>
+                // Caught per round: a failed round must not drop the re-run asked for meanwhile.
+                try
                 {
-                    var rated = FileRiskAssessor.Assess(_repository, folders, game, fingerprints, build);
-                    try
-                    {
-                        fingerprints?.SaveIfChanged();
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        // Recorded again on the next pass.
-                    }
-
-                    return rated;
-                });
-                foreach (var item in items)
+                    await RateFileRisksOnceAsync(game);
+                }
+                catch (Exception ex)
                 {
-                    item.FileRisk = risks.GetValueOrDefault(item.FolderName);
+                    _activityLog.Log($"Couldn't rate the game files mods replace: {ex.Message}", ActivityEntryKind.Warning);
                 }
             }
             while (_fileRiskPassAgain);
         }
-        catch (Exception ex)
-        {
-            _activityLog.Log($"Couldn't rate the game files mods replace: {ex.Message}", ActivityEntryKind.Warning);
-        }
         finally
         {
             _fileRiskPassRunning = false;
+        }
+    }
+
+    /// <summary>One round of RefreshFileRisksAsync.</summary>
+    private async Task RateFileRisksOnceAsync(IBaseGameContentProvider game)
+    {
+        var items = AllLibraryItems().Where(i => !i.IsMergedPack).ToList();
+        var folders = items.Select(i => (i.FolderName, i.Name)).ToList();
+        // The build on disk: the game's own copies of the files mods replace are recorded
+        // for it, so what a later game update changes in them is known.
+        var build = GameUpdates is { } updates ? await updates.ReadCurrentBuildAsync() : null;
+        // The game's content is read once per app session: after Steam updated the game
+        // while the app ran, what's read is still the build from before, so nothing is
+        // recorded (or said) until the next start.
+        _sessionGameBuild ??= build;
+        var fingerprints = build is not null && string.Equals(build, _sessionGameBuild, StringComparison.OrdinalIgnoreCase) ? GameFileFingerprints : null;
+        var risks = await Task.Run(() =>
+        {
+            var rated = FileRiskAssessor.Assess(_repository, folders, game, fingerprints, build);
+            try
+            {
+                fingerprints?.SaveIfChanged();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Recorded again on the next pass.
+            }
+
+            return rated;
+        });
+        foreach (var item in items)
+        {
+            item.FileRisk = risks.GetValueOrDefault(item.FolderName);
         }
     }
 
