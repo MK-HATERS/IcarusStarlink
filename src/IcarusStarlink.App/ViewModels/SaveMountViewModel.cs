@@ -24,6 +24,9 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
     private int _originalLevel;
     private bool _insideDirty;
 
+    /// <summary>The experience the mount was loaded with, put back when the level is set back to its own.</summary>
+    private int? _originalExperience;
+
     public JsonObject Node { get; }
 
     /// <summary>The blob, when it can be edited safely; null keeps the mount label-only.</summary>
@@ -91,6 +94,7 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
 
         if (Blob is { } blob)
         {
+            _originalExperience = blob.Experience;
             _lineage = blob.Lineage;
             _variation = blob.Variation ?? 0;
         }
@@ -154,7 +158,12 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
             return;
         }
 
-        var titles = names.GeneticValues.ToDictionary(g => g.Row, g => g.Title, StringComparer.OrdinalIgnoreCase);
+        var titles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (row, title) in names.GeneticValues)
+        {
+            titles.TryAdd(row, title);
+        }
+
         foreach (var gene in blob.Genetics)
         {
             Genes.Add(new MountGeneViewModel(gene.Name, titles.GetValueOrDefault(gene.Name, gene.Name), gene.Value, value =>
@@ -169,7 +178,12 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
         OnPropertyChanged(nameof(LineageTitle));
         OnPropertyChanged(nameof(VariationOptions));
 
-        var ranks = blob.Talents.ToDictionary(t => t.Row, t => t.Rank, StringComparer.OrdinalIgnoreCase);
+        var ranks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var talent in blob.Talents)
+        {
+            ranks.TryAdd(talent.Row, talent.Rank);
+        }
+
         var trees = growth?.Archetype is { } archetype
             ? names.TalentTrees.Where(t => t.Value.ArchetypeRow.Equals(archetype, StringComparison.OrdinalIgnoreCase)).Select(t => t.Key).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : [];
@@ -229,19 +243,51 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
 
     partial void OnLevelTextChanged(string value)
     {
-        // A new level gets the experience that level needs, so the game doesn't put it back.
-        if (Blob is { } blob && Level is { } level && Growth?.Growth?.Experience is { } xpCurve)
+        ApplyLevelToExperience();
+        _onDirtyChanged();
+    }
+
+    partial void OnGrowthChanged(MountGrowth? value)
+    {
+        // A level typed before the growth was read gets its experience now.
+        if (Level != _originalLevel)
+        {
+            ApplyLevelToExperience();
+        }
+    }
+
+    /// <summary>
+    /// A new level gets the experience that level needs, so the game doesn't put it back; the
+    /// mount's own level gets its own experience back, progress into the level included (review,
+    /// 2026-10-23: typing a level and back reset it to the level's start).
+    /// </summary>
+    private void ApplyLevelToExperience()
+    {
+        if (Blob is not { } blob || Level is not { } level)
+        {
+            return;
+        }
+
+        if (level == _originalLevel)
+        {
+            if (blob.Experience != _originalExperience)
+            {
+                blob.Experience = _originalExperience;
+            }
+
+            return;
+        }
+
+        if (Growth?.Growth?.Experience is { } xpCurve)
         {
             var max = Growth.Growth.MaxLevel > 0 ? Growth.Growth.MaxLevel : int.MaxValue;
             var target = (int)Math.Ceiling(xpCurve.Evaluate(Math.Min(level, max)));
-            if (blob.Experience != target && xpCurve.LevelFor(blob.Experience ?? 0, max) != level)
+            if (blob.Experience != target)
             {
                 blob.Experience = target;
                 _insideDirty = true;
             }
         }
-
-        _onDirtyChanged();
     }
 
     /// <summary>Save writes the list's name into the game's own copy too (the save check's fix for names that drifted apart).</summary>

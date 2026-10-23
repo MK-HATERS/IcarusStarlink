@@ -39,7 +39,7 @@ public sealed record GrowthCurve(IReadOnlyList<GrowthCurveKey> Keys, bool Linear
     public GrowthCurveKey Last => Keys[^1];
 
     /// <summary>How much it rises per level past the last key: 0 when it stays flat.</summary>
-    public double SlopeAfter => LinearAfter && Keys.Count > 1 ? (Last.Value - Keys[^2].Value) / (double)(Last.Time - Keys[^2].Time) : 0;
+    public double SlopeAfter => LinearAfter && Keys.Count > 1 && Last.Time > Keys[^2].Time ? (Last.Value - Keys[^2].Value) / (double)(Last.Time - Keys[^2].Time) : 0;
 
     public double Evaluate(double t)
     {
@@ -62,6 +62,12 @@ public sealed record GrowthCurve(IReadOnlyList<GrowthCurveKey> Keys, bool Linear
             if (t > b.Time)
             {
                 continue;
+            }
+
+            // At a key's own time, its own value (a Constant key before it would otherwise hold the previous one).
+            if (t == b.Time || b.Time <= a.Time)
+            {
+                return b.Value;
             }
 
             var dt = b.Time - a.Time;

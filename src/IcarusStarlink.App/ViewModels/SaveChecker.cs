@@ -256,7 +256,11 @@ public static class SaveChecker
             findings.Add(new(SaveCheckSeverity.Warning, "Items", $"{item.DisplayName}: {item.Source!.Label}"));
         }
 
-        return [.. findings.OrderBy(f => f.Severity)];
+        // One row per fix: 14 talents needing the same unlock used to give 14 "Turn on X" rows.
+        var merged = findings
+            .GroupBy(f => f.FixLabel is null ? (object)f : (f.Severity, f.Area, f.FixLabel))
+            .Select(g => g.Count() == 1 ? g.First() : g.First() with { Message = $"{g.First().Message} (and {g.Count() - 1} more like it)" });
+        return [.. merged.OrderBy(f => f.Severity)];
     }
 
     private static void AddRankFinding(List<SaveCheckFinding> findings, string area, SaveTalentViewModel talent)

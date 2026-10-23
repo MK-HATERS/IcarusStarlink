@@ -237,6 +237,14 @@ public sealed partial class SavesViewModel : ObservableObject
             }
         };
 
+        WeakReferenceMessenger.Default.Register<UnsavedEditsRequestMessage>(this, (recipient, message) =>
+        {
+            if (((SavesViewModel)recipient).HasAnyUnsavedEdits)
+            {
+                message.Reply("your Saves page edits");
+            }
+        });
+
         // Refresh game data re-extracts the tables every name here comes from.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((SavesViewModel)recipient).OnGameDataRefreshed());
 
@@ -482,13 +490,24 @@ public sealed partial class SavesViewModel : ObservableObject
     private void BuildPointsEditors()
     {
         PointsEditors.Clear();
+        IReadOnlyDictionary<string, PointsCurveChange> lastMade;
+        try
+        {
+            lastMade = _pointsMod?.LastSettings() ?? new Dictionary<string, PointsCurveChange>();
+        }
+        catch (Exception)
+        {
+            lastMade = new Dictionary<string, PointsCurveChange>();
+        }
+
         if (_playerGrowth is { } growth)
         {
             void Add(string field, string label, IcarusStarlink.PakIO.Assets.GrowthCurve? installed)
             {
                 if (growth.GameCurvesByField.GetValueOrDefault(field) is { } gameCurve)
                 {
-                    PointsEditors.Add(new PointsTreeEditor(field, label, gameCurve, installed, () => SelectedLevel, () => field == "TalentPointsPerLevel" ? TalentPointBonus : 0));
+                    PointsEditors.Add(new PointsTreeEditor(field, label, gameCurve, installed, () => SelectedLevel, () => field == "TalentPointsPerLevel" ? TalentPointBonus : 0,
+                        lastMade.GetValueOrDefault(field)));
                 }
             }
 
@@ -497,7 +516,15 @@ public sealed partial class SavesViewModel : ObservableObject
             Add("SoloPointsPerLevel", "Solo", growth.SoloPoints);
         }
 
-        PointsModFolder = _pointsMod?.Existing?.FolderName;
+        try
+        {
+            PointsModFolder = _pointsMod?.Existing?.FolderName;
+        }
+        catch (Exception)
+        {
+            PointsModFolder = null;
+        }
+
         PointsModStatus = PointsModFolder is null ? null : $"{PlayerPointsMod.DisplayName} is in your Library.";
         OnPropertyChanged(nameof(CanChangePoints));
     }
@@ -976,6 +1003,9 @@ public sealed partial class SavesViewModel : ObservableObject
 
     private async Task LoadSlotAsync()
     {
+        // A section that fails to load must not leave the last slot's mission links behind (review, 2026-10-23).
+        _rewardsOfMission.Clear();
+        _missionsOfReward.Clear();
         Characters.Clear();
         Currencies.Clear();
         Backups.Clear();
@@ -1219,6 +1249,17 @@ public sealed partial class SavesViewModel : ObservableObject
     [RelayCommand]
     private void RunSaveCheck()
     {
+        // One at a time: the background reads (mod sources, points, mounts) re-run it when they finish.
+        lock (_saveCheckLock)
+        {
+            RunSaveCheckCore();
+        }
+    }
+
+    private readonly System.Threading.Lock _saveCheckLock = new();
+
+    private void RunSaveCheckCore()
+    {
         CheckFindings.Clear();
         if (_loadFailed || SelectedSlot is null)
         {
@@ -1248,7 +1289,7 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        fix();
+        ApplyLink(fix);
         _activityLog.Log($"Save check: {finding.FixLabel} (press Save to keep it).", ActivityEntryKind.Success);
         RunSaveCheck();
     }
@@ -1272,10 +1313,13 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        foreach (var finding in fixes)
+        ApplyLink(() =>
         {
-            finding.Fix!();
-        }
+            foreach (var finding in fixes)
+            {
+                finding.Fix!();
+            }
+        });
 
         _activityLog.Log($"Save check: made {fixes.Count} fixes (press Save to keep them).", ActivityEntryKind.Success);
         RunSaveCheck();
@@ -1505,7 +1549,9 @@ public sealed partial class SavesViewModel : ObservableObject
 
         foreach (var (reward, missions) in _missionsOfReward)
         {
-            reward.LinkHint = $"Switching it on marks {string.Join(" and ", missions.Select(m => m.DisplayName))} done on the Missions tab too.";
+            reward.LinkHint = missions.Count == 1
+                ? $"Switching it on marks {missions[0].DisplayName} done on the Missions tab too."
+                : $"Comes from {string.Join(" or ", missions.Select(m => m.DisplayName))}; switching it on marks none of them done.";
         }
     }
 
@@ -1529,6 +1575,13 @@ public sealed partial class SavesViewModel : ObservableObject
     {
         if (_applyingLink || e.PropertyName != nameof(SaveFlagViewModel.IsUnlocked)
             || sender is not SaveFlagViewModel { IsUnlocked: true } reward || !_missionsOfReward.TryGetValue(reward, out var missions))
+        {
+            return;
+        }
+
+        // Only a reward that comes from one mission says which mission was done; one that several
+        // missions give ("A or B") marks none (review, 2026-10-23: it marked them all).
+        if (missions.Count != 1)
         {
             return;
         }
@@ -1963,9 +2016,18 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        foreach (var mount in Mounts.Where(m => !m.IsDirty))
+        foreach (var mount in Mounts)
         {
-            mount.SetGameData(_gameNames, _mountGrowth.GetValueOrDefault(mount.TypeRowName));
+            var growth = _mountGrowth.GetValueOrDefault(mount.TypeRowName);
+            if (mount.IsDirty)
+            {
+                // Its rows hold edits: only the growth (budget, and the XP for a level typed before it arrived).
+                mount.Growth = growth;
+            }
+            else
+            {
+                mount.SetGameData(_gameNames, growth);
+            }
         }
 
         RunSaveCheck();

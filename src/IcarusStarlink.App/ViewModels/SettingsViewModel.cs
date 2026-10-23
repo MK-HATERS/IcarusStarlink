@@ -2154,6 +2154,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>"Wait until SteamCMD is updating a server has finished…" when a page has work that closing the app would cut off; null when it is safe to close.</summary>
     private static string? DescribeBackgroundWork()
     {
+        var unsaved = WeakReferenceMessenger.Default.Send(new UnsavedEditsRequestMessage()).Responses.Distinct().ToList();
+        if (unsaved.Count > 0)
+        {
+            return $"Save or reload {string.Join(" and ", unsaved)} first (updating closes the app), then click Update again.";
+        }
+
         var running = WeakReferenceMessenger.Default.Send(new BackgroundWorkRequestMessage()).Responses.Distinct().ToList();
         return running.Count == 0 ? null : $"Wait until {string.Join(" and ", running)} has finished, then click Update again.";
     }
@@ -2260,7 +2266,10 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        if (!IsAppUpdateAvailable)
+        // A beta installed by hand keeps the Stable channel, so asking at every launch to go back
+        // to a lower stable release would nag forever, one click from a downgrade (review,
+        // 2026-10-23). Settings › Maintenance still shows the switch-back.
+        if (!IsAppUpdateAvailable || IsSwitchBackToStable)
         {
             return;
         }

@@ -52,7 +52,8 @@ public sealed record SaveRowSource(SaveRowOrigin Origin, string Label)
 /// (installed in the game, and the Library's copies in <paramref name="ue4ssLibraryFolder"/>);
 /// other script mods can't be read, which the page says.
 /// </summary>
-public sealed class SaveModSources(ILibraryRepository library, ISettingsService settings, string dataFolder, string? ue4ssLibraryFolder = null)
+public sealed class SaveModSources(ILibraryRepository library, ISettingsService settings, string dataFolder, string? ue4ssLibraryFolder = null,
+    Func<bool>? isGameDataOutdated = null)
 {
     public const string TalentsFile = "Talents-D_Talents.json";
     public const string ItemsFile = "Items-D_ItemsStatic.json";
@@ -67,7 +68,13 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
         if (settings.Current.IcarusContentPath is { Length: > 0 } content)
         {
             var mods = Path.Combine(content, "Paks", "mods");
-            if (!Directory.Exists(mods) || Directory.GetFiles(mods, "*.pak").Length == 0)
+            if (HasPaksItCantRead(content))
+            {
+                // A pak in a subfolder of mods, or loose in Paks beside the game's own: the game loads
+                // it but it isn't read here, so its rows can't be told from leftovers (review, 2026-10-23).
+                canTellInstalled = false;
+            }
+            else if (!Directory.Exists(mods) || Directory.GetFiles(mods, "*.pak").Length == 0)
             {
                 canTellInstalled = Directory.Exists(content);
             }
@@ -93,7 +100,19 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
         }
 
         var anyUnreadable = false;
-        foreach (var entry in SafeGetAll().Where(e => !e.IsMissingFromLibrary))
+        var libraryUnreadable = false;
+        IReadOnlyList<LibraryEntry> entries;
+        try
+        {
+            entries = library.GetAll();
+        }
+        catch (Exception)
+        {
+            entries = [];
+            libraryUnreadable = true;
+        }
+
+        foreach (var entry in entries.Where(e => !e.IsMissingFromLibrary))
         {
             var name = entry.DisplayNameOverride ?? entry.Name;
             try
@@ -145,9 +164,16 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
             Add(file, row, mod);
         }
 
-        canTellInstalled &= !anyUnreadable;
+        canTellInstalled &= !anyUnreadable && !libraryUnreadable;
 
+        // Without the game's own tables, or with them older than the game (an update not refreshed
+        // yet), real game rows would read as leftovers: nothing is called one then (review, 2026-10-23).
         var gameRows = Files.ToDictionary(f => f, f => RowNamesIn(ReadGameFile(f)), StringComparer.OrdinalIgnoreCase);
+        if (gameRows.Values.Any(rows => rows.Count == 0) || IsGameDataOutdated())
+        {
+            canTellInstalled = false;
+        }
+
         return new Index(gameRows, installed, byMod, GameRowHistory.Load(GameRowHistory.LocalFileFor(dataFolder)), canTellInstalled,
             TemplateItemRows(ReadGameFile("Items-D_ItemTemplate.json")));
     }
@@ -248,15 +274,32 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
     private static readonly System.Text.RegularExpressions.Regex TableLine = new(@"^\s*\[""([^""]+\.json)""\]\s*=\s*\{");
     private static readonly System.Text.RegularExpressions.Regex RowLine = new(@"^\s*\{\s*name\s*=\s*""([^""]+)""");
 
-    private IReadOnlyList<LibraryEntry> SafeGetAll()
+    private bool IsGameDataOutdated()
     {
         try
         {
-            return library.GetAll();
+            return isGameDataOutdated?.Invoke() ?? false;
         }
         catch (Exception)
         {
-            return [];
+            return true;
+        }
+    }
+
+    /// <summary>Paks the game loads that aren't read here: in subfolders of Paks\mods, or loose in Paks (not the game's own pakchunks).</summary>
+    private static bool HasPaksItCantRead(string contentPath)
+    {
+        try
+        {
+            var paks = Path.Combine(contentPath, "Paks");
+            var mods = Path.Combine(paks, "mods");
+            var nested = Directory.Exists(mods) && Directory.GetDirectories(mods).Any(d => Directory.EnumerateFiles(d, "*.pak", SearchOption.AllDirectories).Any());
+            var loose = Directory.Exists(paks) && Directory.GetFiles(paks, "*.pak").Any(f => !Path.GetFileName(f).StartsWith("pakchunk", StringComparison.OrdinalIgnoreCase));
+            return nested || loose;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
         }
     }
 
@@ -350,9 +393,15 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
                 return null;
             }
 
-            return history.Find(currentFile, rowName) is { } seen
-                ? new SaveRowSource(SaveRowOrigin.RemovedByGame, $"The game removed this after {history.LabelOf(seen.Last)}; nothing uses it now")
-                : new SaveRowSource(SaveRowOrigin.Leftover, "From a mod you no longer have");
+            if (history.Find(currentFile, rowName) is { } seen)
+            {
+                // Still in the newest game version known: the extracted tables are behind, not the game.
+                return seen.Last < history.Latest
+                    ? new SaveRowSource(SaveRowOrigin.RemovedByGame, $"The game removed this after {history.LabelOf(seen.Last)}; nothing uses it now")
+                    : null;
+            }
+
+            return new SaveRowSource(SaveRowOrigin.Leftover, "From a mod you no longer have");
         }
     }
 }

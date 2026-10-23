@@ -34,6 +34,30 @@ public sealed class PlayerPointsMod(ILibraryRepository library, IBaseGameContent
         ["SoloPointsPerLevel"] = "C_Starlink_SoloTalentGrowth",
     };
 
+    private const string SettingsFile = "starlink-player-points.json";
+
+    /// <summary>
+    /// The settings the mod was last made with, by field: what the editor starts from, so remaking
+    /// it before it's installed never drops another tree's change or rounds a multiplier (review,
+    /// 2026-10-23: it started from the installed curves, which don't have it yet).
+    /// </summary>
+    public IReadOnlyDictionary<string, PointsCurveChange> LastSettings()
+    {
+        try
+        {
+            if (Existing is { } entry && Path.Combine(library.GetFolderPath(entry.FolderName), SettingsFile) is var path && File.Exists(path)
+                && System.Text.Json.JsonSerializer.Deserialize<List<PointsCurveChange>>(File.ReadAllText(path)) is { } changes)
+            {
+                return changes.ToDictionary(c => c.Field, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return new Dictionary<string, PointsCurveChange>();
+    }
+
     /// <summary>The Library mod as it is now, if it was made before.</summary>
     public LibraryEntry? Existing => library.GetAll().FirstOrDefault(e => string.Equals(e.FileName, FileName, StringComparison.OrdinalIgnoreCase) && e.MadeInStarlink);
 
@@ -103,6 +127,7 @@ public sealed class PlayerPointsMod(ILibraryRepository library, IBaseGameContent
         }
 
         ExmodFolder.Write(folder, new ExmodPackageContents(package, assets));
+        File.WriteAllText(Path.Combine(folder, SettingsFile), System.Text.Json.JsonSerializer.Serialize(changes));
         library.Refresh();
         return folderName;
     }

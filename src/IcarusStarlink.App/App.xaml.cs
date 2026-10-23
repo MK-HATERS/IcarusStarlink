@@ -449,7 +449,9 @@ public partial class App : Application
             sp.GetRequiredService<IBaseGameIconDecoder>(),
             Path.Combine(appDataDirectory, "Cache", "save_backups", "Worlds"),
             new SaveModSources(sp.GetRequiredService<ILibraryRepository>(), sp.GetRequiredService<ISettingsService>(), Path.Combine(appDataDirectory, "Data"),
-                Path.Combine(appDataDirectory, "Staged_UE4SS")).Read,
+                Path.Combine(appDataDirectory, "Staged_UE4SS"),
+                () => new GameDataFreshness(sp.GetRequiredService<IUnrealPakService>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<SettingsViewModel>)
+                    .IsGameDataOutdatedAsync().GetAwaiter().GetResult()).Read,
             () => PlayerGrowthReader.Read(Path.Combine(appDataDirectory, "Data"),
                 sp.GetRequiredService<ISettingsService>().Current.IcarusContentPath, sp.GetRequiredService<IBaseGameContentProvider>()),
             new PlayerPointsMod(sp.GetRequiredService<ILibraryRepository>(), sp.GetRequiredService<IBaseGameContentProvider>()),

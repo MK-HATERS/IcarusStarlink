@@ -15,7 +15,8 @@ public sealed partial class PointsTreeEditor : ObservableObject
     private readonly Func<int?> _level;
     private readonly Func<int> _bonus;
 
-    public PointsTreeEditor(string field, string label, GrowthCurve gameCurve, GrowthCurve? installed, Func<int?> level, Func<int> bonus)
+    public PointsTreeEditor(string field, string label, GrowthCurve gameCurve, GrowthCurve? installed, Func<int?> level, Func<int> bonus,
+        Services.PointsCurveChange? lastMade = null)
     {
         Field = field;
         Label = label;
@@ -26,8 +27,8 @@ public sealed partial class PointsTreeEditor : ObservableObject
         var ratio = installed is not null && installed.Keys.Count == gameCurve.Keys.Count && gameCurve.Last.Value != 0
             ? installed.Last.Value / gameCurve.Last.Value
             : 1;
-        _multiplierText = Math.Round(ratio, 2).ToString(CultureInfo.CurrentCulture);
-        _keepRising = installed?.LinearAfter ?? gameCurve.LinearAfter;
+        _multiplierText = (lastMade?.Multiplier ?? Math.Round(ratio, 2)).ToString(CultureInfo.CurrentCulture);
+        _keepRising = lastMade?.KeepRising ?? installed?.LinearAfter ?? gameCurve.LinearAfter;
     }
 
     public string Field { get; }

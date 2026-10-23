@@ -178,7 +178,7 @@ public sealed class MountBlob
 
         var list = items.OfType<FProperty>().ToList();
         var existing = list.FirstOrDefault(i => i is StructProperty { Value: PropertiesStruct ps }
-            && (Tag(ps.Properties, "TalentRowName")?.Property as StrProperty)?.Value?.Value == row);
+            && string.Equals((Tag(ps.Properties, "TalentRowName")?.Property as StrProperty)?.Value?.Value, row, StringComparison.OrdinalIgnoreCase));
         if (existing is StructProperty { Value: PropertiesStruct found })
         {
             if (rank <= 0)

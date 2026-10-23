@@ -26,7 +26,10 @@
     <_UpdaterOutputDir Condition="'$(RuntimeIdentifier)' != ''">..\IcarusStarlink.Updater\bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\</_UpdaterOutputDir>
   </PropertyGroup>
   <ItemGroup>
-    <_UpdaterFiles Include="$(_UpdaterOutputDir)IcarusStarlink.Updater.exe;&#xA;                           $(_UpdaterOutputDir)IcarusStarlink.Updater.dll;&#xA;                           $(_UpdaterOutputDir)IcarusStarlink.Updater.runtimeconfig.json;&#xA;                           $(_UpdaterOutputDir)IcarusStarlink.Updater.deps.json" />
+    <_UpdaterFiles Include="$(_UpdaterOutputDir)IcarusStarlink.Updater.exe;
+                           $(_UpdaterOutputDir)IcarusStarlink.Updater.dll;
+                           $(_UpdaterOutputDir)IcarusStarlink.Updater.runtimeconfig.json;
+                           $(_UpdaterOutputDir)IcarusStarlink.Updater.deps.json" />
   </ItemGroup>
 
   <!-- Plain `dotnet build` (the normal F5/dev inner loop) — copies straight into $(OutDir). -->
@@ -67,8 +70,10 @@
     <_UpdaterPublishProperties>Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=true;PublishSingleFile=true;PublishTrimmed=true;PublishDir=$(_UpdaterPublishDir);_IsPublishing=true</_UpdaterPublishProperties>
   </PropertyGroup>
   <Target Name="PublishSingleFileUpdater" AfterTargets="ComputeResolvedFilesToPublishList">
-    <MSBuild Projects="..\IcarusStarlink.Updater\IcarusStarlink.Updater.csproj" Targets="Restore" Properties="$(_UpdaterPublishProperties);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())" />
-    <MSBuild Projects="..\IcarusStarlink.Updater\IcarusStarlink.Updater.csproj" Targets="Publish" Properties="$(_UpdaterPublishProperties)" />
+    <MSBuild Projects="..\IcarusStarlink.Updater\IcarusStarlink.Updater.csproj" Targets="Restore"
+             Properties="$(_UpdaterPublishProperties);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())" />
+    <MSBuild Projects="..\IcarusStarlink.Updater\IcarusStarlink.Updater.csproj" Targets="Publish"
+             Properties="$(_UpdaterPublishProperties)" />
     <ItemGroup>
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="$([System.String]::new('%(RelativePath)').StartsWith('IcarusStarlink.Updater'))" />
       <ResolvedFileToPublish Include="$(_UpdaterPublishDir)IcarusStarlink.Updater.exe">

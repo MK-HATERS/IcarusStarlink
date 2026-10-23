@@ -31,6 +31,10 @@ public sealed class SaveModSourcesTests
         Assert.Equal(SaveRowOrigin.RemovedByGame, index.Classify(Talents, "T4_Weapon_Rack")!.Origin);
         Assert.Equal(SaveRowOrigin.Leftover, index.Classify(Talents, "Workshop_Petes_AuxSlot")!.Origin);
 
+        // Review 2026-10-23: a row still in the newest game version (here FirePit, missing only from
+        // these test tables, like stale extracted data) is never "removed by the game".
+        Assert.Null(index.Classify(Talents, "FirePit"));
+
         Assert.False(index.Classify(Talents, "Workshop_Moa")!.IsRemovable);
         Assert.False(index.Classify(Talents, "Workshop_Agents_Bow")!.IsRemovable);
         Assert.True(index.Classify(Talents, "Workshop_Petes_AuxSlot")!.IsRemovable);

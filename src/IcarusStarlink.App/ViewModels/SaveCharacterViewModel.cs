@@ -155,7 +155,9 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         {
             if (!seen.Contains(rowName) && (characterTrees.Count == 0 || characterTrees.Contains(info.Tree)))
             {
-                Talents.Add(new SaveTalentViewModel(rowName, new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank, info.IsDefaultUnlocked), 0, _onDirtyChanged));
+                // Same display info as a learned talent (tree group, Player/Blueprint/Solo): without it,
+                // ranks given here counted towards no budget and hid under Show (review, 2026-10-23).
+                Talents.Add(new SaveTalentViewModel(rowName, DisplayInfoFor(names, info), 0, _onDirtyChanged));
             }
         }
     }
