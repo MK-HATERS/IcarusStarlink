@@ -52,6 +52,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IActivityLog _activityLog;
     private readonly IDialogService _dialogService;
     private readonly IGameProcessChecker _gameProcessChecker;
+    private readonly IGameDataFreshness _gameDataFreshness;
     private readonly string _stagedUe4ssDirectory;
 
     /// <summary>Resolved lazily (not injected directly) purely to avoid forcing Merge &amp; Install's own construction — with its Library scan and catalog wiring — every time Settings is opened.</summary>
@@ -351,8 +352,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<MergeInstallViewModel> mergeInstallViewModel, IUnrealPakInstaller unrealPakInstaller, IActivityLog activityLog,
         IDialogService dialogService, IGameProcessChecker gameProcessChecker,
         string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath,
-        string stagedUe4ssDirectory)
+        string stagedUe4ssDirectory, IGameDataFreshness? gameDataFreshness = null)
     {
+        // The same "is data.pak still the one extracted?" check Merge & Install asks (it was
+        // written out twice); null builds the usual one.
+        _gameDataFreshness = gameDataFreshness ?? new GameDataFreshness(unrealPakService, settingsService, () => this);
         _activityLog = activityLog;
         _dialogService = dialogService;
         _gameProcessChecker = gameProcessChecker;
@@ -1172,13 +1176,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </summary>
     private async Task CheckForGameUpdateAsync()
     {
-        if (string.IsNullOrWhiteSpace(IcarusContentPath) || _settingsService.Current.LastDataPakHash is not { } lastKnownHash)
-        {
-            return;
-        }
-
-        var currentHash = await _unrealPakService.TryGetDataPakHashAsync(IcarusContentPath);
-        if (currentHash is not null && currentHash != lastKnownHash)
+        if (await _gameDataFreshness.IsGameDataOutdatedAsync())
         {
             GameDataOutdatedMessage = "Icarus has been updated since your last data refresh — click Refresh game data to see what changed.";
         }

@@ -479,13 +479,16 @@ public partial class App : Application
             Path.Combine(appDataDirectory, "Data"),
             logsDirectory,
             Path.Combine(appDataDirectory, "settings.json"),
-            Path.Combine(appDataDirectory, "Staged_UE4SS"))
+            Path.Combine(appDataDirectory, "Staged_UE4SS"),
+            sp.GetRequiredService<IGameDataFreshness>())
         {
             Ue4ssConfig = new Ue4ssConfigViewModel(
                 sp.GetRequiredService<ISettingsService>(),
                 sp.GetRequiredService<IDedicatedServerProfileStore>(),
                 Path.Combine(appDataDirectory, "Backups")),
         });
+        builder.Services.AddSingleton<IGameDataFreshness>(sp => new GameDataFreshness(
+            sp.GetRequiredService<IUnrealPakService>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<SettingsViewModel>));
         builder.Services.AddSingleton<WeeklyChangesViewModel>();
         builder.Services.AddSingleton(sp => new DatabaseViewModel(sp.GetRequiredService<NexusCatalogViewModel>(), sp.GetRequiredService<LibraryViewModel>()));
         builder.Services.AddSingleton(sp => new GameEditorViewModel(sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data"), sp.GetRequiredService<IActivityLog>()));
