@@ -181,6 +181,13 @@ public static class ServerLogFilter
     public static bool IsError(string line) =>
         line.Contains(": Error:", StringComparison.Ordinal) || line.Contains("Fatal error", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>How the Log panel colours a line: Unreal writes "Category: Error:" / "Category: Warning:". Two Contains calls, so it is cheap enough to run as each row scrolls into view.</summary>
+    public static ServerLogLevel LevelOf(string? line) =>
+        string.IsNullOrEmpty(line) ? ServerLogLevel.Normal
+        : IsError(line) ? ServerLogLevel.Error
+        : line.Contains(": Warning:", StringComparison.Ordinal) ? ServerLogLevel.Warning
+        : ServerLogLevel.Normal;
+
     /// <summary>
     /// A run that ended on purpose logs one of these just before the process exits: Ctrl+C or
     /// closing the console ("Engine exit requested (reason: ConsoleCtrl RequestExit)"), the ini's
@@ -204,4 +211,11 @@ public static class ServerLogFilter
         var end = line.IndexOfAny(['?', ' '], start);
         return line[..start] + "***" + (end < 0 ? "" : line[end..]);
     }
+}
+
+public enum ServerLogLevel
+{
+    Normal,
+    Warning,
+    Error,
 }

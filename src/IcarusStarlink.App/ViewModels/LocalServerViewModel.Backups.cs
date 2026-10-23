@@ -22,6 +22,16 @@ public sealed partial class LocalServerViewModel
     [ObservableProperty]
     private string _adminWhitelistText = "";
 
+    /// <summary>Lines in the admin box that aren't Steam64 ids, said as you type (Save still refuses them).</summary>
+    public string? AdminListHint => ServerAccessLists.InvalidAdminLines(AdminWhitelistText) switch
+    {
+        [] => null,
+        [var one] => $"Line {one.Line}: \"{one.Text}\" isn't a Steam64 id (17 digits starting 7656).",
+        var many => $"{many.Count} lines aren't Steam64 ids (17 digits starting 7656): line {string.Join(", ", many.Take(5).Select(b => b.Line))}{(many.Count > 5 ? "…" : "")}.",
+    };
+
+    partial void OnAdminWhitelistTextChanged(string value) => OnPropertyChanged(nameof(AdminListHint));
+
     /// <summary>The server's ban list as it stores it (BanPlayer/UnbanPlayer in chat edit it too).</summary>
     [ObservableProperty]
     private string _banListText = "";

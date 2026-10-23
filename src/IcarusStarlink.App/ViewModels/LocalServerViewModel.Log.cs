@@ -258,10 +258,6 @@ public sealed partial class LocalServerViewModel
         ShowPlayersAndEventsOf(watch);
         _allLogLines.AddRange(watch.RecentLines);
         RebuildVisibleLog();
-        if (LogLines.Count > 0 && FollowLog)
-        {
-            LogAppended?.Invoke(this, EventArgs.Empty);
-        }
 
         RefreshOverview();
     }
@@ -357,6 +353,17 @@ public sealed partial class LocalServerViewModel
     partial void OnHideNoiseChanged(bool value) => RebuildVisibleLog();
     partial void OnLogFilterChanged(string value) => RebuildVisibleLog();
 
+    /// <summary>Turning Follow back on jumps to the newest line instead of waiting for the next one.</summary>
+    partial void OnFollowLogChanged(bool value) => ScrollLogIfFollowing();
+
+    private void ScrollLogIfFollowing()
+    {
+        if (FollowLog && LogLines.Count > 0)
+        {
+            LogAppended?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     /// <summary>Raised after new lines are shown and FollowLog is on — the view scrolls to the end.</summary>
     public event EventHandler? LogAppended;
 
@@ -408,6 +415,8 @@ public sealed partial class LocalServerViewModel
         {
             LogLines.Add(line);
         }
+
+        ScrollLogIfFollowing();
     }
 
     private bool IsVisible(string line) =>

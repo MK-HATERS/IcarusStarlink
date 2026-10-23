@@ -43,6 +43,45 @@ public sealed partial class LocalServerViewModel
 
     public ObservableCollection<string> Prospects { get; } = [];
 
+    /// <summary>The Worlds tab's list: the same worlds with their date, size and which one loads on start.</summary>
+    public ObservableCollection<ServerProspectRow> ProspectRows { get; } = [];
+
+    partial void OnLoadProspectChanged(string value) => MarkProspectRows();
+
+    partial void OnLastProspectNameChanged(string? value) => MarkProspectRows();
+
+    private void FillProspects(IReadOnlyList<ProspectFile> files)
+    {
+        // The names feed the editable Load prospect box: only touched when they change, so a
+        // refresh doesn't knock what's typed there.
+        if (!files.Select(f => f.Name).SequenceEqual(Prospects))
+        {
+            Prospects.Clear();
+            foreach (var file in files)
+            {
+                Prospects.Add(file.Name);
+            }
+        }
+
+        ProspectRows.Clear();
+        foreach (var file in files)
+        {
+            ProspectRows.Add(new ServerProspectRow(file));
+        }
+
+        MarkProspectRows();
+    }
+
+    private void MarkProspectRows()
+    {
+        var load = LoadProspect.Trim();
+        foreach (var row in ProspectRows)
+        {
+            row.IsLoadOnStart = load.Length > 0 && string.Equals(row.Name, load, StringComparison.OrdinalIgnoreCase);
+            row.IsLastPlayed = string.Equals(row.Name, LastProspectName?.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     /// <summary>The World settings tab: each saved world's custom settings.</summary>
     public WorldSettingsViewModel WorldSettings { get; }
 
@@ -85,6 +124,7 @@ public sealed partial class LocalServerViewModel
     {
         ValidationMessage = null;
         Prospects.Clear();
+        ProspectRows.Clear();
         if (SelectedProfile is not { } p)
         {
             ProfileName = SteamServerName = PortText = QueryPortText = Multihome = SavedDirSuffix = LogFileName = "";
@@ -129,16 +169,25 @@ public sealed partial class LocalServerViewModel
         LargeStonesRespawn = s.LargeStonesRespawn;
         LastProspectName = s.LastProspectName;
 
-        foreach (var name in DedicatedServerLayout.ListProspects(p.InstallFolder, p.SavedDirSuffix))
-        {
-            Prospects.Add(name);
-        }
+        FillProspects(ReadProspectFiles(p));
 
         WorldSettings.Reload();
         OnPropertyChanged(nameof(InstallFolder));
         OnPropertyChanged(nameof(SettingsIniPath));
         OnPropertyChanged(nameof(CommandLinePreview));
         OnPropertyChanged(nameof(LogPath));
+    }
+
+    private static IReadOnlyList<ProspectFile> ReadProspectFiles(DedicatedServerProfile p)
+    {
+        try
+        {
+            return DedicatedServerLayout.ListProspectFiles(p.InstallFolder, p.SavedDirSuffix);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
     }
 
     /// <summary>
@@ -150,15 +199,8 @@ public sealed partial class LocalServerViewModel
         try
         {
             LastProspectName = ServerSettingsIni.Load(DedicatedServerLayout.SettingsIniPath(p.InstallFolder, p.SavedDirSuffix)).Read().LastProspectName;
-            var names = DedicatedServerLayout.ListProspects(p.InstallFolder, p.SavedDirSuffix).ToList();
-            if (!names.SequenceEqual(Prospects))
-            {
-                Prospects.Clear();
-                foreach (var name in names)
-                {
-                    Prospects.Add(name);
-                }
-            }
+            // The rows are always refilled: a world's date and size change even when the names don't.
+            FillProspects(DedicatedServerLayout.ListProspectFiles(p.InstallFolder, p.SavedDirSuffix));
 
             // The server just wrote its worlds: show what they hold now.
             WorldSettings.Reload();
