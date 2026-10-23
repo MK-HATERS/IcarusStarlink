@@ -903,6 +903,16 @@ public sealed partial class DownloadsViewModel : ObservableObject
             return;
         }
 
+        // Windows sends every game's nxm:// links to one app. A link for another game reaches here
+        // only when no other mod manager was there to pass it to (App.TryForwardOtherGameLink);
+        // before this, it was downloaded and installed as an Icarus mod.
+        if (!string.Equals(nxmUrl.GameDomain, NxmHandlerCommand.IcarusDomain, StringComparison.OrdinalIgnoreCase))
+        {
+            PendingDownloadStatusMessage = $"That link is for another game ({nxmUrl.GameDomain}), not Icarus — open it in that game's mod manager.";
+            _activityLog.Log($"Ignored a Nexus download for another game ({nxmUrl.GameDomain}): Starlink only installs Icarus mods, and no other mod manager was set up to pass it to.", ActivityEntryKind.Warning);
+            return;
+        }
+
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
         if (apiKey is null)
         {

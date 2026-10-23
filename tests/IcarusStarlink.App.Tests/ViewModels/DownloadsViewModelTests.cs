@@ -124,6 +124,23 @@ public sealed class DownloadsViewModelTests : IDisposable
         WriteEntry(archive, "Icarus/Content/Paks/mods/ZZ_WirelessPower_Model_P.pak", "pak2");
     }
 
+    /// <summary>
+    /// Windows sends every game's nxm:// links to one app. A Stalker link reaching Starlink (no
+    /// other manager to pass it to) used to be downloaded and installed as an Icarus mod.
+    /// </summary>
+    [Fact]
+    public async Task FetchAndDownload_LinkForAnotherGame_IsRefusedAndNothingIsDownloaded()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+
+        await vm.FetchAndDownloadAsync("nxm://stalker2heartofchornobyl/mods/12/files/34?key=k&expires=1");
+
+        Assert.Contains("another game (stalker2heartofchornobyl)", vm.PendingDownloadStatusMessage);
+        Assert.Empty(harness.PendingStore.Entries);
+        Assert.Contains(harness.ActivityLog.Entries, entry => entry.Kind == ActivityEntryKind.Warning);
+    }
+
     [Fact]
     public async Task Activate_GameFolderBundle_StagesTheUe4ssModImportsBothPaksRecordsAllPartsAndRequirements()
     {

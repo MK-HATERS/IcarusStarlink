@@ -95,14 +95,22 @@ public partial class App : Application
         // IcarusStarlink might already be running. If we're the second one, hand our own nxm://
         // argument (if any) to the first instance over a named pipe and exit immediately, before
         // ever touching the DI host/game-data scans/etc. that a normal launch does.
+        // A link for another game goes straight to the mod manager Starlink replaced as the nxm://
+        // handler, without opening Starlink (or bothering one that's already running).
+        var nxmArgument = e.Args.FirstOrDefault(arg => arg.StartsWith("nxm://", StringComparison.OrdinalIgnoreCase));
+        if (nxmArgument is not null && TryForwardOtherGameLink(nxmArgument))
+        {
+            Shutdown();
+            return;
+        }
+
         var singleInstanceService = new SingleInstanceService();
         if (!singleInstanceService.IsFirstInstance)
         {
             // A plain second launch (no nxm:// argument) asks the running instance to come to the
             // front instead of exiting silently (an audit finding: a minimized first instance plus a
             // Start-menu click looked like "the app won't start").
-            var handoffUrl = e.Args.FirstOrDefault(arg => arg.StartsWith("nxm://", StringComparison.OrdinalIgnoreCase));
-            SingleInstanceService.SendToRunningInstance(handoffUrl ?? SingleInstanceService.ActivateMessage);
+            SingleInstanceService.SendToRunningInstance(nxmArgument ?? SingleInstanceService.ActivateMessage);
 
             singleInstanceService.Dispose();
             Shutdown();
@@ -275,6 +283,7 @@ public partial class App : Application
         builder.Services.AddSingleton<ISteamInstallLocator, SteamInstallLocator>();
         builder.Services.AddSingleton<ICredentialStore, WindowsCredentialStore>();
         builder.Services.AddSingleton<INxmProtocolRegistrar, NxmProtocolRegistrar>();
+        builder.Services.AddSingleton<NxmHandlerWatch>();
         builder.Services.AddSingleton<IUe4ssLoaderInstallService, Ue4ssLoaderInstallService>();
         builder.Services.AddHttpClient<IUe4ssReleaseClient, Ue4ssReleaseClient>();
         builder.Services.AddHttpClient<IAppUpdateClient, AppUpdateClient>();
@@ -625,6 +634,14 @@ public partial class App : Application
                     }
                 });
 
+                // Another mod manager may have taken nxm:// links since last time: take them back or
+                // warn (NxmHandlerWatch). After the Settings first-launch offer above, and again
+                // whenever the window comes forward (the other manager was likely just used).
+                var nxmHandlerWatch = _host.Services.GetRequiredService<NxmHandlerWatch>();
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, nxmHandlerWatch.Check);
+                Activated += (_, _) => nxmHandlerWatch.Check();
+                nxmHandlerWatch.StartWatching(action => Dispatcher.BeginInvoke(action));
+
                 // Has Steam updated Icarus since the mods were last made ready? The Library's bar (and a pop-up) says so.
                 Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
                 {
@@ -726,6 +743,38 @@ public partial class App : Application
         MainWindow.Activate();
     }
 
+    /// <summary>
+    /// Windows sends every game's nxm:// links to one handler. When that's Starlink, a link for
+    /// another game is handed to the mod manager given that game in Settings › Nexus, else to the
+    /// one Starlink replaced last (NxmProtocolRegistrar remembers them), so the user's other
+    /// managers keep working. False when the link is for Icarus or there's
+    /// no other manager to start — Starlink then deals with it (DownloadsViewModel refuses other games).
+    /// </summary>
+    private static bool TryForwardOtherGameLink(string nxmUrl)
+    {
+        if (NxmHandlerCommand.IsForIcarus(nxmUrl) || NxmHandlerCommand.GameDomainOf(nxmUrl) is not { } game)
+        {
+            return false;
+        }
+
+        try
+        {
+            INxmProtocolRegistrar registrar = new NxmProtocolRegistrar();
+            if (NxmHandlerCommand.LaunchFor(registrar.HandlerFor(game), nxmUrl) is not { } launch || !File.Exists(launch.FileName))
+            {
+                return false;
+            }
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(launch.FileName, launch.Arguments) { UseShellExecute = false })?.Dispose();
+            return true;
+        }
+        catch (Exception)
+        {
+            // Couldn't start it: Starlink opens and says the link isn't for Icarus.
+            return false;
+        }
+    }
+
     private void HandleNxmUrl(string nxmUrl)
     {
         if (_host is null)
@@ -754,6 +803,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _singleInstanceService?.Dispose();
+        _host?.Services.GetService<NxmHandlerWatch>()?.Stop();
         _host?.Dispose();
         Log.CloseAndFlush();
         base.OnExit(e);
