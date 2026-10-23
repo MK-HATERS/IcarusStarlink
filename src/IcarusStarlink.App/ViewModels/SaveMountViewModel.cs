@@ -409,15 +409,18 @@ public sealed partial class MountTalentViewModel(string row, string displayName,
     public bool IsDefaultUnlocked { get; } = isDefaultUnlocked;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(RankDisplay))]
+    [NotifyPropertyChangedFor(nameof(RankDisplay), nameof(CanRankUp))]
     private int _rank = rank;
 
     public string RankDisplay => Rank == 0 && IsDefaultUnlocked ? "Default" : MaxRank > 0 ? $"{Rank}/{MaxRank}" : Rank.ToString();
 
+    /// <summary>Below its highest rank (or no cap known): the shared rank stepper greys + out otherwise.</summary>
+    public bool CanRankUp => MaxRank == 0 || Rank < MaxRank;
+
     [RelayCommand]
     private void RankUp()
     {
-        if ((MaxRank == 0 || Rank < MaxRank) && setRank(Rank + 1))
+        if (CanRankUp && setRank(Rank + 1))
         {
             Rank++;
         }

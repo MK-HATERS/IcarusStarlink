@@ -1,0 +1,111 @@
+<!-- What the Saves page's tabs share: the row marks, the group heading, the rank stepper, the talent
+     row and the search box. Merged into SavesView and each of its tab controls. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- A row changed since the last load or save: a small dot before it. -->
+    <Style x:Key="ChangedMarkStyle" TargetType="Ellipse">
+        <Setter Property="Width" Value="7"/>
+        <Setter Property="Height" Value="7"/>
+        <Setter Property="Margin" Value="0,0,6,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="DockPanel.Dock" Value="Left"/>
+        <Setter Property="Fill" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="ToolTip" Value="Changed, not saved yet"/>
+        <Setter Property="Visibility" Value="Hidden"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsDirty}" Value="True">
+                <Setter Property="Visibility" Value="Visible"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- Where a row the game doesn't have comes from (SaveModSources): faint for a mod you have,
+         accent for a leftover that Remove leftovers would take out. -->
+    <Style x:Key="SaveRowSourceStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Source}" Value="{x:Null}">
+                <Setter Property="Visibility" Value="Collapsed"/>
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Source.IsRemovable}" Value="True">
+                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- The heading of a grouped list (talent tree, biome, accolade category). -->
+    <DataTemplate x:Key="SaveGroupHeaderTemplate">
+        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
+    </DataTemplate>
+
+    <!-- −, the rank, + : a character's talents, the account's research, a mount's talents. -->
+    <DataTemplate x:Key="RankStepperTemplate">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
+            <TextBlock Text="{Binding RankDisplay}" MinWidth="48" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
+            <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" IsEnabled="{Binding CanRankUp}" AutomationProperties.Name="Rank up"
+                    ToolTip="One rank higher. Greyed out: already at the highest rank this talent has." ToolTipService.ShowOnDisabled="True"/>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- A talent or research row: its name and row name, where a mod's comes from, the pack it
+         needs, its research cost when it has one, and the rank stepper. -->
+    <DataTemplate x:Key="SaveTalentRowTemplate">
+        <DockPanel Margin="2">
+            <DockPanel.Style>
+                <Style TargetType="DockPanel">
+                    <Setter Property="ToolTip" Value="{Binding Description}"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Description}" Value="">
+                            <Setter Property="ToolTip" Value="{Binding RowName}"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DockPanel.Style>
+            <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
+            <ContentControl DockPanel.Dock="Right" Content="{Binding}" ContentTemplate="{StaticResource RankStepperTemplate}" Focusable="False"/>
+            <TextBlock DockPanel.Dock="Right" Text="{Binding Cost}" VerticalAlignment="Center" Margin="0,0,14,0" FontSize="11.5"
+                       Foreground="{DynamicResource SecondaryForegroundBrush}"
+                       Visibility="{Binding Cost, Converter={StaticResource NullToVisibilityConverter}}"/>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock FontSize="12.5">
+                    <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
+                </TextBlock>
+                <TextBlock Text="{Binding Source.Label}" FontSize="11" TextWrapping="Wrap" Style="{StaticResource SaveRowSourceStyle}"/>
+                <TextBlock Text="{Binding PackNote}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                           Visibility="{Binding PackNote, Converter={StaticResource NullToVisibilityConverter}}"/>
+            </StackPanel>
+        </DockPanel>
+    </DataTemplate>
+
+    <!-- A search box with its hint inside (Tag) while it's empty. Based on the app's own TextBox
+         look; only the template adds the hint, so the app-wide theme stays as it is. -->
+    <Style x:Key="SaveSearchBoxStyle" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" SnapsToDevicePixels="True">
+                        <Grid>
+                            <ScrollViewer x:Name="PART_ContentHost" Focusable="False" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
+                            <TextBlock x:Name="Hint" Text="{TemplateBinding Tag}" Style="{StaticResource PlaceholderTextStyle}" Visibility="Collapsed"/>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Text" Value="">
+                            <Setter TargetName="Hint" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>

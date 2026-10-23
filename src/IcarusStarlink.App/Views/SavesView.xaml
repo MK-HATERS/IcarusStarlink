@@ -7,35 +7,7 @@
              mc:Ignorable="d">
 
     <UserControl.Resources>
-        <!-- A row changed since the last load or save: a small dot before it. -->
-        <Style x:Key="ChangedMarkStyle" TargetType="Ellipse">
-            <Setter Property="Width" Value="7"/>
-            <Setter Property="Height" Value="7"/>
-            <Setter Property="Margin" Value="0,0,6,0"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-            <Setter Property="DockPanel.Dock" Value="Left"/>
-            <Setter Property="Fill" Value="{DynamicResource AccentBrush}"/>
-            <Setter Property="ToolTip" Value="Changed, not saved yet"/>
-            <Setter Property="Visibility" Value="Hidden"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsDirty}" Value="True">
-                    <Setter Property="Visibility" Value="Visible"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        <!-- Where a row the game doesn't have comes from (SaveModSources): faint for a mod you have,
-             accent for a leftover that Remove leftovers would take out. -->
-        <Style x:Key="SaveRowSourceStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Source}" Value="{x:Null}">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Source.IsRemovable}" Value="True">
-                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
+        <ResourceDictionary Source="SavesResources.xaml"/>
     </UserControl.Resources>
 
     <Grid Margin="32,32,32,20">
@@ -382,11 +354,8 @@
                 </TabItem.Resources>
                 <DockPanel Margin="0,10,0,0">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                        <Grid Width="260" VerticalAlignment="Center">
-                            <TextBox Text="{Binding TalentSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search talents (name or tree)"/>
-                            <TextBlock Text="Search talents (name or tree)…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding TalentSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <TextBox Width="260" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search talents (name or tree)…"
+                                 Text="{Binding TalentSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search talents (name or tree)"/>
                         <TextBlock Text="Show" VerticalAlignment="Center" Margin="14,0,6,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                         <ComboBox ItemsSource="{Binding TalentKindOptions}" SelectedItem="{Binding TalentKind}" Width="110" AutomationProperties.Name="Which trees"/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Show unlearned" IsChecked="{Binding ShowUnlearnedTalents}"
@@ -441,37 +410,10 @@
                         </StackPanel>
                     </Expander>
                     <ListBox ItemsSource="{Binding Source={StaticResource TalentGroups}}" HorizontalContentAlignment="Stretch"
-                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling" ItemTemplate="{StaticResource SaveTalentRowTemplate}">
                         <ListBox.GroupStyle>
-                            <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
-                            </GroupStyle>
+                            <GroupStyle HeaderTemplate="{StaticResource SaveGroupHeaderTemplate}"/>
                         </ListBox.GroupStyle>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <DockPanel Margin="2" ToolTip="{Binding Description}">
-                                    <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
-                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
-                                        <TextBlock Text="{Binding RankDisplay}" MinWidth="44" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
-                                        <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" IsEnabled="{Binding CanRankUp}" AutomationProperties.Name="Rank up"
-                                                ToolTip="One rank higher. Greyed out: already at the highest rank this talent has." ToolTipService.ShowOnDisabled="True"/>
-                                    </StackPanel>
-                                    <StackPanel VerticalAlignment="Center">
-                                        <TextBlock FontSize="12.5">
-                                            <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
-                                        </TextBlock>
-                                        <TextBlock Text="{Binding Source.Label}" FontSize="11" TextWrapping="Wrap" Style="{StaticResource SaveRowSourceStyle}"/>
-                                        <TextBlock Text="{Binding PackNote}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                                   Visibility="{Binding PackNote, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                    </StackPanel>
-                                </DockPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
                     </ListBox>
                 </DockPanel>
             </TabItem>
@@ -487,47 +429,17 @@
                 </TabItem.Resources>
                 <DockPanel Margin="0,10,0,0">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                        <Grid Width="260" VerticalAlignment="Center">
-                            <TextBox Text="{Binding WorkshopSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search research"/>
-                            <TextBlock Text="Search research…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding WorkshopSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <TextBox Width="260" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search research…"
+                                 Text="{Binding WorkshopSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search research"/>
                         <TextBlock Text="{Binding WorkshopSummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                     </WrapPanel>
                     <TextBlock DockPanel.Dock="Top" Text="Account-wide: every character can buy what's researched here from the Workshop." FontSize="12"
                                Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"/>
                     <ListBox ItemsSource="{Binding Source={StaticResource WorkshopGroups}}" HorizontalContentAlignment="Stretch"
-                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling" ItemTemplate="{StaticResource SaveTalentRowTemplate}">
                         <ListBox.GroupStyle>
-                            <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
-                            </GroupStyle>
+                            <GroupStyle HeaderTemplate="{StaticResource SaveGroupHeaderTemplate}"/>
                         </ListBox.GroupStyle>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <DockPanel Margin="2" ToolTip="{Binding RowName}">
-                                    <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
-                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
-                                        <TextBlock Text="{Binding RankDisplay}" MinWidth="44" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
-                                        <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" IsEnabled="{Binding CanRankUp}" AutomationProperties.Name="Rank up"
-                                                ToolTip="One rank higher. Greyed out: already at the highest rank this talent has." ToolTipService.ShowOnDisabled="True"/>
-                                    </StackPanel>
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Cost}" VerticalAlignment="Center" Margin="0,0,14,0" FontSize="11.5"
-                                               Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                                    <StackPanel VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding DisplayName}" FontSize="12.5"/>
-                                        <TextBlock Text="{Binding Source.Label}" FontSize="11" TextWrapping="Wrap" Style="{StaticResource SaveRowSourceStyle}"/>
-                                        <TextBlock Text="{Binding PackNote}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                                   Visibility="{Binding PackNote, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                    </StackPanel>
-                                </DockPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
                     </ListBox>
                 </DockPanel>
             </TabItem>
@@ -543,11 +455,8 @@
                 </TabItem.Resources>
                 <DockPanel Margin="0,10,0,0">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                        <Grid Width="260" VerticalAlignment="Center">
-                            <TextBox Text="{Binding MissionSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search missions"/>
-                            <TextBlock Text="Search missions…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding MissionSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <TextBox Width="260" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search missions…"
+                                 Text="{Binding MissionSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search missions"/>
                         <TextBlock Text="{Binding MissionsSummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                     </WrapPanel>
                     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"
@@ -555,13 +464,7 @@
                     <ListBox ItemsSource="{Binding Source={StaticResource MissionGroups}}" HorizontalContentAlignment="Stretch"
                              VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>
-                            <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
-                            </GroupStyle>
+                            <GroupStyle HeaderTemplate="{StaticResource SaveGroupHeaderTemplate}"/>
                         </ListBox.GroupStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -614,11 +517,8 @@
                         <DockPanel Margin="0,0,0,10">
                             <CheckBox DockPanel.Dock="Right" Content="{Binding ShowUnusedFlagsLabel}" IsChecked="{Binding ShowUnusedFlags}" VerticalAlignment="Center" FontSize="12"
                                       ToolTip="Deprecated, tooltip-only, test and never-granted flags: nothing in the game reads them."/>
-                            <Grid Width="260" HorizontalAlignment="Left">
-                                <TextBox Text="{Binding FlagSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search unlocks"/>
-                                <TextBlock Text="Search unlocks (name or what it unlocks)…" Style="{StaticResource PlaceholderTextStyle}"
-                                           Visibility="{Binding FlagSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                            </Grid>
+                            <TextBox Width="260" HorizontalAlignment="Left" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search unlocks (name or what it unlocks)…"
+                                     Text="{Binding FlagSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search unlocks"/>
                         </DockPanel>
 
                         <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Mission reward unlocks">
@@ -725,11 +625,8 @@
                     </Grid.RowDefinitions>
 
                     <WrapPanel Grid.Row="0" Margin="0,0,0,10">
-                        <Grid Width="240" VerticalAlignment="Center">
-                            <TextBox Text="{Binding BestiarySearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search creatures"/>
-                            <TextBlock Text="Search creatures…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding BestiarySearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <TextBox Width="240" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search creatures…"
+                                 Text="{Binding BestiarySearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search creatures"/>
                         <TextBlock Text="{Binding BestiarySummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Only not complete" IsChecked="{Binding ShowIncompleteBestiaryOnly}" Margin="14,0,0,0" VerticalAlignment="Center"/>
                         <Button Content="Complete all shown" Command="{Binding CompleteShownBestiaryCommand}" Padding="10,3" Margin="14,0,0,0"
@@ -739,13 +636,7 @@
                     <ListBox Grid.Row="1" ItemsSource="{Binding Source={StaticResource BestiaryGroups}}" HorizontalContentAlignment="Stretch"
                              VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>
-                            <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
-                            </GroupStyle>
+                            <GroupStyle HeaderTemplate="{StaticResource SaveGroupHeaderTemplate}"/>
                         </ListBox.GroupStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -795,24 +686,15 @@
                 </TabItem.Resources>
                 <DockPanel Margin="0,10,0,0">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                        <Grid Width="260" VerticalAlignment="Center">
-                            <TextBox Text="{Binding AccoladeSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search accolades"/>
-                            <TextBlock Text="Search accolades…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding AccoladeSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <TextBox Width="260" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search accolades…"
+                                 Text="{Binding AccoladeSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search accolades"/>
                         <TextBlock Text="{Binding AccoladesSummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Only not earned" IsChecked="{Binding ShowUnearnedAccoladesOnly}" Margin="14,0,0,0" VerticalAlignment="Center"/>
                     </WrapPanel>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding Source={StaticResource AccoladeGroups}}">
                             <ItemsControl.GroupStyle>
-                                <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
-                            </GroupStyle>
+                                <GroupStyle HeaderTemplate="{StaticResource SaveGroupHeaderTemplate}"/>
                             </ItemsControl.GroupStyle>
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -843,11 +725,8 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0" Width="240" HorizontalAlignment="Left" Margin="0,0,0,10">
-                        <TextBox Text="{Binding ItemSearchText, UpdateSourceTrigger=PropertyChanged}"/>
-                        <TextBlock Text="Search items…" Style="{StaticResource PlaceholderTextStyle}"
-                                   Visibility="{Binding ItemSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                    </Grid>
+                    <TextBox Grid.Row="0" Width="240" HorizontalAlignment="Left" Margin="0,0,0,10" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search items…"
+                             Text="{Binding ItemSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search items"/>
 
                     <ListBox Grid.Row="1" ItemsSource="{Binding FilteredMetaInventoryItems}" HorizontalContentAlignment="Stretch">
                         <ListBox.ItemTemplate>
@@ -893,11 +772,8 @@
                     <GridSplitter Grid.Column="1" Style="{StaticResource VerticalPaneSplitterStyle}" Width="16" AutomationProperties.Name="Resize mount list"/>
 
                     <DockPanel Grid.Column="0">
-                        <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
-                            <TextBox Text="{Binding MountSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search mounts"/>
-                            <TextBlock Text="Search mounts…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding MountSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <TextBox DockPanel.Dock="Top" Margin="0,0,0,10" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search mounts…"
+                                 Text="{Binding MountSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search mounts"/>
                         <ListBox ItemsSource="{Binding FilteredMounts}" SelectedItem="{Binding SelectedMount}" HorizontalContentAlignment="Stretch">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
@@ -990,11 +866,7 @@
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <DockPanel Margin="0,1">
-                                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                                                    <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
-                                                    <TextBlock Text="{Binding RankDisplay}" MinWidth="52" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
-                                                    <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" AutomationProperties.Name="Rank up"/>
-                                                </StackPanel>
+                                                <ContentControl DockPanel.Dock="Right" Content="{Binding}" ContentTemplate="{StaticResource RankStepperTemplate}" Focusable="False"/>
                                                 <TextBlock VerticalAlignment="Center" FontSize="12.5">
                                                     <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding Tree, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
                                                 </TextBlock>
