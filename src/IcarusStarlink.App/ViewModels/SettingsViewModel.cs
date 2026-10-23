@@ -2273,9 +2273,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         var result = _dialogService.Confirm(
-            (IsSwitchBackToStable
-                ? $"You're on beta v{InstalledAppVersion} with the Stable update channel. Switch back to stable v{release.Version} now?"
-                : IsStableReadyForBeta
+            (IsStableReadyForBeta
                 ? $"Stable v{release.Version} is ready — you're on beta v{InstalledAppVersion}.\n\nInstall the stable release now?"
                 : $"IcarusStarlink v{release.Version} is available — you're on v{InstalledAppVersion}.\n\nDownload and install it now?")
             + " The app will close, update itself, and reopen — your mods, profiles, and settings are not touched.",
