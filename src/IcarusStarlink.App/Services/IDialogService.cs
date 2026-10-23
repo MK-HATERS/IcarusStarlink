@@ -1,4 +1,5 @@
 using IcarusStarlink.App.Views;
+using IcarusStarlink.Catalog.Nexus;
 
 namespace IcarusStarlink.App.Services;
 
@@ -61,6 +62,14 @@ public interface IDialogService
 
     /// <summary>Where to save a file; null when cancelled.</summary>
     string? PickSaveFile(string title, string filter, string defaultFileName, string? initialDirectory = null) => null;
+
+    /// <summary>Which of a Nexus mod's files to download, <paramref name="preselect"/> chosen to start with; null when cancelled.</summary>
+    NexusModFile? PickNexusFile(string modName, IReadOnlyList<NexusModFile> files, NexusModFile? preselect) => null;
+
+    /// <summary>Shows a Nexus mod's changelog in its own window, without waiting for it to close.</summary>
+    void ShowNexusChangelog(string modName, IReadOnlyList<ChangelogVersionEntry> versions)
+    {
+    }
 }
 
 public sealed record RenamePromptResult(bool Cancelled, string? NewDisplayName);

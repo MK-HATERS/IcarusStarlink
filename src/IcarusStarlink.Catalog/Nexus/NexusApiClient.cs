@@ -123,7 +123,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         using var response = await SendAuthenticatedAsync(HttpMethod.Get, url, apiKey, content: null, cancellationToken);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            throw new InvalidOperationException("Nexus rejected this download request — the key may be wrong, expired, or you may need to be signed in as a premium member to use manager downloads without one.");
+            throw new NexusDownloadRejectedException("Nexus rejected this download request — the key may be wrong, expired, or you may need to be signed in as a premium member to use manager downloads without one.");
         }
 
         response.EnsureSuccessStatusCode();

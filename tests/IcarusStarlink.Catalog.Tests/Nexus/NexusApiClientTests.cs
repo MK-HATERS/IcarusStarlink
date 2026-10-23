@@ -109,7 +109,7 @@ public class NexusApiClientTests
             new Dictionary<string, string> { ["https://api.nexusmods.com/v1/games/icarus/mods/290/files/1234/download_link?key=stale&expires=1"] = """{"message":"Key expired"}""" },
             new Dictionary<string, HttpStatusCode> { ["https://api.nexusmods.com/v1/games/icarus/mods/290/files/1234/download_link?key=stale&expires=1"] = HttpStatusCode.Forbidden });
 
-        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => client.GetDownloadLinksAsync("some-key", "icarus", 290, 1234, "stale", 1));
+        await Assert.ThrowsAsync<NexusDownloadRejectedException>(() => client.GetDownloadLinksAsync("some-key", "icarus", 290, 1234, "stale", 1));
     }
 
     // Real shape, confirmed against Nexus's own official node-nexus-api client source (IModInfo).

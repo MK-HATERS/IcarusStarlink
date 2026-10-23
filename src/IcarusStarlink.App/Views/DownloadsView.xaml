@@ -29,6 +29,12 @@
             <CheckBox DockPanel.Dock="Right" IsChecked="{Binding ShowInstalledDownloads}" VerticalAlignment="Center"
                       Content="{Binding InstalledDownloadCount}" ContentStringFormat="Show installed ({0})"
                       ToolTip="Downloads that are fully installed are hidden by default — tick to see them (Reinstall lives there)"/>
+            <!-- Only while something is downloading: stops every download in progress (an install
+                 already under way finishes — cutting it off could leave a mod half-copied). -->
+            <Button DockPanel.Dock="Right" Margin="0,0,12,0" Content="Cancel downloads"
+                    Command="{Binding CancelDownloadsCommand}"
+                    Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibilityConverter}}"
+                    ToolTip="Stop every download in progress"/>
             <TextBlock Text="{Binding PendingDownloadStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
                        FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"/>
         </DockPanel>

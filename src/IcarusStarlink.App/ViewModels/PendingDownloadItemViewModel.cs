@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Ue4ss;
@@ -10,17 +11,23 @@ namespace IcarusStarlink.App.ViewModels;
 /// Discard does that). IsInstalled/WasDeleted/ActionLabel are computed live against current
 /// Library/UE4SS state rather than cached, since either can change independently while this page
 /// is open (a delete elsewhere in the app); Refresh() re-raises change notifications for them.
+/// What's installed is read once per Refresh (an InstalledModsSnapshot, shared by every row when the
+/// page refreshes them together) — each property used to re-read the Library and the game's Mods
+/// folder on its own.
 /// One download can have produced SEVERAL items (a UE4SS mod plus its asset paks — see
 /// PendingDownloadActivatedItem): "installed" means every one of them is still present.
 /// </summary>
 public sealed partial class PendingDownloadItemViewModel : ObservableObject
 {
     private readonly ILibraryRepository _libraryRepository;
-    private readonly IUe4ssModRepository _ue4ssModRepository;
 
     // An ENABLED UE4SS mod lives in the game's own Mods folder, not in staging — GetAll alone said
     // every enabled Lua half was gone, so a fully installed download read "Removed from Library".
-    private readonly Func<IReadOnlyList<string>> _ue4ssNamesInGame;
+    private readonly Ue4ssInstalledNames _ue4ssNames;
+
+    private InstalledModsSnapshot? _snapshot;
+
+    private InstalledModsSnapshot Installed => _snapshot ??= InstalledModsSnapshot.Take(_libraryRepository, _ue4ssNames);
 
     public int ModId { get; }
     public int FileId { get; }
@@ -40,17 +47,19 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
 
     public bool IsCatalog { get; }
 
+    /// <summary>The author the source listed (a catalog entry's), or null — see PendingDownloadEntry.Author.</summary>
+    public string? Author { get; }
+
     [ObservableProperty]
     private IReadOnlyList<PendingDownloadActivatedItem> _activatedItems = [];
 
     [ObservableProperty]
     private IReadOnlyList<string> _requirements = [];
 
-    public PendingDownloadItemViewModel(PendingDownloadEntry entry, ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository, Func<IReadOnlyList<string>>? ue4ssNamesInGame = null)
+    public PendingDownloadItemViewModel(PendingDownloadEntry entry, ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository, Ue4ssInstalledNames? ue4ssNames = null)
     {
         _libraryRepository = libraryRepository;
-        _ue4ssModRepository = ue4ssModRepository;
-        _ue4ssNamesInGame = ue4ssNamesInGame ?? (() => []);
+        _ue4ssNames = ue4ssNames ?? new Ue4ssInstalledNames(ue4ssModRepository, settings: null);
         ModId = entry.ModId;
         FileId = entry.FileId;
         FileName = entry.FileName;
@@ -60,9 +69,14 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
         IsCatalog = entry.IsCatalog;
         Source = IsCatalog ? PendingDownloadEntry.DatabaseSource : PendingDownloadEntry.NexusSource;
         CatalogEntryId = entry.CatalogEntryId;
+        Author = entry.Author;
         _activatedItems = entry.AllActivatedItems;
         _requirements = entry.Requirements;
     }
+
+    /// <summary>Whether this row's download is the same file as <paramref name="entry"/> — a reload keeps the row (a running Activate holds it) rather than building a new one.</summary>
+    public bool IsSameDownload(PendingDownloadEntry entry) =>
+        entry.ModId == ModId && entry.FileId == FileId && entry.FileName == FileName && entry.LocalFilePath == LocalFilePath && entry.DownloadedAtUtc == DownloadedAtUtc;
 
     public bool IsInstalled => ActivatedItems.Count > 0 && ActivatedItems.All(StillPresent);
 
@@ -91,7 +105,7 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
                 return [];
             }
 
-            var installed = AllUe4ssNames().Concat(_libraryRepository.GetAll().Select(e => e.Name)).ToList();
+            var installed = Installed.ModNames;
             return Requirements
                 .Where(r => !ModReadmeRequirements.NeedsNoDownload(r) && !ModReadmeRequirements.IsSatisfiedBy(r, installed))
                 .Select(ModReadmeRequirements.ExtractName)
@@ -150,18 +164,15 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
 
     private bool StillPresent(PendingDownloadActivatedItem item) => item.Kind switch
     {
-        PendingDownloadActivationKind.Library => _libraryRepository.GetAll()
-            .Any(e => string.Equals(e.FolderName, item.FolderName, StringComparison.OrdinalIgnoreCase)),
-        PendingDownloadActivationKind.Ue4ssMod => AllUe4ssNames()
-            .Any(f => string.Equals(f, item.FolderName, StringComparison.OrdinalIgnoreCase)),
+        PendingDownloadActivationKind.Library => Installed.LibraryFolders.Contains(item.FolderName),
+        PendingDownloadActivationKind.Ue4ssMod => Installed.Ue4ssNames.Contains(item.FolderName),
         _ => false,
     };
 
-    /// <summary>Staged (disabled) plus in the game's Mods folder (enabled) — a UE4SS mod is in exactly one of the two.</summary>
-    private IEnumerable<string> AllUe4ssNames() => _ue4ssModRepository.GetAll().Concat(_ue4ssNamesInGame());
-
-    public void Refresh()
+    /// <summary>Re-reads what's installed (or takes <paramref name="snapshot"/>, read once for many rows) and re-raises every computed property.</summary>
+    public void Refresh(InstalledModsSnapshot? snapshot = null)
     {
+        _snapshot = snapshot ?? InstalledModsSnapshot.Take(_libraryRepository, _ue4ssNames);
         OnPropertyChanged(nameof(IsInstalled));
         OnPropertyChanged(nameof(WasDeleted));
         OnPropertyChanged(nameof(ActionLabel));
@@ -176,4 +187,36 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
 
     partial void OnActivatedItemsChanged(IReadOnlyList<PendingDownloadActivatedItem> value) => Refresh();
     partial void OnRequirementsChanged(IReadOnlyList<string> value) => Refresh();
+}
+
+/// <summary>
+/// What's installed at one moment: Library folders and names, and UE4SS names staged or in the
+/// game. Each part is read on first use (a list of Nexus-only downloads never needs the game's
+/// Mods folder), then kept for every row refreshed with this snapshot.
+/// </summary>
+public sealed class InstalledModsSnapshot
+{
+    private readonly Lazy<IReadOnlyList<LibraryEntry>> _libraryEntries;
+    private readonly Lazy<IReadOnlyList<string>> _ue4ssNames;
+    private readonly Lazy<IReadOnlySet<string>> _libraryFolders;
+    private readonly Lazy<IReadOnlySet<string>> _ue4ssNameSet;
+    private readonly Lazy<IReadOnlyList<string>> _modNames;
+
+    private InstalledModsSnapshot(ILibraryRepository library, Ue4ssInstalledNames ue4ssNames)
+    {
+        _libraryEntries = new(() => library.GetAll());
+        _ue4ssNames = new(ue4ssNames.All);
+        _libraryFolders = new(() => _libraryEntries.Value.Select(e => e.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase));
+        _ue4ssNameSet = new(() => _ue4ssNames.Value.ToHashSet(StringComparer.OrdinalIgnoreCase));
+        _modNames = new(() => [.. _ue4ssNames.Value, .. _libraryEntries.Value.Select(e => e.Name)]);
+    }
+
+    public IReadOnlySet<string> LibraryFolders => _libraryFolders.Value;
+
+    public IReadOnlySet<string> Ue4ssNames => _ue4ssNameSet.Value;
+
+    /// <summary>UE4SS names plus Library mod names — what a README requirement is matched against.</summary>
+    public IReadOnlyList<string> ModNames => _modNames.Value;
+
+    public static InstalledModsSnapshot Take(ILibraryRepository library, Ue4ssInstalledNames ue4ssNames) => new(library, ue4ssNames);
 }
