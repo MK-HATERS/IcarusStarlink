@@ -64,6 +64,21 @@ public sealed class SaveGameNamesTests : IDisposable
         Assert.Equal("Composite Envirosuit", new SaveGameNames(_data).Talents["Workshop_Envirosuit_6"].DisplayName);
     }
 
+    /// <summary>Accolade names showed their escapes: "Rock \'n\' Roll" (2026-10-23).</summary>
+    [Fact]
+    public void LocalizedText_IsUnescaped()
+    {
+        Write(@"Accolades\D_Accolades.json", """
+            { "Rows": [ { "Name": "RockNRoll", "DisplayName": "NSLOCTEXT(\"D_Accolades\", \"x\", \"Rock \\'n\\' Roll\")",
+                          "Description": "NSLOCTEXT(\"D_Accolades\", \"y\", \"Say \\\"hi\\\"\\\\now\")" } ] }
+            """);
+
+        var accolade = new SaveGameNames(_data).Accolades["RockNRoll"];
+
+        Assert.Equal("Rock 'n' Roll", accolade.DisplayName);
+        Assert.Equal("Say \"hi\"\\now", accolade.Description);
+    }
+
     /// <summary>Researched 2026-10-23: what each flag is for, from the tables' own fields.</summary>
     [Fact]
     public void Flags_AreClassifiedByWhatTheyDo()

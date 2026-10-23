@@ -812,6 +812,18 @@ public sealed class SaveGameNames(string dataFolder)
         return accolades;
     }
 
+    /// <summary>D_Atmospheres rows have no display names; these are the biomes' plain names.</summary>
+    private static string BiomeGroup(string? biome) => biome switch
+    {
+        null or "" or "Unknown" => "Other",
+        "Conifer" => "Forest",
+        "DesertELY" => "Desert",
+        "Jungle_Light" => "Jungle",
+        "Workshop" => "Workshop creatures",
+        _ when biome.StartsWith("Arena_", StringComparison.OrdinalIgnoreCase) => "Great Hunt arenas",
+        _ => HumanizeMountType(biome),
+    };
+
     private IReadOnlyDictionary<string, BestiaryCreatureInfo> LoadBestiaryCreatures()
     {
         var creatures = new Dictionary<string, BestiaryCreatureInfo>(StringComparer.OrdinalIgnoreCase);
@@ -836,11 +848,13 @@ public sealed class SaveGameNames(string dataFolder)
                 var isBoss = TryGet(row, defaults, "bIsBoss", out var boss) && boss.ValueKind == JsonValueKind.True;
                 var imagePath = TryGet(row, defaults, "Image", out var image) && image.ValueKind == JsonValueKind.String && image.GetString() is { Length: > 0 } img && img != "None" ? img : null;
 
+                var biome = RowNames(row, defaults, "Biomes").FirstOrDefault();
                 creatures.TryAdd(rowName, new BestiaryCreatureInfo(
                     ParseLocText(row, "CreatureName", defaults) ?? rowName,
                     pointsRequired,
                     isBoss,
-                    imagePath));
+                    imagePath,
+                    BiomeGroup(biome)));
             }
         }
         catch (Exception)
@@ -952,7 +966,10 @@ public sealed class SaveGameNames(string dataFolder)
         }
 
         var match = System.Text.RegularExpressions.Regex.Match(raw, "\"((?:[^\"\\\\]|\\\\.)*)\"\\s*\\)\\s*$");
-        return match.Success ? match.Groups[1].Value.Replace("\\\"", "\"") : raw;
+        // Every escape, not just \": accolades showed "Rock \'n\' Roll" (2026-10-23).
+        return match.Success
+            ? System.Text.RegularExpressions.Regex.Replace(match.Groups[1].Value, @"\\(.)", m => m.Groups[1].Value switch { "n" => "\n", "r" => "", "t" => " ", var c => c })
+            : raw;
     }
 }
 
@@ -1007,7 +1024,8 @@ public sealed record FlagInfo(string RowName, string Display, string Detail, Fla
 
 /// <param name="PointsRequired">The row's own TotalPointsRequired — what the editor treats as "maxed out" for a Set to max action.</param>
 /// <param name="ImagePath">The row's own raw "Image" field (a "/Game/…/T_Bestiary_Xxx.T_Bestiary_Xxx" texture reference) — null for a row that never carried one, or when the table itself is missing.</param>
-public sealed record BestiaryCreatureInfo(string DisplayName, int PointsRequired, bool IsBoss, string? ImagePath);
+/// <param name="Group">Where it lives, from its first D_BestiaryData Biomes row: "Forest", "Arctic", "Great Hunt arenas".</param>
+public sealed record BestiaryCreatureInfo(string DisplayName, int PointsRequired, bool IsBoss, string? ImagePath, string Group = "");
 
 /// <param name="IconPath">The Itemable row's own raw "Icon" field (a "/Game/…/ITEM_Xxx.ITEM_Xxx" texture reference) — null for a row that never carried one, or when the table itself is missing.</param>
 public sealed record ItemInfo(string DisplayName, int Weight, int MaxStack, string? IconPath);

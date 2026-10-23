@@ -34,8 +34,15 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
     /// <summary>What Save should actually write: the parsed text, or the last-known-good value if the box is currently unparsable (e.g. mid-edit, cleared) — a save must never drop this entry just because the text box isn't a valid number right now.</summary>
     public int EffectivePoints => int.TryParse(PointsText, out var points) ? points : _originalPoints;
 
-    public SaveBestiaryEntryViewModel(string rowName, string displayName, int pointsRequired, bool isBoss, int currentPoints, string? imagePath, Action onDirtyChanged)
+    /// <summary>"Forest", "Great Hunt arenas" — the heading it's listed under.</summary>
+    public string Group { get; }
+
+    /// <summary>Its field-guide entry is fully unlocked.</summary>
+    public bool IsComplete => PointsRequired > 0 && EffectivePoints >= PointsRequired;
+
+    public SaveBestiaryEntryViewModel(string rowName, string displayName, int pointsRequired, bool isBoss, int currentPoints, string? imagePath, Action onDirtyChanged, string group = "")
     {
+        Group = group.Length > 0 ? group : "Not in the game's tables";
         RowName = rowName;
         DisplayName = displayName;
         PointsRequired = pointsRequired;
@@ -67,7 +74,7 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
             {
                 _pointsText = "0";
                 OnPropertyChanged(nameof(PointsText));
-                _onDirtyChanged();
+                Changed();
                 return;
             }
 
@@ -78,13 +85,13 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
                 {
                     _pointsText = ceiling.ToString();
                     OnPropertyChanged(nameof(PointsText));
-                    _onDirtyChanged();
+                    Changed();
                     return;
                 }
             }
         }
 
-        _onDirtyChanged();
+        Changed();
     }
 
     /// <summary>0 means "the current data extraction doesn't recognize this creature," not "already maxed" — writing 0 here would zero out real tracked progress instead of maxing it, so this only fires when a real cap is known.</summary>
@@ -99,5 +106,14 @@ public sealed partial class SaveBestiaryEntryViewModel : ObservableObject, IDirt
         {
             _originalPoints = points;
         }
+
+        OnPropertyChanged(nameof(IsDirty));
+    }
+
+    private void Changed()
+    {
+        OnPropertyChanged(nameof(IsDirty));
+        OnPropertyChanged(nameof(IsComplete));
+        _onDirtyChanged();
     }
 }

@@ -7,6 +7,22 @@
              mc:Ignorable="d">
 
     <UserControl.Resources>
+        <!-- A row changed since the last load or save: a small dot before it. -->
+        <Style x:Key="ChangedMarkStyle" TargetType="Ellipse">
+            <Setter Property="Width" Value="7"/>
+            <Setter Property="Height" Value="7"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="DockPanel.Dock" Value="Left"/>
+            <Setter Property="Fill" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="ToolTip" Value="Changed, not saved yet"/>
+            <Setter Property="Visibility" Value="Hidden"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsDirty}" Value="True">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
         <!-- Where a row the game doesn't have comes from (SaveModSources): faint for a mod you have,
              accent for a leftover that Remove leftovers would take out. -->
         <Style x:Key="SaveRowSourceStyle" TargetType="TextBlock">
@@ -240,7 +256,7 @@
                                        Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
                             <TextBlock Margin="0,0,0,14" FontSize="12.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
-                                <Run Text="Slot "/><Run Text="{Binding SelectedCharacter.ChrSlot, Mode=OneWay}"/><Run Text=" · Location: "/><Run Text="{Binding SelectedCharacter.Location, Mode=OneWay}"/>
+                                <Run Text="Slot "/><Run Text="{Binding SelectedCharacter.ChrSlot, Mode=OneWay}"/><Run Text=" · Location: "/><Run Text="{Binding SelectedCharacter.LocationDisplay, Mode=OneWay}"/>
                             </TextBlock>
 
                             <TextBlock Text="Profile currencies" Style="{StaticResource FieldLabelStyle}" Margin="0,4,0,0"/>
@@ -261,6 +277,25 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+
+                            <!-- Appearance (was its own Cosmetics tab): raw values, folded away. -->
+                            <Expander Header="Appearance (raw values)" Margin="0,16,0,0">
+                                <StackPanel Margin="0,8,0,0">
+                                    <TextBlock Text="Raw hash values with no known way to map them to option names: useful for copying an exact look from one of your characters to another (read the value here, paste it there)."
+                                               Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Male" IsChecked="{Binding SelectedCharacter.IsMale}" Margin="0,0,0,12"/>
+                                    <ItemsControl ItemsSource="{Binding SelectedCharacter.Cosmetics}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <DockPanel Margin="0,3,0,3">
+                                                    <TextBlock DockPanel.Dock="Left" Text="{Binding Key}" Width="220" VerticalAlignment="Center" FontSize="12.5"/>
+                                                    <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas"/>
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Expander>
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
@@ -309,6 +344,7 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel Margin="2" ToolTip="{Binding Description}">
+                                    <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
                                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                                         <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
                                         <TextBlock Text="{Binding RankDisplay}" MinWidth="44" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
@@ -362,6 +398,7 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel Margin="2" ToolTip="{Binding RowName}">
+                                    <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
                                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                                         <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
                                         <TextBlock Text="{Binding RankDisplay}" MinWidth="44" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
@@ -415,6 +452,7 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel Margin="2" ToolTip="{Binding RowName}">
+                                    <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
                                     <CheckBox DockPanel.Dock="Left" Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding IsDone}" VerticalAlignment="Center"
                                               Margin="0,0,10,0" AutomationProperties.Name="{Binding DisplayName, StringFormat='Done: {0}'}"/>
                                     <StackPanel VerticalAlignment="Center">
@@ -439,6 +477,7 @@
                     <DataTemplate x:Key="UnlockRowTemplate">
                         <Border Padding="6,4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
                             <DockPanel>
+                                <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
                                 <CheckBox DockPanel.Dock="Left" Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding IsUnlocked}" IsEnabled="{Binding IsEditable}"
                                           VerticalAlignment="Center" Margin="0,0,10,0" AutomationProperties.Name="{Binding Name}"/>
                                 <StackPanel ToolTip="{Binding RowName}">
@@ -556,22 +595,46 @@
                  Points required to fully unlock a creature's field-guide entry come from the game's
                  own D_BestiaryData table (TotalPointsRequired) — Set max fills that in directly. -->
             <TabItem Header="Bestiary">
+                <TabItem.Resources>
+                    <CollectionViewSource x:Key="BestiaryGroups" Source="{Binding FilteredBestiaryEntries}">
+                        <CollectionViewSource.GroupDescriptions>
+                            <PropertyGroupDescription PropertyName="Group"/>
+                        </CollectionViewSource.GroupDescriptions>
+                    </CollectionViewSource>
+                </TabItem.Resources>
                 <Grid Margin="0,10,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0" Width="240" HorizontalAlignment="Left" Margin="0,0,0,10">
-                        <TextBox Text="{Binding BestiarySearchText, UpdateSourceTrigger=PropertyChanged}"/>
-                        <TextBlock Text="Search creatures…" Style="{StaticResource PlaceholderTextStyle}"
-                                   Visibility="{Binding BestiarySearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                    </Grid>
+                    <WrapPanel Grid.Row="0" Margin="0,0,0,10">
+                        <Grid Width="240" VerticalAlignment="Center">
+                            <TextBox Text="{Binding BestiarySearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search creatures"/>
+                            <TextBlock Text="Search creatures…" Style="{StaticResource PlaceholderTextStyle}"
+                                       Visibility="{Binding BestiarySearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
+                        <TextBlock Text="{Binding BestiarySummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Only not complete" IsChecked="{Binding ShowIncompleteBestiaryOnly}" Margin="14,0,0,0" VerticalAlignment="Center"/>
+                        <Button Content="Complete all shown" Command="{Binding CompleteShownBestiaryCommand}" Padding="10,3" Margin="14,0,0,0"
+                                ToolTip="Fills every creature listed right now (after the search and filter) to its full points"/>
+                    </WrapPanel>
 
-                    <ListBox Grid.Row="1" ItemsSource="{Binding FilteredBestiaryEntries}" HorizontalContentAlignment="Stretch">
+                    <ListBox Grid.Row="1" ItemsSource="{Binding Source={StaticResource BestiaryGroups}}" HorizontalContentAlignment="Stretch"
+                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                        <ListBox.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ListBox.GroupStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel Margin="2">
+                                    <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
                                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                                         <TextBox Text="{Binding PointsText, UpdateSourceTrigger=PropertyChanged}" Width="70" FontFamily="Consolas" TextAlignment="Right"
                                                  ToolTip="Field guide points for this creature. Higher = more of its entry unlocked; the number after the slash completes it."/>
@@ -607,15 +670,34 @@
                  CompletedAccolades is editable here — the raw progress counters that make an
                  accolade eligible (PlayerTrackers/PlayerTaskListTrackers) are preserved untouched. -->
             <TabItem Header="Accolades">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
-                    <StackPanel>
-                        <Grid Width="240" HorizontalAlignment="Left" Margin="0,0,0,10">
-                            <TextBox Text="{Binding AccoladeSearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                <TabItem.Resources>
+                    <CollectionViewSource x:Key="AccoladeGroups" Source="{Binding FilteredAccolades}">
+                        <CollectionViewSource.GroupDescriptions>
+                            <PropertyGroupDescription PropertyName="Category"/>
+                        </CollectionViewSource.GroupDescriptions>
+                    </CollectionViewSource>
+                </TabItem.Resources>
+                <DockPanel Margin="0,10,0,0">
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <Grid Width="260" VerticalAlignment="Center">
+                            <TextBox Text="{Binding AccoladeSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search accolades"/>
                             <TextBlock Text="Search accolades…" Style="{StaticResource PlaceholderTextStyle}"
                                        Visibility="{Binding AccoladeSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                         </Grid>
-
-                        <ItemsControl ItemsSource="{Binding FilteredAccolades}">
+                        <TextBlock Text="{Binding AccoladesSummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Only not earned" IsChecked="{Binding ShowUnearnedAccoladesOnly}" Margin="14,0,0,0" VerticalAlignment="Center"/>
+                    </WrapPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding Source={StaticResource AccoladeGroups}}">
+                            <ItemsControl.GroupStyle>
+                                <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                            </ItemsControl.GroupStyle>
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <WrapPanel/>
@@ -623,40 +705,15 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding DisplayName}" IsChecked="{Binding IsCompleted}"
-                                              Margin="0,2,16,2" ToolTip="{Binding Description}"/>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
-            <!-- Cosmetics: raw Customization_* hashes for the selected character — no name mapping
-                 exists (confirmed by direct testing, see SaveCosmeticFieldViewModel), so this is a
-                 raw editor, not a picker. Still useful for copying an exact look between your own
-                 characters. -->
-            <TabItem Header="Cosmetics">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
-                    <StackPanel MaxWidth="480" HorizontalAlignment="Left"
-                                Visibility="{Binding SelectedCharacter, Converter={StaticResource NullToVisibilityConverter}}">
-                        <TextBlock Text="These are raw hash values with no known way to map them to option names — useful mainly for copying an exact look from one of your own characters to another (read the value here, paste it there)."
-                                   Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,10"/>
-
-                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Male" IsChecked="{Binding SelectedCharacter.IsMale}" Margin="0,0,0,12"/>
-
-                        <ItemsControl ItemsSource="{Binding SelectedCharacter.Cosmetics}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <DockPanel Margin="0,3,0,3">
-                                        <TextBlock DockPanel.Dock="Left" Text="{Binding Key}" Width="220" VerticalAlignment="Center" FontSize="12.5"/>
-                                        <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas"/>
+                                    <DockPanel Margin="4,2,16,2" ToolTip="{Binding Description}">
+                                        <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
+                                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding DisplayName}" IsChecked="{Binding IsCompleted}"/>
                                     </DockPanel>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                    </StackPanel>
-                </ScrollViewer>
+                    </ScrollViewer>
+                </DockPanel>
             </TabItem>
 
             <!-- Items: the account-wide MetaInventory bank — view + delete only (see

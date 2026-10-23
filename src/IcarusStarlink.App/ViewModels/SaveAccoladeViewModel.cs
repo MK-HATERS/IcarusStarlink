@@ -32,7 +32,15 @@ public sealed partial class SaveAccoladeViewModel : ObservableObject, IDirtyTrac
         _onDirtyChanged = onDirtyChanged;
     }
 
-    partial void OnIsCompletedChanged(bool value) => _onDirtyChanged();
+    partial void OnIsCompletedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsDirty));
+        _onDirtyChanged();
+    }
 
-    public void MarkClean() => _originalCompleted = IsCompleted;
+    public void MarkClean()
+    {
+        _originalCompleted = IsCompleted;
+        OnPropertyChanged(nameof(IsDirty));
+    }
 }

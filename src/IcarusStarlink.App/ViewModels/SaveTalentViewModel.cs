@@ -88,6 +88,7 @@ public sealed partial class SaveTalentViewModel : ObservableObject, IDirtyTracka
 
     partial void OnRankChanged(int value)
     {
+        OnPropertyChanged(nameof(IsDirty));
         OnPropertyChanged(nameof(IsDone));
         OnPropertyChanged(nameof(IsUnlockedInGame));
         OnPropertyChanged(nameof(RankDisplay));
@@ -114,7 +115,11 @@ public sealed partial class SaveTalentViewModel : ObservableObject, IDirtyTracka
         OnPropertyChanged(nameof(CanRankUp));
     }
 
-    public void MarkClean() => _originalRank = Rank;
+    public void MarkClean()
+    {
+        _originalRank = Rank;
+        OnPropertyChanged(nameof(IsDirty));
+    }
 }
 
 /// <summary>The slice of TalentInfo the row needs, with a fallback for talents the game table doesn't know (an ID from a different game version) — those show by RowName, uncapped.</summary>

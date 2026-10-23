@@ -62,7 +62,15 @@ public sealed partial class SaveFlagViewModel : ObservableObject, IDirtyTrackabl
         _onDirtyChanged = onDirtyChanged;
     }
 
-    partial void OnIsUnlockedChanged(bool value) => _onDirtyChanged();
+    partial void OnIsUnlockedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsDirty));
+        _onDirtyChanged();
+    }
 
-    public void MarkClean() => _originalUnlocked = IsUnlocked;
+    public void MarkClean()
+    {
+        _originalUnlocked = IsUnlocked;
+        OnPropertyChanged(nameof(IsDirty));
+    }
 }

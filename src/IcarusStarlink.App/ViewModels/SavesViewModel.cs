@@ -1060,6 +1060,8 @@ public sealed partial class SavesViewModel : ObservableObject
     private void NotifyDirtyChanged()
     {
         OnPropertyChanged(nameof(ChangesSummary));
+        OnPropertyChanged(nameof(AccoladesSummary));
+        OnPropertyChanged(nameof(BestiarySummary));
         OnPropertyChanged(nameof(TalentRanksSummary));
         OnPropertyChanged(nameof(WorkshopSummary));
         OnPropertyChanged(nameof(MissionsSummary));
@@ -1273,8 +1275,19 @@ public sealed partial class SavesViewModel : ObservableObject
 
     partial void OnAccoladeSearchTextChanged(string value) => RefreshAccoladeFilter();
 
+    /// <summary>Only the ones not earned yet.</summary>
+    [ObservableProperty]
+    private bool _showUnearnedAccoladesOnly;
+
+    partial void OnShowUnearnedAccoladesOnlyChanged(bool value) => RefreshAccoladeFilter();
+
+    /// <summary>"212 of 447 earned".</summary>
+    public string AccoladesSummary => $"{Accolades.Count(a => a.IsCompleted)} of {Accolades.Count} earned";
+
+    // Listed by the game's own categories (Survival, Hunting, Construction, Achievement...).
     private void RefreshAccoladeFilter() =>
-        RefreshFilter(Accolades, FilteredAccolades, AccoladeSearchText, null, a => a.DisplayName, a => a.Category);
+        RefreshFilter(Accolades.OrderBy(a => a.Category.Length == 0 ? "~" : a.Category, StringComparer.OrdinalIgnoreCase), FilteredAccolades, AccoladeSearchText,
+            ShowUnearnedAccoladesOnly ? a => !a.IsCompleted : null, a => a.DisplayName, a => a.Category, a => a.Description);
 
     /// <summary>CompletedAccolades only — PlayerTrackers/PlayerTaskListTrackers (the raw progress counters behind eligibility) are preserved untouched, out of scope for this editor.</summary>
     private void BuildAccolades()
@@ -1303,6 +1316,7 @@ public sealed partial class SavesViewModel : ObservableObject
         }
 
         RefreshAccoladeFilter();
+        OnPropertyChanged(nameof(AccoladesSummary));
     }
 
     // --- Bestiary (account-wide, BestiaryData.json — a separate file from Profile.json) ---
@@ -1316,8 +1330,29 @@ public sealed partial class SavesViewModel : ObservableObject
 
     partial void OnBestiarySearchTextChanged(string value) => RefreshBestiaryFilter();
 
+    /// <summary>Only creatures whose field-guide entry isn't complete.</summary>
+    [ObservableProperty]
+    private bool _showIncompleteBestiaryOnly;
+
+    partial void OnShowIncompleteBestiaryOnlyChanged(bool value) => RefreshBestiaryFilter();
+
+    /// <summary>"61 of 107 complete".</summary>
+    public string BestiarySummary => $"{BestiaryEntries.Count(b => b.IsComplete)} of {BestiaryEntries.Count(b => b.PointsRequired > 0)} complete";
+
+    // Listed by biome (Forest, Arctic, Desert..., Great Hunt arenas).
     private void RefreshBestiaryFilter() =>
-        RefreshFilter(BestiaryEntries, FilteredBestiaryEntries, BestiarySearchText, null, b => b.DisplayName);
+        RefreshFilter(BestiaryEntries.OrderBy(b => b.Group, StringComparer.OrdinalIgnoreCase), FilteredBestiaryEntries, BestiarySearchText,
+            ShowIncompleteBestiaryOnly ? b => !b.IsComplete : null, b => b.DisplayName, b => b.Group);
+
+    /// <summary>Fills every creature listed right now (search and filter applied) to its full points.</summary>
+    [RelayCommand]
+    private void CompleteShownBestiary()
+    {
+        foreach (var entry in FilteredBestiaryEntries.Where(b => b.CanSetMax && !b.IsComplete).ToList())
+        {
+            entry.SetMaxCommand.Execute(null);
+        }
+    }
 
     /// <summary>BestiaryTracking only — FishTracking (a separate fishing sub-tracker) is preserved untouched, out of scope for this editor.</summary>
     private void BuildBestiaryEntries()
@@ -1338,7 +1373,7 @@ public sealed partial class SavesViewModel : ObservableObject
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (rowName, info) in _gameNames.BestiaryCreatures)
         {
-            BestiaryEntries.Add(new SaveBestiaryEntryViewModel(rowName, info.DisplayName, info.PointsRequired, info.IsBoss, points.GetValueOrDefault(rowName), info.ImagePath, NotifyDirtyChanged));
+            BestiaryEntries.Add(new SaveBestiaryEntryViewModel(rowName, info.DisplayName, info.PointsRequired, info.IsBoss, points.GetValueOrDefault(rowName), info.ImagePath, NotifyDirtyChanged, info.Group));
             seen.Add(rowName);
         }
 
@@ -1351,6 +1386,7 @@ public sealed partial class SavesViewModel : ObservableObject
         }
 
         RefreshBestiaryFilter();
+        OnPropertyChanged(nameof(BestiarySummary));
     }
 
     /// <summary>Writes Accolades back into its own root node — same minimal-diff order-preserving rule as ApplyProfileEdits, just against Accolades.json's CompletedAccolades array instead of Profile.json's UnlockedFlags.</summary>
