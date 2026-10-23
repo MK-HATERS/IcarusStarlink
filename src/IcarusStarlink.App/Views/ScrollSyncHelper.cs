@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 
 namespace IcarusStarlink.App.Views;
 
@@ -11,8 +12,13 @@ namespace IcarusStarlink.App.Views;
 /// ViewModel. Used so the same EXMOD editor view (Item fields / File JSON / Full EXMOD JSON)
 /// scrolls together when it's open in two places at once — the main editor window and a popped-out
 /// pane (ExmodEditorViewModel.PopOutCurrentView), or two popped-out panes fixed to the same mode.
-/// Both directions go through the same property; a re-entrancy guard stops the ViewModel-driven
+/// Both directions go through the same property; a guard stops the ViewModel-driven
 /// ScrollToVerticalOffset call from itself re-raising ScrollChanged and bouncing straight back.
+/// ScrollToVerticalOffset only takes effect at the next layout pass, so its ScrollChanged comes
+/// after the call returns: the guard stays up until layout has run (Loaded priority, after Render
+/// and before input). Clearing it straight after the call let that echo through, and in a shorter
+/// window the echo is the clamped offset, so two windows of different heights pushed each other
+/// back and forth.
 /// </summary>
 public static class ScrollSyncHelper
 {
@@ -22,7 +28,8 @@ public static class ScrollSyncHelper
         INotifyPropertyChanged viewModel, string propertyName, Func<double> getSharedOffset, Action<double> setSharedOffset,
         Window owner)
     {
-        var isApplyingRemoteOffset = false;
+        // A count, not a flag: a second remote offset can arrive before the first one's layout ran.
+        var remoteOffsetsInFlight = 0;
 
         void OnScrollChanged(object sender, ScrollChangedEventArgs e)
         {
@@ -30,7 +37,7 @@ public static class ScrollSyncHelper
             // matches list, a multi-line text field, a link's search list) raises it here too.
             // Taking their offsets as the host's made the whole editor jump while typing in the
             // stat search, and scrolling that list scrolled the editor (user report 2026-10-23).
-            if (isApplyingRemoteOffset || !IsHostsOwn(scrollHost, e.OriginalSource))
+            if (remoteOffsetsInFlight > 0 || !IsHostsOwn(scrollHost, e.OriginalSource))
             {
                 return;
             }
@@ -45,14 +52,14 @@ public static class ScrollSyncHelper
                 return;
             }
 
-            isApplyingRemoteOffset = true;
+            remoteOffsetsInFlight++;
             try
             {
                 scrollToLocalOffset(getSharedOffset());
             }
             finally
             {
-                isApplyingRemoteOffset = false;
+                scrollHost.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => remoteOffsetsInFlight--);
             }
         }
 
