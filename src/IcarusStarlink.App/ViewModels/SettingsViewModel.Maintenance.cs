@@ -444,8 +444,7 @@ public sealed partial class SettingsViewModel
             if (settings.LastSeenAppVersion is not null
                 && !string.Equals(settings.LastSeenAppVersion, InstalledAppVersion, StringComparison.OrdinalIgnoreCase))
             {
-                var whatsNew = new WhatsNewWindow(release.Version, release.ReleaseNotes) { Owner = Application.Current.MainWindow };
-                whatsNew.ShowDialog();
+                await StartupPrompts.ShowAsync(() => new WhatsNewWindow(release.Version, release.ReleaseNotes) { Owner = Application.Current.MainWindow });
             }
 
             if (!string.Equals(settings.LastSeenAppVersion, InstalledAppVersion, StringComparison.OrdinalIgnoreCase))

@@ -57,7 +57,7 @@
                    Text="Start Starlink from IcarusStarlink.exe from now on. Not now asks again next time Starlink starts."/>
 
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="LaterButton" Content="Not now" Click="Later_Click" Margin="0,0,8,0" MinWidth="80"/>
+            <Button x:Name="LaterButton" Content="Not now" Click="Later_Click" IsCancel="True" Margin="0,0,8,0" MinWidth="80"/>
             <Button x:Name="GoButton" Content="Do it now" Click="Go_Click" Style="{StaticResource PrimaryButtonStyle}" MinWidth="96"/>
         </StackPanel>
     </Grid>

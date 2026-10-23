@@ -60,10 +60,16 @@ public static class ExeRenamePrompt
             }
         }
 
-        new ExeRenameWindow(owner, migration, plan, () =>
+        // After any first-launch question already open (those don't queue), and one at a time with "What's new".
+        while (Application.Current?.Windows.OfType<Window>().Any(window => window != owner && window.IsVisible) == true)
+        {
+            await Task.Delay(500);
+        }
+
+        await StartupPrompts.ShowAsync(() => new ExeRenameWindow(owner, migration, plan, () =>
         {
             MarkDone();
             activityLog.Log($"Moved over to {StarlinkExe.FileName}: shortcuts and Nexus links updated, {StarlinkExe.OldFileName} removed.");
-        }).ShowDialog();
+        }));
     }
 }
