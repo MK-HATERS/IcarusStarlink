@@ -121,7 +121,7 @@ public sealed class AppSettings
     public bool KeepNxmHandler { get; set; } = true;
 
     /// <summary>
-    /// The move from IcarusStarlink.App.exe to IcarusStarlink.exe (2.10.0) is finished on this PC:
+    /// The move from IcarusStarlink.App.exe to IcarusStarlink.exe (3.0) is finished on this PC:
     /// shortcuts and the nxm:// handler point at the new exe and the old-name launcher is deleted
     /// (checked gone). Until then the move-over window asks again at each start; once set, the
     /// in-app update tells the updater not to copy the launcher back (ExeRenameMigration).

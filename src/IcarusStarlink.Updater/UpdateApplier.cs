@@ -14,7 +14,7 @@ namespace IcarusStarlink.Updater;
 /// </summary>
 public static class UpdateApplier
 {
-    /// <summary>The app's exe since 2.10.0, and the old name: a build has one or both (the old one is a launcher for a while).</summary>
+    /// <summary>The app's exe since 3.0, and the old name: a build has one or both (the old one is a launcher for a while).</summary>
     public const string AppExeName = "IcarusStarlink.exe";
     public const string OldAppExeName = "IcarusStarlink.App.exe";
     private const int CopyAttempts = 5;

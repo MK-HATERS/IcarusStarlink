@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- The old exe name, kept for a while after the app became IcarusStarlink.exe (2.10.0): older
+  <!-- The old exe name, kept for a while after the app became IcarusStarlink.exe (3.0): older
        versions' updaters only accept a release with IcarusStarlink.App.exe in it and start that
        exe when they finish, and users' shortcuts, taskbar pins and nxm:// links point at it. This
        starts IcarusStarlink.exe with the same arguments and exits. .NET Framework 4.8 because

@@ -71,7 +71,7 @@ bool Relaunch()
 {
     try
     {
-        // The exe was renamed in 2.10.0: whichever name the install has now, if the given one isn't there.
+        // The exe was renamed in 3.0: whichever name the install has now, if the given one isn't there.
         var exe = relaunchExePath;
         if (!File.Exists(exe))
         {

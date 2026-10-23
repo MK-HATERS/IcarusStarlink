@@ -7,7 +7,7 @@ namespace IcarusStarlink.App.Services;
 
 /// <summary>
 /// Moves this PC over from IcarusStarlink.App.exe to IcarusStarlink.exe (the exe was renamed in
-/// 2.10.0; the old name ships as a small launcher so older updaters and old shortcuts keep
+/// 3.0; the old name ships as a small launcher so older updaters and old shortcuts keep
 /// working). Points the user's shortcuts (desktop, Start menu, taskbar pins) and the nxm:// handler
 /// at the new exe, then deletes the old one and checks it is really gone. The app records
 /// AppSettings.ExeRenameDone only when every step worked, so a failed step is tried again at the

@@ -56,7 +56,7 @@ public sealed class AppUpdateInstaller(IAppUpdateClient appUpdateClient)
 
         // Tolerate a release zip that wraps everything in a single top-level folder — a common
         // way zips get built — as long as the app exe is findable one level down.
-        // Either exe name counts (it was IcarusStarlink.App.exe before 2.10.0).
+        // Either exe name counts (it was IcarusStarlink.App.exe before 3.0).
         static bool HasApp(string folder) =>
             File.Exists(Path.Combine(folder, StarlinkExe.FileName)) || File.Exists(Path.Combine(folder, StarlinkExe.OldFileName));
 

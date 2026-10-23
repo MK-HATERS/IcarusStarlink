@@ -288,7 +288,7 @@ public partial class App : Application
                     }
                 });
 
-                // The exe is IcarusStarlink.exe since 2.10.0: move shortcuts and nxm:// links off the
+                // The exe is IcarusStarlink.exe since 3.0: move shortcuts and nxm:// links off the
                 // old name and remove its launcher, once (ExeRenamePrompt).
                 Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () =>
                 {
