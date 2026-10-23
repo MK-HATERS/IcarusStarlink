@@ -29,7 +29,6 @@ using IcarusStarlink.PakIO.GameplayToggles;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Patches;
 using IcarusStarlink.PakIO.Rebuild;
-using Microsoft.Win32;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -86,6 +85,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// fresh copy without mutating the cached base index, so caching it here is safe.
     /// </summary>
     private DataTableRowIndex? _cachedBaseDataTableIndex;
+
+    /// <summary>
+    /// The talent-tree check's game tables (GameTableIndex reads and parses each table once, then
+    /// keeps it). Made fresh on every validation pass before, so every queue change parsed the
+    /// talent tables again. Same lifetime as _cachedBaseDataTableIndex, and let go with the
+    /// package cache when the app sits idle.
+    /// </summary>
+    private GameTableIndex? _cachedGameTableIndex;
 
     /// <summary>Debounces the conflict/validation recompute that follows a Queue mutation — see the Queue.CollectionChanged handler below for why.</summary>
     private readonly DebounceTimer _recomputeDebounceTimer;
@@ -397,18 +404,21 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// <summary>Null only in tests that don't care; the app always wires it — see RebuildAsync's game-update guard.</summary>
     private readonly IGameDataFreshness? _gameDataFreshness;
 
-    /// <summary>A Yes/No question (message, title) → Yes. Tests swap in an answer.</summary>
-    internal Func<string, string, bool> Confirm { get; set; } =
-        (message, title) => ThemedMessageBox.Show(message, title, ThemedConfirmSeverity.Question);
+    /// <summary>Every question and file picker this page shows (tests pass a fake).</summary>
+    private readonly IDialogService _dialogs;
+
+    /// <summary>A Yes/No question (message, title) → Yes.</summary>
+    private bool Confirm(string message, string title) => _dialogs.Confirm(message, title, ThemedConfirmSeverity.Question);
 
     public MergeInstallViewModel(
         ILibraryRepository libraryRepository, IRebuildService rebuildService, IInstallService installService, IProfileStore profileStore,
         IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
         ISettingsService settingsService, IPakCompareService pakCompareService, PerformanceTracker performanceTracker, IActivityLog activityLog,
         string dataFolder, string outputPakPath, string backupDirectory, IMessenger? messenger = null, IGameProcessChecker? gameProcessChecker = null,
-        IGameDataFreshness? gameDataFreshness = null)
+        IGameDataFreshness? gameDataFreshness = null, IDialogService? dialogService = null)
     {
         IcarusStarlink.Core.Memory.IdleMemory.Register(this);
+        _dialogs = dialogService ?? new WpfDialogService();
 
         // Injectable so tests can give each view model its own messenger — the shared Default one
         // made this class's tests interfere with each other under the parallel runner.
@@ -531,6 +541,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             lock (viewModel._packageCacheLock)
             {
                 viewModel._cachedBaseDataTableIndex = null;
+                viewModel._cachedGameTableIndex = null;
                 // A prebuilt pak's changes are its diff against the game data, which just changed.
                 viewModel._prebuiltPakChangesCache.Clear();
                 viewModel._prebuiltPakChangesGeneration++;
@@ -606,13 +617,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         _unsavedProfileName = null;
         try
         {
-            _profileStore.SaveWithoutBackup(new Profile
-            {
-                Name = name,
-                MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)],
-                Options = BuildGameplayOptionsFromUi(),
-                ConflictWinners = new(_winners),
-            });
+            _profileStore.SaveWithoutBackup(CurrentWorkingProfile(name));
 
             if (SelectedProfileName is null)
             {
@@ -635,10 +640,15 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         }
     }
 
-    /// <summary>The queue, options and conflict winners as they are now, as the profile in use (or "Default") — what Update everything's snapshot keeps.</summary>
-    internal Profile CurrentWorkingProfile() => new()
+    /// <summary>
+    /// The queue (greyed missing rows included, so the profile keeps their names), options and
+    /// conflict winners as they are now, as the profile named — by default the one in use (or
+    /// "Default"), which is what Update everything's snapshot keeps. Every save of the page's state
+    /// builds its profile here.
+    /// </summary>
+    internal Profile CurrentWorkingProfile(string? name = null) => new()
     {
-        Name = SelectedProfileName ?? "Default",
+        Name = name ?? SelectedProfileName ?? "Default",
         MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)],
         Options = BuildGameplayOptionsFromUi(),
         ConflictWinners = new(_winners),
@@ -1108,13 +1118,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
 
         try
         {
-            _profileStore.Save(new Profile
-            {
-                Name = name,
-                MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)],
-                Options = BuildGameplayOptionsFromUi(),
-                ConflictWinners = new(_winners),
-            });
+            _profileStore.Save(CurrentWorkingProfile(name));
             ReloadProfileNames();
             SelectedProfileName = name;
             ProfileStatusMessage = $"Created '{name}'.";
@@ -1142,13 +1146,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
 
         try
         {
-            _profileStore.Save(new Profile
-            {
-                Name = name,
-                MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)],
-                Options = BuildGameplayOptionsFromUi(),
-                ConflictWinners = new(_winners),
-            });
+            _profileStore.Save(CurrentWorkingProfile(name));
             ProfileStatusMessage = $"Saved '{name}'.";
             _activityLog.Log($"Saved profile '{name}'.", ActivityEntryKind.Success);
             RefreshCanRestoreProfileBackup();
@@ -1419,28 +1417,25 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             }
 
             var extension = bundledContents.Count == 0 ? "json" : "zip";
-            var dialog = new SaveFileDialog
-            {
-                Title = "Export patch",
-                FileName = $"ISL-Patch-{profileName}.{extension}",
-                Filter = extension == "json" ? "IcarusStarlink patch (*.json)|*.json" : "IcarusStarlink patch (*.zip)|*.zip",
-            };
-            // ShowDialog() blocks until the user responds, so the "Checking…" message above would
+            // The picker blocks until the user responds, so the "Checking…" message above would
             // otherwise sit on screen — stale-looking — for as long as they take to pick a location.
             PatchStatusMessage = "Choose where to save…";
-            if (dialog.ShowDialog() != true)
+            if (_dialogs.PickSaveFile(
+                    "Export patch",
+                    extension == "json" ? "IcarusStarlink patch (*.json)|*.json" : "IcarusStarlink patch (*.zip)|*.zip",
+                    $"ISL-Patch-{profileName}.{extension}") is not { } exportPath)
             {
                 PatchStatusMessage = null;
                 return;
             }
 
             var manifest = new PatchManifest { ProfileName = profileName, Mods = mods, Options = BuildGameplayOptionsFromUi() };
-            await _patchService.ExportAsync(manifest, bundledContents, dialog.FileName);
+            await _patchService.ExportAsync(manifest, bundledContents, exportPath);
 
             PatchStatusMessage = bundledContents.Count > 0
-                ? $"Exported '{profileName}' to '{dialog.FileName}' — {bundledContents.Count} mod(s) bundled, " +
+                ? $"Exported '{profileName}' to '{exportPath}' — {bundledContents.Count} mod(s) bundled, " +
                     $"{mods.Count - bundledContents.Count} referenced from the community catalog."
-                : $"Exported '{profileName}' to '{dialog.FileName}' — every mod is in the community catalog, nothing bundled.";
+                : $"Exported '{profileName}' to '{exportPath}' — every mod is in the community catalog, nothing bundled.";
             if (skippedPaks.Count > 0)
             {
                 PatchStatusMessage += $" Not included: {skippedPaks.Count} prebuilt .pak mod(s) ({string.Join(", ", skippedPaks)}) — a patch can only carry EXMOD mods.";
@@ -1454,7 +1449,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
                 PatchStatusMessage += $" ({string.Join(", ", failedSources)} couldn't be reached — affected mods were bundled rather than referenced.)";
             }
 
-            _activityLog.Log($"Exported '{profileName}' to '{dialog.FileName}'.", ActivityEntryKind.Success);
+            _activityLog.Log($"Exported '{profileName}' to '{exportPath}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
@@ -1542,17 +1537,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// properly rather than blocking the UI thread on a zip read/extract that can take real time
     /// for a patch with bundled EXMODZ content.
     /// </summary>
-    /// <summary>Asks for the patch file to import → its path, or null when cancelled. Tests swap in an answer.</summary>
-    internal Func<string?> PickPatchFile { get; set; } = () =>
-    {
-        var dialog = new OpenFileDialog
-        {
-            Title = "Import a patch",
-            Filter = "IcarusStarlink patch (*.json;*.zip)|*.json;*.zip",
-        };
-        return dialog.ShowDialog() == true ? dialog.FileName : null;
-    };
-
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportPatchAsync()
     {
@@ -1561,7 +1545,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             return;
         }
 
-        if (PickPatchFile() is not { } patchPath)
+        if (_dialogs.PickFile("Import a patch", "IcarusStarlink patch (*.json;*.zip)|*.json;*.zip") is not { } patchPath)
         {
             return;
         }
@@ -1755,7 +1739,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// <summary>
     /// SuggestQueueOrderAsync's own reordering algorithm, extracted so a test can exercise it
     /// directly — the rest of that method (the confirmation preview/apply/save) goes through
-    /// ThemedMessageBox.Show, a real blocking WPF dialog with no live Application in a test host.
+    /// a real blocking dialog (IDialogService) in the app.
     /// Internal, not private, purely for that seam. Reads the live Queue/package cache itself
     /// (same as the caller above did inline) rather than taking them as parameters, so a test calls
     /// this exactly the way SuggestQueueOrderAsync itself does.
@@ -2199,7 +2183,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     // Install button replaced the separate Rebuild/Install pair; the generated commands would be
     // dead bindings nothing in XAML references anymore.
     /// <returns>True only if this call actually produced a fresh pak — RebuildAndInstallAsync uses this, not File.Exists(_outputPakPath), to decide whether it's safe to Install (see its own comment for why that distinction is load-bearing).</returns>
-    /// <remarks>Internal, not private — RebuildAndInstallAsync's own orchestration (does Install only run when Rebuild really succeeded, does it never run when Rebuild guards out or throws) is exactly the thing worth testing directly against fakes for IRebuildService/IInstallService, without ever reaching InstallAsync's own ThemedMessageBox confirmation (a real blocking WPF dialog with no live Application in a test host).</remarks>
+    /// <remarks>Internal, not private — RebuildAndInstallAsync's own orchestration (does Install only run when Rebuild really succeeded, does it never run when Rebuild guards out or throws) is exactly the thing worth testing directly against fakes for IRebuildService/IInstallService, without ever reaching InstallAsync's own confirmation.</remarks>
     internal async Task<bool> RebuildAsync()
     {
         // Gameplay options can apply on their own, with an empty queue, per the spec ("the ability
@@ -2268,7 +2252,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             {
                 try
                 {
-                    _profileStore.Save(new Profile { Name = "Default", MergeQueueFolderNames = [.. Queue.Select(e => e.FolderName)], Options = snapshot.Options, ConflictWinners = new(snapshot.Winners) });
+                    // Taken in the same moment as the snapshot (no await between), so it's the same state.
+                    _profileStore.Save(CurrentWorkingProfile("Default"));
                     ReloadProfileNames();
                 }
                 catch (Exception)
@@ -2688,13 +2673,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     {
         lock (_packageCacheLock)
         {
-            if ((_packageCache.Count == 0 && _prebuiltPakChangesCache.Count == 0) || DateTime.UtcNow - _packageCacheUsedUtc < idleFor)
+            if ((_packageCache.Count == 0 && _prebuiltPakChangesCache.Count == 0 && _cachedGameTableIndex is null) || DateTime.UtcNow - _packageCacheUsedUtc < idleFor)
             {
                 return false;
             }
 
             _packageCache.Clear();
             _prebuiltPakChangesCache.Clear();
+            _cachedGameTableIndex = null;
             return true;
         }
     }
@@ -2749,6 +2735,15 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         lock (_packageCacheLock)
         {
             return _cachedBaseDataTableIndex ??= DataTableRowIndex.Build(_dataFolder);
+        }
+    }
+
+    private GameTableIndex GetOrCreateGameTableIndex()
+    {
+        lock (_packageCacheLock)
+        {
+            _packageCacheUsedUtc = DateTime.UtcNow;
+            return _cachedGameTableIndex ??= new GameTableIndex(_dataFolder);
         }
     }
 
@@ -3232,7 +3227,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
 
             // The talent, blueprint and workshop trees as the whole queue leaves them (later mods
             // win, as in the merge): nodes on top of each other, circles, another tree's nodes.
-            foreach (var finding in TalentTreeChecker.Check([.. queuedForCollisionCheck.Select(q => (q.Name, q.package.Package))], new GameTableIndex(_dataFolder)))
+            foreach (var finding in TalentTreeChecker.Check([.. queuedForCollisionCheck.Select(q => (q.Name, q.package.Package))], GetOrCreateGameTableIndex()))
             {
                 var field = finding.Kind switch
                 {
