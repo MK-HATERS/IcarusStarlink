@@ -36,7 +36,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
     {
         var report = new MergeReport();
         var lowPriorityPaks = lowPriorityPrebuiltPakFilePaths ?? [];
-        var order = MergeOrder(queuedMods.Count, prebuiltPakFilePaths, prebuiltPakQueuePositions);
+        var order = MergeParticipants.QueueOrder(queuedMods.Count, prebuiltPakFilePaths.Count, prebuiltPakQueuePositions);
         // Every prebuilt pak, lowest priority first (in queue order among themselves): extracted,
         // folded in (a later pak wins a literal file collision) and listed in the manifest in this order.
         IReadOnlyList<string> allPrebuiltPaks = [.. lowPriorityPaks, .. order.Where(o => o.PakIndex >= 0).Select(o => prebuiltPakFilePaths[o.PakIndex])];
@@ -77,7 +77,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
             // offloaded via Task.Run so it doesn't block the calling (UI) thread the way running it
             // bare ahead of this method's first real await used to.
             var (mergedTables, originalFileJsonByFile, prebuiltPakDiffedPaths) = await Task.Run(
-                () => ComputeMergedTables(queuedMods, gameplayOptions, dataFolder, lowPriorityPaks, prebuiltPakFilePaths, order, prebuiltPakScratchDirectories, manualPicks, report),
+                () => ComputeMergedTables(queuedMods, gameplayOptions, dataFolder, lowPriorityPaks, prebuiltPakFilePaths, prebuiltPakQueuePositions, prebuiltPakScratchDirectories, manualPicks, report),
                 cancellationToken);
 
             var stagingDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"Rebuild_{Guid.NewGuid():N}");
@@ -148,50 +148,17 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
     }
 
     /// <summary>
-    /// The queue's true order: each prebuilt pak sits after the number of queued EXMOD mods its
-    /// position says (prebuiltPakQueuePositions, one per pak; null puts every pak after the mods,
-    /// the order before positions were passed). One entry per participant, lowest priority first:
-    /// ModIndex into queuedMods, or PakIndex into prebuiltPakFilePaths (the other is -1).
-    /// </summary>
-    internal static IReadOnlyList<(int ModIndex, int PakIndex)> MergeOrder(
-        int queuedModCount, IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyList<int>? prebuiltPakQueuePositions)
-    {
-        if (prebuiltPakQueuePositions is not null && prebuiltPakQueuePositions.Count != prebuiltPakFilePaths.Count)
-        {
-            throw new ArgumentException("prebuiltPakQueuePositions must have exactly one entry per prebuilt pak.", nameof(prebuiltPakQueuePositions));
-        }
-
-        var order = new List<(int ModIndex, int PakIndex)>();
-        var nextPak = 0;
-        int PositionOf(int pak) => prebuiltPakQueuePositions?[pak] ?? int.MaxValue;
-        for (var mod = 0; mod <= queuedModCount; mod++)
-        {
-            // Paks are taken in their own list order; a position lower than an earlier pak's is clamped up to it.
-            while (nextPak < prebuiltPakFilePaths.Count && (mod == queuedModCount || PositionOf(nextPak) <= mod))
-            {
-                order.Add((-1, nextPak++));
-            }
-
-            if (mod < queuedModCount)
-            {
-                order.Add((mod, -1));
-            }
-        }
-
-        return order;
-    }
-
-    /// <summary>
     /// The synchronous half of RebuildAsync (see its own remarks on why this runs via Task.Run):
     /// reads every required base-game JSON file, resolves field conflicts across the queue (plus
-    /// any prebuilt paks' reverse-engineered changes and Category 1 gameplay options), and applies
+    /// any prebuilt paks' reverse-engineered changes and Category 1 gameplay options, in
+    /// MergeParticipants' order), and applies
     /// Category 2 gameplay options as a final pass. Split out of RebuildAsync purely for
     /// readability — same body, same closures-turned-parameters, no behavior change.
     /// </summary>
     private static (Dictionary<string, JsonObject> Merged, Dictionary<string, JsonObject> Original, Dictionary<string, IReadOnlySet<string>> PrebuiltPakDiffedPaths) ComputeMergedTables(
         IReadOnlyList<ExmodPackageContents> queuedMods, GameplayOptions gameplayOptions, string dataFolder,
         IReadOnlyList<string> lowPriorityPrebuiltPakFilePaths,
-        IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyList<(int ModIndex, int PakIndex)> order,
+        IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyList<int>? prebuiltPakQueuePositions,
         IReadOnlyDictionary<string, string> prebuiltPakScratchDirectories,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks, MergeReport report)
     {
@@ -200,55 +167,54 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
 
         var orderedModChanges = new List<IReadOnlyList<FieldChange>>();
 
-        // Low-priority prebuilt paks (ArcFission Library's data pak) come before every queued mod,
-        // so any queued mod, prebuilt pak or gameplay option touching the same field wins over them.
-        foreach (var prebuiltPakPath in lowPriorityPrebuiltPakFilePaths)
-        {
-            var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
-            var (changes, diffedPaths) = PrebuiltPakFieldChangeExtractor.Extract(
-                prebuiltPakScratchDirectories[prebuiltPakPath], dataFolder, pakName, classifier, report);
-            prebuiltPakDiffedPaths[prebuiltPakPath] = diffedPaths;
-            changes = PrebuiltPakFieldChangeExtractor.WithoutOldCopies(changes, dataFolder, pakName, classifier, report);
-            if (changes.Count > 0)
-            {
-                orderedModChanges.Add(changes);
-            }
-        }
-
-        // The queue in its true order (MergeOrder): a prebuilt pak carries no EXMOD-style declared
-        // changes, so its own DataTable JSON is reverse-engineered into real FieldChanges by diffing
-        // it against current base game data, then merged at its own queue position like any mod —
-        // lower in the queue wins, the same as for EXMOD mods (it used to come after every EXMOD mod
-        // whatever its position). Its sure old copies are left out first, as at import.
-        foreach (var (modIndex, pakIndex) in order)
-        {
-            if (modIndex >= 0)
-            {
-                orderedModChanges.Add(ExmodFieldChangeMapper.ToFieldChanges(queuedMods[modIndex].Package, classifier));
-                continue;
-            }
-
-            var prebuiltPakPath = prebuiltPakFilePaths[pakIndex];
-            var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
-            var (changes, diffedPaths) = PrebuiltPakFieldChangeExtractor.Extract(
-                prebuiltPakScratchDirectories[prebuiltPakPath], dataFolder, pakName, classifier, report);
-            prebuiltPakDiffedPaths[prebuiltPakPath] = diffedPaths;
-            changes = PrebuiltPakFieldChangeExtractor.WithoutOldCopies(changes, dataFolder, pakName, classifier, report);
-            if (changes.Count > 0)
-            {
-                orderedModChanges.Add(changes);
-            }
-        }
-
+        // Every participant in MergeParticipants' order (the one Merge & Install's conflict check
+        // counts picks in). Low-priority prebuilt paks (ArcFission Library's data pak) come first,
+        // so any queued mod, prebuilt pak or gameplay option touching the same field wins over
+        // them. Then the queue in its true order: a prebuilt pak carries no EXMOD-style declared
+        // changes, so its own DataTable JSON is reverse-engineered into real FieldChanges by
+        // diffing it against current base game data, then merged at its own queue position like
+        // any mod — lower in the queue wins, the same as for EXMOD mods (it used to come after
+        // every EXMOD mod whatever its position). Its sure old copies are left out first, as at
+        // import (PrebuiltPakFieldChangeExtractor.ExtractMergeable).
+        //
         // Category 1 gameplay options (Speed/Player/XP Boost, Disable Temperatures — the ones
-        // that write into one fixed row) become one more entry here, appended last so they stay
-        // highest-priority — matching the "built-in wins" default this always had — but now as
-        // a real MergeEngine participant: a queued mod also touching Base_Stats.StatsGranted
-        // shows up as a genuine, visible conflict instead of a silent post-merge overwrite.
-        var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(gameplayOptions, dataFolder, report);
-        if (fixedOptionChanges.Count > 0)
+        // that write into one fixed row) are the last entry, so they stay highest-priority —
+        // matching the "built-in wins" default this always had — but as a real MergeEngine
+        // participant: a queued mod also touching Base_Stats.StatsGranted shows up as a genuine,
+        // visible conflict instead of a silent post-merge overwrite.
+        void AddPak(string prebuiltPakPath)
         {
-            orderedModChanges.Add(fixedOptionChanges);
+            var (changes, diffedPaths) = PrebuiltPakFieldChangeExtractor.ExtractMergeable(
+                prebuiltPakScratchDirectories[prebuiltPakPath], dataFolder, Path.GetFileNameWithoutExtension(prebuiltPakPath), classifier, report);
+            prebuiltPakDiffedPaths[prebuiltPakPath] = diffedPaths;
+            if (changes.Count > 0)
+            {
+                orderedModChanges.Add(changes);
+            }
+        }
+
+        foreach (var participant in MergeParticipants.Build(lowPriorityPrebuiltPakFilePaths.Count, queuedMods.Count, prebuiltPakFilePaths.Count, prebuiltPakQueuePositions))
+        {
+            switch (participant.Kind)
+            {
+                case MergeParticipantKind.LowPriorityPak:
+                    AddPak(lowPriorityPrebuiltPakFilePaths[participant.Index]);
+                    break;
+                case MergeParticipantKind.Mod:
+                    orderedModChanges.Add(ExmodFieldChangeMapper.ToFieldChanges(queuedMods[participant.Index].Package, classifier));
+                    break;
+                case MergeParticipantKind.Pak:
+                    AddPak(prebuiltPakFilePaths[participant.Index]);
+                    break;
+                case MergeParticipantKind.Options:
+                    var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(gameplayOptions, dataFolder, report);
+                    if (fixedOptionChanges.Count > 0)
+                    {
+                        orderedModChanges.Add(fixedOptionChanges);
+                    }
+
+                    break;
+            }
         }
 
         // Read before merging (against the raw, pre-merge file set — a strict superset of
@@ -446,9 +412,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
                 // Old copies left out the same way RebuildAsync leaves them out, so a preview's
                 // candidates (and a pick's index into them) match the real merge.
                 var changes = await Task.Run(
-                    () => PrebuiltPakFieldChangeExtractor.WithoutOldCopies(
-                        PrebuiltPakFieldChangeExtractor.Extract(scratchDirectory, dataFolder, pakName, classifier, report).Changes,
-                        dataFolder, pakName, classifier, report),
+                    () => PrebuiltPakFieldChangeExtractor.ExtractMergeable(scratchDirectory, dataFolder, pakName, classifier, report).Changes,
                     cancellationToken);
                 if (changes.Count > 0)
                 {

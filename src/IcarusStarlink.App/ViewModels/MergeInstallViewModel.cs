@@ -2447,16 +2447,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// <summary>
     /// A queue's mods read from disk. Entries/Packages are the EXMOD mods, 1:1; each prebuilt pak
     /// file (an opaque entry can hold several) comes with its queue position (how many EXMOD mods
-    /// are ahead of it) and its entry. Ordered is every participant in true queue order:
-    /// PackageIndex into Packages for an EXMOD mod, or PakIndex into PrebuiltPakFilePaths.
+    /// are ahead of it) and its entry. MergeParticipants turns the positions into the true order.
     /// </summary>
     internal sealed record LoadedQueue(
         List<LibraryEntry> Entries,
         List<ExmodPackageContents> Packages,
         List<string> PrebuiltPakFilePaths,
         List<int> PrebuiltPakQueuePositions,
-        List<LibraryEntry> PrebuiltPakEntries,
-        List<(int PackageIndex, int PakIndex)> Ordered);
+        List<LibraryEntry> PrebuiltPakEntries);
 
     /// <summary>
     /// The live queue's buildable rows (see BuildSnapshot), read from disk. Queue order = merge
@@ -2471,12 +2469,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     {
         return await Task.Run(() =>
         {
-            var loaded = new LoadedQueue([], [], [], [], [], []);
+            var loaded = new LoadedQueue([], [], [], [], []);
             foreach (var entry in queueSnapshot)
             {
                 if (!entry.IsOpaquePak)
                 {
-                    loaded.Ordered.Add((loaded.Packages.Count, -1));
                     loaded.Entries.Add(entry);
                     loaded.Packages.Add(GetOrReadPackage(entry));
                     continue;
@@ -2492,7 +2489,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
                     : [];
                 foreach (var pak in paks)
                 {
-                    loaded.Ordered.Add((-1, loaded.PrebuiltPakFilePaths.Count));
                     loaded.PrebuiltPakFilePaths.Add(pak);
                     loaded.PrebuiltPakQueuePositions.Add(loaded.Packages.Count);
                     loaded.PrebuiltPakEntries.Add(entry);
@@ -2681,51 +2677,54 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         var names = new List<string>();
         var ids = new List<string>();
 
-        if (snapshot.ArcFissionPakPath is { } arcFission && canUnpack)
-        {
-            var changes = await GetPrebuiltPakChangesAsync(arcFission, unrealPak);
-            if (changes.Count > 0)
-            {
-                orderedModChanges.Add(changes);
-                names.Add(Path.GetFileNameWithoutExtension(arcFission));
-                ids.Add(ArcFissionWinnerId);
-            }
-        }
-
         var exmodChanges = await Task.Run(
             () => loaded.Packages.Select(p => ExmodFieldChangeMapper.ToFieldChanges(p.Package, classifier)).ToList());
-        foreach (var (packageIndex, pakIndex) in loaded.Ordered)
+        var arcFission = canUnpack ? snapshot.ArcFissionPakPath : null;
+        // MergeParticipants' order, the same one RebuildService merges in.
+        foreach (var participant in MergeParticipants.Build(
+                     arcFission is null ? 0 : 1, loaded.Packages.Count, canUnpack ? loaded.PrebuiltPakFilePaths.Count : 0,
+                     canUnpack ? loaded.PrebuiltPakQueuePositions : null))
         {
-            if (packageIndex >= 0)
+            switch (participant.Kind)
             {
-                orderedModChanges.Add(exmodChanges[packageIndex]);
-                names.Add(loaded.Entries[packageIndex].Name);
-                ids.Add(loaded.Entries[packageIndex].FolderName);
-                continue;
-            }
+                case MergeParticipantKind.LowPriorityPak:
+                    var arcFissionChanges = await GetPrebuiltPakChangesAsync(arcFission!, unrealPak);
+                    if (arcFissionChanges.Count > 0)
+                    {
+                        orderedModChanges.Add(arcFissionChanges);
+                        names.Add(Path.GetFileNameWithoutExtension(arcFission!));
+                        ids.Add(ArcFissionWinnerId);
+                    }
 
-            if (!canUnpack)
-            {
-                continue;
-            }
+                    break;
+                case MergeParticipantKind.Mod:
+                    orderedModChanges.Add(exmodChanges[participant.Index]);
+                    names.Add(loaded.Entries[participant.Index].Name);
+                    ids.Add(loaded.Entries[participant.Index].FolderName);
+                    break;
+                case MergeParticipantKind.Pak:
+                    var pakPath = loaded.PrebuiltPakFilePaths[participant.Index];
+                    var pakChanges = await GetPrebuiltPakChangesAsync(pakPath, unrealPak);
+                    if (pakChanges.Count > 0)
+                    {
+                        var pakName = Path.GetFileNameWithoutExtension(pakPath);
+                        orderedModChanges.Add(pakChanges);
+                        names.Add(pakName);
+                        ids.Add($"{loaded.PrebuiltPakEntries[participant.Index].FolderName}/{pakName}");
+                    }
 
-            var pakPath = loaded.PrebuiltPakFilePaths[pakIndex];
-            var pakChanges = await GetPrebuiltPakChangesAsync(pakPath, unrealPak);
-            if (pakChanges.Count > 0)
-            {
-                var pakName = Path.GetFileNameWithoutExtension(pakPath);
-                orderedModChanges.Add(pakChanges);
-                names.Add(pakName);
-                ids.Add($"{loaded.PrebuiltPakEntries[pakIndex].FolderName}/{pakName}");
-            }
-        }
+                    break;
+                case MergeParticipantKind.Options:
+                    var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(snapshot.Options, _dataFolder, new MergeReport());
+                    if (fixedOptionChanges.Count > 0)
+                    {
+                        orderedModChanges.Add(fixedOptionChanges);
+                        names.Add(OptionsWinnerId);
+                        ids.Add(OptionsWinnerId);
+                    }
 
-        var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(snapshot.Options, _dataFolder, new MergeReport());
-        if (fixedOptionChanges.Count > 0)
-        {
-            orderedModChanges.Add(fixedOptionChanges);
-            names.Add(OptionsWinnerId);
-            ids.Add(OptionsWinnerId);
+                    break;
+            }
         }
 
         // Two mods with the same display name would make a pick by name ambiguous.

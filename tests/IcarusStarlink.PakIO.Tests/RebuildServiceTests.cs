@@ -1068,14 +1068,27 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
-    public void MergeOrder_PutsEachPakAfterItsNumberOfMods_AndALowerPositionAfterAHigherOneIsBumped()
+    public void QueueOrder_PutsEachPakAfterItsNumberOfMods_AndALowerPositionAfterAHigherOneIsBumped()
     {
         // Paks at positions 1 and 0: the second can't go before the first, so it follows it.
-        var order = RebuildService.MergeOrder(2, ["A.pak", "B.pak"], [1, 0]);
+        var order = MergeParticipants.QueueOrder(2, 2, [1, 0]);
 
         Assert.Equal([(0, -1), (-1, 0), (-1, 1), (1, -1)], order);
-        Assert.Equal([(0, -1), (1, -1), (-1, 0)], RebuildService.MergeOrder(2, ["A.pak"], null));
-        Assert.Throws<ArgumentException>(() => RebuildService.MergeOrder(2, ["A.pak", "B.pak"], [1]));
+        Assert.Equal([(0, -1), (1, -1), (-1, 0)], MergeParticipants.QueueOrder(2, 1, null));
+        Assert.Throws<ArgumentException>(() => MergeParticipants.QueueOrder(2, 2, [1]));
+    }
+
+    [Fact]
+    public void MergeParticipants_LowPriorityPaksFirst_ThenTheQueue_ThenTheOptionsLast()
+    {
+        Assert.Equal(
+        [
+            new MergeParticipant(MergeParticipantKind.LowPriorityPak, 0),
+            new MergeParticipant(MergeParticipantKind.Mod, 0),
+            new MergeParticipant(MergeParticipantKind.Pak, 0),
+            new MergeParticipant(MergeParticipantKind.Mod, 1),
+            new MergeParticipant(MergeParticipantKind.Options, -1),
+        ], MergeParticipants.Build(1, 2, 1, [1]));
     }
 
     [Fact]
