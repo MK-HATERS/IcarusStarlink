@@ -1,4 +1,5 @@
 using IcarusStarlink.Catalog;
+using IcarusStarlink.Core.Library;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -33,7 +34,8 @@ public sealed class CatalogEntryViewModel(CatalogEntry entry, string? installedV
     public string LastUpdatedDisplay => lastUpdated?.ToString("yyyy-MM-dd") ?? "—";
 
     public bool IsDownloaded => installedVersion is not null;
-    public bool IsOutdated => installedVersion is not null && installedVersion != Entry.Version;
+    /// <summary>The same rule as the Nexus cards (UpdateVersionComparer): "1.0" installed against a listed "1" isn't an update, which plain string inequality said it was.</summary>
+    public bool IsOutdated => installedVersion is not null && UpdateVersionComparer.HasUpdate(Entry.Version, installedVersion, recordedSourceVersion: null);
     public string Status => IsOutdated ? "Outdated" : IsDownloaded ? "Downloaded" : "Available";
     public bool HasDownloadableFile => Entry.ExmodzUrl is not null || Entry.PakUrl is not null;
     public bool HasReadme => !string.IsNullOrWhiteSpace(Entry.ReadmeUrl);

@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -269,22 +268,22 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                 // Update / Find on Nexus fill in the ID, since a Library name often isn't the Nexus
                 // title. A number that isn't a mod still gets the name search ("100" in "100x Stacks").
                 mods = NexusModWebUrl.TryParseModId(searchText.TrimStart('#'), out var modId)
-                    ? await _nexusApiClient.GetModsByIdAsync(apiKey, "icarus", [modId])
+                    ? await _nexusApiClient.GetModsByIdAsync(apiKey, NxmHandlerCommand.IcarusDomain, [modId])
                     : [];
                 if (mods.Count == 0)
                 {
-                    mods = await _nexusApiClient.SearchModsAsync(apiKey, "icarus", searchText);
+                    mods = await _nexusApiClient.SearchModsAsync(apiKey, NxmHandlerCommand.IcarusDomain, searchText);
                 }
             }
             else if (isAll)
             {
-                var page = await _nexusApiClient.ListAllModsAsync(apiKey, "icarus", offset: _allPageOffset, count: AllPageSize);
+                var page = await _nexusApiClient.ListAllModsAsync(apiKey, NxmHandlerCommand.IcarusDomain, offset: _allPageOffset, count: AllPageSize);
                 mods = page.Mods;
                 _allTotalCount = page.TotalCount;
             }
             else
             {
-                mods = await _nexusApiClient.GetModListAsync(apiKey!, "icarus", Enum.Parse<NexusModList>(SelectedKind));
+                mods = await _nexusApiClient.GetModListAsync(apiKey!, NxmHandlerCommand.IcarusDomain, Enum.Parse<NexusModList>(SelectedKind));
             }
 
             if (version != _loadVersion)
@@ -368,7 +367,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         var trackedEntriesByModId = _watchlistStore.Entries.ToDictionary(e => e.NexusId);
         var trackedModIds = trackedEntriesByModId.Keys.ToHashSet();
 
-        Mods.Clear();
+        var rows = new List<NexusCatalogRow>();
         foreach (var mod in _lastFetched)
         {
             var libraryEntry = libraryByNexusId.GetValueOrDefault(mod.ModId);
@@ -418,16 +417,22 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             var displayName = isTracked && trackedEntriesByModId.TryGetValue(mod.ModId, out var trackedEntry)
                 ? trackedEntry.Name
                 : mod.Name ?? $"Nexus mod #{mod.ModId}";
-            Mods.Add(new NexusCatalogRow(mod, badge, hasUpdate, isTracked, displayName));
+            rows.Add(new NexusCatalogRow(mod, badge, hasUpdate, isTracked, displayName));
         }
+
+        // Rows are records, so an unchanged card is equal and keeps its place (and its image)
+        // instead of every card being rebuilt on each Library change.
+        ObservableCollectionSync.SyncTo(Mods, rows);
     }
 
     /// <summary>
     /// Direct download from the card — delegates the whole "find the primary file, fetch it"
     /// pipeline to DownloadsViewModel.ResolvePrimaryFileAndFetchAsync, the app's own always-
     /// available download path independent of whether the nxm:// protocol handler is registered.
+    /// Every card shares this command, so it allows several runs at once — one download used to
+    /// disable every card's button. The installs themselves take turns in DownloadsViewModel.
     /// </summary>
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true, AllowConcurrentExecutions = true)]
     private async Task DownloadModAsync(NexusModInfo? mod)
     {
         if (mod is null)
@@ -467,7 +472,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         StatusMessage = $"Loading the changelog of '{mod.Name}'…";
         try
         {
-            var changelogs = await _nexusApiClient.GetChangelogsAsync(apiKey, "icarus", mod.ModId);
+            var changelogs = await _nexusApiClient.GetChangelogsAsync(apiKey, NxmHandlerCommand.IcarusDomain, mod.ModId);
             StatusMessage = null;
 
             if (changelogs.Count == 0)
@@ -476,11 +481,12 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                 return;
             }
 
-            IReadOnlyList<ChangelogVersionEntry> versions = changelogs.TryGetValue(mod.Version, out var currentLines)
-                ? [new ChangelogVersionEntry(mod.Version, currentLines)]
+            // Version can be null (a mod under moderation) — TryGetValue would throw on it.
+            IReadOnlyList<ChangelogVersionEntry> versions = mod.Version is { } version && changelogs.TryGetValue(version, out var currentLines)
+                ? [new ChangelogVersionEntry(version, currentLines)]
                 : [.. changelogs.Select(kv => new ChangelogVersionEntry(kv.Key, kv.Value))];
 
-            new NexusChangelogWindow(mod.Name ?? $"Mod #{mod.ModId}", versions) { Owner = Application.Current.MainWindow }.Show();
+            _dialogService.ShowNexusChangelog(mod.Name ?? $"Mod #{mod.ModId}", versions);
         }
         catch (Exception ex)
         {
