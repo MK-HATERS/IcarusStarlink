@@ -13,8 +13,10 @@
         <utilities:BindingProxy x:Key="ViewModelProxy" Data="{Binding Downloads}"/>
     </UserControl.Resources>
 
-                <Grid Margin="0,12,0,0">
+                <!-- Same title and edges as the Nexus tab beside it (that view sits at -12 inside the tab). -->
+                <Grid Margin="8,32,8,20">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -22,7 +24,9 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="True">
+                    <TextBlock Grid.Row="0" Text="IMM Database" Style="{StaticResource PageHeaderStyle}"/>
+
+                    <DockPanel Grid.Row="1" Margin="0,12,0,10" LastChildFill="True">
                         <Grid DockPanel.Dock="Right" Margin="8,0,0,0">
                             <Button x:Name="ColumnsButton" Command="{Binding Downloads.ToggleColumnsMenuCommand}" AutomationProperties.Name="Columns"
                                     ToolTip="Choose which columns the list shows">
@@ -81,7 +85,7 @@
                          default) whose header names whatever filters are on, so a narrowed list never
                          looks like a missing mod. WrapPanel inside: at a narrow width the controls
                          drop onto a second line instead of clipping off the right edge. -->
-                    <Expander Grid.Row="1" Margin="0,0,0,8" IsExpanded="False" AutomationProperties.Name="Filters">
+                    <Expander Grid.Row="2" Margin="0,0,0,8" IsExpanded="False" AutomationProperties.Name="Filters">
                         <Expander.Header>
                             <DockPanel LastChildFill="False">
                                 <TextBlock DockPanel.Dock="Left" Text="Filters" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
@@ -118,15 +122,15 @@
                         </StackPanel>
                     </Expander>
 
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+                    <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12">
-                            <Run Text="{Binding Downloads.CatalogShownCount, Mode=OneWay}"/><Run Text=" shown / "/><Run Text="{Binding Downloads.CatalogTotalCount, Mode=OneWay}"/><Run Text=" in catalog"/>
+                            <Run Text="{Binding Downloads.CatalogShownCount, Mode=OneWay}"/><Run Text=" shown of "/><Run Text="{Binding Downloads.CatalogTotalCount, Mode=OneWay}"/><Run Text=" in the database"/>
                         </TextBlock>
                         <TextBlock Text=" — loading…" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" FontSize="12"
                                    Visibility="{Binding Downloads.IsLoadingCatalog, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     </StackPanel>
 
-                    <Grid Grid.Row="3">
+                    <Grid Grid.Row="4">
                         <!-- Drag the bar between the list and the details to give either more room. -->
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" MinWidth="300"/>
@@ -217,6 +221,11 @@
                             </DataGrid.Columns>
                         </DataGrid>
 
+                        <!-- Says why the list is empty (loading, nothing loaded, nothing matching) where the rows would be. -->
+                        <TextBlock Grid.Column="0" Text="{Binding Downloads.CatalogEmptyStateText}" Style="{StaticResource EmptyStateTextStyle}"
+                                   IsHitTestVisible="False"
+                                   Visibility="{Binding Downloads.CatalogEmptyStateText, Converter={StaticResource NullToVisibilityConverter}}"/>
+
                         <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Center" VerticalAlignment="Stretch"
                                       Background="{DynamicResource BorderBrush}" ResizeBehavior="PreviousAndNext"
                                       ToolTip="Drag to resize the details" AutomationProperties.Name="Resize details"/>
@@ -287,7 +296,7 @@
                         </ScrollViewer>
                     </Grid>
 
-                    <TextBlock Grid.Row="4" Margin="0,8,0,0" Text="{Binding Downloads.CatalogStatusMessage}"
+                    <TextBlock Grid.Row="5" Margin="0,8,0,0" Text="{Binding Downloads.CatalogStatusMessage}"
                                Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"/>
                 </Grid>
 </UserControl>

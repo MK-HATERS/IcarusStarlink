@@ -274,6 +274,27 @@ public sealed class MergeInstallViewModelTests : IDisposable
     // ---------------------------------------------------------------------------------------
 
     /// <summary>The ticked mods and options save themselves (into "Default" when no profile is picked), so a restart keeps them without Save profile.</summary>
+    /// <summary>The queue header's count and empty state follow the queue.</summary>
+    [Fact]
+    public void QueueCount_AndIsQueueEmpty_FollowTheQueue()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA"), MakeEntry("ModB")] };
+        var vm = CreateViewModel(libraryRepository: library);
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        vm.Queue.Add(library.AllEntries[0]);
+        vm.Queue.Add(library.AllEntries[1]);
+
+        Assert.Equal(2, vm.QueueCount);
+        Assert.False(vm.IsQueueEmpty);
+        Assert.Contains(nameof(MergeInstallViewModel.QueueCount), changed);
+
+        vm.Queue.Clear();
+        Assert.Equal(0, vm.QueueCount);
+        Assert.True(vm.IsQueueEmpty);
+    }
+
     [Fact]
     public void TheQueueSavesItself_AndComesBackOnTheNextStart()
     {

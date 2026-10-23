@@ -1091,6 +1091,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         Ue4ssShownCount = targetLuaItems.Count;
         OnPropertyChanged(nameof(IsUe4ssPanelEmpty));
         OnPropertyChanged(nameof(IsDataPanelEmpty));
+        OnPropertyChanged(nameof(IsListNarrowed));
+        OnPropertyChanged(nameof(DataEmptyText));
+        OnPropertyChanged(nameof(Ue4ssPanelEmptyText));
         LinkHalves();
         OnPropertyChanged(nameof(IsAllSelectedForBulk));
         EnsureMergeQueueSubscription();

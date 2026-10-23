@@ -736,6 +736,38 @@ public sealed class LibraryViewModelTests
         Assert.Equal(3, vm.Ue4ssShownCount);
     }
 
+    /// <summary>A filter that hides every row says so in each panel, and Show all mods brings them back.</summary>
+    [Fact]
+    public void EmptyPanels_UnderAFilter_SayNothingMatches_AndShowAllModsClearsIt()
+    {
+        var (vm, _) = BuildPanels();
+        Assert.False(vm.IsListNarrowed);
+
+        vm.SelectFilterCommand.Execute(LibraryViewModel.FilterUpdates); // nothing has an update here
+        Assert.True(vm.IsDataPanelEmpty);
+        Assert.True(vm.IsUe4ssPanelEmpty);
+        Assert.True(vm.IsListNarrowed);
+        Assert.Equal(LibraryViewModel.NoMatchText, vm.DataEmptyText);
+        Assert.Equal(LibraryViewModel.NoMatchText, vm.Ue4ssPanelEmptyText);
+
+        vm.ShowAllModsCommand.Execute(null);
+        Assert.Equal(LibraryViewModel.FilterAll, vm.ListFilter);
+        Assert.False(vm.IsListNarrowed);
+        Assert.Equal(3, vm.DataShownCount);
+        Assert.Equal(3, vm.Ue4ssShownCount);
+    }
+
+    /// <summary>An empty Library with no filter on doesn't tell the user to clear a search they never typed.</summary>
+    [Fact]
+    public void EmptyDataPanel_NothingNarrowing_SaysThereAreNoDataModsYet()
+    {
+        var harness = new TestHarness();
+        var vm = harness.Build();
+
+        Assert.True(vm.IsDataPanelEmpty);
+        Assert.StartsWith("No data mods yet", vm.DataEmptyText);
+    }
+
     /// <summary>A mod with both halves stays two rows, one per panel; each knows the other (same name without spaces, or its Nexus title).</summary>
     [Fact]
     public void LinkedHalves_PairByNameOrNexusTitle_AndStayTwoRows()

@@ -51,8 +51,42 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     public string GameText => Field.GameValue is null ? "game: not set" : $"game: {_gameText}{(Field.Inherited ? " (table default)" : "")}";
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(DiffersFromGame), nameof(IsPending), nameof(Error))]
+    [NotifyPropertyChangedFor(nameof(DiffersFromGame), nameof(IsPending), nameof(Error), nameof(ValueHint))]
     private string _valueText;
+
+    /// <summary>A time in seconds read the way people think of it ("= 3 h" for 10800); null for any other field.</summary>
+    public string? ValueHint =>
+        Label.Contains("(seconds)", StringComparison.OrdinalIgnoreCase) && EditorValueText.TryParseNumber(ValueText, out var seconds) && seconds >= 60
+            ? "= " + Duration(seconds)
+            : null;
+
+    /// <summary>10800 → "3 h"; 900 → "15 min"; 5400 → "1 h 30 min"; 90061 → "1 d 1 h".</summary>
+    internal static string Duration(double seconds)
+    {
+        var span = TimeSpan.FromSeconds(Math.Round(seconds));
+        var parts = new List<string>();
+        if (span.Days > 0)
+        {
+            parts.Add($"{span.Days} d");
+        }
+
+        if (span.Hours > 0)
+        {
+            parts.Add($"{span.Hours} h");
+        }
+
+        if (span.Minutes > 0 && span.Days == 0)
+        {
+            parts.Add($"{span.Minutes} min");
+        }
+
+        if (parts.Count == 0 || (span.Seconds > 0 && span.TotalHours < 1))
+        {
+            parts.Add($"{span.Seconds} s");
+        }
+
+        return string.Join(" ", parts);
+    }
 
     /// <summary>Orange border: what the game will see differs from the game's own value.</summary>
     public bool DiffersFromGame => ValueText.Trim() != _gameText;
@@ -83,6 +117,22 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
         }
 
         ValueText = _gameText;
+    }
+
+    /// <summary>
+    /// The × in "Your changes": back to what was shown before typing (the target mod's value, or
+    /// the game's). A stat added here and not saved yet just goes again.
+    /// </summary>
+    [RelayCommand]
+    private void UndoChange()
+    {
+        if (RemoveAdded is { } remove)
+        {
+            remove(this);
+            return;
+        }
+
+        ValueText = _startText;
     }
 
     /// <summary>The value to write: null means "the game's again" (for a value the game doesn't have: none at all).</summary>

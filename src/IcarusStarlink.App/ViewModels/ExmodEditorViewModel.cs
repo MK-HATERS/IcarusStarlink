@@ -119,6 +119,14 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
     public ObservableCollection<EditorItemViewModel> Items { get; } = [];
 
+    /// <summary>The item list's text when it shows nothing: the search found nothing, or there are no items. Null while it has rows.</summary>
+    public string? ItemsEmptyText => Items.Count > 0 ? null
+        : !string.IsNullOrWhiteSpace(FilterText) ? "No items match the search."
+        : "No items yet.";
+
+    /// <summary>The Fields view's prompt while nothing is picked (a mod with no rows says so itself, via NoDataRowsMessage).</summary>
+    public bool ShowPickItemPrompt => SelectedItem is null && Items.Count > 0 && NoDataRowsMessage is null;
+
     public ObservableCollection<EditorFieldViewModel> Fields { get; } = [];
 
     [ObservableProperty]
@@ -206,6 +214,11 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _replacedGameFiles = ExmodChangesFormatter.ReplacedGameFiles(repository.ListAssetPaths(folderName));
         _savedStamp = ExmodStamp();
         _filterDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), ApplyFilter);
+        Items.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(ItemsEmptyText));
+            OnPropertyChanged(nameof(ShowPickItemPrompt));
+        };
 
         RefreshBaseDiff();
         SnapshotOriginalValues();
@@ -250,6 +263,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
     partial void OnSelectedItemChanged(EditorItemViewModel? value)
     {
+        OnPropertyChanged(nameof(ShowPickItemPrompt));
         PopulateFieldsForSelection();
 
         // Keeps the File JSON view "synced" to whatever's selected in the shared Items list, per

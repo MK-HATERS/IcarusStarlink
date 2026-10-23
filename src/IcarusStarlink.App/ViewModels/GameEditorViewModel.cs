@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO.Container;
@@ -26,6 +27,9 @@ public sealed record EditorQuickStart(ItemChoice Item, string Hint)
 {
     public string Label => Item.Title;
 }
+
+/// <summary>One line of the Editor's "Your changes"; the × undoes it through the field.</summary>
+public sealed record EditorPendingChange(string Text, GameItemFieldViewModel Field);
 
 /// <summary>
 /// The Editor page: change the game's OWN items (the default Envirosuit's weight, Bread's buff) —
@@ -135,10 +139,16 @@ public sealed partial class GameEditorViewModel : ObservableObject
     private string _newModAuthor;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNoPendingChanges))]
     private int _pendingCount;
+
+    public bool HasNoPendingChanges => PendingCount == 0;
 
     [ObservableProperty]
     private string _pendingSummary = "Nothing changed yet.";
+
+    /// <summary>"Your changes", one line per changed value, each with its own × (undo).</summary>
+    public ObservableCollection<EditorPendingChange> PendingChanges { get; } = [];
 
     [ObservableProperty]
     private string? _statusMessage;
@@ -462,12 +472,16 @@ public sealed partial class GameEditorViewModel : ObservableObject
     {
         var pending = Sections.SelectMany(s => s.Fields.Where(f => f.IsPending).Select(f => (Section: s, Field: f))).ToList();
         PendingCount = pending.Count;
+        var lines = pending.Select(p => (Text: $"{p.Section.Title} · {p.Field.Label}: {p.Field.ValueText}" + SharedNote(p.Section), p.Field)).ToList();
         PendingSummary = pending.Count == 0
             ? "Nothing changed yet."
-            : string.Join("\n", pending.Take(8).Select(p => $"{p.Section.Title} · {p.Field.Label}: {p.Field.ValueText}"
-                + (p.Section.IsShared && !p.Section.Section.IsOwnCopy ? (p.Section.OwnCopy ? "  (its own copy)" : $"  (all {p.Section.Section.SharedBy:N0} items)") : "")))
+            : string.Join("\n", lines.Take(8).Select(l => l.Text))
               + (pending.Count > 8 ? $"\n…and {pending.Count - 8} more" : "");
+        ObservableCollectionSync.SyncTo(PendingChanges, [.. lines.Select(l => new EditorPendingChange(l.Text, l.Field))]);
     }
+
+    private static string SharedNote(GameItemSectionViewModel section) =>
+        section.IsShared && !section.Section.IsOwnCopy ? (section.OwnCopy ? "  (its own copy)" : $"  (all {section.Section.SharedBy:N0} items)") : "";
 
     /// <summary>
     /// Rebuilds the "save into" list (on every Library change). The shown item is reloaded only when

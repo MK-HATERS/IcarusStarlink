@@ -53,11 +53,35 @@ public sealed partial class LibraryViewModel
 
     /// <summary>The right panel's text when it has no rows ("No UE4SS mods found.", "Set the Icarus Content folder…").</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Ue4ssPanelEmptyText))]
     private string _ue4ssEmptyText = "";
 
     public bool IsUe4ssPanelEmpty => Ue4ssRootItems.Count == 0;
 
     public bool IsDataPanelEmpty => DataRootItems.Count == 0;
+
+    /// <summary>Either panel's text when the search box or a filter hides every row.</summary>
+    public const string NoMatchText = "No mods match — clear the search or pick All.";
+
+    /// <summary>True while the search box, a filter chip or the type filter is hiding rows.</summary>
+    public bool IsListNarrowed => !string.IsNullOrWhiteSpace(SearchText) || ListFilter != FilterAll || TypeFilter != "All";
+
+    /// <summary>The left panel's text when it has no rows: nothing matches, or no data mods at all yet.</summary>
+    public string DataEmptyText => IsListNarrowed ? NoMatchText : "No data mods yet. Import one, or find one on the Database page.";
+
+    /// <summary>The right panel's text when it has no rows. "Nothing matches" only while something is narrowing the list; with nothing narrowing it, the only hidden rows are UE4SS's own built-ins.</summary>
+    public string Ue4ssPanelEmptyText => Ue4ssEmptyText != NoMatchText ? Ue4ssEmptyText
+        : IsListNarrowed ? NoMatchText
+        : "Only UE4SS's own built-in mods are here — tick Show UE4SS built-ins to see them.";
+
+    /// <summary>The empty panels' "Show everything": empties the search box and turns every filter off.</summary>
+    [RelayCommand]
+    private void ShowAllMods()
+    {
+        SearchText = "";
+        TypeFilter = "All";
+        ListFilter = FilterAll;
+    }
 
     // ---- Filter chips ----
 

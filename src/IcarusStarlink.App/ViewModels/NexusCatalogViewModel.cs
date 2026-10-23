@@ -131,10 +131,17 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     private readonly DebounceTimer _searchDebounceTimer;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EmptyStateText))]
     private bool _isLoading;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EmptyStateText))]
     private string? _statusMessage;
+
+    /// <summary>What the empty card grid says instead of showing nothing: loading, or why there are no cards. Null while cards show.</summary>
+    public string? EmptyStateText => Mods.Count > 0 ? null
+        : IsLoading ? "Loading mods from Nexus…"
+        : StatusMessage ?? "No mods to show — press Refresh.";
 
     /// <summary>
     /// null = no saved API key, or the check below hasn't finished/couldn't reach Nexus yet;
@@ -166,6 +173,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         Downloads = downloads;
         _activityLog = activityLog;
         _dialogService = dialogService;
+        Mods.CollectionChanged += (_, _) => OnPropertyChanged(nameof(EmptyStateText));
 
         // Activating/deleting a mod elsewhere changes what "In Library" is true for — recompute
         // badges from the cached fetch, deliberately with no network involved (this VM is a
