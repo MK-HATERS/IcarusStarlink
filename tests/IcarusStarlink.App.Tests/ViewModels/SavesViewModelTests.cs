@@ -82,7 +82,7 @@ public sealed class SavesViewModelTests : IDisposable
 
     private static SavesViewModel CreateViewModel(
         FakeSaveRepository repository, FakeDialogService? dialogService = null, FakeGameProcessChecker? gameProcessChecker = null,
-        SaveGameNames? gameNames = null, FakeBaseGameIconDecoder? baseGameIconDecoder = null) =>
+        SaveGameNames? gameNames = null, FakeBaseGameIconDecoder? baseGameIconDecoder = null, Func<SaveModSources.Index>? readModSources = null) =>
         new(
             repository,
             new FakeActivityLog(),
@@ -93,7 +93,8 @@ public sealed class SavesViewModelTests : IDisposable
             gameNames ?? new SaveGameNames(Path.Combine(Path.GetTempPath(), $"IcarusStarlinkTests_NoGameData_{Guid.NewGuid():N}")),
             dialogService ?? new FakeDialogService(confirmResult: true),
             gameProcessChecker ?? new FakeGameProcessChecker(false),
-            baseGameIconDecoder ?? new FakeBaseGameIconDecoder());
+            baseGameIconDecoder ?? new FakeBaseGameIconDecoder(),
+            readModSources: readModSources);
 
     /// <summary>
     /// A minimal real extracted-Data folder — just enough of D_Itemable/D_ItemsStatic/D_Mounts/
@@ -211,6 +212,47 @@ public sealed class SavesViewModelTests : IDisposable
             reward.IsUnlocked = false;
             reward.IsUnlocked = true;
             Assert.True(mission.IsDone);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>The user's ask (2026-10-23): talents and items from mods that are gone can be taken out; a mod's that's installed stay.</summary>
+    [Fact]
+    public async Task RemoveLeftovers_TakesOutOnlyWhatNoModGives()
+    {
+        var profile = MakeProfile(nextChrSlot: 0);
+        profile["Talents"] = new JsonArray(
+            new JsonObject { ["RowName"] = "Workshop_Moa", ["Rank"] = 1 },
+            new JsonObject { ["RowName"] = "Workshop_Petes_AuxSlot", ["Rank"] = 1 });
+        var repository = new FakeSaveRepository
+        {
+            Profile = profile,
+            MetaInventory = MakeMetaInventoryRoot(MakeMetaInventoryItem("Old_Mod_Item")),
+        };
+        var talents = SaveModSources.TalentsFile;
+        var index = new SaveModSources.Index(
+            new Dictionary<string, HashSet<string>>(),
+            new Dictionary<string, HashSet<string>> { [talents] = new(StringComparer.OrdinalIgnoreCase) { "Workshop_Moa" } },
+            new Dictionary<string, Dictionary<string, List<string>>>(),
+            IcarusStarlink.PakIO.Exmod.GameRowHistory.Empty,
+            canTellInstalled: true);
+        var vm = CreateViewModel(repository, readModSources: () => index);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForModSourcesAsync();
+            Assert.True(vm.HasLeftovers);
+
+            vm.RemoveLeftoversCommand.Execute(null);
+
+            Assert.Equal(1, vm.WorkshopTalents.Single(t => t.RowName == "Workshop_Moa").Rank);
+            Assert.Equal(0, vm.WorkshopTalents.Single(t => t.RowName == "Workshop_Petes_AuxSlot").Rank);
+            Assert.Empty(vm.MetaInventoryItems);
+            Assert.False(vm.HasLeftovers);
+            Assert.True(vm.HasUnsavedChanges);
         }
         finally
         {

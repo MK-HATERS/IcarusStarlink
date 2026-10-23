@@ -36,6 +36,10 @@ public sealed partial class SaveInventoryItemViewModel : ObservableObject
     [ObservableProperty]
     private BitmapImage? _icon;
 
+    /// <summary>Where an item the game doesn't have comes from (SaveModSources); null for the game's own.</summary>
+    [ObservableProperty]
+    private Services.SaveRowSource? _source;
+
     public SaveInventoryItemViewModel(JsonObject node, string displayName, string rowName, int weight, int maxStack, string? iconPath)
     {
         Node = node;

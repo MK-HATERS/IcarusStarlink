@@ -49,6 +49,8 @@ public sealed partial class SavesViewModel : ObservableObject
 
     private readonly ISaveRepository _repository;
     private readonly IActivityLog _activityLog;
+    /// <summary>SaveModSources.Read: where the save's mod rows come from (null: not labelled).</summary>
+    private readonly Func<SaveModSources.Index>? _readModSources;
     private readonly SaveGameNames _gameNames;
     private readonly IDialogService _dialogService;
     private readonly IGameProcessChecker _gameProcessChecker;
@@ -193,8 +195,9 @@ public sealed partial class SavesViewModel : ObservableObject
     public SavesViewModel(
         ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames,
         IDialogService dialogService, IGameProcessChecker gameProcessChecker, IBaseGameIconDecoder baseGameIconDecoder,
-        string? worldBackupFolder = null)
+        string? worldBackupFolder = null, Func<SaveModSources.Index>? readModSources = null)
     {
+        _readModSources = readModSources;
         _repository = repository;
         _activityLog = activityLog;
         _gameNames = gameNames;
@@ -904,7 +907,121 @@ public sealed partial class SavesViewModel : ObservableObject
         RefreshFlagFilter();
         OnPropertyChanged(nameof(HasUnsavedChanges));
         OnPropertyChanged(nameof(ChangesSummary));
+        _pendingModSources = ClassifyModRowsAsync();
         await worldsLoad;
+    }
+
+    // --- Leftovers from mods (the user's ask, 2026-10-23): every talent, research, mission and
+    //     banked item the game doesn't have is labelled with where it comes from (SaveModSources),
+    //     and the ones no installed or Library mod gives can be taken out. Taking them out is an
+    //     ordinary edit (rank 0 isn't written; an item is dropped), saved with Save like any other. ---
+
+    private Task _pendingModSources = Task.CompletedTask;
+
+    /// <summary>Test seam: the background read of where mod rows come from.</summary>
+    internal Task WaitForModSourcesAsync() => _pendingModSources;
+
+    private async Task ClassifyModRowsAsync()
+    {
+        if (_readModSources is not { } read)
+        {
+            return;
+        }
+
+        SaveModSources.Index index;
+        try
+        {
+            index = await Task.Run(read);
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        foreach (var talent in Characters.SelectMany(c => c.Talents).Concat(WorkshopTalents))
+        {
+            talent.Source = index.Classify(SaveModSources.TalentsFile, talent.RowName);
+        }
+
+        foreach (var item in MetaInventoryItems)
+        {
+            item.Source = index.Classify(SaveModSources.ItemsFile, item.RowName);
+        }
+
+        NotifyLeftoversChanged();
+    }
+
+    private IEnumerable<(string Where, SaveTalentViewModel Talent)> LeftoverTalents() =>
+        Characters.SelectMany(c => c.Talents.Select(t => (Where: c.Name, Talent: t)))
+            .Concat(WorkshopTalents.Select(t => (Where: IsMission(t) ? "Missions" : "Workshop", Talent: t)))
+            .Where(x => x.Talent.Rank > 0 && x.Talent.Source?.IsRemovable == true);
+
+    private IEnumerable<SaveInventoryItemViewModel> LeftoverItems() => MetaInventoryItems.Where(i => i.Source?.IsRemovable == true);
+
+    public bool HasLeftovers => LeftoverTalents().Any() || LeftoverItems().Any();
+
+    /// <summary>"MKHATERS: 14 talents · Workshop: 30 · Items: 2".</summary>
+    public string LeftoversSummary =>
+        string.Join(" · ", LeftoverTalents().GroupBy(x => x.Where).Select(g => $"{g.Key}: {g.Count()}")
+            .Concat(LeftoverItems().Count() is > 0 and var items ? [$"Items: {items}"] : []));
+
+    /// <summary>What the installed mods add that this save uses: "Ferani Buyable Beasts".</summary>
+    public string? ModsInUseSummary
+    {
+        get
+        {
+            var inUse = Characters.SelectMany(c => c.Talents).Concat(WorkshopTalents).Where(t => t.Rank > 0).Select(t => t.Source)
+                .Concat(MetaInventoryItems.Select(i => i.Source))
+                .Count(s => s?.Origin is SaveRowOrigin.InstalledMod or SaveRowOrigin.LibraryModNotInstalled);
+            return inUse == 0 ? null : $"{inUse} more come from mods you have, and stay.";
+        }
+    }
+
+    private void NotifyLeftoversChanged()
+    {
+        OnPropertyChanged(nameof(HasLeftovers));
+        OnPropertyChanged(nameof(LeftoversSummary));
+        OnPropertyChanged(nameof(ModsInUseSummary));
+    }
+
+    [RelayCommand]
+    private void RemoveLeftovers()
+    {
+        var talents = LeftoverTalents().ToList();
+        var items = LeftoverItems().ToList();
+        if (talents.Count + items.Count == 0)
+        {
+            return;
+        }
+
+        var lines = talents.GroupBy(x => x.Where)
+            .Select(g => $"{g.Key}: {string.Join(", ", g.Select(x => x.Talent.DisplayName).Take(8))}{(g.Count() > 8 ? $" and {g.Count() - 8} more" : "")}")
+            .Concat(items.Count > 0 ? [$"Items: {string.Join(", ", items.Select(i => i.DisplayName).Take(8))}{(items.Count > 8 ? $" and {items.Count - 8} more" : "")}"] : []);
+        if (!_dialogService.Confirm(
+                "These come from mods you no longer have (or the game removed them), and nothing installed or in your Library gives them:\n\n"
+                + string.Join("\n\n", lines)
+                + "\n\nThey're taken out of the editor now; nothing is written until you press Save, which backs the slot up first. "
+                + "Talent points they used come back. Ren spent on removed research isn't refunded.",
+                "Remove leftovers from old mods?", ThemedConfirmSeverity.Warning))
+        {
+            return;
+        }
+
+        foreach (var (_, talent) in talents)
+        {
+            talent.Rank = 0;
+        }
+
+        foreach (var item in items)
+        {
+            MetaInventoryItems.Remove(item);
+            FilteredMetaInventoryItems.Remove(item);
+            _metaInventoryDirty = true;
+        }
+
+        NotifyDirtyChanged();
+        NotifyLeftoversChanged();
+        _activityLog.Log($"Took {talents.Count + items.Count} leftovers from old mods out of the save (press Save to keep that).", ActivityEntryKind.Success);
     }
 
     /// <summary>"Unsaved: Characters, Unlocks, Bestiary" — what Save would write, named on the Save bar.</summary>

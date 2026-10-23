@@ -53,6 +53,10 @@ public sealed partial class SaveTalentViewModel : ObservableObject, IDirtyTracka
     [ObservableProperty]
     private string? _linkHint;
 
+    /// <summary>Where a talent the game doesn't have comes from (SaveModSources); null for the game's own.</summary>
+    [ObservableProperty]
+    private Services.SaveRowSource? _source;
+
     public bool IsDirty => Rank != _originalRank;
 
     /// <summary>What the player actually has in game — a rank in the save OR unlocked-by-default. The filter's "only what this character has" uses this, not just Rank > 0, or 49 real default talents would look missing.</summary>
