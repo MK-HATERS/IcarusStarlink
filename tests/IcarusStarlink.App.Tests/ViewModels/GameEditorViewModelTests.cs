@@ -403,4 +403,62 @@ public sealed class GameEditorViewModelTests : IDisposable
 
         Assert.Equal(["A new mod"], Open().Targets.Select(t => t.Display));
     }
+
+    /// <summary>Closing the app (or updating it) asks first when values are typed here and not saved.</summary>
+    [Fact]
+    public void TypedChanges_AreReportedAsUnsavedWork()
+    {
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+
+        Weight(vm).ValueText = "50";
+
+        Assert.Contains("typed changes on the Editor page", IcarusStarlink.App.Services.AppBusyCheck.UnsavedEdits());
+    }
+
+    /// <summary>A review finding: Refresh game data reloaded the item and threw away every typed value.</summary>
+    [Fact]
+    public void RefreshGameData_KeepsTheTypedChanges()
+    {
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        Weight(vm).ValueText = "50";
+
+        WeakReferenceMessenger.Default.Send(new WeeklyChangeReportUpdatedMessage());
+
+        Assert.Equal("Envirosuit", vm.SelectedItem?.Name);
+        Assert.Equal("50", Weight(vm).ValueText);
+        Assert.Equal(1, vm.PendingCount);
+    }
+
+    /// <summary>The mod editor saved into the target mod after its values were shown here: the first Save shows the new version (typed values kept) instead of saving over it.</summary>
+    [Fact]
+    public void Save_WhenTheModChangedSinceItWasShown_ShowsTheNewVersionFirst()
+    {
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
+        Weight(vm).ValueText = "50";
+
+        var changed = Read(_library, mine.FolderName);
+        changed.Rows.Insert(0, new ExmodFileRow { CurrentFile = "Traits-D_Itemable.json", FileItems = [new ExmodFileItem { Name = "Item_Stone", Fields = { ["Weight"] = 5 } }] });
+        var folder = _library.GetFolderPath(mine.FolderName);
+        ExmodFolder.Write(folder, new ExmodPackageContents(changed, []));
+        var exmod = Directory.GetFiles(Path.Combine(folder, "Extracted Mods"), "*.EXMOD").Single();
+        File.SetLastWriteTimeUtc(exmod, DateTime.UtcNow.AddMinutes(1));
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.StartsWith("Not saved", vm.StatusMessage);
+        Assert.DoesNotContain("Item_Envirosuit", ExmodJson.Serialize(Read(_library, mine.FolderName)));
+        Assert.Equal("50", Weight(vm).ValueText);
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.StartsWith("Saved", vm.StatusMessage);
+        var saved = ExmodJson.Serialize(Read(_library, mine.FolderName));
+        Assert.Contains("Item_Stone", saved);
+        Assert.Contains("Item_Envirosuit", saved);
+    }
 }

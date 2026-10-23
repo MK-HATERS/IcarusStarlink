@@ -1,6 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -55,12 +53,6 @@ public sealed record FieldChoices(string? LinkTable, IReadOnlyList<string> Optio
 /// </summary>
 public sealed partial class EditorFieldViewModel : ObservableObject
 {
-    private static readonly JsonSerializerOptions DisplayOptions = new()
-    {
-        WriteIndented = true,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
     private readonly Dictionary<string, JsonNode?> _fields;
     private readonly JsonNode? _baseValue;
     private readonly JsonNode? _originalValue;
@@ -142,7 +134,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             LinkTable = choices.LinkTable;
         }
         (Label, Hint) = GameItemEditor.FieldText(fieldName, Kind == EditorFieldKind.Number);
-        BasePlainText = baseValue is null ? "not in the game" : $"game: {Plain(baseValue)}";
+        BasePlainText = baseValue is null ? "not in the game" : $"game: {EditorValueText.Plain(baseValue)}";
         if (Kind == EditorFieldKind.String && (CurrentString() ?? "").Contains("/Game/", StringComparison.Ordinal))
         {
             Hint = "A game file this uses (a model, texture or sound). Use another game file's path, or ✕ to keep the game's.";
@@ -185,7 +177,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             var encoded = previous is not null && NsLocText.TryParse(previous, out var table, out var key, out _)
                 ? NsLocText.Make(table, key, value)
                 : value;
-            ValueText = JsonValue.Create(encoded)!.ToJsonString(DisplayOptions);
+            ValueText = JsonValue.Create(encoded)!.ToJsonString(ExmodJson.DisplayOptions);
             OnPropertyChanged();
         }
     }
@@ -226,11 +218,11 @@ public sealed partial class EditorFieldViewModel : ObservableObject
                 // Keep the link's other parts (its DataTableName); only the row changes.
                 var link = ((_fields.TryGetValue(FieldName, out var v) ? v : null) ?? _baseValue)?.DeepClone() as JsonObject ?? new JsonObject();
                 link["RowName"] = match;
-                ValueText = link.ToJsonString(DisplayOptions);
+                ValueText = link.ToJsonString(ExmodJson.DisplayOptions);
             }
             else
             {
-                ValueText = JsonValue.Create(match)!.ToJsonString(DisplayOptions);
+                ValueText = JsonValue.Create(match)!.ToJsonString(ExmodJson.DisplayOptions);
             }
 
             OnPropertyChanged();
@@ -243,7 +235,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         get => CurrentString() ?? "";
         set
         {
-            ValueText = JsonValue.Create(value)!.ToJsonString(DisplayOptions);
+            ValueText = JsonValue.Create(value)!.ToJsonString(ExmodJson.DisplayOptions);
             OnPropertyChanged();
         }
     }
@@ -260,7 +252,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             }
 
             // Typed as JSON (a stats field, a raw value): stats are whole numbers in the game.
-            if (GameItemEditor.FractionalStat(parsed is JsonObject ? parsed : new JsonObject { [FieldName] = parsed?.DeepClone() }) is { } fractional)
+            if (GameStats.FractionalStat(parsed is JsonObject ? parsed : new JsonObject { [FieldName] = parsed?.DeepClone() }) is { } fractional)
             {
                 throw new System.IO.InvalidDataException($"Stats are whole numbers in the game, so {fractional} would lose its fraction. Use a whole number.");
             }
@@ -299,12 +291,12 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             obj[stat.Key] = stat.LastGoodValue?.DeepClone();
         }
 
-        ValueText = obj.ToJsonString(DisplayOptions);
+        ValueText = obj.ToJsonString(ExmodJson.DisplayOptions);
     }
 
     private string? AddStat(StatChoice choice)
     {
-        var key = GameItemEditor.StatKeyFor(choice.Name);
+        var key = GameStats.StatKeyFor(choice.Name);
         if (Stats.FirstOrDefault(s => s.Key == key) is { } existing)
         {
             if (!existing.IsDropped)
@@ -351,18 +343,8 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         JsonValue s when choices is { LinkTable: null, Options.Count: > 1 } && s.TryGetValue<string>(out var text) && NsLocText.TextOf(text) is null => EditorFieldKind.Choice,
         _ when ScaleRules.TryReadNumber(value, out _) => EditorFieldKind.Number,
         JsonValue v when v.TryGetValue<string>(out var s) => NsLocText.TextOf(s) is not null ? EditorFieldKind.Text : EditorFieldKind.String,
-        _ when GameItemEditor.IsStatsObject(field, value) => EditorFieldKind.Stats,
+        _ when GameStats.IsStatsObject(field, value) => EditorFieldKind.Stats,
         _ => EditorFieldKind.Raw,
-    };
-
-    internal static string Plain(JsonNode? value) => value switch
-    {
-        null => "",
-        JsonValue v when v.TryGetValue<string>(out var s) => NsLocText.TextOf(s) ?? s,
-        JsonObject link when link.Count <= 2 && link["RowName"] is JsonValue row && (link.Count == 1 || link.ContainsKey("DataTableName")) => row.ToString(),
-        _ when ScaleRules.TryReadNumber(value, out var n) => n.ToString("0.######", CultureInfo.InvariantCulture),
-        JsonObject o when o.Count > 0 && o.All(kv => GameItemEditor.StatNameOf(kv.Key) != kv.Key) => $"{o.Count} stat(s)",
-        _ => value.ToJsonString(),
     };
 
     private void RecomputeChanged()
@@ -380,7 +362,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         }
     }
 
-    private static string FormatForDisplay(JsonNode? value) => value?.ToJsonString(DisplayOptions) ?? "null";
+    private static string FormatForDisplay(JsonNode? value) => value?.ToJsonString(ExmodJson.DisplayOptions) ?? "null";
 }
 
 /// <summary>One stat in a stats field: "Backpack slots" 72, game 6.</summary>
@@ -394,10 +376,10 @@ public sealed partial class StatEntryViewModel : ObservableObject
         _owner = owner;
         _gameValue = gameValue;
         Key = key;
-        StatName = GameItemEditor.StatNameOf(key);
-        Label = GameItemEditor.StatLabel(key);
-        Hint = GameItemEditor.StatHint(StatName);
-        _valueText = EditorFieldViewModel.Plain(value ?? gameValue);
+        StatName = GameStats.StatNameOf(key);
+        Label = GameStats.StatLabel(key);
+        Hint = GameStats.StatHint(StatName);
+        _valueText = EditorValueText.Plain(value ?? gameValue);
         LastGoodValue = (value ?? gameValue)?.DeepClone();
     }
 
@@ -415,7 +397,7 @@ public sealed partial class StatEntryViewModel : ObservableObject
     /// <summary>Not in the game's list: this mod adds it.</summary>
     public bool IsAdded => _gameValue is null;
 
-    public string GameText => _gameValue is null ? "added by this mod" : IsDropped ? $"game: {EditorFieldViewModel.Plain(_gameValue)} · left out, so gone in game" : $"game: {EditorFieldViewModel.Plain(_gameValue)}";
+    public string GameText => _gameValue is null ? "added by this mod" : IsDropped ? $"game: {EditorValueText.Plain(_gameValue)} · left out, so gone in game" : $"game: {EditorValueText.Plain(_gameValue)}";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsChanged), nameof(Error))]
@@ -442,9 +424,7 @@ public sealed partial class StatEntryViewModel : ObservableObject
         }
     }
 
-    internal double? NumberValue() =>
-        double.TryParse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) && double.IsFinite(n)
-            && n == Math.Floor(n) && n is >= int.MinValue and <= int.MaxValue ? n : null;
+    internal double? NumberValue() => EditorValueText.TryParseWholeNumber(ValueText, out var n) ? n : null;
 
     [RelayCommand]
     private void Remove()
@@ -467,7 +447,7 @@ public sealed partial class StatEntryViewModel : ObservableObject
         IsDropped = false;
         if (_gameValue is not null && NumberValue() is null)
         {
-            ValueText = EditorFieldViewModel.Plain(_gameValue); // rebuilds the field itself
+            ValueText = EditorValueText.Plain(_gameValue); // rebuilds the field itself
             return;
         }
 

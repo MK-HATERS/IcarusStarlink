@@ -1,0 +1,221 @@
+{
+    "name": "TempName",
+    "author": "",
+    "version": "1.0",
+    "description": "",
+    "fileName": "TempName",
+    "Rows": [
+        {
+            "CurrentFile": "Crafting-D_ProcessorRecipes.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "RecipeSets": [
+                        {
+                            "RowName": "Character",
+                            "DataTableName": "D_RecipeSets"
+                        }
+                    ],
+                    "ResourceCostMultipliers": [
+                        {
+                            "Value": "BaseWoodBuildingCraftingCost_+%"
+                        }
+                    ],
+                    "Inputs": [
+                        {
+                            "Element": {
+                                "RowName": "Fiber",
+                                "DataTableName": "D_ItemsStatic"
+                            },
+                            "Count": 0,
+                            "DynamicProperties": []
+                        }
+                    ],
+                    "Outputs": [
+                        {
+                            "Element": {
+                                "RowName": "TempName",
+                                "DataTableName": "D_ItemTemplate"
+                            },
+                            "Count": 1,
+                            "DynamicProperties": [],
+                            "Alterations": []
+                        }
+                    ],
+                    "Audio": {
+                        "RowName": "Default"
+                    }
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Items-D_ItemTemplate.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "ItemStaticData": {
+                        "RowName": "TempName"
+                    }
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Items-D_ItemsStatic.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "Meshable": {
+                        "RowName": "Mesh_Wood_Kit"
+                    },
+                    "Itemable": {
+                        "RowName": "Item_TempName"
+                    },
+                    "Interactable": {
+                        "RowName": "Item"
+                    },
+                    "Hitable": {
+                        "RowName": "Building"
+                    },
+                    "Focusable": {
+                        "RowName": "Focusable_1H"
+                    },
+                    "Highlightable": {
+                        "RowName": "Generic"
+                    },
+                    "Actionable": {
+                        "RowName": "Building"
+                    },
+                    "Buildable": {
+                        "RowName": "TempName"
+                    },
+                    "Usable": {
+                        "RowName": "Place"
+                    },
+                    "Durable": {
+                        "RowName": "ReinforcedWood_Building"
+                    },
+                    "Decayable": {
+                        "RowName": "Decay_General"
+                    },
+                    "Flammable": {
+                        "RowName": "Flammable_Building_Wood"
+                    },
+                    "Audio": {
+                        "RowName": "WoodDeployable"
+                    },
+                    "Manual_Tags": {
+                        "GameplayTags": [
+                            {
+                                "TagName": "Building.Wood"
+                            },
+                            {
+                                "TagName": "Audio.Shelter"
+                            }
+                        ]
+                    },
+                    "Generated_Tags": {
+                        "GameplayTags": [
+                            {
+                                "TagName": "Building.Wood"
+                            },
+                            {
+                                "TagName": "Audio.Shelter"
+                            },
+                            {
+                                "TagName": "Traits.Meshable"
+                            },
+                            {
+                                "TagName": "Traits.Itemable"
+                            },
+                            {
+                                "TagName": "Traits.Interactable"
+                            },
+                            {
+                                "TagName": "Traits.Hitable"
+                            },
+                            {
+                                "TagName": "Traits.Highlightable"
+                            },
+                            {
+                                "TagName": "Traits.Actionable"
+                            },
+                            {
+                                "TagName": "Traits.Buildable"
+                            },
+                            {
+                                "TagName": "Traits.Usable"
+                            },
+                            {
+                                "TagName": "Traits.Durable"
+                            },
+                            {
+                                "TagName": "Traits.Flammable"
+                            }
+                        ],
+                        "ParentTags": []
+                    }
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Traits-D_Itemable.json",
+            "File_Items": [
+                {
+                    "Name": "Item_TempName",
+                    "DisplayName": "NSLOCTEXT(\"D_Itemable\", \"Item_TempName-DisplayName\", \"TempName\")",
+                    "Icon": "/Game/Assets/2DArt/UI/Items/Item_Icons/Buildables/ITEM_TempName_0.ITEM_TempName_0",
+                    "Description": "NSLOCTEXT(\"D_Itemable\", \"Item_TempName-Description\", \"A wooden TempName (Hold 'R' for variants).\")",
+                    "FlavorText": "NSLOCTEXT(\"D_Itemable\", \"Item_TempName-FlavorText\", \"Wood structures withstand light storms without damage. Can be repaired with a repair hammer.\")",
+                    "Weight": 500,
+                    "MaxStack": 20
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Traits-D_Buildable.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "Stability": {
+                        "RowName": "Wood_General"
+                    },
+                    "Type": {
+                        "RowName": "Wood"
+                    },
+                    "PieceType": "Wall",
+                    "Variations": [
+                        {
+                            "Requirement": {
+                                "RowName": "None",
+                                "DataTableName": "D_Talents"
+                            },
+                            "Piece": {
+                                "RowName": "TempName",
+                                "DataTableName": "D_BuildingPieces"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Building-D_BuildingPieces.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "Type": {
+                        "RowName": "Wall_Solid"
+                    },
+                    "Icon": "",
+                    "Blueprint": "/Game/BP/Building/Wood/BP_TempName.BP_TempName_C",
+                    "Audio": {
+                        "RowName": "Wood"
+                    }
+                }
+            ]
+        },
+        {
+            "CurrentFile": "EndOfMod"
+        }
+    ]
+}

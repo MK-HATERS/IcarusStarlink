@@ -60,9 +60,6 @@ public static partial class GameItemEditor
     public const string RecipeSection = "Recipe";
     public const string WorkshopSection = "Workshop";
 
-    [GeneratedRegex("""^\(Value="(?<stat>.+)"\)$""")]
-    private static partial Regex StatKey();
-
     [GeneratedRegex("(?<=[a-z0-9])(?=[A-Z])")]
     private static partial Regex CamelBoundary();
 
@@ -212,7 +209,7 @@ public static partial class GameItemEditor
                 var field = section.Fields.FirstOrDefault(f => f.Path.Key == change.Path.Key);
                 var before = field?.CurrentValue;
                 SetValue(game, mod, section.CurrentFile, rowName, section.GameRowName, change.Path, change.Value);
-                var label = field?.Label ?? StatLabel(change.Path.Steps.LastOrDefault() as string ?? change.Path.Top);
+                var label = field?.Label ?? GameStats.StatLabel(change.Path.Steps.LastOrDefault() as string ?? change.Path.Top);
                 lines.Add($"{section.Table} › {rowName} · {label}: {Show(before)} → {Show(change.Value ?? field?.GameValue)}");
             }
         }
@@ -220,91 +217,11 @@ public static partial class GameItemEditor
         return lines;
     }
 
-    /// <summary>
-    /// "BaseOxygenSlots_+" → "Oxygen slots"; "BaseMovementSpeed_+%" → "Movement speed +%"; "BaseColdResistance_%" → "Cold resistance %".
-    /// The game has both a flat and a percent version of many stats (BaseMovementSpeed_+ and _+%),
-    /// so the suffix keeps them apart.
-    /// </summary>
-    public static string StatLabel(string stat)
-    {
-        var name = StatKey().Match(stat) is { Success: true } m ? m.Groups["stat"].Value : stat;
-        var suffix = name.EndsWith("_+%", StringComparison.Ordinal) ? " +%" : name.EndsWith("_%", StringComparison.Ordinal) ? " %" : "";
-        name = name.TrimEnd('+', '%', '_');
-        if (name.StartsWith("Base", StringComparison.Ordinal) && name.Length > 4 && char.IsUpper(name[4]))
-        {
-            name = name[4..];
-        }
-
-        return Humanize(name) + suffix;
-    }
-
     /// <summary>A field in plain words: "MaxStack" → ("Stack size", "How many fit in one slot…"). Shared with the mod editor's Fields view.</summary>
     public static (string Label, string Description) FieldText(string field, bool isNumber) =>
         KnownFields.TryGetValue(field, out var known) ? known
         : isNumber ? (Humanize(field), $"Higher = more {Humanize(field).ToLowerInvariant()}, lower = less. The game's value is shown beside it.")
         : (Humanize(field), "");
-
-    /// <summary>A stats object: every key is a stat ("(Value=\"BaseOxygenSlots_+\")": 1). An empty object counts when its name says so ("ArmourStats").</summary>
-    public static bool IsStatsObject(string field, JsonNode? value) =>
-        value is JsonObject obj && (obj.Count == 0 ? field.EndsWith("Stats", StringComparison.OrdinalIgnoreCase) : obj.All(kv => StatKey().IsMatch(kv.Key)));
-
-    /// <summary>The stat name inside a stats key: "(Value=\"BaseOxygenSlots_+\")" → "BaseOxygenSlots_+".</summary>
-    public static string StatNameOf(string key) => StatKey().Match(key) is { Success: true } m ? m.Groups["stat"].Value : key;
-
-    /// <summary>Plain description of one stat for a row, from its label.</summary>
-    public static string StatHint(string statName) => StatDescription(StatLabel(statName));
-
-    /// <summary>What kind of number a stat is, in words, for the stat picker.</summary>
-    public static string StatKind(string statName) =>
-        statName.EndsWith("_+%", StringComparison.Ordinal) ? "percent bonus (10 = +10%)"
-        : statName.EndsWith("_%", StringComparison.Ordinal) ? "percent (10 = 10%)"
-        : "flat amount (10 = +10)";
-
-    /// <summary>The stats an item can grant (the game's "Base…" stats), for the stat picker.</summary>
-    public static IReadOnlyList<StatChoice> StatChoices(GameTableIndex game) =>
-        game.CurrentFileFor("D_Stats") is { } stats
-            ? [.. (game.Rows(stats) ?? []).Select(kv => kv.Key)
-                .Where(n => n.StartsWith("Base", StringComparison.Ordinal))
-                .Select(n => new StatChoice(n, StatLabel(n), StatKind(n)))
-                .OrderBy(c => c.Label, StringComparer.OrdinalIgnoreCase)]
-            : [];
-
-    /// <summary>Whether a key is a stat key ("(Value=\"BaseOxygenSlots_+\")").</summary>
-    public static bool IsStatKey(string key) => StatKey().IsMatch(key);
-
-    /// <summary>
-    /// Stat values are whole numbers in the game (an int per stat: all 15,333 stat values in the
-    /// game's tables are), so 5.5 would lose its fraction or not load. Returns the first stat
-    /// anywhere under node with a fractional value ("Cold resistance: 5.5"), or null.
-    /// </summary>
-    public static string? FractionalStat(JsonNode? node)
-    {
-        switch (node)
-        {
-            case JsonObject obj:
-                foreach (var (key, value) in obj)
-                {
-                    if (IsStatKey(key) && value is JsonValue v && ScaleRules.TryReadNumber(v, out var n) && n != Math.Floor(n))
-                    {
-                        return $"{StatLabel(key)}: {n.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
-                    }
-
-                    if (FractionalStat(value) is { } nested)
-                    {
-                        return nested;
-                    }
-                }
-
-                return null;
-            case JsonArray array:
-                return array.Select(FractionalStat).FirstOrDefault(found => found is not null);
-            default:
-                return null;
-        }
-    }
-
-    /// <summary>The key a stat has in a stats object: "BaseColdResistance_%" → "(Value=\"BaseColdResistance_%\")".</summary>
-    public static string StatKeyFor(string statName) => StatKey().IsMatch(statName) ? statName : $"(Value=\"{statName}\")";
 
     private static EditableSection BuildSection(GameTableIndex game, ExmodPackage? mod, string key, string title, string file, string rowName, string gameRowName, int sharedBy)
     {
@@ -334,7 +251,7 @@ public static partial class GameItemEditor
                     var (textLabel, textDescription) = KnownFields.TryGetValue(top, out var knownText) ? knownText : (Humanize(top), "Text players see.");
                     fields.Add(new EditableField(new EditPath(top, []), textLabel, textDescription, EditableKind.Text, original, current, false));
                     break;
-                case JsonObject obj when obj.Count == 0 || obj.All(kv => StatKey().IsMatch(kv.Key)):
+                case JsonObject obj when obj.Count == 0 || obj.All(kv => GameStats.IsStatKey(kv.Key)):
                     // A stats object: one value per stat ("(Value=\"BaseOxygenSlots_+\")": 1).
                     statGroups.Add(top);
                     foreach (var (stat, _) in obj.Concat((original as JsonObject) ?? []).DistinctBy(kv => kv.Key))
@@ -345,8 +262,8 @@ public static partial class GameItemEditor
                             continue;
                         }
 
-                        var statLabel = StatLabel(stat);
-                        fields.Add(new EditableField(new EditPath(top, [stat]), statLabel, StatDescription(statLabel), EditableKind.Number, (original as JsonObject)?[stat], cur, false));
+                        var statLabel = GameStats.StatLabel(stat);
+                        fields.Add(new EditableField(new EditPath(top, [stat]), statLabel, GameStats.StatDescription(statLabel), EditableKind.Number, (original as JsonObject)?[stat], cur, false));
                     }
 
                     break;
@@ -408,13 +325,6 @@ public static partial class GameItemEditor
         game.Row(ItemsStatic, itemName)?["Itemable"]?["RowName"]?.GetValue<string>() is { } itemable
             ? NsLocText.TextOf(game.Row(ItemableFile, itemable)?["DisplayName"]?.GetValue<string>())
             : null;
-
-    private static string StatDescription(string label) =>
-        label.EndsWith(" +%", StringComparison.Ordinal)
-            ? $"Percent bonus (10 = +10%). Higher = more {label[..^3].ToLowerInvariant()}, lower = less; 0 = no bonus."
-            : label.EndsWith(" %", StringComparison.Ordinal)
-                ? $"Percent (10 = 10%). Higher = more {label[..^2].ToLowerInvariant()}, lower = less; 0 = none."
-                : $"Flat amount. Higher = more {label.ToLowerInvariant()}, lower = less; 0 = no bonus.";
 
     /// <summary>The row as the game has it with the mod's fields on top; the mod's own row when the game has none (an own copy); null when neither has it.</summary>
     private static JsonObject? Effective(GameTableIndex game, ExmodPackage? mod, string file, string rowName)
@@ -670,7 +580,7 @@ public static partial class GameItemEditor
         value is JsonValue v && v.TryGetValue<string>(out var s) ? (NsLocText.TextOf(s) ?? s) : value?.ToJsonString() ?? "(none)";
 
     /// <summary>"Max_Durability" → "Max durability"; "OxygenSlots" → "Oxygen slots".</summary>
-    private static string Humanize(string name)
+    internal static string Humanize(string name)
     {
         var words = CamelBoundary().Replace(name.Replace('_', ' '), " ").Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var text = string.Join(' ', words.Select((w, i) => i == 0 ? w : (w.Length > 1 && w.All(char.IsUpper) ? w : w.ToLowerInvariant())));

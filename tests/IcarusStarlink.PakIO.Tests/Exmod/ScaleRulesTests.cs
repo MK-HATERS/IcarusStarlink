@@ -19,7 +19,8 @@ public sealed class ScaleRulesTests : IDisposable
             """);
         Write("Traits/D_Armour.json", """
             {"RowStruct":"S","Defaults":{},"Rows":[
-              {"Name":"Leather_Chest","ArmourStats":{"(Value=\"BaseColdResistance_%\")":6,"(Value=\"BaseHeatResistance_%\")":4},"ArmourType":"Chest"}
+              {"Name":"Leather_Chest","ArmourStats":{"(Value=\"BaseColdResistance_%\")":6,"(Value=\"BaseHeatResistance_%\")":4},"ArmourType":"Chest"},
+              {"Name":"Plate_Chest","ArmourStats":{"(Value=\"BaseColdResistance_%\")":2},"ArmourType":"Chest"}
             ]}
             """);
         Write("MetaWorkshop/D_WorkshopItems.json", """
@@ -203,6 +204,41 @@ public sealed class ScaleRulesTests : IDisposable
         Assert.Equal("Item_Fiber", fiber.Name);
         Assert.False(fiber.Fields.ContainsKey("MaxStack"));
         Assert.Equal("Hand edited", fiber.Fields["DisplayName"]!.GetValue<string>());
+    }
+
+    /// <summary>
+    /// A hand edit of a rule's field on a row the rule doesn't cover is the author's: it used to be
+    /// stripped from every game row of the table on each Apply (and on Save, which applies).
+    /// </summary>
+    [Fact]
+    public void Reapply_KeepsAHandEditOfTheSameField_OnARowTheRuleDoesNotCover()
+    {
+        var mod = EmptyMod();
+        var plate = Rule("Traits-D_Armour.json", "ArmourStats.*", 2, filter: "Plate");
+        ScaleRules.ApplyToPackage(mod, [plate], _data, new MergeReport());
+        mod.Rows.Single(r => r.CurrentFile == "Traits-D_Armour.json").FileItems.Add(new ExmodFileItem
+        {
+            Name = "Leather_Chest",
+            Fields = { ["ArmourStats"] = new System.Text.Json.Nodes.JsonObject { ["(Value=\"BaseColdResistance_%\")"] = 99 } },
+        });
+
+        ScaleRules.ApplyToPackage(mod, [plate], _data, new MergeReport());
+
+        Assert.Equal(99, Item(mod, "Traits-D_Armour.json", "Leather_Chest").Fields["ArmourStats"]!["(Value=\"BaseColdResistance_%\")"]!.GetValue<int>());
+        Assert.Equal(4, Item(mod, "Traits-D_Armour.json", "Plate_Chest").Fields["ArmourStats"]!["(Value=\"BaseColdResistance_%\")"]!.GetValue<long>());
+    }
+
+    /// <summary>A changed filter takes the rows the old filter wrote back out.</summary>
+    [Fact]
+    public void Reapply_WithAnotherFilter_RemovesWhatTheOldFilterWrote()
+    {
+        var mod = EmptyMod();
+        ScaleRules.ApplyToPackage(mod, [Rule("Traits-D_Armour.json", "ArmourStats.*", 2, filter: "Plate")], _data, new MergeReport());
+
+        ScaleRules.ApplyToPackage(mod, [Rule("Traits-D_Armour.json", "ArmourStats.*", 2, filter: "Leather")], _data, new MergeReport());
+
+        var row = mod.Rows.Single(r => r.CurrentFile == "Traits-D_Armour.json");
+        Assert.Equal("Leather_Chest", Assert.Single(row.FileItems).Name);
     }
 
     [Fact]

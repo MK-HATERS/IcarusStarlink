@@ -32,5 +32,7 @@
   <ItemGroup>
     <!-- Every row name the game has ever had (tools/GameRowHistory builds it); see GameRowHistory. -->
     <EmbeddedResource Include="Resources\game_row_history.json.gz" LogicalName="game_row_history.json.gz" />
+    <!-- New-mod templates (ModTemplateContent.TemplateText), read as Templates.<name>.json. -->
+    <EmbeddedResource Include="Exmod\Templates\*.json" LogicalName="Templates.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

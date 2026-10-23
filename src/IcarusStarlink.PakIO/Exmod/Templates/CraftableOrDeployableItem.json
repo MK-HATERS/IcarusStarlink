@@ -1,0 +1,200 @@
+{
+    "name": "Blank Craftable Item",
+    "author": "Jimk72",
+    "version": "1.0",
+    "description": "",
+    "fileName": "Blank_Craftable_Item",
+    "readmeURL": "",
+    "imageURL": "",
+    "Level2": "True",
+    "Rows": [
+        {
+            "CurrentFile": "Crafting-D_ProcessorRecipes.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "Requirement": {
+                        "RowName": "None",
+                        "DataTableName": "D_Talents"
+                    },
+                    "RecipeSets": [
+                        {
+                            "RowName": "Character",
+                            "DataTableName": "D_RecipeSets"
+                        }
+                    ],
+                    "ResourceCostMultipliers": [],
+                    "Inputs": [
+                        {
+                            "Element": {
+                                "RowName": "Wood",
+                                "DataTableName": "D_ItemsStatic"
+                            },
+                            "Count": 0,
+                            "DynamicProperties": []
+                        }
+                    ],
+                    "Outputs": [
+                        {
+                            "Element": {
+                                "RowName": "TempName",
+                                "DataTableName": "D_ItemTemplate"
+                            },
+                            "Count": 1,
+                            "DynamicProperties": []
+                        }
+                    ],
+                    "Audio": {
+                        "RowName": "Default"
+                    }
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Deployables-D_DeployableSetup.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "DeployableBlueprint": "/Game/BP/Objects/World/Items/Deployables/Campfire/BP_Campfire.BP_Campfire_C",
+                    "PreviewStaticMesh": "/Game/ASS/DEP/SM_DEP_Campfire.SM_DEP_Campfire",
+                    "DeployedSound": "/Game/FMOD/Events/SFX/D_Buildables/SFX_BLD_STONE_SMALL.SFX_BLD_STONE_SMALL",
+                    "SupportsCustomRotation": false,
+                    "bCanAffectNavigation": false,
+                    "MaxRestackingAmount": 1
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Items-D_ItemsStatic.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "Meshable": {
+                        "RowName": "Mesh_TempName"
+                    },
+                    "Itemable": {
+                        "RowName": "Item_TempName"
+                    },
+                    "Interactable": {
+                        "RowName": "Deployable_NoInteract"
+                    },
+                    "Focusable": {
+                        "RowName": "Focusable_1H"
+                    },
+                    "Highlightable": {
+                        "RowName": "Generic"
+                    },
+                    "Actionable": {
+                        "RowName": "Deployable"
+                    },
+                    "Usable": {
+                        "RowName": "Place"
+                    },
+                    "Deployable": {
+                        "RowName": "TempName"
+                    },
+                    "Durable": {
+                        "RowName": "Deployable_100"
+                    },
+                    "Floatable": {
+                        "RowName": "Items"
+                    },
+                    "Decayable": {
+                        "RowName": "Decay_Deployable"
+                    },
+                    "Weight": {
+                        "RowName": "LightDeployable"
+                    },
+                    "Audio": {
+                        "RowName": "Default"
+                    },
+                    "Generated_Tags": {
+                        "GameplayTags": [
+                            {
+                                "TagName": "Traits.Meshable"
+                            },
+                            {
+                                "TagName": "Traits.Itemable"
+                            },
+                            {
+                                "TagName": "Traits.Interactable"
+                            },
+                            {
+                                "TagName": "Traits.Highlightable"
+                            },
+                            {
+                                "TagName": "Traits.Actionable"
+                            },
+                            {
+                                "TagName": "Traits.Usable"
+                            },
+                            {
+                                "TagName": "Traits.Deployable"
+                            },
+                            {
+                                "TagName": "Traits.Durable"
+                            },
+                            {
+                                "TagName": "Traits.Floatable"
+                            }
+                        ],
+                        "ParentTags": []
+                    }
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Items-D_ItemTemplate.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "ItemStaticData": {
+                        "RowName": "TempName"
+                    }
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Traits-D_Deployable.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "Variants": [
+                        {
+                            "RowName": "TempName",
+                            "DataTableName": "D_DeployableSetup"
+                        }
+                    ],
+                    "EffectedByWeather": false
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Traits-D_Itemable.json",
+            "File_Items": [
+                {
+                    "Name": "Item_TempName",
+                    "DisplayName": "NSLOCTEXT(\"D_Itemable\", \"Item_TempName-DisplayName\", \"TempName\")",
+                    "Icon": "/Game/Assets/2DArt/UI/Items/Item_Icons/Deployables/ITEM_Campfire.ITEM_Campfire",
+                    "Description": "NSLOCTEXT(\"D_Itemable\", \"Item_TempName-Description\", \"A short description of item.\")",
+                    "FlavorText": "NSLOCTEXT(\"D_Itemable\", \"Item_TempName-FlavorText\", \"A more elaborate description of item.\")",
+                    "Weight": 100
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Traits-D_Meshable.json",
+            "File_Items": [
+                {
+                    "Name": "Mesh_TempName",
+                    "ItemMesh": "/Game/ASS/KIT/SM_KIT_Person.SM_KIT_Person",
+                    "EquipHandMesh": "/Game/Assets/3DArt/Interactables/Items/DummyCube/SK_dummy_cube.SK_dummy_cube",
+                    "DeployableActor": "/Game/BP/Objects/World/Items/Deployables/Campfire/BP_Campfire.BP_Campfire_C"
+                }
+            ]
+        },
+        {
+            "CurrentFile": "EndOfMod"
+        }
+    ]
+}

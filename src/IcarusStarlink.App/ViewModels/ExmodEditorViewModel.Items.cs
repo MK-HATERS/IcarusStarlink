@@ -16,7 +16,7 @@ public sealed partial class ExmodEditorViewModel
 {
     private GameTableIndex? _gameTables;
 
-    /// <summary>The game's tables, read lazily and kept for this editor's lifetime (the data folder doesn't change under an open editor).</summary>
+    /// <summary>The game's tables, read lazily and kept until Refresh game data rewrites them (OnGameDataRefreshed).</summary>
     private GameTableIndex GameTables => _gameTables ??= new GameTableIndex(_dataFolder);
 
     public ObservableCollection<ReferenceProblemViewModel> ReferenceProblems { get; } = [];
@@ -55,8 +55,8 @@ public sealed partial class ExmodEditorViewModel
         RefreshBaseDiff();
         ReloadItems();
 
-        var item = rows.FirstOrDefault(r => r.CurrentFile == "Items-D_ItemsStatic.json")?.FileItems.FirstOrDefault();
-        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == "Items-D_ItemsStatic.json" && i.ItemName == item?.Name) ?? SelectedItem;
+        var item = rows.FirstOrDefault(r => Same(r.CurrentFile, "Items-D_ItemsStatic.json"))?.FileItems.FirstOrDefault();
+        SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, "Items-D_ItemsStatic.json") && Same(i.ItemName, item?.Name)) ?? SelectedItem;
         var tables = string.Join(", ", rows.Select(r => GameTableIndex.TableNameOf(r.CurrentFile)));
         StatusMessage = $"Added '{item?.Name}': {rows.Sum(r => r.FileItems.Count)} row(s) in {tables}. Change what you like, then Save.";
     }
@@ -90,7 +90,7 @@ public sealed partial class ExmodEditorViewModel
             ReloadItems();
         }
 
-        SelectedItem = Items.FirstOrDefault(i => i.CurrentFile == problem.CurrentFile && i.ItemName == problem.RowName) ?? SelectedItem;
+        SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, problem.CurrentFile) && Same(i.ItemName, problem.RowName)) ?? SelectedItem;
         ViewMode = ExmodEditorViewMode.ItemFields;
     }
 
@@ -140,6 +140,37 @@ public sealed partial class ExmodEditorViewModel
         return [.. Directory.EnumerateFiles(folder, "*.uasset", SearchOption.AllDirectories).Select(File.ReadAllBytes)];
     }
 
-    private Window? OwnerWindow() =>
-        Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => ReferenceEquals(w.DataContext, this)) ?? Application.Current?.MainWindow;
+    /// <summary>
+    /// Refresh game data (Settings) rewrites the data folder under an open editor: every table,
+    /// name and choice read from it is dropped and read again, so game values, change counts and
+    /// "new row" marks match the new data. The mod itself (typed values included) is untouched.
+    /// </summary>
+    private void OnGameDataRefreshed()
+    {
+        _gameTables = null;
+        _baseTableCache.Clear();
+        _itemNames = null;
+        _statChoices = null;
+        _gameDataMissing = false;
+        _fieldChoices.Clear();
+        _fieldOptionsCache.Clear();
+        _scaleTables = null;
+        OnPropertyChanged(nameof(ScaleTables));
+        RefreshBaseDiff();
+        ApplyFilter();
+    }
+
+    /// <summary>
+    /// What a dialog opens over: whichever of this editor's windows is in front (the editor, or a
+    /// pane popped out of it), else its editor window. Dialogs owned by the main window opened
+    /// behind the editor, and the close prompt could pick another mod's active editor.
+    /// </summary>
+    private Window? OwnerWindow()
+    {
+        var mine = Application.Current?.Windows.OfType<Window>().Where(w => ReferenceEquals(w.DataContext, this)).ToList() ?? [];
+        return mine.FirstOrDefault(w => w.IsActive) ?? EditorWindow() ?? mine.FirstOrDefault() ?? Application.Current?.MainWindow;
+    }
+
+    private ExmodEditorWindow? EditorWindow() =>
+        Application.Current?.Windows.OfType<ExmodEditorWindow>().FirstOrDefault(w => ReferenceEquals(w.DataContext, this));
 }

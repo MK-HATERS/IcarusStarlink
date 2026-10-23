@@ -1,0 +1,237 @@
+{
+    "name": "TempName",
+    "author": "",
+    "version": "1.0",
+    "description": "",
+    "fileName": "TempName",
+    "Rows": [
+        {
+            "CurrentFile": "Crafting-D_ProcessorRecipes.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "RequiredMillijoules": 1,
+                    "RecipeSets": [
+                        {
+                            "RowName": "Character",
+                            "DataTableName": "D_RecipeSets"
+                        }
+                    ],
+                    "Inputs": [
+                        {
+                            "Element": {
+                                "RowName": "Fiber",
+                                "DataTableName": "D_ItemsStatic"
+                            },
+                            "Count": 0,
+                            "DynamicProperties": []
+                        }
+                    ],
+                    "Outputs": [
+                        {
+                            "Element": {
+                                "RowName": "TempName",
+                                "DataTableName": "D_ItemTemplate"
+                            },
+                            "Count": 1,
+                            "DynamicProperties": [],
+                            "Alterations": []
+                        }
+                    ],
+                    "Audio": {
+                        "RowName": "MachiningBench"
+                    }
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Items-D_ItemTemplate.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "ItemStaticData": {
+                        "RowName": "TempName"
+                    }
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Items-D_ItemsStatic.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "Meshable": {
+                        "RowName": "Mesh_TempName"
+                    },
+                    "Itemable": {
+                        "RowName": "Item_TempName"
+                    },
+                    "Interactable": {
+                        "RowName": "Deployable_Power_Toggle_Only"
+                    },
+                    "Focusable": {
+                        "RowName": "Focusable_1H"
+                    },
+                    "Highlightable": {
+                        "RowName": "Generic"
+                    },
+                    "Actionable": {
+                        "RowName": "Deployable"
+                    },
+                    "Usable": {
+                        "RowName": "Place"
+                    },
+                    "Deployable": {
+                        "RowName": "TempName"
+                    },
+                    "Durable": {
+                        "RowName": "Deployable_2000"
+                    },
+                    "Decayable": {
+                        "RowName": "Decay_10_Minutes"
+                    },
+                    "Generator": {
+                        "RowName": "TempName"
+                    },
+                    "Resource": {
+                        "RowName": "TempName"
+                    },
+                    "Audio": {
+                        "RowName": "MetalDeployable"
+                    },
+                    "Manual_Tags": {
+                        "GameplayTags": [
+                            {
+                                "TagName": "FieldGuide.ResourceNetwork"
+                            },
+                            {
+                                "TagName": "item.ResourceGenerator.Water"
+                            }
+                        ]
+                    },
+                    "Generated_Tags": {
+                        "GameplayTags": [
+                            {
+                                "TagName": "FieldGuide.ResourceNetwork"
+                            },
+                            {
+                                "TagName": "item.ResourceGenerator.Water"
+                            },
+                            {
+                                "TagName": "Traits.Meshable"
+                            },
+                            {
+                                "TagName": "Traits.Itemable"
+                            },
+                            {
+                                "TagName": "Traits.Interactable"
+                            },
+                            {
+                                "TagName": "Traits.Highlightable"
+                            },
+                            {
+                                "TagName": "Traits.Actionable"
+                            },
+                            {
+                                "TagName": "Traits.Usable"
+                            },
+                            {
+                                "TagName": "Traits.Deployable"
+                            },
+                            {
+                                "TagName": "Traits.Durable"
+                            }
+                        ],
+                        "ParentTags": []
+                    }
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Traits-D_Meshable.json",
+            "File_Items": [
+                {
+                    "Name": "Mesh_TempName",
+                    "ItemMesh": "/Game/ASS/KIT/SM_KIT_Machining.SM_KIT_Machining",
+                    "EquipHandMesh": "/Game/Assets/3DArt/Interactables/Items/DummyCube/SK_dummy_cube.SK_dummy_cube",
+                    "DeployableActor": "/Game/BP/Objects/World/Items/Deployables/Pump/BP_TempName.BP_TempName_C"
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Traits-D_Itemable.json",
+            "File_Items": [
+                {
+                    "Name": "Item_TempName",
+                    "DisplayName": "NSLOCTEXT(\"D_Itemable\", \"Item_TempName-DisplayName\", \"TempName\")",
+                    "Icon": "/Game/Assets/2DArt/UI/Items/Item_Icons/Deployables/ITEM_TempName.ITEM_TempName",
+                    "Description": "NSLOCTEXT(\"D_Itemable\", \"Item_TempName-Description\", \"A water pump useful for creating water networks.\")",
+                    "Weight": 1000,
+                    "MaxStack": 20
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Traits-D_Deployable.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "Variants": [
+                        {
+                            "RowName": "TempName",
+                            "DataTableName": "D_DeployableSetup"
+                        }
+                    ],
+                    "EffectedByWeather": false
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Deployables-D_DeployableSetup.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "DeployableBlueprint": "/Game/BP/Objects/World/Items/Deployables/Pump/BP_TempName.BP_TempName_C",
+                    "PreviewStaticMesh": "/Game/ASS/DEP/SM_TempName.SM_TempName",
+                    "DeployedSound": "/Game/FMOD/Events/SFX/D_Deployables/SFX_DEPLOY_WATER_ITEM.SFX_DEPLOY_WATER_ITEM",
+                    "SnapToSurfaceNormal": false,
+                    "WorldPlacementType": "WaterPlacement"
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Traits-D_Generator.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "Resource": {
+                        "Value": "Water"
+                    },
+                    "TransmutableResources": [
+                        {
+                            "Value": "Energy"
+                        }
+                    ],
+                    "RequiresManualActivation": false,
+                    "OutOfFuelThresholdPercent": -1
+                }
+            ]
+        },
+        {
+            "CurrentFile": "Traits-D_Resource.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "bHasEnergyConnection": true,
+                    "EnergyFlow": {
+                        "RowName": "Auto_Shutoff_At_0"
+                    },
+                    "bHasWaterConnection": true
+                }
+            ]
+        },
+        {
+            "CurrentFile": "EndOfMod"
+        }
+    ]
+}

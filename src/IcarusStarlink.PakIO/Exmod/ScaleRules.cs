@@ -67,28 +67,30 @@ public sealed record ScaleApplyResult(int RowsWritten, IReadOnlyList<ScalePrevie
 public static class ScaleRules
 {
     /// <summary>
-    /// Rebuilds the rows a mod's rules own. Every top-level field any rule (old or new) owns is
-    /// first removed from the mod's copies of GAME rows — so turning a rule off or changing its
-    /// factor never leaves its old values behind — then each enabled rule is applied, in order, to
-    /// current game data (a later rule on the same field compounds on an earlier one). Rows the mod
-    /// adds itself (a new item's own Itemable) are the author's, never touched; other fields of the
-    /// game rows (hand edits) are kept. Sets <paramref name="package"/>.ScaleRules to <paramref name="rules"/>.
+    /// Rebuilds the rows a mod's rules own. First the fields the PREVIOUS rules wrote (run again on
+    /// current game data) and the fields the new rules will write are removed from the mod's copies
+    /// of GAME rows — so turning a rule off or changing its factor or filter never leaves its old
+    /// values behind — then each enabled rule is applied, in order, to current game data (a later
+    /// rule on the same field compounds on an earlier one). Only those fields go: a hand edit of the
+    /// same field on a row no rule covers (an Envirosuit's ArmourStats beside a rule for "Plate")
+    /// stays, as do rows the mod adds itself (a new item's own Itemable) and every other field.
+    /// Sets <paramref name="package"/>.ScaleRules to <paramref name="rules"/>.
     /// </summary>
     /// <param name="game">The game's tables, shared across calls (the editor keeps one); null reads them fresh.</param>
     public static ScaleApplyResult ApplyToPackage(ExmodPackage package, IReadOnlyList<ScaleRule> rules, string dataFolder, MergeReport report, GameTableIndex? game = null)
     {
         game ??= new GameTableIndex(dataFolder);
-        var owned = package.ScaleRules.Concat(rules)
-            .Where(r => r.CurrentFile.Length > 0 && r.TopField.Length > 0)
-            .Select(r => (File: r.CurrentFile, Field: r.TopField))
-            .ToHashSet(new FileFieldComparer());
+        var (previous, _) = Generate(package.ScaleRules, dataFolder, new MergeReport(), game);
+        var (generated, previews) = Generate(rules, dataFolder, report, game);
+        bool Owns(Dictionary<string, Dictionary<string, Dictionary<string, JsonNode?>>> written, string file, string rowName, string field) =>
+            written.TryGetValue(file, out var byRow) && byRow.TryGetValue(rowName, out var fields) && fields.ContainsKey(field);
 
-        foreach (var row in package.Rows.Where(r => owned.Any(o => string.Equals(o.File, r.CurrentFile, StringComparison.OrdinalIgnoreCase))).ToList())
+        foreach (var row in package.Rows.Where(r => previous.ContainsKey(r.CurrentFile) || generated.ContainsKey(r.CurrentFile)).ToList())
         {
             var emptied = new HashSet<ExmodFileItem>();
             foreach (var item in row.FileItems.Where(i => game.HasRow(row.CurrentFile, i.Name)))
             {
-                var keys = item.Fields.Keys.Where(k => owned.Contains((row.CurrentFile, k))).ToList();
+                var keys = item.Fields.Keys.Where(k => Owns(previous, row.CurrentFile, item.Name, k) || Owns(generated, row.CurrentFile, item.Name, k)).ToList();
                 keys.ForEach(k => item.Fields.Remove(k));
                 if (keys.Count > 0 && item.Fields.Count == 0)
                 {
@@ -104,7 +106,6 @@ public static class ScaleRules
             }
         }
 
-        var (generated, previews) = Generate(rules, dataFolder, report, game);
         var written = 0;
         foreach (var (file, items) in generated)
         {
@@ -221,7 +222,8 @@ public static class ScaleRules
                     continue;
                 }
 
-                generated.TryAdd(rule.CurrentFile, new Dictionary<string, Dictionary<string, JsonNode?>>(StringComparer.Ordinal));
+                // Row names ignore case, like the game: a mod's "item_fiber" is the game's Item_Fiber.
+                generated.TryAdd(rule.CurrentFile, new Dictionary<string, Dictionary<string, JsonNode?>>(StringComparer.OrdinalIgnoreCase));
                 byRow = generated[rule.CurrentFile];
                 if (!byRow.TryGetValue(rowName, out var rowFields))
                 {
@@ -519,14 +521,5 @@ public static class ScaleRules
         return [.. Directory.EnumerateFiles(dataFolder, "D_*.json", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(dataFolder, f).Replace('\\', '/').Replace('/', '-'))
             .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)];
-    }
-
-    private sealed class FileFieldComparer : IEqualityComparer<(string File, string Field)>
-    {
-        public bool Equals((string File, string Field) x, (string File, string Field) y) =>
-            string.Equals(x.File, y.File, StringComparison.OrdinalIgnoreCase) && string.Equals(x.Field, y.Field, StringComparison.Ordinal);
-
-        public int GetHashCode((string File, string Field) obj) =>
-            HashCode.Combine(obj.File.ToUpperInvariant(), obj.Field);
     }
 }

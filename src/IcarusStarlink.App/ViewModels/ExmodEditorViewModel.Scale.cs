@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.Diffing;
@@ -170,7 +169,7 @@ public sealed partial class ScaleRuleViewModel : ObservableObject
         _currentFile = rule.CurrentFile;
         _field = rule.Field;
         _operationIndex = rule.Operation == ScaleOperation.Set ? 1 : 0;
-        _valueText = rule.Value.ToString("0.######", CultureInfo.InvariantCulture);
+        _valueText = EditorValueText.FormatNumber(rule.Value);
         _rowFilter = rule.RowFilter ?? "";
         _includeInherited = rule.IncludeInherited;
     }
@@ -222,7 +221,7 @@ public sealed partial class ScaleRuleViewModel : ObservableObject
             return null;
         }
 
-        if (!double.TryParse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) || double.IsNaN(value) || double.IsInfinity(value))
+        if (!EditorValueText.TryParseNumber(ValueText, out var value))
         {
             Problem = "the value must be a number, like 0.5 (use a dot for decimals).";
             return null;

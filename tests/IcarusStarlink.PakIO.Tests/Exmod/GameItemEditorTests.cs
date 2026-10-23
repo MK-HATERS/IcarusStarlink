@@ -91,7 +91,7 @@ public sealed class GameItemEditorTests : IDisposable
             new(itemable.Key, Field(itemable, "Weight").Path, JsonValue.Create(50)),
             new(itemable.Key, Field(itemable, "Name in game").Path, JsonValue.Create("Xigo \"Mk II\"")),
             new(armour.Key, Field(armour, "Oxygen slots").Path, JsonValue.Create(2)),
-            new(armour.Key, new EditPath("ArmourStats", [GameItemEditor.StatKeyFor("BaseColdResistance_%")]), JsonValue.Create(10)),
+            new(armour.Key, new EditPath("ArmourStats", [GameStats.StatKeyFor("BaseColdResistance_%")]), JsonValue.Create(10)),
         ], new HashSet<string>());
 
         var item = Item(mod, "Traits-D_Itemable.json", "Item_Envirosuit")!;
@@ -203,7 +203,7 @@ public sealed class GameItemEditorTests : IDisposable
     [InlineData("BaseMovementSpeed_+%", "Movement speed +%")]
     [InlineData("BaseMovementSpeed_+", "Movement speed")]
     [InlineData("MaximumHealth_+", "Maximum health")]
-    public void StatLabels_ReadPlainly(string stat, string expected) => Assert.Equal(expected, GameItemEditor.StatLabel(stat));
+    public void StatLabels_ReadPlainly(string stat, string expected) => Assert.Equal(expected, GameStats.StatLabel(stat));
 
     /// <summary>New mod never changes the game's own rows: a name the game already uses in any table it writes is refused.</summary>
     [Fact]

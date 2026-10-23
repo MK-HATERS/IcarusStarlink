@@ -29,6 +29,7 @@ public partial class ExmodEditorWindow : Window
 
         // Unsaved changes ask Save / Don't save / Cancel instead of vanishing with the window.
         Closing += (_, e) => e.Cancel = !viewModel.ConfirmClose();
+        Closed += (_, _) => viewModel.Detach();
     }
 
     /// <summary>ListBox.SelectedItems isn't a bindable DependencyProperty in stock WPF — this is the one piece of multi-select mass edit that has to be pushed in from code-behind rather than bound directly.</summary>

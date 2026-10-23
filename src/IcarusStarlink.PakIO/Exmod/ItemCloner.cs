@@ -194,16 +194,7 @@ public static partial class ItemCloner
                 rows[file] = list;
             }
 
-            var item = new ExmodFileItem { Name = name };
-            foreach (var (key, value) in fields)
-            {
-                if (key != "Name")
-                {
-                    item.Fields[key] = value?.DeepClone();
-                }
-            }
-
-            list.Add(item);
+            list.Add(ExmodFileItem.FromRow(name, fields));
         }
 
         // Itemable is always the item's own: it holds the name and description typed for it, which
