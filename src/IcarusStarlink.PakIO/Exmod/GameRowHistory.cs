@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.PakIO.Exmod;
 
@@ -158,10 +159,7 @@ public sealed class GameRowHistory
 
         root["versions"] = versions;
         root["tables"] = tables;
-        Directory.CreateDirectory(Path.GetDirectoryName(localFile)!);
-        var temp = localFile + ".tmp";
-        File.WriteAllText(temp, root.ToJsonString(), new UTF8Encoding(false));
-        File.Move(temp, localFile, overwrite: true);
+        AtomicFile.WriteAllText(localFile, root.ToJsonString(), new UTF8Encoding(false));
     }
 
     /// <summary>The row names of one game version, as a short hash (to spot a refresh that changed nothing).</summary>

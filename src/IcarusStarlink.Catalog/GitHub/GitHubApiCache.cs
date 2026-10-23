@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
+using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.Catalog.GitHub;
 
@@ -150,10 +151,7 @@ public static class GitHubApiCache
 
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(_file)!);
-                var temp = _file + ".tmp";
-                File.WriteAllText(temp, JsonSerializer.Serialize(_entries, Json));
-                File.Move(temp, _file, overwrite: true);
+                AtomicFile.WriteAllText(_file, JsonSerializer.Serialize(_entries, Json));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
