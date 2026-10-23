@@ -42,7 +42,9 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Text="THIS MOD'S ITEMS" Style="{StaticResource FieldLabelStyle}"/>
+            <TextBlock Grid.Row="0" Style="{StaticResource FieldLabelStyle}">
+                <Run Text="THIS MOD'S ITEMS ("/><Run Text="{Binding Items.Count, Mode=OneWay}"/><Run Text=")"/>
+            </TextBlock>
 
             <Grid Grid.Row="1" Margin="0,4,0,0">
                 <TextBox x:Name="FilterBox" Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
@@ -79,14 +81,17 @@
                                     <TextBlock Text="{Binding BadgeText}" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}"/>
                                 </Border>
                                 <StackPanel Margin="0,1,6,1">
-                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding ItemName}" FontFamily="Consolas" FontSize="10.5" Foreground="{DynamicResource FaintForegroundBrush}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}"/>
+                                    <TextBlock Text="{Binding ItemName}" FontFamily="Consolas" FontSize="10.5" Foreground="{DynamicResource FaintForegroundBrush}" TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding ItemName}"/>
                                 </StackPanel>
                             </DockPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
             </Border>
+            <TextBlock Grid.Row="2" Text="{Binding ItemsEmptyText}" Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
+                       Visibility="{Binding ItemsEmptyText, Converter={StaticResource NullToVisibilityConverter}}"/>
 
             <WrapPanel Grid.Row="3" Margin="0,8,0,0">
                 <Button Content="New item from a game item…" Command="{Binding NewItemFromGameCommand}" Margin="0,0,8,4"
@@ -224,18 +229,19 @@
             </Border>
             <Border Background="{DynamicResource AccentBrush}" CornerRadius="4" Margin="0,8,0,0" Padding="8"
                     Visibility="{Binding IsMassEditActive, Converter={StaticResource BoolToVisibilityConverter}}">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Foreground="{DynamicResource AccentForegroundBrush}" VerticalAlignment="Center" FontWeight="SemiBold">
+                <!-- Wraps, so a narrow window doesn't cut off Apply. -->
+                <WrapPanel>
+                    <TextBlock Foreground="{DynamicResource AccentForegroundBrush}" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,0,4">
                         <Run Text="{Binding SelectedItemCount, Mode=OneWay}"/><Run Text=" items selected — mass edit:"/>
                     </TextBlock>
-                    <TextBox Text="{Binding MassEditFieldName, UpdateSourceTrigger=PropertyChanged}" Width="150" Margin="8,0,0,0" ToolTip="Field name"/>
-                    <TextBox Text="{Binding MassEditFieldValue, UpdateSourceTrigger=PropertyChanged}" Width="180" Margin="8,0,0,0"
+                    <TextBox Text="{Binding MassEditFieldName, UpdateSourceTrigger=PropertyChanged}" Width="150" Margin="8,0,0,4" ToolTip="Field name"/>
+                    <TextBox Text="{Binding MassEditFieldValue, UpdateSourceTrigger=PropertyChanged}" Width="180" Margin="8,0,0,4"
                              ToolTip="JSON value, e.g. 1313 or &quot;text&quot; — set (added if missing) on every selected item"/>
-                    <Button Content="Apply to selection" Command="{Binding ApplyMassEditCommand}" Margin="8,0,0,0"
+                    <Button Content="Apply to selection" Command="{Binding ApplyMassEditCommand}" Margin="8,0,0,4"
                             ToolTip="Sets this field on every selected item (added if an item doesn't already have it)"/>
                     <TextBlock Text="{Binding MassEditStatusMessage}" Foreground="{DynamicResource AccentForegroundBrush}"
-                               VerticalAlignment="Center" Margin="12,0,0,0"/>
-                </StackPanel>
+                               VerticalAlignment="Center" Margin="12,0,0,4" TextWrapping="Wrap"/>
+                </WrapPanel>
             </Border>
             </StackPanel>
 
@@ -245,6 +251,8 @@
                 <TextBlock Text="{Binding NoDataRowsMessage}" TextWrapping="Wrap" Margin="16" MaxWidth="560" HorizontalAlignment="Left" VerticalAlignment="Top"
                            Foreground="{DynamicResource SecondaryForegroundBrush}"
                            Visibility="{Binding NoDataRowsMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                <TextBlock Text="Pick an item on the left to see its fields." Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
+                           Visibility="{Binding ShowPickItemPrompt, Converter={StaticResource BoolToVisibilityConverter}}"/>
                 <ScrollViewer x:Name="ItemFieldsScrollViewer" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="12,10,12,4">
                         <DockPanel Visibility="{Binding SelectedItem, Converter={StaticResource NullToVisibilityConverter}}">
@@ -365,48 +373,48 @@
                         ToolTip="Adds this field to the selected item"/>
             </StackPanel>
 
-            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
+            <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,8,0,0" VerticalAlignment="Center"
                         Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
-                <Button Content="Apply file JSON" Command="{Binding ApplyFileJsonCommand}"
+                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Apply file JSON" Command="{Binding ApplyFileJsonCommand}"
                         ToolTip="Re-parse this box and replace the selected item's file in the mod"/>
                 <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
-            </StackPanel>
+            </DockPanel>
 
-            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
+            <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,8,0,0" VerticalAlignment="Center"
                         Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
-                <Button Content="Apply full EXMOD JSON" Command="{Binding ApplyFullExmodJsonCommand}"
+                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Apply full EXMOD JSON" Command="{Binding ApplyFullExmodJsonCommand}"
                         ToolTip="Re-parse this box and replace the whole mod's contents"/>
                 <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
-            </StackPanel>
+            </DockPanel>
 
-            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
+            <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,8,0,0" VerticalAlignment="Center"
                         Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ScaleRules}">
-                <Button Content="Add rule" Command="{Binding AddScaleRuleCommand}"/>
-                <Button Content="Preview all" Command="{Binding PreviewScaleRulesCommand}" Margin="8,0,0,0"
+                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Add rule" Command="{Binding AddScaleRuleCommand}" ToolTip="Adds a new rule card above"/>
+                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Preview all" Command="{Binding PreviewScaleRulesCommand}" Margin="8,0,0,0"
                         ToolTip="Shows what each rule would change, without changing the mod"/>
-                <Button Content="Apply rules" Command="{Binding ApplyScaleRulesCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"
+                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Apply rules" Command="{Binding ApplyScaleRulesCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"
                         ToolTip="Writes every rule's rows into this mod from current game data (undoable). Also how the mod catches up after a game update."/>
-                <TextBlock Text="{Binding ScaleStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="420"
+                <TextBlock Text="{Binding ScaleStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"
                            Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-            </StackPanel>
+            </DockPanel>
 
-            <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">
-                <Button Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
+            <DockPanel Grid.Row="4" LastChildFill="True" Margin="0,12,0,0" VerticalAlignment="Center">
+                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
                         ToolTip="Writes every change so far to this mod's .EXMOD file — from any view (Fields, File JSON, Full EXMOD JSON, Scale rules): they all edit the same mod"/>
-                <Button Content="Turn on &amp; go to Merge &amp; Install" Command="{Binding TurnOnAndGoToMergeCommand}" Margin="8,0,0,0"
+                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Turn on &amp; go to Merge &amp; Install" Command="{Binding TurnOnAndGoToMergeCommand}" Margin="8,0,0,0"
                         Visibility="{Binding HasSaved, Converter={StaticResource BoolToVisibilityConverter}}"
                         ToolTip="Ticks this mod ON (adds it to the merge queue) and opens Merge &amp; Install, where Install puts it in the game"/>
-                <Button Content="Undo (Ctrl+Z)" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" Margin="8,0,0,0"
+                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Undo (Ctrl+Z)" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" Margin="8,0,0,0"
                         ToolTip="Reverts the last Add/Remove field, Add item, Duplicate, mass edit, or raw-JSON Apply — not per-keystroke typing. Greyed out: nothing to undo yet."
                         ToolTipService.ShowOnDisabled="True"/>
-                <Button Content="Redo (Ctrl+Y)" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" Margin="8,0,0,0"
+                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Redo (Ctrl+Y)" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" Margin="8,0,0,0"
                         ToolTip="Puts back what Undo just took away. Greyed out: nothing undone, or a new change since."
                         ToolTipService.ShowOnDisabled="True"/>
-                <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
+                <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"
                            Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-            </StackPanel>
+            </DockPanel>
         </Grid>
     </Grid>
 </Window>

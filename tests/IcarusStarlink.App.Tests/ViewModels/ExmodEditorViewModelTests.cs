@@ -62,6 +62,23 @@ public sealed class ExmodEditorViewModelTests : IDisposable
         return new ExmodEditorViewModel(entry.FolderName, _library, DataFolder, new GameDataIndexCache());
     }
 
+    /// <summary>The item list says why it's empty, and the Fields view asks for a pick while nothing is picked.</summary>
+    [Fact]
+    public void EmptyStates_SearchWithNoMatch_AndNothingPicked()
+    {
+        var editor = OpenMod();
+        Assert.Null(editor.ItemsEmptyText);
+        Assert.False(editor.ShowPickItemPrompt); // the first item is picked on open
+
+        editor.SelectedItem = null;
+        Assert.True(editor.ShowPickItemPrompt);
+
+        editor.FilterText = "no such item";
+        editor.ApplyFilter();
+        Assert.Equal("No items match the search.", editor.ItemsEmptyText);
+        Assert.False(editor.ShowPickItemPrompt); // nothing listed to pick
+    }
+
     [Fact]
     public void AddItem_TheSameRowInAnotherCase_IsRefused_NotAddedASecondTime()
     {
