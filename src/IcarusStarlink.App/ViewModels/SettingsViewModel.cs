@@ -1044,12 +1044,28 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Refresh game data, for Merge &amp; Install's "Refresh game data, then build" (a no-op while one is already running).</summary>
     /// <remarks>While one is running this returns THAT run (it used to return an already-finished
     /// task, so a caller checked "is the data fresh now?" while the extraction was still going).</remarks>
-    public Task RefreshGameDataAsync() => IsUpdatingDataFolder ? _dataFolderUpdate : UpdateDataFolderAsync();
+    /// <remarks>Not refused while other work runs, unlike the button: its callers ARE that work
+    /// (Merge &amp; Install's refresh-then-build, the game-update run).</remarks>
+    public Task RefreshGameDataAsync() => IsUpdatingDataFolder ? _dataFolderUpdate : StartDataFolderUpdate();
 
     private bool CanUpdateDataFolder() => !IsUpdatingDataFolder;
 
+    /// <summary>The Refresh game data button (Settings and Weekly Changes).</summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true, CanExecute = nameof(CanUpdateDataFolder))]
     private Task UpdateDataFolderAsync()
+    {
+        // A merge being built reads the Data folder this rewrites, and a download being imported
+        // checks against it: refreshing under them mixed two game versions (review 2026-10-23).
+        if (!IsUpdatingDataFolder && AppBusyCheck.DescribeRunning() is { } running)
+        {
+            DataFolderStatusMessage = $"Wait until {running} has finished, then click Refresh game data again.";
+            return Task.CompletedTask;
+        }
+
+        return StartDataFolderUpdate();
+    }
+
+    private Task StartDataFolderUpdate()
     {
         // Two extractions into the same Data folder at once (the button, first-launch setup and
         // the game-update run can all start one) would overwrite each other's files.

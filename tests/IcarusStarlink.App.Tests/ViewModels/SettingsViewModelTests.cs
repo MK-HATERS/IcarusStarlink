@@ -106,6 +106,32 @@ public sealed class SettingsViewModelTests
         Assert.Contains("Set both", vm.DataFolderStatusMessage);
     }
 
+    /// <summary>Review 2026-10-23: the button rewrote the Data folder while a merge was reading it.</summary>
+    [Fact]
+    public async Task UpdateDataFolderCommand_WhileOtherWorkRuns_RefusesAndSaysWhat()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+        harness.UnrealPakService.ExtractResultFactory = () => new UnrealPakExtractResult(1, null);
+        var busy = new object();
+        WeakReferenceMessenger.Default.Register<BackgroundWorkRequestMessage>(busy, (_, message) => message.Reply("a merge is being built"));
+        try
+        {
+            await vm.UpdateDataFolderCommand.ExecuteAsync(null);
+
+            Assert.Equal(0, harness.UnrealPakService.ExtractCallCount);
+            Assert.Equal("Wait until a merge is being built has finished, then click Refresh game data again.", vm.DataFolderStatusMessage);
+
+            // Merge & Install's own refresh-then-build is that work, so it isn't refused.
+            await vm.RefreshGameDataAsync();
+            Assert.Equal(1, harness.UnrealPakService.ExtractCallCount);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.Unregister<BackgroundWorkRequestMessage>(busy);
+        }
+    }
+
     [Fact]
     public async Task UpdateDataFolderCommand_Success_WithChanges_SavesReportPersistsHashAndBroadcasts()
     {
