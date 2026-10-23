@@ -152,4 +152,25 @@ public class ModTemplateContentTests
 
         Assert.Equal("EndOfMod", package.Rows[^1].CurrentFile);
     }
+
+    /// <summary>
+    /// The templates' exact text, as it was when they were C# string constants (they moved to
+    /// embedded .json files): a changed character would change every new mod made from them.
+    /// Line endings don't count (git may check the files out either way).
+    /// </summary>
+    [Theory]
+    [InlineData(ModTemplate.MapIcon, "53fed7193b7b3348a1f5d01001e71947754e9953d6f169325e950e4a16f968e8")]
+    [InlineData(ModTemplate.CraftableOrDeployableItem, "d29623d6b58aa31f12d22a09a028fa40a1486100743a892c3914ddc09bd1ea71")]
+    [InlineData(ModTemplate.ConsumableItem, "cebd10f1f5e7be2107492aa11162e9a6043ab92c55a8561c05e8b224bafda857")]
+    [InlineData(ModTemplate.BuildingPiece, "82bced0cc32d4fa22f98b02ecef6df9a032b5c45e9c5a113b68997f5fbb33aeb")]
+    [InlineData(ModTemplate.ElectricGenerator, "e64f88aeecd0bcd117668d26ed1a3fafa104c3e4d5a686524edf0c6c7c9fc062")]
+    [InlineData(ModTemplate.WaterPump, "36edf3e4387d05922146ba3fc8f76fd90972e1a7d7157c598c9e8c7151c38bcc")]
+    public void TemplateText_IsExactlyTheOriginalTemplate(ModTemplate template, string sha256)
+    {
+        var text = ModTemplateContent.TemplateText(template).Replace("\r\n", "\n");
+
+        var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)));
+
+        Assert.Equal(sha256, hash);
+    }
 }

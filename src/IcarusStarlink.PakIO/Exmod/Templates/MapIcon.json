@@ -1,0 +1,28 @@
+{
+    "name": "Map icon",
+    "author": "",
+    "version": "1.0",
+    "description": "A map and compass marker. Shown by a blueprint or Lua mod that looks it up by its row name, TempName.",
+    "fileName": "Map_Icon",
+    "readmeURL": "",
+    "imageURL": "",
+    "Rows": [
+        {
+            "CurrentFile": "UI-D_MapIcons.json",
+            "File_Items": [
+                {
+                    "Name": "TempName",
+                    "WidgetClass": "/Game/BP/Objects/World/Items/Deployables/Radar/UMG_RadarIcon.UMG_RadarIcon_C",
+                    "MapIcon": "Texture2D'/Game/Assets/2DArt/UI/Icons/MapIcons/Icon_Map_Waypoint.Icon_Map_Waypoint'",
+                    "Color": { "R": 86, "G": 222, "B": 206, "A": 255 },
+                    "ZOrder": 10,
+                    "BrushSize": { "X": 26, "Y": 26 },
+                    "UpdateOnTick": false,
+                    "bShowNameOnHover": true,
+                    "HoverName": "NSLOCTEXT(\"D_MapIcons\", \"TempName-HoverName\", \"TempLabel\")",
+                    "bDisplayOnCompass": true
+                }
+            ]
+        }
+    ]
+}
