@@ -1,11 +1,10 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.IO;
-using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO.Container;
@@ -37,6 +36,10 @@ public sealed record EditorQuickStart(ItemChoice Item, string Hint)
 public sealed partial class GameEditorViewModel : ObservableObject
 {
     private readonly ILibraryRepository _repository;
+    private readonly OwnModWriter _writer;
+
+    /// <summary>The target mod's .EXMOD stamp when its values were read for the cards (TargetPackage); Save refuses when it moved on.</summary>
+    private DateTime? _shownStamp;
     private readonly IActivityLog? _activityLog;
     private readonly string _dataFolder;
     private GameTableIndex? _game;
@@ -48,6 +51,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
     public GameEditorViewModel(ILibraryRepository repository, string dataFolder, IActivityLog? activityLog = null)
     {
         _repository = repository;
+        _writer = new OwnModWriter(repository);
         _activityLog = activityLog;
         _dataFolder = dataFolder;
         NewModAuthor = Environment.UserName;
@@ -372,10 +376,16 @@ public sealed partial class GameEditorViewModel : ObservableObject
                 lines = GameItemEditor.Apply(game, package, item.Name, changes, ownCopies);
             }
 
-            var path = _repository.GetFolderPath(folder);
-            ExmodFolder.Write(path, new ExmodPackageContents(package, []));
-            _repository.MarkLocallyEdited(folder);
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            // The mod editor may have saved into this mod since its values were shown here: the
+            // cards (and what was typed against them) would be out of date.
+            if (!_writer.TrySave(folder, package, target.IsNew ? null : _shownStamp, out _))
+            {
+                StatusMessage = null;
+                ReloadKeepingTyped("aren't in that mod's new version");
+                StatusMessage = "Not saved: that mod was changed somewhere else (an open mod editor?) since it was shown here. Its current values are shown now, with your typed changes on top; Save again to save them."
+                    + (StatusMessage is { } dropped ? $" {dropped}" : "");
+                return;
+            }
 
             var name = _repository.GetAll().FirstOrDefault(e => e.FolderName == folder)?.Name ?? folder;
             RefreshTargets(selectFolder: folder);
@@ -428,6 +438,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
     private ExmodPackage? TargetPackage()
     {
+        _shownStamp = null;
         if (SelectedTarget is not { IsNew: false, FolderName: { } folder })
         {
             return null;
@@ -436,7 +447,9 @@ public sealed partial class GameEditorViewModel : ObservableObject
         try
         {
             var path = _repository.GetFolderPath(folder);
-            return ExmodFolder.ReadPackageOnly(path, _repository.ListFolderFiles(folder));
+            var package = ExmodFolder.ReadPackageOnly(path, _repository.ListFolderFiles(folder));
+            _shownStamp = _writer.StampOf(folder, package.FileName);
+            return package;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or System.Text.Json.JsonException)
         {

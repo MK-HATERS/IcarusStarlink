@@ -112,11 +112,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [RelayCommand]
     private void TurnOnAndGoToMerge() => WeakReferenceMessenger.Default.Send(new TurnOnModMessage(_folderName));
 
-    private DateTime ExmodStamp()
-    {
-        var path = Path.Combine(_repository.GetFolderPath(_folderName), "Extracted Mods", $"{_package.FileName}.EXMOD");
-        return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : default;
-    }
+    private readonly OwnModWriter _writer;
+
+    private DateTime ExmodStamp() => _writer.StampOf(_folderName, _package.FileName);
 
     private readonly IReadOnlyList<string> _replacedGameFiles;
 
@@ -210,6 +208,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     public ExmodEditorViewModel(string folderName, ILibraryRepository repository, string dataFolder, GameDataIndexCache gameDataIndexCache)
     {
         _repository = repository;
+        _writer = new OwnModWriter(repository);
         _folderName = folderName;
         _dataFolder = dataFolder;
         _gameDataIndexCache = gameDataIndexCache;
@@ -840,10 +839,15 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
         // The Editor page (or anything else) may have saved into this mod since it was opened here:
         // overwriting that silently would lose it. The first Save says so; a second one overwrites.
-        if (ExmodStamp() != _savedStamp && !_overwriteOutsideChanges)
+        void RefuseChangedElsewhere()
         {
             _overwriteOutsideChanges = true;
             StatusMessage = "Not saved: this mod was changed somewhere else (the Editor page?) since you opened it here. Save again to overwrite those changes, or close this window and reopen the mod to keep them.";
+        }
+
+        if (ExmodStamp() != _savedStamp && !_overwriteOutsideChanges)
+        {
+            RefuseChangedElsewhere();
             return;
         }
 
@@ -867,20 +871,22 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
             var writePackage = ExmodJson.Parse(ExmodJson.Serialize(_package));
             writePackage.Rows = strippedRows;
-            ExmodFolder.Write(_repository.GetFolderPath(_folderName), new ExmodPackageContents(writePackage, []));
-            _savedStamp = ExmodStamp();
+            if (!_writer.TrySave(_folderName, writePackage, _overwriteOutsideChanges ? null : _savedStamp, out var stamp))
+            {
+                RefuseChangedElsewhere();
+                return;
+            }
+
+            _savedStamp = stamp;
             _savedJson = ExmodJson.Serialize(_package);
             _overwriteOutsideChanges = false;
             HasSaved = true;
-            _repository.MarkLocallyEdited(_folderName);
 
             // What just got written is now this mod's own "original" going forward — refreshing
             // the already-displayed Fields immediately (not waiting for the next reselect) so
             // every "was: X" indicator for the just-saved item clears right away.
             SnapshotOriginalValues();
             PopulateFieldsForSelection();
-
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             StatusMessage = strippedFieldCount > 0
                 ? $"Saved — removed {strippedFieldCount} field(s) that matched base game data."
                 : "Saved.";
