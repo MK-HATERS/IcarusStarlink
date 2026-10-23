@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO;
 using Serilog.Core;
 using Serilog.Events;
@@ -93,10 +92,18 @@ public static class LogDetail
         Serilog.Log.Information("Log detail: {Detail}", advanced ? "Advanced" : "Basic");
     }
 
-    /// <summary>Opens the log folder in Explorer (creating it first if no log was written yet).</summary>
-    public static void OpenFolder()
+    /// <summary>Opens the log folder in Explorer (creating it first if no log was written yet); the error, or null when it opened.</summary>
+    public static Exception? OpenFolder()
     {
-        Directory.CreateDirectory(LogsDirectory);
-        Process.Start(new ProcessStartInfo("explorer.exe", $"\"{LogsDirectory}\"") { UseShellExecute = true });
+        try
+        {
+            Directory.CreateDirectory(LogsDirectory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return ex;
+        }
+
+        return UrlOpener.TryOpen(LogsDirectory);
     }
 }
