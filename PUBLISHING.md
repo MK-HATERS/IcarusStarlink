@@ -28,6 +28,24 @@ changed since):
       none currently exist anywhere in this repo; take fresh ones against the current UI before
       the first upload.
 
+## Beta releases (GitHub only)
+
+The app's Beta update channel (Settings › Maintenance) reads the newest beta from a
+prerelease tagged `beta` that holds only `release.json`. Stable users never see betas, because
+`releases/latest` skips prereleases. Both steps below must stay prereleases.
+
+1. `<Version>` in `IcarusStarlink.App.csproj` = `X.Y.Z-beta.N`; tag `vX.Y.Z-beta.N`.
+2. Publish and zip as for a normal release; `release.json` has `"version": "X.Y.Z-beta.N"`
+   (exactly the tag without its `v`: the download URL is built from it).
+3. `gh release create vX.Y.Z-beta.N <zip> release.json --prerelease --title "vX.Y.Z beta N" --notes-file notes.md`
+4. Point the channel at it: the first time
+   `gh release create beta release.json --prerelease --title "Beta channel" --notes "Points the Beta update channel at the newest beta."`,
+   after that `gh release upload beta release.json --clobber`. **Never** publish `beta` as a
+   normal release: every Stable user would be offered the beta.
+5. Check: `curl -sL https://github.com/MK-HATERS/IcarusStarlink/releases/download/beta/release.json`.
+
+A stable release after betas is a normal release; Beta users get it too.
+
 ## Decided
 
 **UnrealPak.exe.** Kept as it is (decided 2026-10-16): `UnrealPakInstaller.cs` fetches the
