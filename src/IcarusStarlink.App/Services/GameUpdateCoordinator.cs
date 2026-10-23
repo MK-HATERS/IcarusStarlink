@@ -332,6 +332,12 @@ public sealed class GameUpdateCoordinator(
             return "Merge & Install is building right now. Roll back once it's done.";
         }
 
+        // Nor while it installs: that install's copy would land over (or be undone by) the roll back.
+        if (mergeInstall().IsInstalling)
+        {
+            return "Merge & Install is changing the game's mods folder right now. Roll back once it's done.";
+        }
+
         if (!dialogService.Confirm(
                 $"Roll back puts your mod setup back as it was on {snapshot.CreatedAtUtc.ToLocalTime():g}:\n\n"
                 + "• the merged pak in the game (what's there now is backed up first)\n"

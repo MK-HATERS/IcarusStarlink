@@ -405,7 +405,7 @@
 
                         <Border Style="{StaticResource SectionDividerStyle}" Margin="0,14,0,10"/>
                         <TextBlock Text="The merged pak in the game" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8" FontSize="13"/>
-                        <WrapPanel IsEnabled="{Binding IsNotRebuilding}">
+                        <WrapPanel IsEnabled="{Binding IsInstallIdle}">
                             <!-- The spec's "Copy built pack to game" / Retry: installs the already-staged
                                  pak without remerging. Shown only when there is one to copy. -->
                             <Button Command="{Binding CopyToGameCommand}" Margin="0,0,8,4"

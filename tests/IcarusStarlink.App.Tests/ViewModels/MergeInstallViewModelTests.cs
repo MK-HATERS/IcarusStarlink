@@ -1488,6 +1488,43 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Contains("folder is locked", vm.InstallStatusMessage);
     }
 
+    /// <summary>
+    /// While an install's question is open (and its copy runs), Copy to game, Remove from game,
+    /// Restore previous install and a build are refused: the build step used to clear its busy flag
+    /// before the install, so they could all overlap it.
+    /// </summary>
+    [Fact]
+    public async Task Install_WhileItRuns_OtherInstallStepsAndBuildsAreRefused()
+    {
+        var settings = new FakeSettingsService();
+        settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(installService: install, settingsService: settings);
+        var refusals = new List<string?>();
+        vm.Confirm = (_, _) =>
+        {
+            Assert.True(vm.IsInstalling);
+            Assert.False(vm.IsInstallIdle);
+            vm.CopyToGameCommand.Execute(null);
+            refusals.Add(vm.InstallStatusMessage);
+            vm.RemoveFromGameCommand.Execute(null);
+            refusals.Add(vm.InstallStatusMessage);
+            vm.RestorePreviousInstallCommand.Execute(null);
+            refusals.Add(vm.InstallStatusMessage);
+            Assert.False(vm.RebuildAsync().GetAwaiter().GetResult());
+            refusals.Add(vm.StatusMessage);
+            return true;
+        };
+
+        var outcome = await vm.InstallAsync();
+
+        Assert.Equal(MergeInstallViewModel.InstallOutcome.Installed, outcome);
+        Assert.Equal(1, install.InstallCallCount);
+        Assert.All(refusals, r => Assert.Contains("wait for it to finish", r));
+        Assert.False(vm.IsInstalling);
+        Assert.True(vm.IsInstallIdle);
+    }
+
     /// <summary>Suggest order asks through the same seam as every other question, and applying it saves into the profile in use.</summary>
     [Fact]
     public async Task SuggestQueueOrder_Yes_AppliesAndSavesIntoTheProfileInUse()

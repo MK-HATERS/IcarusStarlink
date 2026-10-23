@@ -130,7 +130,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// a snapshot taken when it starts, see BuildSnapshot; this keeps what's on screen matching it).
     /// </summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsNotRebuilding))]
+    [NotifyPropertyChangedFor(nameof(IsNotRebuilding), nameof(IsInstallIdle))]
     private bool _isRebuilding;
 
     public bool IsNotRebuilding => !IsRebuilding;
@@ -2156,8 +2156,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         // this guard can't miss an option the way it once did (Category 2's RequiredCurrentFiles
         // alone used to miss a Category-1-only option enabled with an empty queue, silently
         // skipping the rebuild those options needed). A greyed missing row is nothing to build.
-        if (IsRebuilding)
+        // Nor while an install is copying the staged pak this build would rewrite.
+        if (IsRebuilding || IsInstalling)
         {
+            StatusMessage = IsRebuilding
+                ? "Merge & Install is already building — wait for it to finish."
+                : "Merge & Install is changing the game's mods folder — wait for it to finish, then build.";
             return false;
         }
 
@@ -3202,7 +3206,44 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         }
     }
 
-    /// <summary>How an install ended: in the game, not done (the user said No, or the game started meanwhile), or failed. The reason is in InstallStatusMessage.</summary>
+    /// <summary>
+    /// The game-running guard every action that writes the game's mods folder has (Install, Remove
+    /// from game, Restore previous install): Icarus holds its paks open while it runs, so a pak
+    /// replaced or deleted under it is how a user ends up with a half-replaced mod pack. True (and
+    /// InstallStatusMessage says why) when the game is running.
+    /// </summary>
+    private bool RefuseWhileGameRunning(string message)
+    {
+        if (!IsGameRunning())
+        {
+            return false;
+        }
+
+        InstallStatusMessage = message;
+        return true;
+    }
+
+    /// <summary>
+    /// The confirmation before a mods-folder write, then the game-running check again: the question
+    /// gives the game time to start. True to go ahead. On No, InstallStatusMessage becomes
+    /// declinedMessage (left as it is when null).
+    /// </summary>
+    private bool ConfirmWithGameClosed(string question, string title, string retry, string? declinedMessage = null)
+    {
+        if (!Confirm(question, title))
+        {
+            if (declinedMessage is not null)
+            {
+                InstallStatusMessage = declinedMessage;
+            }
+
+            return false;
+        }
+
+        return !RefuseWhileGameRunning($"Icarus started while the confirmation was open — close it, then {retry}.");
+    }
+
+    /// <summary>How an install ended: in the game, not done (the user said No, the game started meanwhile, or another install or build was running), or failed. The reason is in InstallStatusMessage.</summary>
     internal enum InstallOutcome
     {
         Installed,
@@ -3211,11 +3252,43 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     }
 
     /// <summary>
+    /// While Install, Copy to game, Remove from game or Restore previous install is changing the
+    /// game's mods folder (its confirmation included). Each of those, a build and Roll back refuse
+    /// to start meanwhile: the build step used to clear IsRebuilding before the install that
+    /// follows it, so Copy to game, Remove from game and Restore stayed clickable while the
+    /// install's question was open and the copy ran (review 2026-10-23).
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsInstallIdle))]
+    private bool _isInstalling;
+
+    /// <summary>Neither building nor installing: the mods-folder buttons are enabled.</summary>
+    public bool IsInstallIdle => !IsRebuilding && !IsInstalling;
+
+    /// <summary>
     /// The one method in this whole app that writes into the real game's Content\Paks\mods.
     /// No [RelayCommand] — reached through RebuildAndInstallAsync's chain (the Install button),
     /// Copy to game (the staged pak again, without rebuilding) and Update everything.
     /// </summary>
     internal async Task<InstallOutcome> InstallAsync()
+    {
+        if (RefuseInstallWhileBusy())
+        {
+            return InstallOutcome.NotDone;
+        }
+
+        IsInstalling = true;
+        try
+        {
+            return await InstallCoreAsync();
+        }
+        finally
+        {
+            IsInstalling = false;
+        }
+    }
+
+    private async Task<InstallOutcome> InstallCoreAsync()
     {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
@@ -3230,12 +3303,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         }
 
         // The same guard the saves editor and the UE4SS tab already have, and the one place it was
-        // missing: Icarus holds its Paks folder open while running, so a pak copied under it is the
-        // one way a user can leave their game with a half-replaced mod pack. Checked here and again
-        // right before the copy, since the confirm dialog gives the game time to start.
-        if (IsGameRunning())
+        // missing. Checked here and again right after the confirmation (ConfirmWithGameClosed).
+        if (RefuseWhileGameRunning("Icarus is running — close it before installing, or the game keeps loading the old pack and the copy can fail halfway."))
         {
-            InstallStatusMessage = "Icarus is running — close it before installing, or the game keeps loading the old pack and the copy can fail halfway.";
             return InstallOutcome.NotDone;
         }
 
@@ -3277,18 +3347,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         // registry registration, the UE4SS loader install) — this one specifically overwrites the
         // user's actual installed mod pack, so it shouldn't ever be reachable via a single
         // accidental click.
-        if (!Confirm(
+        if (!ConfirmWithGameClosed(
             $"This copies the staged pak into '{_settingsService.Current.IcarusContentPath}\\Paks\\mods', overwriting whatever's currently installed there.\n\n" +
             $"The existing pak is backed up first (last {BackupCleanup.MergedPakBackupsKept} kept).{clearNote}\n\nContinue?",
-            "Install to Icarus"))
+            "Install to Icarus", retry: "Install again", declinedMessage: "Not installed: you chose not to."))
         {
-            InstallStatusMessage = "Not installed: you chose not to.";
-            return InstallOutcome.NotDone;
-        }
-
-        if (IsGameRunning())
-        {
-            InstallStatusMessage = "Icarus started while the confirmation was open — close it, then Install again.";
             return InstallOutcome.NotDone;
         }
 
@@ -3352,19 +3415,45 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     }
 
     /// <summary>
-    /// Copy to game, Remove from game and Restore previous install while a build runs: refused with
-    /// a reason (true). The build is rewriting the staged pak, so Copy to game could put a half-written
-    /// pak in the game, and the other two would be undone by the install that follows the build.
+    /// Install, Copy to game, Remove from game and Restore previous install while a build or another
+    /// of them runs: refused with a reason (true). A build is rewriting the staged pak, so Copy to
+    /// game could put a half-written pak in the game, and the other two would be undone by the
+    /// install that follows the build; two of them at once would back up and replace the same files.
     /// </summary>
-    private bool RefuseInstallWhileRebuilding()
+    private bool RefuseInstallWhileBusy()
     {
-        if (!IsRebuilding)
+        if (IsRebuilding)
         {
-            return false;
+            InstallStatusMessage = "Merge & Install is building — wait for it to finish first.";
+            return true;
         }
 
-        InstallStatusMessage = "Merge & Install is building — wait for it to finish first.";
-        return true;
+        if (IsInstalling)
+        {
+            InstallStatusMessage = "Merge & Install is already changing the game's mods folder — wait for it to finish first.";
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Runs a Remove from game / Restore previous install with IsInstalling set throughout, unless something else is building or installing.</summary>
+    private async Task RunInstallStepAsync(Func<Task> step)
+    {
+        if (RefuseInstallWhileBusy())
+        {
+            return;
+        }
+
+        IsInstalling = true;
+        try
+        {
+            await step();
+        }
+        finally
+        {
+            IsInstalling = false;
+        }
     }
 
     /// <summary>Shown once an install has failed on a locked file, or whenever a staged pak already exists — the spec's own "Copy built pack to game" / Retry affordance.</summary>
@@ -3374,14 +3463,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// <summary>
     /// The spec's "Copy built pack to game": installs the already-staged pak WITHOUT remerging.
     /// Mechanically the same as Install's second half — it shares InstallAsync rather than
-    /// duplicating it — but reachable on its own, which matters in the case it exists for: the
-    /// game held the file open, nothing about the staged pak changed, and rebuilding it again to
-    /// retry the copy is pure waste.
+    /// duplicating it (which also refuses while a build or another install runs) — but reachable
+    /// on its own, which matters in the case it exists for: the game held the file open, nothing
+    /// about the staged pak changed, and rebuilding it again to retry the copy is pure waste.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task CopyToGameAsync()
     {
-        if (RefuseInstallWhileRebuilding())
+        if (RefuseInstallWhileBusy())
         {
             return;
         }
@@ -3403,41 +3492,29 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// game folder.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
-    private async Task RemoveFromGameAsync()
-    {
-        if (RefuseInstallWhileRebuilding())
-        {
-            return;
-        }
+    private Task RemoveFromGameAsync() => RunInstallStepAsync(RemoveFromGameCoreAsync);
 
+    private async Task RemoveFromGameCoreAsync()
+    {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
             InstallStatusMessage = "Set the Icarus Content folder in Settings first.";
             return;
         }
 
-        // Icarus holds its paks open while it runs: the same guard Install has, before and after the
-        // confirmation (which gives the game time to start).
-        if (IsGameRunning())
+        if (RefuseWhileGameRunning("Icarus is running — close it before removing the pack, or the delete can fail halfway."))
         {
-            InstallStatusMessage = "Icarus is running — close it before removing the pack, or the delete can fail halfway.";
             return;
         }
 
         // Same explicit Yes/No gate InstallAsync itself already uses — this deletes a real file
         // from the user's actual game folder, so it shouldn't be reachable via a single accidental
         // click any more than overwriting it already isn't.
-        if (!Confirm(
+        if (!ConfirmWithGameClosed(
             $"This removes IcarusStarlink's installed pak from '{_settingsService.Current.IcarusContentPath}\\Paks\\mods'.\n\n" +
             $"It's backed up first (last {BackupCleanup.MergedPakBackupsKept} kept), and your Library copy of this mod isn't touched — only the real game install.\n\nContinue?",
-            "Remove from Icarus"))
+            "Remove from Icarus", retry: "Remove again"))
         {
-            return;
-        }
-
-        if (IsGameRunning())
-        {
-            InstallStatusMessage = "Icarus started while the confirmation was open — close it, then Remove again.";
             return;
         }
 
@@ -3473,22 +3550,18 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// first, so running this again undoes it.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
-    private async Task RestorePreviousInstallAsync()
-    {
-        if (RefuseInstallWhileRebuilding())
-        {
-            return;
-        }
+    private Task RestorePreviousInstallAsync() => RunInstallStepAsync(RestorePreviousInstallCoreAsync);
 
+    private async Task RestorePreviousInstallCoreAsync()
+    {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
             InstallStatusMessage = "Set the Icarus Content folder in Settings first.";
             return;
         }
 
-        if (IsGameRunning())
+        if (RefuseWhileGameRunning("Icarus is running — close it before restoring an earlier install."))
         {
-            InstallStatusMessage = "Icarus is running — close it before restoring an earlier install.";
             return;
         }
 
@@ -3503,17 +3576,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             var listNote = previous.ManifestBackupPath is null
                 ? "\n\nIts mod list wasn't backed up with it, so the Library won't show which mods are in the game until the next Merge & Install."
                 : "";
-            if (!Confirm(
+            if (!ConfirmWithGameClosed(
                 $"This puts back the merged pak that was installed before (backed up {previous.BackedUpAtUtc.ToLocalTime():g}), with its mod list.{listNote}\n\n"
                 + "What's installed now is backed up first, so you can switch back the same way.\n\nContinue?",
-                "Restore previous install"))
+                "Restore previous install", retry: "try again"))
             {
-                return;
-            }
-
-            if (IsGameRunning())
-            {
-                InstallStatusMessage = "Icarus started while the confirmation was open — close it, then try again.";
                 return;
             }
 
