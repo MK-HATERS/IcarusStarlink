@@ -211,9 +211,8 @@
                             Visibility="{Binding IsBuiltIn, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="Default" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                     </Border>
-                    <Border x:Name="LinkPill" Grid.Column="2" Margin="8,0,0,0" CornerRadius="8" Padding="7,1" VerticalAlignment="Center" Opacity="0"
-                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" IsHitTestVisible="False"
-                                Visibility="{Binding HasLinkedPartner, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Border x:Name="LinkPill" Grid.Column="2" Margin="8,0,0,0" CornerRadius="8" Padding="7,1" VerticalAlignment="Center"
+                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" IsHitTestVisible="False" Visibility="Collapsed">
                             <TextBlock FontSize="10.5" Foreground="{DynamicResource AccentBrush}"><Run Text="↔ "/><Run Text="{Binding LinkedPartner.Name, Mode=OneWay}"/></TextBlock>
                         </Border>
                 </Grid>
@@ -301,13 +300,21 @@
                      the same and nothing jumps in); the link pill shows while either half is hovered. -->
                 <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
                     <Setter TargetName="RowActions" Property="Opacity" Value="1"/>
-                    <Setter TargetName="LinkPill" Property="Opacity" Value="1"/>
                 </Trigger>
                 <DataTrigger Binding="{Binding IsSelectedForBulk}" Value="True">
                     <Setter TargetName="RowActions" Property="Opacity" Value="1"/>
                 </DataTrigger>
+                <!-- The pill takes no room until it shows: kept in the layout while invisible, it
+                     squeezed the names of every linked mod to nothing on a narrower window. -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsMouseOver, ElementName=Row}" Value="True"/>
+                        <Condition Binding="{Binding HasLinkedPartner}" Value="True"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter TargetName="LinkPill" Property="Visibility" Value="Visible"/>
+                </MultiDataTrigger>
                 <DataTrigger Binding="{Binding IsLinkHighlighted}" Value="True">
-                    <Setter TargetName="LinkPill" Property="Opacity" Value="1"/>
+                    <Setter TargetName="LinkPill" Property="Visibility" Value="Visible"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -513,9 +520,8 @@
                         </Border.Style>
                         <TextBlock Text="{Binding FileRiskLabel}" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource WindowBackgroundBrush}"/>
                     </Border>
-                    <Border x:Name="LinkPill" Grid.Column="2" Margin="8,0,0,0" CornerRadius="8" Padding="7,1" VerticalAlignment="Center" Opacity="0"
-                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" IsHitTestVisible="False"
-                                Visibility="{Binding HasLinkedPartner, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Border x:Name="LinkPill" Grid.Column="2" Margin="8,0,0,0" CornerRadius="8" Padding="7,1" VerticalAlignment="Center"
+                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" IsHitTestVisible="False" Visibility="Collapsed">
                             <TextBlock FontSize="10.5" Foreground="{DynamicResource AccentBrush}"><Run Text="↔ "/><Run Text="{Binding LinkedPartner.Name, Mode=OneWay}"/></TextBlock>
                         </Border>
                 </Grid>
@@ -652,13 +658,21 @@
                      the same and nothing jumps in); the link pill shows while either half is hovered. -->
                 <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
                     <Setter TargetName="RowActions" Property="Opacity" Value="1"/>
-                    <Setter TargetName="LinkPill" Property="Opacity" Value="1"/>
                 </Trigger>
                 <DataTrigger Binding="{Binding IsSelectedForBulk}" Value="True">
                     <Setter TargetName="RowActions" Property="Opacity" Value="1"/>
                 </DataTrigger>
+                <!-- The pill takes no room until it shows: kept in the layout while invisible, it
+                     squeezed the names of every linked mod to nothing on a narrower window. -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsMouseOver, ElementName=Row}" Value="True"/>
+                        <Condition Binding="{Binding HasLinkedPartner}" Value="True"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter TargetName="LinkPill" Property="Visibility" Value="Visible"/>
+                </MultiDataTrigger>
                 <DataTrigger Binding="{Binding IsLinkHighlighted}" Value="True">
-                    <Setter TargetName="LinkPill" Property="Opacity" Value="1"/>
+                    <Setter TargetName="LinkPill" Property="Visibility" Value="Visible"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -981,7 +995,7 @@
                         <Grid Grid.Row="3">
                             <TreeView x:Name="LibraryTree" ItemsSource="{Binding DataRootItems}" Background="Transparent" BorderThickness="0" AlternationCount="2"
                                       HorizontalContentAlignment="Stretch" BorderBrush="{DynamicResource BorderBrush}"
-                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                       SelectedItemChanged="LibraryTree_SelectedItemChanged"
                                       PreviewMouseRightButtonDown="LibraryTree_PreviewMouseRightButtonDown"
                                       PreviewMouseLeftButtonDown="LibraryTree_PreviewMouseLeftButtonDown"
@@ -1107,7 +1121,7 @@
                         <Grid Grid.Row="3">
                             <TreeView x:Name="Ue4ssTree" ItemsSource="{Binding Ue4ssRootItems}" Background="Transparent" BorderThickness="0" AlternationCount="2"
                                       HorizontalContentAlignment="Stretch" BorderBrush="{DynamicResource BorderBrush}"
-                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                       SelectedItemChanged="LibraryTree_SelectedItemChanged"
                                       PreviewMouseRightButtonDown="LibraryTree_PreviewMouseRightButtonDown"
                                       PreviewMouseLeftButtonDown="LibraryTree_PreviewMouseLeftButtonDown"

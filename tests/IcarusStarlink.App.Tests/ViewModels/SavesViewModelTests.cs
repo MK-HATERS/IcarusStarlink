@@ -177,6 +177,47 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
+    /// <summary>The user's ask (2026-10-23): a mission and its reward switch each other ON, never off.</summary>
+    [Fact]
+    public async Task MissionAndItsReward_SwitchEachOtherOn_ButNotOff()
+    {
+        var dataFolder = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_GameData", Guid.NewGuid().ToString("N"));
+        _tempFoldersToCleanUp.Add(dataFolder);
+        Directory.CreateDirectory(Path.Combine(dataFolder, "Flags"));
+        Directory.CreateDirectory(Path.Combine(dataFolder, "Talents"));
+        File.WriteAllText(Path.Combine(dataFolder, "Flags", "D_AccountFlags.json"), """
+            { "Rows": [ { "Name": "GrantedBlueprint_Bait", "BlueprintUnlocks": [ { "RowName": "Bait" } ],
+                          "RewardedFromMissions": [ { "RowName": "Tier3_Ext", "DataTableName": "D_ProspectList" } ] } ] }
+            """);
+        File.WriteAllText(Path.Combine(dataFolder, "Talents", "D_Talents.json"), """
+            { "Rows": [ { "Name": "Prospect_RL_Ext", "ExtraData": { "RowName": "Tier3_Ext", "DataTableName": "D_ProspectList" }, "TalentTree": { "RowName": "Prospect_Olympus" } } ] }
+            """);
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 0) };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(dataFolder));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var reward = Assert.Single(vm.AccountFlags);
+            var mission = Assert.Single(vm.WorkshopTalents, t => t.RowName == "Prospect_RL_Ext");
+            Assert.NotNull(reward.LinkHint);
+            Assert.NotNull(mission.LinkHint);
+
+            mission.IsDone = true;
+            Assert.True(reward.IsUnlocked);
+
+            mission.IsDone = false;
+            Assert.True(reward.IsUnlocked);
+
+            reward.IsUnlocked = false;
+            reward.IsUnlocked = true;
+            Assert.True(mission.IsDone);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     /// <summary>Regression: an unreadable PlayerData folder was reported as "No player saves found" (the read error was overwritten at once).</summary>
     [Fact]
     public async Task UnreadablePlayerDataFolder_IsReportedAsSuch()

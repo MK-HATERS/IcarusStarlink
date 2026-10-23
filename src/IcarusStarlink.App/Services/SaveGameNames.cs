@@ -27,6 +27,9 @@ public sealed class SaveGameNames(string dataFolder)
     private IReadOnlyList<string>? _mountTypeRowNames;
     private IReadOnlyDictionary<string, string>? _mountTypeIcons;
     private IReadOnlyList<string>? _dlcPackageNames;
+    private IReadOnlyDictionary<string, TreeInfo>? _talentTrees;
+    private IReadOnlyDictionary<string, IReadOnlyList<string>>? _talentsGatedByFlag;
+    private IReadOnlyDictionary<string, IReadOnlyList<string>>? _missionRewardFlags;
     private IReadOnlyList<FlagInfo>? _accountFlagInfos;
     private IReadOnlyList<FlagInfo>? _characterFlagInfos;
 
@@ -81,6 +84,157 @@ public sealed class SaveGameNames(string dataFolder)
         _dlcPackageNames = null;
         _accountFlagInfos = null;
         _characterFlagInfos = null;
+        _talentTrees = null;
+        _talentsGatedByFlag = null;
+        _missionRewardFlags = null;
+    }
+
+    /// <summary>
+    /// Flag row name -> the talents whose RequiredFlags name it (Caveworm Knife and Spear need
+    /// GrantedBlueprint_CavewormMelee). A character can have learned those talents while the flag is
+    /// off (found on the user's save: the game then shows them as unlocked), so the Unlocks tab says so.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> TalentsGatedByFlag => _talentsGatedByFlag ??= LoadTalentsGatedByFlag();
+
+    /// <summary>
+    /// Mission (a profile Prospect_* talent) -> the account flags finishing it rewards: the talent's
+    /// ExtraData names its D_ProspectList row, and D_AccountFlags' RewardedFromMissions names the
+    /// same rows. 53 of the game's 88 mission rewards link this way (2026-10-23); the other 35 come
+    /// from Great Hunt missions, which the save doesn't keep as Prospect_* talents.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> MissionRewardFlags => _missionRewardFlags ??= LoadMissionRewardFlags();
+
+    private IReadOnlyDictionary<string, IReadOnlyList<string>> LoadMissionRewardFlags()
+    {
+        var rewards = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var talentsPath = Path.Combine(dataFolder, "Talents", "D_Talents.json");
+            var flagsPath = Path.Combine(dataFolder, "Flags", "D_AccountFlags.json");
+            if (!File.Exists(talentsPath) || !File.Exists(flagsPath))
+            {
+                return new Dictionary<string, IReadOnlyList<string>>();
+            }
+
+            var missionsOfProspect = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            using (var talents = JsonDocument.Parse(File.ReadAllText(talentsPath)))
+            {
+                foreach (var row in talents.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (row.TryGetProperty("Name", out var n) && n.GetString() is { } talent
+                        && talent.StartsWith("Prospect_", StringComparison.OrdinalIgnoreCase)
+                        && row.TryGetProperty("ExtraData", out var extra) && extra.ValueKind == JsonValueKind.Object
+                        && extra.TryGetProperty("RowName", out var r) && r.GetString() is { } prospect)
+                    {
+                        (missionsOfProspect.TryGetValue(prospect, out var list) ? list : missionsOfProspect[prospect] = []).Add(talent);
+                    }
+                }
+            }
+
+            using var flags = JsonDocument.Parse(File.ReadAllText(flagsPath));
+            var defaults = DefaultsOf(flags);
+            foreach (var row in flags.RootElement.GetProperty("Rows").EnumerateArray())
+            {
+                if (!row.TryGetProperty("Name", out var n) || n.GetString() is not { } flag)
+                {
+                    continue;
+                }
+
+                foreach (var prospect in RowNames(row, defaults, "RewardedFromMissions"))
+                {
+                    foreach (var mission in missionsOfProspect.GetValueOrDefault(prospect, []))
+                    {
+                        (rewards.TryGetValue(mission, out var list) ? list : rewards[mission] = []).Add(flag);
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+            rewards.Clear();
+        }
+
+        return rewards.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private IReadOnlyDictionary<string, IReadOnlyList<string>> LoadTalentsGatedByFlag()
+    {
+        var gated = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var path = Path.Combine(dataFolder, "Talents", "D_Talents.json");
+            if (File.Exists(path))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (row.TryGetProperty("Name", out var n) && n.GetString() is { } talent)
+                    {
+                        foreach (var flag in RowNames(row, null, "RequiredFlags"))
+                        {
+                            (gated.TryGetValue(flag, out var list) ? list : gated[flag] = []).Add(talent);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+            gated.Clear();
+        }
+
+        return gated.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Every talent tree: its own name ("Resources"), its archetype's ("Survival", "Tier 1",
+    /// "Olympus", "Envirosuits") and the archetype's model — Player, Blueprint and Solo trees are a
+    /// character's; Workshop research and Prospect (mission completions) are the account's.
+    /// </summary>
+    public IReadOnlyDictionary<string, TreeInfo> TalentTrees => _talentTrees ??= LoadTalentTrees();
+
+    private IReadOnlyDictionary<string, TreeInfo> LoadTalentTrees()
+    {
+        var trees = new Dictionary<string, TreeInfo>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var archetypesPath = Path.Combine(dataFolder, "Talents", "D_TalentArchetypes.json");
+            var treesPath = Path.Combine(dataFolder, "Talents", "D_TalentTrees.json");
+            if (!File.Exists(archetypesPath) || !File.Exists(treesPath))
+            {
+                return trees;
+            }
+
+            var archetypes = new Dictionary<string, (string Display, string Model)>(StringComparer.OrdinalIgnoreCase);
+            using (var document = JsonDocument.Parse(File.ReadAllText(archetypesPath)))
+            {
+                foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (row.TryGetProperty("Name", out var n) && n.GetString() is { } name)
+                    {
+                        var model = row.TryGetProperty("Model", out var m) && m.ValueKind == JsonValueKind.Object && m.TryGetProperty("RowName", out var mr) ? mr.GetString() ?? "" : "";
+                        archetypes[name] = (ParseLocText(row, "DisplayName") ?? HumanizeMountType(name), model);
+                    }
+                }
+            }
+
+            using var treeDocument = JsonDocument.Parse(File.ReadAllText(treesPath));
+            foreach (var row in treeDocument.RootElement.GetProperty("Rows").EnumerateArray())
+            {
+                if (row.TryGetProperty("Name", out var n) && n.GetString() is { } name)
+                {
+                    var archetype = row.TryGetProperty("Archetype", out var a) && a.ValueKind == JsonValueKind.Object && a.TryGetProperty("RowName", out var ar) ? ar.GetString() ?? "" : "";
+                    var (archetypeDisplay, model) = archetypes.GetValueOrDefault(archetype, (HumanizeMountType(archetype), ""));
+                    trees[name] = new TreeInfo(ParseLocText(row, "DisplayName") ?? HumanizeMountType(name), archetypeDisplay, model);
+                }
+            }
+        }
+        catch (Exception)
+        {
+            trees.Clear();
+        }
+
+        return trees;
     }
 
     /// <summary>What each account flag is for (by row index), from D_AccountFlags' own fields — researched 2026-10-23.</summary>
@@ -133,7 +287,7 @@ public sealed class SaveGameNames(string dataFolder)
                     .Distinct()
                     .ToList();
                 var from = RowNames(row, defaults, "RewardedFromMissions").Select(r => missions.GetValueOrDefault(r, HumanizeMountType(r))).Distinct().ToList();
-                var fromText = from.Count == 0 ? "" : $" · from: {string.Join(", ", from)}";
+                var fromText = from.Count == 0 ? "" : $" · get it by finishing the mission {string.Join(" or ", from)}";
                 var points = talentPoints.GetValueOrDefault(name);
 
                 FlagInfo info;
@@ -337,6 +491,9 @@ public sealed class SaveGameNames(string dataFolder)
     /// </summary>
     public IReadOnlyList<string> DlcPackageNames => _dlcPackageNames ??= LoadRowNames(Path.Combine("DLC", "D_DLCPackageData.json"));
 
+    /// <summary>The D_DLCPackageData row for a flags-file index ("Dangerous_Horizons"); null when the table doesn't have it.</summary>
+    public string? DlcPackageRowName(int id) => id >= 0 && id < DlcPackageNames.Count ? DlcPackageNames[id] : null;
+
     /// <summary>"Dangerous Horizons" for a flags-file index; "DLC 31" when the table doesn't have it.</summary>
     public string DlcPackageName(int id) => id >= 0 && id < DlcPackageNames.Count ? HumanizeMountType(DlcPackageNames[id]) : $"DLC {id}";
 
@@ -462,6 +619,8 @@ public sealed class SaveGameNames(string dataFolder)
             using var document = JsonDocument.Parse(File.ReadAllText(path));
             var defaults = DefaultsOf(document);
             var workshopNames = LoadWorkshopItemNames();
+            var workshopCosts = LoadWorkshopCosts();
+            var missionNames = LoadMissionNames();
             foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
             {
                 if (!row.TryGetProperty("Name", out var name) || name.GetString() is not { } talentName)
@@ -493,16 +652,20 @@ public sealed class SaveGameNames(string dataFolder)
 
                 // Workshop research rows carry no name of their own (all 329): the name is the
                 // item they research, ExtraData -> D_WorkshopItems -> Item.
-                var workshopName = row.TryGetProperty("ExtraData", out var extra) && extra.ValueKind == JsonValueKind.Object
-                    && extra.TryGetProperty("RowName", out var extraRow) && extraRow.GetString() is { } extraRowName
-                    && workshopNames.TryGetValue(extraRowName, out var itemName) ? itemName : null;
+                // Mission completions (Prospect_*) are named after the mission, ExtraData -> D_ProspectList.
+                var extraRowName = row.TryGetProperty("ExtraData", out var extra) && extra.ValueKind == JsonValueKind.Object
+                    && extra.TryGetProperty("RowName", out var extraRow) ? extraRow.GetString() : null;
+                var workshopName = extraRowName is not null && workshopNames.TryGetValue(extraRowName, out var itemName) ? itemName : null;
+                var missionName = extraRowName is not null && missionNames.TryGetValue(extraRowName, out var mission) ? mission : null;
+                var cost = extraRowName is not null ? workshopCosts.GetValueOrDefault(extraRowName) : null;
 
                 talents.TryAdd(talentName, new TalentInfo(
-                    ParseLocText(row, "DisplayName", defaults) ?? workshopName ?? talentName,
+                    ParseLocText(row, "DisplayName", defaults) ?? workshopName ?? missionName ?? talentName,
                     ParseLocText(row, "Description", defaults) ?? "",
                     tree,
                     maxRank,
-                    defaultUnlocked));
+                    defaultUnlocked,
+                    cost));
             }
         }
         catch (Exception)
@@ -511,6 +674,49 @@ public sealed class SaveGameNames(string dataFolder)
         }
 
         return talents;
+    }
+
+    /// <summary>The game's own names for its currencies (D_MetaCurrency rows).</summary>
+    private static readonly Dictionary<string, string> CurrencyNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Credits"] = "Ren", ["Exotic1"] = "Exotics", ["Exotic_Red"] = "Red Exotics", ["Biomass"] = "Biomass",
+        ["Exotic_Uranium"] = "Uranium", ["Licence"] = "Licences", ["Refund"] = "Respec Points", ["Biomass_Converter"] = "Flux",
+    };
+
+    /// <summary>D_WorkshopItems row -> "50 Ren" (its ResearchCost).</summary>
+    private Dictionary<string, string> LoadWorkshopCosts()
+    {
+        var costs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var path = Path.Combine(dataFolder, "MetaWorkshop", "D_WorkshopItems.json");
+            if (File.Exists(path))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (row.TryGetProperty("Name", out var n) && n.GetString() is { } workshopRow
+                        && row.TryGetProperty("ResearchCost", out var list) && list.ValueKind == JsonValueKind.Array)
+                    {
+                        var parts = list.EnumerateArray()
+                            .Select(c => (Meta: c.TryGetProperty("Meta", out var m) && m.TryGetProperty("RowName", out var mr) ? mr.GetString() ?? "?" : "?",
+                                          Amount: c.TryGetProperty("Amount", out var a) && a.ValueKind == JsonValueKind.Number ? a.GetInt32() : 0))
+                            .Where(c => c.Amount > 0)
+                            .Select(c => $"{c.Amount:N0} {CurrencyNames.GetValueOrDefault(c.Meta, c.Meta)}");
+                        var text = string.Join(" + ", parts);
+                        if (text.Length > 0)
+                        {
+                            costs[workshopRow] = text;
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return costs;
     }
 
     /// <summary>D_WorkshopItems row -> the display name of the item it researches (D_ItemTemplate -> D_ItemsStatic -> D_Itemable), for workshop talents. Empty when the tables are missing.</summary>
@@ -752,7 +958,22 @@ public sealed class SaveGameNames(string dataFolder)
 
 /// <param name="MaxRank">The most ranks this talent can hold, from its own Rewards tiers — what the editor caps rank controls at.</param>
 /// <param name="IsDefaultUnlocked">The row's own bDefaultUnlocked — the game grants it from the start WITHOUT writing it into the save, so the editor must show it as unlocked even at rank 0.</param>
-public sealed record TalentInfo(string DisplayName, string Description, string Tree, int MaxRank, bool IsDefaultUnlocked);
+/// <param name="Cost">Workshop research only: "50 Ren" (D_WorkshopItems ResearchCost).</param>
+public sealed record TalentInfo(string DisplayName, string Description, string Tree, int MaxRank, bool IsDefaultUnlocked, string? Cost = null);
+
+/// <param name="Display">The tree's own name ("Resources").</param>
+/// <param name="ArchetypeDisplay">Its archetype's ("Survival", "Tier 1", "Olympus", "Envirosuits").</param>
+/// <param name="Model">Player, Blueprint, Solo (a character's), Workshop or Prospect (the account's).</param>
+public sealed record TreeInfo(string Display, string ArchetypeDisplay, string Model)
+{
+    /// <summary>
+    /// "Survival · Resources" for a character's trees; just "Armors" / "Elysium" for workshop and
+    /// mission trees, whose own names only repeat the archetype's ("Workshop Armors", "Prospect Elysium").
+    /// </summary>
+    public string Group => Model is "Workshop" or "Prospect" || string.Equals(Display, ArchetypeDisplay, StringComparison.OrdinalIgnoreCase)
+        ? ArchetypeDisplay
+        : $"{ArchetypeDisplay} · {Display}";
+}
 
 public sealed record AccoladeInfo(string DisplayName, string Description, string Category, int GoalCount);
 

@@ -14,7 +14,23 @@ public sealed partial class SaveFlagViewModel : ObservableObject, IDirtyTrackabl
     public string Name { get; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowLearnedNote))]
     private bool _isUnlocked;
+
+    /// <summary>
+    /// "MKHATERS already learned Caveworm Knife, Caveworm Spear" — set by SavesViewModel for a mission
+    /// reward whose blueprints the selected character has although the flag is off (the game shows
+    /// those as unlocked). Null when there's nothing to say.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowLearnedNote))]
+    private string? _learnedNote;
+
+    public bool ShowLearnedNote => LearnedNote is not null && !IsUnlocked;
+
+    /// <summary>"Switching it on marks Recovery done too" — a mission reward linked to its mission row.</summary>
+    [ObservableProperty]
+    private string? _linkHint;
 
     public bool IsDirty => IsUnlocked != _originalUnlocked;
 

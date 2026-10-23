@@ -94,14 +94,15 @@ public sealed class SaveGameNamesTests : IDisposable
             """);
         Write(@"Talents\D_Talents.json", """
             { "Rows": [ { "Name": "Wood_Sticks", "DisplayName": "NSLOCTEXT(\"D_Talents\", \"x\", \"Stick Collector\")",
-                          "Rewards": [ { "GrantedFlags": [ { "RowName": "Talent_Wood_Sticks", "DataTableName": "D_CharacterFlags" } ] } ] } ] }
+                          "Rewards": [ { "GrantedFlags": [ { "RowName": "Talent_Wood_Sticks", "DataTableName": "D_CharacterFlags" } ] } ] },
+                        { "Name": "Prospect_RL_Extermination", "ExtraData": { "RowName": "Tier3_RiverLands_Extermination_0", "DataTableName": "D_ProspectList" } } ] }
             """);
         var names = new SaveGameNames(_data);
 
         var bait = names.AccountFlagInfo(0);
         Assert.Equal(FlagKind.Reward, bait.Kind);
         Assert.Equal("Bait", bait.Display);
-        Assert.Equal("Unlocks Meat Bait · from: Riverlands Extermination", bait.Detail);
+        Assert.Equal("Unlocks Meat Bait · get it by finishing the mission Riverlands Extermination", bait.Detail);
         Assert.Equal(FlagKind.TalentPoints, names.AccountFlagInfo(1).Kind);
         Assert.StartsWith("+3 talent points", names.AccountFlagInfo(1).Detail);
         Assert.Equal(FlagKind.Prompt, names.AccountFlagInfo(2).Kind);
@@ -111,5 +112,8 @@ public sealed class SaveGameNamesTests : IDisposable
         Assert.Equal([FlagKind.Unused, FlagKind.FromTalent, FlagKind.Unused, FlagKind.Unused, FlagKind.Unused, FlagKind.Marker],
             Enumerable.Range(0, 6).Select(i => names.CharacterFlagInfo(i).Kind));
         Assert.Contains("Stick Collector", names.CharacterFlagInfo(1).Detail);
+
+        // The mission row in the save -> the reward its completion gives.
+        Assert.Equal(["GrantedBlueprint_Bait"], names.MissionRewardFlags["Prospect_RL_Extermination"]);
     }
 }

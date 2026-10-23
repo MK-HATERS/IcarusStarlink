@@ -12,6 +12,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
@@ -234,74 +235,159 @@
             <!-- Talents: character talents searchable with rank editing; workshop research below.
                  Every talent the game defines is available via "Show unlearned" — turning a rank
                  up grants it (rank 0 is the format's own "doesn't have it"). -->
+            <!-- Talents: the selected character's talent, blueprint and solo trees, grouped by tree under
+                 the game's own names (SaveGameNames.TalentTrees). Workshop research and missions are
+                 the account's and have their own tabs. -->
             <TabItem Header="Talents">
-                <Grid Margin="0,10,0,0">
-                    <!-- Drag the handle to share the height between this character's talents and the
-                         account-wide Workshop research below. -->
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*" MinHeight="120"/>
-                        <RowDefinition Height="12"/>
-                        <RowDefinition Height="190" MinHeight="90"/>
-                    </Grid.RowDefinitions>
-
-                    <WrapPanel Grid.Row="0" Margin="0,0,0,8">
-                        <Grid Width="240" VerticalAlignment="Center">
-                            <TextBox Text="{Binding TalentSearchText, UpdateSourceTrigger=PropertyChanged}"/>
-                            <TextBlock Text="Search talents…" Style="{StaticResource PlaceholderTextStyle}"
+                <TabItem.Resources>
+                    <CollectionViewSource x:Key="TalentGroups" Source="{Binding FilteredTalents}">
+                        <CollectionViewSource.GroupDescriptions>
+                            <PropertyGroupDescription PropertyName="Group"/>
+                        </CollectionViewSource.GroupDescriptions>
+                    </CollectionViewSource>
+                </TabItem.Resources>
+                <DockPanel Margin="0,10,0,0">
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <Grid Width="260" VerticalAlignment="Center">
+                            <TextBox Text="{Binding TalentSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search talents (name or tree)"/>
+                            <TextBlock Text="Search talents (name or tree)…" Style="{StaticResource PlaceholderTextStyle}"
                                        Visibility="{Binding TalentSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                         </Grid>
+                        <TextBlock Text="Show" VerticalAlignment="Center" Margin="14,0,6,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        <ComboBox ItemsSource="{Binding TalentKindOptions}" SelectedItem="{Binding TalentKind}" Width="110" AutomationProperties.Name="Which trees"/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Show unlearned" IsChecked="{Binding ShowUnlearnedTalents}"
-                                  Margin="12,0,0,0" VerticalAlignment="Center"
+                                  Margin="14,0,0,0" VerticalAlignment="Center"
                                   ToolTip="Lists every talent the game defines, not just this character's — set a rank above 0 to grant one"/>
                     </WrapPanel>
-
-                    <ListBox Grid.Row="1" ItemsSource="{Binding FilteredTalents}" HorizontalContentAlignment="Stretch">
+                    <TextBlock DockPanel.Dock="Top" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6">
+                        <Run Text="{Binding SelectedCharacter.Name, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text=" · "/><Run Text="{Binding TalentRanksSummary, Mode=OneWay}"/>
+                    </TextBlock>
+                    <ListBox ItemsSource="{Binding Source={StaticResource TalentGroups}}" HorizontalContentAlignment="Stretch"
+                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                        <ListBox.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ListBox.GroupStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel Margin="2" ToolTip="{Binding Description}">
                                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                                         <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
-                                        <!-- Shown as rank/max — the max comes from the talent's own Rewards tiers
-                                             in the game data, and + stops there: a rank beyond it doesn't exist. -->
-                                        <TextBlock Text="{Binding RankDisplay}" MinWidth="40" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
+                                        <TextBlock Text="{Binding RankDisplay}" MinWidth="44" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
                                         <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" IsEnabled="{Binding CanRankUp}" AutomationProperties.Name="Rank up"
                                                 ToolTip="One rank higher. Greyed out: already at the highest rank this talent has." ToolTipService.ShowOnDisabled="True"/>
                                     </StackPanel>
-                                    <StackPanel>
-                                        <TextBlock FontSize="12.5">
-                                            <Run Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
-                                        </TextBlock>
-                                        <TextBlock Text="{Binding Tree}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"/>
-                                    </StackPanel>
-                                </DockPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-
-                    <GridSplitter Grid.Row="2" Style="{StaticResource HorizontalPaneSplitterStyle}"
-                                  AutomationProperties.Name="Resize talents and workshop research"/>
-                    <DockPanel Grid.Row="3">
-                    <TextBlock DockPanel.Dock="Top" Text="Workshop research (account-wide)" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
-                    <ListBox ItemsSource="{Binding WorkshopTalents}" HorizontalContentAlignment="Stretch">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <DockPanel Margin="2" ToolTip="{Binding Description}">
-                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
-                                        <TextBlock Text="{Binding RankDisplay}" MinWidth="40" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
-                                        <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" IsEnabled="{Binding CanRankUp}" AutomationProperties.Name="Rank up"
-                                                ToolTip="One rank higher. Greyed out: already at the highest rank this talent has." ToolTipService.ShowOnDisabled="True"/>
-                                    </StackPanel>
-                                    <TextBlock FontSize="12.5" VerticalAlignment="Center">
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5">
                                         <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
                                     </TextBlock>
                                 </DockPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    </DockPanel>
-                </Grid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- Workshop: the account's research, grouped by workshop tree, with what it costs. -->
+            <TabItem Header="Workshop">
+                <TabItem.Resources>
+                    <CollectionViewSource x:Key="WorkshopGroups" Source="{Binding FilteredWorkshop}">
+                        <CollectionViewSource.GroupDescriptions>
+                            <PropertyGroupDescription PropertyName="Group"/>
+                        </CollectionViewSource.GroupDescriptions>
+                    </CollectionViewSource>
+                </TabItem.Resources>
+                <DockPanel Margin="0,10,0,0">
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <Grid Width="260" VerticalAlignment="Center">
+                            <TextBox Text="{Binding WorkshopSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search research"/>
+                            <TextBlock Text="Search research…" Style="{StaticResource PlaceholderTextStyle}"
+                                       Visibility="{Binding WorkshopSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
+                        <TextBlock Text="{Binding WorkshopSummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    </WrapPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Account-wide: every character can buy what's researched here from the Workshop." FontSize="12"
+                               Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"/>
+                    <ListBox ItemsSource="{Binding Source={StaticResource WorkshopGroups}}" HorizontalContentAlignment="Stretch"
+                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                        <ListBox.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ListBox.GroupStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="2" ToolTip="{Binding RowName}">
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
+                                        <TextBlock Text="{Binding RankDisplay}" MinWidth="44" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
+                                        <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" IsEnabled="{Binding CanRankUp}" AutomationProperties.Name="Rank up"
+                                                ToolTip="One rank higher. Greyed out: already at the highest rank this talent has." ToolTipService.ShowOnDisabled="True"/>
+                                    </StackPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Cost}" VerticalAlignment="Center" Margin="0,0,14,0" FontSize="11.5"
+                                               Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                    <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" FontSize="12.5"/>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </TabItem>
+
+            <!-- Missions: the account's completed missions (the profile's Prospect_* entries), by map. -->
+            <TabItem Header="Missions">
+                <TabItem.Resources>
+                    <CollectionViewSource x:Key="MissionGroups" Source="{Binding FilteredMissions}">
+                        <CollectionViewSource.GroupDescriptions>
+                            <PropertyGroupDescription PropertyName="Group"/>
+                        </CollectionViewSource.GroupDescriptions>
+                    </CollectionViewSource>
+                </TabItem.Resources>
+                <DockPanel Margin="0,10,0,0">
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <Grid Width="260" VerticalAlignment="Center">
+                            <TextBox Text="{Binding MissionSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search missions"/>
+                            <TextBlock Text="Search missions…" Style="{StaticResource PlaceholderTextStyle}"
+                                       Visibility="{Binding MissionSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                        </Grid>
+                        <TextBlock Text="{Binding MissionsSummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    </WrapPanel>
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"
+                               Text="Account-wide. Marking a mission done also turns on the unlock it rewards (a message says which). Ren and Exotics it pays aren't added: change those under Characters. Turning a mission off leaves its reward on, as the game does."/>
+                    <ListBox ItemsSource="{Binding Source={StaticResource MissionGroups}}" HorizontalContentAlignment="Stretch"
+                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                        <ListBox.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ListBox.GroupStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="2" ToolTip="{Binding RowName}">
+                                    <CheckBox DockPanel.Dock="Left" Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding IsDone}" VerticalAlignment="Center"
+                                              Margin="0,0,10,0" AutomationProperties.Name="{Binding DisplayName, StringFormat='Done: {0}'}"/>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding DisplayName}" FontSize="12.5"/>
+                                        <TextBlock Text="{Binding LinkHint}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"
+                                                   Visibility="{Binding LinkHint, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
             </TabItem>
 
             <!-- Unlocks (was Flags): grouped by what each flag is for (SaveGameNames.FlagInfo, researched
@@ -319,6 +405,10 @@
                                     <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
                                     <TextBlock Text="{Binding Detail}" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"
                                                Visibility="{Binding Detail, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                    <TextBlock Text="{Binding LinkHint}" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" TextWrapping="Wrap"
+                                               Visibility="{Binding LinkHint, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                    <TextBlock Text="{Binding LearnedNote}" FontSize="11.5" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"
+                                               Visibility="{Binding ShowLearnedNote, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                 </StackPanel>
                             </DockPanel>
                         </Border>
@@ -397,7 +487,7 @@
                                 </DockPanel>
                             </Expander.Header>
                         <StackPanel>
-                            <TextBlock Text="The game's own cached list of the DLC this account owns (the slot's flags file) — DLC and Supporter Edition content follows it. Icarus may refresh this list from its own ownership check when it starts, which can undo a change here."
+                            <TextBlock Text="The game's cached list of the DLC it last saw this account own (the slot's flags file). The game also checks DLC itself when it starts (Steam, or a DLC unlocker), so a pack that's off here can still work in game, and a change here can be undone by that check."
                                        Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
                             <ItemsControl ItemsSource="{Binding FilteredBinaryFlags}">
                                 <ItemsControl.ItemsPanel>
@@ -407,8 +497,12 @@
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding Name}" IsChecked="{Binding IsUnlocked}"
-                                                  Margin="0,2,16,2" ToolTip="{Binding Id, StringFormat='D_DLCPackageData row {0}'}"/>
+                                        <StackPanel Margin="0,2,16,2" MaxWidth="420">
+                                            <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding Name}" IsChecked="{Binding IsUnlocked}"
+                                                      ToolTip="{Binding RowName}"/>
+                                            <TextBlock Text="{Binding LearnedNote}" FontSize="11" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap" Margin="40,0,0,0"
+                                                       Visibility="{Binding ShowLearnedNote, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -634,14 +728,9 @@
             </TabItem>
         </TabControl>
 
-        <!-- Save bar sits under the tabs, always visible -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,4,4">
-            <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="0,0,12,0" TextWrapping="Wrap" MaxWidth="520"
-                       Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"
-                       Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-            <TextBlock Text="{Binding SkippedSectionsNote}" VerticalAlignment="Center" Margin="0,0,12,0" TextWrapping="Wrap" MaxWidth="360"
-                       Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11"
-                       Visibility="{Binding SkippedSectionsNote, Converter={StaticResource NullToVisibilityConverter}}"/>
+        <!-- Save bar: its own row under the tabs (it used to float over the lists), saying what's unsaved. -->
+        <DockPanel Grid.Row="4" Margin="0,8,0,0" LastChildFill="True">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
             <Button Content="Reload" Command="{Binding ReloadCommand}" Padding="10,4" Margin="0,0,8,0"
                     AutomationProperties.Name="Reload save"
                     ToolTip="Reads the save from disk again, for example after you played. Unsaved edits on this page are lost (it asks first)."/>
@@ -655,6 +744,15 @@
                     <TextBlock Text="Save player data" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
-        </StackPanel>
+            </StackPanel>
+            <TextBlock DockPanel.Dock="Left" Text="{Binding ChangesSummary}" VerticalAlignment="Center" Margin="0,0,14,0" FontWeight="SemiBold"
+                       Foreground="{DynamicResource AccentBrush}" Visibility="{Binding ChangesSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12"
+                           Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                <TextBlock Text="{Binding SkippedSectionsNote}" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11"
+                           Visibility="{Binding SkippedSectionsNote, Converter={StaticResource NullToVisibilityConverter}}"/>
+            </StackPanel>
+        </DockPanel>
     </Grid>
 </UserControl>

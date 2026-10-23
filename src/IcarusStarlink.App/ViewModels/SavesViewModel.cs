@@ -293,6 +293,45 @@ public sealed partial class SavesViewModel : ObservableObject
     /// <summary>How many unused flags are hidden, for the switch's label.</summary>
     public string ShowUnusedFlagsLabel => $"Show flags the game doesn't use ({AccountFlags.Concat(SelectedCharacter?.Flags ?? []).Count(f => f.Kind is FlagKind.Unused or FlagKind.Unknown)})";
 
+    /// <summary>
+    /// For each mission reward: the blueprints it gates that the selected character has already
+    /// learned. With the flag off they still count in game (the user's report, 2026-10-23: rewards
+    /// shown off here were unlocked on the in-game blueprint screen), so the row says so.
+    /// </summary>
+    private void UpdateLearnedNotes()
+    {
+        var learned = SelectedCharacter is { } character
+            ? character.Talents.Where(t => t.Rank > 0).ToDictionary(t => t.RowName, t => t.DisplayName, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var flag in AccountFlags)
+        {
+            var have = _gameNames.TalentsGatedByFlag.GetValueOrDefault(flag.RowName, [])
+                .Where(learned.ContainsKey)
+                .Select(t => learned[t])
+                .Distinct()
+                .ToList();
+            flag.LearnedNote = have.Count == 0 || SelectedCharacter is null
+                ? null
+                : $"Off in the save, but {SelectedCharacter.Name} already learned {string.Join(", ", have)} — the game shows those as unlocked.";
+        }
+
+        // DLC packs: the file is only the game's cache of what it last saw; the game also checks
+        // DLC itself (Steam, or an unlocker), so a pack that's off here can still be on in game
+        // (the user's report, 2026-10-23). The save's own content from a pack says so.
+        var researched = WorkshopTalents.Where(t => t.Rank > 0).ToDictionary(t => t.RowName, t => t.DisplayName, StringComparer.OrdinalIgnoreCase);
+        foreach (var pack in BinaryFlags)
+        {
+            var have = _gameNames.TalentsGatedByFlag.GetValueOrDefault(pack.RowName, [])
+                .Select(t => learned.GetValueOrDefault(t) ?? researched.GetValueOrDefault(t))
+                .OfType<string>()
+                .Distinct()
+                .ToList();
+            pack.LearnedNote = have.Count == 0
+                ? null
+                : $"Off in the cache, but this save already has {string.Join(", ", have.Take(4))}{(have.Count > 4 ? $" and {have.Count - 4} more" : "")} — the game sees the pack itself.";
+        }
+    }
+
     private void RefreshFlagFilter()
     {
         // 45 + 100 rows — a straight rebuild per keystroke is cheaper than filter plumbing.
@@ -301,6 +340,7 @@ public sealed partial class SavesViewModel : ObservableObject
         RefreshFilter(BinaryFlags, FilteredBinaryFlags, FlagSearchText, null, f => f.Name);
 
         var characterFlags = SelectedCharacter?.Flags ?? [];
+        UpdateLearnedNotes();
         RefreshFilter(AccountFlags, RewardFlags, FlagSearchText, f => f.Kind == FlagKind.Reward, f => f.Name, f => f.Detail);
         RefreshFilter(AccountFlags, TalentPointFlags, FlagSearchText, f => f.Kind == FlagKind.TalentPoints, f => f.Name, f => f.Detail);
         RefreshFilter(AccountFlags.Concat(characterFlags), AdvancedFlags, FlagSearchText,
@@ -355,14 +395,92 @@ public sealed partial class SavesViewModel : ObservableObject
 
     partial void OnShowUnlearnedTalentsChanged(bool value) => RefreshTalentFilter();
 
+    /// <summary>The Talents tab's "Show": All, Talents (the Player trees), Blueprints, Solo.</summary>
+    public IReadOnlyList<string> TalentKindOptions { get; } = ["All", "Talents", "Blueprints", "Solo"];
+
+    [ObservableProperty]
+    private string _talentKind = "All";
+
+    partial void OnTalentKindChanged(string value) => RefreshTalentFilter();
+
+    private bool MatchesTalentKind(SaveTalentViewModel talent) => TalentKind switch
+    {
+        "Talents" => talent.Model == "Player",
+        "Blueprints" => talent.Model == "Blueprint",
+        "Solo" => talent.Model == "Solo",
+        _ => true,
+    };
+
+    /// <summary>"Talents 583 ranks · Blueprints 701 · Solo 45" for the selected character.</summary>
+    public string TalentRanksSummary
+    {
+        get
+        {
+            var talents = SelectedCharacter?.Talents ?? [];
+            int Sum(string model) => talents.Where(t => t.Model == model).Sum(t => t.Rank);
+            return $"Ranks spent — Talents {Sum("Player"):N0} · Blueprints {Sum("Blueprint"):N0} · Solo {Sum("Solo"):N0}";
+        }
+    }
+
     private void RefreshTalentFilter()
     {
         // "Only what this character has" includes bDefaultUnlocked talents — the game grants those
         // from the start without writing them into the save, so rank alone under-reports.
         RefreshFilter(
-            SelectedCharacter?.Talents ?? [], FilteredTalents, TalentSearchText,
-            t => ShowUnlearnedTalents || t.IsUnlockedInGame || t.IsDirty,
-            t => t.DisplayName, t => t.RowName, t => t.Tree);
+            (SelectedCharacter?.Talents ?? []).OrderBy(t => t.Group, StringComparer.OrdinalIgnoreCase), FilteredTalents, TalentSearchText,
+            t => (ShowUnlearnedTalents || t.IsUnlockedInGame || t.IsDirty) && MatchesTalentKind(t),
+            t => t.DisplayName, t => t.RowName, t => t.Group);
+        OnPropertyChanged(nameof(TalentRanksSummary));
+    }
+
+    // --- Workshop research and Missions: both live in the profile's Talents list (WorkshopTalents
+    //     holds them all and is what Save writes); the tabs show its Workshop and Prospect parts. ---
+
+    public ObservableCollection<SaveTalentViewModel> FilteredWorkshop { get; } = [];
+
+    public ObservableCollection<SaveTalentViewModel> FilteredMissions { get; } = [];
+
+    [ObservableProperty]
+    private string _workshopSearchText = "";
+
+    [ObservableProperty]
+    private string _missionSearchText = "";
+
+    partial void OnWorkshopSearchTextChanged(string value) => RefreshAccountTalentFilters();
+
+    partial void OnMissionSearchTextChanged(string value) => RefreshAccountTalentFilters();
+
+    private static bool IsMission(SaveTalentViewModel t) => t.Model == "Prospect" || t.RowName.StartsWith("Prospect_", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The developers' own test missions (the Prospect_Dev tree): kept in the save, never listed.</summary>
+    private static bool IsDevMission(SaveTalentViewModel t) => t.Tree.Equals("Prospect_Dev", StringComparison.OrdinalIgnoreCase) && t.Rank == 0;
+
+    public string WorkshopSummary
+    {
+        get
+        {
+            var research = WorkshopTalents.Where(t => !IsMission(t)).ToList();
+            return $"{research.Count(t => t.Rank > 0)} of {research.Count} researched";
+        }
+    }
+
+    public string MissionsSummary
+    {
+        get
+        {
+            var missions = WorkshopTalents.Where(t => IsMission(t) && !IsDevMission(t)).ToList();
+            return $"{missions.Count(t => t.Rank > 0)} of {missions.Count} done";
+        }
+    }
+
+    private void RefreshAccountTalentFilters()
+    {
+        RefreshFilter(WorkshopTalents.Where(t => !IsMission(t)).OrderBy(t => t.Group, StringComparer.OrdinalIgnoreCase), FilteredWorkshop, WorkshopSearchText, null,
+            t => t.DisplayName, t => t.RowName, t => t.Group);
+        RefreshFilter(WorkshopTalents.Where(t => IsMission(t) && !IsDevMission(t)).OrderBy(t => t.Group, StringComparer.OrdinalIgnoreCase), FilteredMissions, MissionSearchText, null,
+            t => t.DisplayName, t => t.RowName, t => t.Group);
+        OnPropertyChanged(nameof(WorkshopSummary));
+        OnPropertyChanged(nameof(MissionsSummary));
     }
 
     partial void OnSelectedCharacterChanged(SaveCharacterViewModel? value)
@@ -703,7 +821,11 @@ public sealed partial class SavesViewModel : ObservableObject
                 _binaryFlagIds = null;
                 OnPropertyChanged(nameof(HasBinaryFlags));
             });
-            LoadSection("workshop research", BuildWorkshopTalents, WorkshopTalents.Clear);
+            LoadSection("workshop research", BuildWorkshopTalents, () =>
+            {
+                WorkshopTalents.Clear();
+                RefreshAccountTalentFilters();
+            });
 
             LoadSection("accolades", () =>
             {
@@ -781,11 +903,49 @@ public sealed partial class SavesViewModel : ObservableObject
         // leaves it null (unchanged), so the account and binary flags kept the previous slot's.
         RefreshFlagFilter();
         OnPropertyChanged(nameof(HasUnsavedChanges));
+        OnPropertyChanged(nameof(ChangesSummary));
         await worldsLoad;
+    }
+
+    /// <summary>"Unsaved: Characters, Unlocks, Bestiary" — what Save would write, named on the Save bar.</summary>
+    public string? ChangesSummary
+    {
+        get
+        {
+            if (_loadFailed)
+            {
+                return null;
+            }
+
+            var parts = new List<string>();
+            void Add(bool dirty, string name)
+            {
+                if (dirty)
+                {
+                    parts.Add(name);
+                }
+            }
+
+            Add(CharactersDirty, "Characters");
+            Add(Currencies.Any(c => c.IsDirty), "Currencies");
+            Add(AccountFlags.Any(f => f.IsDirty), "Unlocks");
+            Add(BinaryFlags.Any(f => f.IsDirty), "Owned DLC");
+            Add(WorkshopTalents.Any(t => t.IsDirty && !IsMission(t)), "Workshop");
+            Add(WorkshopTalents.Any(t => t.IsDirty && IsMission(t)), "Missions");
+            Add(Accolades.Any(a => a.IsDirty), "Accolades");
+            Add(BestiaryEntries.Any(b => b.IsDirty), "Bestiary");
+            Add(_metaInventoryDirty, "Items");
+            Add(_mountsListDirty || Mounts.Any(m => m.IsDirty), "Mounts");
+            return parts.Count == 0 ? null : $"Unsaved: {string.Join(", ", parts)}";
+        }
     }
 
     private void NotifyDirtyChanged()
     {
+        OnPropertyChanged(nameof(ChangesSummary));
+        OnPropertyChanged(nameof(TalentRanksSummary));
+        OnPropertyChanged(nameof(WorkshopSummary));
+        OnPropertyChanged(nameof(MissionsSummary));
         OnPropertyChanged(nameof(HasUnsavedChanges));
         OnPropertyChanged(nameof(HasAnyUnsavedEdits));
         OnPropertyChanged(nameof(OwnedDlcSummary));
@@ -797,7 +957,101 @@ public sealed partial class SavesViewModel : ObservableObject
         var unlocked = SaveJson.IdArray(_profile?["UnlockedFlags"]).ToHashSet();
         foreach (var id in SaveFlagIds.KnownThenExtra(_gameNames.AccountFlagNames.Count, unlocked))
         {
-            AccountFlags.Add(new SaveFlagViewModel(id, _gameNames.AccountFlagInfo(id), unlocked.Contains(id), NotifyDirtyChanged));
+            var flag = new SaveFlagViewModel(id, _gameNames.AccountFlagInfo(id), unlocked.Contains(id), NotifyDirtyChanged);
+            flag.PropertyChanged += OnRewardFlagChanged;
+            AccountFlags.Add(flag);
+        }
+    }
+
+    // --- Mission <-> reward links (the user's ask, 2026-10-23): marking a mission done turns on
+    // the unlocks it rewards, switching a reward on marks its mission done, and a message says so.
+    // Only switching ON carries over: the game never takes a reward back when a mission is undone. ---
+
+    private readonly Dictionary<SaveTalentViewModel, List<SaveFlagViewModel>> _rewardsOfMission = [];
+    private readonly Dictionary<SaveFlagViewModel, List<SaveTalentViewModel>> _missionsOfReward = [];
+    private bool _applyingLink;
+
+    /// <summary>Pairs each mission row with its reward rows and writes both rows' hints; after both lists are built.</summary>
+    private void LinkMissionRewards()
+    {
+        _rewardsOfMission.Clear();
+        _missionsOfReward.Clear();
+        var flagsByRow = new Dictionary<string, SaveFlagViewModel>(StringComparer.OrdinalIgnoreCase);
+        foreach (var flag in AccountFlags)
+        {
+            flagsByRow.TryAdd(flag.RowName, flag);
+            flag.LinkHint = null;
+        }
+
+        foreach (var mission in WorkshopTalents.Where(IsMission))
+        {
+            var rewards = _gameNames.MissionRewardFlags.GetValueOrDefault(mission.RowName, [])
+                .Select(row => flagsByRow.GetValueOrDefault(row))
+                .OfType<SaveFlagViewModel>()
+                .ToList();
+            mission.LinkHint = rewards.Count == 0
+                ? null
+                : $"Reward: {string.Join(", ", rewards.Select(r => r.Name))} — marking it done turns {(rewards.Count == 1 ? "that" : "those")} on in Unlocks too.";
+            if (rewards.Count == 0)
+            {
+                continue;
+            }
+
+            _rewardsOfMission[mission] = rewards;
+            foreach (var reward in rewards)
+            {
+                (_missionsOfReward.TryGetValue(reward, out var list) ? list : _missionsOfReward[reward] = []).Add(mission);
+            }
+        }
+
+        foreach (var (reward, missions) in _missionsOfReward)
+        {
+            reward.LinkHint = $"Switching it on marks {string.Join(" and ", missions.Select(m => m.DisplayName))} done on the Missions tab too.";
+        }
+    }
+
+    private void OnMissionChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (_applyingLink || e.PropertyName != nameof(SaveTalentViewModel.Rank)
+            || sender is not SaveTalentViewModel { Rank: > 0 } mission || !_rewardsOfMission.TryGetValue(mission, out var rewards))
+        {
+            return;
+        }
+
+        var turnedOn = rewards.Where(r => !r.IsUnlocked).ToList();
+        ApplyLink(() => turnedOn.ForEach(r => r.IsUnlocked = true));
+        if (turnedOn.Count > 0)
+        {
+            _activityLog.Log($"Marked {mission.DisplayName} done, so its reward is on too: {string.Join(", ", turnedOn.Select(r => r.Name))} (Unlocks tab).", ActivityEntryKind.Success);
+        }
+    }
+
+    private void OnRewardFlagChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (_applyingLink || e.PropertyName != nameof(SaveFlagViewModel.IsUnlocked)
+            || sender is not SaveFlagViewModel { IsUnlocked: true } reward || !_missionsOfReward.TryGetValue(reward, out var missions))
+        {
+            return;
+        }
+
+        var marked = missions.Where(m => m.Rank == 0).ToList();
+        ApplyLink(() => marked.ForEach(m => m.IsDone = true));
+        if (marked.Count > 0)
+        {
+            _activityLog.Log($"Turned on {reward.Name}, so its mission is marked done too: {string.Join(", ", marked.Select(m => m.DisplayName))} (Missions tab).", ActivityEntryKind.Success);
+        }
+    }
+
+    private void ApplyLink(Action change)
+    {
+        _applyingLink = true;
+        try
+        {
+            change();
+        }
+        finally
+        {
+            _applyingLink = false;
         }
     }
 
@@ -834,7 +1088,8 @@ public sealed partial class SavesViewModel : ObservableObject
             var set = owned.ToHashSet();
             foreach (var id in SaveFlagIds.KnownThenExtra(_gameNames.DlcPackageNames.Count, set))
             {
-                BinaryFlags.Add(new SaveFlagViewModel(id, _gameNames.DlcPackageName(id), set.Contains(id), NotifyDirtyChanged));
+                var info = new FlagInfo(_gameNames.DlcPackageRowName(id) ?? $"DLC {id}", _gameNames.DlcPackageName(id), "", FlagKind.Marker);
+                BinaryFlags.Add(new SaveFlagViewModel(id, info, set.Contains(id), NotifyDirtyChanged));
             }
         }
 
@@ -862,17 +1117,32 @@ public sealed partial class SavesViewModel : ObservableObject
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (rowName, rank) in ranks)
         {
-            WorkshopTalents.Add(new SaveTalentViewModel(rowName, SaveCharacterViewModel.DisplayInfoFor(_gameNames, rowName), rank, NotifyDirtyChanged));
+            AddWorkshopTalent(new SaveTalentViewModel(rowName, SaveCharacterViewModel.DisplayInfoFor(_gameNames, rowName), rank, NotifyDirtyChanged));
             seen.Add(rowName);
         }
 
+        // Missions not done yet too (Prospect_*), so the Missions tab lists every one.
         foreach (var (rowName, info) in _gameNames.Talents)
         {
-            if (rowName.StartsWith("Workshop_", StringComparison.OrdinalIgnoreCase) && !seen.Contains(rowName))
+            if ((rowName.StartsWith("Workshop_", StringComparison.OrdinalIgnoreCase) || rowName.StartsWith("Prospect_", StringComparison.OrdinalIgnoreCase))
+                && !seen.Contains(rowName))
             {
-                WorkshopTalents.Add(new SaveTalentViewModel(rowName, new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank, info.IsDefaultUnlocked), 0, NotifyDirtyChanged));
+                AddWorkshopTalent(new SaveTalentViewModel(rowName, SaveCharacterViewModel.DisplayInfoFor(_gameNames, info), 0, NotifyDirtyChanged));
             }
         }
+
+        LinkMissionRewards();
+        RefreshAccountTalentFilters();
+    }
+
+    private void AddWorkshopTalent(SaveTalentViewModel talent)
+    {
+        if (IsMission(talent))
+        {
+            talent.PropertyChanged += OnMissionChanged;
+        }
+
+        WorkshopTalents.Add(talent);
     }
 
     // --- Accolades (account-wide, Accolades.json — a separate file from Profile.json) ---
@@ -1743,6 +2013,7 @@ public sealed partial class SavesViewModel : ObservableObject
             }
 
             OnPropertyChanged(nameof(HasUnsavedChanges));
+            OnPropertyChanged(nameof(ChangesSummary));
             RefreshBackupsList();
             StatusMessage = "Saved. A backup of the previous state was kept.";
             _activityLog.Log($"Edited player save {SelectedSlot.Display}.", ActivityEntryKind.Success);
