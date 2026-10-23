@@ -415,4 +415,19 @@ public sealed class GameEditorViewModelTests : IDisposable
 
         Assert.Contains("typed changes on the Editor page", IcarusStarlink.App.Services.AppBusyCheck.UnsavedEdits());
     }
+
+    /// <summary>A review finding: Refresh game data reloaded the item and threw away every typed value.</summary>
+    [Fact]
+    public void RefreshGameData_KeepsTheTypedChanges()
+    {
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        Weight(vm).ValueText = "50";
+
+        WeakReferenceMessenger.Default.Send(new WeeklyChangeReportUpdatedMessage());
+
+        Assert.Equal("Envirosuit", vm.SelectedItem?.Name);
+        Assert.Equal("50", Weight(vm).ValueText);
+        Assert.Equal(1, vm.PendingCount);
+    }
 }

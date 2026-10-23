@@ -263,10 +263,14 @@ public sealed partial class GameEditorViewModel : ObservableObject
         }
     }
 
-    private void ReloadForTarget()
+    // The values shown are the game's with the target mod's changes on top; typed changes come
+    // along to the newly chosen mod instead of being lost or applied to values not on screen.
+    private void ReloadForTarget() => ReloadKeepingTyped("don't apply to that mod's version of this item");
+
+    /// <summary>Reloads the shown item's cards, putting back every typed value that still has a place (and each card's own-copy choice).</summary>
+    /// <param name="whyDropped">Ends "N typed change(s) …, so they were dropped."</param>
+    private void ReloadKeepingTyped(string whyDropped)
     {
-        // The values shown are the game's with the target mod's changes on top; typed changes come
-        // along to the newly chosen mod instead of being lost or applied to values not on screen.
         var typed = Sections.SelectMany(s => s.Fields.Where(f => f.IsPending).Select(f => (Section: s.Section.Key, Path: f.Field.Path.Key, f.ValueText))).ToList();
         var ownCopy = Sections.ToDictionary(s => s.Section.Key, s => s.OwnCopy);
         LoadItem();
@@ -290,7 +294,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
         if (carried < typed.Count)
         {
-            StatusMessage = $"{typed.Count - carried} typed change(s) don't apply to that mod's version of this item and were dropped.";
+            StatusMessage = $"{typed.Count - carried} typed change(s) {whyDropped}, so they were dropped.";
         }
     }
 
@@ -496,7 +500,8 @@ public sealed partial class GameEditorViewModel : ObservableObject
         _statChoices = null;
         QuickStarts.Clear();
         EnsureLoaded();
-        LoadItem();
+        // Refresh game data used to throw away whatever was typed here, without a word.
+        ReloadKeepingTyped("aren't in the refreshed game data");
     }
 
     private void RefreshFilter()
