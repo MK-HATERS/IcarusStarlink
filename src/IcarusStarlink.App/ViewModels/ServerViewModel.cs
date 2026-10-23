@@ -8,7 +8,6 @@ using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Server;
 using IcarusStarlink.Core.Settings;
-using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -26,7 +25,6 @@ public sealed partial class ServerViewModel : ObservableObject
     private readonly Func<IFtpClient> _ftpClientFactory;
     private readonly IActivityLog _activityLog;
     private readonly ISettingsService _settingsService;
-    private readonly IUe4ssModRepository _ue4ssModRepository;
     private readonly IDialogService _dialogService;
     private readonly string _outputPakPath;
     private readonly string _pakManifestPath;
@@ -144,7 +142,6 @@ public sealed partial class ServerViewModel : ObservableObject
         Func<IFtpClient> ftpClientFactory,
         IActivityLog activityLog,
         ISettingsService settingsService,
-        IUe4ssModRepository ue4ssModRepository,
         IDialogService dialogService,
         string outputPakPath,
         LocalServerViewModel? local = null)
@@ -155,7 +152,6 @@ public sealed partial class ServerViewModel : ObservableObject
         _ftpClientFactory = ftpClientFactory;
         _activityLog = activityLog;
         _settingsService = settingsService;
-        _ue4ssModRepository = ue4ssModRepository;
         _dialogService = dialogService;
         _outputPakPath = outputPakPath;
         _pakManifestPath = Path.Combine(Path.GetDirectoryName(outputPakPath)!, InstallManifestNames.PakManifest);

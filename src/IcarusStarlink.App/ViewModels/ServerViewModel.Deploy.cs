@@ -256,11 +256,13 @@ public sealed partial class ServerViewModel
             }
 
             var remoteHasSettings = (await TryListRemoteAsync(RemoteLoaderPath))
-                .Any(e => !e.IsDirectory && string.Equals(e.Name, "UE4SS-settings.ini", StringComparison.OrdinalIgnoreCase));
+                .Any(e => !e.IsDirectory && string.Equals(e.Name, Ue4ssServerFiles.SettingsFileName, StringComparison.OrdinalIgnoreCase));
 
-            var localFiles = Directory.GetFiles(localLoaderFolder, "*", SearchOption.AllDirectories)
-                .Where(f => !IsUnderModsFolder(localLoaderFolder, f))
-                .Where(f => !(remoteHasSettings && Path.GetFileName(f).Equals("UE4SS-settings.ini", StringComparison.OrdinalIgnoreCase)))
+            // The same loader files a local server gets: no Mods folder, and none of the game's own
+            // logs or crash dumps (those used to be uploaded over the server's own UE4SS.log).
+            var localFiles = Ue4ssServerFiles.LoaderFiles(localLoaderFolder)
+                .Where(r => !(remoteHasSettings && string.Equals(r, Ue4ssServerFiles.SettingsFileName, StringComparison.OrdinalIgnoreCase)))
+                .Select(r => Path.Combine(localLoaderFolder, r))
                 .ToList();
 
             var prompt =
@@ -296,11 +298,11 @@ public sealed partial class ServerViewModel
     }
 
     /// <summary>
-    /// Uploads whichever locally-enabled UE4SS mods (the game's own real Mods\ folder — not this
-    /// app's staging) aren't already present on the server, by folder name. Additive only, mirroring
-    /// the same "never overwrite/remove something already there" philosophy the local loader
-    /// install and enable/disable state service both already use — this never touches or removes a
-    /// mod already on the server, including the framework's own built-ins.
+    /// Uploads the UE4SS mods that are on in the game (Ue4ssServerFiles.ModsOnInGame: the same rule
+    /// a local server uses, so switched-off mods and the framework's own stay home) and aren't on
+    /// the server yet, then turns them on in the server's mods.txt (review 2026-10-23: every
+    /// installed mod went up and none was ever switched on there). Additive only: a mod already on
+    /// the server, and its on/off line, are left as the server has them.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task SyncUe4ssModsToServerAsync()
@@ -343,16 +345,15 @@ public sealed partial class ServerViewModel
                 remoteEntries.Where(e => e.IsDirectory).Select(e => e.Name),
                 StringComparer.OrdinalIgnoreCase);
 
-            var localNames = _ue4ssModRepository.ListInstalledInGame(localModsFolder);
-            var missing = localNames.Where(n => !remoteNames.Contains(n)).ToList();
+            var missing = Ue4ssServerFiles.ModsOnInGame(localModsFolder).Where(n => !remoteNames.Contains(n)).ToList();
             if (missing.Count == 0)
             {
-                ConnectionStatusMessage = "Server already has every locally-enabled UE4SS mod.";
+                ConnectionStatusMessage = "The server already has every UE4SS mod that's on in your game.";
                 return;
             }
 
             var prompt =
-                $"This will upload the following UE4SS mod(s) to '{RemoteModsRootPath}' on '{_connectedSite?.Name}' "
+                $"This will upload the following UE4SS mod(s) to '{RemoteModsRootPath}' on '{_connectedSite?.Name}' and turn them on in its mods.txt "
                 + $"(nothing already there is touched):\n{string.Join('\n', missing.Select(n => $"  - {n}"))}\n\nContinue?";
             if (!(_dialogService.Confirm(prompt, "Sync UE4SS mods to server", ThemedConfirmSeverity.Warning)))
             {
@@ -364,12 +365,19 @@ public sealed partial class ServerViewModel
                 var localModFolder = Path.Combine(localModsFolder, modName);
                 foreach (var localFile in Directory.GetFiles(localModFolder, "*", SearchOption.AllDirectories))
                 {
+                    if (string.Equals(Path.GetExtension(localFile), ".log", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue; // what the mod logged in the game, not part of it
+                    }
+
                     var relative = Path.GetRelativePath(localModFolder, localFile).Replace('\\', '/');
                     await _connectedClient.UploadFileAsync(localFile, $"{RemoteModsRootPath}/{modName}/{relative}");
                 }
             }
 
-            ConnectionStatusMessage = $"Uploaded {missing.Count} UE4SS mod(s) to '{_connectedSite?.Name}'.";
+            await TurnOnInRemoteModsTxtAsync(missing);
+
+            ConnectionStatusMessage = $"Uploaded {missing.Count} UE4SS mod(s) to '{_connectedSite?.Name}' and turned them on. They load when the server restarts.";
             _activityLog.Log($"Uploaded {missing.Count} UE4SS mod(s) to FTP site '{_connectedSite?.Name}': {string.Join(", ", missing)}.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
@@ -395,10 +403,57 @@ public sealed partial class ServerViewModel
         }
     }
 
-    private static bool IsUnderModsFolder(string loaderFolder, string filePath)
+    /// <summary>
+    /// Adds "Name : 1" to the server's mods.txt for each mod (editing its own copy, so its other
+    /// lines and order stay; a new file when it has none). The edited file goes up under a
+    /// temporary name and is renamed into place, like the merged pak.
+    /// </summary>
+    private async Task TurnOnInRemoteModsTxtAsync(IReadOnlyList<string> modNames)
     {
-        var relative = Path.GetRelativePath(loaderFolder, filePath);
-        var firstSegment = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
-        return firstSegment.Equals("Mods", StringComparison.OrdinalIgnoreCase);
+        var remoteTxt = $"{RemoteModsRootPath}/{Ue4ssModStart.ListFileName}";
+        var temp = Path.GetTempFileName();
+        try
+        {
+            var hasOne = (await TryListRemoteAsync(RemoteModsRootPath))
+                .Any(e => !e.IsDirectory && string.Equals(e.Name, Ue4ssModStart.ListFileName, StringComparison.OrdinalIgnoreCase));
+            if (hasOne)
+            {
+                await _connectedClient!.DownloadFileAsync(remoteTxt, temp);
+            }
+            else
+            {
+                File.WriteAllText(temp, "");
+            }
+
+            var list = Ue4ssModsTxt.Load(temp);
+            foreach (var name in modNames)
+            {
+                list.Set(name, true);
+            }
+
+            list.Save(temp);
+            try
+            {
+                await _connectedClient!.UploadFileAsync(temp, UploadingName(remoteTxt));
+                await _connectedClient.RenameFileAsync(UploadingName(remoteTxt), remoteTxt);
+            }
+            catch (FtpOperationRejectedException)
+            {
+                // The server won't rename: write it straight over the real name.
+                await _connectedClient!.UploadFileAsync(temp, remoteTxt);
+                try
+                {
+                    await _connectedClient.DeleteFileAsync(UploadingName(remoteTxt));
+                }
+                catch (FtpOperationRejectedException)
+                {
+                    // Not a .txt UE4SS reads; harmless if it stays.
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(temp);
+        }
     }
 }

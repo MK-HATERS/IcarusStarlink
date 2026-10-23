@@ -32,13 +32,12 @@ public sealed class ServerViewModelTests
         ModsPath = modsPath, Win64Path = win64Path,
     };
 
-    private static ServerViewModel CreateViewModel(FakeFtpSiteStore siteStore, IFtpClient ftpClient, FakeDialogService? dialogService = null, string? outputPakPath = null, ICredentialStore? credentialStore = null) => new(
+    private static ServerViewModel CreateViewModel(FakeFtpSiteStore siteStore, IFtpClient ftpClient, FakeDialogService? dialogService = null, string? outputPakPath = null, ICredentialStore? credentialStore = null, ISettingsService? settings = null) => new(
         siteStore,
         credentialStore ?? new FakeCredentialStore(),
         () => ftpClient,
         new FakeActivityLog(),
-        new FakeSettingsService(),
-        new FakeUe4ssModRepository(),
+        settings ?? new FakeSettingsService(),
         dialogService ?? new FakeDialogService(confirmResult: true),
         outputPakPath ?? Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"), "ISL-Merged_P.pak"));
 
@@ -517,6 +516,148 @@ public sealed class ServerViewModelTests
 
             Files.Remove(fromRemotePath);
             Files.Add(toRemotePath);
+            return Task.CompletedTask;
+        }
+
+        public Task DisconnectAsync() => Task.CompletedTask;
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private const string RemoteUe4ss = "Icarus/Binaries/Win64/ue4ss";
+
+    /// <summary>A fake game install: Content\, and Binaries\Win64\ue4ss beside it.</summary>
+    private static (string Folder, FakeSettingsService Settings) GameWithUe4ss()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+        var content = Path.Combine(folder, "Icarus", "Content");
+        Directory.CreateDirectory(content);
+        var settings = new FakeSettingsService();
+        settings.Current.IcarusContentPath = content;
+        return (folder, settings);
+    }
+
+    private static void WriteFile(string path, string text = "x")
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, text);
+    }
+
+    private static async Task<ServerViewModel> ConnectedAsync(IFtpClient ftp, ISettingsService settings)
+    {
+        var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), ftp, settings: settings);
+        vm.SelectedSite = vm.Sites.Single();
+        vm.PasswordInput = "irrelevant-password";
+        await vm.ConnectCommand.ExecuteAsync(null);
+        return vm;
+    }
+
+    /// <summary>Only mods that are on in the game go up (not switched-off ones, not the framework's), and they are switched on in the server's mods.txt, whose other lines stay.</summary>
+    [Fact]
+    public async Task SyncUe4ssMods_UploadsOnlyModsOnInTheGame_AndTurnsThemOnInTheServersModsTxt()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        try
+        {
+            var mods = IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveModsFolder(settings.Current.IcarusContentPath!);
+            WriteFile(Path.Combine(mods, "mods.txt"), "OnMod : 1\r\nOffMod : 0\r\nBPModLoaderMod : 1\r\n");
+            WriteFile(Path.Combine(mods, "OnMod", "Scripts", "main.lua"));
+            WriteFile(Path.Combine(mods, "OnMod", "OnMod.log"));
+            WriteFile(Path.Combine(mods, "OffMod", "Scripts", "main.lua"));
+            WriteFile(Path.Combine(mods, "BPModLoaderMod", "Scripts", "main.lua"));
+            WriteFile(Path.Combine(mods, "shared", "Types.lua"));
+            var ftp = new MemoryFtpClient();
+            ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"] = "Existing : 0\r\n; Built-in keybinds, do not move up!\r\nKeybinds : 1\r\n";
+            ftp.Files[$"{RemoteUe4ss}/Mods/Existing/Scripts/main.lua"] = "x";
+            var vm = await ConnectedAsync(ftp, settings);
+
+            await vm.SyncUe4ssModsToServerCommand.ExecuteAsync(null);
+
+            Assert.Contains($"{RemoteUe4ss}/Mods/OnMod/Scripts/main.lua", ftp.Files.Keys);
+            Assert.DoesNotContain(ftp.Files.Keys, f => f.Contains("/OffMod/") || f.Contains("/BPModLoaderMod/") || f.Contains("/shared/") || f.EndsWith(".log", StringComparison.Ordinal));
+            var txt = ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"];
+            Assert.Equal("Existing : 0\r\nOnMod : 1\r\n; Built-in keybinds, do not move up!\r\nKeybinds : 1\r\n", txt);
+            Assert.DoesNotContain(ftp.Files.Keys, f => f.EndsWith(".uploading", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>The game's own UE4SS.log (and crash dumps) used to be uploaded over the server's; the loader files still go.</summary>
+    [Fact]
+    public async Task SyncUe4ssLoader_SkipsTheGamesLogs()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        try
+        {
+            var loader = IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveLoaderFolder(settings.Current.IcarusContentPath!);
+            WriteFile(Path.Combine(loader, "UE4SS.dll"));
+            WriteFile(Path.Combine(loader, "UE4SS.log"), "UE4SS - v3.0.1 Beta #0 - Git SHA #abcdef1\r\n");
+            WriteFile(Path.Combine(loader, "crash.dmp"));
+            WriteFile(IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveDwmapiPath(settings.Current.IcarusContentPath!));
+            var ftp = new MemoryFtpClient();
+            var vm = await ConnectedAsync(ftp, settings);
+
+            await vm.SyncUe4ssLoaderToServerCommand.ExecuteAsync(null);
+
+            Assert.Contains($"{RemoteUe4ss}/UE4SS.dll", ftp.Files.Keys);
+            Assert.Contains("Icarus/Binaries/Win64/dwmapi.dll", ftp.Files.Keys);
+            Assert.DoesNotContain($"{RemoteUe4ss}/UE4SS.log", ftp.Files.Keys);
+            Assert.DoesNotContain($"{RemoteUe4ss}/crash.dmp", ftp.Files.Keys);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>An FTP server in memory with real folders and file contents: listing shows the direct children.</summary>
+    private sealed class MemoryFtpClient : IFtpClient
+    {
+        public Dictionary<string, string> Files { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<FtpEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default)
+        {
+            var prefix = remotePath.TrimEnd('/') + "/";
+            var children = Files.Keys.Where(f => f.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .Select(f => f[prefix.Length..])
+                .Select(rest => rest.Contains('/') ? new FtpEntry(rest[..rest.IndexOf('/')], true, null, null) : new FtpEntry(rest, false, 1, null))
+                .DistinctBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<FtpEntry>>(children);
+        }
+
+        public Task UploadFileAsync(string localPath, string remotePath, CancellationToken cancellationToken = default)
+        {
+            Files[remotePath] = File.ReadAllText(localPath);
+            return Task.CompletedTask;
+        }
+
+        public Task DownloadFileAsync(string remotePath, string localPath, CancellationToken cancellationToken = default)
+        {
+            if (!Files.TryGetValue(remotePath, out var text))
+            {
+                throw new IOException("550 File not found");
+            }
+
+            File.WriteAllText(localPath, text);
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default)
+        {
+            Files.Remove(remotePath);
+            return Task.CompletedTask;
+        }
+
+        public Task RenameFileAsync(string fromRemotePath, string toRemotePath, CancellationToken cancellationToken = default)
+        {
+            Files[toRemotePath] = Files[fromRemotePath];
+            Files.Remove(fromRemotePath);
             return Task.CompletedTask;
         }
 
