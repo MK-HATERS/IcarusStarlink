@@ -508,6 +508,7 @@ public sealed partial class SavesViewModel : ObservableObject
         AccountFlags.Clear();
         WorkshopTalents.Clear();
         Accolades.Clear();
+        _accoladeLines = [];
         BestiaryEntries.Clear();
         MetaInventoryItems.Clear();
         Mounts.Clear();
@@ -639,6 +640,7 @@ public sealed partial class SavesViewModel : ObservableObject
             {
                 _accoladesRoot = null;
                 Accolades.Clear();
+                BuildAccoladeLines();
                 RefreshAccoladeFilter();
             });
             LoadSection("bestiary", () =>
@@ -798,6 +800,8 @@ public sealed partial class SavesViewModel : ObservableObject
         OnPropertyChanged(nameof(HasUnsavedChanges));
         OnPropertyChanged(nameof(HasAnyUnsavedEdits));
         OnPropertyChanged(nameof(OwnedDlcSummary));
+        NotifyFlagSummaries();
+        OnPropertyChanged(nameof(SelectedLevelDisplay));
     }
 
     /// <summary>

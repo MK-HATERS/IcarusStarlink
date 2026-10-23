@@ -16,6 +16,18 @@ public sealed class WorldItemViewModel(WorldSave save)
 
     public string Name => Save.Name;
 
+    /// <summary>
+    /// A mission or story world is saved under a 32-character id ("B6E8A7604E8C4D29041549B1AE40E6DE"),
+    /// not a name the player typed: it's titled by its prospect ("ELY Story 1") and the id shows faint.
+    /// </summary>
+    public bool HasGeneratedName => Save.Name.Length == 32 && Save.Name.All(Uri.IsHexDigit) && Save.ProspectType.Length > 0;
+
+    /// <summary>The name shown: the world's own, or its prospect's for a world saved under an id.</summary>
+    public string Title => HasGeneratedName ? Save.ProspectType.Replace('_', ' ') : Save.Name;
+
+    /// <summary>The id, faint under a generated-name world's title; null otherwise.</summary>
+    public string? RawId => HasGeneratedName ? Save.Name : null;
+
     /// <summary>"Outpost006_Forest · Extreme · Hardcore".</summary>
     public string Detail => string.Join(" · ", new[] { Save.ProspectType, Save.Difficulty, Save.Hardcore ? "Hardcore" : null, Save.State is "Active" or "" ? null : Save.State }.Where(s => !string.IsNullOrEmpty(s)));
 }
@@ -224,7 +236,7 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
         }
 
         if (HasChanges && oldValue is not null && _dialogService is { } dialogs
-            && !dialogs.Confirm($"Switch worlds? Your unsaved settings for '{oldValue.Name}' will be lost.", "Unsaved world settings", ThemedConfirmSeverity.Warning))
+            && !dialogs.Confirm($"Switch worlds? Your unsaved settings for '{oldValue.Title}' will be lost.", "Unsaved world settings", ThemedConfirmSeverity.Warning))
         {
             // Put back after the list finishes its own selection change, or it keeps showing the new one.
             void Revert()
@@ -291,7 +303,7 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
         if (_blockedReason() is { } reason)
         {
             StatusMessage = reason;
-            _activityLog.Log($"World settings for '{world.Name}' not saved: {reason}", ActivityEntryKind.Warning);
+            _activityLog.Log($"World settings for '{world.Title}' not saved: {reason}", ActivityEntryKind.Warning);
             return;
         }
 
@@ -300,13 +312,13 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
             var changes = Rows.Where(r => r.IsChanged).ToDictionary(r => r.Definition.Name, r => r.Value, StringComparer.OrdinalIgnoreCase);
             var backup = world.Save.Save(changes, _backupFolder);
             LoadRows();
-            StatusMessage = $"Saved {changes.Count} setting(s) for '{world.Name}'. The world was backed up first ({Path.GetFileName(backup)}).";
+            StatusMessage = $"Saved {changes.Count} setting(s) for '{world.Title}'. The world was backed up first ({Path.GetFileName(backup)}).";
             _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't save the world: {ex.Message}";
-            _activityLog.Log($"Couldn't save the world '{world.Name}': {ex.Message}", ActivityEntryKind.Warning);
+            _activityLog.Log($"Couldn't save the world '{world.Title}': {ex.Message}", ActivityEntryKind.Warning);
         }
     }
 

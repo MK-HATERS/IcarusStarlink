@@ -82,6 +82,9 @@ public sealed class ViewSmokeTests
                     }
 
                     new TextBox { Style = (Style)saves["SaveSearchBoxStyle"] }.ApplyTemplate();
+                    new GroupItem { Style = (Style)saves["SaveCollapsibleGroupItemStyle"] }.ApplyTemplate();
+                    new System.Windows.Controls.Primitives.ToggleButton { Style = (Style)saves["AccoladeTierChipStyle"] }.ApplyTemplate();
+                    new Border { Style = (Style)saves["SaveRowHoverStyle"] }.ApplyTemplate();
                 }
                 catch (Exception ex) when (ex is XamlParseException or InvalidOperationException)
                 {

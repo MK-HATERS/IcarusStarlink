@@ -170,6 +170,23 @@ public sealed class WorldSettingsViewModelTests : IDisposable
         Assert.Equal(!discard, vm.HasChanges);
     }
 
+    /// <summary>A mission world is saved under a 32-character id: it's titled by its prospect, with the id kept faint.</summary>
+    [Fact]
+    public void AWorldSavedUnderAnId_IsTitledByItsProspect()
+    {
+        File.WriteAllText(Path.Combine(_root, "Prospects", "B6E8A7604E8C4D29041549B1AE40E6DE.json"),
+            "{\"ProspectInfo\": {\"ProspectID\": \"B6E8A7604E8C4D29041549B1AE40E6DE\", \"ProspectDTKey\": \"ELY_Story_1\", \"Difficulty\": \"Medium\", \"CustomSettings\": []}, \"ProspectBlob\": {}}");
+        var vm = Create();
+
+        var mission = vm.Worlds.Single(w => w.Name == "B6E8A7604E8C4D29041549B1AE40E6DE");
+        Assert.Equal("ELY Story 1", mission.Title);
+        Assert.Equal("B6E8A7604E8C4D29041549B1AE40E6DE", mission.RawId);
+
+        var named = vm.Worlds.Single(w => w.Name == "World");
+        Assert.Equal("World", named.Title);
+        Assert.Null(named.RawId);
+    }
+
     private sealed class FakeDialogs(bool answer) : IDialogService
     {
         public int Asked { get; private set; }

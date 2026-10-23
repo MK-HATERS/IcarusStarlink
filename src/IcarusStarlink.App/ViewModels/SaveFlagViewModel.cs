@@ -31,6 +31,10 @@ public sealed partial class SaveFlagViewModel : DirtyRow
     [ObservableProperty]
     private string? _linkHint;
 
+    /// <summary>Show the link hint on the row itself, not just its tooltip: a reward several missions give, where switching it on marks none (the one-mission case is said once in the section's description).</summary>
+    [ObservableProperty]
+    private bool _showLinkHint;
+
     public override bool IsDirty => IsUnlocked != _originalUnlocked;
 
     /// <summary>What the flag does / where it comes from (FlagInfo.Detail); empty for DLC packs.</summary>

@@ -47,6 +47,7 @@ public sealed partial class SavesViewModel
             t => (ShowUnlearnedTalents || t.IsUnlockedInGame || t.IsDirty) && MatchesTalentKind(t),
             t => t.DisplayName, t => t.RowName, t => t.Group);
         OnPropertyChanged(nameof(TalentRanksSummary));
+        OnPropertyChanged(nameof(SelectedLevelDisplay));
         OnPropertyChanged(nameof(PointsNotes));
         OnPropertyChanged(nameof(HasPointsNotes));
         RefreshPointsEditors();

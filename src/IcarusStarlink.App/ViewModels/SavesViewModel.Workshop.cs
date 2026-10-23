@@ -24,7 +24,13 @@ public sealed partial class SavesViewModel
 
     partial void OnMissionSearchTextChanged(string value) => RefreshAccountTalentFilters();
 
-    private static bool IsMission(SaveTalentViewModel t) => t.Model == "Prospect" || t.RowName.StartsWith("Prospect_", StringComparison.OrdinalIgnoreCase);
+    /// <summary>Only the missions not done yet.</summary>
+    [ObservableProperty]
+    private bool _showUndoneMissionsOnly;
+
+    partial void OnShowUndoneMissionsOnlyChanged(bool value) => RefreshAccountTalentFilters();
+
+    internal static bool IsMission(SaveTalentViewModel t) => t.Model == "Prospect" || t.RowName.StartsWith("Prospect_", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The developers' own test missions (the Prospect_Dev tree): kept in the save, never listed.</summary>
     private static bool IsDevMission(SaveTalentViewModel t) => t.Tree.Equals("Prospect_Dev", StringComparison.OrdinalIgnoreCase) && t.Rank == 0;
@@ -51,7 +57,8 @@ public sealed partial class SavesViewModel
     {
         RefreshFilter(WorkshopTalents.Where(t => !IsMission(t)).OrderBy(t => t.Group, StringComparer.OrdinalIgnoreCase), FilteredWorkshop, WorkshopSearchText, null,
             t => t.DisplayName, t => t.RowName, t => t.Group);
-        RefreshFilter(WorkshopTalents.Where(t => IsMission(t) && !IsDevMission(t)).OrderBy(t => t.Group, StringComparer.OrdinalIgnoreCase), FilteredMissions, MissionSearchText, null,
+        RefreshFilter(WorkshopTalents.Where(t => IsMission(t) && !IsDevMission(t)).OrderBy(t => t.Group, StringComparer.OrdinalIgnoreCase), FilteredMissions, MissionSearchText,
+            ShowUndoneMissionsOnly ? t => t.Rank == 0 : null,
             t => t.DisplayName, t => t.RowName, t => t.Group);
         OnPropertyChanged(nameof(WorkshopSummary));
         OnPropertyChanged(nameof(MissionsSummary));
@@ -79,6 +86,7 @@ public sealed partial class SavesViewModel
         {
             flagsByRow.TryAdd(flag.RowName, flag);
             flag.LinkHint = null;
+            flag.ShowLinkHint = false;
         }
 
         foreach (var mission in WorkshopTalents.Where(IsMission))
@@ -89,7 +97,7 @@ public sealed partial class SavesViewModel
                 .ToList();
             mission.LinkHint = rewards.Count == 0
                 ? null
-                : $"Reward: {string.Join(", ", rewards.Select(r => r.Name))} — marking it done turns {(rewards.Count == 1 ? "that" : "those")} on in Unlocks too.";
+                : $"Reward: {string.Join(", ", rewards.Select(r => r.Name))}";
             if (rewards.Count == 0)
             {
                 continue;
@@ -107,6 +115,7 @@ public sealed partial class SavesViewModel
             reward.LinkHint = missions.Count == 1
                 ? $"Switching it on marks {missions[0].DisplayName} done on the Missions tab too."
                 : $"Comes from {string.Join(" or ", missions.Select(m => m.DisplayName))}; switching it on marks none of them done.";
+            reward.ShowLinkHint = missions.Count != 1;
         }
     }
 

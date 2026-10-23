@@ -110,6 +110,7 @@ public sealed partial class SaveBestiaryEntryViewModel : DirtyRow
     private void PointsChanged()
     {
         OnPropertyChanged(nameof(IsComplete));
+        OnPropertyChanged(nameof(EffectivePoints));
         Changed();
     }
 }
