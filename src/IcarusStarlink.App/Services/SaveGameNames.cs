@@ -358,9 +358,10 @@ public sealed class SaveGameNames(string dataFolder)
     private IReadOnlyDictionary<string, IReadOnlyList<string>> LoadTalentsGatedByFlag() => Safe<IReadOnlyDictionary<string, IReadOnlyList<string>>>(() =>
     {
         var gated = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var defaults = DefaultsOf(TalentsTable);
         foreach (var (talent, row) in RowsOf(TalentsTable))
         {
-            foreach (var flag in RowNames(row, null, "RequiredFlags"))
+            foreach (var flag in RowNames(row, defaults, "RequiredFlags"))
             {
                 (gated.TryGetValue(flag, out var list) ? list : gated[flag] = []).Add(talent);
             }
@@ -509,15 +510,17 @@ public sealed class SaveGameNames(string dataFolder)
     /// <summary>Character flag -> the talent whose rewards grant it (D_Talents Rewards[].GrantedFlags).</summary>
     private Dictionary<string, string> LoadTalentGrantedFlags() => Safe(() =>
     {
+        // With the table's Defaults, like TalentRules: a row that leaves Rewards out takes the Defaults'.
         var grantedBy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var defaults = DefaultsOf(TalentsTable);
         foreach (var (name, row) in RowsOf(TalentsTable))
         {
-            if (!row.TryGetProperty("Rewards", out var rewards) || rewards.ValueKind != JsonValueKind.Array)
+            if (!TryGet(row, defaults, "Rewards", out var rewards) || rewards.ValueKind != JsonValueKind.Array)
             {
                 continue;
             }
 
-            var talentName = ParseLocText(row, "DisplayName") ?? name;
+            var talentName = ParseLocText(row, "DisplayName", defaults) ?? name;
             foreach (var reward in rewards.EnumerateArray())
             {
                 foreach (var flag in RowNames(reward, null, "GrantedFlags"))
@@ -537,10 +540,12 @@ public sealed class SaveGameNames(string dataFolder)
     private IReadOnlyDictionary<string, int> LoadTalentPointModifiers() => Safe<IReadOnlyDictionary<string, int>>(() =>
     {
         var points = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (_, row) in RowsOf(Path.Combine("Talents", "D_PlayerTalentModifiers.json"), keepNameless: true))
+        var table = Path.Combine("Talents", "D_PlayerTalentModifiers.json");
+        var defaults = DefaultsOf(table);
+        foreach (var (_, row) in RowsOf(table, keepNameless: true))
         {
-            var modifier = row.TryGetProperty("TalentPointModifier", out var m) && m.ValueKind == JsonValueKind.Number ? m.GetInt32() : 0;
-            foreach (var flag in RowNames(row, null, "RequiredFlags"))
+            var modifier = TryGet(row, defaults, "TalentPointModifier", out var m) && m.ValueKind == JsonValueKind.Number ? m.GetInt32() : 0;
+            foreach (var flag in RowNames(row, defaults, "RequiredFlags"))
             {
                 points[flag] = points.GetValueOrDefault(flag) + modifier;
             }

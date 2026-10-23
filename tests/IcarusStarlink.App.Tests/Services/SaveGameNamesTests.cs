@@ -189,4 +189,25 @@ public sealed class SaveGameNamesTests : IDisposable
 
         Assert.All(counts, c => Assert.Equal(6, c));
     }
+
+    /// <summary>D_PlayerTalentModifiers and D_Talents rows that leave a field out take the table's Defaults, as the game does.</summary>
+    [Fact]
+    public void TalentPointsAndGrantedFlags_TakeTheTablesDefaults()
+    {
+        Write(@"Talents\D_PlayerTalentModifiers.json", """
+            { "Defaults": { "TalentPointModifier": 2 },
+              "Rows": [ { "Name": "Story", "RequiredFlags": [ { "RowName": "GrantedTalent_Story" } ] } ] }
+            """);
+        Write(@"Talents\D_Talents.json", """
+            { "Defaults": { "Rewards": [ { "GrantedFlags": [ { "RowName": "Talent_Default_Flag" } ] } ] },
+              "Rows": [ { "Name": "Plain_Talent" } ] }
+            """);
+        Write(@"Flags\D_CharacterFlags.json", """
+            { "Rows": [ { "Name": "Talent_Default_Flag" } ] }
+            """);
+        var names = new SaveGameNames(_data);
+
+        Assert.Equal(2, names.TalentPointModifiers["GrantedTalent_Story"]);
+        Assert.Equal(FlagKind.FromTalent, names.CharacterFlagInfo(0).Kind);
+    }
 }
