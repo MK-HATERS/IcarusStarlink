@@ -266,7 +266,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
         if (IsBusy)
         {
-            yield return "the server starting or stopping";
+            yield return "the server starting, stopping or updating";
         }
 
         if (IsBackupBusy)
