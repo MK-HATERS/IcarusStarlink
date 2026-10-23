@@ -55,22 +55,11 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     private readonly ExmodPackage _package;
 
     /// <summary>
-    /// Snapshots taken before each discrete structural action (Add/Remove field, Add item,
-    /// Duplicate, mass edit, a raw-JSON Apply), and before the first write to a field after
-    /// anything else happened (see SnapshotBeforeFieldEdit) — deliberately NOT per-keystroke:
-    /// snapshotting that granularly would make Undo revert one character at a time instead of one
-    /// meaningful change. Without the field snapshots, Undo of a structural action restored a
-    /// package from before it and silently wiped every value typed since. Each entry is a full serialized copy (via the same
-    /// ExmodJson round-trip Full EXMOD JSON already uses), not a shallow reference — JsonNode/
-    /// ExmodPackage are mutable reference types, so anything less would let a later edit silently
-    /// corrupt an already-pushed snapshot. Capped so an extended editing session can't grow this
-    /// unboundedly.
+    /// Undo/Redo snapshots (see ExmodUndoHistory for what counts as one change). Field edits
+    /// snapshot too (SnapshotBeforeFieldEdit): without them, Undo of a structural action restored
+    /// a package from before it and silently wiped every value typed since.
     /// </summary>
-    private readonly List<string> _undoSnapshots = [];
-    private const int MaxUndoDepth = 20;
-
-    /// <summary>What Undo took away, newest last, for Redo. Any new change empties it (classic undo/redo).</summary>
-    private readonly List<string> _redoSnapshots = [];
+    private readonly ExmodUndoHistory _history = new();
 
     /// <summary>The field typed into since the last snapshot: more typing there needs no new one.</summary>
     private (string CurrentFile, string ItemName, string FieldName)? _lastEditedField;
@@ -245,8 +234,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             ViewMode = ExmodEditorViewMode.ScaleRules;
             if (ApplyScaleRulesCore())
             {
-                _undoSnapshots.Clear();
-                _redoSnapshots.Clear();
+                _history.Clear();
                 OnPropertyChanged(nameof(CanUndo));
                 OnPropertyChanged(nameof(CanRedo));
                 ScaleStatusMessage = $"{ScaleStatusMessage} Turn rules on or off and change the numbers, then Apply rules again.";
@@ -476,24 +464,21 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         }
 
         _lastEditedField = null;
-        _undoSnapshots.Add(ExmodJson.ToJsonObject(_package).ToJsonString());
-        if (_undoSnapshots.Count > MaxUndoDepth)
+        var hadRedo = _history.CanRedo;
+        _history.Push(CurrentSnapshot(), clearRedo);
+        if (hadRedo != _history.CanRedo)
         {
-            _undoSnapshots.RemoveAt(0);
-        }
-
-        if (clearRedo && _redoSnapshots.Count > 0)
-        {
-            _redoSnapshots.Clear();
             OnPropertyChanged(nameof(CanRedo));
         }
 
         OnPropertyChanged(nameof(CanUndo));
     }
 
-    public bool CanUndo => _undoSnapshots.Count > 0;
+    private string CurrentSnapshot() => ExmodJson.ToJsonObject(_package).ToJsonString();
 
-    public bool CanRedo => _redoSnapshots.Count > 0;
+    public bool CanUndo => _history.CanUndo;
+
+    public bool CanRedo => _history.CanRedo;
 
     /// <summary>
     /// Called by a field row just before it writes a new value: the first write to a field after
@@ -512,19 +497,16 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _lastEditedField = key;
     }
 
-    /// <summary>Reverts the last change (see _undoSnapshots' own doc comment for exactly what counts); what it took away goes on the redo stack.</summary>
+    /// <summary>Reverts the last change (see ExmodUndoHistory for exactly what counts); what it took away goes on the redo stack.</summary>
     [RelayCommand]
     private void Undo()
     {
-        if (_undoSnapshots.Count == 0)
+        if (_history.Undo(CurrentSnapshot()) is not { } snapshotJson)
         {
             StatusMessage = "Nothing to undo.";
             return;
         }
 
-        var snapshotJson = _undoSnapshots[^1];
-        _undoSnapshots.RemoveAt(_undoSnapshots.Count - 1);
-        _redoSnapshots.Add(ExmodJson.ToJsonObject(_package).ToJsonString());
         RestoreSnapshot(snapshotJson);
         StatusMessage = "Undid last action.";
     }
@@ -533,15 +515,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [RelayCommand]
     private void Redo()
     {
-        if (_redoSnapshots.Count == 0)
+        if (_history.Redo(CurrentSnapshot()) is not { } snapshotJson)
         {
             StatusMessage = "Nothing to redo.";
             return;
         }
 
-        var snapshotJson = _redoSnapshots[^1];
-        _redoSnapshots.RemoveAt(_redoSnapshots.Count - 1);
-        PushUndoSnapshot(clearRedo: false);
         RestoreSnapshot(snapshotJson);
         StatusMessage = "Redid last action.";
     }
