@@ -1,0 +1,127 @@
+<UserControl x:Class="IcarusStarlink.App.Views.SavesUnlocksTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d">
+    <!-- The Saves page's Unlocks tab: account and character flags grouped by what each is for, and the owned DLC cache. Same DataContext as SavesView (SavesViewModel). -->
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="SavesResources.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <DataTemplate x:Key="UnlockRowTemplate">
+                <Border Padding="6,4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                    <DockPanel>
+                        <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
+                        <CheckBox DockPanel.Dock="Left" Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding IsUnlocked}" IsEnabled="{Binding IsEditable}"
+                                  VerticalAlignment="Center" Margin="0,0,10,0" AutomationProperties.Name="{Binding Name}"/>
+                        <StackPanel ToolTip="{Binding RowName}">
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding Detail}" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"
+                                       Visibility="{Binding Detail, Converter={StaticResource NullToVisibilityConverter}}"/>
+                            <TextBlock Text="{Binding LinkHint}" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" TextWrapping="Wrap"
+                                       Visibility="{Binding LinkHint, Converter={StaticResource NullToVisibilityConverter}}"/>
+                            <TextBlock Text="{Binding LearnedNote}" FontSize="11.5" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"
+                                       Visibility="{Binding ShowLearnedNote, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+            </DataTemplate>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+        <StackPanel>
+            <DockPanel Margin="0,0,0,10">
+                <CheckBox DockPanel.Dock="Right" Content="{Binding ShowUnusedFlagsLabel}" IsChecked="{Binding ShowUnusedFlags}" VerticalAlignment="Center" FontSize="12"
+                          ToolTip="Deprecated, tooltip-only, test and never-granted flags: nothing in the game reads them."/>
+                <TextBox Width="260" HorizontalAlignment="Left" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search unlocks (name or what it unlocks)…"
+                         Text="{Binding FlagSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search unlocks"/>
+            </DockPanel>
+
+            <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Mission reward unlocks">
+                <Expander.Header>
+                    <DockPanel LastChildFill="True">
+                        <TextBlock DockPanel.Dock="Left" Text="Mission reward unlocks" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                        <TextBlock Text="{Binding RewardFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                    </DockPanel>
+                </Expander.Header>
+            <StackPanel>
+                <TextBlock Text="Account-wide. Each comes from finishing a mission and unlocks the blueprints or workshop items named under it." Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                <ItemsControl ItemsSource="{Binding RewardFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
+            </StackPanel>
+            </Expander>
+
+            <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Bonus talent points">
+                <Expander.Header>
+                    <DockPanel LastChildFill="True">
+                        <TextBlock DockPanel.Dock="Left" Text="Bonus talent points" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                        <TextBlock Text="{Binding TalentPointFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                    </DockPanel>
+                </Expander.Header>
+            <StackPanel>
+                <TextBlock Text="Account-wide. Each adds talent points to every character." Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                <ItemsControl ItemsSource="{Binding TalentPointFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
+            </StackPanel>
+            </Expander>
+
+            <Expander IsExpanded="False" Margin="0,0,0,10" AutomationProperties.Name="Advanced flags">
+                <Expander.Header>
+                    <DockPanel LastChildFill="True">
+                        <TextBlock DockPanel.Dock="Left" Text="Advanced" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                        <TextBlock Text="{Binding AdvancedFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                    </DockPanel>
+                </Expander.Header>
+            <StackPanel>
+                <TextBlock Text="Markers the game sets itself (level boosts claimed, refunds done, story steps), pop-ups already seen, and this character's flags. Talent-granted flags follow their talent and can't be switched here." Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                <ItemsControl ItemsSource="{Binding AdvancedFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
+            </StackPanel>
+            </Expander>
+
+            <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Unused flags"
+                      Visibility="{Binding ShowUnusedFlags, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Expander.Header>
+                    <DockPanel LastChildFill="True">
+                        <TextBlock DockPanel.Dock="Left" Text="Flags the game doesn't use" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                        <TextBlock Text="{Binding UnusedFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                    </DockPanel>
+                </Expander.Header>
+                <ItemsControl ItemsSource="{Binding UnusedFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
+            </Expander>
+
+            <!-- flags_<SteamID>.dat is the game's cached list of owned DLC, not flags
+                 (SavesViewModel.BuildBinaryFlags): one toggle per pack, by its real name. -->
+            <Expander IsExpanded="True" AutomationProperties.Name="Owned DLC"
+                      Visibility="{Binding HasBinaryFlags, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Expander.Header>
+                    <DockPanel LastChildFill="True">
+                        <TextBlock DockPanel.Dock="Left" Text="Owned DLC" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                        <TextBlock Text="{Binding OwnedDlcSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                    </DockPanel>
+                </Expander.Header>
+            <StackPanel>
+                <TextBlock Text="The game's cached list of the DLC it last saw this account own (the slot's flags file). The game also checks DLC itself when it starts (Steam, or a DLC unlocker), so a pack that's off here can still work in game, and a change here can be undone by that check."
+                           Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                <ItemsControl ItemsSource="{Binding FilteredBinaryFlags}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,2,16,2" MaxWidth="420">
+                                <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding Name}" IsChecked="{Binding IsUnlocked}"
+                                          ToolTip="{Binding RowName}"/>
+                                <TextBlock Text="{Binding LearnedNote}" FontSize="11" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap" Margin="40,0,0,0"
+                                           Visibility="{Binding ShowLearnedNote, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+            </Expander>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
