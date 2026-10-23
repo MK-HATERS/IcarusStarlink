@@ -730,32 +730,56 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// merge options to game with no mods selected") still produces a real pak but lists zero mod
     /// names in the manifest, which would make a Count-based check wrongly say nothing's installed.
     /// </summary>
-    internal Task RefreshHasExistingInstallAsync() => Task.Run(() =>
+    internal Task RefreshHasExistingInstallAsync()
     {
-        // A staged build on disk is all Copy to game needs — independent of whether anything is
-        // currently installed in the game folder.
-        CanCopyToGame = HasCompleteStagedBuild();
+        // An install, Remove or Restore finishing while this runs knows better: its answer stays
+        // (this one, started at construction, used to land after an install and say "not installed").
+        var version = _existingInstallVersion;
+        return Task.Run(() =>
+        {
+            // A staged build on disk is all Copy to game needs — independent of whether anything is
+            // currently installed in the game folder.
+            CanCopyToGame = HasCompleteStagedBuild();
 
-        if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
-        {
-            HasExistingInstall = false;
-            return;
-        }
+            if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
+            {
+                SetHasExistingInstallIfCurrent(version, false);
+                return;
+            }
 
-        try
+            try
+            {
+                // The merged pak under an earlier name (left by an older version) is an install too:
+                // it still loads, and Install/Remove clear it.
+                var modsDirectory = Path.Combine(_settingsService.Current.IcarusContentPath!, "Paks", "mods");
+                SetHasExistingInstallIfCurrent(version, InstallManifestNames.AllMergedPakFileNames
+                    .Prepend(Path.GetFileName(_outputPakPath))
+                    .Any(name => File.Exists(Path.Combine(modsDirectory, name))));
+            }
+            catch (Exception)
+            {
+                // Best-effort — the button label just stays whatever it already was.
+            }
+        });
+    }
+
+    /// <summary>Bumped whenever Install, Remove or Restore sets HasExistingInstall itself.</summary>
+    private int _existingInstallVersion;
+
+    private void SetHasExistingInstallIfCurrent(int version, bool value)
+    {
+        if (version == _existingInstallVersion)
         {
-            // The merged pak under an earlier name (left by an older version) is an install too:
-            // it still loads, and Install/Remove clear it.
-            var modsDirectory = Path.Combine(_settingsService.Current.IcarusContentPath!, "Paks", "mods");
-            HasExistingInstall = InstallManifestNames.AllMergedPakFileNames
-                .Prepend(Path.GetFileName(_outputPakPath))
-                .Any(name => File.Exists(Path.Combine(modsDirectory, name)));
+            HasExistingInstall = value;
         }
-        catch (Exception)
-        {
-            // Best-effort — the button label just stays whatever it already was.
-        }
-    });
+    }
+
+    /// <summary>What an install, Remove or Restore just did to the game's mods folder.</summary>
+    private void SetHasExistingInstall(bool value)
+    {
+        _existingInstallVersion++;
+        HasExistingInstall = value;
+    }
 
     /// <summary>
     /// The staged pak AND its mod list — RebuildService writes the list only after a verified build,
@@ -843,7 +867,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
 
     partial void OnSelectedProfileNameChanged(string? value)
     {
-        OnPropertyChanged(nameof(CanRestoreProfileBackup));
+        RefreshCanRestoreProfileBackup();
         if (value is null || _loadingProfile)
         {
             return;
@@ -927,6 +951,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             }
 
             ProfileStatusMessage = notes.Count > 0 ? $"{verb} '{name}' — {string.Join("; ", notes)}." : $"{verb} '{name}'.";
+            // Loads follow a Save (Roll back, Import patch) or use a backup up (Restore backup).
+            RefreshCanRestoreProfileBackup();
         }
         catch (Exception ex)
         {
@@ -1125,7 +1151,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             });
             ProfileStatusMessage = $"Saved '{name}'.";
             _activityLog.Log($"Saved profile '{name}'.", ActivityEntryKind.Success);
-            OnPropertyChanged(nameof(CanRestoreProfileBackup));
+            RefreshCanRestoreProfileBackup();
         }
         catch (Exception ex)
         {
@@ -1175,7 +1201,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             // finding) — a rename changes only the name.
             _selectedProfileName = newName;
             OnPropertyChanged(nameof(SelectedProfileName));
-            OnPropertyChanged(nameof(CanRestoreProfileBackup));
+            RefreshCanRestoreProfileBackup();
             // The change hook is skipped above, so the next start's profile is remembered here.
             try
             {
@@ -1256,8 +1282,27 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         }
     }
 
-    /// <summary>Whether the currently-selected profile has a backup to restore — drives the Restore backup button's own IsEnabled, mirroring how Library's "Restore latest backup" only enables once HasModBackup is true.</summary>
-    public bool CanRestoreProfileBackup => SelectedProfileName is { } name && _profileStore.HasBackup(name);
+    /// <summary>
+    /// Whether the currently-selected profile has a backup to restore — drives the Restore backup
+    /// button's own IsEnabled, mirroring how Library's "Restore latest backup" only enables once
+    /// HasModBackup is true. Kept, not asked of the store from the bound getter: HasBackup reads
+    /// the profile's backups from disk, and WPF reads a bound getter far more often than it changes.
+    /// </summary>
+    [ObservableProperty]
+    private bool _canRestoreProfileBackup;
+
+    /// <summary>Asks the store again: after the selection changes and after anything that can make or use up a backup.</summary>
+    private void RefreshCanRestoreProfileBackup()
+    {
+        try
+        {
+            CanRestoreProfileBackup = SelectedProfileName is { } name && _profileStore.HasBackup(name);
+        }
+        catch (Exception)
+        {
+            CanRestoreProfileBackup = false;
+        }
+    }
 
     /// <summary>
     /// Replaces the selected profile's file with its own most recent backup — the mirror of
@@ -2989,6 +3034,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             var profile = _profileStore.Load(name);
             profile.ConflictWinners = new(_winners);
             _profileStore.Save(profile);
+            RefreshCanRestoreProfileBackup();
         }
         catch (Exception ex)
         {
@@ -3467,7 +3513,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
                 ? $"Installed to '{result.InstalledPakPath}'. Backed up the previous pak to '{result.BackupPakPath}'."
                 : $"Installed to '{result.InstalledPakPath}'.") + libraryNote;
             _activityLog.Log($"Installed pack to {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityEntryKind.Success);
-            HasExistingInstall = true;
+            SetHasExistingInstall(true);
             _ = RefreshInstalledModNamesAsync();
 
             // Read back on the NEXT app launch (SettingsViewModel) to check whether a real game
@@ -3615,7 +3661,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             if (removed)
             {
                 _activityLog.Log($"Removed installed pack from {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityEntryKind.Success);
-                HasExistingInstall = false;
+                SetHasExistingInstall(false);
             }
 
             // The manifest is gone too, so the Library's "In game" status has to drop with it.
@@ -3679,7 +3725,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
 
             InstallStatusMessage = $"Restored the install from {restored.BackedUpAtUtc.ToLocalTime():g}. What was installed is backed up.";
             _activityLog.Log($"Restored the previous install ({Path.GetFileName(restored.PakBackupPath)}).", ActivityEntryKind.Success);
-            HasExistingInstall = true;
+            SetHasExistingInstall(true);
             await RefreshInstalledModNamesAsync();
         }
         catch (Exception ex)
