@@ -118,7 +118,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         // audit finding: one corrupt/huge ID in a save meant allocating that many rows and dying).
         foreach (var id in SaveFlagIds.KnownThenExtra(names.CharacterFlagNames.Count, unlocked))
         {
-            Flags.Add(new SaveFlagViewModel(id, names.CharacterFlagName(id), unlocked.Contains(id), _onDirtyChanged));
+            Flags.Add(new SaveFlagViewModel(id, names.CharacterFlagInfo(id), unlocked.Contains(id), _onDirtyChanged));
         }
     }
 

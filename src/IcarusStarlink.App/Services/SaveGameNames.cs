@@ -27,6 +27,8 @@ public sealed class SaveGameNames(string dataFolder)
     private IReadOnlyList<string>? _mountTypeRowNames;
     private IReadOnlyDictionary<string, string>? _mountTypeIcons;
     private IReadOnlyList<string>? _dlcPackageNames;
+    private IReadOnlyList<FlagInfo>? _accountFlagInfos;
+    private IReadOnlyList<FlagInfo>? _characterFlagInfos;
 
     public IReadOnlyList<string> CharacterFlagNames => _characterFlagNames ??= LoadRowNames(Path.Combine("Flags", "D_CharacterFlags.json"));
 
@@ -77,6 +79,255 @@ public sealed class SaveGameNames(string dataFolder)
         _mountTypeRowNames = null;
         _mountTypeIcons = null;
         _dlcPackageNames = null;
+        _accountFlagInfos = null;
+        _characterFlagInfos = null;
+    }
+
+    /// <summary>What each account flag is for (by row index), from D_AccountFlags' own fields — researched 2026-10-23.</summary>
+    public IReadOnlyList<FlagInfo> AccountFlagInfos => _accountFlagInfos ??= LoadAccountFlagInfos();
+
+    /// <summary>What each character flag is for (by row index): every one turned out to be set by a talent, deprecated, tooltip-only, test or never granted — researched 2026-10-23.</summary>
+    public IReadOnlyList<FlagInfo> CharacterFlagInfos => _characterFlagInfos ??= LoadCharacterFlagInfos();
+
+    public FlagInfo AccountFlagInfo(int id) => id >= 0 && id < AccountFlagInfos.Count ? AccountFlagInfos[id] : new FlagInfo($"Flag {id}", $"Flag {id}", "Not in the game's flag table (from a mod, or removed).", FlagKind.Unknown);
+
+    public FlagInfo CharacterFlagInfo(int id) => id >= 0 && id < CharacterFlagInfos.Count ? CharacterFlagInfos[id] : new FlagInfo($"Flag {id}", $"Flag {id}", "Not in the game's flag table (from a mod, or removed).", FlagKind.Unknown);
+
+    private static readonly string[] FlagPrefixes = ["GrantedBlueprint_", "GrantedWorkshop_", "GrantedTalent_", "Talent_", "Mission_"];
+
+    private static string FlagDisplay(string rowName)
+    {
+        foreach (var prefix in FlagPrefixes)
+        {
+            if (rowName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && rowName.Length > prefix.Length)
+            {
+                return HumanizeMountType(rowName[prefix.Length..]);
+            }
+        }
+
+        return HumanizeMountType(rowName);
+    }
+
+    private IReadOnlyList<FlagInfo> LoadAccountFlagInfos()
+    {
+        var result = new List<FlagInfo>();
+        try
+        {
+            var path = Path.Combine(dataFolder, "Flags", "D_AccountFlags.json");
+            if (!File.Exists(path))
+            {
+                return result;
+            }
+
+            var missions = LoadMissionNames();
+            var talentPoints = LoadTalentPointModifiers();
+            var templateNames = LoadItemTemplateNames();
+            var workshopNames = LoadWorkshopItemNames();
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var defaults = DefaultsOf(document);
+            foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+            {
+                var name = row.TryGetProperty("Name", out var n) ? n.GetString() ?? "?" : "?";
+                var unlocks = RowNames(row, defaults, "BlueprintUnlocks").Select(r => templateNames.GetValueOrDefault(r, HumanizeMountType(r)))
+                    .Concat(RowNames(row, defaults, "WorkshopUnlocks").Select(r => workshopNames.GetValueOrDefault(r, HumanizeMountType(r))))
+                    .Distinct()
+                    .ToList();
+                var from = RowNames(row, defaults, "RewardedFromMissions").Select(r => missions.GetValueOrDefault(r, HumanizeMountType(r))).Distinct().ToList();
+                var fromText = from.Count == 0 ? "" : $" · from: {string.Join(", ", from)}";
+                var points = talentPoints.GetValueOrDefault(name);
+
+                FlagInfo info;
+                if (points != 0)
+                {
+                    info = new FlagInfo(name, FlagDisplay(name), $"+{points} talent points{fromText}", FlagKind.TalentPoints);
+                }
+                else if (unlocks.Count > 0)
+                {
+                    info = new FlagInfo(name, FlagDisplay(name), $"Unlocks {string.Join(", ", unlocks)}{fromText}", FlagKind.Reward);
+                }
+                else if (name.StartsWith("Has_Seen", StringComparison.OrdinalIgnoreCase))
+                {
+                    info = new FlagInfo(name, FlagDisplay(name), "A pop-up the game has already shown. Turning it off shows it again.", FlagKind.Prompt);
+                }
+                else
+                {
+                    info = new FlagInfo(name, FlagDisplay(name), "A one-off marker the game sets itself (a level boost claimed, a refund done, an upgrade). Changing it may make the game repeat or skip it.", FlagKind.Marker);
+                }
+
+                result.Add(info);
+            }
+        }
+        catch (Exception)
+        {
+            result.Clear();
+        }
+
+        return result;
+    }
+
+    private IReadOnlyList<FlagInfo> LoadCharacterFlagInfos()
+    {
+        var result = new List<FlagInfo>();
+        try
+        {
+            var path = Path.Combine(dataFolder, "Flags", "D_CharacterFlags.json");
+            if (!File.Exists(path))
+            {
+                return result;
+            }
+
+            var grantedBy = LoadTalentGrantedFlags();
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var defaults = DefaultsOf(document);
+            foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+            {
+                var name = row.TryGetProperty("Name", out var n) ? n.GetString() ?? "?" : "?";
+                var description = ParseLocText(row, "Description", defaults);
+                var deprecated = row.TryGetProperty("Metadata", out var meta) && meta.ValueKind == JsonValueKind.Object
+                    && meta.TryGetProperty("bIsDeprecated", out var dep) && dep.ValueKind == JsonValueKind.True;
+
+                var info = grantedBy.TryGetValue(name, out var talent)
+                    ? new FlagInfo(name, FlagDisplay(name), $"From the talent {talent}: learning or unlearning the talent sets it.", FlagKind.FromTalent)
+                    : deprecated
+                        ? new FlagInfo(name, FlagDisplay(name), "No longer used by the game (deprecated).", FlagKind.Unused)
+                        : name.Contains("TooltipOnly", StringComparison.OrdinalIgnoreCase)
+                            ? new FlagInfo(name, FlagDisplay(name), (description is { Length: > 0 } d ? d + ". " : "") + "Only shown in a mission's reward tooltip; nothing in the game reads it.", FlagKind.Unused)
+                            : name is "TestDataFlag" or "TutorialTestFlag" or "RefundOnly_Repairable"
+                                ? new FlagInfo(name, FlagDisplay(name), "A test or internal flag; nothing a player uses.", FlagKind.Unused)
+                                : name.StartsWith("Talent_", StringComparison.OrdinalIgnoreCase)
+                                    ? new FlagInfo(name, FlagDisplay(name), "No talent grants this any more.", FlagKind.Unused)
+                                    : new FlagInfo(name, FlagDisplay(name), description is { Length: > 0 } text ? text : "Set by the game itself (a story step or an upgrade).", FlagKind.Marker);
+                result.Add(info);
+            }
+        }
+        catch (Exception)
+        {
+            result.Clear();
+        }
+
+        return result;
+    }
+
+    private static IEnumerable<string> RowNames(JsonElement row, JsonElement? defaults, string property) =>
+        TryGet(row, defaults, property, out var list) && list.ValueKind == JsonValueKind.Array
+            ? list.EnumerateArray().Select(e => e.ValueKind == JsonValueKind.Object && e.TryGetProperty("RowName", out var r) ? r.GetString() : null).OfType<string>()
+            : [];
+
+    /// <summary>D_ProspectList row -> its drop name ("ARCWOOD: Outpost"), for mission names.</summary>
+    private Dictionary<string, string> LoadMissionNames()
+    {
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var path = Path.Combine(dataFolder, "Prospects", "D_ProspectList.json");
+            if (File.Exists(path))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (row.TryGetProperty("Name", out var n) && n.GetString() is { } rowName && ParseLocText(row, "DropName") is { Length: > 0 } drop)
+                    {
+                        names[rowName] = drop;
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return names;
+    }
+
+    /// <summary>Account flag -> the bonus talent points it gives (D_PlayerTalentModifiers' TalentPointModifier, keyed by its RequiredFlags).</summary>
+    private Dictionary<string, int> LoadTalentPointModifiers()
+    {
+        var points = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var path = Path.Combine(dataFolder, "Talents", "D_PlayerTalentModifiers.json");
+            if (File.Exists(path))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    var modifier = row.TryGetProperty("TalentPointModifier", out var m) && m.ValueKind == JsonValueKind.Number ? m.GetInt32() : 0;
+                    foreach (var flag in RowNames(row, null, "RequiredFlags"))
+                    {
+                        points[flag] = points.GetValueOrDefault(flag) + modifier;
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return points;
+    }
+
+    /// <summary>Character flag -> the talent whose rewards grant it (D_Talents Rewards[].GrantedFlags).</summary>
+    private Dictionary<string, string> LoadTalentGrantedFlags()
+    {
+        var grantedBy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var path = Path.Combine(dataFolder, "Talents", "D_Talents.json");
+            if (File.Exists(path))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (!row.TryGetProperty("Rewards", out var rewards) || rewards.ValueKind != JsonValueKind.Array)
+                    {
+                        continue;
+                    }
+
+                    var talentName = ParseLocText(row, "DisplayName") ?? (row.TryGetProperty("Name", out var n) ? n.GetString() ?? "?" : "?");
+                    foreach (var reward in rewards.EnumerateArray())
+                    {
+                        foreach (var flag in RowNames(reward, null, "GrantedFlags"))
+                        {
+                            grantedBy.TryAdd(flag, talentName);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return grantedBy;
+    }
+
+    /// <summary>D_ItemTemplate row -> the item's display name (via D_ItemsStatic -> D_Itemable).</summary>
+    private Dictionary<string, string> LoadItemTemplateNames()
+    {
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var templatePath = Path.Combine(dataFolder, "Items", "D_ItemTemplate.json");
+            if (File.Exists(templatePath))
+            {
+                using var templates = JsonDocument.Parse(File.ReadAllText(templatePath));
+                foreach (var row in templates.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (row.TryGetProperty("Name", out var n) && n.GetString() is { } templateName
+                        && row.TryGetProperty("ItemStaticData", out var st) && st.ValueKind == JsonValueKind.Object
+                        && st.TryGetProperty("RowName", out var stRow) && stRow.GetString() is { } staticRow
+                        && Items.TryGetValue(staticRow, out var info))
+                    {
+                        names[templateName] = info.DisplayName;
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return names;
     }
 
     /// <summary>
@@ -504,6 +755,34 @@ public sealed class SaveGameNames(string dataFolder)
 public sealed record TalentInfo(string DisplayName, string Description, string Tree, int MaxRank, bool IsDefaultUnlocked);
 
 public sealed record AccoladeInfo(string DisplayName, string Description, string Category, int GoalCount);
+
+/// <summary>What a flag is for, on the Saves page's Unlocks tab.</summary>
+public enum FlagKind
+{
+    /// <summary>A mission's reward: unlocks blueprints or workshop items. Worth editing.</summary>
+    Reward,
+
+    /// <summary>Gives bonus talent points (D_PlayerTalentModifiers). Worth editing.</summary>
+    TalentPoints,
+
+    /// <summary>A one-off marker or story step the game sets itself.</summary>
+    Marker,
+
+    /// <summary>A "has seen" pop-up.</summary>
+    Prompt,
+
+    /// <summary>Set by a learned talent: shown read-only.</summary>
+    FromTalent,
+
+    /// <summary>Deprecated, tooltip-only, test, or granted by nothing: hidden unless asked for.</summary>
+    Unused,
+
+    /// <summary>Not in the game's table at all.</summary>
+    Unknown,
+}
+
+/// <param name="Detail">What it does, where it comes from — the row's second line.</param>
+public sealed record FlagInfo(string RowName, string Display, string Detail, FlagKind Kind);
 
 /// <param name="PointsRequired">The row's own TotalPointsRequired — what the editor treats as "maxed out" for a Set to max action.</param>
 /// <param name="ImagePath">The row's own raw "Image" field (a "/Game/…/T_Bestiary_Xxx.T_Bestiary_Xxx" texture reference) — null for a row that never carried one, or when the table itself is missing.</param>

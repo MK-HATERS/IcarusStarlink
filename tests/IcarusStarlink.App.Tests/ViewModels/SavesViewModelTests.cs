@@ -169,7 +169,7 @@ public sealed class SavesViewModelTests : IDisposable
             await vm.WaitForPendingSlotLoadAsync();
 
             Assert.Empty(vm.Characters);
-            Assert.Equal(["Flag_A", "Flag_B"], vm.FilteredAccountFlags.Select(f => f.Name));
+            Assert.Equal(["Flag_A", "Flag_B"], vm.FilteredAccountFlags.Select(f => f.RowName));
         }
         finally
         {

@@ -63,4 +63,53 @@ public sealed class SaveGameNamesTests : IDisposable
 
         Assert.Equal("Composite Envirosuit", new SaveGameNames(_data).Talents["Workshop_Envirosuit_6"].DisplayName);
     }
+
+    /// <summary>Researched 2026-10-23: what each flag is for, from the tables' own fields.</summary>
+    [Fact]
+    public void Flags_AreClassifiedByWhatTheyDo()
+    {
+        Write(@"Flags\D_AccountFlags.json", """
+            { "Defaults": { "BlueprintUnlocks": [], "WorkshopUnlocks": [], "TalentModifierUnlocks": [], "RewardedFromMissions": [] },
+              "Rows": [
+                { "Name": "GrantedBlueprint_Bait", "BlueprintUnlocks": [ { "RowName": "Bait", "DataTableName": "D_ItemTemplate" } ],
+                  "RewardedFromMissions": [ { "RowName": "Tier3_RiverLands_Extermination_0", "DataTableName": "D_ProspectList" } ] },
+                { "Name": "GrantedTalent_Nullsector_Story", "TalentModifierUnlocks": [ { "RowName": "NullsectorStoryTalents" } ] },
+                { "Name": "Has_Seen_NewGame_Prompt" },
+                { "Name": "Styx_Level_Boost_Claimed" } ] }
+            """);
+        Write(@"Talents\D_PlayerTalentModifiers.json", """
+            { "Rows": [ { "Name": "NullsectorStoryTalents", "TalentPointModifier": 3, "RequiredFlags": [ { "DataTableName": "D_AccountFlags", "RowName": "GrantedTalent_Nullsector_Story" } ] } ] }
+            """);
+        Write(@"Prospects\D_ProspectList.json", """
+            { "Rows": [ { "Name": "Tier3_RiverLands_Extermination_0", "DropName": "NSLOCTEXT(\"D_ProspectList\", \"x\", \"Riverlands Extermination\")" } ] }
+            """);
+        Write(@"Items\D_ItemTemplate.json", """{ "Rows": [ { "Name": "Bait", "ItemStaticData": { "RowName": "Bait_Static" } } ] }""");
+        Write(@"Items\D_ItemsStatic.json", """{ "Rows": [ { "Name": "Bait_Static", "Itemable": { "RowName": "Item_Bait" } } ] }""");
+        Write(@"Traits\D_Itemable.json", """{ "Rows": [ { "Name": "Item_Bait", "DisplayName": "NSLOCTEXT(\"D_Itemable\", \"x\", \"Meat Bait\")" } ] }""");
+        Write(@"Flags\D_CharacterFlags.json", """
+            { "Defaults": { "Description": "" },
+              "Rows": [ { "Name": "TestDataFlag" }, { "Name": "Talent_Wood_Sticks" }, { "Name": "Talent_RepairBench" },
+                        { "Name": "Unlocked_Bait", "Metadata": { "bIsDeprecated": true } },
+                        { "Name": "StyxBlocker_B_TooltipOnly" }, { "Name": "Communicator_T2" } ] }
+            """);
+        Write(@"Talents\D_Talents.json", """
+            { "Rows": [ { "Name": "Wood_Sticks", "DisplayName": "NSLOCTEXT(\"D_Talents\", \"x\", \"Stick Collector\")",
+                          "Rewards": [ { "GrantedFlags": [ { "RowName": "Talent_Wood_Sticks", "DataTableName": "D_CharacterFlags" } ] } ] } ] }
+            """);
+        var names = new SaveGameNames(_data);
+
+        var bait = names.AccountFlagInfo(0);
+        Assert.Equal(FlagKind.Reward, bait.Kind);
+        Assert.Equal("Bait", bait.Display);
+        Assert.Equal("Unlocks Meat Bait · from: Riverlands Extermination", bait.Detail);
+        Assert.Equal(FlagKind.TalentPoints, names.AccountFlagInfo(1).Kind);
+        Assert.StartsWith("+3 talent points", names.AccountFlagInfo(1).Detail);
+        Assert.Equal(FlagKind.Prompt, names.AccountFlagInfo(2).Kind);
+        Assert.Equal(FlagKind.Marker, names.AccountFlagInfo(3).Kind);
+        Assert.Equal(FlagKind.Unknown, names.AccountFlagInfo(99).Kind);
+
+        Assert.Equal([FlagKind.Unused, FlagKind.FromTalent, FlagKind.Unused, FlagKind.Unused, FlagKind.Unused, FlagKind.Marker],
+            Enumerable.Range(0, 6).Select(i => names.CharacterFlagInfo(i).Kind));
+        Assert.Contains("Stick Collector", names.CharacterFlagInfo(1).Detail);
+    }
 }

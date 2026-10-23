@@ -269,12 +269,45 @@ public sealed partial class SavesViewModel : ObservableObject
 
     partial void OnFlagSearchTextChanged(string value) => RefreshFlagFilter();
 
+    // The Unlocks tab (was Flags), grouped by what each flag is for (SaveGameNames.FlagInfo,
+    // researched 2026-10-23): only mission rewards and bonus talent points are worth editing;
+    // markers and prompts sit under Advanced; flags nothing uses hide unless asked for.
+
+    /// <summary>Mission rewards that unlock blueprints / workshop items (account).</summary>
+    public ObservableCollection<SaveFlagViewModel> RewardFlags { get; } = [];
+
+    /// <summary>Flags that give bonus talent points (account).</summary>
+    public ObservableCollection<SaveFlagViewModel> TalentPointFlags { get; } = [];
+
+    /// <summary>One-off markers and "has seen" prompts (account), and the character's own flags worth showing.</summary>
+    public ObservableCollection<SaveFlagViewModel> AdvancedFlags { get; } = [];
+
+    /// <summary>Deprecated, tooltip-only, test and never-granted flags — listed only with Show unused flags on.</summary>
+    public ObservableCollection<SaveFlagViewModel> UnusedFlags { get; } = [];
+
+    [ObservableProperty]
+    private bool _showUnusedFlags;
+
+    partial void OnShowUnusedFlagsChanged(bool value) => RefreshFlagFilter();
+
+    /// <summary>How many unused flags are hidden, for the switch's label.</summary>
+    public string ShowUnusedFlagsLabel => $"Show flags the game doesn't use ({AccountFlags.Concat(SelectedCharacter?.Flags ?? []).Count(f => f.Kind is FlagKind.Unused or FlagKind.Unknown)})";
+
     private void RefreshFlagFilter()
     {
         // 45 + 100 rows — a straight rebuild per keystroke is cheaper than filter plumbing.
         RefreshFilter(SelectedCharacter?.Flags ?? [], FilteredCharacterFlags, FlagSearchText, null, f => f.Name);
         RefreshFilter(AccountFlags, FilteredAccountFlags, FlagSearchText, null, f => f.Name);
         RefreshFilter(BinaryFlags, FilteredBinaryFlags, FlagSearchText, null, f => f.Name);
+
+        var characterFlags = SelectedCharacter?.Flags ?? [];
+        RefreshFilter(AccountFlags, RewardFlags, FlagSearchText, f => f.Kind == FlagKind.Reward, f => f.Name, f => f.Detail);
+        RefreshFilter(AccountFlags, TalentPointFlags, FlagSearchText, f => f.Kind == FlagKind.TalentPoints, f => f.Name, f => f.Detail);
+        RefreshFilter(AccountFlags.Concat(characterFlags), AdvancedFlags, FlagSearchText,
+            f => f.Kind is FlagKind.Marker or FlagKind.Prompt or FlagKind.FromTalent, f => f.Name, f => f.Detail);
+        RefreshFilter(AccountFlags.Concat(characterFlags), UnusedFlags, FlagSearchText,
+            f => ShowUnusedFlags && f.Kind is FlagKind.Unused or FlagKind.Unknown, f => f.Name, f => f.Detail);
+        OnPropertyChanged(nameof(ShowUnusedFlagsLabel));
     }
 
     /// <summary>
@@ -764,7 +797,7 @@ public sealed partial class SavesViewModel : ObservableObject
         var unlocked = SaveJson.IdArray(_profile?["UnlockedFlags"]).ToHashSet();
         foreach (var id in SaveFlagIds.KnownThenExtra(_gameNames.AccountFlagNames.Count, unlocked))
         {
-            AccountFlags.Add(new SaveFlagViewModel(id, _gameNames.AccountFlagName(id), unlocked.Contains(id), NotifyDirtyChanged));
+            AccountFlags.Add(new SaveFlagViewModel(id, _gameNames.AccountFlagInfo(id), unlocked.Contains(id), NotifyDirtyChanged));
         }
     }
 

@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using IcarusStarlink.App.Services;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -17,10 +18,29 @@ public sealed partial class SaveFlagViewModel : ObservableObject, IDirtyTrackabl
 
     public bool IsDirty => IsUnlocked != _originalUnlocked;
 
+    /// <summary>What the flag does / where it comes from (FlagInfo.Detail); empty for DLC packs.</summary>
+    public string Detail { get; }
+
+    public FlagKind Kind { get; }
+
+    /// <summary>The game's own row name, for the tooltip.</summary>
+    public string RowName { get; }
+
+    /// <summary>Talent-granted flags follow their talent; editing one alone is pointless, so it's shown, not switched.</summary>
+    public bool IsEditable => Kind != FlagKind.FromTalent;
+
     public SaveFlagViewModel(int id, string name, bool isUnlocked, Action onDirtyChanged)
+        : this(id, new FlagInfo(name, name, "", FlagKind.Marker), isUnlocked, onDirtyChanged)
+    {
+    }
+
+    public SaveFlagViewModel(int id, FlagInfo info, bool isUnlocked, Action onDirtyChanged)
     {
         Id = id;
-        Name = name;
+        Name = info.Display;
+        Detail = info.Detail;
+        Kind = info.Kind;
+        RowName = info.RowName;
         _isUnlocked = isUnlocked;
         _originalUnlocked = isUnlocked;
         _onDirtyChanged = onDirtyChanged;

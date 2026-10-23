@@ -304,68 +304,86 @@
                 </Grid>
             </TabItem>
 
-            <!-- Flags: searchable chips, character flags + account flags — names straight from the
-                 game's own D_CharacterFlags/D_AccountFlags tables (the int in the save is the row
-                 index), so they stay correct across game updates. -->
-            <TabItem Header="Flags">
+            <!-- Unlocks (was Flags): grouped by what each flag is for (SaveGameNames.FlagInfo, researched
+                 2026-10-23 against the game's tables). Mission rewards and bonus talent points are worth
+                 editing; markers, prompts and talent-granted flags sit under Advanced; flags the game
+                 doesn't use hide unless asked for. -->
+            <TabItem Header="Unlocks">
+                <TabItem.Resources>
+                    <DataTemplate x:Key="UnlockRowTemplate">
+                        <Border Padding="6,4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                            <DockPanel>
+                                <CheckBox DockPanel.Dock="Left" Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding IsUnlocked}" IsEnabled="{Binding IsEditable}"
+                                          VerticalAlignment="Center" Margin="0,0,10,0" AutomationProperties.Name="{Binding Name}"/>
+                                <StackPanel ToolTip="{Binding RowName}">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding Detail}" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"
+                                               Visibility="{Binding Detail, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                    </DataTemplate>
+                </TabItem.Resources>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
                     <StackPanel>
-                        <Grid Width="240" HorizontalAlignment="Left" Margin="0,0,0,10">
-                            <TextBox Text="{Binding FlagSearchText, UpdateSourceTrigger=PropertyChanged}"/>
-                            <TextBlock Text="Search flags…" Style="{StaticResource PlaceholderTextStyle}"
-                                       Visibility="{Binding FlagSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                        </Grid>
+                        <DockPanel Margin="0,0,0,10">
+                            <CheckBox DockPanel.Dock="Right" Content="{Binding ShowUnusedFlagsLabel}" IsChecked="{Binding ShowUnusedFlags}" VerticalAlignment="Center" FontSize="12"
+                                      ToolTip="Deprecated, tooltip-only, test and never-granted flags: nothing in the game reads them."/>
+                            <Grid Width="260" HorizontalAlignment="Left">
+                                <TextBox Text="{Binding FlagSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search unlocks"/>
+                                <TextBlock Text="Search unlocks (name or what it unlocks)…" Style="{StaticResource PlaceholderTextStyle}"
+                                           Visibility="{Binding FlagSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                            </Grid>
+                        </DockPanel>
 
-                        <!-- Each list folds, so a long character list doesn't bury the account ones;
-                             the header counts what the search currently shows. -->
-                        <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Character flags">
+                        <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Mission reward unlocks">
                             <Expander.Header>
                                 <DockPanel LastChildFill="True">
-                                    <TextBlock DockPanel.Dock="Left" Text="Character flags" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                                    <TextBlock Text="{Binding FilteredCharacterFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                    <TextBlock DockPanel.Dock="Left" Text="Mission reward unlocks" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="{Binding RewardFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                                 </DockPanel>
                             </Expander.Header>
-                        <ItemsControl ItemsSource="{Binding FilteredCharacterFlags}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <WrapPanel/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding Name}" IsChecked="{Binding IsUnlocked}"
-                                              Margin="0,2,16,2" ToolTip="{Binding Id}"/>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-
+                        <StackPanel>
+                            <TextBlock Text="Account-wide. Each comes from finishing a mission and unlocks the blueprints or workshop items named under it." Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                            <ItemsControl ItemsSource="{Binding RewardFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
+                        </StackPanel>
                         </Expander>
 
-                        <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Account flags">
+                        <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Bonus talent points">
                             <Expander.Header>
                                 <DockPanel LastChildFill="True">
-                                    <TextBlock DockPanel.Dock="Left" Text="Account flags" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                                    <TextBlock Text="{Binding FilteredAccountFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                    <TextBlock DockPanel.Dock="Left" Text="Bonus talent points" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="{Binding TalentPointFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                                 </DockPanel>
                             </Expander.Header>
-                        <ItemsControl ItemsSource="{Binding FilteredAccountFlags}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <WrapPanel/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding Name}" IsChecked="{Binding IsUnlocked}"
-                                              Margin="0,2,16,2" ToolTip="{Binding Id}"/>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                        <StackPanel>
+                            <TextBlock Text="Account-wide. Each adds talent points to every character." Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                            <ItemsControl ItemsSource="{Binding TalentPointFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
+                        </StackPanel>
+                        </Expander>
 
-                        <!-- The game keeps a THIRD unlock store beside the JSON ones: a binary
-                             flags_<SteamID>.dat of account-wide character-flag unlocks (mission
-                             rewards, talent-granted recipes). Shown only when the game itself has
-                             created the file for this slot. -->
+                        <Expander IsExpanded="False" Margin="0,0,0,10" AutomationProperties.Name="Advanced flags">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Advanced" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="{Binding AdvancedFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                        <StackPanel>
+                            <TextBlock Text="Markers the game sets itself (level boosts claimed, refunds done, story steps), pop-ups already seen, and this character's flags. Talent-granted flags follow their talent and can't be switched here." Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                            <ItemsControl ItemsSource="{Binding AdvancedFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
+                        </StackPanel>
+                        </Expander>
+
+                        <Expander IsExpanded="True" Margin="0,0,0,10" AutomationProperties.Name="Unused flags"
+                                  Visibility="{Binding ShowUnusedFlags, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Flags the game doesn't use" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="{Binding UnusedFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                            <ItemsControl ItemsSource="{Binding UnusedFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
                         </Expander>
 
                         <!-- flags_<SteamID>.dat is the game's cached list of owned DLC, not flags
