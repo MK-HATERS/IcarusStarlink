@@ -1,4 +1,5 @@
 using System.Text;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Safety;
 
@@ -106,31 +107,10 @@ public static class ExmodFolder
     }
 
     /// <summary>
-    /// Temp file + move, like JsonFileStore.WriteAtomically (PakIO can't reference Storage): a
-    /// crash or a full disk mid-write leaves the previous .EXMOD intact instead of a truncated one
-    /// that would no longer load.
+    /// Temp file + move (Core's AtomicFile): a crash or a full disk mid-write leaves the previous
+    /// .EXMOD intact instead of a truncated one that would no longer load.
     /// </summary>
-    private static void WriteTextAtomically(string filePath, string content)
-    {
-        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            File.WriteAllText(tempPath, content);
-            File.Move(tempPath, filePath, overwrite: true);
-        }
-        catch
-        {
-            try
-            {
-                File.Delete(tempPath);
-            }
-            catch (IOException)
-            {
-            }
-
-            throw;
-        }
-    }
+    private static void WriteTextAtomically(string filePath, string content) => AtomicFile.WriteAllText(filePath, content);
 
     private static List<string> SnapshotFiles(string folderPath) =>
         [.. Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories)];

@@ -158,4 +158,30 @@ public sealed class UpdateRunnerTests : IDisposable
         Assert.Equal(UpdateRunner.Outcome.Applied, result.Outcome);
         Assert.False(result.Relaunched);
     }
+
+    /// <summary>Review 2026-10-23: when the app didn't close in time the updater exited with no note and no relaunch.</summary>
+    [Fact]
+    public void GiveUpWaiting_RecordsNotInstalledAndRelaunches()
+    {
+        WriteInstall("IcarusStarlink.App.exe", "old exe");
+        var relaunchCallCount = 0;
+        (UpdateRunner.Outcome Outcome, string Message)? recorded = null;
+
+        var result = UpdateRunner.GiveUpWaiting(TimeSpan.FromMinutes(3), _ => { }, () => { relaunchCallCount++; return true; },
+            (outcome, message) => recorded = (outcome, message));
+
+        Assert.Equal(UpdateRunner.Outcome.NotStarted, result.Outcome);
+        Assert.Equal(1, relaunchCallCount);
+        Assert.Equal(UpdateRunner.Outcome.NotStarted, recorded?.Outcome);
+        Assert.Contains("didn't install", recorded?.Message);
+        Assert.Equal("old exe", File.ReadAllText(Path.Combine(_installDirectory, "IcarusStarlink.App.exe")));
+    }
+
+    [Fact]
+    public void GiveUpWaiting_ARecordThatThrows_StillRelaunches()
+    {
+        var result = UpdateRunner.GiveUpWaiting(TimeSpan.FromMinutes(3), _ => { }, () => true, (_, _) => throw new IOException("read-only"));
+
+        Assert.True(result.Relaunched);
+    }
 }

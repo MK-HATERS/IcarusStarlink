@@ -8,9 +8,10 @@ public sealed class AppSettingsService : ISettingsService
     private readonly string _settingsFilePath;
     private readonly ILogger<AppSettingsService> _logger;
 
-    // True when settings.json EXISTED but couldn't be read at startup (see JsonFileStore.Load):
-    // Current holds defaults the user never chose, and the first Save would overwrite their real
-    // file with them (an audit finding — a OneDrive/antivirus lock at launch wiped every setting).
+    // True when settings.json EXISTED but couldn't be read at startup, or wasn't valid JSON (see
+    // JsonFileStore.Load): Current holds defaults the user never chose, and the first Save would
+    // overwrite their real file with them (an audit finding — a OneDrive/antivirus lock at launch
+    // wiped every setting; a hand-edit with one stray comma did the same, review 2026-10-23).
     // The original is preserved beside the file before that first write so nothing is lost.
     private bool _originalCouldNotBeRead;
 
@@ -21,7 +22,8 @@ public sealed class AppSettingsService : ISettingsService
         _logger = logger;
         Directory.CreateDirectory(appDataDirectory);
         _settingsFilePath = Path.Combine(appDataDirectory, "settings.json");
-        Current = JsonFileStore.Load(_settingsFilePath, () => new AppSettings(), _logger, out _originalCouldNotBeRead);
+        Current = JsonFileStore.Load(_settingsFilePath, () => new AppSettings(), _logger, out ListLoadProblem problem);
+        _originalCouldNotBeRead = problem != ListLoadProblem.None;
     }
 
     public bool Save()

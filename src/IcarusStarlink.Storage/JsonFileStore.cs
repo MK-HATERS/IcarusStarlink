@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace IcarusStarlink.Storage;
 
-/// <summary>Why JsonFileStore.LoadList handed back an empty list for a file that exists.</summary>
+/// <summary>Why JsonFileStore.LoadList (or Load) handed back an empty list (or defaults) for a file that exists.</summary>
 internal enum ListLoadProblem
 {
     None,
@@ -33,7 +33,7 @@ internal static class JsonFileStore
     /// transiently-locked (IOException/UnauthorizedAccessException) file degrades to defaults with
     /// a logged warning rather than throwing and blocking whatever owns this store.
     /// </summary>
-    public static T Load<T>(string filePath, Func<T> defaultValue, ILogger logger) => Load(filePath, defaultValue, logger, out _);
+    public static T Load<T>(string filePath, Func<T> defaultValue, ILogger logger) => Load(filePath, defaultValue, logger, out ListLoadProblem _);
 
     /// <summary>
     /// <paramref name="couldNotRead"/> is true only for a file that EXISTS but couldn't be read
@@ -46,7 +46,21 @@ internal static class JsonFileStore
     /// </summary>
     public static T Load<T>(string filePath, Func<T> defaultValue, ILogger logger, out bool couldNotRead)
     {
-        couldNotRead = false;
+        var value = Load(filePath, defaultValue, logger, out ListLoadProblem problem);
+        couldNotRead = problem == ListLoadProblem.Unreadable;
+        return value;
+    }
+
+    /// <summary>
+    /// <paramref name="problem"/> also tells a malformed file (Corrupt) apart from a missing one,
+    /// for a caller that rewrites the whole file from what it loaded: settings.json that wasn't
+    /// valid JSON loaded as defaults and the first save replaced it with no copy kept (review
+    /// 2026-10-23). The bool overload above stays Unreadable-only: its callers refuse to save on it,
+    /// and a corrupt file must stay saveable.
+    /// </summary>
+    public static T Load<T>(string filePath, Func<T> defaultValue, ILogger logger, out ListLoadProblem problem)
+    {
+        problem = ListLoadProblem.None;
         if (!File.Exists(filePath))
         {
             return defaultValue();
@@ -63,6 +77,7 @@ internal static class JsonFileStore
             catch (JsonException ex)
             {
                 logger.LogWarning(ex, "Failed to load {Path}; falling back to defaults", filePath);
+                problem = ListLoadProblem.Corrupt;
                 return defaultValue();
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -74,7 +89,7 @@ internal static class JsonFileStore
                 }
 
                 logger.LogWarning(ex, "Couldn't read {Path} after {Attempts} attempts; using defaults for now and NOT treating the file as absent", filePath, attempts);
-                couldNotRead = true;
+                problem = ListLoadProblem.Unreadable;
                 return defaultValue();
             }
         }

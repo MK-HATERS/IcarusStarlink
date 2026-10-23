@@ -1,4 +1,5 @@
 using System.Text.Json;
+using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.Catalog;
 
@@ -28,10 +29,7 @@ public sealed class JsonCatalogSnapshotStore(string filePath) : ICatalogSnapshot
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
-            var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
-            File.WriteAllText(tempPath, JsonSerializer.Serialize(snapshot, Options));
-            File.Move(tempPath, filePath, overwrite: true);
+            AtomicFile.WriteAllText(filePath, JsonSerializer.Serialize(snapshot, Options));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

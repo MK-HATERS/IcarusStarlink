@@ -1,4 +1,6 @@
 using System.IO;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Core.Server;
 using IcarusStarlink.Core.Settings;
@@ -65,6 +67,35 @@ public class Ue4ssConfigViewModelTests : IDisposable
             Path.Combine(_root, "Backups"));
 
         Assert.Equal(["Game", "Server: Server #1"], vm.Targets.Select(t => t.Name));
+    }
+
+    /// <summary>Review 2026-10-23: the targets were read once at start, so a UE4SS installed afterwards never showed up on the tab.</summary>
+    [Fact]
+    public void Ue4ssInstalledLater_ShowsUpWithoutARestart()
+    {
+        File.Delete(GameIniPath);
+        var vm = new Ue4ssConfigViewModel(
+            new FakeSettings { Current = { IcarusContentPath = _contentPath } }, new FakeStore([]), Path.Combine(_root, "Backups"));
+        Assert.True(vm.HasNoTargets);
+
+        File.WriteAllText(GameIniPath, GameIni);
+        WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage("installed"));
+
+        Assert.Equal(["Game"], vm.Targets.Select(t => t.Name));
+        Assert.Equal("Game", vm.SelectedTarget?.Name);
+    }
+
+    [Fact]
+    public void SettingsSaved_WithUnsavedEdits_KeepsTheEdits()
+    {
+        var vm = Build();
+        var hotReload = vm.Sections.Single().Fields.Single(f => f.Key == "EnableHotReloadSystem");
+        hotReload.IsOn = true;
+
+        WeakReferenceMessenger.Default.Send(new SettingsSavedMessage());
+
+        Assert.Same(hotReload, vm.Sections.Single().Fields.Single(f => f.Key == "EnableHotReloadSystem"));
+        Assert.True(hotReload.IsChanged);
     }
 
     [Fact]

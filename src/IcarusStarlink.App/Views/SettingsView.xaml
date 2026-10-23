@@ -342,16 +342,20 @@
                                    Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10"/>
                         <TextBlock Text="{Binding NoTargetsText}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                    Visibility="{Binding HasNoTargets, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10"
-                                    Visibility="{Binding HasTargets, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <TextBlock Text="Edit" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <ComboBox ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}" DisplayMemberPath="Name" MinWidth="220"
-                                      AutomationProperties.Name="Which UE4SS settings to edit"/>
-                            <Button Content="Reload" Command="{Binding RefreshTargetsCommand}" Margin="8,0,0,0"
-                                    ToolTip="Read the files again (and find servers added since)"/>
+                        <!-- Reload stays visible with no targets: it's how a UE4SS installed since finds its file. -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,8,0"
+                                        Visibility="{Binding HasTargets, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <TextBlock Text="Edit" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <ComboBox ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}" DisplayMemberPath="Name" MinWidth="220"
+                                          AutomationProperties.Name="Which UE4SS settings to edit"/>
+                            </StackPanel>
+                            <Button Content="Reload" Command="{Binding RefreshTargetsCommand}"
+                                    ToolTip="Read the files again (and find a UE4SS or servers added since)"/>
                             <TextBox Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="16,0,0,0"
                                      ToolTip="Show only settings whose name or description contains this"
-                                     AutomationProperties.Name="Filter settings"/>
+                                     AutomationProperties.Name="Filter settings"
+                                     Visibility="{Binding HasTargets, Converter={StaticResource BoolToVisibilityConverter}}"/>
                         </StackPanel>
                     </StackPanel>
 

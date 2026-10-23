@@ -41,6 +41,25 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.Equal(original, File.ReadAllText(preserved));
     }
 
+    /// <summary>Review 2026-10-23: a settings.json that isn't valid JSON (a hand-edit gone wrong) loaded as defaults and was overwritten with no copy kept.</summary>
+    [Fact]
+    public void Save_AfterTheOriginalWasNotValidJson_PreservesTheOriginalBeforeOverwriting()
+    {
+        Directory.CreateDirectory(_dir);
+        var settingsPath = Path.Combine(_dir, "settings.json");
+        const string original = """{"IcarusContentPath":"E:\Icarus\Content",,}""";
+        File.WriteAllText(settingsPath, original);
+
+        var service = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance);
+
+        Assert.Null(service.Current.IcarusContentPath);
+        Assert.True(service.Save());
+        Assert.True(service.Save());
+
+        var preserved = Assert.Single(Directory.GetFiles(_dir, "settings.json.unreadable-*.bak"));
+        Assert.Equal(original, File.ReadAllText(preserved));
+    }
+
     [Fact]
     public void Save_NormalStartup_NeverWritesAPreservedCopy()
     {

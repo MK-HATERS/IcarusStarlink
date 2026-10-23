@@ -57,24 +57,6 @@ void Log(string message)
 
 Log($"Updater started — waiting for process {mainProcessId} to exit.");
 
-try
-{
-    using var mainProcess = Process.GetProcessById(mainProcessId);
-    if (!mainProcess.WaitForExit(60_000))
-    {
-        Log("The app didn't exit within 60 seconds — aborting, nothing was changed.");
-        return 3;
-    }
-}
-catch (ArgumentException)
-{
-    // Already exited before we could look it up — exactly the state we were waiting for.
-}
-
-// WaitForExit returning doesn't guarantee every file handle is released yet; a short grace
-// period plus UpdateApplier's own per-file retry covers the stragglers.
-Thread.Sleep(500);
-
 bool Relaunch()
 {
     try
@@ -103,6 +85,31 @@ void RecordOutcome(UpdateRunner.Outcome outcome, string message)
         UpdateOutcomeFile.Write(Path.Combine(Path.GetTempPath(), UpdateOutcomeFile.TempFileName), outcome, $"{message} Details: {logPath}");
     }
 }
+
+// Three minutes, not one: a slow shutdown (a big Library, a busy disk) used to run past 60 seconds,
+// and then the updater gave up without a word or a relaunch.
+var exitWait = TimeSpan.FromMinutes(3);
+try
+{
+    using var mainProcess = Process.GetProcessById(mainProcessId);
+    if (!mainProcess.WaitForExit(TimeSpan.FromSeconds(60)))
+    {
+        Log("The app hasn't exited after 60 seconds — still waiting.");
+        if (!mainProcess.WaitForExit(exitWait - TimeSpan.FromSeconds(60)))
+        {
+            UpdateRunner.GiveUpWaiting(exitWait, Log, Relaunch, RecordOutcome);
+            return 3;
+        }
+    }
+}
+catch (ArgumentException)
+{
+    // Already exited before we could look it up — exactly the state we were waiting for.
+}
+
+// WaitForExit returning doesn't guarantee every file handle is released yet; a short grace
+// period plus UpdateApplier's own per-file retry covers the stragglers.
+Thread.Sleep(500);
 
 UpdateRunner.Result result;
 try

@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.Core.Ue4ss;
 
@@ -75,12 +76,8 @@ public sealed partial class Ue4ssSettingsDocument
         _endings.Add("");
     }
 
-    public void Save(string path)
-    {
-        var temp = path + ".tmp";
-        File.WriteAllText(temp, ToText());
-        File.Move(temp, path, overwrite: true);
-    }
+    /// <summary>Written to a temp file and moved into place, so a crash mid-save can't leave the game's settings cut short.</summary>
+    public void Save(string path) => AtomicFile.WriteAllText(path, ToText());
 
     /// <summary>Every setting in file order, with its section and what its comment block says.</summary>
     public IReadOnlyList<Ue4ssSetting> Settings

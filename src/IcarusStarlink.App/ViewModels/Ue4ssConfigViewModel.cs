@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.Core.Server;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
@@ -119,6 +121,23 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
         _serverStore = serverStore;
         _backupDirectory = backupDirectory;
         RefreshTargets();
+
+        // The targets were only read once at start, so installing UE4SS (or saving a new game
+        // folder) left the tab saying "No UE4SS-settings.ini found" until a restart (review
+        // 2026-10-23). Not while there are unsaved edits: re-reading would throw them away.
+        WeakReferenceMessenger.Default.Register<Ue4ssLoaderChangedMessage>(this, (recipient, _) => ((Ue4ssConfigViewModel)recipient).RefreshTargetsUnlessEdited());
+        WeakReferenceMessenger.Default.Register<SettingsSavedMessage>(this, (recipient, _) => ((Ue4ssConfigViewModel)recipient).RefreshTargetsUnlessEdited());
+    }
+
+    /// <summary>True while a setting on the tab has been changed and not saved.</summary>
+    public bool HasUnsavedChanges => _fields.Any(f => f.IsChanged);
+
+    private void RefreshTargetsUnlessEdited()
+    {
+        if (!HasUnsavedChanges)
+        {
+            RefreshTargets();
+        }
     }
 
     public ObservableCollection<Ue4ssConfigTarget> Targets { get; } = [];

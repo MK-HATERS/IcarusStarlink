@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.PakIO.Assets;
 
@@ -250,9 +251,11 @@ public sealed class GameFileFingerprintStore
     }
 
     /// <summary>Writes the store when anything was recorded since the last save.</summary>
+    /// <remarks>The write is inside the lock: two saves at once used to share one fixed ".tmp" name,
+    /// and an older snapshot could land after a newer one (review 2026-10-23). A failed write leaves
+    /// the store dirty, so the next save tries again.</remarks>
     public void SaveIfChanged()
     {
-        string json;
         lock (_lock)
         {
             if (!_dirty)
@@ -260,14 +263,9 @@ public sealed class GameFileFingerprintStore
                 return;
             }
 
-            json = JsonSerializer.Serialize(_builds, JsonOptions);
+            AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(_builds, JsonOptions));
             _dirty = false;
         }
-
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        var temp = _path + ".tmp";
-        File.WriteAllText(temp, json);
-        File.Move(temp, _path, overwrite: true);
     }
 
     /// <summary>Keeps the newest MaxBuilds builds (by when each was first recorded), never the one just added.</summary>

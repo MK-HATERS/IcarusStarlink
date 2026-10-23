@@ -50,15 +50,11 @@ public sealed partial class MainViewModel : ObservableObject
         get => _settingsService.Current.NavCollapsed;
         set
         {
-            if (_settingsService.Current.NavCollapsed == value)
+            if (_settingsService.SetAndSave(s => s.NavCollapsed, (s, v) => s.NavCollapsed = v, value))
             {
-                return;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(NavToggleToolTip));
             }
-
-            _settingsService.Current.NavCollapsed = value;
-            _settingsService.Save();
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(NavToggleToolTip));
         }
     }
 
@@ -242,10 +238,6 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>The Saves page once it has been opened (it's only built then), for the close check.</summary>
-    private SavesViewModel? _savesPage;
-
-
     partial void OnSelectedNavItemChanged(NavItem? value)
     {
         if (value is null)
@@ -270,7 +262,6 @@ public sealed partial class MainViewModel : ObservableObject
         // The game may have written newer progress while another page was open.
         if (CurrentPage is SavesViewModel saves)
         {
-            _savesPage = saves;
             saves.OnPageShown();
         }
 

@@ -106,6 +106,32 @@ public sealed class SettingsViewModelTests
         Assert.Contains("Set both", vm.DataFolderStatusMessage);
     }
 
+    /// <summary>Review 2026-10-23: the button rewrote the Data folder while a merge was reading it.</summary>
+    [Fact]
+    public async Task UpdateDataFolderCommand_WhileOtherWorkRuns_RefusesAndSaysWhat()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+        harness.UnrealPakService.ExtractResultFactory = () => new UnrealPakExtractResult(1, null);
+        var busy = new object();
+        WeakReferenceMessenger.Default.Register<BackgroundWorkRequestMessage>(busy, (_, message) => message.Reply("a merge is being built"));
+        try
+        {
+            await vm.UpdateDataFolderCommand.ExecuteAsync(null);
+
+            Assert.Equal(0, harness.UnrealPakService.ExtractCallCount);
+            Assert.Equal("Wait until a merge is being built has finished, then click Refresh game data again.", vm.DataFolderStatusMessage);
+
+            // Merge & Install's own refresh-then-build is that work, so it isn't refused.
+            await vm.RefreshGameDataAsync();
+            Assert.Equal(1, harness.UnrealPakService.ExtractCallCount);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.Unregister<BackgroundWorkRequestMessage>(busy);
+        }
+    }
+
     [Fact]
     public async Task UpdateDataFolderCommand_Success_WithChanges_SavesReportPersistsHashAndBroadcasts()
     {
@@ -441,12 +467,12 @@ public sealed class SettingsViewModelTests
         using var harness = new Harness(dialogConfirmResult: true);
         harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, "3.0.1", "1ba38db4");
         var vm = harness.BuildViewModel();
-        vm.PickUe4ssZip = () => null;
+        harness.DialogService.FileToPick = null;
 
         await vm.InstallUe4ssFromZipCommand.ExecuteAsync(null);
         Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
 
-        vm.PickUe4ssZip = () => @"C:\Downloads\UE4SS_v3.0.1-1176-g1ba38db4.zip";
+        harness.DialogService.FileToPick = @"C:\Downloads\UE4SS_v3.0.1-1176-g1ba38db4.zip";
         await vm.InstallUe4ssFromZipCommand.ExecuteAsync(null);
 
         Assert.Equal(@"C:\Downloads\UE4SS_v3.0.1-1176-g1ba38db4.zip", harness.Ue4ssLoaderInstallService.LastDownloadedZipPath);
@@ -462,7 +488,7 @@ public sealed class SettingsViewModelTests
         using var harness = new Harness(dialogConfirmResult: true);
         harness.Ue4ssLoaderInstallService.InstallOrUpdateException = new InvalidOperationException("This UE4SS archive doesn't have the expected layout");
         var vm = harness.BuildViewModel();
-        vm.PickUe4ssZip = () => @"C:\Downloads\something.zip";
+        harness.DialogService.FileToPick = @"C:\Downloads\something.zip";
 
         await vm.InstallUe4ssFromZipCommand.ExecuteAsync(null);
 
@@ -663,6 +689,44 @@ public sealed class SettingsViewModelTests
         Assert.False(vm.IsInstallingUe4ss);
     }
 
+    /// <summary>Review 2026-10-23: the Library's "Install UE4SS" bar runs this command with Settings not showing, so a refusal only on Settings' status line was no answer at all.</summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_Refused_AlsoLogsAWarning()
+    {
+        using var harness = new Harness(dialogConfirmResult: true, gameProcessChecker: new FakeGameProcessChecker(true));
+        var vm = harness.BuildViewModel();
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("Icarus is running"));
+    }
+
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_Fails_AlsoLogsAWarning()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        harness.Ue4ssLoaderInstallService.InstallOrUpdateException = new IOException("locked file");
+        var vm = harness.BuildViewModel();
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message == "UE4SS install failed: locked file");
+    }
+
+    /// <summary>Review 2026-10-23: Browse and Auto-detect only fill the box until Save settings, but UE4SS installed into the box's folder.</summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_UsesTheSavedGameFolder_NotAnUnsavedOne()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        var saved = harness.Settings.IcarusContentPath;
+        var vm = harness.BuildViewModel();
+        vm.IcarusContentPath = Path.Combine(harness.TempDir, "SomeOtherGame", "Content");
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Equal(saved, harness.Ue4ssLoaderInstallService.LastIcarusContentPath);
+    }
+
     /// <summary>The late, immediately-before-the-write recheck: not running at the first check (before the confirm dialog), but running by the time the download finished.</summary>
     [Fact]
     public async Task InstallOrUpdateUe4ssCommand_GameStartsRunningDuringDownload_LateCheckRefusesBeforeInstalling()
@@ -753,6 +817,21 @@ public sealed class SettingsViewModelTests
         Assert.Null(vm.IcarusContentPath);
         Assert.Contains("Auto-detect or Browse", vm.SavedMessage);
         Assert.True(vm.FirstLaunchSetupNeededAttention);
+    }
+
+    [Fact]
+    public async Task FirstLaunch_NoGameFolder_SteamCantFindIt_BrowsedFolderIsSaved()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        harness.Settings.IcarusContentPath = null;
+        var picked = Path.Combine(harness.TempDir, "Games", "Icarus", "Icarus", "Content");
+        harness.DialogService.FolderToPick = picked;
+
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+
+        Assert.Equal(picked, vm.IcarusContentPath);
+        Assert.Equal(picked, harness.Settings.IcarusContentPath);
     }
 
     [Fact]
@@ -1319,6 +1398,16 @@ public sealed class SettingsViewModelTests
         public int ConfirmCallCount { get; private set; }
         public string? LastConfirmMessage { get; private set; }
         public string? LastConfirmTitle { get; private set; }
+
+        /// <summary>What PickFile answers (null = cancelled).</summary>
+        public string? FileToPick { get; set; }
+
+        public string? PickFile(string title, string filter, string? initialDirectory = null) => FileToPick;
+
+        /// <summary>What PickFolder answers (null = cancelled).</summary>
+        public string? FolderToPick { get; set; }
+
+        public string? PickFolder(string title, string? initialDirectory = null) => FolderToPick;
 
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {

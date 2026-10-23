@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 
 namespace IcarusStarlink.App.Services;
 
@@ -13,8 +15,17 @@ namespace IcarusStarlink.App.Services;
 /// </summary>
 public sealed class SingleInstanceService : IDisposable
 {
+    // The mutex is per Windows session already (no Global\ prefix), but pipe names are machine-wide:
+    // with two users signed in, the second user's app couldn't create the pipe, and their links went
+    // to the first user's app or nowhere (review 2026-10-23). The session id keeps each user's apart.
     private const string MutexName = "IcarusStarlink-SingleInstance";
-    private const string PipeName = "IcarusStarlink-NxmHandoff";
+    private static readonly string PipeName = $"IcarusStarlink-NxmHandoff-{Process.GetCurrentProcess().SessionId}";
+
+    private const int AllowAnyProcess = -1;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AllowSetForegroundWindow(int processId);
 
     /// <summary>Sent by a second launch that carries no nxm:// link — the running instance just brings its window to the front.</summary>
     public const string ActivateMessage = "activate";
@@ -82,6 +93,10 @@ public sealed class SingleInstanceService : IDisposable
     /// <summary>Call only when IsFirstInstance is false. Best-effort: if the already-running instance genuinely can't be reached, there's nothing more this about-to-exit process can usefully do instead.</summary>
     public static void SendToRunningInstance(string message)
     {
+        // Windows only lets the process the user just clicked bring a window to the front; this
+        // passes that right on, or the running app's Activate() just flashes in the taskbar.
+        AllowSetForegroundWindow(AllowAnyProcess);
+
         try
         {
             using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
