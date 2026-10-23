@@ -11,7 +11,7 @@ public sealed class ChangedDataFileViewModel
     public string RelativePath { get; }
     public string StatusLabel { get; }
     public int ChangeCount { get; }
-    public string Summary => $"{StatusLabel} · {ChangeCount} change(s)";
+    public string Summary => $"{StatusLabel} · {ChangeCount} {(ChangeCount == 1 ? "change" : "changes")}";
 
     public ObservableCollection<ChangedRowViewModel> Rows { get; } = [];
 

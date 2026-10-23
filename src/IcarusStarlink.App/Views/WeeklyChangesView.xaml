@@ -15,10 +15,11 @@
 
         <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0">
-            <TextBlock Text="History:" VerticalAlignment="Center" Margin="0,0,8,0" Style="{StaticResource FieldLabelStyle}"/>
-            <ComboBox ItemsSource="{Binding ReportHistory}" SelectedItem="{Binding SelectedReport}"
-                      MinWidth="260"
+        <!-- A DockPanel so a long refresh status wraps beside the buttons instead of running off the edge. -->
+        <DockPanel Grid.Row="1" Margin="0,10,0,0" LastChildFill="True">
+            <TextBlock DockPanel.Dock="Left" Text="History" VerticalAlignment="Center" Margin="0,0,8,0" Style="{StaticResource FieldLabelStyle}"/>
+            <ComboBox DockPanel.Dock="Left" ItemsSource="{Binding ReportHistory}" SelectedItem="{Binding SelectedReport}"
+                      MinWidth="260" VerticalAlignment="Center" AutomationProperties.Name="Which refresh to show"
                       ToolTip="This app keeps roughly a month of past game data refreshes — pick one to see what changed in it">
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
@@ -26,7 +27,7 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
-            <Button Command="{Binding Settings.UpdateDataFolderCommand}" Margin="16,0,0,0"
+            <Button DockPanel.Dock="Left" Command="{Binding Settings.UpdateDataFolderCommand}" Margin="16,0,0,0" VerticalAlignment="Center"
                     ToolTip="Re-extract the game's current data and compare it against last time — same as Settings' Refresh game data"
                     AutomationProperties.Name="Refresh game data">
                 <StackPanel Orientation="Horizontal">
@@ -34,9 +35,9 @@
                     <TextBlock Text="Refresh game data" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
-            <TextBlock Text="{Binding Settings.DataFolderStatusMessage}" VerticalAlignment="Center" Margin="10,0,0,0"
+            <TextBlock Text="{Binding Settings.DataFolderStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"
                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
-        </StackPanel>
+        </DockPanel>
 
         <TextBlock Grid.Row="2" Text="{Binding SummaryMessage}" Style="{StaticResource PageBodyTextStyle}" MaxWidth="900" Margin="0,10,0,16"/>
 
@@ -48,12 +49,10 @@
             </Grid.ColumnDefinitions>
 
             <!-- Drag to give the file list or the changes more room. -->
-            <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="Transparent"
-                          ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Cursor="SizeWE" ToolTip="Drag to resize"
-                          AutomationProperties.Name="Resize the file list"/>
+            <GridSplitter Grid.Column="1" Style="{StaticResource VerticalPaneSplitterStyle}" AutomationProperties.Name="Resize the file list"/>
 
             <ListBox Grid.Column="0" ItemsSource="{Binding ChangedFiles}" SelectedItem="{Binding SelectedFile}"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Changed files">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Margin="4">
@@ -80,6 +79,12 @@
                     <DataGridTextColumn Header="New value" Binding="{Binding NewValueDisplay}" Width="*" MinWidth="90"/>
                 </DataGrid.Columns>
             </DataGrid>
+
+            <!-- Empty states over the list and the table instead of two blank boxes. -->
+            <TextBlock Grid.Column="0" Text="{Binding FilesEmptyText}" Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
+                       Visibility="{Binding FilesEmptyText, Converter={StaticResource NullToVisibilityConverter}}"/>
+            <TextBlock Grid.Column="2" Text="{Binding RowsEmptyText}" Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
+                       Visibility="{Binding RowsEmptyText, Converter={StaticResource NullToVisibilityConverter}}"/>
         </Grid>
     </Grid>
 </UserControl>
