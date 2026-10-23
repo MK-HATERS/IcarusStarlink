@@ -245,8 +245,6 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>The Saves page once it has been opened (it's only built then), for the close check.</summary>
     private SavesViewModel? _savesPage;
 
-    /// <summary>What closing the app would lose: "player save edits on the Saves page", or null when nothing (MainWindow asks before closing).</summary>
-    public string? UnsavedWorkOnClose => _savesPage?.HasAnyUnsavedEdits == true ? "unsaved edits on the Saves page" : null;
 
     partial void OnSelectedNavItemChanged(NavItem? value)
     {

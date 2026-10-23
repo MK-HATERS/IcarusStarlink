@@ -44,6 +44,23 @@ public interface IDialogService
         string resetTooltip = "Clears the override — goes back to the mod's own declared name",
         string title = "Rename mod",
         string fieldLabel = "Display name");
+
+    /// <summary>
+    /// A file to open; null when cancelled. Every page's file pickers go through these three
+    /// (review 2026-10-23: 18 view models opened Windows dialogs themselves, so those flows
+    /// couldn't be tested). The defaults answer "cancelled", so a test fake only sets what it needs.
+    /// </summary>
+    /// <param name="filter">Windows filter text: "Mod files (*.zip;*.pak)|*.zip;*.pak".</param>
+    string? PickFile(string title, string filter, string? initialDirectory = null) => null;
+
+    /// <summary>Several files to open; empty when cancelled.</summary>
+    IReadOnlyList<string> PickFiles(string title, string filter, string? initialDirectory = null) => [];
+
+    /// <summary>A folder; null when cancelled.</summary>
+    string? PickFolder(string title, string? initialDirectory = null) => null;
+
+    /// <summary>Where to save a file; null when cancelled.</summary>
+    string? PickSaveFile(string title, string filter, string defaultFileName, string? initialDirectory = null) => null;
 }
 
 public sealed record RenamePromptResult(bool Cancelled, string? NewDisplayName);

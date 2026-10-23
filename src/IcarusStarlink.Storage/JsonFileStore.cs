@@ -190,28 +190,9 @@ internal static class JsonFileStore
     public static void WriteBytesAtomically(string filePath, byte[] bytes) =>
         WriteViaTempFile(filePath, tempPath => File.WriteAllBytes(tempPath, bytes));
 
-    private static void WriteViaTempFile(string filePath, Action<string> writeTemp)
-    {
-        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            writeTemp(tempPath);
-            File.Move(tempPath, filePath, overwrite: true);
-        }
-        catch
-        {
-            try
-            {
-                File.Delete(tempPath);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // Best effort: the original error is the one worth reporting.
-            }
-
-            throw;
-        }
-    }
+    // The same safe write every project uses (Core's AtomicFile).
+    private static void WriteViaTempFile(string filePath, Action<string> writeTemp) =>
+        IcarusStarlink.Core.IO.AtomicFile.Write(filePath, writeTemp);
 
     /// <summary>
     /// For the list stores whose every save rewrites the whole file from memory: when the file

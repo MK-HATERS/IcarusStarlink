@@ -21,10 +21,15 @@ public partial class MainWindow : Window
         RestoreWindowBounds();
         Closing += (_, e) =>
         {
-            // Unsaved Saves-page edits used to vanish with the window, with no question asked.
-            if (viewModel.UnsavedWorkOnClose is { } unsaved
+            // Unsaved edits and running work (a merge, a download) used to vanish with the window,
+            // with no question asked; every page answers AppBusyCheck for its own.
+            var unsaved = IcarusStarlink.App.Services.AppBusyCheck.DescribeUnsaved();
+            var running = IcarusStarlink.App.Services.AppBusyCheck.DescribeRunning();
+            if ((unsaved is not null || running is not null)
                 && !serviceProvider.GetRequiredService<IcarusStarlink.App.Services.IDialogService>().Confirm(
-                    $"Close Starlink? You have {unsaved}; they were never written to the save.",
+                    "Close Starlink anyway?"
+                    + (unsaved is null ? "" : $"\n\nNot saved yet: {unsaved}.")
+                    + (running is null ? "" : $"\n\nStill running: {running}; closing now stops it partway."),
                     "Unsaved changes", IcarusStarlink.App.Views.ThemedConfirmSeverity.Warning))
             {
                 e.Cancel = true;
