@@ -395,10 +395,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         RefreshNxmHandlerState();
         WeakReferenceMessenger.Default.Register<NxmHandlerChangedMessage>(this, (recipient, _) => ((SettingsViewModel)recipient).RefreshNxmHandlerState());
 
-        if (!string.IsNullOrWhiteSpace(IcarusContentPath))
-        {
-            RefreshUe4ssStatus();
-        }
+        RefreshUe4ssStatus();
 
         // Fire-and-forget, same shape as DownloadsViewModel's constructor-triggered
         // RefreshCatalogAsync: constructors can't be async. CheckForGameUpdateAsync can't throw:
@@ -409,7 +406,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         // Check for updates (CheckForUe4ssUpdateAsync).
 
         // The Library's "UE4SS isn't installed" bar: install here, where the confirmation,
-        // the game-running check and the backup already live.
+        // the game-running check and the backup already live. Refusals and failures also go to
+        // the activity log (ReportUe4ssProblem), since this page usually isn't the one showing.
         WeakReferenceMessenger.Default.Register<InstallUe4ssRequestedMessage>(this, (recipient, message) =>
         {
             var install = ((SettingsViewModel)recipient).InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
@@ -905,7 +903,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             IcarusContentPath = detected;
             Save();
-            RefreshUe4ssStatus();
             SavedMessage = $"Found your Icarus install through Steam and saved it: {detected}";
             return;
         }
@@ -920,7 +917,6 @@ public sealed partial class SettingsViewModel : ObservableObject
             if (!string.IsNullOrWhiteSpace(IcarusContentPath))
             {
                 Save();
-                RefreshUe4ssStatus();
                 return;
             }
         }
@@ -1040,6 +1036,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         SavedMessage = _settingsService.Save()
             ? $"Saved at {DateTime.Now:T}"
             : "Failed to save settings — check the logs.";
+        // UE4SS follows the saved game folder: this is when a newly chosen install's UE4SS shows.
+        RefreshUe4ssStatus();
         WeakReferenceMessenger.Default.Send(new SettingsSavedMessage());
     }
 
@@ -1320,11 +1318,39 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The game folder UE4SS is installed into, checked and removed from: the SAVED one. Browse and
+    /// Auto-detect only fill the box until Save settings (the page's model), but UE4SS used the box,
+    /// so it could install into a folder the rest of the app wasn't using (review 2026-10-23).
+    /// </summary>
+    private string? Ue4ssContentPath => string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath) ? null : _settingsService.Current.IcarusContentPath;
+
+    private const string Ue4ssNeedsGameFolder = "Set the Icarus Content folder and click Save settings first.";
+
+    /// <summary>
+    /// A UE4SS refusal or failure: on this page's status line and in the activity log (a pop-up),
+    /// since the Library's "Install UE4SS" bar runs these commands with Settings not showing, and
+    /// used to give no answer at all (review 2026-10-23).
+    /// </summary>
+    private void ReportUe4ssProblem(string status, string? logged = null)
+    {
+        Ue4ssStatusMessage = status;
+        _activityLog.Log(logged ?? status, ActivityEntryKind.Warning);
+    }
+
     private void RefreshUe4ssStatus()
     {
+        if (Ue4ssContentPath is not { } contentPath)
+        {
+            IsUe4ssInstalled = false;
+            Ue4ssInstalledVersion = null;
+            Ue4ssInstalledCommit = null;
+            return;
+        }
+
         try
         {
-            var status = _ue4ssLoaderInstallService.GetStatus(IcarusContentPath!);
+            var status = _ue4ssLoaderInstallService.GetStatus(contentPath);
             IsUe4ssInstalled = status.IsInstalled;
             Ue4ssInstalledVersion = status.InstalledVersion;
             Ue4ssInstalledCommit = status.InstalledCommit;
@@ -1340,18 +1366,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    // Only Browse…/Auto-detect route through this — the constructor assigns the backing field
-    // directly (bypassing the generated setter, and this hook with it) before calling
-    // RefreshUe4ssStatus() itself further down, so there's no double-call on startup. Without this,
-    // pointing Settings at a game install that already has UE4SS kept showing "Not installed" until
-    // the user clicked Install anyway or restarted the app.
-    partial void OnIcarusContentPathChanged(string? value)
-    {
-        if (!string.IsNullOrWhiteSpace(value))
-        {
-            RefreshUe4ssStatus();
-        }
-    }
 
     /// <summary>
     /// Only when the user asks (the UE4SS tab's button, or the app's own Check for updates):
@@ -1369,10 +1383,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         IsCheckingUe4ssRelease = true;
         try
         {
-            if (!string.IsNullOrWhiteSpace(IcarusContentPath))
-            {
-                RefreshUe4ssStatus();
-            }
+            RefreshUe4ssStatus();
 
             var latest = await _ue4ssReleaseClient.GetLatestDevBuildAsync();
             if (latest is null)
@@ -1410,7 +1421,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private string NativeModsWarningFor(bool changing)
     {
-        if (!changing || !IsUe4ssInstalled || string.IsNullOrWhiteSpace(IcarusContentPath))
+        if (!changing || !IsUe4ssInstalled || Ue4ssContentPath is not { } contentPath)
         {
             return "";
         }
@@ -1418,7 +1429,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         IReadOnlyList<string> native;
         try
         {
-            native = _ue4ssLoaderInstallService.ListNativeMods(IcarusContentPath);
+            native = _ue4ssLoaderInstallService.ListNativeMods(contentPath);
         }
         catch (Exception)
         {
@@ -1446,9 +1457,9 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(IcarusContentPath))
+        if (Ue4ssContentPath is not { } contentPath)
         {
-            Ue4ssStatusMessage = "Set the Icarus Content folder first.";
+            ReportUe4ssProblem(Ue4ssNeedsGameFolder, $"Couldn't install UE4SS: {Ue4ssNeedsGameFolder} (Settings › Game & tools)");
             return;
         }
 
@@ -1481,7 +1492,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         if (IsGameRunning())
         {
-            Ue4ssStatusMessage = "Icarus is running — close it before installing UE4SS, or the game may lock the files being replaced.";
+            ReportUe4ssProblem("Icarus is running — close it before installing UE4SS, or the game may lock the files being replaced.");
             return;
         }
 
@@ -1515,12 +1526,13 @@ public sealed partial class SettingsViewModel : ObservableObject
             // "immediately before the write" instead of "however long the dialog+download took".
             if (IsGameRunning())
             {
-                Ue4ssStatusMessage = "Icarus started running while this install was about to write — nothing was touched. Close it and try again.";
+                ReportUe4ssProblem("Icarus started running while this install was about to write — nothing was touched. Close it and try again.",
+                    "UE4SS wasn't installed: Icarus started running just before. Close it and try again.");
                 return;
             }
 
             Ue4ssStatusMessage = "Installing…";
-            await _ue4ssLoaderInstallService.InstallOrUpdateAsync(IcarusContentPath, tempZipPath, _backupDirectory, version, commit);
+            await _ue4ssLoaderInstallService.InstallOrUpdateAsync(contentPath, tempZipPath, _backupDirectory, version, commit);
 
             RefreshUe4ssStatus();
             Ue4ssCheckedOrder = Ue4ssBuildOrder.Unknown;
@@ -1535,7 +1547,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Ue4ssStatusMessage = $"{verb} failed: {ex.Message}";
+            ReportUe4ssProblem($"{verb} failed: {ex.Message}", $"UE4SS {verb.ToLowerInvariant()} failed: {ex.Message}");
         }
         finally
         {
@@ -1568,9 +1580,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task InstallUe4ssFromZipAsync()
     {
-        if (string.IsNullOrWhiteSpace(IcarusContentPath))
+        if (Ue4ssContentPath is not { } contentPath)
         {
-            Ue4ssStatusMessage = "Set the Icarus Content folder first.";
+            ReportUe4ssProblem(Ue4ssNeedsGameFolder, $"Couldn't install UE4SS: {Ue4ssNeedsGameFolder} (Settings › Game & tools)");
             return;
         }
 
@@ -1594,7 +1606,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         if (IsGameRunning())
         {
-            Ue4ssStatusMessage = "Icarus is running — close it before installing UE4SS, or the game may lock the files being replaced.";
+            ReportUe4ssProblem("Icarus is running — close it before installing UE4SS, or the game may lock the files being replaced.");
             return;
         }
 
@@ -1603,7 +1615,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         try
         {
             await _ue4ssLoaderInstallService.InstallOrUpdateAsync(
-                IcarusContentPath, zipPath, _backupDirectory, knownBuild ? zipVersion : null, knownBuild ? zipCommit : null);
+                contentPath, zipPath, _backupDirectory, knownBuild ? zipVersion : null, knownBuild ? zipCommit : null);
             RefreshUe4ssStatus();
             Ue4ssCheckedOrder = Ue4ssBuildOrder.Unknown;
             Ue4ssStatusMessage = $"Installed UE4SS{(Ue4ssInstalledVersion is not null ? $" {Ue4ssInstalledLabel}" : "")} from {Path.GetFileName(zipPath)}.";
@@ -1611,7 +1623,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Ue4ssStatusMessage = $"Install failed: {ex.Message}";
+            ReportUe4ssProblem($"Install failed: {ex.Message}", $"UE4SS install failed: {ex.Message}");
         }
         finally
         {
@@ -1629,9 +1641,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task UninstallUe4ssAsync()
     {
-        if (string.IsNullOrWhiteSpace(IcarusContentPath))
+        if (Ue4ssContentPath is not { } contentPath)
         {
-            Ue4ssStatusMessage = "Set the Icarus Content folder first.";
+            Ue4ssStatusMessage = Ue4ssNeedsGameFolder;
             return;
         }
 
@@ -1651,7 +1663,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         IReadOnlyList<string> userMods;
         try
         {
-            userMods = _ue4ssLoaderInstallService.ListUserAddedMods(IcarusContentPath);
+            userMods = _ue4ssLoaderInstallService.ListUserAddedMods(contentPath);
         }
         catch (Exception ex)
         {
@@ -1696,7 +1708,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
 
             Ue4ssStatusMessage = "Uninstalling…";
-            var uninstallResult = await _ue4ssLoaderInstallService.UninstallAsync(IcarusContentPath, _stagedUe4ssDirectory, _backupDirectory);
+            var uninstallResult = await _ue4ssLoaderInstallService.UninstallAsync(contentPath, _stagedUe4ssDirectory, _backupDirectory);
 
             RefreshUe4ssStatus();
             Ue4ssStatusMessage = uninstallResult.PreservedUserMods.Count > 0
@@ -1706,7 +1718,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Ue4ssStatusMessage = $"Uninstall failed: {ex.Message}";
+            ReportUe4ssProblem($"Uninstall failed: {ex.Message}", $"UE4SS uninstall failed: {ex.Message}");
         }
         finally
         {

@@ -663,6 +663,44 @@ public sealed class SettingsViewModelTests
         Assert.False(vm.IsInstallingUe4ss);
     }
 
+    /// <summary>Review 2026-10-23: the Library's "Install UE4SS" bar runs this command with Settings not showing, so a refusal only on Settings' status line was no answer at all.</summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_Refused_AlsoLogsAWarning()
+    {
+        using var harness = new Harness(dialogConfirmResult: true, gameProcessChecker: new FakeGameProcessChecker(true));
+        var vm = harness.BuildViewModel();
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("Icarus is running"));
+    }
+
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_Fails_AlsoLogsAWarning()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        harness.Ue4ssLoaderInstallService.InstallOrUpdateException = new IOException("locked file");
+        var vm = harness.BuildViewModel();
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message == "UE4SS install failed: locked file");
+    }
+
+    /// <summary>Review 2026-10-23: Browse and Auto-detect only fill the box until Save settings, but UE4SS installed into the box's folder.</summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_UsesTheSavedGameFolder_NotAnUnsavedOne()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        var saved = harness.Settings.IcarusContentPath;
+        var vm = harness.BuildViewModel();
+        vm.IcarusContentPath = Path.Combine(harness.TempDir, "SomeOtherGame", "Content");
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Equal(saved, harness.Ue4ssLoaderInstallService.LastIcarusContentPath);
+    }
+
     /// <summary>The late, immediately-before-the-write recheck: not running at the first check (before the confirm dialog), but running by the time the download finished.</summary>
     [Fact]
     public async Task InstallOrUpdateUe4ssCommand_GameStartsRunningDuringDownload_LateCheckRefusesBeforeInstalling()
