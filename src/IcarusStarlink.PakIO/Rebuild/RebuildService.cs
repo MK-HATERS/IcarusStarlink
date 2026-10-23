@@ -10,6 +10,7 @@ using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.GameplayToggles;
 using IcarusStarlink.PakIO.Pak;
 using IcarusStarlink.PakIO.Safety;
+using Microsoft.Extensions.Logging;
 
 namespace IcarusStarlink.PakIO.Rebuild;
 
@@ -20,7 +21,7 @@ namespace IcarusStarlink.PakIO.Rebuild;
 /// DataTable JSON's array shape to the keyed shape those expect, and IUnrealPakService (Phase 5,
 /// extended for this) packs the result. Nothing here re-implements any of that — this is glue.
 /// </summary>
-public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuildService
+public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<RebuildService>? logger = null) : IRebuildService
 {
     private static readonly JsonSerializerOptions JsonWriteOptions = new() { WriteIndented = true };
 
@@ -113,18 +114,36 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             }
             finally
             {
-                Directory.Delete(stagingDirectory, recursive: true);
+                TryDeleteScratch(stagingDirectory);
             }
         }
         finally
         {
             foreach (var prebuiltScratchDirectory in prebuiltPakScratchDirectories.Values)
             {
-                if (Directory.Exists(prebuiltScratchDirectory))
-                {
-                    Directory.Delete(prebuiltScratchDirectory, recursive: true);
-                }
+                TryDeleteScratch(prebuiltScratchDirectory);
             }
+        }
+    }
+
+    /// <summary>
+    /// Removes a scratch folder under TEMP, logging (not throwing) when it can't: this runs in a
+    /// finally, after the pak was built and verified, so a folder antivirus still holds open turned
+    /// a good build into "Rebuild failed" — and, when the build had failed, hid its real error
+    /// behind the cleanup's own. A leftover scratch folder costs only disk space.
+    /// </summary>
+    private void TryDeleteScratch(string directory)
+    {
+        try
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger?.LogWarning(ex, "Couldn't remove the merge's scratch folder {Directory}; left behind", directory);
         }
     }
 
@@ -438,10 +457,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             }
             finally
             {
-                if (Directory.Exists(scratchDirectory))
-                {
-                    Directory.Delete(scratchDirectory, recursive: true);
-                }
+                TryDeleteScratch(scratchDirectory);
             }
         }
 

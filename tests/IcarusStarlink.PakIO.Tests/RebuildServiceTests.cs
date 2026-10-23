@@ -125,6 +125,9 @@ public class RebuildServiceTests : IDisposable
 
         public Exception? CreatePakException { get; set; }
 
+        /// <summary>Set by a test that wants the staging folder's cleanup to fail: CreatePakAsync marks a staged file read-only, which Directory.Delete refuses.</summary>
+        public bool LockStagedFileForCleanup { get; set; }
+
         /// <summary>When set, what CreatePakAsync says it packed, instead of the staged file count.</summary>
         public int? PackedFileCountToReport { get; set; }
 
@@ -145,6 +148,10 @@ public class RebuildServiceTests : IDisposable
             StagedFileContentsAtCallTime = files.ToDictionary(
                 f => Path.GetRelativePath(stagingDirectory, f).Replace('\\', '/'),
                 File.ReadAllText);
+            if (LockStagedFileForCleanup && files.Length > 0)
+            {
+                File.SetAttributes(files[0], FileAttributes.ReadOnly);
+            }
 
             // A real UnrealPak.exe reports back everything it actually packed via -List — mirrored
             // here so RebuildAsync's own post-pack verification (ListPakContentsAsync against
@@ -1085,6 +1092,36 @@ public class RebuildServiceTests : IDisposable
         var result = await new RebuildService(pakService).RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [pak]);
 
         Assert.Contains(result.Warnings, w => w.Contains("Engine_P") && w.Contains("outside the game's Content folder"));
+    }
+
+    /// <summary>The staging folder can't be removed afterwards (antivirus, a read-only file): the verified build still succeeds.</summary>
+    [Fact]
+    public async Task RebuildAsync_StagingCleanupFails_TheBuildStillSucceeds()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Mod", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var pakService = new FakeUnrealPakService { LockStagedFileForCleanup = true };
+
+        try
+        {
+            var result = await new RebuildService(pakService).RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+            Assert.True(File.Exists(result.OutputPakPath));
+            Assert.True(File.Exists(result.ManifestPath));
+        }
+        finally
+        {
+            if (pakService.LastStagingDirectory is { } staging && Directory.Exists(staging))
+            {
+                foreach (var file in Directory.GetFiles(staging, "*", SearchOption.AllDirectories))
+                {
+                    File.SetAttributes(file, FileAttributes.Normal);
+                }
+
+                Directory.Delete(staging, recursive: true);
+            }
+        }
     }
 
     [Fact]
