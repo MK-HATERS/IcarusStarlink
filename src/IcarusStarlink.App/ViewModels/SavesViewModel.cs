@@ -544,14 +544,21 @@ public sealed partial class SavesViewModel : ObservableObject
             // (a needless refusal) rather than slipping through unnoticed. Each file is read on its
             // own, so one unreadable file only hides its own section. Every ObservableCollection
             // mutation below still runs back on this (UI) thread, since that's not safe off it.
-            var files = await Task.Run(() => (
-                Stamps: TryLoad(() => _repository.GetFileStamps(steamId)),
-                Profile: _repository.LoadProfile(steamId),
-                Characters: TryLoad(() => _repository.LoadCharacters(steamId)),
-                Accolades: TryLoad(() => _repository.LoadAccolades(steamId)),
-                Bestiary: TryLoad(() => _repository.LoadBestiary(steamId)),
-                MetaInventory: TryLoad(() => _repository.LoadMetaInventory(steamId)),
-                Mounts: TryLoad(() => _repository.LoadMounts(steamId))));
+            // The game tables every row is named from are read here too (Warm), once each: they
+            // used to be parsed on the UI thread as each section asked, D_Talents five times.
+            var files = await Task.Run(() =>
+            {
+                var read = (
+                    Stamps: TryLoad(() => _repository.GetFileStamps(steamId)),
+                    Profile: _repository.LoadProfile(steamId),
+                    Characters: TryLoad(() => _repository.LoadCharacters(steamId)),
+                    Accolades: TryLoad(() => _repository.LoadAccolades(steamId)),
+                    Bestiary: TryLoad(() => _repository.LoadBestiary(steamId)),
+                    MetaInventory: TryLoad(() => _repository.LoadMetaInventory(steamId)),
+                    Mounts: TryLoad(() => _repository.LoadMounts(steamId)));
+                _gameNames.Warm();
+                return read;
+            });
 
             // A newer load started meanwhile (another slot, or this one again: Reload, Restore, a
             // game-data refresh). Only the newest may fill the lists; two loads of the same slot

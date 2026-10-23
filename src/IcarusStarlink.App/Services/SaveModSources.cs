@@ -52,8 +52,9 @@ public sealed record SaveRowSource(SaveRowOrigin Origin, string Label)
 /// (installed in the game, and the Library's copies in <paramref name="ue4ssLibraryFolder"/>);
 /// other script mods can't be read, which the page says.
 /// </summary>
+/// <param name="gameNames">The app's shared game-table reader: the game's own row names come from it instead of parsing D_Talents, D_ItemsStatic and D_ItemTemplate again on every read. Null reads the files here.</param>
 public sealed class SaveModSources(ILibraryRepository library, ISettingsService settings, string dataFolder, string? ue4ssLibraryFolder = null,
-    Func<bool>? isGameDataOutdated = null)
+    Func<bool>? isGameDataOutdated = null, SaveGameNames? gameNames = null)
 {
     public const string TalentsFile = "Talents-D_Talents.json";
     public const string ItemsFile = "Items-D_ItemsStatic.json";
@@ -168,15 +169,21 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
 
         // Without the game's own tables, or with them older than the game (an update not refreshed
         // yet), real game rows would read as leftovers: nothing is called one then (review, 2026-10-23).
-        var gameRows = Files.ToDictionary(f => f, f => RowNamesIn(ReadGameFile(f)), StringComparer.OrdinalIgnoreCase);
+        var gameRows = Files.ToDictionary(f => f, GameRowNames, StringComparer.OrdinalIgnoreCase);
         if (gameRows.Values.Any(rows => rows.Count == 0) || IsGameDataOutdated())
         {
             canTellInstalled = false;
         }
 
         return new Index(gameRows, installed, byMod, GameRowHistory.Load(GameRowHistory.LocalFileFor(dataFolder)), canTellInstalled,
-            TemplateItemRows(ReadGameFile("Items-D_ItemTemplate.json")));
+            gameNames?.TemplateStaticRows ?? TemplateItemRows(ReadGameFile("Items-D_ItemTemplate.json")));
     }
+
+    /// <summary>The game's own rows of one table: from the shared reader (already parsed, and locked for this background read) when there is one.</summary>
+    private HashSet<string> GameRowNames(string currentFile) =>
+        gameNames is { } names
+            ? new HashSet<string>(names.RowNameSet(currentFile.Replace('-', '/')), StringComparer.OrdinalIgnoreCase)
+            : RowNamesIn(ReadGameFile(currentFile));
 
     /// <summary>D_ItemTemplate row -> the D_ItemsStatic row it uses ("LegendaryWeapon_ApeClub" -> "LegendaryWeapon_Ape_Club").</summary>
     private static Dictionary<string, string> TemplateItemRows(byte[]? json)

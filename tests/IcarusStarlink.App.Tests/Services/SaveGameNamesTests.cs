@@ -145,4 +145,48 @@ public sealed class SaveGameNamesTests : IDisposable
         // The mission row in the save -> the reward its completion gives.
         Assert.Equal(["GrantedBlueprint_Bait"], names.MissionRewardFlags["Prospect_RL_Extermination"]);
     }
+
+    /// <summary>Warm reads each table once and keeps what it built; only Invalidate (Refresh game data) reads the folder again.</summary>
+    [Fact]
+    public void Warm_KeepsTheNames_UntilInvalidate()
+    {
+        Write(@"Talents\D_Talents.json", """
+            { "Rows": [ { "Name": "Wood_Sticks", "TalentTree": { "RowName": "Survival_Resources" } } ] }
+            """);
+        Write(@"Items\D_ItemsStatic.json", """
+            { "Rows": [ { "Name": "Wood" } ] }
+            """);
+        var names = new SaveGameNames(_data);
+
+        names.Warm();
+        Directory.Delete(_data, recursive: true);
+
+        Assert.True(names.Talents.ContainsKey("Wood_Sticks"));
+        Assert.Contains("Wood", names.RowNameSet("Items/D_ItemsStatic.json"));
+        names.Invalidate();
+        Assert.Empty(names.Talents);
+        Assert.Empty(names.RowNameSet("Items/D_ItemsStatic.json"));
+    }
+
+    /// <summary>The page warms the names in the background while SaveModSources reads them on another thread.</summary>
+    [Fact]
+    public async Task Lookups_FromSeveralThreadsAtOnce_AllSeeTheSameTable()
+    {
+        Write(@"Talents\D_Talents.json", """
+            { "Rows": [ { "Name": "A" }, { "Name": "B" }, { "Name": "C" } ] }
+            """);
+        var names = new SaveGameNames(_data);
+
+        var counts = await Task.WhenAll(Enumerable.Range(0, 8).Select(i => Task.Run(() =>
+        {
+            if (i % 2 == 0)
+            {
+                names.Warm();
+            }
+
+            return names.Talents.Count + names.RowNameSet("Talents/D_Talents.json").Count;
+        })));
+
+        Assert.All(counts, c => Assert.Equal(6, c));
+    }
 }
