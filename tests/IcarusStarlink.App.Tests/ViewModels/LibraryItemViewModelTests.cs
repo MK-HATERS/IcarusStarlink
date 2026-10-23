@@ -50,7 +50,8 @@ public sealed class LibraryItemViewModelTests : IDisposable
         FakeUassetSkeletalMeshDecoder? skeletalMeshDecoder = null,
         FakeUassetSoundDecoder? soundDecoder = null,
         FakeUassetMaterialDecoder? materialDecoder = null,
-        LibraryEntry? entry = null) =>
+        LibraryEntry? entry = null,
+        FakeSettingsService? settings = null) =>
         new(
             entry ?? MakeEntry(), new FakeLibraryRepository(_modFolderPath), new FakeUnrealPakService(),
             textureDecoder ?? new FakeUassetTextureDecoder(),
@@ -58,7 +59,7 @@ public sealed class LibraryItemViewModelTests : IDisposable
             skeletalMeshDecoder ?? new FakeUassetSkeletalMeshDecoder(),
             soundDecoder ?? new FakeUassetSoundDecoder(),
             materialDecoder ?? new FakeUassetMaterialDecoder(),
-            new FakeOpaquePakAssetPreviewService(), new FakeSettingsService(),
+            new FakeOpaquePakAssetPreviewService(), settings ?? new FakeSettingsService(),
             new FakeNexusApiClient(), new FakeCredentialStore(), new HttpClient(),
             Path.Combine(_modFolderPath, "ThumbCache"), Path.Combine(_modFolderPath, "PakPreviewCache"),
             () => Task.FromResult<IReadOnlyList<CatalogEntry>>([]),
@@ -89,6 +90,23 @@ public sealed class LibraryItemViewModelTests : IDisposable
     /// notes-save debounce made Update() revert the Notes box to the on-disk text, and the still-
     /// pending save then wrote that stale text back over what the user had typed.
     /// </summary>
+    /// <summary>A bundle (one download holding several paks) lists every pak's files, not only the first pak's.</summary>
+    [Fact]
+    public async Task LoadPakContents_BundleOfSeveralPaks_ListsEveryPak()
+    {
+        Directory.CreateDirectory(_modFolderPath);
+        File.WriteAllBytes(Path.Combine(_modFolderPath, "Bags_P.pak"), [0]);
+        File.WriteAllBytes(Path.Combine(_modFolderPath, "Bags_Data_P.pak"), [0]);
+        var settings = new FakeSettingsService();
+        settings.Current.UnrealPakExePath = "UnrealPak.exe";
+        var item = CreateViewModel(settings: settings);
+
+        await item.LoadPakContentsCommand.ExecuteAsync(null);
+
+        Assert.Equal(["Bags_Data_P/Item.uasset", "Bags_P/Item.uasset"], item.AssetPaths);
+        Assert.Null(item.PakListingStatus);
+    }
+
     [Fact]
     public void Update_WhileANotesSaveIsStillPending_DoesNotRevertTheTypedNotes()
     {
@@ -446,8 +464,9 @@ public sealed class LibraryItemViewModelTests : IDisposable
         public Task<int> CreatePakAsync(string unrealPakExePath, string stagingDirectory, string outputPakPath, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
 
+        /// <summary>One file per pak, named after the pak.</summary>
         public Task<IReadOnlyList<string>> ListPakContentsAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+            Task.FromResult<IReadOnlyList<string>>([$"{Path.GetFileNameWithoutExtension(pakFilePath)}/Item.uasset"]);
 
         public Task<PakVerifyResult> VerifyPakAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");

@@ -399,33 +399,17 @@ public sealed partial class LibraryViewModel
         // template) rebuild their rule rows from the new game data — the whole point of keeping
         // rules instead of frozen copies. Rules own only their own fields, so hand edits stay; a mod
         // open in the editor is left for its own Apply/Save, same guard as above.
-        var rulesRefreshedCount = 0;
-        var gameTables = new GameTableIndex(_dataFolder);
-        foreach (var item in AllLibraryItems().Where(i => !i.IsOpaquePak && !foldersWithOpenEditors.Contains(i.FolderName)))
+        // Off the UI thread, reading only each mod's package (not its cooked files): this read every
+        // mod's assets on the UI thread, freezing the app after each game data refresh. Each mod is
+        // backed up before it's rewritten, like every other pass that writes mods.
+        var ruleCandidates = AllLibraryItems()
+            .Where(i => !i.IsOpaquePak && !foldersWithOpenEditors.Contains(i.FolderName))
+            .Select(i => (i.FolderName, i.Name))
+            .ToList();
+        var (rulesRefreshedCount, ruleFailures) = await Task.Run(() => RebuildFromScaleRules(ruleCandidates));
+        foreach (var (name, reason) in ruleFailures)
         {
-            try
-            {
-                var folder = _repository.GetFolderPath(item.FolderName);
-                var package = ExmodFolder.Read(folder).Package;
-                if (package.ScaleRules.Count == 0)
-                {
-                    continue;
-                }
-
-                var before = ExmodJson.Serialize(package, indented: false);
-                ScaleRules.ApplyToPackage(package, package.ScaleRules, _dataFolder, new MergeReport(), gameTables);
-                if (ExmodJson.Serialize(package, indented: false) == before)
-                {
-                    continue;
-                }
-
-                ExmodFolder.Write(folder, new ExmodPackageContents(package, []));
-                rulesRefreshedCount++;
-            }
-            catch (Exception ex)
-            {
-                _activityLog.Log($"Couldn't rebuild '{item.Name}' from its scale rules after updating game data: {ex.Message}", ActivityEntryKind.Warning);
-            }
+            _activityLog.Log($"Couldn't rebuild '{name}' from its scale rules after updating game data: {reason}", ActivityEntryKind.Warning);
         }
 
         if (rulesRefreshedCount > 0)
@@ -454,6 +438,48 @@ public sealed partial class LibraryViewModel
 
             _activityLog.Log($"After updating game data: {string.Join(", ", parts)}.", ActivityEntryKind.Success);
         }
+    }
+
+    /// <summary>
+    /// Step 3 of the refresh after a game data update, off the UI thread: every mod built from scale
+    /// rules rebuilds its rule rows from the new game data (backed up first). A mod opened in the
+    /// editor meanwhile is left for its own Save. Returns how many changed, and each failure.
+    /// </summary>
+    private (int Rebuilt, List<(string Name, string Reason)> Failures) RebuildFromScaleRules(IReadOnlyList<(string FolderName, string Name)> mods)
+    {
+        var rebuilt = 0;
+        var failures = new List<(string Name, string Reason)>();
+        GameTableIndex? gameTables = null;
+        foreach (var (folderName, name) in mods)
+        {
+            try
+            {
+                var folder = _repository.GetFolderPath(folderName);
+                var package = ExmodFolder.ReadPackageOnly(folder);
+                if (package.ScaleRules.Count == 0)
+                {
+                    continue;
+                }
+
+                gameTables ??= new GameTableIndex(_dataFolder);
+                var before = ExmodJson.Serialize(package, indented: false);
+                ScaleRules.ApplyToPackage(package, package.ScaleRules, _dataFolder, new MergeReport(), gameTables);
+                if (ExmodJson.Serialize(package, indented: false) == before || IsEditorOpenLive(folderName))
+                {
+                    continue;
+                }
+
+                _repository.BackupMod(folderName);
+                ExmodFolder.Write(folder, new ExmodPackageContents(package, []));
+                rebuilt++;
+            }
+            catch (Exception ex)
+            {
+                failures.Add((name, ex.Message));
+            }
+        }
+
+        return (rebuilt, failures);
     }
 
     /// <summary>The game's recorded changes from recent Refresh game data runs; set by the app (old values a mod may still hold).</summary>

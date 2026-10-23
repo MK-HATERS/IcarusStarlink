@@ -729,6 +729,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         ChangesContent = null;
         ChangesSummary = null;
         _changesSummaryRun++;
+        _pakContentsRun++;
         ThumbnailImage = null;
         SelectedAssetPath = null;
         PakListingStatus = null;
@@ -1374,10 +1375,11 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             return;
         }
 
-        string? pakFilePath;
+        // Every pak of a bundle (one download can hold several), not just the first one found.
+        string[] pakFilePaths;
         try
         {
-            pakFilePath = Directory.GetFiles(_repository.GetFolderPath(FolderName), "*.pak").FirstOrDefault();
+            pakFilePaths = Directory.GetFiles(_repository.GetFolderPath(FolderName), "*.pak");
         }
         catch (Exception ex)
         {
@@ -1385,19 +1387,31 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             return;
         }
 
-        if (pakFilePath is null)
+        if (pakFilePaths.Length == 0)
         {
             PakListingStatus = "Couldn't find this mod's own .pak file.";
             return;
         }
 
+        // The row can be reset (Update after a refresh) while UnrealPak runs: a late listing mustn't
+        // fill the cleared Files list again.
+        var run = ++_pakContentsRun;
         try
         {
             PakListingStatus = "Loading pak contents…";
-            var paths = await _unrealPakService.ListPakContentsAsync(unrealPakExePath, pakFilePath);
+            var paths = new List<string>();
+            foreach (var pakFilePath in pakFilePaths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+            {
+                paths.AddRange(await _unrealPakService.ListPakContentsAsync(unrealPakExePath, pakFilePath));
+            }
+
+            if (run != _pakContentsRun)
+            {
+                return;
+            }
 
             AssetPaths.Clear();
-            foreach (var path in paths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+            foreach (var path in paths.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
             {
                 AssetPaths.Add(path);
             }
@@ -1406,9 +1420,14 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            PakListingStatus = $"Couldn't list this pak's contents: {ex.Message}";
+            if (run == _pakContentsRun)
+            {
+                PakListingStatus = $"Couldn't list this pak's contents: {ex.Message}";
+            }
         }
     }
+
+    private int _pakContentsRun;
 
     /// <summary>
     /// Best-effort only: a missing or corrupt thumbnail is cosmetic, not a reason to fail the
