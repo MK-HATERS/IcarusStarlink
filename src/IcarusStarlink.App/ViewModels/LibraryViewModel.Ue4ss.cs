@@ -131,7 +131,7 @@ public sealed partial class LibraryViewModel
                 }
             }
 
-            Ue4ssEmptyText = states.Count == 0 ? "No UE4SS mods yet. Import one, or download one from Nexus." : "No UE4SS mods match.";
+            Ue4ssEmptyText = states.Count == 0 ? "No UE4SS mods yet. Import one, or download one from Nexus." : NoMatchText;
         }
         catch (Exception ex)
         {

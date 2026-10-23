@@ -20,6 +20,24 @@
         <sys:Double x:Key="Ue4ssNameColumnWidth">200</sys:Double>
         <sys:Double x:Key="Ue4ssFillWidth">0</sys:Double>
 
+        <!-- A row's endorse thumb. Says what a click does; once endorsed, says so instead of
+             "Endorsed on Nexus — click to endorse". -->
+        <Style x:Key="LibraryEndorseButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
+            <Setter Property="Width" Value="24"/>
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
+            <Setter Property="ToolTip" Value="Endorse this mod on Nexus"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsEndorsed}" Value="True">
+                    <Setter Property="ToolTip" Value="You've endorsed this mod on Nexus"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding EndorsementStatusDisplay}" Value="Not endorsing">
+                    <Setter Property="ToolTip" Value="You chose not to endorse this mod — click to endorse it on Nexus after all"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- A filter chip above the panels: outlined, filled in the accent while it's on; "Not in game
              yet" and "Problems" take their colour while they have something to show. -->
         <Style x:Key="LibraryFilterChipStyle" TargetType="Button">
@@ -258,13 +276,10 @@
 
                 <!-- The same buttons on every row: endorse (Nexus mods), edit config (when it has one), more. -->
                 <StackPanel x:Name="RowActions" Grid.Column="9" Orientation="Horizontal" HorizontalAlignment="Right" Opacity="0.45">
-                    <Button Style="{StaticResource IconButtonStyle}" Width="24" Height="24" Padding="0"
+                    <Button Style="{StaticResource LibraryEndorseButtonStyle}"
                             Command="{Binding DataContext.EndorseUe4ssModCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
                             Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToHiddenConverter}}"
                             AutomationProperties.Name="Endorse on Nexus">
-                        <Button.ToolTip>
-                            <TextBlock><Run Text="{Binding EndorsementStatusDisplay, Mode=OneWay}"/><Run Text=" on Nexus — click to endorse"/></TextBlock>
-                        </Button.ToolTip>
                         <Path Data="{StaticResource IconThumbsUp}" StrokeThickness="1.2" StrokeLineJoin="Round" Width="13" Height="13" Stretch="Uniform">
                             <Path.Style>
                                 <Style TargetType="Path">
@@ -601,13 +616,10 @@
                 <!-- The same buttons on every row: endorse (Nexus mods), favourite, edit, more. Pin,
                      delete and the rest are in more / right-click. -->
                 <StackPanel x:Name="RowActions" Grid.Column="12" Orientation="Horizontal" HorizontalAlignment="Right" Opacity="0.45">
-                    <Button Style="{StaticResource IconButtonStyle}" Width="24" Height="24" Padding="0"
+                    <Button Style="{StaticResource LibraryEndorseButtonStyle}"
                             Command="{Binding EndorseCommand}"
                             Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToHiddenConverter}}"
                             AutomationProperties.Name="Endorse on Nexus">
-                        <Button.ToolTip>
-                            <TextBlock><Run Text="{Binding EndorsementStatusDisplay, Mode=OneWay}"/><Run Text=" on Nexus — click to endorse"/></TextBlock>
-                        </Button.ToolTip>
                         <Path Data="{StaticResource IconThumbsUp}" StrokeThickness="1.2" StrokeLineJoin="Round" Width="13" Height="13" Stretch="Uniform">
                             <Path.Style>
                                 <Style TargetType="Path">
@@ -624,7 +636,7 @@
                         </Path>
                     </Button>
                     <ToggleButton IsChecked="{Binding IsFavorite}" Style="{StaticResource IconToggleButtonStyle}"
-                                  ToolTip="Favourite" AutomationProperties.Name="Toggle favourite">
+                                  ToolTip="Favourite — the ★ Favourites filter above shows just these" AutomationProperties.Name="Toggle favourite">
                         <Path Data="{StaticResource IconStar}" Width="12" Height="12" Stretch="Uniform">
                             <Path.Style>
                                 <Style TargetType="Path">
@@ -1002,8 +1014,14 @@
                                       PreviewMouseRightButtonDown="LibraryTree_PreviewMouseRightButtonDown"
                                       PreviewMouseLeftButtonDown="LibraryTree_PreviewMouseLeftButtonDown"
                                       MouseDoubleClick="LibraryTree_MouseDoubleClick"/>
-                            <TextBlock Text="No data mods match." Margin="16,14" FontSize="12.5" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"
-                                       IsHitTestVisible="False" Visibility="{Binding IsDataPanelEmpty, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            <!-- Why the panel is empty, and one click back to everything when the search or a filter hid it all. -->
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                                        Visibility="{Binding IsDataPanelEmpty, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <TextBlock Text="{Binding DataEmptyText}" Style="{StaticResource EmptyStateTextStyle}" Margin="16,16,16,8"/>
+                                <Button Content="Show all mods" Command="{Binding ShowAllModsCommand}" HorizontalAlignment="Center"
+                                        ToolTip="Empties the search box and turns every filter off"
+                                        Visibility="{Binding IsListNarrowed, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            </StackPanel>
                         </Grid>
                         <!-- What isn't in the game yet from this panel, and the one action that puts it there. -->
                         <Border Grid.Row="4" Padding="12,8" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="0,1,0,0" Background="{DynamicResource CardRaisedBackgroundBrush}"
@@ -1128,8 +1146,13 @@
                                       PreviewMouseRightButtonDown="LibraryTree_PreviewMouseRightButtonDown"
                                       PreviewMouseLeftButtonDown="LibraryTree_PreviewMouseLeftButtonDown"
                                       MouseDoubleClick="LibraryTree_MouseDoubleClick"/>
-                            <TextBlock Text="{Binding Ue4ssEmptyText}" Margin="16,14" FontSize="12.5" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"
-                                       IsHitTestVisible="False" Visibility="{Binding IsUe4ssPanelEmpty, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                                        Visibility="{Binding IsUe4ssPanelEmpty, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <TextBlock Text="{Binding Ue4ssPanelEmptyText}" Style="{StaticResource EmptyStateTextStyle}" Margin="16,16,16,8"/>
+                                <Button Content="Show all mods" Command="{Binding ShowAllModsCommand}" HorizontalAlignment="Center"
+                                        ToolTip="Empties the search box and turns every filter off"
+                                        Visibility="{Binding IsListNarrowed, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            </StackPanel>
                         </Grid>
                         <!-- What isn't in the game yet from this panel, and the one action that puts it there. -->
                         <Border Grid.Row="4" Padding="12,8" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="0,1,0,0" Background="{DynamicResource CardRaisedBackgroundBrush}"

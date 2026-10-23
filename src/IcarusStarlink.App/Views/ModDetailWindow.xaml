@@ -48,9 +48,10 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0">
+                <!-- The name on its own line so a long one wraps instead of running off the edge. -->
+                <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,4"/>
                 <WrapPanel>
-                    <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,0,4"/>
-                    <Border Margin="8,0,0,4" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
+                    <Border Margin="0,0,0,4" CornerRadius="8" Padding="7,2" VerticalAlignment="Center"
                             Background="{DynamicResource InfoBrush}"
                             Visibility="{Binding HasSource, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="{Binding Source}" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
@@ -190,14 +191,20 @@
                         </Border>
                     </Expander>
                     <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" MinHeight="110">
-                        <TextBox Text="{Binding ChangesContent, Mode=OneWay}"
-                                 IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
-                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                                 AcceptsReturn="True" BorderThickness="0" Padding="8"/>
+                        <Grid>
+                            <TextBox Text="{Binding ChangesContent, Mode=OneWay}"
+                                     IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
+                                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                     AcceptsReturn="True" BorderThickness="0" Padding="8"/>
+                            <!-- A prebuilt .pak has no EXMOD to list changes from. -->
+                            <TextBlock Text="No list of changes for this mod — it's a prebuilt .pak. The Files tab shows what's inside it."
+                                       Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
+                                       Visibility="{Binding IsOpaquePak, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        </Grid>
                     </Border>
                 </DockPanel>
             </TabItem>
-            <TabItem Header="Files">
+            <TabItem Header="{Binding AssetPaths.Count}" HeaderStringFormat="Files ({0})">
                 <Grid Margin="0,8,0,0" MinHeight="110">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -237,6 +244,9 @@
                         <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                       Background="{DynamicResource BorderBrush}" ResizeBehavior="PreviousAndNext"
                                       AutomationProperties.Name="Resize file list"/>
+                        <TextBlock Grid.Column="2" Text="Pick a file on the left to preview it." Style="{StaticResource EmptyStateTextStyle}"
+                                   IsHitTestVisible="False"
+                                   Visibility="{Binding SelectedAssetPath, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                         <!-- Exactly one of SelectedAssetPreview/SelectedAssetImage/SelectedAssetMesh/
                              SelectedAssetAudioPath/SelectedAssetMaterialParams is ever non-null at a
                              time (see LibraryItemViewModel's own doc comments on each), so each
@@ -357,8 +367,12 @@
             </TabItem>
             <TabItem Header="Readme">
                 <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" MinHeight="110">
-                    <FlowDocumentScrollViewer VerticalScrollBarVisibility="Auto" Padding="8"
-                        Document="{Binding ReadmeContent, Mode=OneWay, Converter={StaticResource MarkdownToFlowDocumentConverter}}"/>
+                    <Grid>
+                        <FlowDocumentScrollViewer VerticalScrollBarVisibility="Auto" Padding="8"
+                            Document="{Binding ReadmeContent, Mode=OneWay, Converter={StaticResource MarkdownToFlowDocumentConverter}}"/>
+                        <TextBlock Text="This mod came without a readme." Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
+                                   Visibility="{Binding ReadmeContent, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                    </Grid>
                 </Border>
             </TabItem>
         </TabControl>
