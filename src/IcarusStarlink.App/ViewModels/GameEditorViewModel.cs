@@ -403,7 +403,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
         ItemTitle = view.DisplayName is { Length: > 0 } d ? $"{d}  ({item.Name})" : item.Name;
         KeptAsGames = view.KeptAsGames.Count == 0 ? null : "Kept as the game's (models, sounds, how it's picked up and used): " + string.Join("; ", view.KeptAsGames) + ".";
-        _statChoices ??= GameItemEditor.StatChoices(game);
+        _statChoices ??= GameStats.StatChoices(game);
         foreach (var section in view.Sections)
         {
             Sections.Add(new GameItemSectionViewModel(section, _statChoices, UpdatePending, game));

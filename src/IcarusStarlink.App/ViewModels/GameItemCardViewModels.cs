@@ -32,7 +32,7 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     }
 
     private static bool IsStat(EditableField field) =>
-        field.Path.Steps.Count > 0 && field.Path.Steps[^1] is string key && GameItemEditor.IsStatKey(key);
+        field.Path.Steps.Count > 0 && field.Path.Steps[^1] is string key && GameStats.IsStatKey(key);
 
     /// <summary>The field's path in IsDecimalField's terms: list positions match any element.</summary>
     internal static IReadOnlyList<string> DecimalSteps(EditPath path) =>
@@ -163,7 +163,7 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
 
     private string? AddStat(StatChoice stat)
     {
-        var key = GameItemEditor.StatKeyFor(stat.Name);
+        var key = GameStats.StatKeyFor(stat.Name);
         var group = Section.StatGroups[0];
         if (Fields.Any(f => f.Field.Path.Top == group && f.Field.Path.Steps.Count == 1 && (string)f.Field.Path.Steps[0] == key))
         {

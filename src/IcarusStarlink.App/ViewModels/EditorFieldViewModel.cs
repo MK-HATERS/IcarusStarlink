@@ -260,7 +260,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             }
 
             // Typed as JSON (a stats field, a raw value): stats are whole numbers in the game.
-            if (GameItemEditor.FractionalStat(parsed is JsonObject ? parsed : new JsonObject { [FieldName] = parsed?.DeepClone() }) is { } fractional)
+            if (GameStats.FractionalStat(parsed is JsonObject ? parsed : new JsonObject { [FieldName] = parsed?.DeepClone() }) is { } fractional)
             {
                 throw new System.IO.InvalidDataException($"Stats are whole numbers in the game, so {fractional} would lose its fraction. Use a whole number.");
             }
@@ -304,7 +304,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
 
     private string? AddStat(StatChoice choice)
     {
-        var key = GameItemEditor.StatKeyFor(choice.Name);
+        var key = GameStats.StatKeyFor(choice.Name);
         if (Stats.FirstOrDefault(s => s.Key == key) is { } existing)
         {
             if (!existing.IsDropped)
@@ -351,7 +351,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         JsonValue s when choices is { LinkTable: null, Options.Count: > 1 } && s.TryGetValue<string>(out var text) && NsLocText.TextOf(text) is null => EditorFieldKind.Choice,
         _ when ScaleRules.TryReadNumber(value, out _) => EditorFieldKind.Number,
         JsonValue v when v.TryGetValue<string>(out var s) => NsLocText.TextOf(s) is not null ? EditorFieldKind.Text : EditorFieldKind.String,
-        _ when GameItemEditor.IsStatsObject(field, value) => EditorFieldKind.Stats,
+        _ when GameStats.IsStatsObject(field, value) => EditorFieldKind.Stats,
         _ => EditorFieldKind.Raw,
     };
 
@@ -361,7 +361,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         JsonValue v when v.TryGetValue<string>(out var s) => NsLocText.TextOf(s) ?? s,
         JsonObject link when link.Count <= 2 && link["RowName"] is JsonValue row && (link.Count == 1 || link.ContainsKey("DataTableName")) => row.ToString(),
         _ when ScaleRules.TryReadNumber(value, out var n) => n.ToString("0.######", CultureInfo.InvariantCulture),
-        JsonObject o when o.Count > 0 && o.All(kv => GameItemEditor.StatNameOf(kv.Key) != kv.Key) => $"{o.Count} stat(s)",
+        JsonObject o when o.Count > 0 && o.All(kv => GameStats.StatNameOf(kv.Key) != kv.Key) => $"{o.Count} stat(s)",
         _ => value.ToJsonString(),
     };
 
@@ -394,9 +394,9 @@ public sealed partial class StatEntryViewModel : ObservableObject
         _owner = owner;
         _gameValue = gameValue;
         Key = key;
-        StatName = GameItemEditor.StatNameOf(key);
-        Label = GameItemEditor.StatLabel(key);
-        Hint = GameItemEditor.StatHint(StatName);
+        StatName = GameStats.StatNameOf(key);
+        Label = GameStats.StatLabel(key);
+        Hint = GameStats.StatHint(StatName);
         _valueText = EditorFieldViewModel.Plain(value ?? gameValue);
         LastGoodValue = (value ?? gameValue)?.DeepClone();
     }

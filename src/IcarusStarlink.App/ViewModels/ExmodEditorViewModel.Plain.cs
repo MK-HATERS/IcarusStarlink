@@ -149,7 +149,7 @@ public sealed partial class ExmodEditorViewModel
                 return null;
             }
 
-            _statChoices = GameItemEditor.StatChoices(GameTables);
+            _statChoices = GameStats.StatChoices(GameTables);
         }
 
         return _statChoices;
@@ -189,7 +189,7 @@ public sealed partial class ExmodEditorViewModel
     /// <summary>Values a field changes: one per stat for a stats list (added, changed or left out), else one if it differs at all.</summary>
     private static int ChangedValues(string field, JsonNode? value, JsonNode? game)
     {
-        if (GameItemEditor.IsStatsObject(field, value) && value is JsonObject mine)
+        if (GameStats.IsStatsObject(field, value) && value is JsonObject mine)
         {
             var theirs = game as JsonObject ?? [];
             return mine.Count(kv => !JsonNode.DeepEquals(kv.Value, theirs[kv.Key])) + theirs.Count(kv => !mine.ContainsKey(kv.Key));

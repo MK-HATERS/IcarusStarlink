@@ -79,7 +79,7 @@ public sealed partial class ExmodEditorViewModel
         {
             foreach (var (_, value) in item.Fields)
             {
-                if (GameItemEditor.FractionalStat(value) is { } found)
+                if (GameStats.FractionalStat(value) is { } found)
                 {
                     return $"{found} (in {item.Name})";
                 }
