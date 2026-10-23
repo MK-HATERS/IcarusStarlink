@@ -133,6 +133,24 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     public bool NeedsAction => InstallStatus.StartsWith("Needs", StringComparison.Ordinal);
 
+    /// <summary>Ticked but not in the game, or in the game but unticked: the next Merge &amp; Install changes it (LibraryViewModel.RefreshEnabledAndStatus). The "Not in game yet" filter.</summary>
+    [ObservableProperty]
+    private bool _isPendingChange;
+
+    /// <summary>The UE4SS mod that is this mod's other half (MkHaters Bags ↔ MkHatersBags), set by LibraryViewModel; null when there is none. Only a hint in the list: each keeps its own tick.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasLinkedPartner))]
+    private Ue4ssModRowViewModel? _linkedPartner;
+
+    public bool HasLinkedPartner => LinkedPartner is not null;
+
+    /// <summary>The mouse is over the other half's row: this row lights up too.</summary>
+    [ObservableProperty]
+    private bool _isLinkHighlighted;
+
+    /// <summary>The endorse thumb is filled.</summary>
+    public bool IsEndorsed => EndorsementStatus == NexusEndorsementStatus.Endorsed;
+
     partial void OnInstallStatusChanged(string value)
     {
         OnPropertyChanged(nameof(IsInGame));
@@ -182,7 +200,11 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     private string _name;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AuthorDisplay))]
     private string _author;
+
+    /// <summary>The Author column: "—" for a mod that names nobody (blank, or "Unknown"), the same on every row.</summary>
+    public string AuthorDisplay => string.IsNullOrWhiteSpace(Author) || string.Equals(Author.Trim(), "Unknown", StringComparison.OrdinalIgnoreCase) ? "—" : Author;
 
     [ObservableProperty]
     private string _version;
@@ -317,6 +339,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     partial void OnEndorsementStatusChanged(NexusEndorsementStatus? value)
     {
         OnPropertyChanged(nameof(EndorsementStatusDisplay));
+        OnPropertyChanged(nameof(IsEndorsed));
         EndorseCommand.NotifyCanExecuteChanged();
         AbstainCommand.NotifyCanExecuteChanged();
     }

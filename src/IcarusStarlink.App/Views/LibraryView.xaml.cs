@@ -24,41 +24,131 @@ public partial class LibraryView : UserControl
                 newVm.PropertyChanged += ViewModel_PropertyChanged;
             }
         };
-        LayoutUpdated += (_, _) => UpdateNameColumnWidth();
+        LayoutUpdated += (_, _) => UpdateColumnWidths();
+        Loaded += (_, _) => ArrangePanels();
+        PanelsGrid.SizeChanged += (_, _) => ArrangePanels();
     }
 
     // What a row loses to the TreeViewItem template before its own Grid starts: the 19px expander
     // column, the 2px padding either side (Themes/Styles.xaml), plus a few px so rounding never
     // tips the row into a horizontal scroll.
-    private const double RowChromeWidth = 19 + 4 + 6;
-    private const double MinNameColumnWidth = 220;
-    private ScrollViewer? _libraryTreeScrollViewer;
+    private const double RowChromeWidth = 19 + 4 + 14;
+    private const double MinNameColumnWidth = 140;
+
+    /// <summary>Below this width the two panels sit one above the other instead of side by side.</summary>
+    private const double StackBelowWidth = 1180;
+
+    private ScrollViewer? _dataTreeScrollViewer;
+    private ScrollViewer? _ue4ssTreeScrollViewer;
 
     /// <summary>
-    /// Name is the column that should take spare width, but a SharedSizeGroup column can't be
-    /// star-sized (see the Mods tab Grid's own comment) — so its width is set here instead: whatever
-    /// the list's visible width leaves after every other column's real (shared) width. The header
-    /// and both row templates read it as a DynamicResource, so they stay aligned; hiding a column
-    /// from the header's right-click menu frees its width for Name on the next layout pass.
+    /// A shared-size column can't be star-sized (see the panels' own comment), so each panel's widths
+    /// are set here from the room it has: Name grows up to a cap, and whatever is left goes to the
+    /// empty column before the row buttons — the other columns stay next to the name instead of
+    /// being pushed across a wide window (user report 2026-10-23: a 1,200px gap after every name).
     /// </summary>
-    private void UpdateNameColumnWidth()
+    private void UpdateColumnWidths()
     {
-        _libraryTreeScrollViewer ??= FindDescendant<ScrollViewer>(LibraryTree);
-        var visibleWidth = _libraryTreeScrollViewer?.ViewportWidth ?? 0;
-        if (visibleWidth <= 0 || ColumnHeaderGrid.ColumnDefinitions.Count < 4)
+        _dataTreeScrollViewer ??= FindDescendant<ScrollViewer>(LibraryTree);
+        _ue4ssTreeScrollViewer ??= FindDescendant<ScrollViewer>(Ue4ssTree);
+        UpdateColumnWidths(_dataTreeScrollViewer, DataHeaderGrid, fillIndex: 11, maxName: 380, "LibraryNameColumnWidth", "LibraryFillWidth");
+        UpdateColumnWidths(_ue4ssTreeScrollViewer, Ue4ssHeaderGrid, fillIndex: 8, maxName: 300, "Ue4ssNameColumnWidth", "Ue4ssFillWidth");
+    }
+
+    private void UpdateColumnWidths(ScrollViewer? scrollViewer, Grid headerGrid, int fillIndex, double maxName, string nameKey, string fillKey)
+    {
+        var visibleWidth = scrollViewer?.ViewportWidth ?? 0;
+        if (visibleWidth <= 0 || headerGrid.ColumnDefinitions.Count <= fillIndex)
         {
             return;
         }
 
-        var otherColumns = ColumnHeaderGrid.ColumnDefinitions.Where((_, index) => index != 3).Sum(c => c.ActualWidth);
-        var width = Math.Max(MinNameColumnWidth, Math.Floor(visibleWidth - RowChromeWidth - otherColumns));
-        if (Resources["LibraryNameColumnWidth"] is double current && Math.Abs(current - width) < 1)
+        const int nameIndex = 3;
+        var otherColumns = headerGrid.ColumnDefinitions.Where((_, index) => index != nameIndex && index != fillIndex).Sum(c => c.ActualWidth);
+        var room = Math.Floor(visibleWidth - RowChromeWidth - otherColumns);
+        var name = Math.Clamp(room, MinNameColumnWidth, maxName);
+        SetWidth(nameKey, name);
+        SetWidth(fillKey, Math.Max(0, room - name));
+    }
+
+    private void SetWidth(string key, double width)
+    {
+        if (Resources[key] is double current && Math.Abs(current - width) < 1)
         {
             return;
         }
 
-        Resources["LibraryNameColumnWidth"] = width;
-        Resources["LibraryNameColumnMaxWidth"] = width;
+        Resources[key] = width;
+    }
+
+    private bool _isStacked;
+
+    /// <summary>
+    /// Side by side when there's room, one above the other (data on top) in a narrow window. The
+    /// splitter keeps the data panel's share either way (AppSettings.LibraryPanelSplit).
+    /// </summary>
+    private void ArrangePanels()
+    {
+        var split = Math.Clamp(App.Settings?.Current.LibraryPanelSplit ?? 0.62, 0.2, 0.85);
+        var stacked = PanelsGrid.ActualWidth > 0 && PanelsGrid.ActualWidth < StackBelowWidth;
+        if (stacked)
+        {
+            DataColumn.Width = new GridLength(1, GridUnitType.Star);
+            SplitterColumn.Width = new GridLength(0);
+            Ue4ssColumn.Width = new GridLength(0);
+            DataColumn.MinWidth = 0;
+            Ue4ssColumn.MinWidth = 0;
+            DataRow.Height = new GridLength(split, GridUnitType.Star);
+            SplitterRow.Height = new GridLength(14);
+            Ue4ssRow.Height = new GridLength(1 - split, GridUnitType.Star);
+            DataRow.MinHeight = 160;
+            Ue4ssRow.MinHeight = 140;
+            Place(PanelSplitter, row: 1, column: 0);
+            Place(Ue4ssPanel, row: 2, column: 0);
+            PanelSplitter.ResizeDirection = GridResizeDirection.Rows;
+            PanelSplitter.Width = double.NaN;
+            PanelSplitter.Height = 14;
+        }
+        else
+        {
+            DataRow.Height = new GridLength(1, GridUnitType.Star);
+            SplitterRow.Height = new GridLength(0);
+            Ue4ssRow.Height = new GridLength(0);
+            DataRow.MinHeight = 0;
+            Ue4ssRow.MinHeight = 0;
+            DataColumn.Width = new GridLength(split, GridUnitType.Star);
+            SplitterColumn.Width = new GridLength(14);
+            Ue4ssColumn.Width = new GridLength(1 - split, GridUnitType.Star);
+            DataColumn.MinWidth = 320;
+            Ue4ssColumn.MinWidth = 280;
+            Place(PanelSplitter, row: 0, column: 1);
+            Place(Ue4ssPanel, row: 0, column: 2);
+            PanelSplitter.ResizeDirection = GridResizeDirection.Columns;
+            PanelSplitter.Width = 14;
+            PanelSplitter.Height = double.NaN;
+        }
+
+        _isStacked = stacked;
+    }
+
+    private static void Place(UIElement element, int row, int column)
+    {
+        Grid.SetRow(element, row);
+        Grid.SetColumn(element, column);
+    }
+
+    /// <summary>Remembers where the splitter was left.</summary>
+    private void PanelSplitter_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
+    {
+        var (first, second) = _isStacked ? (DataRow.ActualHeight, Ue4ssRow.ActualHeight) : (DataColumn.ActualWidth, Ue4ssColumn.ActualWidth);
+        if (first + second <= 0 || App.Settings is not { } settings)
+        {
+            return;
+        }
+
+        settings.Current.LibraryPanelSplit = Math.Round(first / (first + second), 3);
+        settings.Save();
+        ArrangePanels();
     }
 
     private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
@@ -97,6 +187,7 @@ public partial class LibraryView : UserControl
             && DataContext is LibraryViewModel { SelectedItem: null })
         {
             ClearTreeViewSelection(LibraryTree);
+            ClearTreeViewSelection(Ue4ssTree);
         }
     }
 
@@ -308,6 +399,106 @@ public partial class LibraryView : UserControl
         {
             viewModel.ApplyEnabledToSelection(row, checkBox.IsChecked == true);
         }
+    }
+
+    /// <summary>Hovering a row lights up its other half in the other panel (MkHaters Bags ↔ MkHatersBags).</summary>
+    private void Row_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e) => SetPartnerHighlight(sender, true);
+
+    private void Row_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e) => SetPartnerHighlight(sender, false);
+
+    private static void SetPartnerHighlight(object sender, bool on)
+    {
+        switch ((sender as FrameworkElement)?.DataContext)
+        {
+            case LibraryItemViewModel { LinkedPartner: { } lua }:
+                lua.IsLinkHighlighted = on;
+                break;
+            case Ue4ssModRowViewModel { LinkedPartner: { } item }:
+                item.IsLinkHighlighted = on;
+                break;
+        }
+    }
+
+    /// <summary>A row's ⋯ button: the row's own right-click menu, with the row selected the way a right-click selects it.</summary>
+    private void RowMoreButton_Click(object sender, RoutedEventArgs e)
+    {
+        var element = sender as DependencyObject;
+        while (element is not null and not Grid { ContextMenu: not null })
+        {
+            element = GetParentAny(element);
+        }
+
+        if (element is not Grid { ContextMenu: { } menu } row)
+        {
+            return;
+        }
+
+        if (DataContext is LibraryViewModel viewModel && row.DataContext is LibraryItemViewModel or Ue4ssModRowViewModel)
+        {
+            viewModel.EnsureBulkSelected(row.DataContext);
+        }
+
+        // PlacementTarget must be the row: the menu's commands reach the page through its Tag.
+        menu.PlacementTarget = row;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+        menu.IsOpen = true;
+    }
+
+    /// <summary>
+    /// Keys in the Library: Space turns the selected mods on/off, Delete deletes them, Enter opens the
+    /// selected mod's details, F2 renames it, Ctrl+A selects every mod shown, Ctrl+F jumps to search,
+    /// Esc clears the selection. Typing in a box (search, notes) keeps its own keys.
+    /// </summary>
+    private void LibraryPage_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (DataContext is not LibraryViewModel viewModel)
+        {
+            return;
+        }
+
+        var modifiers = System.Windows.Input.Keyboard.Modifiers;
+        var ctrl = modifiers == System.Windows.Input.ModifierKeys.Control;
+        if (ctrl && e.Key == System.Windows.Input.Key.F)
+        {
+            SearchBox.Focus();
+            SearchBox.SelectAll();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.OriginalSource is System.Windows.Controls.Primitives.TextBoxBase or System.Windows.Controls.Primitives.ButtonBase or ComboBox)
+        {
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case System.Windows.Input.Key.A when ctrl:
+                viewModel.SelectAllForBulkCommand.Execute(null);
+                break;
+            case System.Windows.Input.Key.Space when modifiers == System.Windows.Input.ModifierKeys.None:
+                viewModel.ToggleSelectedEnabled();
+                break;
+            case System.Windows.Input.Key.Escape:
+                viewModel.ClearBulkSelection();
+                break;
+            case System.Windows.Input.Key.Delete when viewModel.HasDataSelection:
+                viewModel.DeleteItemCommand.Execute(null);
+                break;
+            case System.Windows.Input.Key.Delete when viewModel.BulkSelectedUe4ssRows.Count == 1:
+                viewModel.DeleteUe4ssModCommand.Execute(viewModel.BulkSelectedUe4ssRows[0]);
+                break;
+            case System.Windows.Input.Key.Enter when viewModel.SelectedItem is { } item:
+                new ModDetailWindow(item, viewModel) { Owner = Window.GetWindow(this) }.Show();
+                break;
+            case System.Windows.Input.Key.F2 when viewModel.SelectedItem is { } item:
+                viewModel.RenameItemCommand.Execute(item);
+                break;
+            default:
+                return;
+        }
+
+        e.Handled = true;
     }
 
     /// <summary>

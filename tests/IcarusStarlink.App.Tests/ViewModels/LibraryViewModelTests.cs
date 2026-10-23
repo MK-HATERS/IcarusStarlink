@@ -385,9 +385,9 @@ public sealed class LibraryViewModelTests
         Assert.True(arcFission.IsInGame);
         Assert.False(vm.HasPendingChanges);
 
-        // Default order interleaves both kinds by name.
-        var names = vm.RootItems.Select(r => r is Ue4ssModRowViewModel u ? u.Name : ((LibraryItemViewModel)r).Name).ToList();
-        Assert.Equal(["ArcFissionLibrary", "ConsoleEnablerMod", "Steadfast Structures", "Wireless Power"], names);
+        // Two panels (2026-10-23): data mods on the left, UE4SS mods on the right, each by name.
+        Assert.Equal(["Steadfast Structures", "Wireless Power"], vm.DataRootItems.OfType<LibraryItemViewModel>().Select(i => i.Name));
+        Assert.Equal(["ArcFissionLibrary", "ConsoleEnablerMod"], vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Select(r => r.Name));
     }
 
     /// <summary>UE4SS's own built-ins (BPModLoaderMod, Keybinds…) cluttered the list with bare "v" versions — hidden by default, one remembered toggle brings them back.</summary>
@@ -605,17 +605,129 @@ public sealed class LibraryViewModelTests
         return (vm, harness);
     }
 
-    /// <summary>One checkbox per row: clicking selects (grey), Shift-click ranges across pak AND UE4SS rows, and ticking ON on a selected row ticks every selected row.</summary>
+    // ---------------------------------------------------------------------------------------
+    // Two panels (2026-10-23): filter chips, linked halves, each panel's pending bar.
+    // ---------------------------------------------------------------------------------------
+
+    private static (LibraryViewModel Vm, TestHarness Harness) BuildPanels()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.AddMod("MkHaters_Bags", name: "MkHaters Bags", isFavorite: true);
+        harness.AddMod("Minimap", name: "Minimap & Map Icons");
+        harness.AddMod("Steadfast", name: "Steadfast Structures");
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("MkHatersBags", IsEnabled: true));
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("MiniMapa", IsEnabled: true));
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("ArcFissionLibrary", IsEnabled: false));
+        harness.Ue4ssModMetaStore.Metas["MiniMapa"] = new Ue4ssModMeta { NexusModId = 11, NexusName = "Minimap and Map Icons" };
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        return (vm, harness);
+    }
+
+    private static int ChipCount(LibraryViewModel vm, string key) => vm.FilterChips.Single(c => c.Key == key).Count;
+
+    [Fact]
+    public void FilterChips_CountWhatEachWouldShow_AndNarrowBothPanels()
+    {
+        var (vm, _) = BuildPanels();
+
+        // No merge queue in this harness, so every data mod is off; two UE4SS mods are on.
+        Assert.Equal(6, ChipCount(vm, LibraryViewModel.FilterAll));
+        Assert.Equal(2, ChipCount(vm, LibraryViewModel.FilterOn));
+        Assert.Equal(4, ChipCount(vm, LibraryViewModel.FilterOff));
+        Assert.Equal(1, ChipCount(vm, LibraryViewModel.FilterFavourites));
+
+        vm.SelectFilterCommand.Execute(LibraryViewModel.FilterOn);
+        Assert.Empty(vm.DataRootItems);
+        Assert.Equal(["MiniMapa", "MkHatersBags"], vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Select(r => r.Name));
+        Assert.True(vm.FilterChips.Single(c => c.Key == LibraryViewModel.FilterOn).IsSelected);
+        Assert.Equal(2, ChipCount(vm, LibraryViewModel.FilterOn)); // counts don't shrink to the filter
+
+        vm.SelectFilterCommand.Execute(LibraryViewModel.FilterFavourites);
+        Assert.Equal(["MkHaters Bags"], vm.DataRootItems.OfType<LibraryItemViewModel>().Select(i => i.Name));
+        Assert.Empty(vm.Ue4ssRootItems);
+
+        // The chip that's on, clicked again, goes back to All.
+        vm.SelectFilterCommand.Execute(LibraryViewModel.FilterFavourites);
+        Assert.Equal(LibraryViewModel.FilterAll, vm.ListFilter);
+        Assert.Equal(3, vm.DataShownCount);
+        Assert.Equal(3, vm.Ue4ssShownCount);
+    }
+
+    /// <summary>A mod with both halves stays two rows, one per panel; each knows the other (same name without spaces, or its Nexus title).</summary>
+    [Fact]
+    public void LinkedHalves_PairByNameOrNexusTitle_AndStayTwoRows()
+    {
+        var (vm, _) = BuildPanels();
+        var bags = vm.DataRootItems.OfType<LibraryItemViewModel>().Single(i => i.Name == "MkHaters Bags");
+        var luaBags = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "MkHatersBags");
+        var minimap = vm.DataRootItems.OfType<LibraryItemViewModel>().Single(i => i.Name == "Minimap & Map Icons");
+        var miniMapa = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "MiniMapa");
+
+        Assert.Same(luaBags, bags.LinkedPartner);
+        Assert.Same(bags, luaBags.LinkedPartner);
+        Assert.Same(miniMapa, minimap.LinkedPartner);
+        Assert.Null(vm.DataRootItems.OfType<LibraryItemViewModel>().Single(i => i.Name == "Steadfast Structures").LinkedPartner);
+        Assert.Null(vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "ArcFissionLibrary").LinkedPartner);
+        Assert.Equal("EXMOD", bags.TypeLabel); // not folded into a "Pak + UE4SS" row
+    }
+
+    [Fact]
+    public void Ue4ssPanelPendingBar_NamesWhatChanged_AndTurnOffSelectedActsOnThatPanelOnly()
+    {
+        var (vm, _) = BuildPanels();
+        Assert.False(vm.HasPendingUe4ssChanges);
+
+        var luaBags = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "MkHatersBags");
+        var steadfast = vm.DataRootItems.OfType<LibraryItemViewModel>().Single(i => i.Name == "Steadfast Structures");
+        vm.SetBulkSelectionAnchor(luaBags);
+        vm.ToggleBulkSelection(steadfast);
+        vm.TurnOnSelectedCommand.Execute("ue4ss"); // already on: nothing changes
+        Assert.False(vm.HasPendingUe4ssChanges);
+
+        vm.TurnOffSelectedCommand.Execute("ue4ss");
+
+        Assert.True(vm.HasPendingUe4ssChanges);
+        Assert.Equal("MkHatersBags turned off", vm.PendingUe4ssText);
+        Assert.False(steadfast.IsEnabled);
+        Assert.True(steadfast.IsSelectedForBulk); // the data panel's selection stays as it was
+    }
+
+    [Theory]
+    [InlineData("Import failed: access denied", true)]
+    [InlineData("Couldn't open the folder: gone", true)]
+    [InlineData("Imported 'MkHaters Bags'.", false)]
+    [InlineData("Applied 1 change(s).", false)]
+    public void Notice_FailuresShowAsWarnings(string message, bool isWarning) =>
+        Assert.Equal(isWarning, LibraryViewModel.LooksLikeAProblem(message));
+
+    /// <summary>The two panels are separate lists: a Shift-click range never runs from a data mod across into the UE4SS panel.</summary>
+    [Fact]
+    public void ShiftClickRange_StaysInsideItsPanel()
+    {
+        var (vm, _) = BuildMixedList();
+
+        vm.SetBulkSelectionAnchor(vm.DataRootItems[0]);
+        vm.SelectBulkRange(vm.Ue4ssRootItems[^1]);
+
+        Assert.Equal(1, vm.BulkSelectedCount);
+        Assert.True(((Ue4ssModRowViewModel)vm.Ue4ssRootItems[^1]).IsSelectedForBulk);
+        Assert.False(vm.HasDataSelection);
+    }
+
+    /// <summary>One checkbox per row: clicking selects (grey), Shift-click ranges within a panel, Ctrl-click adds rows from the other panel, and ticking ON on a selected row ticks every selected row.</summary>
     [Fact]
     public void ClickSelection_SpansBothKinds_AndOneOnTickAppliesToAllSelected()
     {
         var (vm, _) = BuildMixedList();
-        var rows = vm.RootItems.ToList();
-        Assert.Equal(4, rows.Count);
+        Assert.Equal(4, vm.RootItems.Count);
 
-        vm.SetBulkSelectionAnchor(rows[0]);
+        vm.SetBulkSelectionAnchor(vm.DataRootItems[0]);
         Assert.Equal(1, vm.BulkSelectedCount);
-        vm.SelectBulkRange(rows[^1]);
+        vm.SelectBulkRange(vm.DataRootItems[^1]);
+        vm.ToggleBulkSelection(vm.Ue4ssRootItems[0]);
+        vm.ToggleBulkSelection(vm.Ue4ssRootItems[^1]);
 
         Assert.Equal(4, vm.BulkSelectedCount);
         Assert.Equal(2, vm.BulkSelectedPakCount);

@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Ue4ss;
@@ -149,8 +150,39 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     /// <summary>The version this mod's own file was at when downloaded/linked — compared against LatestVersion to decide HasUpdateAvailable.</summary>
     public string? KnownVersion { get; }
 
-    /// <summary>The Version column: "v1.0", or empty for a mod with no recorded version (every UE4SS built-in).</summary>
-    public string VersionText => VersionLabel.For(KnownVersion);
+    /// <summary>The version the mod's own Scripts\main.lua states (Ue4ssModVersion), set by LibraryViewModel; null when it states none.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VersionText))]
+    private string? _localVersion;
+
+    /// <summary>The Version column: the installed copy's own main.lua version, else the version recorded at download; empty when neither is known (every UE4SS built-in).</summary>
+    public string VersionText => VersionLabel.For(LocalVersion ?? KnownVersion);
+
+    /// <summary>This account's Nexus endorsement of the mod, from Check endorsements (or the row's own Endorse); null until known. Same as LibraryItemViewModel.EndorsementStatus.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EndorsementStatusDisplay), nameof(IsEndorsed))]
+    private NexusEndorsementStatus? _endorsementStatus;
+
+    public bool IsEndorsed => EndorsementStatus == NexusEndorsementStatus.Endorsed;
+
+    public string EndorsementStatusDisplay => EndorsementStatus switch
+    {
+        NexusEndorsementStatus.Endorsed => "Endorsed",
+        NexusEndorsementStatus.Abstained => "Not endorsing",
+        NexusEndorsementStatus.Undecided => "Not endorsed yet",
+        _ => "",
+    };
+
+    /// <summary>The data mod that is this mod's other half (MkHatersBags ↔ MkHaters Bags), set by LibraryViewModel; null when there is none. Only a hint in the list: each keeps its own tick.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasLinkedPartner))]
+    private LibraryItemViewModel? _linkedPartner;
+
+    public bool HasLinkedPartner => LinkedPartner is not null;
+
+    /// <summary>The mouse is over the other half's row: this row lights up too.</summary>
+    [ObservableProperty]
+    private bool _isLinkHighlighted;
 
     [ObservableProperty]
     private string? _latestVersion;

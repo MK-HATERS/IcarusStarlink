@@ -31,8 +31,8 @@ public sealed partial class LibraryViewModel
 
     public string GameUpdateText => GameUpdate is { IsUpdated: true } state ? $"Icarus updated{state.BuildLabel}." : "";
 
-    /// <summary>The bar under the list: something isn't in the game yet, or the game updated.</summary>
-    public bool ShowPendingBar => HasPendingChanges || HasGameUpdate;
+    /// <summary>The bar under both panels: the game updated, or mods in the game lost their ticks. What isn't in the game yet shows in each panel's own bar.</summary>
+    public bool ShowPendingBar => HasGameUpdate || CanTickWhatsInTheGame;
 
     partial void OnHasPendingChangesChanged(bool value) => OnPropertyChanged(nameof(ShowPendingBar));
 

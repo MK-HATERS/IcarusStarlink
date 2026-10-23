@@ -40,6 +40,18 @@ public sealed class AppSettings
     // default — they come with the loader and only cluttered the list.
     public bool LibraryShowUe4ssBuiltIns { get; set; }
 
+    /// <summary>The left navigation is folded to icons only (its collapse button); remembered across restarts.</summary>
+    public bool NavCollapsed { get; set; }
+
+    /// <summary>Library: the data panel's share of the width (or height, when the panels are stacked) — where the splitter between the two panels was left.</summary>
+    public double LibraryPanelSplit { get; set; } = 0.62;
+
+    /// <summary>Settings › Maintenance › Update channel: "Stable" (GitHub's latest release) or "Beta" (also betas — GitHub prereleases tagged vX.Y.Z-beta.N). Stable while running a beta offers the newest stable version to switch back.</summary>
+    public string UpdateChannel { get; set; } = "Stable";
+
+    /// <summary>Settings › Maintenance › "Check for updates when Starlink starts" (on this channel). Off: only the Check for updates button looks.</summary>
+    public bool AutoCheckAppUpdates { get; set; } = true;
+
     // Main window bounds — all four null until the first real close, so a fresh install still gets
     // MainWindow.xaml's own WindowStartupLocation="CenterScreen" default rather than snapping to 0,0.
     public double? WindowLeft { get; set; }
@@ -101,6 +113,12 @@ public sealed class AppSettings
     /// (or the Library bar's Dismiss). Another build on disk means "Icarus updated".
     /// </summary>
     public string? LastSeenGameBuildId { get; set; }
+
+    /// <summary>Starlink has handled nxm:// links on this PC (set when it's registered, cleared by Unregister): another app taking them over is then worth a warning.</summary>
+    public bool NxmHandlerSetUp { get; set; }
+
+    /// <summary>Settings › Nexus › "Take them back automatically": when another mod manager takes nxm:// links, Starlink takes them back (at start, when its window is brought forward, and the moment it happens while Starlink runs) and passes that app its own games' links. On by default: the other app keeps getting its links either way.</summary>
+    public bool KeepNxmHandler { get; set; } = true;
 }
 
 /// <summary>A window's last size, restored the next time it opens.</summary>

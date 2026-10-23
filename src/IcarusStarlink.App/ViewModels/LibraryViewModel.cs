@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json.Nodes;
@@ -414,6 +415,10 @@ public sealed partial class LibraryViewModel : ObservableObject
         BulkSelectedItems.CollectionChanged += (_, _) => RaiseBulkSelectionChanged();
         BulkSelectedUe4ssRows.CollectionChanged += (_, _) => RaiseBulkSelectionChanged();
 
+        // Results from the Downloads pipeline (an import from this page) pop up like this page's own.
+        Downloads.PropertyChanged += OnDownloadsPropertyChanged;
+        FilterChips[0].IsSelected = true;
+
         Reload();
         ReloadInstalledUe4ssMods();
 
@@ -433,6 +438,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         OnPropertyChanged(nameof(BulkSelectedCount));
         OnPropertyChanged(nameof(BulkSelectedPakCount));
         OnPropertyChanged(nameof(IsAllSelectedForBulk));
+        RaisePanelSelectionChanged();
     }
 
     private static bool IsRowSelected(object row) => row switch
@@ -595,7 +601,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     public void SelectBulkRange(object target)
     {
         var flattened = FlattenRows();
-        var anchorIndex = _bulkSelectionAnchor is not null ? flattened.IndexOf(_bulkSelectionAnchor) : -1;
+        // A range stays inside one panel: an anchor in the other panel counts as none.
+        var anchor = _bulkSelectionAnchor is not null && (_bulkSelectionAnchor is Ue4ssModRowViewModel) == (target is Ue4ssModRowViewModel) ? _bulkSelectionAnchor : null;
+        var anchorIndex = anchor is not null ? flattened.IndexOf(anchor) : -1;
         var targetIndex = flattened.IndexOf(target);
         if (targetIndex < 0)
         {
@@ -660,7 +668,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             Ue4ssMods.Clear();
             HasPendingUe4ssChanges = false;
             IsUe4ssLoaderInstalled = true; // nothing to check against yet, so nothing to warn about
-            Ue4ssStatusMessage = "Set the Icarus Content folder in Settings first.";
+            Ue4ssEmptyText = "Set the Icarus Content folder in Settings first.";
             return;
         }
 
@@ -708,6 +716,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
                     row.LatestVersion = previous.LatestVersion;
                     row.LatestNexusFileId = previous.LatestNexusFileId;
+                    row.EndorsementStatus = previous.EndorsementStatus;
                 }
 
                 if (selectedNames.Contains(row.Name))
@@ -724,6 +733,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 row.NotStartedReason = state.IsSwitchedOffInGame ? state.WhyNotStarted : null;
                 row.NexusFileId = meta.NexusFileId;
                 row.HasConfig = ModHasConfig(modsFolder, state);
+                row.LocalVersion = ModLocalVersion(modsFolder, state);
                 Ue4ssMods.Add(row);
             }
             RecomputeHasPendingUe4ssChanges();
@@ -743,7 +753,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
 
             _packagesByNexusModId = BuildPackages();
-            Ue4ssStatusMessage = states.Count == 0 ? "No UE4SS mods found." : null;
+            Ue4ssEmptyText = states.Count == 0 ? "No UE4SS mods yet. Import one, or download one from Nexus." : "No UE4SS mods match.";
 
             // The UE4SS rows live in the same list as everything else — rebuild it with the fresh rows.
             Reload();
@@ -751,6 +761,20 @@ public sealed partial class LibraryViewModel : ObservableObject
         catch (Exception ex)
         {
             Ue4ssStatusMessage = $"Couldn't read the game's UE4SS Mods folder: {ex.Message}";
+            Ue4ssEmptyText = Ue4ssStatusMessage;
+        }
+    }
+
+    /// <summary>The version the mod's current copy states in its main.lua; null when it states none or can't be read, so the list never breaks over it.</summary>
+    private string? ModLocalVersion(string modsFolder, Ue4ssModState state)
+    {
+        try
+        {
+            return Ue4ssModVersion.TryRead(state.IsInGame ? Path.Combine(modsFolder, state.Name) : _ue4ssModRepository.GetFolderPath(state.Name));
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 
@@ -928,6 +952,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         var installed = new HashSet<string>(mergeInstall?.LastInstalledModNames ?? [], StringComparer.OrdinalIgnoreCase);
         var pendingPak = 0;
         var inGameNotTicked = 0;
+        var pendingDataChanges = new List<(string Name, bool TurnedOn)>();
         foreach (var item in _itemsByFolderName.Values)
         {
             var queued = mergeInstall?.IsQueued(item.FolderName) ?? false;
@@ -969,9 +994,11 @@ public sealed partial class LibraryViewModel : ObservableObject
                 status = "Not enabled";
             }
 
+            item.IsPendingChange = queued != inGame;
             if (queued != inGame)
             {
                 pendingPak++;
+                pendingDataChanges.Add((item.Name, queued));
             }
 
             if (inGame && !queued && !item.IsMergedPack)
@@ -1008,6 +1035,10 @@ public sealed partial class LibraryViewModel : ObservableObject
         PendingChangesSummary = parts.Count == 0
             ? ""
             : $"Not in the game yet: {string.Join(" and ", parts)}";
+        PendingDataText = arcFission && pendingDataChanges.Count == 0
+            ? "ArcFission's data changed since the last merge"
+            : DescribePending([.. pendingDataChanges.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)]);
+        PendingUe4ssText = DescribePending([.. Ue4ssMods.Where(m => m.IsDirty).OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).Select(m => (m.Name, m.IsEnabled))]);
 
         // A ticked Lua mod (on its own, or the Lua half of a pak mod) with no UE4SS in the game can't run.
         ShowUe4ssLoaderMissing = !IsUe4ssLoaderInstalled
@@ -2470,7 +2501,11 @@ public sealed partial class LibraryViewModel : ObservableObject
         };
     }
 
-    /// <summary>The spec's "Nexus search from a library row" — searches Nexus for this mod by name, for a mod that has no Nexus link yet.</summary>
+    /// <summary>
+    /// The spec's "Nexus search from a library row". A mod linked to Nexus is looked up by its mod
+    /// ID — its Library name is often not its Nexus title, so a name search missed it (user report
+    /// 2026-10-23: Update landed on an empty or wrong search). Unlinked mods still search by name.
+    /// </summary>
     [RelayCommand]
     private void SearchNexusFor(LibraryItemViewModel? item)
     {
@@ -2479,7 +2514,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
-        _nexusCatalogViewModel().SearchText = item.Name;
+        _nexusCatalogViewModel().SearchText = item.NexusModId is { } modId ? modId.ToString(CultureInfo.InvariantCulture) : item.Name;
         WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("nexus"));
     }
 
@@ -2819,7 +2854,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     /// <summary>Mods the game has (from the last Merge &amp; Install) that aren't ticked: Merge &amp; Install would take them out.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanTickWhatsInTheGame), nameof(TickWhatsInTheGameLabel))]
+    [NotifyPropertyChangedFor(nameof(CanTickWhatsInTheGame), nameof(TickWhatsInTheGameLabel), nameof(ShowPendingBar))]
     private int _inGameNotTickedCount;
 
     /// <summary>Several in-game mods unticked at once: most likely the ticks were lost, not undone one by one.</summary>
@@ -3484,24 +3519,59 @@ public sealed partial class LibraryViewModel : ObservableObject
         var ue4ssRows = TypeFilter is "All" or "UE4SS"
             ? Ue4ssMods.Where(row => !row.IsLinkedToLibraryMod && (ShowUe4ssBuiltIns || !row.IsBuiltIn) && MatchesSearch(row)).Select(row => (SortName: row.Name, Pinned: false, Row: (object)row)).ToList()
             : [];
+
+        // The filter chips need each row's current status (On, not in the game yet…) and count
+        // over what the search found; the chip on then narrows both panels. A family stays when
+        // any of its mods matches.
+        EnsureMergeQueueSubscription();
+        RefreshEnabledAndStatus();
+        var searchedItems = libraryRows.SelectMany(r => r.Row switch
+        {
+            LibraryGroupViewModel family => family.Items,
+            LibraryItemViewModel item => (IEnumerable<LibraryItemViewModel>)[item],
+            _ => [],
+        }).ToList();
+        var searchedLua = ue4ssRows.Select(r => (Ue4ssModRowViewModel)r.Row).ToList();
+        UpdateFilterCounts(searchedItems, searchedLua);
+        if (ListFilter != FilterAll)
+        {
+            libraryRows = [.. libraryRows.Where(r => r.Row switch
+            {
+                LibraryGroupViewModel family => family.Items.Any(i => MatchesListFilter(i, ListFilter)),
+                LibraryItemViewModel item => MatchesListFilter(item, ListFilter),
+                _ => true,
+            })];
+            ue4ssRows = [.. ue4ssRows.Where(r => MatchesListFilter((Ue4ssModRowViewModel)r.Row, ListFilter))];
+        }
+
+        // Left panel: downloads in progress, then the data mods (pinned first in the default
+        // order). Right panel: the UE4SS mods by name. RootItems keeps both, data first, for the
+        // whole-list actions (Select all, Prev/Next in the detail window).
+        var targetDataItems = new List<object>(targetRootItems);
         if (SortColumn is null)
         {
-            targetRootItems.AddRange(libraryRows.Where(r => r.Pinned).Select(r => r.Row));
-            targetRootItems.AddRange(libraryRows.Where(r => !r.Pinned).Concat(ue4ssRows).OrderBy(r => r.SortName, StringComparer.OrdinalIgnoreCase).Select(r => r.Row));
-        }
-        else if (SortColumn == "Name")
-        {
-            var all = libraryRows.Concat(ue4ssRows);
-            targetRootItems.AddRange((SortDescending ? all.OrderByDescending(r => r.SortName, StringComparer.OrdinalIgnoreCase) : all.OrderBy(r => r.SortName, StringComparer.OrdinalIgnoreCase)).Select(r => r.Row));
+            targetDataItems.AddRange(libraryRows.Where(r => r.Pinned).Select(r => r.Row));
+            targetDataItems.AddRange(libraryRows.Where(r => !r.Pinned).OrderBy(r => r.SortName, StringComparer.OrdinalIgnoreCase).Select(r => r.Row));
         }
         else
         {
-            targetRootItems.AddRange(libraryRows.Select(r => r.Row));
-            targetRootItems.AddRange(ue4ssRows.OrderBy(r => r.SortName, StringComparer.OrdinalIgnoreCase).Select(r => r.Row));
+            targetDataItems.AddRange(libraryRows.Select(r => r.Row));
         }
 
+        var luaInOrder = SortColumn == "Name" && SortDescending
+            ? ue4ssRows.OrderByDescending(r => r.SortName, StringComparer.OrdinalIgnoreCase)
+            : ue4ssRows.OrderBy(r => r.SortName, StringComparer.OrdinalIgnoreCase);
+        var targetLuaItems = luaInOrder.Select(r => r.Row).ToList();
+
         Ue4ssBuiltInCount = Ue4ssMods.Count(row => row.IsBuiltIn && !row.IsLinkedToLibraryMod);
-        SyncRootItems(targetRootItems);
+        ObservableCollectionSync.SyncTo(DataRootItems, targetDataItems);
+        ObservableCollectionSync.SyncTo(Ue4ssRootItems, targetLuaItems);
+        SyncRootItems([.. targetDataItems, .. targetLuaItems]);
+        DataShownCount = targetDataItems.Sum(row => row is LibraryGroupViewModel family ? family.Items.Count : row is LibraryItemViewModel ? 1 : 0);
+        Ue4ssShownCount = targetLuaItems.Count;
+        OnPropertyChanged(nameof(IsUe4ssPanelEmpty));
+        OnPropertyChanged(nameof(IsDataPanelEmpty));
+        LinkHalves();
         OnPropertyChanged(nameof(IsAllSelectedForBulk));
         EnsureMergeQueueSubscription();
         RefreshEnabledAndStatus();
@@ -3671,7 +3741,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         var nexusLinkedItems = AllLibraryItems().Where(i => i.HasNexusLink).ToList();
-        if (nexusLinkedItems.Count == 0)
+        var nexusLinkedLua = Ue4ssMods.Where(r => r.HasNexusLink && !r.IsBuiltIn).ToList();
+        if (nexusLinkedItems.Count == 0 && nexusLinkedLua.Count == 0)
         {
             EndorsementCheckStatusMessage = "No Library mods are linked to a Nexus mod ID yet.";
             return;
@@ -3702,9 +3773,19 @@ public sealed partial class LibraryViewModel : ObservableObject
                 }
             }
 
+            foreach (var row in nexusLinkedLua)
+            {
+                row.EndorsementStatus = statusByModId.GetValueOrDefault(row.NexusModId!.Value, NexusEndorsementStatus.Undecided);
+                if (!row.IsEndorsed)
+                {
+                    notEndorsedCount++;
+                }
+            }
+
+            var linkedCount = nexusLinkedItems.Count + nexusLinkedLua.Count;
             EndorsementCheckStatusMessage = notEndorsedCount == 0
-                ? $"All {nexusLinkedItems.Count} Nexus-linked mod(s) are endorsed."
-                : $"{notEndorsedCount} of {nexusLinkedItems.Count} Nexus-linked mod(s) aren't endorsed yet.";
+                ? $"All {linkedCount} Nexus-linked mod(s) are endorsed."
+                : $"{notEndorsedCount} of {linkedCount} Nexus-linked mod(s) aren't endorsed yet.";
         }
         catch (Exception ex)
         {
