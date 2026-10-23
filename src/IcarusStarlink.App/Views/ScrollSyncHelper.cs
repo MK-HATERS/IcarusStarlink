@@ -26,7 +26,11 @@ public static class ScrollSyncHelper
 
         void OnScrollChanged(object sender, ScrollChangedEventArgs e)
         {
-            if (isApplyingRemoteOffset)
+            // ScrollChanged bubbles: every scrollable thing INSIDE the host (the Add a stat
+            // matches list, a multi-line text field, a link's search list) raises it here too.
+            // Taking their offsets as the host's made the whole editor jump while typing in the
+            // stat search, and scrolling that list scrolled the editor (user report 2026-10-23).
+            if (isApplyingRemoteOffset || !IsHostsOwn(scrollHost, e.OriginalSource))
             {
                 return;
             }
@@ -56,4 +60,9 @@ public static class ScrollSyncHelper
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
         owner.Closed += (_, _) => viewModel.PropertyChanged -= OnViewModelPropertyChanged;
     }
+
+    /// <summary>The host's own scrolling: the host itself when it's a ScrollViewer, or the ScrollViewer inside a TextBox host's template.</summary>
+    public static bool IsHostsOwn(UIElement scrollHost, object? source) =>
+        ReferenceEquals(source, scrollHost)
+        || (source is ScrollViewer viewer && ReferenceEquals(viewer.TemplatedParent, scrollHost));
 }
