@@ -1,6 +1,6 @@
 using System.Net.Http;
 
-namespace IcarusStarlink.App.Utilities;
+namespace IcarusStarlink.Core.IO;
 
 /// <summary>
 /// Streams an HTTP GET's response body straight to a file, rather than buffering the whole body in

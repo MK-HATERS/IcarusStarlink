@@ -16,6 +16,7 @@ using IcarusStarlink.Catalog.Jimk72;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Catalog;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;

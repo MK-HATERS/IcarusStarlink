@@ -1,9 +1,9 @@
 using System.IO;
 using System.Net;
 using System.Net.Http;
-using IcarusStarlink.App.Utilities;
+using IcarusStarlink.Core.IO;
 
-namespace IcarusStarlink.App.Tests.Utilities;
+namespace IcarusStarlink.Core.Tests.IO;
 
 /// <summary>
 /// Regression guard: DownloadsViewModel.FetchAndDownloadAsync used to call HttpClient.GetAsync with
