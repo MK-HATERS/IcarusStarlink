@@ -3,9 +3,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>One accolade row — same deferred-apply toggle pattern as SaveFlagViewModel (the save stores completed accolades as a list of RowName references, not a per-row bool, but the editing UX is identical: checked = present in that list).</summary>
-public sealed partial class SaveAccoladeViewModel : ObservableObject, IDirtyTrackable
+public sealed partial class SaveAccoladeViewModel : DirtyRow
 {
-    private readonly Action _onDirtyChanged;
     private bool _originalCompleted;
 
     public string RowName { get; }
@@ -19,9 +18,10 @@ public sealed partial class SaveAccoladeViewModel : ObservableObject, IDirtyTrac
     [ObservableProperty]
     private bool _isCompleted;
 
-    public bool IsDirty => IsCompleted != _originalCompleted;
+    public override bool IsDirty => IsCompleted != _originalCompleted;
 
     public SaveAccoladeViewModel(string rowName, string displayName, string description, string category, bool isCompleted, Action onDirtyChanged)
+        : base(onDirtyChanged)
     {
         RowName = rowName;
         DisplayName = displayName;
@@ -29,18 +29,9 @@ public sealed partial class SaveAccoladeViewModel : ObservableObject, IDirtyTrac
         Category = category;
         _isCompleted = isCompleted;
         _originalCompleted = isCompleted;
-        _onDirtyChanged = onDirtyChanged;
     }
 
-    partial void OnIsCompletedChanged(bool value)
-    {
-        OnPropertyChanged(nameof(IsDirty));
-        _onDirtyChanged();
-    }
+    partial void OnIsCompletedChanged(bool value) => Changed();
 
-    public void MarkClean()
-    {
-        _originalCompleted = IsCompleted;
-        OnPropertyChanged(nameof(IsDirty));
-    }
+    protected override void Snapshot() => _originalCompleted = IsCompleted;
 }

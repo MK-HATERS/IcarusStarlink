@@ -11,9 +11,8 @@ namespace IcarusStarlink.App.ViewModels;
 /// Customization_* values. Editing the raw number is still genuinely useful — e.g. copying an exact
 /// cosmetic from one of your own characters to another — just without a friendly picker.
 /// </summary>
-public sealed partial class SaveCosmeticFieldViewModel : ObservableObject, IDirtyTrackable
+public sealed partial class SaveCosmeticFieldViewModel : DirtyRow
 {
-    private readonly Action _onDirtyChanged;
     private string _originalValueText;
 
     public string Key { get; }
@@ -21,17 +20,17 @@ public sealed partial class SaveCosmeticFieldViewModel : ObservableObject, IDirt
     [ObservableProperty]
     private string _valueText;
 
-    public bool IsDirty => ValueText != _originalValueText;
+    public override bool IsDirty => ValueText != _originalValueText;
 
     public SaveCosmeticFieldViewModel(string key, string valueText, Action onDirtyChanged)
+        : base(onDirtyChanged)
     {
         Key = key;
         _valueText = valueText;
         _originalValueText = valueText;
-        _onDirtyChanged = onDirtyChanged;
     }
 
-    partial void OnValueTextChanged(string value) => _onDirtyChanged();
+    partial void OnValueTextChanged(string value) => Changed();
 
     /// <summary>
     /// Must reject exactly what SaveCharacterViewModel.ApplyToNode()'s Cosmetics loop rejects — an
@@ -40,7 +39,7 @@ public sealed partial class SaveCosmeticFieldViewModel : ObservableObject, IDirt
     /// showing "Saved" with the Save button disabled while the real cosmetic hash on disk is
     /// actually still whatever it was before the edit.
     /// </summary>
-    public void MarkClean()
+    protected override void Snapshot()
     {
         if (int.TryParse(ValueText, out _))
         {

@@ -17,14 +17,21 @@ namespace IcarusStarlink.App.ViewModels;
 /// mount stays label-only, as before. Species (MountType) is never changed: the species, its
 /// talents and its stats live together in the blob.
 /// </summary>
-public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackable
+public sealed partial class SaveMountViewModel : DirtyRow
 {
-    private readonly Action _onDirtyChanged;
     private string _originalName;
     private int _originalLevel;
+
+    /// <summary>The blob differs from <see cref="_cleanBlob"/>: an inside edit not set back.</summary>
     private bool _insideDirty;
 
-    /// <summary>The experience the mount was loaded with, put back when the level is set back to its own.</summary>
+    /// <summary>The blob as loaded or last saved; an inside edit set back to it is no edit.</summary>
+    private byte[] _cleanBlob = [];
+
+    /// <summary>The save check's name fix: write the list's name into the blob even with nothing else changed.</summary>
+    private bool _syncNamePending;
+
+    /// <summary>The experience the mount was loaded (or last saved) with, put back when the level is set back to its own.</summary>
     private int? _originalExperience;
 
     public JsonObject Node { get; }
@@ -57,14 +64,16 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
     [ObservableProperty]
     private BitmapImage? _icon;
 
-    public bool IsDirty =>
+    public override bool IsDirty =>
         _insideDirty
+        || _syncNamePending
         || Name != _originalName
         || (int.TryParse(LevelText, out var level) ? level != _originalLevel : LevelText != _originalLevel.ToString());
 
     public SaveMountViewModel(
         JsonObject node, string name, int level, string typeRowName,
         string? iconPath, Action onDirtyChanged)
+        : base(onDirtyChanged)
     {
         Node = node;
         _name = name;
@@ -73,7 +82,6 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
         _originalLevel = level;
         TypeRowName = typeRowName;
         IconPath = iconPath;
-        _onDirtyChanged = onDirtyChanged;
 
         if (node["RecorderBlob"] is JsonObject recorder && recorder["BinaryData"] is JsonArray data)
         {
@@ -94,6 +102,7 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
 
         if (Blob is { } blob)
         {
+            _cleanBlob = blob.Write();
             _originalExperience = blob.Experience;
             _lineage = blob.Lineage;
             _variation = blob.Variation ?? 0;
@@ -239,12 +248,12 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
         ? $"Growth: {Growth.GrowthRow} (levels up to {g.MaxLevel:N0}){(g.CurvesFromMods.Count > 0 ? ", from an installed mod" : "")}."
         : null;
 
-    partial void OnNameChanged(string value) => _onDirtyChanged();
+    partial void OnNameChanged(string value) => Changed();
 
     partial void OnLevelTextChanged(string value)
     {
         ApplyLevelToExperience();
-        _onDirtyChanged();
+        RecheckInside();
     }
 
     partial void OnGrowthChanged(MountGrowth? value)
@@ -253,6 +262,7 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
         if (Level != _originalLevel)
         {
             ApplyLevelToExperience();
+            RecheckInside();
         }
     }
 
@@ -285,7 +295,6 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
             if (blob.Experience != target)
             {
                 blob.Experience = target;
-                _insideDirty = true;
             }
         }
     }
@@ -295,16 +304,23 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
     {
         if (Blob is not null)
         {
-            _insideDirty = true;
-            _onDirtyChanged();
+            _syncNamePending = true;
+            Changed();
         }
     }
 
-    private void MarkInsideDirty()
+    private void MarkInsideDirty() => RecheckInside();
+
+    /// <summary>
+    /// Whether the inside differs from its clean copy, by its bytes: a talent, gene or level set
+    /// back to what it was is no edit any more (the row stayed "changed" before), and an edit
+    /// always shows on the row's dot and the Save bar together.
+    /// </summary>
+    private void RecheckInside()
     {
-        _insideDirty = true;
+        _insideDirty = Blob is { } blob && !blob.Write().AsSpan().SequenceEqual(_cleanBlob);
         OnPropertyChanged(nameof(ExperienceDisplay));
-        _onDirtyChanged();
+        Changed();
     }
 
     /// <summary>
@@ -321,7 +337,7 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
         }
 
         // Only when this mount was edited: a Save never quietly rewrites a mount nobody touched.
-        if (Blob is { } blob && (_insideDirty || Name != _originalName))
+        if (Blob is { } blob && (_insideDirty || _syncNamePending || Name != _originalName))
         {
             blob.Name = Name;
             if (Node["RecorderBlob"] is JsonObject recorder)
@@ -334,15 +350,26 @@ public sealed partial class SaveMountViewModel : ObservableObject, IDirtyTrackab
     /// <summary>
     /// The Level branch must reject exactly what ApplyToNode() rejects — a negative LevelText that
     /// Save silently declined to write must not be adopted as the new "clean" baseline either.
+    /// The saved experience becomes the one a level set back gets: it used to stay the one from
+    /// before the first Save, so level 10, Save, 12, then 10 again put the old experience back
+    /// without the mount even looking changed.
     /// </summary>
-    public void MarkClean()
+    protected override void Snapshot()
     {
         _originalName = Name;
-        _insideDirty = false;
+        _syncNamePending = false;
         if (int.TryParse(LevelText, out var level) && level >= 0)
         {
             _originalLevel = level;
         }
+
+        if (Blob is { } blob)
+        {
+            _cleanBlob = blob.Write();
+            _originalExperience = blob.Experience;
+        }
+
+        _insideDirty = false;
     }
 }
 
