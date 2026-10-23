@@ -120,6 +120,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// <summary>A real computed property, not BoolToVisibilityConverter+ConverterParameter="Invert" — that shape has bitten this app before (see the boolean-converter mistake memory).</summary>
     public bool IsQueueEmpty => !HasQueuedMods;
 
+    /// <summary>The queue header's count.</summary>
+    public int QueueCount => Queue.Count;
+
+    /// <summary>The empty queue's way back to where mods are turned on.</summary>
+    [RelayCommand]
+    private void GoToLibrary() => WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("library"));
+
     [ObservableProperty]
     private LibraryEntry? _selectedQueueEntry;
 
@@ -240,6 +247,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             ConflictStatusMessage = null;
             OnPropertyChanged(nameof(HasQueuedMods));
             OnPropertyChanged(nameof(IsQueueEmpty));
+            OnPropertyChanged(nameof(QueueCount));
 
             // Validation findings only ever depend on which mods are queued (unlike conflicts,
             // which also depend on gameplay options), so this recomputes on Queue changes only —

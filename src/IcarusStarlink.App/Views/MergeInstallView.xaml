@@ -109,7 +109,10 @@
                 </Grid.RowDefinitions>
 
                 <DockPanel Grid.Row="0" Margin="0,0,0,6" LastChildFill="False">
-                    <TextBlock DockPanel.Dock="Left" Text="Mods to merge (the one lower in the list wins a conflict)" Style="{StaticResource FieldLabelStyle}"/>
+                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource FieldLabelStyle}" TextTrimming="CharacterEllipsis"
+                               ToolTip="The mods Install builds into the game, in order. When two change the same value, the one lower in the list wins.">
+                        <Run Text="Mods to merge ("/><Run Text="{Binding QueueCount, Mode=OneWay}"/><Run Text=") — the lower one wins a conflict"/>
+                    </TextBlock>
                     <!-- Phase 10: a proactive conflict-count badge — surfaces a problem before the
                          user thinks to click Review conflicts. -->
                     <Border DockPanel.Dock="Right" Background="{DynamicResource DangerSoftBrush}" CornerRadius="9" Padding="7,1"
@@ -169,21 +172,15 @@
                                     AutomationProperties.Name="Review validation issues from banner"/>
                             <Path DockPanel.Dock="Left" Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}"
                                   StrokeThickness="1.6" StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Top"/>
-                            <TextBlock Margin="0,0,10,0" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Center">
-                                <Run Text="{Binding ValidationIssueCount, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"/>
-                                <Run Text=" issue(s) found: changes the game won't use (a field or link that isn't real), two mods overwriting the same file, or talent and workshop nodes on top of each other or that can't be unlocked. Review lists them."/>
+                            <!-- One line, so a small window keeps its height for the queue; the long
+                                 explanation is the tooltip. -->
+                            <TextBlock Margin="0,0,10,0" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Center"
+                                       ToolTip="Changes the game won't use (a field or link that isn't real), two mods overwriting the same file, or talent and workshop nodes on top of each other or that can't be unlocked. Review lists them.">
+                                <Run Text="{Binding ValidationIssueCount, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"/><Run Text=" issue(s) in the queued mods — Review lists them."/>
                             </TextBlock>
                         </DockPanel>
                     </Border>
-                    <!-- The only way mods reach this queue now (redesign-round-2 pilot) — points the
-                         user at Library rather than leaving an unexplained empty list. -->
-                    <Border DockPanel.Dock="Top" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,8"
-                            Visibility="{Binding IsQueueEmpty, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
-                            <Run Text="No mods queued yet. Go to "/><Run Text="Library" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text=" and tick a mod's "/><Run Text="ON" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text=" box (or right-click → Add to merge queue)."/>
-                        </TextBlock>
-                    </Border>
+                    <Grid>
                     <ListBox ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueEntry}" MinHeight="100"
                              ToolTip="Drag a row to reorder the queue" IsEnabled="{Binding IsNotRebuilding}"
                              AllowDrop="True"
@@ -255,6 +252,14 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                    <!-- Mods only reach this queue from Library (tick ON), so the empty list points there. -->
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                                Visibility="{Binding IsQueueEmpty, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock Text="Nothing queued — turn mods on in Library." Style="{StaticResource EmptyStateTextStyle}" Margin="16,8,16,8"/>
+                        <Button Content="Go to Library" Command="{Binding GoToLibraryCommand}" HorizontalAlignment="Center"
+                                ToolTip="Tick a mod's ON box there (or right-click › Add to merge queue)"/>
+                    </StackPanel>
+                    </Grid>
                 </DockPanel>
 
                 <!-- WrapPanel, not StackPanel: at narrower widths the trailing buttons were clipped
@@ -280,7 +285,7 @@
                             <TextBlock Text="Remove" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Content="Clear" Command="{Binding ClearQueueCommand}" Margin="0,0,8,0"/>
+                    <Button Content="Clear" Command="{Binding ClearQueueCommand}" Margin="0,0,8,0" ToolTip="Empties the queue — each mod's ON tick in Library goes off too (nothing is deleted)"/>
                     <Button Content="More ▾" Click="DropdownButton_Click" Margin="0,0,0,0" ToolTip="Suggest an order, set a baseline">
                         <Button.ContextMenu>
                             <ContextMenu>
@@ -382,12 +387,12 @@
                     </Expander.Header>
                     <StackPanel>
                         <TextBlock Text="Compare" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8" FontSize="13"/>
-                        <StackPanel Orientation="Horizontal">
-                            <Button Content="Compare to installed" Command="{Binding CompareToInstalledCommand}"
+                        <WrapPanel>
+                            <Button Content="Compare to installed" Command="{Binding CompareToInstalledCommand}" Margin="0,0,0,4"
                                     ToolTip="Lists which mods Install would add (+), take out (-) or leave (=), against the merged pak in the game now."/>
-                            <Button Content="Compare paks…" Command="{Binding ComparePaksCommand}" Margin="8,0,0,0"
+                            <Button Content="Compare paks…" Command="{Binding ComparePaksCommand}" Margin="8,0,0,4"
                                     ToolTip="Unpack any two .pak files and see exactly how they differ, row by row — e.g. check a rebuilt pak matches a known-good one from another tool."/>
-                        </StackPanel>
+                        </WrapPanel>
                         <TextBlock Text="{Binding ComparisonStatusMessage}" Margin="0,6,0,0"
                                    Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"
                                    Visibility="{Binding ComparisonStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
@@ -454,7 +459,8 @@
                 <Expander.Header>
                     <DockPanel LastChildFill="False">
                         <TextBlock DockPanel.Dock="Left" Text="Merge options" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                        <TextBlock DockPanel.Dock="Left" Text="{Binding ActiveOptionsSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                        <TextBlock DockPanel.Dock="Left" Text="{Binding ActiveOptionsSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"
+                                   ToolTip="{Binding ActiveOptionsSummary}"/>
                     </DockPanel>
                 </Expander.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
