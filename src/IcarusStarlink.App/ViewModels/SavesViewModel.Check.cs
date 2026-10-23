@@ -240,6 +240,7 @@ public sealed partial class SavesViewModel
             _metaInventoryDirty = true;
         }
 
+        OnPropertyChanged(nameof(ItemsEmptyText));
         NotifyDirtyChanged();
         NotifyLeftoversChanged();
         _activityLog.Log($"Took {talents.Count + items.Count} leftovers from old mods out of the save (press Save to keep that).", ActivityEntryKind.Success);

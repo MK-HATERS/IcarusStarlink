@@ -10,7 +10,10 @@ public sealed partial class SavesViewModel
 
     public ObservableCollection<SaveAccoladeViewModel> Accolades { get; } = [];
 
-    public ObservableCollection<SaveAccoladeViewModel> FilteredAccolades { get; } = [];
+    /// <summary>What the tab lists: one cell per accolade, a tiered set ("Wolf Killer I" to "V") as one.</summary>
+    public ObservableCollection<SaveAccoladeLineViewModel> FilteredAccolades { get; } = [];
+
+    private List<SaveAccoladeLineViewModel> _accoladeLines = [];
 
     [ObservableProperty]
     private string _accoladeSearchText = "";
@@ -28,8 +31,13 @@ public sealed partial class SavesViewModel
 
     // Listed by the game's own categories (Survival, Hunting, Construction, Achievement...).
     private void RefreshAccoladeFilter() =>
-        RefreshFilter(Accolades.OrderBy(a => a.Category.Length == 0 ? "~" : a.Category, StringComparer.OrdinalIgnoreCase), FilteredAccolades, AccoladeSearchText,
-            ShowUnearnedAccoladesOnly ? a => !a.IsCompleted : null, a => a.DisplayName, a => a.Category, a => a.Description);
+        RefreshFilter(_accoladeLines, FilteredAccolades, AccoladeSearchText,
+            ShowUnearnedAccoladesOnly ? l => l.AnyNotEarned : null,
+            l => l.Name, l => l.Category, l => string.Join(" ", l.Tiers.Select(t => t.Accolade.DisplayName)), l => l.Description);
+
+    /// <summary>The cells, rebuilt whenever the accolade rows are.</summary>
+    private void BuildAccoladeLines() =>
+        _accoladeLines = SaveAccoladeLineViewModel.Build(Accolades.OrderBy(a => a.Category.Length == 0 ? "~" : a.Category, StringComparer.OrdinalIgnoreCase));
 
     /// <summary>CompletedAccolades only — PlayerTrackers/PlayerTaskListTrackers (the raw progress counters behind eligibility) are preserved untouched, out of scope for this editor.</summary>
     private void BuildAccolades()
@@ -57,6 +65,7 @@ public sealed partial class SavesViewModel
             Accolades.Add(new SaveAccoladeViewModel(rowName, rowName, "", "", true, NotifyDirtyChanged));
         }
 
+        BuildAccoladeLines();
         RefreshAccoladeFilter();
         OnPropertyChanged(nameof(AccoladesSummary));
     }

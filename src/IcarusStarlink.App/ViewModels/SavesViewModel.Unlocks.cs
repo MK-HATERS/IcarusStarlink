@@ -47,6 +47,25 @@ public sealed partial class SavesViewModel
     /// <summary>Deprecated, tooltip-only, test and never-granted flags — listed only with Show unused flags on.</summary>
     public ObservableCollection<SaveFlagViewModel> UnusedFlags { get; } = [];
 
+    /// <summary>"52 of 80 on": the Unlocks sections' headings, over the rows each lists.</summary>
+    public string RewardFlagsSummary => OnSummary(RewardFlags);
+
+    public string TalentPointFlagsSummary => OnSummary(TalentPointFlags);
+
+    public string AdvancedFlagsSummary => OnSummary(AdvancedFlags);
+
+    public string UnusedFlagsSummary => OnSummary(UnusedFlags);
+
+    private static string OnSummary(IReadOnlyCollection<SaveFlagViewModel> flags) => $"{flags.Count(f => f.IsUnlocked)} of {flags.Count} on";
+
+    private void NotifyFlagSummaries()
+    {
+        OnPropertyChanged(nameof(RewardFlagsSummary));
+        OnPropertyChanged(nameof(TalentPointFlagsSummary));
+        OnPropertyChanged(nameof(AdvancedFlagsSummary));
+        OnPropertyChanged(nameof(UnusedFlagsSummary));
+    }
+
     [ObservableProperty]
     private bool _showUnusedFlags;
 
@@ -110,6 +129,7 @@ public sealed partial class SavesViewModel
         RefreshFilter(AccountFlags.Concat(characterFlags), UnusedFlags, FlagSearchText,
             f => ShowUnusedFlags && f.Kind is FlagKind.Unused or FlagKind.Unknown, f => f.Name, f => f.Detail);
         OnPropertyChanged(nameof(ShowUnusedFlagsLabel));
+        NotifyFlagSummaries();
     }
 
     private void BuildAccountFlags()

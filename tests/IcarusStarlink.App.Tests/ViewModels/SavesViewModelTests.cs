@@ -1369,6 +1369,97 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.Equal(before, repository.Profile["Talents"]!.ToJsonString());
     }
 
+    /// <summary>The user's slot showed a blank Items tab: its bank was simply empty, so the tab says what would be there.</summary>
+    [Fact]
+    public async Task ItemsTab_SaysWhyItsEmpty_AnEmptyBankOrASearchThatMatchesNothing()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            Assert.Contains("item bank is empty", vm.ItemsEmptyText);
+
+            repository.MetaInventory = MakeMetaInventoryRoot(MakeMetaInventoryItem("Unknown_RowName"));
+            vm.ReloadCommand.Execute(null);
+            await vm.WaitForPendingSlotLoadAsync();
+            Assert.Null(vm.ItemsEmptyText);
+
+            vm.ItemSearchText = "nothing like it";
+            Assert.Contains("matches the search", vm.ItemsEmptyText);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Missions' "Only not done", and a mission the game's tables don't list read without its "Prospect_" prefix.</summary>
+    [Fact]
+    public async Task Missions_OnlyNotDone_ListsTheUndone_AndAnUnknownMissionReadsPlainly()
+    {
+        var dataFolder = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_GameData", Guid.NewGuid().ToString("N"));
+        _tempFoldersToCleanUp.Add(dataFolder);
+        Directory.CreateDirectory(Path.Combine(dataFolder, "Talents"));
+        File.WriteAllText(Path.Combine(dataFolder, "Talents", "D_Talents.json"), """
+            { "Rows": [ { "Name": "Prospect_RL_Ext", "TalentTree": { "RowName": "Prospect_Olympus" } } ] }
+            """);
+        var profile = MakeProfile(nextChrSlot: 0);
+        profile["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "Prospect_OLY_Glacier_Exploration", ["Rank"] = 1 });
+        var vm = CreateViewModel(new FakeSaveRepository { Profile = profile }, gameNames: new SaveGameNames(dataFolder));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var unknown = Assert.Single(vm.FilteredMissions, m => m.RowName == "Prospect_OLY_Glacier_Exploration");
+            Assert.Equal("OLY Glacier Exploration", unknown.DisplayName);
+            Assert.False(unknown.IsInGameTables);
+            Assert.Equal(2, vm.FilteredMissions.Count);
+
+            vm.ShowUndoneMissionsOnly = true;
+
+            Assert.Equal(["Prospect_RL_Ext"], vm.FilteredMissions.Select(m => m.RowName));
+            Assert.Equal("1 of 2 done", vm.MissionsSummary);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Unlocks: a one-mission reward's link is said once in the section, not on every row; the headings count what's on.</summary>
+    [Fact]
+    public async Task Unlocks_AOneMissionRewardKeepsItsLinkOffTheRow_AndTheHeadingCountsWhatsOn()
+    {
+        var dataFolder = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_GameData", Guid.NewGuid().ToString("N"));
+        _tempFoldersToCleanUp.Add(dataFolder);
+        Directory.CreateDirectory(Path.Combine(dataFolder, "Flags"));
+        Directory.CreateDirectory(Path.Combine(dataFolder, "Talents"));
+        File.WriteAllText(Path.Combine(dataFolder, "Flags", "D_AccountFlags.json"), """
+            { "Rows": [ { "Name": "GrantedBlueprint_Bait", "BlueprintUnlocks": [ { "RowName": "Bait" } ],
+                          "RewardedFromMissions": [ { "RowName": "Tier3_Ext", "DataTableName": "D_ProspectList" } ] } ] }
+            """);
+        File.WriteAllText(Path.Combine(dataFolder, "Talents", "D_Talents.json"), """
+            { "Rows": [ { "Name": "Prospect_RL_Ext", "ExtraData": { "RowName": "Tier3_Ext", "DataTableName": "D_ProspectList" }, "TalentTree": { "RowName": "Prospect_Olympus" } } ] }
+            """);
+        var vm = CreateViewModel(new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 0) }, gameNames: new SaveGameNames(dataFolder));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var reward = Assert.Single(vm.RewardFlags);
+            Assert.NotNull(reward.LinkHint);
+            Assert.False(reward.ShowLinkHint);
+            Assert.Equal("0 of 1 on", vm.RewardFlagsSummary);
+
+            reward.IsUnlocked = true;
+
+            Assert.Equal("1 of 1 on", vm.RewardFlagsSummary);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     private sealed class FakeSaveRepository : ISaveRepository
     {
         public SaveSlot Slot { get; set; } = new(SteamId, $@"C:\fake\PlayerData\{SteamId}", "Tester");

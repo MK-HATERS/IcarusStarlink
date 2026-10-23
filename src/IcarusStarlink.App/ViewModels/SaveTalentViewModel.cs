@@ -23,6 +23,9 @@ public sealed partial class SaveTalentViewModel : DirtyRow
 
     public string Tree { get; }
 
+    /// <summary>False for a row the game's tables don't list; its row name shows beside the readable one.</summary>
+    public bool IsInGameTables { get; }
+
     /// <summary>0 means "no cap known" — only ever the case when the game data isn't extracted; a real table row always yields at least 1.</summary>
     public int MaxRank { get; }
 
@@ -48,7 +51,7 @@ public sealed partial class SaveTalentViewModel : DirtyRow
     [ObservableProperty]
     private int _rank;
 
-    /// <summary>Missions: "Reward: Medical Device — marking it done turns that on in Unlocks too".</summary>
+    /// <summary>Missions: "Reward: Medical Device" (the tab's description says marking it done turns that on in Unlocks).</summary>
     [ObservableProperty]
     private string? _linkHint;
 
@@ -77,6 +80,7 @@ public sealed partial class SaveTalentViewModel : DirtyRow
         DisplayName = info.DisplayName;
         Description = info.Description;
         Tree = info.Tree;
+        IsInGameTables = info.IsInGameTables;
         MaxRank = info.MaxRank;
         IsDefaultUnlocked = info.IsDefaultUnlocked;
         Group = info.Group.Length > 0 ? info.Group : info.Tree;
@@ -126,5 +130,15 @@ public sealed partial class SaveTalentViewModel : DirtyRow
 public sealed record TalentDisplayInfo(string DisplayName, string Description, string Tree, int MaxRank, bool IsDefaultUnlocked,
     string Group = "", string Model = "", string? Cost = null)
 {
-    public static TalentDisplayInfo Fallback(string rowName) => new(rowName, "", "", 0, false, "Not in the game's tables (from a mod, or removed)");
+    public static TalentDisplayInfo Fallback(string rowName) =>
+        new(ReadableRowName(rowName), "", "", 0, false, "Not in the game's tables (from a mod, or removed)") { IsInGameTables = false };
+
+    /// <summary>The game's own tables list it (false: shown by its row name, which the row then shows faint as well).</summary>
+    public bool IsInGameTables { get; init; } = true;
+
+    /// <summary>"Prospect_OLY_Glacier_Exploration" reads "OLY Glacier Exploration"; other row names stay as they are.</summary>
+    public static string ReadableRowName(string rowName) =>
+        rowName.StartsWith("Prospect_", StringComparison.OrdinalIgnoreCase) && rowName.Length > "Prospect_".Length
+            ? rowName["Prospect_".Length..].Replace('_', ' ').Trim()
+            : rowName;
 }

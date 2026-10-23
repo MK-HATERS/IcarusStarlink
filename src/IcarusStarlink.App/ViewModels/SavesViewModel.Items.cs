@@ -18,8 +18,22 @@ public sealed partial class SavesViewModel
 
     partial void OnItemSearchTextChanged(string value) => RefreshItemFilter();
 
-    private void RefreshItemFilter() =>
+    private void RefreshItemFilter()
+    {
         RefreshFilter(MetaInventoryItems, FilteredMetaInventoryItems, ItemSearchText, null, i => i.DisplayName, i => i.RowName);
+        OnPropertyChanged(nameof(ItemsEmptyText));
+    }
+
+    /// <summary>
+    /// What the Items tab says instead of an empty list; null while it lists something. An empty
+    /// bank is normal (the user's slot, 2026-10-23: MetaInventory.json's Items is []), so it says
+    /// what would show here rather than looking broken.
+    /// </summary>
+    public string? ItemsEmptyText =>
+        FilteredMetaInventoryItems.Count > 0 ? null
+        : MetaInventoryItems.Count > 0 ? "No item in the bank matches the search."
+        : _metaInventoryRoot is null ? "This slot has no item bank (MetaInventory.json) yet, or it couldn't be read."
+        : "This account's item bank is empty. Items kept on the account between prospects, outside any character's loadout, are listed here; you can delete them one by one.";
 
     private void BuildMetaInventoryItems()
     {
@@ -49,6 +63,7 @@ public sealed partial class SavesViewModel
 
         MetaInventoryItems.Remove(item);
         FilteredMetaInventoryItems.Remove(item);
+        OnPropertyChanged(nameof(ItemsEmptyText));
         _metaInventoryDirty = true;
         NotifyDirtyChanged();
     }

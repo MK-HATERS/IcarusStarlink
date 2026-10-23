@@ -39,6 +39,7 @@ public sealed partial class SavesViewModel
         }
 
         OnPropertyChanged(nameof(TalentRanksSummary));
+        OnPropertyChanged(nameof(SelectedLevelDisplay));
         OnPropertyChanged(nameof(PointsNotes));
         OnPropertyChanged(nameof(HasPointsNotes));
         BuildPointsEditors();
@@ -168,6 +169,9 @@ public sealed partial class SavesViewModel
 
     /// <summary>The selected character's level, from its XP on the installed XP curve; null when it can't be worked out.</summary>
     private int? SelectedLevel => SelectedCharacter is { } character ? LevelOf(character) : null;
+
+    /// <summary>"Level 313", beside the Characters tab's XP box; null while the curve isn't read.</summary>
+    public string? SelectedLevelDisplay => SelectedLevel is { } level ? $"Level {level:N0}" : null;
 
     private int? LevelOf(SaveCharacterViewModel character) =>
         _playerGrowth is { Experience: { } xpCurve } growth && long.TryParse(character.XpText, out var xp)
