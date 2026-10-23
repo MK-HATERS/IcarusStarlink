@@ -29,13 +29,13 @@ public static class UpdateRunner
     /// rolled-back update used to relaunch the old version without a word).
     /// </param>
     public static Result Run(string installDirectory, string newFilesDirectory, Action<string> log, Func<bool> relaunch,
-        Action<Outcome, string>? recordOutcome = null)
+        Action<Outcome, string>? recordOutcome = null, IReadOnlyCollection<string>? skipRootFiles = null)
     {
         void Record(Outcome outcome, string message) => RecordSafely(recordOutcome, outcome, message, log);
 
         try
         {
-            UpdateApplier.Apply(installDirectory, newFilesDirectory, log);
+            UpdateApplier.Apply(installDirectory, newFilesDirectory, log, skipRootFiles);
         }
         catch (UpdateRollbackIncompleteException ex)
         {

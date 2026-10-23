@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The old exe name, kept for a while after the app became IcarusStarlink.exe (2.10.0): older
+       versions' updaters only accept a release with IcarusStarlink.App.exe in it and start that
+       exe when they finish, and users' shortcuts, taskbar pins and nxm:// links point at it. This
+       starts IcarusStarlink.exe with the same arguments and exits. .NET Framework 4.8 because
+       every supported Windows already has it: a few KB, not a second self-contained runtime.
+       Shipped by IcarusStarlink.App.csproj's PublishBridge target; the app removes it once it has
+       moved the user's shortcuts over (ExeRenameMigration). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>IcarusStarlink.App</AssemblyName>
+    <RootNamespace>IcarusStarlink.Bridge</RootNamespace>
+    <Product>IcarusStarlink</Product>
+    <AssemblyTitle>Icarus Starlink (old name, starts IcarusStarlink.exe)</AssemblyTitle>
+    <ApplicationIcon>..\IcarusStarlink.App\Assets\AppIcon.ico</ApplicationIcon>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>

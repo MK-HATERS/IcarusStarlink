@@ -12,9 +12,9 @@ public sealed class ThemeService(ICustomSkinStore customSkinStore) : IThemeServi
 
     private static readonly IReadOnlyDictionary<string, Uri> ThemeUris = new Dictionary<string, Uri>
     {
-        ["Icarus"] = new("/IcarusStarlink.App;component/Themes/Icarus.xaml", UriKind.Relative),
-        ["Dark"] = new("/IcarusStarlink.App;component/Themes/Dark.xaml", UriKind.Relative),
-        ["Light"] = new("/IcarusStarlink.App;component/Themes/Light.xaml", UriKind.Relative),
+        ["Icarus"] = new("/IcarusStarlink;component/Themes/Icarus.xaml", UriKind.Relative),
+        ["Dark"] = new("/IcarusStarlink;component/Themes/Dark.xaml", UriKind.Relative),
+        ["Light"] = new("/IcarusStarlink;component/Themes/Light.xaml", UriKind.Relative),
     };
 
     public IReadOnlyList<string> AvailableThemes { get; } = [.. ThemeUris.Keys, CustomThemeName];

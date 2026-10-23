@@ -156,7 +156,7 @@ Get the running app's PID first (e.g. `tasklist` or `Get-Process IcarusStarlink.
 Get-Process IcarusStarlink.App -ErrorAction SilentlyContinue | Stop-Process -Force
 
 dotnet build IcarusStarlink.slnx
-Start-Process src\IcarusStarlink.App\bin\Debug\net10.0-windows\IcarusStarlink.App.exe
+Start-Process src\IcarusStarlink.App\bin\Debug\net10.0-windows\IcarusStarlink.exe
 # note the PID, or: (Get-Process IcarusStarlink.App).Id
 
 tools\WinTools\bin\Debug\net10.0-windows\WinTools.exe click <pid> ListItem "Id = library"

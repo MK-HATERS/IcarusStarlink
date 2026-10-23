@@ -16,7 +16,7 @@ changed since):
 ## Before every upload
 
 - [ ] **Category**: upload as a Modding Tool / Utility, not as a regular mod.
-- [ ] **VirusTotal**: run this release's actual `IcarusStarlink.App.exe` (or the full zip) through
+- [ ] **VirusTotal**: run this release's actual `IcarusStarlink.exe` (or the full zip) through
       <https://www.virustotal.com/> and link the report in the file description. Do this per
       release — a new build is a new binary, an old scan doesn't cover it.
 - [ ] **Description** pulls from `README.md`'s own "What this app touches on your system" and

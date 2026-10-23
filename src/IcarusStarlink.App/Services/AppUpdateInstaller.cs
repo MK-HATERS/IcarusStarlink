@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using IcarusStarlink.Catalog.AppUpdate;
+using IcarusStarlink.Core;
 
 namespace IcarusStarlink.App.Services;
 
@@ -20,7 +21,8 @@ public sealed class AppUpdateInstaller(IAppUpdateClient appUpdateClient)
     /// </summary>
     /// <param name="status">Each step for the status line ("Downloading v2.10.0…").</param>
     /// <param name="busyNow">Asked again right before the updater starts: the download took a while, and work may have started meanwhile.</param>
-    public async Task<string?> StartAsync(AppUpdateRelease release, Action<string> status, Func<string?> busyNow)
+    /// <param name="skipOldExe">The user was moved over to IcarusStarlink.exe (AppSettings.ExeRenameDone): don't copy the old-name launcher back.</param>
+    public async Task<string?> StartAsync(AppUpdateRelease release, Action<string> status, Func<string?> busyNow, bool skipOldExe = false)
     {
         // Earlier updates' work folders (zip + full extracted build, ~2x the release size each)
         // were never cleaned up — by anyone, since the updater runs from one and the app never
@@ -54,17 +56,21 @@ public sealed class AppUpdateInstaller(IAppUpdateClient appUpdateClient)
 
         // Tolerate a release zip that wraps everything in a single top-level folder — a common
         // way zips get built — as long as the app exe is findable one level down.
+        // Either exe name counts (it was IcarusStarlink.App.exe before 2.10.0).
+        static bool HasApp(string folder) =>
+            File.Exists(Path.Combine(folder, StarlinkExe.FileName)) || File.Exists(Path.Combine(folder, StarlinkExe.OldFileName));
+
         var newFilesRoot = extractDirectory;
-        if (!File.Exists(Path.Combine(newFilesRoot, "IcarusStarlink.App.exe")))
+        if (!HasApp(newFilesRoot))
         {
             var subdirectories = Directory.GetDirectories(newFilesRoot);
-            if (subdirectories.Length == 1 && File.Exists(Path.Combine(subdirectories[0], "IcarusStarlink.App.exe")))
+            if (subdirectories.Length == 1 && HasApp(subdirectories[0]))
             {
                 newFilesRoot = subdirectories[0];
             }
             else
             {
-                return "The downloaded release zip doesn't contain IcarusStarlink.App.exe — not installing it.";
+                return $"The downloaded release zip doesn't contain {StarlinkExe.FileName} — not installing it.";
             }
         }
 
@@ -100,14 +106,23 @@ public sealed class AppUpdateInstaller(IAppUpdateClient appUpdateClient)
             return startedMeanwhile;
         }
 
-        var appExePath = Path.Combine(installDirectory, "IcarusStarlink.App.exe");
-        Process.Start(new ProcessStartInfo(Path.Combine(updaterStaging, "IcarusStarlink.Updater.exe"))
+        // The updater falls back to the other exe name when this one isn't there after the copy.
+        var appExePath = Path.Combine(installDirectory, StarlinkExe.FileName);
+        var updater = new ProcessStartInfo(Path.Combine(updaterStaging, "IcarusStarlink.Updater.exe"))
         {
             ArgumentList = { Environment.ProcessId.ToString(), installDirectory, newFilesRoot, appExePath },
             UseShellExecute = false,
             CreateNoWindow = true,
-        });
+        };
 
+        // Once the old exe name is gone from this PC, an update must not bring it back.
+        if (skipOldExe)
+        {
+            updater.ArgumentList.Add("--skip");
+            updater.ArgumentList.Add(StarlinkExe.OldFileName);
+        }
+
+        Process.Start(updater);
         return null;
     }
 }

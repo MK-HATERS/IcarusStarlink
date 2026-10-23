@@ -25,6 +25,7 @@ if /i not "%CONFIRM%"=="YES" (
     exit /b 0
 )
 
+taskkill /f /im IcarusStarlink.exe >nul 2>&1
 taskkill /f /im IcarusStarlink.App.exe >nul 2>&1
 
 rem Regenerable/transient folders — always removed regardless of the data choice above.
@@ -49,7 +50,7 @@ rem itself (this script) or, when KEEPDATA=Y, the user-data folders/settings.jso
 for %%F in (*.dll *.exe *.pdb *.xml) do (
     if exist "%%F" del /q "%%F"
 )
-for %%F in (IcarusStarlink.App.deps.json IcarusStarlink.App.runtimeconfig.json) do (
+for %%F in (IcarusStarlink.deps.json IcarusStarlink.runtimeconfig.json IcarusStarlink.App.deps.json IcarusStarlink.App.runtimeconfig.json) do (
     if exist "%%F" del /q "%%F"
 )
 

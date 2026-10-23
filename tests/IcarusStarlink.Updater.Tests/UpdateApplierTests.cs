@@ -54,6 +54,31 @@ public sealed class UpdateApplierTests : IDisposable
     }
 
     [Fact]
+    public void Apply_AcceptsTheNewExeName_AndLeavesOutSkippedRootFiles()
+    {
+        // 2.10.0 renamed the exe; once the old-name launcher is removed, updates mustn't bring it back.
+        WriteInstall("IcarusStarlink.exe", "old exe");
+        WriteNew("IcarusStarlink.exe", "new exe");
+        WriteNew("IcarusStarlink.App.exe", "launcher");
+
+        var copied = UpdateApplier.Apply(_installDirectory, _newFilesDirectory, _ => { }, ["IcarusStarlink.App.exe"]);
+
+        Assert.Equal(1, copied);
+        Assert.Equal("new exe", File.ReadAllText(Path.Combine(_installDirectory, "IcarusStarlink.exe")));
+        Assert.False(File.Exists(Path.Combine(_installDirectory, "IcarusStarlink.App.exe")));
+    }
+
+    [Fact]
+    public void Apply_WithoutASkip_CopiesTheLauncherToo()
+    {
+        WriteNew("IcarusStarlink.exe", "new exe");
+        WriteNew("IcarusStarlink.App.exe", "launcher");
+
+        Assert.Equal(2, UpdateApplier.Apply(_installDirectory, _newFilesDirectory, _ => { }));
+        Assert.Equal("launcher", File.ReadAllText(Path.Combine(_installDirectory, "IcarusStarlink.App.exe")));
+    }
+
+    [Fact]
     public void Apply_NeverTouchesUserDataTheNewBuildDoesntShip()
     {
         // The core safety property: the update is copy-over-only, so everything the user

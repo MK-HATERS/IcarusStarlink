@@ -324,7 +324,8 @@ public sealed partial class SettingsViewModel
         IsInstallingAppUpdate = true;
         try
         {
-            var problem = await _appUpdateInstaller.StartAsync(release, message => AppUpdateStatusMessage = message, DescribeBackgroundWork);
+            var problem = await _appUpdateInstaller.StartAsync(release, message => AppUpdateStatusMessage = message, DescribeBackgroundWork,
+                skipOldExe: _settingsService.Current.ExeRenameDone);
             if (problem is not null)
             {
                 AppUpdateStatusMessage = problem;

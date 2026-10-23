@@ -4,8 +4,8 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="/IcarusStarlink.App;component/Themes/Icons.xaml"/>
-                <ResourceDictionary Source="/IcarusStarlink.App;component/Themes/Styles.xaml"/>
+                <ResourceDictionary Source="/IcarusStarlink;component/Themes/Icons.xaml"/>
+                <ResourceDictionary Source="/IcarusStarlink;component/Themes/Styles.xaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

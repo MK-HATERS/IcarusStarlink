@@ -84,6 +84,27 @@
     </ItemGroup>
   </Target>
 
+  <!-- `dotnet publish` — the old exe name as a tiny launcher (see IcarusStarlink.Bridge.csproj for
+       why it has to ship for a while). Built with the MSBuild task, not a ProjectReference: it
+       targets .NET Framework, which this project can't reference. -->
+  <PropertyGroup>
+    <_BridgeOutputDir>..\IcarusStarlink.Bridge\bin\$(Configuration)\net48\</_BridgeOutputDir>
+  </PropertyGroup>
+  <Target Name="PublishBridge" AfterTargets="ComputeResolvedFilesToPublishList">
+    <!-- RemoveProperties: this publish's own -r win-x64 / self-contained / single-file settings
+         would otherwise flow into the .NET Framework build and move its output elsewhere. -->
+    <MSBuild Projects="..\IcarusStarlink.Bridge\IcarusStarlink.Bridge.csproj" Targets="Restore;Build"
+             Properties="Configuration=$(Configuration);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishDir;_IsPublishing" />
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(_BridgeOutputDir)IcarusStarlink.App.exe">
+        <RelativePath>IcarusStarlink.App.exe</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <!-- Ships next to the exe in every build output, matching the spec's own "Run Uninstall.bat
          in the Workshop folder" — there's no separate publish/packaging step yet for this to be
@@ -107,6 +128,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- The exe is IcarusStarlink.exe since 2.10.0 (it was IcarusStarlink.App.exe); namespaces
+         and the project name stay. The old name ships as a launcher for a while (PublishBridge
+         above), and the app moves shortcuts and nxm:// links over (ExeRenameMigration). -->
+    <AssemblyName>IcarusStarlink</AssemblyName>
+    <RootNamespace>IcarusStarlink.App</RootNamespace>
     <!-- Compared against the latest GitHub release tag by the App Updates check — bump this
          alongside tagging a real GitHub release, they're meant to stay in lockstep. -->
     <Version>2.10.0-beta.1</Version>
@@ -125,7 +151,7 @@
          self-contained win-x64 release from 492 files down to 336 with zero functional loss. -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <!-- Publish-only (a plain `dotnet build` is unaffected): bundles every managed assembly and the
-         self-contained runtime into IcarusStarlink.App.exe. Per user request after seeing the
+         self-contained runtime into IcarusStarlink.exe. Per user request after seeing the
          release zip — 336 loose files at the root, down to the handful of native libraries WPF,
          SkiaSharp and SQLite genuinely need beside the exe (deliberately NOT
          IncludeNativeLibrariesForSelfExtract: that extracts them to a temp folder on first run, a

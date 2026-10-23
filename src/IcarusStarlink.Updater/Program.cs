@@ -6,12 +6,22 @@ using IcarusStarlink.Updater;
 // exiting immediately after. Waits for the app to fully exit, copies the new build's files over
 // the install directory (never deleting anything — see UpdateApplier), then relaunches the app.
 //
-// usage: IcarusStarlink.Updater.exe <mainProcessId> <installDir> <newFilesDir> <relaunchExe>
+// usage: IcarusStarlink.Updater.exe <mainProcessId> <installDir> <newFilesDir> <relaunchExe> [--skip <rootFileName>]...
 
 if (args.Length < 4)
 {
-    Console.Error.WriteLine("usage: IcarusStarlink.Updater.exe <mainProcessId> <installDir> <newFilesDir> <relaunchExe>");
+    Console.Error.WriteLine("usage: IcarusStarlink.Updater.exe <mainProcessId> <installDir> <newFilesDir> <relaunchExe> [--skip <rootFileName>]...");
     return 2;
+}
+
+// Root files of the new build not to copy (the old exe name, once the app has moved the user off it).
+var skipRootFiles = new List<string>();
+for (var i = 4; i + 1 < args.Length; i++)
+{
+    if (args[i] == "--skip")
+    {
+        skipRootFiles.Add(args[++i]);
+    }
 }
 
 if (!int.TryParse(args[0], out var mainProcessId))
@@ -61,7 +71,16 @@ bool Relaunch()
 {
     try
     {
-        Process.Start(new ProcessStartInfo(relaunchExePath) { WorkingDirectory = installDirectory, UseShellExecute = true });
+        // The exe was renamed in 2.10.0: whichever name the install has now, if the given one isn't there.
+        var exe = relaunchExePath;
+        if (!File.Exists(exe))
+        {
+            exe = new[] { UpdateApplier.AppExeName, UpdateApplier.OldAppExeName }
+                .Select(name => Path.Combine(installDirectory, name))
+                .FirstOrDefault(File.Exists) ?? exe;
+        }
+
+        Process.Start(new ProcessStartInfo(exe) { WorkingDirectory = installDirectory, UseShellExecute = true });
         return true;
     }
     catch (Exception ex)
@@ -114,7 +133,7 @@ Thread.Sleep(500);
 UpdateRunner.Result result;
 try
 {
-    result = UpdateRunner.Run(installDirectory, newFilesDirectory, Log, Relaunch, RecordOutcome);
+    result = UpdateRunner.Run(installDirectory, newFilesDirectory, Log, Relaunch, RecordOutcome, skipRootFiles);
 }
 catch (Exception ex)
 {

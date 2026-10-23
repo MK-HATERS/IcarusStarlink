@@ -1,0 +1,64 @@
+<Window x:Class="IcarusStarlink.App.Views.ExeRenameWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Icarus Starlink has a new exe name"
+        SizeToContent="Height" Width="560" MinHeight="200" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <!-- The one-time move from IcarusStarlink.App.exe to IcarusStarlink.exe (ExeRenameMigration). -->
+    <Grid Margin="24,20,24,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Starlink now starts from IcarusStarlink.exe" FontSize="16" FontWeight="Bold"
+                   Foreground="{DynamicResource AccentBrush}" Margin="0,0,0,10"/>
+
+        <TextBlock Grid.Row="1" TextWrapping="Wrap" FontSize="13" Foreground="{DynamicResource ForegroundBrush}" Margin="0,0,0,12">
+            The old IcarusStarlink.App.exe is now only a small launcher, kept so this update could finish.
+            Starlink can tidy that up for you once:
+        </TextBlock>
+
+        <ItemsControl x:Name="StepList" Grid.Row="2" Margin="0,0,0,12">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="22"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Mark}" Foreground="{Binding MarkBrush}" FontWeight="Bold" FontSize="13"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="13" Foreground="{DynamicResource ForegroundBrush}"/>
+                            <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Detail}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Grid>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <TextBlock x:Name="NoteText" Grid.Row="3" TextWrapping="Wrap" FontSize="12"
+                   Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,16"
+                   Text="Start Starlink from IcarusStarlink.exe from now on. Not now asks again next time Starlink starts."/>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="LaterButton" Content="Not now" Click="Later_Click" Margin="0,0,8,0" MinWidth="80"/>
+            <Button x:Name="GoButton" Content="Do it now" Click="Go_Click" Style="{StaticResource PrimaryButtonStyle}" MinWidth="96"/>
+        </StackPanel>
+    </Grid>
+</Window>

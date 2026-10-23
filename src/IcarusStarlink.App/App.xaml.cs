@@ -196,6 +196,9 @@ public partial class App : Application
             Settings = _host.Services.GetRequiredService<ISettingsService>();
             LogDetail.ApplyFromSettings(Settings);
 
+            // Read before any page records this launch: a fresh install isn't asked about the old exe name.
+            var existingInstall = Settings.Current.LastSeenAppVersion is not null;
+
             var logger = _host.Services.GetRequiredService<ILogger<App>>();
             var appVersion = Assembly.GetExecutingAssembly()
                 .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
@@ -283,6 +286,15 @@ public partial class App : Application
                     {
                         _host.Services.GetRequiredService<ServerViewModel>();
                     }
+                });
+
+                // The exe is IcarusStarlink.exe since 2.10.0: move shortcuts and nxm:// links off the
+                // old name and remove its launcher, once (ExeRenamePrompt).
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () =>
+                {
+                    _ = ExeRenamePrompt.RunAtStartupAsync(mainWindow, settingsService,
+                        _host.Services.GetRequiredService<IcarusStarlink.Core.Nexus.INxmProtocolRegistrar>(),
+                        _host.Services.GetRequiredService<IActivityLog>(), existingInstall);
                 });
 
                 // This launch's own nxm:// argument (e.g. the very first time the OS protocol

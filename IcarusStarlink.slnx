@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/IcarusStarlink.App/IcarusStarlink.App.csproj" />
+    <Project Path="src/IcarusStarlink.Bridge/IcarusStarlink.Bridge.csproj" />
     <Project Path="src/IcarusStarlink.Catalog/IcarusStarlink.Catalog.csproj" />
     <Project Path="src/IcarusStarlink.Core/IcarusStarlink.Core.csproj" />
     <Project Path="src/IcarusStarlink.Diffing/IcarusStarlink.Diffing.csproj" />

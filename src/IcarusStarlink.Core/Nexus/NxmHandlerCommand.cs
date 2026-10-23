@@ -11,8 +11,6 @@ public static class NxmHandlerCommand
 {
     public const string IcarusDomain = "icarus";
 
-    private const string StarlinkExeName = "IcarusStarlink.App.exe";
-
     /// <summary>The exe a handler command starts: the quoted first part, else everything up to the first space.</summary>
     public static string? ExePathOf(string? command)
     {
@@ -32,9 +30,8 @@ public static class NxmHandlerCommand
         return space < 0 ? text : text[..space];
     }
 
-    /// <summary>Any Starlink install, not only this one: two Starlinks forwarding to each other would pass a link back and forth forever.</summary>
-    public static bool IsStarlink(string? command) =>
-        string.Equals(Path.GetFileName(ExePathOf(command)), StarlinkExeName, StringComparison.OrdinalIgnoreCase);
+    /// <summary>Any Starlink install, not only this one, under either exe name: two Starlinks forwarding to each other would pass a link back and forth forever.</summary>
+    public static bool IsStarlink(string? command) => StarlinkExe.IsStarlinkFileName(Path.GetFileName(ExePathOf(command)));
 
     /// <summary>The exe and its arguments with %1 swapped for the link, ready for Process.Start; null when the command has no exe.</summary>
     public static (string FileName, string Arguments)? LaunchFor(string? command, string nxmUrl)

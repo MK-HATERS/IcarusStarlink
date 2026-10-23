@@ -14,7 +14,9 @@ namespace IcarusStarlink.Updater;
 /// </summary>
 public static class UpdateApplier
 {
-    private const string AppExeName = "IcarusStarlink.App.exe";
+    /// <summary>The app's exe since 2.10.0, and the old name: a build has one or both (the old one is a launcher for a while).</summary>
+    public const string AppExeName = "IcarusStarlink.exe";
+    public const string OldAppExeName = "IcarusStarlink.App.exe";
     private const int CopyAttempts = 5;
     private const int CopyRetryDelayMs = 500;
 
@@ -31,9 +33,12 @@ public static class UpdateApplier
 
     /// <summary>
     /// Returns the number of files copied. Throws when newFilesDirectory doesn't look like an app
-    /// build at all (no IcarusStarlink.App.exe) — the one guard against being pointed at the wrong
-    /// folder.
+    /// build at all (neither exe name) — the one guard against being pointed at the wrong folder.
     /// </summary>
+    /// <param name="skipRootFiles">
+    /// Root files of the new build not to copy: IcarusStarlink.App.exe once the app has moved the
+    /// user over to IcarusStarlink.exe and removed it, so an update doesn't put it back.
+    /// </param>
     /// <remarks>
     /// Every install-directory file this update is about to overwrite is backed up (to a fresh
     /// TEMP folder, never inside installDirectory) immediately before it's overwritten — not the
@@ -45,13 +50,16 @@ public static class UpdateApplier
     /// backup is deleted once it's no longer needed — after a successful Apply, or after a failed
     /// one that rollback fully restored — so it never lingers as TEMP clutter.
     /// </remarks>
-    public static int Apply(string installDirectory, string newFilesDirectory, Action<string> log)
+    public static int Apply(string installDirectory, string newFilesDirectory, Action<string> log,
+        IReadOnlyCollection<string>? skipRootFiles = null)
     {
-        if (!File.Exists(Path.Combine(newFilesDirectory, AppExeName)))
+        if (!File.Exists(Path.Combine(newFilesDirectory, AppExeName)) && !File.Exists(Path.Combine(newFilesDirectory, OldAppExeName)))
         {
             throw new InvalidOperationException(
                 $"'{newFilesDirectory}' doesn't contain {AppExeName} — refusing to copy something that isn't an app build.");
         }
+
+        var skipped = new HashSet<string>(skipRootFiles ?? [], StringComparer.OrdinalIgnoreCase);
 
         var backupDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"UpdateBackup_{Guid.NewGuid():N}");
         var backedUpRelativePaths = new List<string>();
@@ -62,6 +70,12 @@ public static class UpdateApplier
             foreach (var sourcePath in Directory.GetFiles(newFilesDirectory, "*", SearchOption.AllDirectories))
             {
                 var relativePath = Path.GetRelativePath(newFilesDirectory, sourcePath);
+                if (skipped.Contains(relativePath))
+                {
+                    log($"Not copying {relativePath} (no longer used on this PC).");
+                    continue;
+                }
+
                 var destinationPath = Path.Combine(installDirectory, relativePath);
                 Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
 

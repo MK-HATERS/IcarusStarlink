@@ -119,6 +119,14 @@ public sealed class AppSettings
 
     /// <summary>Settings › Nexus › "Take them back automatically": when another mod manager takes nxm:// links, Starlink takes them back (at start, when its window is brought forward, and the moment it happens while Starlink runs) and passes that app its own games' links. On by default: the other app keeps getting its links either way.</summary>
     public bool KeepNxmHandler { get; set; } = true;
+
+    /// <summary>
+    /// The move from IcarusStarlink.App.exe to IcarusStarlink.exe (2.10.0) is finished on this PC:
+    /// shortcuts and the nxm:// handler point at the new exe and the old-name launcher is deleted
+    /// (checked gone). Until then the move-over window asks again at each start; once set, the
+    /// in-app update tells the updater not to copy the launcher back (ExeRenameMigration).
+    /// </summary>
+    public bool ExeRenameDone { get; set; }
 }
 
 /// <summary>A window's last size, restored the next time it opens.</summary>
