@@ -124,11 +124,9 @@ public partial class App : Application
         // waits a few seconds on SendToRunningInstance before giving up silently, so if the pipe
         // server didn't exist yet until after all of that finished, a real nxm:// click during a
         // cold app start could easily lose the race and vanish with no error anywhere. The DI host
-        // now builds on a background thread (see the splash-screen Task.Run below), so unlike
-        // before, OnStartup returns and the WPF message loop starts pumping well before _host is
-        // actually assigned — HandleNxmUrl's own null check below is what covers a real nxm:// pipe
-        // message that happens to land in that narrow window (silently dropped, same as if the
-        // pipe server itself hadn't started yet).
+        // builds on a background thread (see the splash-screen Task.Run below), so OnStartup
+        // returns and the WPF message loop starts pumping well before the window exists: a link
+        // that arrives in that window is queued by HandleNxmUrl and handled once startup is done.
         singleInstanceService.StartListening(message => Dispatcher.BeginInvoke(() =>
         {
             if (message == SingleInstanceService.ActivateMessage)
@@ -668,14 +666,11 @@ public partial class App : Application
                     }
                 });
 
-                // Handle the case where THIS launch (the first instance) was itself invoked with
-                // an nxm:// argument — e.g. the very first time the OS protocol registration is
-                // used.
+                // This launch's own nxm:// argument (e.g. the very first time the OS protocol
+                // registration is used) goes first, then any link a second launch handed over
+                // while this one was starting.
                 var ownNxmArg = e.Args.FirstOrDefault(arg => arg.StartsWith("nxm://", StringComparison.OrdinalIgnoreCase));
-                if (ownNxmArg is not null)
-                {
-                    Dispatcher.BeginInvoke(() => HandleNxmUrl(ownNxmArg));
-                }
+                FinishStartupNxmQueue(ownNxmArg);
             });
         }
     }
@@ -784,10 +779,41 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// Links that arrived before the window was ready. Touched only on the UI thread (the pipe
+    /// handler and the startup block both run there), so no lock. A link that came in while the app
+    /// was starting used to be dropped (the second launch had already exited, so it was simply
+    /// gone), and setting the page from the pipe could race SelectDefaultPage on the startup thread
+    /// (review 2026-10-23).
+    /// </summary>
+    private readonly Queue<string> _nxmUrlsDuringStartup = new();
+
+    private bool _isReadyForNxmUrls;
+
+    /// <summary>Called at the end of startup, on the UI thread: handles <paramref name="ownNxmArg"/> and then every queued link, one dispatcher cycle later so the window paints first.</summary>
+    private void FinishStartupNxmQueue(string? ownNxmArg)
+    {
+        var pending = new List<string>();
+        if (ownNxmArg is not null)
+        {
+            pending.Add(ownNxmArg);
+        }
+
+        pending.AddRange(_nxmUrlsDuringStartup);
+        _nxmUrlsDuringStartup.Clear();
+        _isReadyForNxmUrls = true;
+
+        foreach (var url in pending)
+        {
+            Dispatcher.BeginInvoke(() => HandleNxmUrl(url));
+        }
+    }
+
     private void HandleNxmUrl(string nxmUrl)
     {
-        if (_host is null)
+        if (!_isReadyForNxmUrls || _host is null)
         {
+            _nxmUrlsDuringStartup.Enqueue(nxmUrl);
             return;
         }
 
