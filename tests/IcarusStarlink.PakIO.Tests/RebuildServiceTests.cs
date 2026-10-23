@@ -736,6 +736,37 @@ public class RebuildServiceTests : IDisposable
         Assert.Equal("from B", stagedContent); // later pak in the list still wins on disk
     }
 
+    /// <summary>
+    /// A literal asset collision between a prebuilt pak and an EXMOD mod goes to whichever is later
+    /// in the queue, like a field clash does: every EXMOD asset used to be staged first and every
+    /// pak's files copied over them, so the pak won even when it was queued before the mod.
+    /// </summary>
+    [Fact]
+    public async Task RebuildAsync_PrebuiltPakAndModShareAnAsset_TheLaterInTheQueueWinsAndIsNamed()
+    {
+        var mod = MakeMod("Mod A", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) },
+            assets: [new ExmodAssetEntry("BP/Thing.uasset", "from mod"u8.ToArray())]);
+        var prebuiltPakPath = Path.Combine(_tempDir, "SomeMod_P.pak");
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFilesByPakPath[prebuiltPakPath] = new() { ["BP/Thing.uasset"] = "from pak" };
+        var service = new RebuildService(pakService);
+
+        // The pak first in the queue: the mod after it wins.
+        var result = await service.RebuildAsync(
+            [mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath], prebuiltPakQueuePositions: [0]);
+
+        Assert.Equal("from mod", pakService.StagedFileContentsAtCallTime["BP/Thing.uasset"]);
+        Assert.Contains(result.Warnings, w => w.StartsWith("'Mod A' overwrites 'BP/Thing.uasset' from 'SomeMod_P'"));
+
+        // The pak after the mod: the pak wins.
+        result = await service.RebuildAsync(
+            [mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath], prebuiltPakQueuePositions: [1]);
+
+        Assert.Equal("from pak", pakService.StagedFileContentsAtCallTime["BP/Thing.uasset"]);
+        Assert.Contains(result.Warnings, w => w.StartsWith("'SomeMod_P' overwrites 'BP/Thing.uasset' from 'Mod A'"));
+    }
+
     [Fact]
     public async Task RebuildAsync_PrebuiltPakWithNoCollisions_NoWarning()
     {
