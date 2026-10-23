@@ -219,6 +219,52 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
+    /// <summary>The user's ask (2026-10-23): a character with more ranks than points is labelled over budget.</summary>
+    [Fact]
+    public async Task OverBudget_IsLabelled_OnTheCharacterAndTheTalentsTab()
+    {
+        static IcarusStarlink.PakIO.Assets.GrowthCurveKey Key(float t, float v) => new(t, v, false, false, 0, 0);
+        var growth = new IcarusStarlink.PakIO.Assets.PlayerGrowth(
+            1000, 60, false,
+            new([Key(0, 0), Key(51, 4_034_000)], false, true),
+            new([Key(0, 0), Key(50, 75), Key(60, 90)], false, false),
+            null, null, []);
+        var character = MakeCharacter("Alpha", 0);
+        character["XP"] = 4_034_000L;
+        character["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "Some_Talent", ["Rank"] = 100 });
+        var repository = new FakeSaveRepository { Characters = [character], Profile = MakeProfile(nextChrSlot: 1) };
+        var data = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_GameData", Guid.NewGuid().ToString("N"));
+        _tempFoldersToCleanUp.Add(data);
+        Directory.CreateDirectory(Path.Combine(data, "Talents"));
+        File.WriteAllText(Path.Combine(data, "Talents", "D_Talents.json"), """
+            { "Rows": [ { "Name": "Some_Talent", "TalentTree": { "RowName": "Tree_A" }, "Rewards": [ {}, {}, {} ] } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "Talents", "D_TalentTrees.json"), """{ "Rows": [ { "Name": "Tree_A", "Archetype": { "RowName": "Survival" } } ] }""");
+        File.WriteAllText(Path.Combine(data, "Talents", "D_TalentArchetypes.json"), """{ "Rows": [ { "Name": "Survival", "Model": { "RowName": "Player" } } ] }""");
+        var vm = new SavesViewModel(repository, new FakeActivityLog(), new SaveGameNames(data),
+            new FakeDialogService(confirmResult: true), new FakeGameProcessChecker(false), new FakeBaseGameIconDecoder(),
+            readPlayerGrowth: () => growth);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForPlayerGrowthAsync();
+            var alpha = Assert.Single(vm.Characters);
+            Assert.Equal((Label: "Talents", Used: 100, Available: 76), vm.BudgetOf(alpha)!.Single()); // level 51: 75 + 1.5, rounded down
+            Assert.Equal("Talents by 24", alpha.OverBudget);
+            vm.SelectedCharacter = alpha;
+            Assert.StartsWith("Over budget: Talents by 24.", vm.OverBudgetNote);
+            Assert.Contains(vm.CheckFindings, f => f.Message.Contains("Talents by 24"));
+
+            alpha.Talents.Single(t => t.RowName == "Some_Talent").Rank = 70;
+            Assert.Null(alpha.OverBudget);
+            Assert.Null(vm.OverBudgetNote);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     /// <summary>Plan step 3: a finished mission whose reward is off is found, and its fix turns the reward on.</summary>
     [Fact]
     public async Task SaveCheck_FindsAMissionWhoseRewardIsOff_AndFixesIt()

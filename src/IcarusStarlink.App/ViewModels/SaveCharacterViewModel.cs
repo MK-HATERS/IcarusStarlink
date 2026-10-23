@@ -43,6 +43,10 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
 
     public ObservableCollection<SaveTalentViewModel> Talents { get; } = [];
 
+    /// <summary>"Talents by 477, Solo by 15": trees with more ranks than the installed budget (set by SavesViewModel); null when none.</summary>
+    [ObservableProperty]
+    private string? _overBudget;
+
     /// <summary>Raw Customization_* hash fields — see SaveCosmeticFieldViewModel's own doc comment for why these aren't name-mapped.</summary>
     public ObservableCollection<SaveCosmeticFieldViewModel> Cosmetics { get; } = [];
 

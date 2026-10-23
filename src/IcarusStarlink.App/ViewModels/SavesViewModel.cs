@@ -451,6 +451,10 @@ public sealed partial class SavesViewModel : ObservableObject
         OnPropertyChanged(nameof(PointsNotes));
         OnPropertyChanged(nameof(HasPointsNotes));
         BuildPointsEditors();
+        RefreshOverBudget();
+
+        // Over-budget notes need the curves.
+        RunSaveCheck();
     }
 
     // --- Change points per level: a "Starlink Player Points" Library mod (PlayerPointsMod). ---
@@ -493,6 +497,7 @@ public sealed partial class SavesViewModel : ObservableObject
 
     private void RefreshPointsEditors()
     {
+        RefreshOverBudget();
         foreach (var editor in PointsEditors)
         {
             editor.Refresh();
@@ -542,10 +547,57 @@ public sealed partial class SavesViewModel : ObservableObject
     }
 
     /// <summary>The selected character's level, from its XP on the installed XP curve; null when it can't be worked out.</summary>
-    private int? SelectedLevel =>
-        _playerGrowth is { Experience: { } xpCurve } growth && SelectedCharacter is { } character && long.TryParse(character.XpText, out var xp)
+    private int? SelectedLevel => SelectedCharacter is { } character ? LevelOf(character) : null;
+
+    private int? LevelOf(SaveCharacterViewModel character) =>
+        _playerGrowth is { Experience: { } xpCurve } growth && long.TryParse(character.XpText, out var xp)
             ? xpCurve.LevelFor(xp, growth.MaxLevel > 0 ? growth.MaxLevel : int.MaxValue)
             : null;
+
+    /// <summary>Each tree's ranks used and points available for a character; null when the curves couldn't be read.</summary>
+    internal IReadOnlyList<(string Label, int Used, int Available)>? BudgetOf(SaveCharacterViewModel character)
+    {
+        if (LevelOf(character) is not { } level || _playerGrowth is not { } growth)
+        {
+            return null;
+        }
+
+        var budget = new List<(string, int, int)>();
+        void Add(string label, string model, IcarusStarlink.PakIO.Assets.GrowthCurve? curve, int bonus)
+        {
+            if (curve is not null)
+            {
+                budget.Add((label, character.Talents.Where(t => t.Model == model).Sum(t => t.Rank), (int)Math.Floor(curve.Evaluate(level)) + bonus));
+            }
+        }
+
+        Add("Talents", "Player", growth.TalentPoints, TalentPointBonus);
+        Add("Blueprints", "Blueprint", growth.BlueprintPoints, 0);
+        Add("Solo", "Solo", growth.SoloPoints, 0);
+        return budget;
+    }
+
+    /// <summary>"Talents by 477, Solo by 15"; null when every tree is within its budget (or it can't be told).</summary>
+    internal string? OverBudgetOf(SaveCharacterViewModel character) =>
+        BudgetOf(character)?.Where(b => b.Used > b.Available).ToList() is { Count: > 0 } over
+            ? string.Join(", ", over.Select(b => $"{b.Label} by {b.Used - b.Available:N0}"))
+            : null;
+
+    /// <summary>The banner on the Talents tab when the selected character has more ranks than points (the user's ask, 2026-10-23).</summary>
+    public string? OverBudgetNote =>
+        SelectedCharacter is { } character && OverBudgetOf(character) is { } over
+            ? $"Over budget: {over}. The game keeps every rank you have, but those trees show no points left, so nothing more can be bought there in game until you're under. Raise the budget with Change points per level (How these points work, below), or lower ranks here."
+            : null;
+
+    private void RefreshOverBudget()
+    {
+        foreach (var character in Characters)
+        {
+            character.OverBudget = OverBudgetOf(character);
+        }
+
+        OnPropertyChanged(nameof(OverBudgetNote));
+    }
 
     /// <summary>Bonus talent points from the account's mission rewards that are on (D_PlayerTalentModifiers).</summary>
     private int TalentPointBonus => AccountFlags.Where(f => f.IsUnlocked).Sum(f => _gameNames.TalentPointModifiers.GetValueOrDefault(f.RowName));

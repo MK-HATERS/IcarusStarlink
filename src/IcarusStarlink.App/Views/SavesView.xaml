@@ -123,6 +123,11 @@
                                                             Visibility="{Binding IsDead, Converter={StaticResource BoolToVisibilityConverter}}">
                                                         <TextBlock Text="DEAD" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource DangerBrush}"/>
                                                     </Border>
+                                                    <Border Margin="6,0,0,0" CornerRadius="8" Padding="6,1" VerticalAlignment="Center" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
+                                                            Visibility="{Binding OverBudget, Converter={StaticResource NullToVisibilityConverter}}"
+                                                            ToolTip="{Binding OverBudget, StringFormat='More ranks than points: {0}. The game keeps them; see the Talents tab.'}">
+                                                        <TextBlock Text="OVER BUDGET" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource AccentBrush}"/>
+                                                    </Border>
                                                 </StackPanel>
                                                 <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}">
                                                     <Run Text="Slot "/><Run Text="{Binding ChrSlot, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding LocationDisplay, Mode=OneWay}"/>
@@ -391,6 +396,11 @@
                     <TextBlock DockPanel.Dock="Top" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,2">
                         <Run Text="{Binding SelectedCharacter.Name, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text=" · "/><Run Text="{Binding TalentRanksSummary, Mode=OneWay}"/>
                     </TextBlock>
+                    <!-- Over budget: more ranks than the installed curves give. -->
+                    <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="6" Padding="10,6" Margin="0,4,0,6"
+                            Visibility="{Binding OverBudgetNote, Converter={StaticResource NullToVisibilityConverter}}">
+                        <TextBlock Text="{Binding OverBudgetNote}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AccentBrush}"/>
+                    </Border>
                     <!-- Where the budgets come from: level cap, which curves keep rising, bonuses, mods. -->
                     <Expander DockPanel.Dock="Top" Header="How these points work" Margin="0,0,0,6"
                               Visibility="{Binding HasPointsNotes, Converter={StaticResource BoolToVisibilityConverter}}">

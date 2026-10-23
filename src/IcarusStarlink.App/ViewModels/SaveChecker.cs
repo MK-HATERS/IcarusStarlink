@@ -118,6 +118,12 @@ public static class SaveChecker
                     $"Turn off {flag.Name}", () => flag.IsUnlocked = false));
             }
 
+            if (page.OverBudgetOf(character) is { } over)
+            {
+                findings.Add(new(SaveCheckSeverity.Note, area,
+                    $"More ranks than points: {over}. The game keeps them, but nothing more can be bought in those trees until under (Talents tab › Change points per level)."));
+            }
+
             foreach (var flag in character.Flags.Where(f => f.IsUnlocked && f.Kind == FlagKind.Unknown))
             {
                 findings.Add(new(SaveCheckSeverity.Note, area, $"{flag.Name} isn't in the game's flag table (from a mod, or removed)."));
