@@ -43,6 +43,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IUe4ssLoaderInstallService _ue4ssLoaderInstallService;
     private readonly IUe4ssReleaseClient _ue4ssReleaseClient;
     private readonly IAppUpdateClient _appUpdateClient;
+    private readonly AppUpdateInstaller _appUpdateInstaller;
     private readonly HttpClient _httpClient;
     private readonly IThemeService _themeService;
     private readonly ICustomSkinStore _customSkinStore;
@@ -371,6 +372,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ue4ssLoaderInstallService = ue4ssLoaderInstallService;
         _ue4ssReleaseClient = ue4ssReleaseClient;
         _appUpdateClient = appUpdateClient;
+        _appUpdateInstaller = new AppUpdateInstaller(appUpdateClient);
         _httpClient = httpClient;
         _themeService = themeService;
         _customSkinStore = customSkinStore;
@@ -2032,94 +2034,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         IsInstallingAppUpdate = true;
         try
         {
-            // Earlier updates' work folders (zip + full extracted build, ~2x the release size each)
-            // were never cleaned up — by anyone, since the updater runs from one and the app never
-            // looked (an audit finding). Any previous AppUpdate_* folder is finished with by now.
-            var updateWorkRoot = Path.Combine(Path.GetTempPath(), "IcarusStarlink");
-            if (Directory.Exists(updateWorkRoot))
+            var problem = await _appUpdateInstaller.StartAsync(release, message => AppUpdateStatusMessage = message, DescribeBackgroundWork);
+            if (problem is not null)
             {
-                foreach (var stale in Directory.GetDirectories(updateWorkRoot, "AppUpdate_*"))
-                {
-                    try
-                    {
-                        Directory.Delete(stale, recursive: true);
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        // Best-effort; retried on the next update.
-                    }
-                }
-            }
-
-            var workDirectory = Path.Combine(updateWorkRoot, $"AppUpdate_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(workDirectory);
-
-            AppUpdateStatusMessage = $"Downloading v{release.Version}…";
-            var zipPath = Path.Combine(workDirectory, "update.zip");
-            await _appUpdateClient.DownloadAssetAsync(release, zipPath);
-
-            AppUpdateStatusMessage = "Preparing update…";
-            var extractDirectory = Path.Combine(workDirectory, "new");
-            await Task.Run(() => System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, extractDirectory));
-
-            // Tolerate a release zip that wraps everything in a single top-level folder — a common
-            // way zips get built — as long as the app exe is findable one level down.
-            var newFilesRoot = extractDirectory;
-            if (!File.Exists(Path.Combine(newFilesRoot, "IcarusStarlink.App.exe")))
-            {
-                var subdirectories = Directory.GetDirectories(newFilesRoot);
-                if (subdirectories.Length == 1 && File.Exists(Path.Combine(subdirectories[0], "IcarusStarlink.App.exe")))
-                {
-                    newFilesRoot = subdirectories[0];
-                }
-                else
-                {
-                    AppUpdateStatusMessage = "The downloaded release zip doesn't contain IcarusStarlink.App.exe — not installing it.";
-                    return;
-                }
-            }
-
-            // The updater must run from OUTSIDE the install folder or it couldn't replace its own
-            // files: stage it into the temp work folder and launch from there. In a published
-            // release the Updater is a single self-contained exe (see IcarusStarlink.App.csproj's
-            // PublishSingleFileUpdater target for the real bug that forced that: staging the old
-            // four-file self-contained layout without its runtime couldn't even start), so only
-            // the .exe is required. A plain dev build still has the framework-dependent four-file
-            // shape, so its three companions are staged too whenever they happen to be present.
-            var installDirectory = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
-            var updaterStaging = Path.Combine(workDirectory, "updater");
-            Directory.CreateDirectory(updaterStaging);
-            var updaterExeSource = Path.Combine(installDirectory, "IcarusStarlink.Updater.exe");
-            if (!File.Exists(updaterExeSource))
-            {
-                AppUpdateStatusMessage = "Couldn't stage the updater — IcarusStarlink.Updater.exe is missing next to the app.";
+                AppUpdateStatusMessage = problem;
                 return;
             }
-
-            File.Copy(updaterExeSource, Path.Combine(updaterStaging, "IcarusStarlink.Updater.exe"));
-            foreach (var companion in new[] { "IcarusStarlink.Updater.dll", "IcarusStarlink.Updater.runtimeconfig.json", "IcarusStarlink.Updater.deps.json" })
-            {
-                var source = Path.Combine(installDirectory, companion);
-                if (File.Exists(source))
-                {
-                    File.Copy(source, Path.Combine(updaterStaging, companion));
-                }
-            }
-
-            // Looked at again: the download took a while, and server work may have started meanwhile.
-            if (DescribeBackgroundWork() is { } startedMeanwhile)
-            {
-                AppUpdateStatusMessage = startedMeanwhile;
-                return;
-            }
-
-            var appExePath = Path.Combine(installDirectory, "IcarusStarlink.App.exe");
-            Process.Start(new ProcessStartInfo(Path.Combine(updaterStaging, "IcarusStarlink.Updater.exe"))
-            {
-                ArgumentList = { Environment.ProcessId.ToString(), installDirectory, newFilesRoot, appExePath },
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
 
             Application.Current.Shutdown();
         }
