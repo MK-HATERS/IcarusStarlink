@@ -908,7 +908,106 @@ public sealed partial class SavesViewModel : ObservableObject
         OnPropertyChanged(nameof(HasUnsavedChanges));
         OnPropertyChanged(nameof(ChangesSummary));
         _pendingModSources = ClassifyModRowsAsync();
+        ApplyPackNotes();
+        RunSaveCheck();
         await worldsLoad;
+    }
+
+    /// <summary>Marks every talent and research row that's for a DLC or the Supporters Edition (the user's ask, 2026-10-23).</summary>
+    private void ApplyPackNotes()
+    {
+        var rules = _gameNames.TalentRules;
+        foreach (var talent in Characters.SelectMany(c => c.Talents).Concat(WorkshopTalents))
+        {
+            var packs = (rules.GetValueOrDefault(talent.RowName)?.RequiredFlags ?? [])
+                .Where(f => f.Table == "D_DLCPackageData")
+                .Select(f => _gameNames.DlcPackLabel(f.Row))
+                .Distinct()
+                .ToList();
+            talent.PackNote = packs.Count == 0 ? null : $"For {string.Join(" and ", packs)}";
+        }
+    }
+
+    // --- Save check (plan step 3): SaveChecker's findings on the Overview tab, each sure fix one click. ---
+
+    public ObservableCollection<SaveCheckFinding> CheckFindings { get; } = [];
+
+    /// <summary>"1 problem · 4 warnings · 12 notes", or that nothing was found.</summary>
+    [ObservableProperty]
+    private string _checkSummary = "";
+
+    /// <summary>Fix all also turns on the DLC / Supporters Edition packs the notes name (the user's ask, 2026-10-23). Off by default.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFixableFindings))]
+    private bool _fixAllIncludesDlc;
+
+    private bool IsInFixAll(SaveCheckFinding f) => f.CanFix && (f.Severity != SaveCheckSeverity.Note || (FixAllIncludesDlc && f.IsDlc));
+
+    public bool HasFixableFindings => CheckFindings.Any(IsInFixAll);
+
+    [RelayCommand]
+    private void RunSaveCheck()
+    {
+        CheckFindings.Clear();
+        if (_loadFailed || SelectedSlot is null)
+        {
+            CheckSummary = "";
+            OnPropertyChanged(nameof(HasFixableFindings));
+            return;
+        }
+
+        foreach (var finding in SaveChecker.Check(this, _gameNames, SelectedSlot.FolderPath))
+        {
+            CheckFindings.Add(finding);
+        }
+
+        var parts = new[] { (SaveCheckSeverity.Problem, "problem"), (SaveCheckSeverity.Warning, "warning"), (SaveCheckSeverity.Note, "note") }
+            .Select(x => (Count: CheckFindings.Count(f => f.Severity == x.Item1), Word: x.Item2))
+            .Where(x => x.Count > 0)
+            .Select(x => $"{x.Count} {x.Word}{(x.Count == 1 ? "" : "s")}");
+        CheckSummary = CheckFindings.Count == 0 ? "Nothing found: the save looks consistent." : string.Join(" · ", parts);
+        OnPropertyChanged(nameof(HasFixableFindings));
+    }
+
+    [RelayCommand]
+    private void FixFinding(SaveCheckFinding? finding)
+    {
+        if (finding?.Fix is not { } fix)
+        {
+            return;
+        }
+
+        fix();
+        _activityLog.Log($"Save check: {finding.FixLabel} (press Save to keep it).", ActivityEntryKind.Success);
+        RunSaveCheck();
+    }
+
+    /// <summary>Every sure fix for a problem or warning, plus the DLC notes with their switch on (other notes stay a choice), after one confirm listing them.</summary>
+    [RelayCommand]
+    private void FixAllFindings()
+    {
+        var fixes = CheckFindings.Where(IsInFixAll).ToList();
+        if (fixes.Count == 0)
+        {
+            return;
+        }
+
+        if (!_dialogService.Confirm(
+                $"These {fixes.Count} fixes are made in the editor; nothing is written until you press Save:\n\n"
+                + string.Join("\n", fixes.Take(20).Select(f => $"• {f.Area}: {f.FixLabel}"))
+                + (fixes.Count > 20 ? $"\n• and {fixes.Count - 20} more" : ""),
+                "Fix what the save check found?", ThemedConfirmSeverity.Question))
+        {
+            return;
+        }
+
+        foreach (var finding in fixes)
+        {
+            finding.Fix!();
+        }
+
+        _activityLog.Log($"Save check: made {fixes.Count} fixes (press Save to keep them).", ActivityEntryKind.Success);
+        RunSaveCheck();
     }
 
     // --- Leftovers from mods (the user's ask, 2026-10-23): every talent, research, mission and
@@ -949,6 +1048,9 @@ public sealed partial class SavesViewModel : ObservableObject
         }
 
         NotifyLeftoversChanged();
+
+        // Mis-named items are only known now.
+        RunSaveCheck();
     }
 
     private IEnumerable<(string Where, SaveTalentViewModel Talent)> LeftoverTalents() =>
@@ -1087,6 +1189,10 @@ public sealed partial class SavesViewModel : ObservableObject
     // Only switching ON carries over: the game never takes a reward back when a mission is undone. ---
 
     private readonly Dictionary<SaveTalentViewModel, List<SaveFlagViewModel>> _rewardsOfMission = [];
+
+    /// <summary>Each mission row and the reward rows it gives, for the save check.</summary>
+    internal IEnumerable<(SaveTalentViewModel Mission, IReadOnlyList<SaveFlagViewModel> Rewards)> MissionRewards =>
+        _rewardsOfMission.Select(kv => (kv.Key, (IReadOnlyList<SaveFlagViewModel>)kv.Value));
     private readonly Dictionary<SaveFlagViewModel, List<SaveTalentViewModel>> _missionsOfReward = [];
     private bool _applyingLink;
 

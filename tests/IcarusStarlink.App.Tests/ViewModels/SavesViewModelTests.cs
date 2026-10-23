@@ -219,6 +219,44 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
+    /// <summary>Plan step 3: a finished mission whose reward is off is found, and its fix turns the reward on.</summary>
+    [Fact]
+    public async Task SaveCheck_FindsAMissionWhoseRewardIsOff_AndFixesIt()
+    {
+        var dataFolder = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_GameData", Guid.NewGuid().ToString("N"));
+        _tempFoldersToCleanUp.Add(dataFolder);
+        Directory.CreateDirectory(Path.Combine(dataFolder, "Flags"));
+        Directory.CreateDirectory(Path.Combine(dataFolder, "Talents"));
+        File.WriteAllText(Path.Combine(dataFolder, "Flags", "D_AccountFlags.json"), """
+            { "Rows": [ { "Name": "GrantedBlueprint_Bait", "BlueprintUnlocks": [ { "RowName": "Bait" } ],
+                          "RewardedFromMissions": [ { "RowName": "Tier3_Ext", "DataTableName": "D_ProspectList" } ] } ] }
+            """);
+        File.WriteAllText(Path.Combine(dataFolder, "Talents", "D_Talents.json"), """
+            { "Rows": [ { "Name": "Prospect_RL_Ext", "ExtraData": { "RowName": "Tier3_Ext", "DataTableName": "D_ProspectList" }, "TalentTree": { "RowName": "Prospect_Olympus" } } ] }
+            """);
+        var profile = MakeProfile(nextChrSlot: 0);
+        profile["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "Prospect_RL_Ext", ["Rank"] = 1 });
+        var repository = new FakeSaveRepository { Profile = profile };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(dataFolder));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var finding = Assert.Single(vm.CheckFindings);
+            Assert.Equal(SaveCheckSeverity.Warning, finding.Severity);
+            Assert.True(vm.HasFixableFindings);
+
+            vm.FixFindingCommand.Execute(finding);
+
+            Assert.True(Assert.Single(vm.AccountFlags).IsUnlocked);
+            Assert.Empty(vm.CheckFindings);
+            Assert.True(vm.HasUnsavedChanges);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     /// <summary>The user's ask (2026-10-23): talents and items from mods that are gone can be taken out; a mod's that's installed stay.</summary>
     [Fact]
     public async Task RemoveLeftovers_TakesOutOnlyWhatNoModGives()
@@ -834,6 +872,52 @@ public sealed class SavesViewModelTests : IDisposable
         vm.SaveChangesCommand.Execute(null);
 
         Assert.Equal([3, 1, 0], repository.LastSavedBinaryFlags); // the file's own order kept, new ones after
+    }
+
+    /// <summary>
+    /// The user's ask (2026-10-23): research that's for a pack shows which ("For the Supporters
+    /// Edition"), the save check notes a pack that's off in the cache, and Fix all turns it on only
+    /// with its switch on.
+    /// </summary>
+    [Fact]
+    public async Task SaveCheck_DlcNote_NamesThePack_AndIsInFixAllOnlyWithItsSwitch()
+    {
+        var data = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_GameData", Guid.NewGuid().ToString("N"));
+        _tempFoldersToCleanUp.Add(data);
+        Directory.CreateDirectory(Path.Combine(data, "DLC"));
+        Directory.CreateDirectory(Path.Combine(data, "Talents"));
+        File.WriteAllText(Path.Combine(data, "DLC", "D_DLCPackageData.json"), """
+            { "Rows": [ { "Name": "Deluxe_Edition_Envirosuit", "DLCName": "NSLOCTEXT(\"D_DLCPackageData\", \"x\", \"Supporters Edition\")" },
+                        { "Name": "Dangerous_Horizons", "DLCName": "NSLOCTEXT(\"D_DLCPackageData\", \"y\", \"Dangerous Horizons\")" } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "Talents", "D_Talents.json"), """
+            { "Rows": [ { "Name": "Workshop_Supporter_Suit", "RequiredFlags": [ { "RowName": "Deluxe_Edition_Envirosuit", "DataTableName": "D_DLCPackageData" } ] } ] }
+            """);
+        var profile = MakeProfile(nextChrSlot: 0);
+        profile["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "Workshop_Supporter_Suit", ["Rank"] = 1 });
+        var repository = new FakeSaveRepository { Profile = profile, BinaryFlags = [1] };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(data));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+
+            Assert.Equal("For the Supporters Edition", vm.WorkshopTalents.Single().PackNote);
+            var note = Assert.Single(vm.CheckFindings);
+            Assert.True(note.IsDlc);
+            Assert.Equal(SaveCheckSeverity.Note, note.Severity);
+            Assert.Contains("the Supporters Edition", note.Message);
+            Assert.False(vm.HasFixableFindings);
+
+            vm.FixAllIncludesDlc = true;
+            Assert.True(vm.HasFixableFindings);
+            vm.FixAllFindingsCommand.Execute(null);
+
+            Assert.True(vm.BinaryFlags.Single(f => f.RowName == "Deluxe_Edition_Envirosuit").IsUnlocked);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
     }
 
     /// <summary>Control for the test above — proves the late re-check doesn't false-positive-block an otherwise-normal save.</summary>

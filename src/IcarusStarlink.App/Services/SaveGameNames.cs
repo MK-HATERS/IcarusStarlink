@@ -30,6 +30,7 @@ public sealed class SaveGameNames(string dataFolder)
     private IReadOnlyDictionary<string, TreeInfo>? _talentTrees;
     private IReadOnlyDictionary<string, IReadOnlyList<string>>? _talentsGatedByFlag;
     private IReadOnlyDictionary<string, IReadOnlyList<string>>? _missionRewardFlags;
+    private IReadOnlyDictionary<string, TalentRule>? _talentRules;
     private IReadOnlyList<FlagInfo>? _accountFlagInfos;
     private IReadOnlyList<FlagInfo>? _characterFlagInfos;
 
@@ -82,11 +83,70 @@ public sealed class SaveGameNames(string dataFolder)
         _mountTypeRowNames = null;
         _mountTypeIcons = null;
         _dlcPackageNames = null;
+        _dlcDisplayNames = null;
         _accountFlagInfos = null;
         _characterFlagInfos = null;
         _talentTrees = null;
         _talentsGatedByFlag = null;
         _missionRewardFlags = null;
+        _talentRules = null;
+    }
+
+    /// <summary>What each talent needs and gives (D_Talents RequiredFlags, RequiredTalents, Rewards[].GrantedFlags), for the save check.</summary>
+    public IReadOnlyDictionary<string, TalentRule> TalentRules => _talentRules ??= LoadTalentRules();
+
+    private IReadOnlyDictionary<string, TalentRule> LoadTalentRules()
+    {
+        var rules = new Dictionary<string, TalentRule>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var path = Path.Combine(dataFolder, "Talents", "D_Talents.json");
+            if (!File.Exists(path))
+            {
+                return rules;
+            }
+
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var defaults = DefaultsOf(document);
+            foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+            {
+                if (!row.TryGetProperty("Name", out var n) || n.GetString() is not { } name)
+                {
+                    continue;
+                }
+
+                var requiredFlags = new List<(string Table, string Row)>();
+                if (TryGet(row, defaults, "RequiredFlags", out var flags) && flags.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var flag in flags.EnumerateArray())
+                    {
+                        if (flag.ValueKind == JsonValueKind.Object && flag.TryGetProperty("RowName", out var r) && r.GetString() is { Length: > 0 } flagRow && flagRow != "None")
+                        {
+                            requiredFlags.Add((flag.TryGetProperty("DataTableName", out var t) ? t.GetString() ?? "" : "", flagRow));
+                        }
+                    }
+                }
+
+                var granted = new List<IReadOnlyList<string>>();
+                if (TryGet(row, defaults, "Rewards", out var rewards) && rewards.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var reward in rewards.EnumerateArray())
+                    {
+                        granted.Add([.. RowNames(reward, null, "GrantedFlags").Where(f => f != "None")]);
+                    }
+                }
+
+                var isReroute = TryGet(row, defaults, "TalentType", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "Reroute";
+                var isDefault = TryGet(row, defaults, "bDefaultUnlocked", out var d) && d.ValueKind == JsonValueKind.True;
+                rules.TryAdd(name, new TalentRule(requiredFlags, [.. RowNames(row, defaults, "RequiredTalents")], granted, isReroute || isDefault));
+            }
+        }
+        catch (Exception)
+        {
+            rules.Clear();
+        }
+
+        return rules;
     }
 
     /// <summary>
@@ -455,6 +515,33 @@ public sealed class SaveGameNames(string dataFolder)
         return grantedBy;
     }
 
+    /// <summary>D_Itemable row -> its display name: blueprint talents name their item this way (ExtraData -> D_Itemable), "Caveworm_Knife" -> "Caveworm Knife".</summary>
+    private Dictionary<string, string> LoadItemableNames()
+    {
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var path = Path.Combine(dataFolder, "Traits", "D_Itemable.json");
+            if (File.Exists(path))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                var defaults = DefaultsOf(document);
+                foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (row.TryGetProperty("Name", out var n) && n.GetString() is { } rowName && ParseLocText(row, "DisplayName", defaults) is { Length: > 0 } display)
+                    {
+                        names[rowName] = display;
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return names;
+    }
+
     /// <summary>D_ItemTemplate row -> the item's display name (via D_ItemsStatic -> D_Itemable).</summary>
     private Dictionary<string, string> LoadItemTemplateNames()
     {
@@ -494,8 +581,49 @@ public sealed class SaveGameNames(string dataFolder)
     /// <summary>The D_DLCPackageData row for a flags-file index ("Dangerous_Horizons"); null when the table doesn't have it.</summary>
     public string? DlcPackageRowName(int id) => id >= 0 && id < DlcPackageNames.Count ? DlcPackageNames[id] : null;
 
-    /// <summary>"Dangerous Horizons" for a flags-file index; "DLC 31" when the table doesn't have it.</summary>
-    public string DlcPackageName(int id) => id >= 0 && id < DlcPackageNames.Count ? HumanizeMountType(DlcPackageNames[id]) : $"DLC {id}";
+    /// <summary>"Dangerous Horizons", "Supporters Edition" for a flags-file index (the row's own DLCName); "DLC 31" when the table doesn't have it.</summary>
+    public string DlcPackageName(int id) => id >= 0 && id < DlcPackageNames.Count ? DlcDisplayName(DlcPackageNames[id]) : $"DLC {id}";
+
+    private IReadOnlyDictionary<string, string>? _dlcDisplayNames;
+
+    /// <summary>A D_DLCPackageData row's own name: "Deluxe_Edition_Envirosuit" -> "Supporters Edition".</summary>
+    public string DlcDisplayName(string rowName) =>
+        (_dlcDisplayNames ??= LoadDlcDisplayNames()).GetValueOrDefault(rowName) ?? HumanizeMountType(rowName);
+
+    /// <summary>"the Supporters Edition", "the Dangerous Horizons DLC": what a talent or research row is for.</summary>
+    public string DlcPackLabel(string rowName)
+    {
+        var name = DlcDisplayName(rowName);
+        return name.Contains("Supporter", StringComparison.OrdinalIgnoreCase) || name.Contains("Edition", StringComparison.OrdinalIgnoreCase)
+            ? $"the {name}"
+            : $"the {name} DLC";
+    }
+
+    private Dictionary<string, string> LoadDlcDisplayNames()
+    {
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var path = Path.Combine(dataFolder, "DLC", "D_DLCPackageData.json");
+            if (File.Exists(path))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                var defaults = DefaultsOf(document);
+                foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (row.TryGetProperty("Name", out var n) && n.GetString() is { } rowName && ParseLocText(row, "DLCName", defaults)?.Trim() is { Length: > 0 } display)
+                    {
+                        names[rowName] = display;
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return names;
+    }
 
     public string CharacterFlagName(int id) => id >= 0 && id < CharacterFlagNames.Count ? CharacterFlagNames[id] : $"Flag {id}";
 
@@ -621,6 +749,7 @@ public sealed class SaveGameNames(string dataFolder)
             var workshopNames = LoadWorkshopItemNames();
             var workshopCosts = LoadWorkshopCosts();
             var missionNames = LoadMissionNames();
+            var itemableNames = LoadItemableNames();
             foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
             {
                 if (!row.TryGetProperty("Name", out var name) || name.GetString() is not { } talentName)
@@ -658,9 +787,11 @@ public sealed class SaveGameNames(string dataFolder)
                 var workshopName = extraRowName is not null && workshopNames.TryGetValue(extraRowName, out var itemName) ? itemName : null;
                 var missionName = extraRowName is not null && missionNames.TryGetValue(extraRowName, out var mission) ? mission : null;
                 var cost = extraRowName is not null ? workshopCosts.GetValueOrDefault(extraRowName) : null;
+                // Blueprint talents: ExtraData -> D_Itemable, the item they let you craft.
+                var itemableName = extraRowName is not null ? itemableNames.GetValueOrDefault(extraRowName) : null;
 
                 talents.TryAdd(talentName, new TalentInfo(
-                    ParseLocText(row, "DisplayName", defaults) ?? workshopName ?? missionName ?? talentName,
+                    ParseLocText(row, "DisplayName", defaults) ?? workshopName ?? missionName ?? itemableName ?? talentName,
                     ParseLocText(row, "Description", defaults) ?? "",
                     tree,
                     maxRank,
@@ -993,6 +1124,13 @@ public sealed record TreeInfo(string Display, string ArchetypeDisplay, string Mo
 }
 
 public sealed record AccoladeInfo(string DisplayName, string Description, string Category, int GoalCount);
+
+/// <param name="RequiredFlags">(table, row): D_AccountFlags, D_CharacterFlags or D_DLCPackageData.</param>
+/// <param name="GrantedFlagsByRank">The character flags each rank gives (Rewards[i].GrantedFlags).</param>
+/// <param name="IsFreeToReach">A Reroute node or unlocked from the start: counts as met when it's another talent's prerequisite.</param>
+public sealed record TalentRule(
+    IReadOnlyList<(string Table, string Row)> RequiredFlags, IReadOnlyList<string> RequiredTalents,
+    IReadOnlyList<IReadOnlyList<string>> GrantedFlagsByRank, bool IsFreeToReach);
 
 /// <summary>What a flag is for, on the Saves page's Unlocks tab.</summary>
 public enum FlagKind

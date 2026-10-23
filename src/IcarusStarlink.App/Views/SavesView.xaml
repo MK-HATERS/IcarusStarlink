@@ -160,6 +160,67 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Save check (SaveChecker) -->
+                        <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1" CornerRadius="6" Padding="16,12" HorizontalAlignment="Left" MaxWidth="900" Margin="0,12,0,0">
+                            <StackPanel>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="Check again" Command="{Binding RunSaveCheckCommand}" Padding="10,3"/>
+                                    <Button DockPanel.Dock="Right" Content="Fix all sure ones…" Command="{Binding FixAllFindingsCommand}" Padding="10,3" Margin="0,0,8,0"
+                                            Visibility="{Binding HasFixableFindings, Converter={StaticResource BoolToVisibilityConverter}}"
+                                            ToolTip="Makes every fix offered for a problem or warning below; notes stay your choice (DLC ones too, unless the switch is on)"/>
+                                    <CheckBox DockPanel.Dock="Right" Style="{StaticResource ToggleSwitchStyle}" Content="Include DLC and Supporter" IsChecked="{Binding FixAllIncludesDlc}"
+                                              VerticalAlignment="Center" Margin="0,0,12,0" ToolTip="Fix all also turns on the DLC and Supporters Edition packs named in the notes below"/>
+                                    <TextBlock VerticalAlignment="Center">
+                                        <Run Text="Save check" FontWeight="SemiBold" FontSize="14"/><Run Text="   "/><Run Text="{Binding CheckSummary, Mode=OneWay}" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                    </TextBlock>
+                                </DockPanel>
+                                <TextBlock TextWrapping="Wrap" FontSize="11.5" Margin="0,4,0,6" Foreground="{DynamicResource FaintForegroundBrush}"
+                                           Text="Checks what Save would write, unsaved edits included. DLC and Supporter Edition content is checked against the cached DLC list, as notes only: the game checks ownership itself."/>
+                                <ItemsControl ItemsSource="{Binding CheckFindings}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <DockPanel Margin="0,3">
+                                                <Button DockPanel.Dock="Right" Content="{Binding FixLabel}" Padding="8,1" Margin="10,0,0,0" VerticalAlignment="Top"
+                                                        Command="{Binding DataContext.FixFindingCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"
+                                                        Visibility="{Binding CanFix, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                <Border DockPanel.Dock="Left" CornerRadius="8" Padding="6,0" Margin="0,1,8,0" VerticalAlignment="Top" MinWidth="58">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="{DynamicResource CardRaisedBackgroundBrush}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Severity}" Value="Problem">
+                                                                    <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <TextBlock Text="{Binding SeverityLabel}" FontSize="10.5" TextAlignment="Center">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Severity}" Value="Problem">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding Severity}" Value="Warning">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </Border>
+                                                <TextBlock TextWrapping="Wrap" FontSize="12.5">
+                                                    <Run Text="{Binding Area, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=": "/><Run Text="{Binding Message, Mode=OneWay}"/>
+                                                </TextBlock>
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Leftovers from mods the user no longer has (SaveModSources) -->
                         <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource AccentBrush}"
                                 BorderThickness="1" CornerRadius="6" Padding="16,12" HorizontalAlignment="Left" MaxWidth="720" Margin="0,12,0,0"
@@ -271,7 +332,7 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <DockPanel Margin="0,3,16,3">
-                                            <TextBlock DockPanel.Dock="Left" Text="{Binding Label}" Width="130" VerticalAlignment="Center" FontSize="12.5"/>
+                                            <TextBlock DockPanel.Dock="Left" Text="{Binding Label}" Width="130" VerticalAlignment="Center" FontSize="12.5" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}"/>
                                             <TextBox Text="{Binding CountText, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas" FontSize="12.5"/>
                                         </DockPanel>
                                     </DataTemplate>
@@ -356,6 +417,8 @@
                                             <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
                                         </TextBlock>
                                         <TextBlock Text="{Binding Source.Label}" FontSize="11" TextWrapping="Wrap" Style="{StaticResource SaveRowSourceStyle}"/>
+                                        <TextBlock Text="{Binding PackNote}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                   Visibility="{Binding PackNote, Converter={StaticResource NullToVisibilityConverter}}"/>
                                     </StackPanel>
                                 </DockPanel>
                             </DataTemplate>
@@ -410,6 +473,8 @@
                                     <StackPanel VerticalAlignment="Center">
                                         <TextBlock Text="{Binding DisplayName}" FontSize="12.5"/>
                                         <TextBlock Text="{Binding Source.Label}" FontSize="11" TextWrapping="Wrap" Style="{StaticResource SaveRowSourceStyle}"/>
+                                        <TextBlock Text="{Binding PackNote}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                   Visibility="{Binding PackNote, Converter={StaticResource NullToVisibilityConverter}}"/>
                                     </StackPanel>
                                 </DockPanel>
                             </DataTemplate>
@@ -460,6 +525,8 @@
                                         <TextBlock Text="{Binding LinkHint}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"
                                                    Visibility="{Binding LinkHint, Converter={StaticResource NullToVisibilityConverter}}"/>
                                         <TextBlock Text="{Binding Source.Label}" FontSize="11" TextWrapping="Wrap" Style="{StaticResource SaveRowSourceStyle}"/>
+                                        <TextBlock Text="{Binding PackNote}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                   Visibility="{Binding PackNote, Converter={StaticResource NullToVisibilityConverter}}"/>
                                     </StackPanel>
                                 </DockPanel>
                             </DataTemplate>

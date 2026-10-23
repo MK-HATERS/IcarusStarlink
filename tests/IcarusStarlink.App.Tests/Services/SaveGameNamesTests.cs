@@ -64,6 +64,20 @@ public sealed class SaveGameNamesTests : IDisposable
         Assert.Equal("Composite Envirosuit", new SaveGameNames(_data).Talents["Workshop_Envirosuit_6"].DisplayName);
     }
 
+    /// <summary>Blueprint talents showed row names ("Caveworm_Knife"); their name is their item's (ExtraData -> D_Itemable).</summary>
+    [Fact]
+    public void BlueprintTalent_IsNamedAfterItsItem()
+    {
+        Write(@"Talents\D_Talents.json", """
+            { "Rows": [ { "Name": "Caveworm_Knife", "ExtraData": { "RowName": "Item_Caveworm_Knife", "DataTableName": "D_Itemable" } } ] }
+            """);
+        Write(@"Traits\D_Itemable.json", """
+            { "Rows": [ { "Name": "Item_Caveworm_Knife", "DisplayName": "NSLOCTEXT(\"D_Itemable\", \"x\", \"Caveworm Knife\")" } ] }
+            """);
+
+        Assert.Equal("Caveworm Knife", new SaveGameNames(_data).Talents["Caveworm_Knife"].DisplayName);
+    }
+
     /// <summary>Accolade names showed their escapes: "Rock \'n\' Roll" (2026-10-23).</summary>
     [Fact]
     public void LocalizedText_IsUnescaped()
