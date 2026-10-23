@@ -43,6 +43,48 @@
         <DataTemplate DataType="{x:Type vm:HelpViewModel}">
             <views:HelpView/>
         </DataTemplate>
+
+        <!-- The nav rail folded to icons (MainViewModel.IsNavCollapsed): names hide, the icons stay,
+             and each item shows its name as a tooltip instead. -->
+        <Style x:Key="NavLabelStyle" TargetType="TextBlock">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="NavIconStyle" TargetType="Path">
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Margin" Value="0"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="QuickLinkIconStyle" TargetType="Path">
+            <Setter Property="Width" Value="13"/>
+            <Setter Property="Height" Value="13"/>
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="StrokeThickness" Value="1.6"/>
+            <Setter Property="StrokeLineJoin" Value="Round"/>
+            <Setter Property="StrokeStartLineCap" Value="Round"/>
+            <Setter Property="StrokeEndLineCap" Value="Round"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Margin" Value="0"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="QuickLinkButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -111,35 +153,56 @@
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="220"/>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Background="{DynamicResource PanelBackgroundBrush}"
-                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+            <Border Grid.Column="0" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}"/>
+                        <Setter Property="Width" Value="220"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsNavCollapsed}" Value="True">
+                                <Setter Property="Width" Value="76"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <Grid>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                <ListBox Grid.Row="0" ItemsSource="{Binding NavItems}"
+                <!-- Fold the rail to icons / back to names. -->
+                <Button Grid.Row="0" Command="{Binding ToggleNavCommand}" Style="{StaticResource IconButtonStyle}" Width="30" Height="28"
+                        HorizontalAlignment="Right" Margin="0,8,10,0" ToolTip="{Binding NavToggleToolTip}" AutomationProperties.Name="Fold or unfold the menu">
+                    <Path Data="{StaticResource IconSidebar}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
+                          StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform"/>
+                </Button>
+                <ListBox Grid.Row="1" ItemsSource="{Binding NavItems}"
                          SelectedItem="{Binding SelectedNavItem}"
                          Style="{StaticResource NavListBoxStyle}"
                          ItemContainerStyle="{StaticResource NavListBoxItemStyle}"
-                         Margin="0,12,0,0">
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         Margin="0,4,0,0">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <!-- Phase 10: a real icon next to every nav label — see Themes/Icons.xaml.
                                  Only Library and Merge & Install got a full redesign this pilot, but
                                  nav-rail icons are shell-level and cheap to add for every item. -->
-                            <StackPanel Orientation="Horizontal">
-                                <Path x:Name="NavIcon" Width="16" Height="16" Margin="0,0,10,0" Stretch="Uniform"
+                            <StackPanel x:Name="NavItemPanel" Orientation="Horizontal" Background="Transparent">
+                                <Path x:Name="NavIcon" Width="16" Height="16" Stretch="Uniform" Style="{StaticResource NavIconStyle}"
                                       Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
                                       StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                                <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding Title}" VerticalAlignment="Center" Style="{StaticResource NavLabelStyle}"/>
                             </StackPanel>
                             <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                    <Setter TargetName="NavItemPanel" Property="ToolTip" Value="{Binding Title}"/>
+                                </DataTrigger>
                                 <!-- Each nav item gets its own fixed, distinct brand color, not a
                                      theme-reactive DynamicResource — same precedent as the
                                      Favorite star's own fixed #FFD24C elsewhere in this app: a
@@ -197,52 +260,48 @@
                      don't change CurrentPage). Open UE4SS folder/Open game folder disable themselves
                      (via MainViewModel.CanOpenGameFolders) until a Content path is actually
                      configured; Launch game and Open mod folder work with zero setup. -->
-                <StackPanel Grid.Row="1" Margin="12,8,12,12">
+                <StackPanel Grid.Row="2" Margin="12,8,12,12">
                     <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,8"/>
-                    <Button Command="{Binding LaunchGameCommand}" HorizontalContentAlignment="Left" Margin="0,0,0,4"
+                    <Button Command="{Binding LaunchGameCommand}" Style="{StaticResource QuickLinkButtonStyle}"
                             ToolTip="Launch Icarus"
                             AutomationProperties.Name="Launch game">
                         <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconPlay}" Fill="{DynamicResource SuccessBrush}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,8,0"/>
-                            <TextBlock Text="Launch game" VerticalAlignment="Center"/>
+                            <Path Data="{StaticResource IconPlay}" Fill="{DynamicResource SuccessBrush}" Style="{StaticResource QuickLinkIconStyle}"/>
+                            <TextBlock Text="Launch game" VerticalAlignment="Center" FontSize="12" Style="{StaticResource NavLabelStyle}"/>
                         </StackPanel>
                     </Button>
-                    <Button Command="{Binding OpenModFolderCommand}" HorizontalContentAlignment="Left" Margin="0,0,0,4"
-                            ToolTip="Open your mods folder"
+                    <Button Command="{Binding OpenModFolderCommand}" Style="{StaticResource QuickLinkButtonStyle}"
+                            ToolTip="Mod folder — your Library's mods (Extracted_Mods)"
                             AutomationProperties.Name="Open mod folder">
                         <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
-                                  StrokeLineJoin="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,8,0"/>
-                            <TextBlock Text="Mod folder" VerticalAlignment="Center" FontSize="12"/>
+                            <Path Data="{StaticResource IconPackage}" Stroke="#9B6FDE" Style="{StaticResource QuickLinkIconStyle}"/>
+                            <TextBlock Text="Mod folder" VerticalAlignment="Center" FontSize="12" Style="{StaticResource NavLabelStyle}"/>
                         </StackPanel>
                     </Button>
-                    <Button Command="{Binding OpenUe4ssFolderCommand}" HorizontalContentAlignment="Left" Margin="0,0,0,4"
-                            ToolTip="Open the UE4SS mods folder"
+                    <Button Command="{Binding OpenUe4ssFolderCommand}" Style="{StaticResource QuickLinkButtonStyle}"
+                            ToolTip="UE4SS folder — the game's UE4SS Lua mods"
                             ToolTipService.ShowOnDisabled="True"
                             AutomationProperties.Name="Open UE4SS folder">
                         <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
-                                  StrokeLineJoin="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,8,0"/>
-                            <TextBlock Text="UE4SS folder" VerticalAlignment="Center" FontSize="12"/>
+                            <Path Data="{StaticResource IconCode}" Stroke="#4A90D9" Style="{StaticResource QuickLinkIconStyle}"/>
+                            <TextBlock Text="UE4SS folder" VerticalAlignment="Center" FontSize="12" Style="{StaticResource NavLabelStyle}"/>
                         </StackPanel>
                     </Button>
-                    <Button Command="{Binding OpenGameFolderCommand}" HorizontalContentAlignment="Left"
-                            ToolTip="Open the Icarus install folder"
+                    <Button Command="{Binding OpenGameFolderCommand}" Style="{StaticResource QuickLinkButtonStyle}"
+                            ToolTip="Game folder — the Icarus install"
                             ToolTipService.ShowOnDisabled="True"
                             AutomationProperties.Name="Open game folder">
                         <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
-                                  StrokeLineJoin="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,8,0"/>
-                            <TextBlock Text="Game folder" VerticalAlignment="Center" FontSize="12"/>
+                            <Path Data="{StaticResource IconGamepad}" Stroke="#E08A3C" Style="{StaticResource QuickLinkIconStyle}"/>
+                            <TextBlock Text="Game folder" VerticalAlignment="Center" FontSize="12" Style="{StaticResource NavLabelStyle}"/>
                         </StackPanel>
                     </Button>
-                    <Button Command="{Binding OpenServerFolderCommand}" HorizontalContentAlignment="Left" Margin="0,4,0,0"
-                            ToolTip="Open your dedicated server's folder (no server yet: opens the Server page to set one up)"
+                    <Button Command="{Binding OpenServerFolderCommand}" Style="{StaticResource QuickLinkButtonStyle}"
+                            ToolTip="Server folder — your dedicated server (no server yet: opens the Server page to set one up)"
                             AutomationProperties.Name="Open server folder">
                         <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
-                                  StrokeLineJoin="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,8,0"/>
-                            <TextBlock Text="Server folder" VerticalAlignment="Center" FontSize="12"/>
+                            <Path Data="{StaticResource IconServerBars}" Stroke="#4CAF6D" Style="{StaticResource QuickLinkIconStyle}"/>
+                            <TextBlock Text="Server folder" VerticalAlignment="Center" FontSize="12" Style="{StaticResource NavLabelStyle}"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>

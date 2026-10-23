@@ -67,4 +67,13 @@
          fill-rule interaction between the overlap to reason about, just two outlined squares. -->
     <Geometry x:Key="IconCopy">M4 8L13 8L13 17L4 17Z M8 4L17 4L17 13L8 13Z</Geometry>
 
+    <!-- Script code (UE4SS's Lua mods): angle brackets with a slash. -->
+    <Geometry x:Key="IconCode">M8 7L3 12L8 17 M16 7L21 12L16 17 M14 5L10 19</Geometry>
+
+    <!-- A game controller (the game's install folder). -->
+    <Geometry x:Key="IconGamepad">M7 8L17 8C19.5 8 21 10 21 13L21 15C21 17 19 18 17.5 16.5L15.5 14.5L8.5 14.5L6.5 16.5C5 18 3 17 3 15L3 13C3 10 4.5 8 7 8Z M7 10.5L7 13 M5.8 11.75L8.2 11.75 M16 11L16.01 11 M18 12.5L18.01 12.5</Geometry>
+
+    <!-- The nav rail's collapse / expand button: a panel with its edge and an arrow. -->
+    <Geometry x:Key="IconSidebar">M4 5L20 5L20 19L4 19Z M9 5L9 19</Geometry>
+
 </ResourceDictionary>

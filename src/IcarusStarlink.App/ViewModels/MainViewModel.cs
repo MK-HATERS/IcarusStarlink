@@ -40,6 +40,33 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _currentThemeName;
 
+
+    /// <summary>
+    /// The left navigation folded to a strip of icons (user request 2026-10-23): every item keeps its
+    /// icon and its name as a tooltip, so it still says what's what. Remembered in AppSettings.NavCollapsed.
+    /// </summary>
+    public bool IsNavCollapsed
+    {
+        get => _settingsService.Current.NavCollapsed;
+        set
+        {
+            if (_settingsService.Current.NavCollapsed == value)
+            {
+                return;
+            }
+
+            _settingsService.Current.NavCollapsed = value;
+            _settingsService.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(NavToggleToolTip));
+        }
+    }
+
+    public string NavToggleToolTip => IsNavCollapsed ? "Show the menu's names" : "Fold the menu to icons";
+
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private void ToggleNav() => IsNavCollapsed = !IsNavCollapsed;
+
     public MainViewModel(IServiceProvider serviceProvider, IThemeService themeService, ISettingsService settingsService, ActivityPanelViewModel activityPanel)
     {
         _serviceProvider = serviceProvider;
