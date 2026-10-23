@@ -393,6 +393,43 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Equal(["ModA"], store.Load("Default").MergeQueueFolderNames);
     }
 
+    /// <summary>
+    /// A profile value the pills/sliders can't show (Stacks x2.5, Speed Crafting 33.3%) survives the
+    /// auto-save as it is; changing that option replaces it. It used to be saved as Off / 33%.
+    /// </summary>
+    [Fact]
+    public void LoadingAProfile_WithValuesTheControlsCantShow_KeepsThemUntilTheyAreChanged()
+    {
+        var store = new FakeProfileStore();
+        store.Save(new Profile
+        {
+            Name = "Coop",
+            Options = new GameplayOptions { StacksMultiplier = 2.5, SlotsMultiplier = 3, SpeedCraftingReductionPercent = 33.3, WeightReductionPercent = 12.5 },
+        });
+        var vm = CreateViewModel(profileStore: store);
+        vm.SelectedProfileName = "Coop";
+        vm.UnlimitedAmmo = true; // any change: the profile is saved again
+
+        vm.SaveWorkingState();
+
+        var saved = store.Load("Coop").Options;
+        Assert.Equal(2.5, saved.StacksMultiplier);
+        Assert.Equal(3, saved.SlotsMultiplier);
+        Assert.Equal(33.3, saved.SpeedCraftingReductionPercent);
+        Assert.Equal(12.5, saved.WeightReductionPercent);
+        Assert.False(saved.RemoveWeight);
+        Assert.Contains("Stacks x2.5", vm.ActiveOptionsSummary);
+
+        vm.StacksMultiplierLevel = MultiplierLevel.Times3;
+        vm.SpeedCraftingPercent = 50;
+        vm.SaveWorkingState();
+
+        saved = store.Load("Coop").Options;
+        Assert.Equal(3, saved.StacksMultiplier);
+        Assert.Equal(50, saved.SpeedCraftingReductionPercent);
+        Assert.Equal(12.5, saved.WeightReductionPercent);
+    }
+
     /// <summary>Deleting the only profile empties the queue and options and saves nothing.</summary>
     [Fact]
     public void DeleteProfile_NoDefaultToFallBackTo_StartsEmptyWithoutSaving()

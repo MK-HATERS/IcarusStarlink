@@ -314,43 +314,20 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
 
     private static readonly GameplayLevelToShortLabelConverter LevelLabelConverter = new();
 
-    /// <summary>A compact one-line summary of which gameplay options are currently on — shown in the collapsed "Merge options" Expander header so folding that panel away doesn't hide active state.</summary>
+    /// <summary>
+    /// A compact one-line summary of which gameplay options are currently on — shown in the
+    /// collapsed "Merge options" Expander header so folding that panel away doesn't hide active
+    /// state. GameplayOptions.DescribeActiveOptions over what a build would use (so a kept custom
+    /// value shows as it is), with the pills' short labels. RebuildAsync's "is anything active"
+    /// guard reads GameplayOptions.IsAnyActive, never this text.
+    /// </summary>
     public string ActiveOptionsSummary
     {
         get
         {
-            var parts = BuildActiveOptionParts();
+            var parts = BuildGameplayOptionsFromUi().DescribeActiveOptions(ShortLabel);
             return parts.Count == 0 ? "No options active" : string.Join(" · ", parts);
         }
-    }
-
-    /// <summary>
-    /// Builds ActiveOptionsSummary's own display text. RebuildAsync's own "is anything active"
-    /// guard deliberately does NOT read from this list anymore — it reads GameplayOptions.IsAnyActive
-    /// instead (the same classification GenerateFixedFieldChanges/RequiredCurrentFiles conceptually
-    /// mirror), since re-deriving "is anything on" here independently is exactly the failure mode a
-    /// real bug this session traced back to: a guard checking only a subset of options let Rebuild
-    /// silently no-op while Install still shipped a stale pak, with no error. This method still
-    /// needs its own per-option list (for the human-readable summary text), but a future option only
-    /// needs adding to GameplayOptions.HasCategory1Active/HasCategory2Active for the guard to see it.
-    /// </summary>
-    private List<string> BuildActiveOptionParts()
-    {
-        var parts = new List<string>();
-        if (SpeedBoost != BoostLevel.Off) parts.Add($"Speed Boost {ShortLabel(SpeedBoost)}");
-        if (PlayerBoost != BoostLevel.Off) parts.Add($"Player Boost {ShortLabel(PlayerBoost)}");
-        if (XpBoost != XpBoostLevel.Off) parts.Add($"XP Boost {ShortLabel(XpBoost)}");
-        if (CraftCost != CraftCostReduction.Off) parts.Add($"Craft Cost {ShortLabel(CraftCost)}");
-        if (StacksMultiplierLevel != MultiplierLevel.Off) parts.Add($"Stacks {ShortLabel(StacksMultiplierLevel)}");
-        if (SlotsMultiplierLevel != MultiplierLevel.Off) parts.Add($"Slots {ShortLabel(SlotsMultiplierLevel)}");
-        if (SpeedCraftingPercent > 0) parts.Add($"Speed Crafting {SpeedCraftingPercent}%");
-        if (TamingSpeedPercent > 0) parts.Add($"Faster Taming {TamingSpeedPercent}%");
-        if (WeightReductionPercent >= 100) parts.Add("Remove Weight");
-        else if (WeightReductionPercent > 0) parts.Add($"Lighter Items {WeightReductionPercent}%");
-        if (UnlimitedAmmo) parts.Add("Unlimited Ammo");
-        if (DisableTemperatures) parts.Add("Disable Temperatures");
-        if (RemoveLevelCap) parts.Add("Remove Level Cap");
-        return parts;
     }
 
     private static string ShortLabel(object level) =>
@@ -369,11 +346,33 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     partial void OnDisableTemperaturesChanged(bool value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
     partial void OnRemoveLevelCapChanged(bool value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
     partial void OnCraftCostChanged(CraftCostReduction value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
-    partial void OnStacksMultiplierLevelChanged(MultiplierLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
-    partial void OnSlotsMultiplierLevelChanged(MultiplierLevel value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
-    partial void OnSpeedCraftingPercentChanged(int value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
-    partial void OnTamingSpeedPercentChanged(int value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
-    partial void OnWeightReductionPercentChanged(int value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnStacksMultiplierLevelChanged(MultiplierLevel value) { KeepUnlessApplying(ref _keptStacksMultiplier); OnPropertyChanged(nameof(ActiveOptionsSummary)); }
+    partial void OnSlotsMultiplierLevelChanged(MultiplierLevel value) { KeepUnlessApplying(ref _keptSlotsMultiplier); OnPropertyChanged(nameof(ActiveOptionsSummary)); }
+    partial void OnSpeedCraftingPercentChanged(int value) { KeepUnlessApplying(ref _keptSpeedCraftingPercent); OnPropertyChanged(nameof(ActiveOptionsSummary)); }
+    partial void OnTamingSpeedPercentChanged(int value) { KeepUnlessApplying(ref _keptTamingSpeedPercent); OnPropertyChanged(nameof(ActiveOptionsSummary)); }
+    partial void OnWeightReductionPercentChanged(int value) { KeepUnlessApplying(ref _keptWeightReductionPercent); OnPropertyChanged(nameof(ActiveOptionsSummary)); }
+
+    // A profile's value the pills/sliders can't show (Stacks x2.5 from a hand-edited profile or a
+    // patch, Speed Crafting 33.3%), kept as it is until the user changes that option: the UI shows
+    // the nearest it can (Off, 33%), and the auto-save used to write that over the real value the
+    // moment the profile loaded (review 2026-10-23). Null: the UI's own value is the real one.
+    private double? _keptStacksMultiplier;
+    private double? _keptSlotsMultiplier;
+    private double? _keptSpeedCraftingPercent;
+    private double? _keptTamingSpeedPercent;
+    private double? _keptWeightReductionPercent;
+
+    /// <summary>True while LoadGameplayOptionsIntoUi sets the controls (a change then isn't the user's).</summary>
+    private bool _applyingOptions;
+
+    /// <summary>The user changed this option: whatever it now shows is the value to save.</summary>
+    private void KeepUnlessApplying(ref double? kept)
+    {
+        if (!_applyingOptions)
+        {
+            kept = null;
+        }
+    }
     partial void OnUnlimitedAmmoChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
 
     private void InvalidateManualPicks()
@@ -766,18 +765,19 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         }
     }
 
+    /// <summary>The options as the page has them: what a build uses and what the profile saves (a kept custom value as it is).</summary>
     private GameplayOptions BuildGameplayOptionsFromUi() => new()
     {
         SpeedBoost = SpeedBoost,
         PlayerBoost = PlayerBoost,
         XpBoost = XpBoost,
         CraftCost = CraftCost,
-        StacksMultiplier = StacksMultiplierLevel.ToMultiplier(),
-        SlotsMultiplier = SlotsMultiplierLevel.ToMultiplier(),
-        SpeedCraftingReductionPercent = SpeedCraftingPercent > 0 ? SpeedCraftingPercent : null,
-        TamingSpeedReductionPercent = TamingSpeedPercent > 0 ? TamingSpeedPercent : null,
-        RemoveWeight = WeightReductionPercent >= 100,
-        WeightReductionPercent = WeightReductionPercent is > 0 and < 100 ? WeightReductionPercent : null,
+        StacksMultiplier = _keptStacksMultiplier ?? StacksMultiplierLevel.ToMultiplier(),
+        SlotsMultiplier = _keptSlotsMultiplier ?? SlotsMultiplierLevel.ToMultiplier(),
+        SpeedCraftingReductionPercent = _keptSpeedCraftingPercent ?? (SpeedCraftingPercent > 0 ? SpeedCraftingPercent : null),
+        TamingSpeedReductionPercent = _keptTamingSpeedPercent ?? (TamingSpeedPercent > 0 ? TamingSpeedPercent : null),
+        RemoveWeight = _keptWeightReductionPercent is null && WeightReductionPercent >= 100,
+        WeightReductionPercent = _keptWeightReductionPercent ?? (WeightReductionPercent is > 0 and < 100 ? WeightReductionPercent : null),
         UnlimitedAmmo = UnlimitedAmmo,
         DisableTemperatures = DisableTemperatures,
         RemoveLevelCap = RemoveLevelCap,
@@ -785,20 +785,41 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
 
     private void LoadGameplayOptionsIntoUi(GameplayOptions options)
     {
-        SpeedBoost = options.SpeedBoost;
-        PlayerBoost = options.PlayerBoost;
-        XpBoost = options.XpBoost;
-        CraftCost = options.CraftCost;
-        StacksMultiplierLevel = MultiplierLevelExtensions.FromMultiplier(options.StacksMultiplier);
-        SlotsMultiplierLevel = MultiplierLevelExtensions.FromMultiplier(options.SlotsMultiplier);
-        SpeedCraftingPercent = options.SpeedCraftingReductionPercent is { } percent ? (int)Math.Round(percent) : 0;
-        TamingSpeedPercent = options.TamingSpeedReductionPercent is { } tamingPercent ? (int)Math.Round(tamingPercent) : 0;
-        // Older profiles saved Remove Weight as on/off — that's 100% on the slider.
-        WeightReductionPercent = options.RemoveWeight ? 100 : options.WeightReductionPercent is { } lighter ? (int)Math.Round(Math.Clamp(lighter, 0, 100)) : 0;
-        UnlimitedAmmo = options.UnlimitedAmmo;
-        DisableTemperatures = options.DisableTemperatures;
-        RemoveLevelCap = options.RemoveLevelCap;
+        _applyingOptions = true;
+        try
+        {
+            SpeedBoost = options.SpeedBoost;
+            PlayerBoost = options.PlayerBoost;
+            XpBoost = options.XpBoost;
+            CraftCost = options.CraftCost;
+            StacksMultiplierLevel = MultiplierLevelExtensions.FromMultiplier(options.StacksMultiplier);
+            SlotsMultiplierLevel = MultiplierLevelExtensions.FromMultiplier(options.SlotsMultiplier);
+            SpeedCraftingPercent = options.SpeedCraftingReductionPercent is { } percent ? (int)Math.Round(percent) : 0;
+            TamingSpeedPercent = options.TamingSpeedReductionPercent is { } tamingPercent ? (int)Math.Round(tamingPercent) : 0;
+            // Older profiles saved Remove Weight as on/off — that's 100% on the slider.
+            WeightReductionPercent = options.RemoveWeight ? 100 : options.WeightReductionPercent is { } lighter ? (int)Math.Round(Math.Clamp(lighter, 0, 100)) : 0;
+            UnlimitedAmmo = options.UnlimitedAmmo;
+            DisableTemperatures = options.DisableTemperatures;
+            RemoveLevelCap = options.RemoveLevelCap;
+
+            // What the controls couldn't show exactly is kept as it is (see _keptStacksMultiplier).
+            _keptStacksMultiplier = KeptIfNot(options.StacksMultiplier, v => StacksMultiplierLevel.ToMultiplier() == v);
+            _keptSlotsMultiplier = KeptIfNot(options.SlotsMultiplier, v => SlotsMultiplierLevel.ToMultiplier() == v);
+            _keptSpeedCraftingPercent = KeptIfNot(options.SpeedCraftingReductionPercent, v => SpeedCraftingPercent == v);
+            _keptTamingSpeedPercent = KeptIfNot(options.TamingSpeedReductionPercent, v => TamingSpeedPercent == v);
+            _keptWeightReductionPercent = options.RemoveWeight ? null : KeptIfNot(options.WeightReductionPercent, v => WeightReductionPercent == v);
+        }
+        finally
+        {
+            _applyingOptions = false;
+        }
+
+        OnPropertyChanged(nameof(ActiveOptionsSummary));
     }
+
+    /// <summary>A stored option value (on: above 0) the control doesn't show exactly; null when it does, or when it's off.</summary>
+    private static double? KeptIfNot(double? stored, Func<double, bool> shownExactly) =>
+        stored is > 0 and var value && !shownExactly(value) ? value : null;
 
     /// <summary>Selecting a profile replaces the current queue with that profile's own saved one — a profile *is* "a saved merge list" per the spec, not something merged alongside the current queue.</summary>
     partial void OnSelectedProfileNameChanging(string? value)
@@ -3549,7 +3570,7 @@ public static class MultiplierLevelExtensions
         _ => null,
     };
 
-    /// <summary>The closest preset for a stored value — an exact match for anything this UI itself ever wrote. A value from outside the preset set (hand-edited JSON, an imported patch) falls back to Off rather than guessing a nearest match, since silently rounding someone's real number to a different one would be worse than just not pre-selecting a pill for it.</summary>
+    /// <summary>The closest preset for a stored value — an exact match for anything this UI itself ever wrote. A value from outside the preset set (hand-edited JSON, an imported patch) falls back to Off rather than guessing a nearest match, since silently rounding someone's real number to a different one would be worse than just not pre-selecting a pill for it (the page keeps the real value until that option is changed: see MergeInstallViewModel._keptStacksMultiplier).</summary>
     public static MultiplierLevel FromMultiplier(double? value) => value switch
     {
         2 => MultiplierLevel.Times2,
