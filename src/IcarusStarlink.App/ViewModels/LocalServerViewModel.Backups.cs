@@ -127,26 +127,7 @@ public sealed partial class LocalServerViewModel
         }
     }
 
-    /// <summary>A backup that must never block the action it precedes — a failure is reported, the action goes on.</summary>
-    private string? TryBackup(string reason) => SelectedProfile is { } p ? TryBackup(p, reason) : null;
-
-    private string? TryBackup(DedicatedServerProfile p, string reason)
-    {
-        try
-        {
-            var folder = ServerBackupsFolder(p);
-            var path = ServerBackups.CreateBackup(p.InstallFolder, p.SavedDirSuffix, folder, reason);
-            PruneBackups(p, folder, path);
-            return path;
-        }
-        catch (Exception ex)
-        {
-            _activityLog.Log($"Couldn't back up '{p.Name}' before {reason}: {ex.Message}", ActivityEntryKind.Warning);
-            return null;
-        }
-    }
-
-    /// <summary>The same, with the zip written off the UI thread (worlds can be hundreds of MB).</summary>
+    /// <summary>A backup that must never block the action it precedes — a failure is reported, the action goes on. The zip is written off the UI thread (worlds can be hundreds of MB).</summary>
     private async Task<string?> TryBackupAsync(DedicatedServerProfile p, string reason)
     {
         try
@@ -160,9 +141,25 @@ public sealed partial class LocalServerViewModel
         }
     }
 
+    /// <summary>A backup, restore or mod change is writing to a server: Start and Update wait for it (Start used to be allowed in the middle of a restore), and so does automation for that server.</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(BackUpNowCommand), nameof(RestoreSelectedBackupCommand))]
+    [NotifyCanExecuteChangedFor(nameof(BackUpNowCommand), nameof(RestoreSelectedBackupCommand), nameof(StartCommand), nameof(UpdateServerCommand))]
     private bool _isBackupBusy;
+
+    /// <summary>Which server IsBackupBusy is about (the selection can move on meanwhile).</summary>
+    private Guid? _backupBusyFor;
+
+    private void BeginBackupWork(DedicatedServerProfile p)
+    {
+        _backupBusyFor = p.Id;
+        IsBackupBusy = true;
+    }
+
+    private void EndBackupWork()
+    {
+        IsBackupBusy = false;
+        _backupBusyFor = null;
+    }
 
     private bool CanBackUp() => !IsBackupBusy;
 
@@ -174,7 +171,7 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        IsBackupBusy = true;
+        BeginBackupWork(p);
         StatusMessage = $"Backing up '{p.Name}'...";
         try
         {
@@ -187,7 +184,7 @@ public sealed partial class LocalServerViewModel
         }
         finally
         {
-            IsBackupBusy = false;
+            EndBackupWork();
         }
 
         RefreshBackups();
@@ -210,7 +207,7 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        IsBackupBusy = true;
+        BeginBackupWork(p);
         StatusMessage = $"Restoring '{backup.Name}'...";
         try
         {
@@ -226,7 +223,7 @@ public sealed partial class LocalServerViewModel
         }
         finally
         {
-            IsBackupBusy = false;
+            EndBackupWork();
         }
 
         LoadForm();

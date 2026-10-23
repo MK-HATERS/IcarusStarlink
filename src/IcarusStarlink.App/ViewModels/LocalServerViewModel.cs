@@ -148,6 +148,9 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
+        // What automation last saw for this server, straight away: until the next process scan,
+        // Running used to stay the PREVIOUS server's, so Stop or Update in that second acted on it.
+        Running = value is not null && _watches.TryGetValue(value.Id, out var watch) ? watch.Running : null;
         LoadForm();
         AttachLog();
         Tick();
@@ -177,10 +180,14 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
     public bool IsRunning => Running is not null;
 
-    /// <summary>The server list is locked while one is starting or stopping: Start/Stop/Restart act on the selected server, so switching mid-way would act on another one.</summary>
+    /// <summary>The server list is locked while one is starting, stopping or updating: Start/Stop/Restart/Update act on the selected server, so switching mid-way would act on another one.</summary>
     public bool IsNotBusy => !IsBusy;
 
+    /// <summary>What the server is busy with when it's neither starting nor stopping ("UPDATING"); set before IsBusy, which refreshes the state text.</summary>
+    private string? _busyWith;
+
     public string RunStateText => IsAutomationBusy ? "AUTOMATIC RESTART"
+        : IsBusy && _busyWith is { } busyWith ? busyWith
         : IsBusy && Running is null ? "STARTING"
         : IsBusy ? "STOPPING"
         : Running is { } r ? $"RUNNING · up {FormatUptime(DateTime.Now - r.StartTime)}"
@@ -328,7 +335,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanUseProfile))]
     private void SaveSettings() => TrySave();
 
-    private bool CanStart() => SelectedProfile is not null && Running is null && !IsBusy && !IsSteamCmdBusy && !IsAutomationBusy;
+    private bool CanStart() => SelectedProfile is not null && Running is null && !IsBusy && !IsSteamCmdBusy && !IsAutomationBusy && !IsBackupBusy;
 
     [RelayCommand(CanExecute = nameof(CanStart))]
     private async Task StartAsync()
@@ -340,6 +347,12 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
+        await StartCoreAsync(profile);
+    }
+
+    /// <summary>Launches this profile (already saved) and waits for its process to show up.</summary>
+    private async Task StartCoreAsync(DedicatedServerProfile profile)
+    {
         IsBusy = true;
         try
         {
@@ -387,33 +400,62 @@ public sealed partial class LocalServerViewModel : ObservableObject
     private bool CanStop() => SelectedProfile is not null && Running is not null && !IsBusy && !IsAutomationBusy;
 
     [RelayCommand(CanExecute = nameof(CanStop))]
-    private async Task StopAsync() => await StopCoreAsync(ask: true);
+    private async Task StopAsync()
+    {
+        if (SelectedProfile is { } profile)
+        {
+            await StopCoreAsync(profile, ask: true);
+        }
+    }
 
     [RelayCommand(CanExecute = nameof(CanStop))]
     private async Task RestartAsync()
     {
-        var restarting = SelectedProfile?.Id;
-        if (await StopCoreAsync(ask: true))
+        // The server being restarted, from the first click to the start: an update on restart takes
+        // minutes, and the start at the end used to launch whichever server was selected by then.
+        if (SelectedProfile is not { } profile || !await StopCoreAsync(profile, ask: true))
         {
-            // Never start a different server than the one that was stopped.
-            if (SelectedProfile?.Id != restarting)
-            {
-                StatusMessage += " Another server was selected meanwhile, so it wasn't started again; select it and click Start.";
-                return;
-            }
+            return;
+        }
 
-            if (SelectedProfile is { UpdateOnRestart: true } profile)
+        // Never start a different server than the one that was stopped.
+        if (SelectedProfile?.Id != profile.Id)
+        {
+            StatusMessage += " Another server was selected meanwhile, so it wasn't started again; select it and click Start.";
+            return;
+        }
+
+        if (profile.UpdateOnRestart)
+        {
+            // Busy for the whole update, so the server list stays locked on this server.
+            _busyWith = "UPDATING";
+            IsBusy = true;
+            try
             {
                 await UpdateProfileIfNewerAsync(GetWatch(profile));
             }
+            finally
+            {
+                IsBusy = false;
+                _busyWith = null;
+                OnPropertyChanged(nameof(RunStateText));
+            }
+        }
 
-            await StartAsync();
+        if (SelectedProfile?.Id == profile.Id && TrySave() && SelectedProfile is { } saved)
+        {
+            await StartCoreAsync(saved);
         }
     }
 
-    private async Task<bool> StopCoreAsync(bool ask)
+    /// <summary>
+    /// Stops this profile's server. What is stopped is looked up again right before acting (not the
+    /// Running the page last showed, which can be a few seconds old or another server's), and the
+    /// process service checks it is still that same process.
+    /// </summary>
+    private async Task<bool> StopCoreAsync(DedicatedServerProfile profile, bool ask)
     {
-        if (SelectedProfile is not { } profile || Running is not { } running)
+        if (Running is null)
         {
             return false;
         }
@@ -428,6 +470,13 @@ public sealed partial class LocalServerViewModel : ObservableObject
         IsBusy = true;
         try
         {
+            if (await OffUiThread(() => _processes.FindRunning(profile)) is not { } running)
+            {
+                await TickAsync();
+                StatusMessage = $"'{profile.Name}' isn't running any more.";
+                return true;
+            }
+
             StatusMessage = $"Stopping '{profile.Name}'…";
             GetWatch(profile).Automation.NoteOwnerStop(running.ProcessId);
             var clean = await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
@@ -446,6 +495,47 @@ public sealed partial class LocalServerViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>
+    /// Every server in the list that runs from this profile's install folder, itself included. Two
+    /// profiles can share one install (each with its own Saved suffix): its paks, UE4SS and the
+    /// server build are shared, so changing them needs every one of them stopped, not just the
+    /// selected one.
+    /// </summary>
+    internal IReadOnlyList<DedicatedServerProfile> RunningSiblings(DedicatedServerProfile profile)
+    {
+        var running = new List<DedicatedServerProfile>();
+        foreach (var other in Profiles.Where(p => string.Equals(
+                     Path.TrimEndingDirectorySeparator(p.InstallFolder), Path.TrimEndingDirectorySeparator(profile.InstallFolder), StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            try
+            {
+                if (_processes.FindRunning(other) is not null)
+                {
+                    running.Add(other);
+                }
+            }
+            catch (Exception)
+            {
+                // Couldn't look: a process scan hiccup. The selected server's own state still applies.
+            }
+        }
+
+        return running;
+    }
+
+    /// <summary>"Stop 'A' and 'B' first: they run from the same install." for a refused install-wide change; null when nothing else runs from it.</summary>
+    private static string? DescribeRunningSiblings(DedicatedServerProfile profile, IReadOnlyList<DedicatedServerProfile> running, string action)
+    {
+        var others = running.Where(p => p.Id != profile.Id).ToList();
+        if (others.Count == 0)
+        {
+            return null;
+        }
+
+        var names = string.Join(" and ", others.Select(p => $"'{p.Name}'"));
+        return $"Stop {names} before you {action}: {(others.Count == 1 ? "it runs" : "they run")} from the same install as '{profile.Name}'.";
     }
 
     [RelayCommand]

@@ -221,8 +221,9 @@ public sealed partial class LocalServerViewModel
         {
             foreach (var profile in Profiles.ToList())
             {
-                // The owner is doing something to this server (or SteamCMD is busy): look again next beat.
-                if (IsSteamCmdBusy || (IsBusy && profile.Id == SelectedProfile?.Id))
+                // The owner is doing something to this server (starting, stopping, updating, a backup,
+                // restore or mod change), or SteamCMD is busy: look again next beat.
+                if (IsSteamCmdBusy || (IsBusy && profile.Id == SelectedProfile?.Id) || (IsBackupBusy && profile.Id == _backupBusyFor))
                 {
                     continue;
                 }
@@ -306,6 +307,13 @@ public sealed partial class LocalServerViewModel
                 break;
 
             case AutomationActionKind.UpdateNow:
+                // Checked before stopping anything: otherwise the server was stopped, the update
+                // skipped and the server started again on every beat.
+                if (await SkipUpdateForRunningSiblingsAsync(watch))
+                {
+                    break;
+                }
+
                 ReportAutomation(watch, $"'{p.Name}': {action.Reason}. Updating.", ActivityEntryKind.Info);
                 await RunAsAutomationAsync(watch, () => AutomatedRestartAsync(watch, checkForUpdate: true));
                 break;
@@ -407,7 +415,18 @@ public sealed partial class LocalServerViewModel
     /// <summary>Stop (if running), update when asked and Steam has something newer, start.</summary>
     private async Task AutomatedRestartAsync(ServerWatch watch, bool checkForUpdate)
     {
-        if (watch.Running is { } running)
+        // Looked up again: the watch's Running is from the last beat, up to several seconds old.
+        RunningServer? running;
+        try
+        {
+            running = await OffUiThread(() => _processes.FindRunning(watch.Profile));
+        }
+        catch (Exception)
+        {
+            running = watch.Running;
+        }
+
+        if (running is not null)
         {
             watch.Automation.NoteIntentionalStop(running.ProcessId);
             await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
@@ -481,6 +500,11 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        if (await SkipUpdateForRunningSiblingsAsync(watch))
+        {
+            return;
+        }
+
         var backup = await TryBackupAsync(p, "before-update");
         var result = await RunSteamCmdAsync(token => _steamCmd.InstallOrUpdateAsync(p.InstallFolder, SteamCmd.NormalizeBranch(p.Branch), line => OnSteamCmdLineFor(p.Id, line), token));
         watch.Automation.NoteUpdateFinished();
@@ -500,6 +524,23 @@ public sealed partial class LocalServerViewModel
 
             RefreshBackups();
         }
+    }
+
+    /// <summary>
+    /// Another profile on the same install is running: the server build is shared, so its files
+    /// can't be replaced under it. Reported, and the next hourly check finds the update again.
+    /// </summary>
+    private async Task<bool> SkipUpdateForRunningSiblingsAsync(ServerWatch watch)
+    {
+        var p = watch.Profile;
+        if (DescribeRunningSiblings(p, await OffUiThread(() => RunningSiblings(p)), "update it") is not { } refusal)
+        {
+            return false;
+        }
+
+        watch.Automation.NoteUpdateCheck(Clock(), updateAvailable: false);
+        ReportAutomation(watch, $"'{p.Name}': skipped the update. {refusal}", ActivityEntryKind.Warning);
+        return true;
     }
 
     /// <summary>Starts a server the way Start does, minus the form save (automation never writes half-typed settings).</summary>

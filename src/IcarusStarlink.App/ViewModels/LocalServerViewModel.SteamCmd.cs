@@ -123,7 +123,7 @@ public sealed partial class LocalServerViewModel
 
     private bool CanUseSteamCmd() => _steamCmd is not null && !IsSteamCmdBusy && !IsBusy;
 
-    private bool CanUpdate() => CanUseSteamCmd() && SelectedProfile is not null && !IsAutomationBusy;
+    private bool CanUpdate() => CanUseSteamCmd() && SelectedProfile is not null && !IsAutomationBusy && !IsBackupBusy;
 
     // ---- Which SteamCMD: Starlink's own copy (installed on request) or one the user already has ----
 
@@ -390,29 +390,56 @@ public sealed partial class LocalServerViewModel
         }
 
         profile = SelectedProfile!;
+
+        // The server build is shared by every profile on this install: another one running there
+        // would have its files replaced under it.
+        if (DescribeRunningSiblings(profile, await OffUiThread(() => RunningSiblings(profile)), "update it") is { } refusal)
+        {
+            StatusMessage = refusal;
+            return;
+        }
+
         if (Running is not null)
         {
             if (!_dialogService.Confirm(
                     $"'{profile.Name}' is running. Stop it to update?\n\nConnected players are disconnected. {ServerShutdownNotes.DescribeSaving(ReadIniSettings(profile))}",
                     "Update server", ThemedConfirmSeverity.Warning)
-                || !await StopCoreAsync(ask: false))
+                || !await StopCoreAsync(profile, ask: false))
             {
                 return;
             }
         }
 
-        var backup = await TryBackupAsync(profile, "before-update");
-        var result = await RunSteamCmdAsync(token => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, OnSteamCmdLine, token));
-        ReadInstalledBuild();
-        if (result.Success)
+        // Busy until SteamCMD is done: the server list stays locked on this server, so the build
+        // read back and SteamCMD's log lines below are this server's (they used to land on
+        // whichever server was selected by the end of a minutes-long update).
+        _busyWith = "UPDATING";
+        IsBusy = true;
+        try
         {
-            LatestBuildId = InstalledBuildId;
+            var backup = await TryBackupAsync(profile, "before-update");
+            var result = await RunSteamCmdAsync(token => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, line => OnSteamCmdLineFor(profile.Id, line), token));
+            if (SelectedProfile?.Id == profile.Id)
+            {
+                ReadInstalledBuild();
+                if (result.Success)
+                {
+                    LatestBuildId = InstalledBuildId;
+                }
+            }
+
+            StatusMessage = result.Success
+                ? $"Updated '{profile.Name}' ({BuildSummary}).{(backup is null ? "" : " Worlds and settings were backed up first.")}"
+                : $"Update failed: {result.Message}";
+            _activityLog.Log(StatusMessage, result.Success ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
+        }
+        finally
+        {
+            IsBusy = false;
+            _busyWith = null;
+            OnPropertyChanged(nameof(RunStateText));
         }
 
-        StatusMessage = result.Success
-            ? $"Updated '{profile.Name}' ({BuildSummary}).{(backup is null ? "" : " Worlds and settings were backed up first.")}"
-            : $"Update failed: {result.Message}";
-        _activityLog.Log(StatusMessage, result.Success ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
         RefreshBackups();
     }
 

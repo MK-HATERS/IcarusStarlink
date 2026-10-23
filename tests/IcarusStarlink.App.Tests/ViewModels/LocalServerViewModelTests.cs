@@ -867,12 +867,16 @@ public sealed partial class LocalServerViewModelTests : IDisposable
             OwnExe = OwnInstallFolder + @"\steamcmd.exe";
         }
 
+        /// <summary>Runs while SteamCMD "downloads" (for "what can the user do during an update").</summary>
+        public Action? DuringInstall { get; set; }
+
         /// <summary>Makes the next install run until it is cancelled, like a long download.</summary>
         public bool WaitForCancel { get; set; }
 
         public async Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, Action<string> onLine, CancellationToken cancellationToken = default)
         {
             Installs.Add((installFolder, branch));
+            DuringInstall?.Invoke();
             onLine(" Update state (0x61) downloading, progress: 50.00 (1 / 2)");
             if (WaitForCancel)
             {
@@ -942,10 +946,13 @@ public sealed partial class LocalServerViewModelTests : IDisposable
 
         public int FindRunningCalls { get; private set; }
 
+        /// <summary>Set to answer per profile (several servers, some running); otherwise every profile gets Running.</summary>
+        public Func<DedicatedServerProfile, RunningServer?>? RunningFor { get; set; }
+
         public RunningServer? FindRunning(DedicatedServerProfile profile)
         {
             FindRunningCalls++;
-            return FindRunningHook is { } hook ? hook() : Running;
+            return FindRunningHook is { } hook ? hook() : RunningFor is { } perProfile ? perProfile(profile) : Running;
         }
 
         public void Start(DedicatedServerProfile profile)

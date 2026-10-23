@@ -166,7 +166,7 @@ public sealed partial class LocalServerViewModel
     private string? GameWin64Folder() =>
         _settings?.Current.IcarusContentPath is { Length: > 0 } content ? Ue4ssGamePaths.ResolveWin64Folder(content) : null;
 
-    /// <summary>Mod files are locked while the server runs, and swapping them under a live world is how saves break.</summary>
+    /// <summary>For what belongs to the selected server alone (its Saved folder: backups, admin and ban lists): it must be stopped.</summary>
     private bool EnsureStoppedFor(string action)
     {
         if (Running is null)
@@ -178,10 +178,31 @@ public sealed partial class LocalServerViewModel
         return false;
     }
 
-    [RelayCommand]
-    private void InstallMergedPak()
+    /// <summary>
+    /// For what the whole install shares (paks, UE4SS, its mods): mod files are locked while a server
+    /// runs, and swapping them under a live world is how saves break, so every profile on this
+    /// install must be stopped, not only the selected one.
+    /// </summary>
+    private bool EnsureInstallStoppedFor(DedicatedServerProfile profile, string action)
     {
-        if (SelectedProfile is not { } p || !EnsureStoppedFor("change its mods"))
+        if (!EnsureStoppedFor(action))
+        {
+            return false;
+        }
+
+        if (DescribeRunningSiblings(profile, RunningSiblings(profile), action) is { } refusal)
+        {
+            StatusMessage = refusal;
+            return false;
+        }
+
+        return true;
+    }
+
+    [RelayCommand]
+    private async Task InstallMergedPakAsync()
+    {
+        if (SelectedProfile is not { } p || !EnsureInstallStoppedFor(p, "change its mods"))
         {
             return;
         }
@@ -208,16 +229,25 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        // The world backup and the pak copy (both can be hundreds of MB) run off the UI thread.
+        BeginBackupWork(p);
+        StatusMessage = $"Backing up '{p.Name}' and copying your merged pak…";
         try
         {
-            TryBackup("before-mods");
-            ServerModFiles.InstallPak(_mergedPakPath!, p.InstallFolder, PakIO.InstallManifestNames.PakManifest);
+            await TryBackupAsync(p, "before-mods");
+            // A merged pak under its earlier name is moved into the backups, not deleted.
+            var backups = ServerBackupsFolder(p);
+            await OffUiThread(() => ServerModFiles.InstallPak(_mergedPakPath!, p.InstallFolder, PakIO.InstallManifestNames.PakManifest, backups));
             StatusMessage = $"Installed {Path.GetFileName(_mergedPakPath)} on '{p.Name}'. It loads on the next start.";
             _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't copy the pak: {ex.Message}";
+        }
+        finally
+        {
+            EndBackupWork();
         }
 
         RefreshMods();
@@ -229,7 +259,7 @@ public sealed partial class LocalServerViewModel
     [RelayCommand(CanExecute = nameof(CanRemoveSelectedPak))]
     private void RemoveSelectedPak()
     {
-        if (SelectedProfile is not { } p || SelectedServerPak is not { } pak || !EnsureStoppedFor("change its mods"))
+        if (SelectedProfile is not { } p || SelectedServerPak is not { } pak || !EnsureInstallStoppedFor(p, "change its mods"))
         {
             return;
         }
@@ -255,7 +285,7 @@ public sealed partial class LocalServerViewModel
     [RelayCommand]
     private void InstallUe4ssOnServer()
     {
-        if (SelectedProfile is not { } p || !EnsureStoppedFor("install UE4SS on it"))
+        if (SelectedProfile is not { } p || !EnsureInstallStoppedFor(p, "install UE4SS on it"))
         {
             return;
         }
@@ -282,14 +312,14 @@ public sealed partial class LocalServerViewModel
 
     /// <summary>A row's Copy to server / Update on server: the game's copy goes on, keeping the server's own config and on/off (ServerUe4ssSync.CopyToServer).</summary>
     [RelayCommand]
-    private void CopyUe4ssModToServer(ServerUe4ssRow? row)
+    private async Task CopyUe4ssModToServerAsync(ServerUe4ssRow? row)
     {
         if (row is null)
         {
             return;
         }
 
-        CopyRowsToServer([row]);
+        await CopyRowsToServerAsync([row]);
     }
 
     /// <summary>
@@ -298,7 +328,7 @@ public sealed partial class LocalServerViewModel
     /// stay, and its worlds are backed up first. Asks first, naming them.
     /// </summary>
     [RelayCommand]
-    private void MatchServerToGame()
+    private async Task MatchServerToGameAsync()
     {
         var rows = Ue4ssModRows.Where(r => r.NeedsUpdate || (r.State == ServerModState.NotOnServer && r.Comparison.OnInGame)).ToList();
         if (rows.Count == 0)
@@ -315,12 +345,12 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        CopyRowsToServer(rows);
+        await CopyRowsToServerAsync(rows);
     }
 
-    private void CopyRowsToServer(IReadOnlyList<ServerUe4ssRow> rows)
+    private async Task CopyRowsToServerAsync(IReadOnlyList<ServerUe4ssRow> rows)
     {
-        if (SelectedProfile is not { } p || !EnsureStoppedFor("change its mods"))
+        if (SelectedProfile is not { } p || !EnsureInstallStoppedFor(p, "change its mods"))
         {
             return;
         }
@@ -337,18 +367,30 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        // The world backup and the copies run off the UI thread.
         var failures = new List<string>();
-        TryBackup("before-mods");
-        foreach (var row in rows)
+        var backups = ServerBackupsFolder(p);
+        BeginBackupWork(p);
+        StatusMessage = $"Backing up '{p.Name}' and copying {rows.Count} mod(s)…";
+        try
         {
-            try
+            await TryBackupAsync(p, "before-mods");
+            foreach (var row in rows)
             {
-                ServerUe4ssSync.CopyToServer(gameMods, row.Name, p.InstallFolder, ServerBackupsFolder(p));
+                try
+                {
+                    var name = row.Name;
+                    await OffUiThread(() => ServerUe4ssSync.CopyToServer(gameMods, name, p.InstallFolder, backups));
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"{row.Name}: {ex.Message}");
+                }
             }
-            catch (Exception ex)
-            {
-                failures.Add($"{row.Name}: {ex.Message}");
-            }
+        }
+        finally
+        {
+            EndBackupWork();
         }
 
         var names = string.Join(", ", rows.Select(r => r.Name));
@@ -363,7 +405,7 @@ public sealed partial class LocalServerViewModel
     /// <summary>A row's On switch: turns the mod on or off on the server only (mods.txt / enabled.txt). Needs the server stopped; refused, the switch goes back.</summary>
     private void OnServerModToggled(ServerUe4ssRow row, bool on)
     {
-        if (SelectedProfile is not { } p || !EnsureStoppedFor("change its mods"))
+        if (SelectedProfile is not { } p || !EnsureInstallStoppedFor(p, "change its mods"))
         {
             row.ResetServerOn(!on);
             return;
@@ -384,7 +426,7 @@ public sealed partial class LocalServerViewModel
     [RelayCommand]
     private void RemoveServerUe4ssMod(ServerUe4ssRow? mod)
     {
-        if (SelectedProfile is not { } p || mod is null || !mod.IsOnServer || !EnsureStoppedFor("change its mods"))
+        if (SelectedProfile is not { } p || mod is null || !mod.IsOnServer || !EnsureInstallStoppedFor(p, "change its mods"))
         {
             return;
         }
