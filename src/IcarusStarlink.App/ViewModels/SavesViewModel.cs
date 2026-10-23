@@ -246,6 +246,8 @@ public sealed partial class SavesViewModel : ObservableObject
 
         if (HasAnyUnsavedEdits)
         {
+            // The rows stay; the save check still reads the tables, so they're read now, off the UI thread.
+            _ = Task.Run(_gameNames.Warm);
             StatusMessage = "Game data was refreshed — save or switch slots to see the updated names.";
             return;
         }
