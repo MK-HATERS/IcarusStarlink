@@ -19,8 +19,18 @@ public partial class MainWindow : Window
         ToastHost.DataContext = serviceProvider.GetRequiredService<ToastsViewModel>();
 
         RestoreWindowBounds();
-        Closing += (_, _) =>
+        Closing += (_, e) =>
         {
+            // Unsaved Saves-page edits used to vanish with the window, with no question asked.
+            if (viewModel.UnsavedWorkOnClose is { } unsaved
+                && !serviceProvider.GetRequiredService<IcarusStarlink.App.Services.IDialogService>().Confirm(
+                    $"Close Starlink? You have {unsaved}; they were never written to the save.",
+                    "Unsaved changes", IcarusStarlink.App.Views.ThemedConfirmSeverity.Warning))
+            {
+                e.Cancel = true;
+                return;
+            }
+
             FlushMergeWorkingState();
             SaveBounds();
         };

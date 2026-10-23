@@ -368,16 +368,18 @@
                              created the file for this slot. -->
                         </Expander>
 
-                        <Expander IsExpanded="True" AutomationProperties.Name="Account-wide unlocks"
+                        <!-- flags_<SteamID>.dat is the game's cached list of owned DLC, not flags
+                             (SavesViewModel.BuildBinaryFlags): one toggle per pack, by its real name. -->
+                        <Expander IsExpanded="True" AutomationProperties.Name="Owned DLC"
                                   Visibility="{Binding HasBinaryFlags, Converter={StaticResource BoolToVisibilityConverter}}">
                             <Expander.Header>
                                 <DockPanel LastChildFill="True">
-                                    <TextBlock DockPanel.Dock="Left" Text="Account-wide unlocks (binary flags file)" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                                    <TextBlock Text="{Binding FilteredBinaryFlags.Count, StringFormat='{}{0} shown'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                    <TextBlock DockPanel.Dock="Left" Text="Owned DLC" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="{Binding OwnedDlcSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                                 </DockPanel>
                             </Expander.Header>
                         <StackPanel>
-                            <TextBlock Text="From the slot's own flags file, which the game keeps separately from the JSON flags above — mission and talent-granted unlocks live here."
+                            <TextBlock Text="The game's own cached list of the DLC this account owns (the slot's flags file) — DLC and Supporter Edition content follows it. Icarus may refresh this list from its own ownership check when it starts, which can undo a change here."
                                        Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
                             <ItemsControl ItemsSource="{Binding FilteredBinaryFlags}">
                                 <ItemsControl.ItemsPanel>
@@ -388,7 +390,7 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding Name}" IsChecked="{Binding IsUnlocked}"
-                                                  Margin="0,2,16,2" ToolTip="{Binding Id}"/>
+                                                  Margin="0,2,16,2" ToolTip="{Binding Id, StringFormat='D_DLCPackageData row {0}'}"/>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>

@@ -40,8 +40,8 @@ public sealed partial class SavesViewModel : ObservableObject
         ["Credits"] = "Ren",
         ["Exotic1"] = "Exotics",
         ["Exotic_Red"] = "Red Exotics",
-        ["Exotic_stabilized"] = "Stabilized Exotics",
         ["Biomass"] = "Biomass",
+        ["Biomass_Converter"] = "Flux",
         ["Exotic_Uranium"] = "Uranium",
         ["Licence"] = "Licences",
         ["Refund"] = "Respec Points",
@@ -178,6 +178,13 @@ public sealed partial class SavesViewModel : ObservableObject
     public bool HasUnsavedChanges =>
         !_loadFailed && (DirtyTrackedCollections.Any(c => c.Any(x => x.IsDirty)) || _metaInventoryDirty || _charactersListDirty || _mountsListDirty || _profileFieldsDirty);
 
+    /// <summary>
+    /// Anything on this page that would be lost: the player-data edits above and the Worlds tab's
+    /// own unsaved settings (which used to be dropped without a word on a slot switch, Reload,
+    /// Restore, the reload after the game saved, and app close). What the "discard?" questions ask about.
+    /// </summary>
+    public bool HasAnyUnsavedEdits => HasUnsavedChanges || WorldSettings.HasChanges;
+
     private bool CharactersDirty => _charactersListDirty || Characters.Any(c => c.IsDirty);
 
     private bool ProfileDirty =>
@@ -202,6 +209,14 @@ public sealed partial class SavesViewModel : ObservableObject
             worldBackupFolder ?? Path.Combine(Path.GetTempPath(), "IcarusStarlink", "WorldBackups"),
             activityLog);
 
+        WorldSettings.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(WorldSettingsViewModel.HasChanges))
+            {
+                OnPropertyChanged(nameof(HasAnyUnsavedEdits));
+            }
+        };
+
         // Refresh game data re-extracts the tables every name here comes from.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((SavesViewModel)recipient).OnGameDataRefreshed());
 
@@ -221,7 +236,7 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        if (HasUnsavedChanges)
+        if (HasAnyUnsavedEdits)
         {
             StatusMessage = "Game data was refreshed — save or switch slots to see the updated names.";
             return;
@@ -230,9 +245,8 @@ public sealed partial class SavesViewModel : ObservableObject
         _pendingSlotLoad = LoadSlotAsync();
     }
 
-    // --- Flags (character flags on the selected character; account flags on the profile;
-    //     binary flags in the slot's own flags_<SteamID>.dat — a third store the game keeps
-    //     OUTSIDE the JSON, holding account-wide character-flag unlocks) ---
+    // --- Flags (character flags on the selected character; account flags on the profile) and the
+    //     slot's flags_<SteamID>.dat, which is NOT flags: the game's cached list of owned DLC ---
 
     public ObservableCollection<SaveFlagViewModel> AccountFlags { get; } = [];
 
@@ -244,8 +258,11 @@ public sealed partial class SavesViewModel : ObservableObject
 
     public ObservableCollection<SaveFlagViewModel> FilteredBinaryFlags { get; } = [];
 
-    /// <summary>The binary section shows only when the game itself has created the file — this editor never invents one for a slot that has none.</summary>
+    /// <summary>The DLC section shows only when the game itself has created the file.</summary>
     public bool HasBinaryFlags => BinaryFlags.Count > 0;
+
+    /// <summary>"21 of 28 owned".</summary>
+    public string OwnedDlcSummary => $"{BinaryFlags.Count(f => f.IsUnlocked)} of {BinaryFlags.Count} owned";
 
     [ObservableProperty]
     private string _flagSearchText = "";
@@ -361,16 +378,32 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        if (HasUnsavedChanges)
+        if (HasAnyUnsavedEdits)
         {
             var confirm = _dialogService.Confirm(
                 "Switching save slots discards any unsaved edits on this one — they were never written to disk. Continue?",
                 "Unsaved changes", ThemedConfirmSeverity.Warning);
             if (!(confirm))
             {
-                _suppressSlotChangeGuard = true;
-                SelectedSlot = _lastLoadedSlot;
-                _suppressSlotChangeGuard = false;
+                // Put back after the dropdown finishes its own selection change: set inside it, the
+                // dropdown could keep showing the new slot over the old slot's data.
+                var back = _lastLoadedSlot;
+                void Revert()
+                {
+                    _suppressSlotChangeGuard = true;
+                    SelectedSlot = back;
+                    _suppressSlotChangeGuard = false;
+                }
+
+                if (System.Windows.Application.Current?.Dispatcher is { } dispatcher)
+                {
+                    dispatcher.BeginInvoke(Revert);
+                }
+                else
+                {
+                    Revert();
+                }
+
                 return;
             }
         }
@@ -388,12 +421,12 @@ public sealed partial class SavesViewModel : ObservableObject
     /// </summary>
     public void OnPageShown()
     {
-        if (SelectedSlot is null || !_pendingSlotLoad.IsCompleted || _loadedStamps is null || !SaveFilesChangedOnDisk())
+        if (SelectedSlot is null || !_pendingSlotLoad.IsCompleted || _loadFailed || !SaveFilesChangedOnDisk())
         {
             return;
         }
 
-        if (HasUnsavedChanges)
+        if (HasAnyUnsavedEdits)
         {
             StatusMessage = "This save changed on disk since it was read (Icarus saved it). Saving is blocked so it can't undo that progress. Reload to see the newer copy; your edits here would be lost.";
             return;
@@ -420,7 +453,7 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        if (HasUnsavedChanges && !_dialogService.Confirm(
+        if (HasAnyUnsavedEdits && !_dialogService.Confirm(
                 "Read this save from disk again?\n\nYour unsaved edits on this page will be lost.",
                 "Reload save", ThemedConfirmSeverity.Warning))
         {
@@ -433,9 +466,16 @@ public sealed partial class SavesViewModel : ObservableObject
     /// <summary>True when a file this page read was rewritten (or created, or deleted) since the load.</summary>
     private bool SaveFilesChangedOnDisk()
     {
-        if (SelectedSlot is null || _loadedStamps is null)
+        if (SelectedSlot is null || _loadFailed)
         {
             return false;
+        }
+
+        // Unknown counts as changed: "couldn't check" used to pass as "unchanged" and let Save
+        // write an older copy over whatever the game had written (a review finding).
+        if (_loadedStamps is null)
+        {
+            return true;
         }
 
         IReadOnlyDictionary<string, SaveFileStamp?> now;
@@ -445,7 +485,7 @@ public sealed partial class SavesViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return false;
+            return true;
         }
 
         return now.Count != _loadedStamps.Count
@@ -616,7 +656,9 @@ public sealed partial class SavesViewModel : ObservableObject
                     foreach (var resource in resources.OfType<JsonObject>())
                     {
                         var key = SaveJson.String(resource["MetaRow"]) ?? "?";
-                        Currencies.Add(new SaveCurrencyViewModel(resource, CurrencyLabels.GetValueOrDefault(key, key), NotifyDirtyChanged));
+                        // A key the game doesn't have (Exotic_stabilized, in a real save) is said to be one:
+                        // it used to be labelled as if it were a real currency.
+                        Currencies.Add(new SaveCurrencyViewModel(resource, CurrencyLabels.GetValueOrDefault(key, $"{key} (not a game currency)"), NotifyDirtyChanged));
                     }
                 }
             }, Currencies.Clear);
@@ -691,7 +733,15 @@ public sealed partial class SavesViewModel : ObservableObject
             _profile = null;
             _characterNodes = [];
             _loadedStamps = null;
-            StatusMessage = $"Couldn't read this save: {ex.Message}";
+            StatusMessage = $"Couldn't read this save: {ex.Message} Its backups are still listed under Backup & restore.";
+            try
+            {
+                RefreshBackupsList();
+            }
+            catch (Exception)
+            {
+                // The backups folder itself unreadable: the status line already says what failed.
+            }
         }
 
         // SelectedCharacter's change handler refreshes these, but a slot with no characters
@@ -701,7 +751,12 @@ public sealed partial class SavesViewModel : ObservableObject
         await worldsLoad;
     }
 
-    private void NotifyDirtyChanged() => OnPropertyChanged(nameof(HasUnsavedChanges));
+    private void NotifyDirtyChanged()
+    {
+        OnPropertyChanged(nameof(HasUnsavedChanges));
+        OnPropertyChanged(nameof(HasAnyUnsavedEdits));
+        OnPropertyChanged(nameof(OwnedDlcSummary));
+    }
 
     private void BuildAccountFlags()
     {
@@ -714,10 +769,12 @@ public sealed partial class SavesViewModel : ObservableObject
     }
 
     /// <summary>
-    /// The slot's flags_&lt;SteamID&gt;.dat holds account-wide unlocks as CHARACTER-flag row indexes
-    /// (confirmed against the real file: every ID mapped to a real D_CharacterFlags name —
-    /// Talent_RepairBench, Mission_Olympus_Unlock, Unlocked_Bait…). Without reading it, unlocks
-    /// the player genuinely has would show as locked — the exact bug report that led here.
+    /// The slot's flags_&lt;SteamID&gt;.dat is the game's cached list of the DLC this account owns
+    /// (0-based D_DLCPackageData rows; OfflinePackageFlagsSubsystem saves and loads it — researched
+    /// 2026-10-23). It used to be read as character-flag names ("Talent_RepairBench" for Dangerous
+    /// Horizons). Each pack is a toggle under its real name: the user wants to be able to turn DLC
+    /// and Supporter Edition content on (2026-10-23). The game may rewrite the file from its own
+    /// ownership check when it starts — the page says so.
     /// </summary>
     private void BuildBinaryFlags()
     {
@@ -735,24 +792,21 @@ public sealed partial class SavesViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is FormatException or ArgumentOutOfRangeException)
         {
-            // An unreadable flags file just means the section stays hidden — the JSON-side editing
-            // still works, and hiding beats showing toggles that couldn't be written back safely.
-            // ArgumentOutOfRangeException is a defensive belt-and-suspenders catch alongside
-            // LoadBinaryFlags' own fix for the corrupted-header case that used to produce it
-            // instead of FormatException — this way a similarly-shaped bug anywhere else in that
-            // method degrades to "hide this section" too, instead of failing the whole slot load.
+            // An unreadable file just means the DLC section stays hidden — hiding beats showing
+            // toggles that couldn't be written back safely.
         }
 
-        if (_binaryFlagIds is { } unlocked)
+        if (_binaryFlagIds is { } owned)
         {
-            var set = unlocked.ToHashSet();
-            foreach (var id in SaveFlagIds.KnownThenExtra(_gameNames.CharacterFlagNames.Count, set))
+            var set = owned.ToHashSet();
+            foreach (var id in SaveFlagIds.KnownThenExtra(_gameNames.DlcPackageNames.Count, set))
             {
-                BinaryFlags.Add(new SaveFlagViewModel(id, _gameNames.CharacterFlagName(id), set.Contains(id), NotifyDirtyChanged));
+                BinaryFlags.Add(new SaveFlagViewModel(id, _gameNames.DlcPackageName(id), set.Contains(id), NotifyDirtyChanged));
             }
         }
 
         OnPropertyChanged(nameof(HasBinaryFlags));
+        OnPropertyChanged(nameof(OwnedDlcSummary));
     }
 
     private void BuildWorkshopTalents()
@@ -1318,7 +1372,9 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
+        // The character as edited, not as last saved (the "(Copy)" name already followed the edit).
         var clone = character.Node.DeepClone().AsObject();
+        character.ApplyTo(clone);
         clone["ChrSlot"] = AllocateNextChrSlot();
         var newName = $"{character.Name} (Copy)";
         clone["CharacterName"] = newName;
@@ -1445,7 +1501,7 @@ public sealed partial class SavesViewModel : ObservableObject
             $"Replace this save slot's current files with the backup from {SelectedBackup.TakenAtUtc.LocalDateTime:g}?\n\n"
             + "A pre_restore safety zip of the slot as it is right now is written first, so this is itself undoable.\n\n"
             + "Your single-player worlds, each character's list of worlds and map data are never restored: they stay as they are now."
-            + (HasUnsavedChanges ? "\n\nYour unsaved edits on this page will be lost." : ""),
+            + (HasAnyUnsavedEdits ? "\n\nYour unsaved edits on this page will be lost." : ""),
             "Restore save backup", ThemedConfirmSeverity.Warning);
         if (!(confirm))
         {
@@ -1531,17 +1587,6 @@ public sealed partial class SavesViewModel : ObservableObject
             // NextChrSlot a duplicate advances). Only edited characters/currencies touch their nodes.
             var writeCharacters = CharactersDirty;
             var writeProfile = ProfileDirty;
-            foreach (var character in Characters.Where(c => c.IsDirty))
-            {
-                character.ApplyToNode();
-            }
-
-            foreach (var currency in Currencies.Where(c => c.IsDirty))
-            {
-                currency.ApplyToNode();
-            }
-
-            ApplyProfileEdits();
 
             // A SECOND, LATE check, immediately before the first real disk write below — the first
             // IsGameRunning() check above (before the confirm dialog) can go stale for however long
@@ -1564,6 +1609,21 @@ public sealed partial class SavesViewModel : ObservableObject
                 return;
             }
 
+            // Only now are the edits put into the loaded save: applied before these checks, an
+            // aborted save left them in it, and an edit the user then undid was written anyway by
+            // the next Save (a review finding).
+            foreach (var character in Characters.Where(c => c.IsDirty))
+            {
+                character.ApplyToNode();
+            }
+
+            foreach (var currency in Currencies.Where(c => c.IsDirty))
+            {
+                currency.ApplyToNode();
+            }
+
+            ApplyProfileEdits();
+
             // ONE backup for the whole save pass, taken up front — every SaveXxx call below passes
             // takeBackup: false. A single click used to be able to zip the same slot up to 6 times
             // back-to-back (Characters/Profile always, plus BinaryFlags/Accolades/Bestiary/
@@ -1585,9 +1645,8 @@ public sealed partial class SavesViewModel : ObservableObject
                 _profileFieldsDirty = false;
             }
 
-            // The binary flags file is written only when actually edited — same minimal-diff
-            // philosophy as the JSON arrays: the file's own ordering is kept for flags that stay
-            // set, newly-set ones append.
+            // The DLC list is written only when a pack was toggled: packs that stay keep the file's
+            // own order, newly-added ones append.
             if (_binaryFlagIds is { } original && BinaryFlags.Any(f => f.IsDirty))
             {
                 var nowSet = BinaryFlags.Where(f => f.IsUnlocked).Select(f => f.Id).ToHashSet();

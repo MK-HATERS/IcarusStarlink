@@ -26,6 +26,7 @@ public sealed class SaveGameNames(string dataFolder)
     private IReadOnlyDictionary<string, ItemInfo>? _items;
     private IReadOnlyList<string>? _mountTypeRowNames;
     private IReadOnlyDictionary<string, string>? _mountTypeIcons;
+    private IReadOnlyList<string>? _dlcPackageNames;
 
     public IReadOnlyList<string> CharacterFlagNames => _characterFlagNames ??= LoadRowNames(Path.Combine("Flags", "D_CharacterFlags.json"));
 
@@ -75,7 +76,18 @@ public sealed class SaveGameNames(string dataFolder)
         _items = null;
         _mountTypeRowNames = null;
         _mountTypeIcons = null;
+        _dlcPackageNames = null;
     }
+
+    /// <summary>
+    /// D_DLCPackageData's rows in order: flags_&lt;SteamID&gt;.dat holds 0-based indexes into it —
+    /// the game's cached list of the DLC this account owns (OfflinePackageFlagsSubsystem in the
+    /// game's code; researched 2026-10-23). It was shown as character flags before.
+    /// </summary>
+    public IReadOnlyList<string> DlcPackageNames => _dlcPackageNames ??= LoadRowNames(Path.Combine("DLC", "D_DLCPackageData.json"));
+
+    /// <summary>"Dangerous Horizons" for a flags-file index; "DLC 31" when the table doesn't have it.</summary>
+    public string DlcPackageName(int id) => id >= 0 && id < DlcPackageNames.Count ? HumanizeMountType(DlcPackageNames[id]) : $"DLC {id}";
 
     public string CharacterFlagName(int id) => id >= 0 && id < CharacterFlagNames.Count ? CharacterFlagNames[id] : $"Flag {id}";
 
@@ -197,6 +209,8 @@ public sealed class SaveGameNames(string dataFolder)
             }
 
             using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var defaults = DefaultsOf(document);
+            var workshopNames = LoadWorkshopItemNames();
             foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
             {
                 if (!row.TryGetProperty("Name", out var name) || name.GetString() is not { } talentName)
@@ -209,7 +223,7 @@ public sealed class SaveGameNames(string dataFolder)
                 // talents in the game's own tree UI. They are not talents a player can have, so
                 // they never belong in an editor's list. (A save that somehow carries one still
                 // shows it, via the fallback path — nothing in the save is ever hidden.)
-                if (row.TryGetProperty("TalentType", out var talentType)
+                if (TryGet(row, defaults, "TalentType", out var talentType) && talentType.ValueKind == JsonValueKind.String
                     && talentType.GetString() is "Reroute" or "MutuallyExclusive")
                 {
                     continue;
@@ -224,11 +238,17 @@ public sealed class SaveGameNames(string dataFolder)
 
                 // 49 real talents (Stone Axe, basic stacks, ...) are unlocked from the start and
                 // NEVER written into a save — without this bit the editor would show them "locked".
-                var defaultUnlocked = row.TryGetProperty("bDefaultUnlocked", out var b) && b.ValueKind == JsonValueKind.True;
+                var defaultUnlocked = TryGet(row, defaults, "bDefaultUnlocked", out var b) && b.ValueKind == JsonValueKind.True;
+
+                // Workshop research rows carry no name of their own (all 329): the name is the
+                // item they research, ExtraData -> D_WorkshopItems -> Item.
+                var workshopName = row.TryGetProperty("ExtraData", out var extra) && extra.ValueKind == JsonValueKind.Object
+                    && extra.TryGetProperty("RowName", out var extraRow) && extraRow.GetString() is { } extraRowName
+                    && workshopNames.TryGetValue(extraRowName, out var itemName) ? itemName : null;
 
                 talents.TryAdd(talentName, new TalentInfo(
-                    ParseLocText(row, "DisplayName") ?? talentName,
-                    ParseLocText(row, "Description") ?? "",
+                    ParseLocText(row, "DisplayName", defaults) ?? workshopName ?? talentName,
+                    ParseLocText(row, "Description", defaults) ?? "",
                     tree,
                     maxRank,
                     defaultUnlocked));
@@ -240,6 +260,59 @@ public sealed class SaveGameNames(string dataFolder)
         }
 
         return talents;
+    }
+
+    /// <summary>D_WorkshopItems row -> the display name of the item it researches (D_ItemTemplate -> D_ItemsStatic -> D_Itemable), for workshop talents. Empty when the tables are missing.</summary>
+    private Dictionary<string, string> LoadWorkshopItemNames()
+    {
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var workshopPath = Path.Combine(dataFolder, "MetaWorkshop", "D_WorkshopItems.json");
+            if (!File.Exists(workshopPath))
+            {
+                return names;
+            }
+
+            // The workshop's Item is usually a D_ItemTemplate row; its ItemStaticData names the
+            // D_ItemsStatic row Items is keyed by. Some share the static row's name already.
+            var templateToStatic = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var templatePath = Path.Combine(dataFolder, "Items", "D_ItemTemplate.json");
+            if (File.Exists(templatePath))
+            {
+                using var templates = JsonDocument.Parse(File.ReadAllText(templatePath));
+                foreach (var row in templates.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (row.TryGetProperty("Name", out var n) && n.GetString() is { } templateName
+                        && row.TryGetProperty("ItemStaticData", out var st) && st.ValueKind == JsonValueKind.Object
+                        && st.TryGetProperty("RowName", out var stRow) && stRow.GetString() is { } staticRow)
+                    {
+                        templateToStatic[templateName] = staticRow;
+                    }
+                }
+            }
+
+            using var workshop = JsonDocument.Parse(File.ReadAllText(workshopPath));
+            foreach (var row in workshop.RootElement.GetProperty("Rows").EnumerateArray())
+            {
+                if (row.TryGetProperty("Name", out var n) && n.GetString() is { } workshopRow
+                    && row.TryGetProperty("Item", out var item) && item.ValueKind == JsonValueKind.Object
+                    && item.TryGetProperty("RowName", out var itemRow) && itemRow.GetString() is { } itemRowName)
+                {
+                    var staticRow = templateToStatic.GetValueOrDefault(itemRowName, itemRowName);
+                    if (Items.TryGetValue(staticRow, out var info) || Items.TryGetValue(itemRowName, out info))
+                    {
+                        names[workshopRow] = info.DisplayName;
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Missing/corrupt tables: workshop rows keep their raw names.
+        }
+
+        return names;
     }
 
     private IReadOnlyDictionary<string, AccoladeInfo> LoadAccolades()
@@ -254,6 +327,7 @@ public sealed class SaveGameNames(string dataFolder)
             }
 
             using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var defaults = DefaultsOf(document);
             foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
             {
                 if (!row.TryGetProperty("Name", out var name) || name.GetString() is not { } rowName)
@@ -261,14 +335,14 @@ public sealed class SaveGameNames(string dataFolder)
                     continue;
                 }
 
-                var category = row.TryGetProperty("Category", out var categoryRef) && categoryRef.TryGetProperty("Value", out var categoryValue)
+                var category = TryGet(row, defaults, "Category", out var categoryRef) && categoryRef.ValueKind == JsonValueKind.Object && categoryRef.TryGetProperty("Value", out var categoryValue)
                     ? categoryValue.GetString() ?? ""
                     : "";
-                var goalCount = row.TryGetProperty("GoalCount", out var goal) && goal.ValueKind == JsonValueKind.Number ? goal.GetInt32() : 0;
+                var goalCount = TryGet(row, defaults, "GoalCount", out var goal) && goal.ValueKind == JsonValueKind.Number ? goal.GetInt32() : 0;
 
                 accolades.TryAdd(rowName, new AccoladeInfo(
-                    ParseLocText(row, "DisplayName") ?? rowName,
-                    ParseLocText(row, "Description") ?? "",
+                    ParseLocText(row, "DisplayName", defaults) ?? rowName,
+                    ParseLocText(row, "Description", defaults) ?? "",
                     category,
                     goalCount));
             }
@@ -293,6 +367,7 @@ public sealed class SaveGameNames(string dataFolder)
             }
 
             using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var defaults = DefaultsOf(document);
             foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
             {
                 if (!row.TryGetProperty("Name", out var name) || name.GetString() is not { } rowName)
@@ -300,12 +375,12 @@ public sealed class SaveGameNames(string dataFolder)
                     continue;
                 }
 
-                var pointsRequired = row.TryGetProperty("TotalPointsRequired", out var points) && points.ValueKind == JsonValueKind.Number ? points.GetInt32() : 0;
-                var isBoss = row.TryGetProperty("bIsBoss", out var boss) && boss.ValueKind == JsonValueKind.True;
-                var imagePath = row.TryGetProperty("Image", out var image) && image.GetString() is { Length: > 0 } img ? img : null;
+                var pointsRequired = TryGet(row, defaults, "TotalPointsRequired", out var points) && points.ValueKind == JsonValueKind.Number ? points.GetInt32() : 0;
+                var isBoss = TryGet(row, defaults, "bIsBoss", out var boss) && boss.ValueKind == JsonValueKind.True;
+                var imagePath = TryGet(row, defaults, "Image", out var image) && image.ValueKind == JsonValueKind.String && image.GetString() is { Length: > 0 } img && img != "None" ? img : null;
 
                 creatures.TryAdd(rowName, new BestiaryCreatureInfo(
-                    ParseLocText(row, "CreatureName") ?? rowName,
+                    ParseLocText(row, "CreatureName", defaults) ?? rowName,
                     pointsRequired,
                     isBoss,
                     imagePath));
@@ -344,14 +419,15 @@ public sealed class SaveGameNames(string dataFolder)
             var itemableInfo = new Dictionary<string, (string DisplayName, int Weight, int MaxStack, string? IconPath)>(StringComparer.OrdinalIgnoreCase);
             using (var itemableDoc = JsonDocument.Parse(File.ReadAllText(itemablePath)))
             {
+                var defaults = DefaultsOf(itemableDoc);
                 foreach (var row in itemableDoc.RootElement.GetProperty("Rows").EnumerateArray())
                 {
                     if (row.TryGetProperty("Name", out var name) && name.GetString() is { } itemableRowName)
                     {
-                        var weight = row.TryGetProperty("Weight", out var w) && w.ValueKind == JsonValueKind.Number ? w.GetInt32() : 0;
-                        var maxStack = row.TryGetProperty("MaxStack", out var m) && m.ValueKind == JsonValueKind.Number ? m.GetInt32() : 1;
-                        var iconPath = row.TryGetProperty("Icon", out var icon) && icon.GetString() is { Length: > 0 } ip ? ip : null;
-                        itemableInfo[itemableRowName] = (ParseLocText(row, "DisplayName") ?? itemableRowName, weight, maxStack, iconPath);
+                        var weight = TryGet(row, defaults, "Weight", out var w) && w.ValueKind == JsonValueKind.Number ? w.GetInt32() : 0;
+                        var maxStack = TryGet(row, defaults, "MaxStack", out var m) && m.ValueKind == JsonValueKind.Number ? m.GetInt32() : 1;
+                        var iconPath = TryGet(row, defaults, "Icon", out var icon) && icon.ValueKind == JsonValueKind.String && icon.GetString() is { Length: > 0 } ip && ip != "None" ? ip : null;
+                        itemableInfo[itemableRowName] = (ParseLocText(row, "DisplayName", defaults) ?? itemableRowName, weight, maxStack, iconPath);
                     }
                 }
             }
@@ -386,10 +462,34 @@ public sealed class SaveGameNames(string dataFolder)
         return items;
     }
 
-    /// <summary>The tables wrap localized text as NSLOCTEXT("Table", "Key", "The English text") — the last quoted argument is the display string.</summary>
-    private static string? ParseLocText(JsonElement row, string property)
+    /// <summary>
+    /// A row's value, or the table's own Defaults value when the row leaves it out — what the game
+    /// does. Reading only the row showed seven creatures as "/ 0" (D_BestiaryData's Defaults sets
+    /// TotalPointsRequired = 1000; Bear_Cub, Kea, Roat… don't repeat it).
+    /// </summary>
+    private static bool TryGet(JsonElement row, JsonElement? defaults, string property, out JsonElement value)
     {
-        if (!row.TryGetProperty(property, out var value) || value.GetString() is not { } raw)
+        if (row.TryGetProperty(property, out value))
+        {
+            return true;
+        }
+
+        if (defaults is { ValueKind: JsonValueKind.Object } d && d.TryGetProperty(property, out value))
+        {
+            return true;
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static JsonElement? DefaultsOf(JsonDocument document) =>
+        document.RootElement.TryGetProperty("Defaults", out var defaults) && defaults.ValueKind == JsonValueKind.Object ? defaults : null;
+
+    /// <summary>The tables wrap localized text as NSLOCTEXT("Table", "Key", "The English text") — the last quoted argument is the display string.</summary>
+    private static string? ParseLocText(JsonElement row, string property, JsonElement? defaults = null)
+    {
+        if (!TryGet(row, defaults, property, out var value) || value.ValueKind != JsonValueKind.String || value.GetString() is not { Length: > 0 } raw)
         {
             return null;
         }

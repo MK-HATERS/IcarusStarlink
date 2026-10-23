@@ -172,19 +172,22 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
     }
 
     /// <summary>Writes the edited fields into the raw node. A non-numeric XP box keeps the original value rather than corrupting the save — the UI validates, this is the backstop.</summary>
-    public void ApplyToNode()
+    public void ApplyToNode() => ApplyTo(_node);
+
+    /// <summary>Writes the edits into <paramref name="target"/>: the character's own node, or a copy of it (Duplicate copies the character as edited, not as last saved).</summary>
+    public void ApplyTo(JsonObject target)
     {
-        _node["CharacterName"] = Name;
+        target["CharacterName"] = Name;
         // int, not long (an audit finding): the game stores XP as a 32-bit int, so a value past
         // 2,147,483,647 "saved" fine here and then wrapped or was discarded in-game.
         if (int.TryParse(XpText, out var xp) && xp >= 0)
         {
-            _node["XP"] = (long)xp;
+            target["XP"] = (long)xp;
         }
 
         // UnlockedFlags: keep the save's own ordering for flags that stay set, append newly-set
         // ones — minimal diff against what the game itself wrote.
-        var originallyUnlocked = ReadIntArray(_node["UnlockedFlags"]);
+        var originallyUnlocked = ReadIntArray(target["UnlockedFlags"]);
         var nowUnlocked = Flags.Where(f => f.IsUnlocked).Select(f => f.Id).ToHashSet();
         var flagArray = new JsonArray();
         foreach (var id in originallyUnlocked.Where(nowUnlocked.Contains))
@@ -197,7 +200,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
             flagArray.Add(id);
         }
 
-        _node["UnlockedFlags"] = flagArray;
+        target["UnlockedFlags"] = flagArray;
 
         // Talents: same minimal-diff shape — existing entries keep their position (rank updated in
         // place), rank-0 entries drop out, newly-learned append. Rank 0 IS "doesn't have it" in
@@ -205,7 +208,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         var byRow = Talents.ToDictionary(t => t.RowName, t => t.Rank, StringComparer.OrdinalIgnoreCase);
         var talentArrayNew = new JsonArray();
         var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (_node["Talents"] is JsonArray existing)
+        if (target["Talents"] is JsonArray existing)
         {
             foreach (var entry in existing.OfType<JsonObject>())
             {
@@ -225,13 +228,13 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
             }
         }
 
-        _node["Talents"] = talentArrayNew;
+        target["Talents"] = talentArrayNew;
 
         // Cosmetics: values updated in place on the existing sub-object — every field this class
         // doesn't know about (non-number fields like IsReworkedCharacter, which BuildCosmetics
         // skips) stays exactly as-is, and IsMale is written alongside the raw hashes since it lives
         // in the same sub-object.
-        if (_node["Cosmetic"] is JsonObject cosmetic)
+        if (target["Cosmetic"] is JsonObject cosmetic)
         {
             foreach (var field in Cosmetics)
             {

@@ -632,6 +632,127 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.Equal(2, gameProcessChecker.CallCount);
     }
 
+    /// <summary>
+    /// Review finding (2026-10-23): the edits were put into the loaded save BEFORE the late checks,
+    /// so after an aborted save an edit the user then undid was still written by the next Save.
+    /// </summary>
+    [Fact]
+    public async Task AbortedSave_ThenUndoneEdit_IsNotWrittenByTheNextSave()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        // Not running before the confirm, running at the late check; then never again.
+        var gameProcessChecker = new FakeGameProcessChecker(false, true, false, false);
+        var vm = CreateViewModel(repository, dialogService: new FakeDialogService(confirmResult: true), gameProcessChecker: gameProcessChecker);
+        await vm.WaitForPendingSlotLoadAsync();
+        var character = vm.Characters.Single();
+
+        character.Name = "Changed";
+        vm.SaveChangesCommand.Execute(null);
+        Assert.Equal(0, repository.SaveCharactersCallCount);
+
+        character.Name = "Alpha";   // undone by hand
+        character.XpText = "500";   // and another edit, so Characters.json is written
+        vm.SaveChangesCommand.Execute(null);
+
+        var saved = Assert.Single(repository.LastSavedCharacters!);
+        Assert.Equal("Alpha", saved["CharacterName"]!.GetValue<string>());
+        Assert.Equal(500L, saved["XP"]!.GetValue<long>());
+    }
+
+    /// <summary>Review finding: "couldn't read the files' times" passed as "unchanged", so Save could write an older copy over the game's newer one.</summary>
+    [Fact]
+    public async Task SaveWhenTheFilesCantBeChecked_RefusesToWrite()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository, dialogService: new FakeDialogService(confirmResult: false));
+        await vm.WaitForPendingSlotLoadAsync();
+        vm.Characters.Single().Name = "Changed";
+        repository.StampsError = new IOException("locked");
+
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal(0, repository.SaveCharactersCallCount);
+        Assert.Equal(0, repository.BackupSlotCallCount);
+        Assert.True(vm.HasUnsavedChanges);
+    }
+
+    /// <summary>Review finding: Duplicate copied the character as last saved while naming it after the edited one.</summary>
+    [Fact]
+    public async Task Duplicate_CopiesTheCharacterAsEdited()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+        var character = vm.Characters.Single();
+        character.Name = "Edited";
+        character.XpText = "777";
+
+        vm.DuplicateCharacterCommand.Execute(character);
+
+        var copy = vm.Characters.Single(c => c.Name == "Edited (Copy)");
+        Assert.Equal(777L, copy.Node["XP"]!.GetValue<long>());
+        Assert.Equal(100L, character.Node["XP"]!.GetValue<long>()); // the source's own node isn't changed until Save
+    }
+
+    /// <summary>Review finding: when Profile.json couldn't be read the backups list was emptied — exactly when Restore is needed.</summary>
+    [Fact]
+    public async Task UnreadableSlot_StillListsItsBackups()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], ProfileLoadError = new InvalidDataException("bad json") };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        Assert.Contains("Couldn't read this save", vm.StatusMessage);
+        Assert.NotEmpty(vm.Backups);
+    }
+
+    /// <summary>Researched 2026-10-23: "Exotic_stabilized" was never a currency in the game; it was labelled "Stabilized Exotics" as if it were.</summary>
+    [Fact]
+    public async Task CurrencyTheGameDoesntHave_IsSaidToBeOne()
+    {
+        var profile = MakeProfile(nextChrSlot: 0);
+        profile["MetaResources"] = new JsonArray(
+            new JsonObject { ["MetaRow"] = "Credits", ["Count"] = 10 },
+            new JsonObject { ["MetaRow"] = "Exotic_stabilized", ["Count"] = 200000 },
+            new JsonObject { ["MetaRow"] = "Biomass_Converter", ["Count"] = 3 });
+        var vm = CreateViewModel(new FakeSaveRepository { Profile = profile });
+        await vm.WaitForPendingSlotLoadAsync();
+
+        Assert.Equal(["Ren", "Exotic_stabilized (not a game currency)", "Flux"], vm.Currencies.Select(c => c.Label));
+    }
+
+    /// <summary>
+    /// Researched 2026-10-23: flags_&lt;SteamID&gt;.dat is the game's cached list of owned DLC
+    /// (D_DLCPackageData rows), not character flags. Each pack is a toggle under its real name
+    /// (the user wants to turn DLC / Supporter Edition content on); toggling one writes the list.
+    /// </summary>
+    [Fact]
+    public async Task FlagsFile_IsTheOwnedDlcList_ByRealName_AndToggleable()
+    {
+        var data = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_GameData", Guid.NewGuid().ToString("N"));
+        _tempFoldersToCleanUp.Add(data);
+        Directory.CreateDirectory(Path.Combine(data, "DLC"));
+        Directory.CreateDirectory(Path.Combine(data, "Flags"));
+        File.WriteAllText(Path.Combine(data, "DLC", "D_DLCPackageData.json"), """
+            { "Rows": [ { "Name": "Deluxe_Edition_Envirosuit" }, { "Name": "Preorder_Content" }, { "Name": "New_Frontiers" }, { "Name": "Dangerous_Horizons" } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "Flags", "D_CharacterFlags.json"), """
+            { "Rows": [ { "Name": "TestDataFlag" }, { "Name": "TutorialTestFlag" }, { "Name": "FirstScanComplete" }, { "Name": "Talent_RepairBench" } ] }
+            """);
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 0), BinaryFlags = [3, 1] };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(data));
+        await vm.WaitForPendingSlotLoadAsync();
+
+        Assert.Equal(["Deluxe Edition Envirosuit", "Preorder Content", "New Frontiers", "Dangerous Horizons"], vm.BinaryFlags.Select(f => f.Name));
+        Assert.Equal("2 of 4 owned", vm.OwnedDlcSummary);
+
+        vm.BinaryFlags.Single(f => f.Name == "Deluxe Edition Envirosuit").IsUnlocked = true;
+        Assert.Equal("3 of 4 owned", vm.OwnedDlcSummary);
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal([3, 1, 0], repository.LastSavedBinaryFlags); // the file's own order kept, new ones after
+    }
+
     /// <summary>Control for the test above — proves the late re-check doesn't false-positive-block an otherwise-normal save.</summary>
     [Fact]
     public async Task SaveChangesCommand_GameNeverRunning_WritesNormally()
@@ -957,10 +1078,13 @@ public sealed class SavesViewModelTests : IDisposable
 
         public IReadOnlyList<SaveSlot> ListSlots() => ListSlotsError is { } error ? throw error : [Slot];
 
+        /// <summary>When set, LoadProfile throws it (an unreadable Profile.json: the whole slot fails to load).</summary>
+        public Exception? ProfileLoadError { get; set; }
+
         public JsonObject LoadProfile(string steamId)
         {
             LoadGate?.Wait();
-            return Profile;
+            return ProfileLoadError is { } error ? throw error : Profile;
         }
 
         public IReadOnlyList<JsonObject> LoadCharacters(string steamId) => Characters;
@@ -1029,7 +1153,13 @@ public sealed class SavesViewModelTests : IDisposable
 
         public IReadOnlyList<int>? LoadBinaryFlags(string steamId) => BinaryFlags;
 
-        public string? SaveBinaryFlags(string steamId, IReadOnlyList<int> flagIds, bool takeBackup = true) => null;
+        public IReadOnlyList<int>? LastSavedBinaryFlags { get; private set; }
+
+        public string? SaveBinaryFlags(string steamId, IReadOnlyList<int> flagIds, bool takeBackup = true)
+        {
+            LastSavedBinaryFlags = flagIds;
+            return null;
+        }
 
         public string BackupSlot(string steamId)
         {
