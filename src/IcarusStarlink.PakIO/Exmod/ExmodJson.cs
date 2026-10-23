@@ -138,18 +138,7 @@ public static class ExmodJson
 
                 var itemName = GetRequiredString(itemObj, "Name");
                 EnsurePlainIdentifier(itemName, "item 'Name'");
-                var item = new ExmodFileItem { Name = itemName };
-                foreach (var (key, value) in itemObj)
-                {
-                    if (key == "Name")
-                    {
-                        continue;
-                    }
-
-                    item.Fields[key] = value?.DeepClone();
-                }
-
-                row.FileItems.Add(item);
+                row.FileItems.Add(ExmodFileItem.FromRow(itemName, itemObj));
             }
         }
 

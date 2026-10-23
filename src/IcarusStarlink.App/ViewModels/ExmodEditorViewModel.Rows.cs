@@ -5,7 +5,6 @@ using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.PakIO.Container;
-using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -98,14 +97,8 @@ public sealed partial class ExmodEditorViewModel
             suffix++;
         }
 
-        var clonedFields = new Dictionary<string, JsonNode?>();
-        foreach (var (fieldName, value) in sourceItem.Fields)
-        {
-            clonedFields[fieldName] = value?.DeepClone();
-        }
-
         PushUndoSnapshot();
-        row.FileItems.Add(new ExmodFileItem { Name = newName, Fields = clonedFields });
+        row.FileItems.Add(sourceItem.CloneAs(newName));
         RefreshBaseDiff();
 
         var newEditorItem = MakeItem(row.CurrentFile, newName);
@@ -166,19 +159,19 @@ public sealed partial class ExmodEditorViewModel
             return;
         }
 
-        JsonObject keyed;
+        // The editor's own parsed tables: reading the whole file again cost a multi-MB parse per add.
+        JsonObject? fields;
         try
         {
-            var fileJson = JsonNode.Parse(File.ReadAllText(Path.Combine(_dataFolder, picked.RealPath.Replace('/', Path.DirectorySeparatorChar))))!.AsObject();
-            keyed = DataTableJson.RowsToKeyedObject(fileJson);
+            fields = GameTables.Row(picked.CurrentFile, picked.ItemName);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or FormatException)
         {
             StatusMessage = $"Couldn't read '{picked.RealPath}': {ex.Message}";
             return;
         }
 
-        if (keyed[picked.ItemName] is not JsonObject fields)
+        if (fields is null)
         {
             StatusMessage = $"'{picked.ItemName}' isn't in '{picked.RealPath}' anymore — the index may be stale; reopen the mod editor after a Refresh game data.";
             return;
@@ -191,14 +184,7 @@ public sealed partial class ExmodEditorViewModel
             _package.Rows.Add(row);
         }
 
-        var item = new ExmodFileItem { Name = picked.ItemName };
-        // Each field needs its own JsonNode instance — a node can only ever have one parent, the
-        // same constraint DuplicateItem/MergeExistingMod already document.
-        foreach (var (fieldName, value) in fields)
-        {
-            item.Fields[fieldName] = value?.DeepClone();
-        }
-
+        var item = ExmodFileItem.FromRow(picked.ItemName, fields);
         row.FileItems.Add(item);
 
         RefreshBaseDiff();
@@ -290,15 +276,7 @@ public sealed partial class ExmodEditorViewModel
                     continue;
                 }
 
-                // Each item's own Fields dictionary needs its own JsonNode instances — a JsonNode
-                // can only ever belong to one parent, same reasoning DuplicateItem already documents.
-                var clonedFields = new Dictionary<string, JsonNode?>();
-                foreach (var (fieldName, value) in sourceItem.Fields)
-                {
-                    clonedFields[fieldName] = value?.DeepClone();
-                }
-
-                targetRow.FileItems.Add(new ExmodFileItem { Name = sourceItem.Name, Fields = clonedFields });
+                targetRow.FileItems.Add(sourceItem.CloneAs(sourceItem.Name));
                 addedCount++;
             }
         }
