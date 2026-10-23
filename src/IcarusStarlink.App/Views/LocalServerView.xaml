@@ -819,6 +819,15 @@
                                 <StackPanel>
                                     <ListBox ItemsSource="{Binding ServerPaks}" SelectedItem="{Binding SelectedServerPak}" MaxHeight="140" MaxWidth="900" HorizontalAlignment="Left" MinWidth="360"
                                              BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
+                                        <ListBox.Style>
+                                            <Style TargetType="ListBox" BasedOn="{StaticResource {x:Type ListBox}}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding ServerPaks.Count}" Value="0">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </ListBox.Style>
                                         <ListBox.ItemTemplate>
                                             <DataTemplate>
                                                 <TextBlock>
@@ -828,6 +837,18 @@
                                             </DataTemplate>
                                         </ListBox.ItemTemplate>
                                     </ListBox>
+                                    <TextBlock Text="No paks in the server's Content\Paks\mods folder." FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,2,0,0">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding ServerPaks.Count}" Value="0">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                     <Button Content="Remove selected" Command="{Binding RemoveSelectedPakCommand}" HorizontalAlignment="Left" Margin="0,6,0,0"
                                             ToolTip="Moves the selected pak into this server's backups folder"/>
                                 </StackPanel>
@@ -836,6 +857,14 @@
                             <TextBlock Style="{StaticResource ServerSectionLabelStyle}">
                                 <Run Text="UE4SS MODS ON THE SERVER"/><Run Text="{Binding ServerUe4ssModCount, Mode=OneWay, StringFormat='  ·  {0}'}" Foreground="{DynamicResource FaintForegroundBrush}"/>
                             </TextBlock>
+                            <!-- The UE4SS rows, their note and buttons stop at 1100 px, so Remove and the
+                                 buttons stay near the mod names on a wide window. -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" MaxWidth="1100"/>
+                                    <ColumnDefinition Width="0"/>
+                                </Grid.ColumnDefinitions>
+                            <StackPanel>
                             <DockPanel Margin="0,0,0,10">
                                 <Button DockPanel.Dock="Right" Content="Install UE4SS from my game" Command="{Binding InstallUe4ssOnServerCommand}" VerticalAlignment="Center" Margin="10,0,0,0"
                                         ToolTip="Copies the loader (dwmapi.dll, UE4SS.dll), its settings and framework mods from your game's install — verified to run on the dedicated server. Existing settings on the server are kept."/>
@@ -843,7 +872,7 @@
                             </DockPanel>
 
                             <!-- One row per mod: your game's copy, the server's, how they compare, and the action. -->
-                            <DockPanel Margin="0,0,0,6" MaxWidth="1100" HorizontalAlignment="Left">
+                            <DockPanel Margin="0,0,0,6">
                                 <Button DockPanel.Dock="Right" Content="Make the server match my game" Command="{Binding MatchServerToGameCommand}"
                                         IsEnabled="{Binding ServerHasUe4ss}"
                                         ToolTip="Updates every out-of-date mod on the server and copies the ones on in your game that it lacks. Keeps the server's own settings; never removes anything; backs up worlds first.">
@@ -862,9 +891,7 @@
                                 <TextBlock FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" VerticalAlignment="Center" TextWrapping="Wrap"
                                            Text="Versions come from each mod's main.lua; without one, the files are compared. The server's own config files don't count as a difference and are kept on update."/>
                             </DockPanel>
-                            <!-- Capped so Remove stays near the mod's name on a wide window. -->
-                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource CardBackgroundBrush}"
-                                    MaxWidth="1100" HorizontalAlignment="Left">
+                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource CardBackgroundBrush}">
                                 <StackPanel Grid.IsSharedSizeScope="True">
                                     <Grid Margin="10,6">
                                         <Grid.ColumnDefinitions>
@@ -953,6 +980,8 @@
                                     </TextBlock>
                                 </StackPanel>
                             </Border>
+                            </StackPanel>
+                            </Grid>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
@@ -1077,38 +1106,42 @@
                 <TabItem Header="Admins &amp; bans">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
                         <StackPanel Margin="0,0,8,0">
+                            <!-- One grid for both lists: shared rows keep the two boxes level whatever the hints' length. -->
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="16"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="ADMINS" Style="{StaticResource ServerSectionLabelStyle}"/>
-                                    <TextBlock Style="{StaticResource ServerHintStyle}" Margin="0,0,0,6"
-                                               Text="Steam64 ids, one per line. These players are admin without typing /AdminLogin (AdminWhitelist.txt). Known side effect from the official wiki: it breaks the lobby's prospect Delete button."/>
-                                    <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="ADMINS" Style="{StaticResource ServerSectionLabelStyle}"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource ServerHintStyle}" Margin="0,0,0,6"
+                                           Text="Steam64 ids, one per line. These players are admin without typing /AdminLogin (AdminWhitelist.txt). Known side effect from the official wiki: it breaks the lobby's prospect Delete button."/>
+                                <Grid Grid.Row="2" Grid.Column="0">
                                     <TextBox Text="{Binding AdminWhitelistText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" FontFamily="Consolas"
                                              Height="240" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
                                              AutomationProperties.Name="Admins"/>
                                     <TextBlock Text="One Steam64 id per line, like 76561198000000000" Style="{StaticResource PlaceholderTextStyle}" VerticalAlignment="Top" Margin="9,7,0,0"
                                                Visibility="{Binding AdminWhitelistText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                                 </Grid>
-                                    <TextBlock Text="{Binding AdminListHint}" Foreground="{DynamicResource DangerBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,4,0,0"
-                                               Visibility="{Binding AdminListHint, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="2">
-                                    <TextBlock Text="BAN LIST" Style="{StaticResource ServerSectionLabelStyle}"/>
-                                    <TextBlock Style="{StaticResource ServerHintStyle}" Margin="0,0,0,6"
-                                               Text="PlayerBanList.txt as the server stores it. In game, admins can also type /BanPlayer name and /UnbanPlayer name in chat."/>
-                                    <Grid>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="{Binding AdminListHint}" Foreground="{DynamicResource DangerBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,4,0,0"
+                                           Visibility="{Binding AdminListHint, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="BAN LIST" Style="{StaticResource ServerSectionLabelStyle}"/>
+                                <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource ServerHintStyle}" Margin="0,0,0,6"
+                                           Text="PlayerBanList.txt as the server stores it. In game, admins can also type /BanPlayer name and /UnbanPlayer name in chat."/>
+                                <Grid Grid.Row="2" Grid.Column="2">
                                     <TextBox Text="{Binding BanListText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" FontFamily="Consolas"
                                              Height="240" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
                                              AutomationProperties.Name="Ban list"/>
                                     <TextBlock Text="Nobody is banned" Style="{StaticResource PlaceholderTextStyle}" VerticalAlignment="Top" Margin="9,7,0,0"
                                                Visibility="{Binding BanListText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                                 </Grid>
-                                </StackPanel>
                             </Grid>
                             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                 <Button Content="Save lists" Command="{Binding SaveAccessListsCommand}" Style="{StaticResource PrimaryButtonStyle}"
