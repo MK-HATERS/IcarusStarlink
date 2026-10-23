@@ -15,18 +15,30 @@
 
         <Grid Grid.Row="1" Margin="0,16,0,0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="220" MinWidth="160"/>
+                <ColumnDefinition Width="230" MinWidth="160"/>
                 <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="*" MinWidth="300"/>
+                <!-- Capped at a comfortable reading width: full-window lines ran to ~250 characters. -->
+                <ColumnDefinition Width="*" MinWidth="300" MaxWidth="860"/>
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
-                <ListBox ItemsSource="{Binding Topics}" SelectedItem="{Binding SelectedTopic}"
-                         DisplayMemberPath="Title" Background="Transparent" BorderThickness="0"/>
-            </Border>
+            <DockPanel Grid.Column="0">
+                <TextBox DockPanel.Dock="Top" Margin="0,0,0,8" Style="{StaticResource SearchBoxStyle}" Tag="Search help"
+                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="Shows only topics whose title or text has every word you type"
+                         AutomationProperties.Name="Search help topics"/>
+                <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+                    <Grid>
+                        <ListBox ItemsSource="{Binding VisibleTopics}" SelectedItem="{Binding SelectedTopic}"
+                                 DisplayMemberPath="Title" Background="Transparent" BorderThickness="0"
+                                 AutomationProperties.Name="Help topics"/>
+                        <TextBlock Text="No topic mentions that. Try a shorter word." Style="{StaticResource EmptyStateTextStyle}"
+                                   Visibility="{Binding HasNoMatches, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    </Grid>
+                </Border>
+            </DockPanel>
 
             <Border Grid.Column="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
-                <FlowDocumentScrollViewer VerticalScrollBarVisibility="Auto" Padding="16"
+                <FlowDocumentScrollViewer VerticalScrollBarVisibility="Auto" Padding="20,16"
                     Document="{Binding SelectedTopic.Markdown, Converter={StaticResource MarkdownToFlowDocumentConverter}}"/>
             </Border>
         </Grid>

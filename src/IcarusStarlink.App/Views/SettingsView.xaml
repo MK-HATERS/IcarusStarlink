@@ -19,10 +19,18 @@
             <!-- ===================== Game & tools ===================== -->
             <TabItem Header="Game &amp; tools">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
-                    <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                    <StackPanel MaxWidth="760" HorizontalAlignment="Left">
                         <TextBlock Text="The Icarus install and the UnrealPak tool used to build mod paks."
-                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,14"/>
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,12"/>
 
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" AutomationProperties.Name="Game folder and UnrealPak">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Game folder &amp; UnrealPak" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="{Binding SavedMessage}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                        <StackPanel>
                         <TextBlock Text="Icarus Content folder (…\Icarus\Icarus\Content)" Style="{StaticResource FieldLabelStyle}"/>
                         <DockPanel Margin="0,6,0,20">
                             <Button Command="{Binding BrowseIcarusContentFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0" AutomationProperties.Name="Browse">
@@ -67,25 +75,27 @@
                                        Visibility="{Binding UnrealPakStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                         </WrapPanel>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,24">
+                        <StackPanel Orientation="Horizontal">
                             <Button Content="Save settings" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
                             <TextBlock Text="{Binding SavedMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
                         </StackPanel>
+                        </StackPanel>
+                        </Expander>
 
                         <!-- The "Icarus has been updated" alert stays outside the Expander, always
                              visible regardless of collapse state — a real actionable warning, not
                              routine status. -->
                         <TextBlock Text="{Binding GameDataOutdatedMessage}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"
-                                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,10"
+                                   TextWrapping="Wrap" MaxWidth="560" Margin="2,0,0,10" HorizontalAlignment="Left"
                                    Visibility="{Binding GameDataOutdatedMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
                         <!-- Collapsed by default (redesign-round-2 pilot) — a routine "set it and
                              forget it" action for most users, re-opened only when Icarus actually
                              updates. -->
-                        <Expander IsExpanded="False" AutomationProperties.Name="Refresh game data">
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" IsExpanded="False" AutomationProperties.Name="Refresh game data">
                             <Expander.Header>
-                                <DockPanel LastChildFill="False">
+                                <DockPanel LastChildFill="True">
                                     <TextBlock DockPanel.Dock="Left" Text="Refresh game data (after every Icarus update)" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
                                     <TextBlock DockPanel.Dock="Left" Text="{Binding DataFolderSummary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                                 </DockPanel>
@@ -93,22 +103,23 @@
                             <StackPanel>
                                 <TextBlock Text="Extracts the game's current DataTable JSON (Content\Data\data.pak) so merge/edit works against up-to-date data. Re-run this after a game update."
                                            Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10"/>
-                                <StackPanel Orientation="Horizontal">
+                                <WrapPanel>
                                     <Button Command="{Binding UpdateDataFolderCommand}" AutomationProperties.Name="Refresh game data">
                                         <StackPanel Orientation="Horizontal">
                                             <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
                                             <TextBlock Text="Refresh game data" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Button>
-                                    <TextBlock Text="{Binding DataFolderStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                                               Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
-                                    <Button Command="{Binding ViewWeeklyChangesCommand}" Margin="10,0,0,0"
+                                    <Button Command="{Binding ViewWeeklyChangesCommand}" Margin="8,0,0,0"
                                             Visibility="{Binding HasWeeklyChanges, Converter={StaticResource BoolToVisibilityConverter}}"
                                             ToolTip="Jump to the Weekly Changes page to see exactly what changed"
                                             AutomationProperties.Name="View Weekly Changes">
                                         <TextBlock Text="View Weekly Changes →" VerticalAlignment="Center"/>
                                     </Button>
-                                </StackPanel>
+                                </WrapPanel>
+                                <TextBlock Text="{Binding DataFolderStatusMessage}" Margin="0,8,0,0" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                           Visibility="{Binding DataFolderStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                             </StackPanel>
                         </Expander>
                     </StackPanel>
@@ -118,7 +129,15 @@
             <!-- ===================== Migrate from IMM ===================== -->
             <TabItem Header="Migrate from IMM">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
-                    <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                    <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" AutomationProperties.Name="Migrate from classic IMM">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Migrate from classic IMM" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="One-time copy of your mods and merge list" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                        <StackPanel>
                         <TextBlock Text="Already using Jimk72's Icarus Mod Manager? Pick its merged mod list and everything comes across in one go: each mod is copied out of IMM's own folder into your Library, linked to the mod database or Nexus where that can be worked out, and your merge list is rebuilt in Merge &amp; Install in the same order — nothing to re-pick by hand. Classic IMM's own files are only read, never changed."
                                    Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,14" MaxWidth="600"/>
                         <DockPanel Margin="0,0,0,10">
@@ -138,7 +157,7 @@
                             </Grid>
                         </DockPanel>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <WrapPanel Margin="0,0,0,10">
                             <!-- Named differently from Merge & Install's own "Import IMM mod list…" on
                                  purpose — that one only rebuilds the queue from mods already in your
                                  Library; this one is the fuller one-time migration, copying the mods
@@ -155,9 +174,11 @@
                             </Button>
                             <TextBlock Text="{Binding MigrationStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="420"
                                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
-                        </StackPanel>
+                        </WrapPanel>
                         <ListBox ItemsSource="{Binding MigrationResults}" MaxHeight="180" FontSize="12"
                                  Visibility="{Binding HasMigrationResults, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        </StackPanel>
+                        </Expander>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -165,11 +186,18 @@
             <!-- ===================== Nexus ===================== -->
             <TabItem Header="Nexus">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
-                    <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                    <StackPanel MaxWidth="760" HorizontalAlignment="Left">
                         <TextBlock Text="One sign-in powers everything Nexus in this app: browsing on the Nexus page, update checks for tracked mods, and direct downloads."
-                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,14"/>
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,12"/>
 
-                        <TextBlock Text="Account" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" AutomationProperties.Name="Nexus account">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Account" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="{Binding NexusSignedInAs, StringFormat='Signed in as {0}', TargetNullValue='Not signed in'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                        <StackPanel>
                         <StackPanel Visibility="{Binding NexusSignedInAs, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}">
                             <!-- Real users have reported not knowing where to find this — the API Access
                                  page shows OAuth application connections first, with the actual key this
@@ -196,7 +224,7 @@
                                     ToolTip="Validates the key with Nexus itself and, if it's accepted, saves it to Windows Credential Manager"/>
                         </StackPanel>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
+                        <StackPanel Orientation="Horizontal"
                                     Visibility="{Binding NexusSignedInAs, Converter={StaticResource NullToVisibilityConverter}}">
                             <TextBlock VerticalAlignment="Center">
                                 <Run Text="Signed in as "/><Run Text="{Binding NexusSignedInAs, Mode=OneWay}" FontWeight="SemiBold"/>
@@ -205,13 +233,15 @@
                         </StackPanel>
 
                         <TextBlock Text="{Binding NexusStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
+                                   TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left" Margin="0,8,0,0"
                                    Visibility="{Binding NexusStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        </StackPanel>
+                        </Expander>
 
                         <!-- Optional and set once, so it folds away once registered; open while it isn't,
                              so Register is in plain sight (folded, it read as "Register is gone").
                              The header says whether it's set up. -->
-                        <Expander IsExpanded="{Binding IsNxmProtocolNotRegistered, Mode=OneWay}" AutomationProperties.Name="Download handler">
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" IsExpanded="{Binding IsNxmProtocolNotRegistered, Mode=OneWay}" AutomationProperties.Name="Download handler">
                             <Expander.Header>
                                 <DockPanel LastChildFill="True">
                                     <TextBlock DockPanel.Dock="Left" Text="Download handler (nxm:// links)" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
@@ -294,10 +324,18 @@
             <!-- ===================== UE4SS ===================== -->
             <TabItem Header="UE4SS">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
-                    <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                    <StackPanel MaxWidth="760" HorizontalAlignment="Left">
                         <TextBlock Text="UE4SS is Icarus's separate Lua/scripting mod framework (Binaries\Win64) — installing/updating it is unrelated to the EXMOD/pak system. Your existing mods and settings are never overwritten."
-                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,14"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,12"/>
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" AutomationProperties.Name="UE4SS loader">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="UE4SS loader" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="{Binding Ue4ssStatusText}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                        <StackPanel>
+                        <WrapPanel Margin="0,0,0,8">
                             <Button Command="{Binding InstallOrUpdateUe4ssCommand}"
                                     IsEnabled="{Binding CanInstallOrUpdateUe4ss}"
                                     ToolTip="Installs the UE4SS dev build that comes with Starlink (or a newer one Check for update found on GitHub) into Binaries\Win64. Backs up what's there first and asks before writing anything."
@@ -324,12 +362,13 @@
                                     ToolTip="Install a UE4SS release zip you downloaded yourself, for a specific build or a PC without internet"/>
                             <Button Content="Check for update" Command="{Binding CheckForUe4ssUpdateCommand}" Margin="8,0,0,0"
                                     ToolTip="Asks GitHub for the newest UE4SS dev build and says whether it is newer than yours. Only runs when you press it (or the app's own Check for updates); nothing is installed until you choose to."/>
-                            <TextBlock Text="{Binding Ue4ssStatusText}" VerticalAlignment="Center" Margin="12,0,0,0"
-                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
-                        </StackPanel>
+                        </WrapPanel>
+                        <TextBlock Text="{Binding Ue4ssStatusText}" TextWrapping="Wrap" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
                         <TextBlock Text="{Binding Ue4ssStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                   TextWrapping="Wrap" MaxWidth="560"
+                                   TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left" Margin="0,6,0,0"
                                    Visibility="{Binding Ue4ssStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        </StackPanel>
+                        </Expander>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -447,9 +486,23 @@
             <!-- ===================== Maintenance ===================== -->
             <TabItem Header="Maintenance">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
-                    <StackPanel MaxWidth="640" HorizontalAlignment="Left">
-                        <TextBlock Text="App updates" Style="{StaticResource FieldLabelStyle}"/>
-                        <TextBlock Margin="0,4,0,10">
+                    <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" AutomationProperties.Name="App updates">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="App updates" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Style="{StaticResource ExpanderHeaderStateStyle}">
+                                        <TextBlock.Text>
+                                            <MultiBinding StringFormat="v{0} · {1} channel">
+                                                <Binding Path="InstalledAppVersion" Mode="OneWay"/>
+                                                <Binding Path="UpdateChannel" Mode="OneWay"/>
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                </DockPanel>
+                            </Expander.Header>
+                        <StackPanel>
+                        <TextBlock Margin="0,0,0,10">
                             <Run Text="You have v"/><Run Text="{Binding InstalledAppVersion, Mode=OneWay}"/><Run Text=" installed."/>
                         </TextBlock>
 
@@ -465,7 +518,7 @@
                         <CheckBox Content="Check for updates when Starlink starts" IsChecked="{Binding AutoCheckAppUpdates}" Margin="0,0,0,10"
                                   ToolTip="Looks on this channel each time Starlink starts and asks before installing anything. On a beta, it also tells you when a stable release is ready."/>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <WrapPanel>
                             <Button Command="{Binding CheckForAppUpdatesCommand}" IsEnabled="{Binding CanCheckForAppUpdates}" AutomationProperties.Name="Check for updates">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -487,19 +540,28 @@
                                     ToolTip="The manual fallback — opens the release's GitHub page in your browser instead"/>
                             <Button Content="View all releases" Command="{Binding OpenReleasesPageCommand}" Margin="8,0,0,0"
                                     ToolTip="Opens the repo's own Releases page on GitHub — every version, with its notes, always available regardless of whether a check has run"/>
-                        </StackPanel>
+                        </WrapPanel>
                         <TextBlock Text="{Binding AppUpdateStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                   TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,20"
+                                   TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left" Margin="0,8,0,0"
                                    Visibility="{Binding AppUpdateStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        </StackPanel>
+                        </Expander>
 
-                        <TextBlock Text="Diagnostics &amp; safety" Style="{StaticResource FieldLabelStyle}"/>
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" AutomationProperties.Name="Diagnostics and safety">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Diagnostics &amp; safety" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="Logs and a diagnostics zip for bug reports" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                        <StackPanel>
                         <TextBlock Text="Starlink always keeps a basic log of what you did and what happened (at most 5 MB a file, the newest 14 files). If you run into a bug, export a diagnostics zip (logs + sanitized settings, never API keys or tokens) to attach to your report."
-                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap"/>
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10" TextWrapping="Wrap"/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Advanced log" IsChecked="{Binding AdvancedLogging}" Margin="0,0,0,10"
                                   ToolTip="Off (Basic): the log records what you did and what happened: imports, merges, installs, fixes, warnings and errors. On (Advanced): also every detail, such as each fix made to a mod, the merge order and conflict picks, and every web request. Turn it on to chase a bug: it switches itself back to Basic after 24 hours. Takes effect at once. Either way each file stops at 5 MB and only the newest 14 are kept, so the logs never bloat."/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Performance tracking" IsChecked="{Binding PerformanceTrackingEnabled}" Margin="0,0,0,10"
                                   ToolTip="Off by default. When on, logs how long Rebuild/Install/catalog-refresh take to a separate app.perf log file — useful if something feels slow and you want to show real numbers in a bug report."/>
-                        <StackPanel Orientation="Horizontal">
+                        <WrapPanel>
                             <Button Command="{Binding ExportDiagnosticsCommand}" AutomationProperties.Name="Export diagnostics zip">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
@@ -509,20 +571,33 @@
                             </Button>
                             <Button Content="Open log folder" Command="{Binding OpenLogFolderCommand}" Margin="8,0,0,0"
                                     ToolTip="Opens the folder with the log files (icarusstarlink-date.log)"/>
-                            <TextBlock Text="{Binding DiagnosticsStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
+                        </WrapPanel>
+                        <TextBlock Text="{Binding DiagnosticsStatusMessage}" Margin="0,8,0,0" TextWrapping="Wrap"
+                                   Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"
+                                   Visibility="{Binding DiagnosticsStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                         </StackPanel>
+                        </Expander>
 
-                        <TextBlock Text="Backups" Style="{StaticResource FieldLabelStyle}" Margin="0,20,0,0"/>
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" AutomationProperties.Name="Backups">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Backups" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="{Binding BackupsSizeText}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                        <StackPanel>
                         <TextBlock Text="Starlink backs up your mods, the merged pak and your server before changing them. Clean up backups keeps the newest 2 of each and deletes the rest."
-                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,10" TextWrapping="Wrap"/>
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10" TextWrapping="Wrap"/>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="{Binding BackupsSizeText}" VerticalAlignment="Center" Margin="0,0,12,0"/>
                             <Button Content="Clean up backups" Command="{Binding CleanUpBackupsCommand}" AutomationProperties.Name="Clean up backups"
                                     ToolTip="Keeps the newest 2 backups of each mod, the merged pak and each server, and deletes older ones. The newest backup of anything is never deleted."/>
-                            <TextBlock Text="{Binding BackupsStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"/>
                         </StackPanel>
+                        <TextBlock Text="{Binding BackupsStatusMessage}" Margin="0,8,0,0" TextWrapping="Wrap"
+                                   Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"
+                                   Visibility="{Binding BackupsStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        </StackPanel>
+                        </Expander>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -531,11 +606,19 @@
             <TabItem Header="Appearance">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
                     <StackPanel MaxWidth="760" HorizontalAlignment="Left">
-                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Show pop-up messages" IsChecked="{Binding ShowPopUpMessages}" Margin="0,0,0,14"
-                                  ToolTip="When something finishes or goes wrong (a merge, an import, a save), a small message pops up under the bell for a few seconds. Click one to close it; hold the mouse over it to keep it. Everything is still listed under the bell either way."/>
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" AutomationProperties.Name="Messages">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Messages" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="Pop-ups under the bell" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                            <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Show pop-up messages" IsChecked="{Binding ShowPopUpMessages}" HorizontalAlignment="Left"
+                                      ToolTip="When something finishes or goes wrong (a merge, an import, a save), a small message pops up under the bell for a few seconds. Click one to close it; hold the mouse over it to keep it. Everything is still listed under the bell either way."/>
+                        </Expander>
                         <!-- The skin editor is two dozen colour boxes most people never touch, so it
                              folds away under its own heading instead of filling the tab. -->
-                        <Expander IsExpanded="False" AutomationProperties.Name="Custom skin">
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" IsExpanded="False" AutomationProperties.Name="Custom skin">
                             <Expander.Header>
                                 <DockPanel LastChildFill="True">
                                     <TextBlock DockPanel.Dock="Left" Text="Custom skin" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
@@ -546,7 +629,7 @@
                         <TextBlock Text="Make the app look however you want: edit any color below (hex, #RRGGBB or #AARRGGBB with transparency), then Save skin. Pick the Custom theme in the top-right corner to use it. The skin lives in a plain JSON file you can also edit by hand or share."
                                    Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,14" MaxWidth="640"/>
 
-                        <ItemsControl ItemsSource="{Binding SkinTokens}" MaxWidth="760" HorizontalAlignment="Left">
+                        <ItemsControl ItemsSource="{Binding SkinTokens}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <UniformGrid Columns="2"/>

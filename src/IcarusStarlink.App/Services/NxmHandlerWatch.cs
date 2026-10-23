@@ -201,13 +201,27 @@ public sealed class NxmHandlerWatch(INxmProtocolRegistrar registrar, ISettingsSe
     [DllImport("advapi32.dll")]
     private static extern int RegNotifyChangeKeyValue(SafeRegistryHandle hKey, bool bWatchSubtree, uint dwNotifyFilter, SafeWaitHandle hEvent, bool fAsynchronous);
 
-    /// <summary>A readable name for a handler command: the exe's product name ("Vortex"), else its file name; "nothing" when none is set.</summary>
-    public static string HandlerName(string? command)
+    /// <summary>
+    /// A readable name for a handler command: the exe's product name ("Vortex"), else its file name;
+    /// "nothing" when none is set. A Starlink is named in words with its folder: its product name,
+    /// "IcarusStarlink.App", read like some other app had the links.
+    /// </summary>
+    /// <param name="ownFolder">This install's folder (tests); defaults to the running app's.</param>
+    public static string HandlerName(string? command, string? ownFolder = null)
     {
         var exe = NxmHandlerCommand.ExePathOf(command);
         if (exe is null)
         {
             return "nothing";
+        }
+
+        if (NxmHandlerCommand.IsStarlink(command))
+        {
+            var folder = Path.GetDirectoryName(exe) ?? "";
+            ownFolder ??= AppContext.BaseDirectory;
+            return string.Equals(folder.TrimEnd('\\', '/'), ownFolder.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase)
+                ? $"this Starlink's old {Path.GetFileName(exe)}"
+                : $"another Starlink install ({ShortFolder(folder)})";
         }
 
         try
@@ -223,5 +237,19 @@ public sealed class NxmHandlerWatch(INxmProtocolRegistrar registrar, ISettingsSe
         }
 
         return Path.GetFileNameWithoutExtension(exe);
+    }
+
+    /// <summary>"F:\ModManager\IcarusStarlink"; a long path keeps its drive and last folder ("F:\…\IcarusStarlink") so a button label stays short.</summary>
+    internal static string ShortFolder(string folder)
+    {
+        const int MaxLength = 40;
+        var trimmed = folder.TrimEnd('\\', '/');
+        if (trimmed.Length <= MaxLength)
+        {
+            return trimmed;
+        }
+
+        var root = Path.GetPathRoot(trimmed) ?? "";
+        return $"{root.TrimEnd('\\', '/')}\\…\\{Path.GetFileName(trimmed)}";
     }
 }

@@ -41,9 +41,13 @@ public sealed partial class SettingsViewModel
     private string? _gameDataOutdatedMessage;
 
     /// <summary>Shown in the "Update data folder" Expander's collapsed header — reads straight from settings rather than caching, since the only thing that changes it (UpdateDataFolderAsync) already explicitly notifies this property when it does.</summary>
-    public string DataFolderSummary => _settingsService.Current.LastDataFolderUpdatedAt is { } updatedAt
-        ? $"last updated {updatedAt.ToLocalTime():yyyy-MM-dd}"
+    public string DataFolderSummary => LastDataRefreshAt is { } updatedAt
+        ? $"last updated {updatedAt.ToLocalTime():d MMM yyyy}"
         : "never updated";
+
+    /// <summary>The last Refresh game data: the setting, else the newest Weekly Changes report (only a refresh writes one), so a reset settings file doesn't claim the data was never extracted while the history says otherwise.</summary>
+    private DateTimeOffset? LastDataRefreshAt =>
+        _settingsService.Current.LastDataFolderUpdatedAt ?? _weeklyChangeReportStore.Current?.CurrentUpdateAt;
 
     [RelayCommand]
     private void BrowseIcarusContentFolder()

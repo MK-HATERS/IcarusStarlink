@@ -120,7 +120,9 @@ public sealed partial class SettingsViewModel
             }
             else
             {
-                DataFolderStatusMessage = "Not extracted yet — click Refresh game data whenever you're ready (and after each game update).";
+                DataFolderStatusMessage = LastDataRefreshAt is { } lastRefresh
+                    ? $"Last refreshed {lastRefresh.ToLocalTime():d MMM yyyy, HH:mm} — click Refresh game data after each game update."
+                    : "Not extracted yet — click Refresh game data whenever you're ready (and after each game update).";
             }
         }
 

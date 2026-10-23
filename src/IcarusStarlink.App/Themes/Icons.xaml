@@ -75,5 +75,6 @@
 
     <!-- The nav rail's collapse / expand button: a panel with its edge and an arrow. -->
     <Geometry x:Key="IconSidebar">M4 5L20 5L20 19L4 19Z M9 5L9 19</Geometry>
+    <Geometry x:Key="IconSearch">M4 11A7 7 0 1 0 18 11A7 7 0 1 0 4 11Z M16 16L21 21</Geometry>
 
 </ResourceDictionary>

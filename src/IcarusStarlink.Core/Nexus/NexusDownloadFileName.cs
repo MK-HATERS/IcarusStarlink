@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace IcarusStarlink.Core.Nexus;
 
 /// <summary>
-/// Nexus names every downloaded file "&lt;upload name&gt; &lt;modId&gt; &lt;fileId&gt; &lt;yyyy-MM-ddTHH-mmZ&gt; &lt;hash&gt;.ext"
+/// Nexus names every downloaded file "&lt;upload name&gt; &lt;modId&gt; &lt;file version&gt; &lt;yyyy-MM-ddTHH-mmZ&gt; &lt;hash&gt;.ext"
 /// (confirmed against real downloads: "ArcFissionLibrary V1.2.2 356 3 2026-10-12T13-50Z b0gYfPbb2.zip").
 /// That whole tail rode into staged UE4SS mod names and opaque pak names — a real complaint. The
 /// upload name is the part a person recognizes.
@@ -13,7 +13,8 @@ namespace IcarusStarlink.Core.Nexus;
 /// </summary>
 public static partial class NexusDownloadFileName
 {
-    [GeneratedRegex(@"^(?<name>.+?)\s+\d+\s+\d+\s+\d{4}-\d{2}-\d{2}T\d{2}-\d{2}Z\s+\S+$")]
+    // The token after the mod id is the file's version, not always a whole number ("1.1").
+    [GeneratedRegex(@"^(?<name>.+?)\s+\d+\s+\d\S*\s+\d{4}-\d{2}-\d{2}T\d{2}-\d{2}Z\s+\S+$")]
     private static partial Regex NexusSuffixPattern();
 
     // Anchored on the trailing 10-digit unix time; every dash part after the mod id starts with a

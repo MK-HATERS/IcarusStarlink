@@ -667,6 +667,40 @@ public sealed class DownloadsViewModelTests : IDisposable
         Assert.Equal("Cheat S5-II and Larkwell Haulier underwears", item.DisplayName);
     }
 
+    /// <summary>The row used to show "Synthetic Miasma V1 1 376 1.1 2026-10-22T10-52Z AHkozS8Ru": a version after the mod id wasn't recognised.</summary>
+    [Fact]
+    public void PendingRow_NexusAppNameWithADottedVersion_DropsTheTail()
+    {
+        var harness = new Harness(_root);
+        var item = harness.AddDownload("Synthetic Miasma V1 1 376 1.1 2026-10-22T10-52Z AHkozS8Ru.zip", a => WriteEntry(a, "x.pak", "p"), modId: 376, fileId: 1);
+
+        Assert.Equal("Synthetic Miasma V1 1", item.DisplayName);
+    }
+
+    [Fact]
+    public void DownloadsEmptyText_NothingDownloaded_PointsAtDatabase()
+    {
+        var vm = new Harness(_root).Build();
+
+        Assert.StartsWith("Nothing downloaded yet", vm.DownloadsEmptyText);
+    }
+
+    /// <summary>Once installed, the row shows the name the Library shows (a rename included), not the file's.</summary>
+    [Fact]
+    public async Task PendingRow_Installed_UsesTheLibraryName()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        var item = harness.AddDownload("Homestead 223 1.2 2026-10-22T10-52Z AbCdEf.zip", WriteSinglePak, modId: 223, fileId: 900);
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+        var folder = Assert.Single(harness.Library.GetAll()).FolderName;
+        harness.Library.SetDisplayNameOverride(folder, "Homestead (mine)");
+
+        item.Refresh();
+
+        Assert.Equal("Homestead (mine)", item.DisplayName);
+    }
+
     // --- Replacing a mod (ModReplacementService through Activate/Reinstall) ---
 
     private static void WriteSinglePak(ZipArchive archive) => WriteEntry(archive, "Ferani_Homestead_Expanded_P.pak", "pak v1");

@@ -83,8 +83,35 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
         }
     }
 
-    private static string DisplayFor(WeeklyChangeReport report) =>
-        $"{report.CurrentUpdateAt.LocalDateTime:MMM d, yyyy · h:mm tt} ({report.ChangedFiles.Count} file(s) changed)";
+    /// <summary>"22 Oct 2026, 15:08 · 5 files changed" — the history picker's line for one report.</summary>
+    internal static string DisplayFor(WeeklyChangeReport report) =>
+        $"{report.CurrentUpdateAt.LocalDateTime:d MMM yyyy, HH:mm} · {FilesChangedText(report.ChangedFiles.Count)}";
+
+    /// <summary>"no changes", "1 file changed", "5 files changed".</summary>
+    internal static string FilesChangedText(int count) => count switch
+    {
+        0 => "no changes",
+        1 => "1 file changed",
+        _ => $"{count} files changed",
+    };
+
+    /// <summary>What the file list says when it's empty; null while it has files.</summary>
+    public string? FilesEmptyText => ChangedFiles.Count > 0
+        ? null
+        : SelectedReport is null ? "Nothing to compare yet." : "No files changed in this update.";
+
+    /// <summary>What the changes table says when it has no rows; null while it has some.</summary>
+    public string? RowsEmptyText => SelectedReport is null
+        ? "Refresh game data now and again after the next game update; what changed shows here."
+        : ChangedFiles.Count == 0
+            ? "No changes in this update."
+            : SelectedFile is null
+                ? "Pick a file on the left."
+                : SelectedFile.Rows.Count == 0
+                    ? $"{SelectedFile.StatusLabel}: no row-by-row changes to show."
+                    : null;
+
+    partial void OnSelectedFileChanged(ChangedDataFileViewModel? value) => OnPropertyChanged(nameof(RowsEmptyText));
 
     private void ShowReport(WeeklyChangeReport? report)
     {
@@ -96,12 +123,17 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
         {
             SummaryMessage = "No changes tracked yet — run Refresh game data at least twice, once now and again after a game update, to see what changed between them.";
             SelectedFile = null;
+            RaiseEmptyTexts();
             return;
         }
 
-        SummaryMessage = report.ChangedFiles.Count == 0
-            ? $"No JSON changes between {report.PreviousUpdateAt.LocalDateTime:g} and {report.CurrentUpdateAt.LocalDateTime:g}."
-            : $"{report.ChangedFiles.Count} JSON file(s) changed between {report.PreviousUpdateAt.LocalDateTime:g} and {report.CurrentUpdateAt.LocalDateTime:g}.";
+        var between = $"between {report.PreviousUpdateAt.LocalDateTime:d MMM yyyy, HH:mm} and {report.CurrentUpdateAt.LocalDateTime:d MMM yyyy, HH:mm}";
+        SummaryMessage = report.ChangedFiles.Count switch
+        {
+            0 => $"No game data files changed {between}.",
+            1 => $"1 game data file changed {between}.",
+            var n => $"{n} game data files changed {between}.",
+        };
 
         foreach (var file in report.ChangedFiles)
         {
@@ -112,5 +144,12 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
         // empty until a file is clicked.
         SelectedFile = (previouslySelectedPath is null ? null : ChangedFiles.FirstOrDefault(f => f.RelativePath == previouslySelectedPath))
             ?? ChangedFiles.FirstOrDefault();
+        RaiseEmptyTexts();
+    }
+
+    private void RaiseEmptyTexts()
+    {
+        OnPropertyChanged(nameof(FilesEmptyText));
+        OnPropertyChanged(nameof(RowsEmptyText));
     }
 }

@@ -35,8 +35,15 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     public string LocalFilePath { get; }
     public DateTimeOffset DownloadedAtUtc { get; }
 
-    /// <summary>The mod's name as its source listed it (a catalog entry's Name), else the upload's own file name without Nexus's id/timestamp/hash tail or the extension — what a person recognizes the file as.</summary>
-    public string DisplayName => _displayName ?? NexusDownloadFileName.StripNexusSuffix(System.IO.Path.GetFileNameWithoutExtension(FileName), IsCatalog ? null : ModId);
+    /// <summary>
+    /// The mod's name as its source listed it (a catalog entry's Name), else the name the Library
+    /// shows for what this download installed (or for the same Nexus mod), else the upload's own
+    /// file name without Nexus's id/version/timestamp/hash tail or the extension. The raw
+    /// "Synthetic Miasma V1 1 376 1.1 2026-10-22T10-52Z AHkozS8Ru" read as noise on the Downloads page.
+    /// </summary>
+    public string DisplayName => _displayName
+        ?? LibraryName()
+        ?? NexusDownloadFileName.StripNexusSuffix(System.IO.Path.GetFileNameWithoutExtension(FileName), IsCatalog ? null : ModId);
 
     private readonly string? _displayName;
 
@@ -162,6 +169,19 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
         Requirements = requirements;
     }
 
+    private string? LibraryName()
+    {
+        foreach (var item in ActivatedItems)
+        {
+            if (item.Kind == PendingDownloadActivationKind.Library && Installed.LibraryNameForFolder(item.FolderName) is { } name)
+            {
+                return name;
+            }
+        }
+
+        return IsCatalog ? null : Installed.LibraryNameForNexusMod(ModId);
+    }
+
     private bool StillPresent(PendingDownloadActivatedItem item) => item.Kind switch
     {
         PendingDownloadActivationKind.Library => Installed.LibraryFolders.Contains(item.FolderName),
@@ -173,6 +193,7 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     public void Refresh(InstalledModsSnapshot? snapshot = null)
     {
         _snapshot = snapshot ?? InstalledModsSnapshot.Take(_libraryRepository, _ue4ssNames);
+        OnPropertyChanged(nameof(DisplayName));
         OnPropertyChanged(nameof(IsInstalled));
         OnPropertyChanged(nameof(WasDeleted));
         OnPropertyChanged(nameof(ActionLabel));
@@ -217,6 +238,14 @@ public sealed class InstalledModsSnapshot
 
     /// <summary>UE4SS names plus Library mod names — what a README requirement is matched against.</summary>
     public IReadOnlyList<string> ModNames => _modNames.Value;
+
+    /// <summary>The name the Library shows for the mod in <paramref name="folderName"/>; null when it isn't there.</summary>
+    public string? LibraryNameForFolder(string folderName) =>
+        _libraryEntries.Value.FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase))?.Name is { Length: > 0 } name ? name : null;
+
+    /// <summary>The name the Library shows for a mod linked to this Nexus mod id; null when none is.</summary>
+    public string? LibraryNameForNexusMod(int modId) =>
+        modId > 0 && _libraryEntries.Value.FirstOrDefault(e => e.NexusModId == modId)?.Name is { Length: > 0 } name ? name : null;
 
     public static InstalledModsSnapshot Take(ILibraryRepository library, Ue4ssInstalledNames ue4ssNames) => new(library, ue4ssNames);
 }

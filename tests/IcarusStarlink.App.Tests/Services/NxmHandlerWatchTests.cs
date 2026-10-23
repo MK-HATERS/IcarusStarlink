@@ -142,4 +142,24 @@ public class NxmHandlerWatchTests
 
     [Fact]
     public void KeepNxmHandler_IsOnByDefault() => Assert.True(new AppSettings().KeepNxmHandler);
+
+    /// <summary>Settings said "IcarusStarlink.App has them now" (the exe's product name) for a second Starlink install.</summary>
+    [Theory]
+    [InlineData(@"""F:\ModManager\IcarusStarlink.App.exe"" ""%1""")]
+    [InlineData(@"""F:\ModManager\IcarusStarlink.exe"" ""%1""")]
+    public void HandlerName_AnotherStarlink_SaysSoWithItsFolder(string command) =>
+        Assert.Equal(@"another Starlink install (F:\ModManager)", NxmHandlerWatch.HandlerName(command, ownFolder: @"C:\Apps\Starlink\"));
+
+    [Fact]
+    public void HandlerName_ThisInstallsOldExe_NamesIt() =>
+        Assert.Equal("this Starlink's old IcarusStarlink.App.exe",
+            NxmHandlerWatch.HandlerName(@"""C:\Apps\Starlink\IcarusStarlink.App.exe"" ""%1""", ownFolder: @"C:\Apps\Starlink\"));
+
+    [Fact]
+    public void HandlerName_OtherApp_KeepsItsFileName() =>
+        Assert.Equal("OtherManager", NxmHandlerWatch.HandlerName(Other, ownFolder: @"C:\Apps\Starlink"));
+
+    [Fact]
+    public void ShortFolder_LongPath_KeepsDriveAndLastFolder() =>
+        Assert.Equal(@"F:\…\Icarus Mod Manager", NxmHandlerWatch.ShortFolder(@"F:\Games\Modding\Some Very Long Folder Name\Icarus Mod Manager"));
 }

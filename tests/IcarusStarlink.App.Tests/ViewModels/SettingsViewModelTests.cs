@@ -885,6 +885,23 @@ public sealed class SettingsViewModelTests
         Assert.NotNull(harness.Settings.FirstLaunchSetupCompletedAtUtc);
     }
 
+    /// <summary>Weekly Changes said "Not extracted yet" above a report from the day before; only a refresh writes a report.</summary>
+    [Fact]
+    public async Task FirstLaunch_ExtractionDeclined_ButAReportExists_SaysWhenItWasLastRefreshed()
+    {
+        using var harness = new Harness(dialogConfirmResult: false);
+        harness.Settings.FirstLaunchSetupCompletedAtUtc = null;
+        harness.Settings.LastDataFolderUpdatedAt = null;
+        harness.WeeklyChangeReportStore.Save(MakeReport(changedFileCount: 0));
+
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+
+        Assert.StartsWith("Last refreshed", vm.DataFolderStatusMessage);
+        Assert.DoesNotContain("Not extracted", vm.DataFolderStatusMessage);
+        Assert.StartsWith("last updated", vm.DataFolderSummary);
+    }
+
     /// <summary>An install that predates the flow and already extracted its data gets no offer — just marked done so the check stops running.</summary>
     /// <summary>Settings › Maintenance › "Check for updates when Starlink starts" (user request 2026-10-23): off means no look at launch; the button still checks.</summary>
     [Theory]
