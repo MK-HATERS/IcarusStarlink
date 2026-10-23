@@ -85,6 +85,12 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <!-- The left column's pages, grouped under their headings (NavItem.Group). -->
+        <CollectionViewSource x:Key="NavGroups" Source="{Binding NavItems}">
+            <CollectionViewSource.GroupDescriptions>
+                <PropertyGroupDescription PropertyName="Group"/>
+            </CollectionViewSource.GroupDescriptions>
+        </CollectionViewSource>
     </Window.Resources>
 
     <Grid>
@@ -182,12 +188,39 @@
                     <Path Data="{StaticResource IconSidebar}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
                           StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform"/>
                 </Button>
-                <ListBox Grid.Row="1" ItemsSource="{Binding NavItems}"
+                <ListBox Grid.Row="1" ItemsSource="{Binding Source={StaticResource NavGroups}}"
                          SelectedItem="{Binding SelectedNavItem}"
                          Style="{StaticResource NavListBoxStyle}"
                          ItemContainerStyle="{StaticResource NavListBoxItemStyle}"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          Margin="0,4,0,0">
+                    <!-- Group headings ("FIND MODS"); folded to icons, a thin line instead. An empty group
+                         (Settings, Help) has neither. -->
+                    <ListBox.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.HeaderTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <TextBlock x:Name="GroupTitle" Text="{Binding Name}" FontSize="10.5" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource FaintForegroundBrush}" Margin="24,12,0,2"
+                                                   Typography.Capitals="AllSmallCaps"/>
+                                        <Border x:Name="GroupLine" Height="1" Margin="16,10,16,4" Visibility="Collapsed"
+                                                Background="{DynamicResource BorderBrush}"/>
+                                    </Grid>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                            <Setter TargetName="GroupTitle" Property="Visibility" Value="Collapsed"/>
+                                            <Setter TargetName="GroupLine" Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Name}" Value="">
+                                            <Setter TargetName="GroupTitle" Property="Visibility" Value="Collapsed"/>
+                                            <Setter TargetName="GroupLine" Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </GroupStyle.HeaderTemplate>
+                        </GroupStyle>
+                    </ListBox.GroupStyle>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <!-- Phase 10: a real icon next to every nav label — see Themes/Icons.xaml.

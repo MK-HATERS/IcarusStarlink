@@ -82,31 +82,24 @@ public sealed partial class MainViewModel : ObservableObject
         // pending-downloads list both moved onto Library itself (a downloaded mod already blends
         // straight into Library's own list once it finishes, so a separate "Downloads" page just
         // duplicated the same job).
+        // Grouped by what the user is doing (their ask, 2026-10-23: "the left column could be better
+        // organized"): finding mods, working on their own, the game itself, then the app.
         NavItems =
         [
-            // Its own top-level item rather than a Downloads sub-tab, per explicit user request
-            // (Phase 8.3).
             // Nexus and the IMM Database together — everywhere mods can be found ("nexus" and
             // "imm-database" hand-offs land on its tabs).
-            new NavItem("database", "Database", typeof(DatabaseViewModel)),
+            new NavItem("database", "Database", typeof(DatabaseViewModel), "Find mods"),
             // What was downloaded and what became of it — its own page, like every mod organizer.
-            // It used to be a grid wedged into the Library page between the toolbar and the mod
-            // list ("Downloads needing attention"), which is where a real user lost track of it.
-            new NavItem("downloads", "Downloads", typeof(DownloadsViewModel)),
-            new NavItem("library", "Library", typeof(LibraryViewModel)),
+            new NavItem("downloads", "Downloads", typeof(DownloadsViewModel), "Find mods"),
+            new NavItem("library", "Library", typeof(LibraryViewModel), "Your mods"),
             // Changing the game's own items (New mod is for new ones) — the user's own name for it.
-            new NavItem("editor", "Editor", typeof(GameEditorViewModel)),
-            new NavItem("merge", "Merge & Install", typeof(MergeInstallViewModel)),
-            new NavItem("weekly-changes", "Weekly Changes", typeof(WeeklyChangesViewModel)),
-            // FTP file management for a rented server's mods folder plus the Local server tab
-            // (install, configure, run and keep a dedicated server up to date on this PC). It was
-            // marked Beta while the FTP install path was unproven on real hosts; it has since left
-            // Beta at the user's call.
-            new NavItem("server", "Server", typeof(ServerViewModel)),
-            // Between Server and Settings, matching the real Icarus Workshop's own nav order.
-            // Marked Beta while the deeper editing tabs (cosmetics, items, bestiary...) are
-            // still landing — per the user's own call before the first release carries it.
-            new NavItem("saves", "Saves (Beta)", typeof(SavesViewModel)),
+            new NavItem("editor", "Editor", typeof(GameEditorViewModel), "Your mods"),
+            new NavItem("merge", "Merge & Install", typeof(MergeInstallViewModel), "Your mods"),
+            // Out of Beta at the user's call (2026-10-23), with the save check, mount editor and points.
+            new NavItem("saves", "Saves", typeof(SavesViewModel), "Game"),
+            // FTP file management for a rented server's mods folder plus the Local server tab.
+            new NavItem("server", "Server", typeof(ServerViewModel), "Game"),
+            new NavItem("weekly-changes", "Weekly Changes", typeof(WeeklyChangesViewModel), "Game"),
             new NavItem("settings", "Settings", typeof(SettingsViewModel)),
             new NavItem("help", "Help", typeof(HelpViewModel)),
         ];

@@ -140,7 +140,7 @@ public sealed partial class SavesViewModel : ObservableObject
     /// <summary>Same reasoning as _pendingSlotLoad, for the separate fire-and-forget icon-resolution pass QueueIconResolution starts once every row already exists — see WaitForPendingIconLoadAsync.</summary>
     private Task _pendingIconLoad = Task.CompletedTask;
 
-    public string Title => "Saves (Beta)";
+    public string Title => "Saves";
 
     public ObservableCollection<SaveSlot> Slots { get; } = [];
 
