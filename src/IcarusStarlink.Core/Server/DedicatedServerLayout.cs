@@ -81,7 +81,11 @@ public static class DedicatedServerLayout
     }
 
     /// <summary>Prospect save names (file names without .json) in the profile's Prospects folder, newest first; empty when there are none yet.</summary>
-    public static IReadOnlyList<string> ListProspects(string installFolder, string? savedDirSuffix)
+    public static IReadOnlyList<string> ListProspects(string installFolder, string? savedDirSuffix) =>
+        [.. ListProspectFiles(installFolder, savedDirSuffix).Select(f => f.Name)];
+
+    /// <summary>The same list with each file's last write time and size (the Worlds tab shows them).</summary>
+    public static IReadOnlyList<ProspectFile> ListProspectFiles(string installFolder, string? savedDirSuffix)
     {
         var folder = ProspectsFolder(installFolder, savedDirSuffix);
         if (!Directory.Exists(folder))
@@ -91,6 +95,9 @@ public static class DedicatedServerLayout
 
         return [.. new DirectoryInfo(folder).GetFiles("*.json")
             .OrderByDescending(f => f.LastWriteTimeUtc)
-            .Select(f => Path.GetFileNameWithoutExtension(f.Name))];
+            .Select(f => new ProspectFile(Path.GetFileNameWithoutExtension(f.Name), f.LastWriteTimeUtc, f.Length))];
     }
 }
+
+/// <summary>One saved world on a dedicated server: its save name, when the server last wrote it, and its size.</summary>
+public sealed record ProspectFile(string Name, DateTime ModifiedUtc, long SizeBytes);

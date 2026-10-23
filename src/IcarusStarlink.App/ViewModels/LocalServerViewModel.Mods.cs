@@ -28,6 +28,10 @@ public sealed partial class LocalServerViewModel
     /// <summary>Every UE4SS mod in the game or on the server, one row each.</summary>
     public ObservableCollection<ServerUe4ssRow> Ue4ssModRows { get; } = [];
 
+    /// <summary>UE4SS mods on the server (the table also lists game-only ones), for the section header.</summary>
+    [ObservableProperty]
+    private int _serverUe4ssModCount;
+
     /// <summary>Mods whose server copy is older than (or differs from) the game's.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ModsTabHeader), nameof(HasModsToUpdate))]
@@ -120,6 +124,7 @@ public sealed partial class LocalServerViewModel
         ServerPaks.Clear();
         Ue4ssModRows.Clear();
         ModsToUpdateCount = 0;
+        ServerUe4ssModCount = 0;
         RefreshMergedPak();
         if (SelectedProfile is not { } p)
         {
@@ -158,6 +163,7 @@ public sealed partial class LocalServerViewModel
         }
 
         ModsToUpdateCount = Ue4ssModRows.Count(r => r.NeedsUpdate);
+        ServerUe4ssModCount = Ue4ssModRows.Count(r => r.IsOnServer);
     }
 
     private string? GameModsFolder() =>
