@@ -723,12 +723,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// </summary>
     internal Task RefreshHasExistingInstallAsync() => Task.Run(() =>
     {
-        // A staged pak on disk is all Copy to game needs — independent of whether anything is
+        // A staged build on disk is all Copy to game needs — independent of whether anything is
         // currently installed in the game folder.
-        // Pak AND its manifest — RebuildService writes the manifest only after a verified build, so
-        // a pak without one is a leftover of a failed build, not something to offer for install.
-        CanCopyToGame = File.Exists(_outputPakPath)
-            && File.Exists(Path.Combine(Path.GetDirectoryName(_outputPakPath)!, InstallManifestNames.PakManifest));
+        CanCopyToGame = HasCompleteStagedBuild();
 
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
@@ -741,7 +738,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             // The merged pak under an earlier name (left by an older version) is an install too:
             // it still loads, and Install/Remove clear it.
             var modsDirectory = Path.Combine(_settingsService.Current.IcarusContentPath!, "Paks", "mods");
-            HasExistingInstall = InstallManifestNames.LegacyMergedPakFileNames
+            HasExistingInstall = InstallManifestNames.AllMergedPakFileNames
                 .Prepend(Path.GetFileName(_outputPakPath))
                 .Any(name => File.Exists(Path.Combine(modsDirectory, name)));
         }
@@ -750,6 +747,15 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             // Best-effort — the button label just stays whatever it already was.
         }
     });
+
+    /// <summary>
+    /// The staged pak AND its mod list — RebuildService writes the list only after a verified build,
+    /// so a pak without one is a leftover of a failed build, not something to install (and its
+    /// install would leave the Library's "In game" reading the previous build's list).
+    /// </summary>
+    private bool HasCompleteStagedBuild() =>
+        File.Exists(_outputPakPath)
+        && File.Exists(Path.Combine(Path.GetDirectoryName(_outputPakPath)!, InstallManifestNames.PakManifest));
 
     private void ReloadProfileNames()
     {
@@ -924,9 +930,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     internal bool IsIslBuiltPack(LibraryEntry entry) =>
         entry.MergedPackModNames is not null
         || entry.MergedPackOptionDescriptions is not null
-        || InstallManifestNames.LegacyMergedPakFileNames
+        || InstallManifestNames.AllMergedPakFileNames
             .Prepend(Path.GetFileName(_outputPakPath))
-            .Prepend(InstallManifestNames.MergedPakFileName)
             .Any(n => string.Equals(entry.FolderName, Path.GetFileNameWithoutExtension(n), StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
@@ -3197,7 +3202,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             return InstallOutcome.Failed;
         }
 
-        if (!File.Exists(_outputPakPath))
+        if (!HasCompleteStagedBuild())
         {
             InstallStatusMessage = "Nothing built yet — click Install to build one.";
             return InstallOutcome.Failed;
@@ -3360,7 +3365,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             return;
         }
 
-        if (!File.Exists(_outputPakPath))
+        if (!HasCompleteStagedBuild())
         {
             InstallStatusMessage = "Nothing built yet — click Install to build one.";
             return;

@@ -210,10 +210,7 @@ public sealed class LastKnownGoodStore(string rootDirectory)
 
     /// <summary>The merged pak under its current and earlier names, and its mod list.</summary>
     private static IEnumerable<string> MergedFileNames() =>
-        InstallManifestNames.LegacyMergedPakFileNames
-            .Prepend(InstallManifestNames.MergedPakFileName)
-            .Append(InstallManifestNames.PakManifest)
-            .Distinct(StringComparer.OrdinalIgnoreCase);
+        InstallManifestNames.AllMergedPakFileNames.Append(InstallManifestNames.PakManifest);
 
     private void Prune()
     {

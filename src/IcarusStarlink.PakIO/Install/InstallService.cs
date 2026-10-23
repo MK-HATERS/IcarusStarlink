@@ -1,3 +1,4 @@
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Library;
 
 namespace IcarusStarlink.PakIO.Install;
@@ -58,26 +59,32 @@ public sealed class InstallService : IInstallService
         var targetPakPath = Path.Combine(modsDirectory, targetPakFileName);
         var backupPakPath = FolderBackup.BackupFile(targetPakPath, backupDirectory);
 
-        // Via a sibling temp file plus rename, never File.Copy(overwrite) straight onto the live pak
-        // (an audit finding): that truncates the destination first and streams in place, so a copy
-        // that fails midway (disk full, antivirus lock, the game launched mid-copy) left a truncated
-        // ISL-Merged_P.pak in the real game folder. The rename is all-or-nothing.
-        CopyViaTemp(stagedPakPath, targetPakPath);
+        // Via a sibling temp file plus rename (AtomicFile), never File.Copy(overwrite) straight onto
+        // the live pak (an audit finding): that truncates the destination first and streams in
+        // place, so a copy that fails midway (disk full, antivirus lock, the game launched mid-copy)
+        // left a truncated merged pak in the real game folder. The rename is all-or-nothing.
+        AtomicFile.Copy(stagedPakPath, targetPakPath);
 
         // Same deterministic sibling path RebuildService.WriteManifest always writes to — derived
         // here rather than cached by the caller, so a manifest from an earlier Rebuild (this
         // session or a previous one) is never silently missed just because the in-memory path
         // wasn't carried forward (e.g. after an app restart).
         var stagedManifestPath = Path.Combine(Path.GetDirectoryName(stagedPakPath)!, InstallManifestNames.PakManifest);
+        var targetManifestPath = Path.Combine(modsDirectory, InstallManifestNames.PakManifest);
+        // Backed up too, same as the pak itself — without this, installing a pak built from a
+        // smaller queue than what's currently listed silently loses the previous manifest (and
+        // its "installed mods" record GetInstalledStateAsync reads below) with no way to
+        // recover what was previously installed.
+        FolderBackup.BackupFile(targetManifestPath, backupDirectory, BackupCleanup.MergedPakBackupsKept);
         if (File.Exists(stagedManifestPath))
         {
-            var targetManifestPath = Path.Combine(modsDirectory, InstallManifestNames.PakManifest);
-            // Backed up too, same as the pak itself — without this, installing a pak built from a
-            // smaller queue than what's currently listed silently loses the previous manifest (and
-            // its "installed mods" record GetInstalledStateAsync reads below) with no way to
-            // recover what was previously installed.
-            FolderBackup.BackupFile(targetManifestPath, backupDirectory, BackupCleanup.MergedPakBackupsKept);
-            CopyViaTemp(stagedManifestPath, targetManifestPath);
+            AtomicFile.Copy(stagedManifestPath, targetManifestPath);
+        }
+        else if (File.Exists(targetManifestPath))
+        {
+            // No list beside the staged pak: the game's old one describes the previous build, and
+            // the Library's "In game" read it as this one's (review 2026-10-23). Backed up above.
+            File.Delete(targetManifestPath);
         }
 
         // The merged pak's backups counted across its current and earlier names, so a rename
@@ -86,30 +93,6 @@ public sealed class InstallService : IInstallService
 
         return new InstallResult(targetPakPath, backupPakPath);
     }, cancellationToken);
-
-    private static void CopyViaTemp(string sourcePath, string destinationPath)
-    {
-        var tempPath = destinationPath + ".tmp";
-        try
-        {
-            File.Copy(sourcePath, tempPath, overwrite: true);
-            File.Move(tempPath, destinationPath, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(tempPath))
-            {
-                try
-                {
-                    File.Delete(tempPath);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    // Scratch only — the next install overwrites it.
-                }
-            }
-        }
-    }
 
     public Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default) => Task.Run(() =>
     {
@@ -135,7 +118,7 @@ public sealed class InstallService : IInstallService
 
         // The merged pak under its earlier name(s) too: one left behind by an older version still
         // loads in-game, so "removed" would be untrue while it sits there.
-        var pakPaths = InstallManifestNames.LegacyMergedPakFileNames
+        var pakPaths = InstallManifestNames.AllMergedPakFileNames
             .Select(name => Path.Combine(modsDirectory, name))
             .Prepend(targetPakPath)
             .Distinct(StringComparer.OrdinalIgnoreCase);
@@ -181,7 +164,7 @@ public sealed class InstallService : IInstallService
         var targetManifestPath = Path.Combine(modsDirectory, InstallManifestNames.PakManifest);
 
         // What's installed now is backed up first, so the restore itself can be undone.
-        var pakPaths = InstallManifestNames.LegacyMergedPakFileNames
+        var pakPaths = InstallManifestNames.AllMergedPakFileNames
             .Select(name => Path.Combine(modsDirectory, name))
             .Prepend(targetPakPath)
             .Distinct(StringComparer.OrdinalIgnoreCase);
@@ -196,10 +179,10 @@ public sealed class InstallService : IInstallService
 
         FolderBackup.BackupFile(targetManifestPath, backupDirectory, BackupCleanup.MergedPakBackupsKept);
 
-        CopyViaTemp(previous.PakBackupPath, targetPakPath);
+        AtomicFile.Copy(previous.PakBackupPath, targetPakPath);
         if (previous.ManifestBackupPath is { } manifestBackup)
         {
-            CopyViaTemp(manifestBackup, targetManifestPath);
+            AtomicFile.Copy(manifestBackup, targetManifestPath);
         }
         else if (File.Exists(targetManifestPath))
         {

@@ -90,13 +90,14 @@ public sealed class MergeInstallViewModelTests : IDisposable
         settingsService ??= new FakeSettingsService();
 
         // RefreshHasExistingInstallAsync (constructor's own fire-and-forget background task) sets
-        // CanCopyToGame from File.Exists(outputPakPath) independently of anything a test does —
-        // pre-creating this empty file makes that background write agree with what a successful
+        // CanCopyToGame from the staged pak and its mod list independently of anything a test does —
+        // pre-creating both makes that background write agree with what a successful
         // RebuildAsync's own (synchronous, awaited) CanCopyToGame = true also sets, so a test
         // asserting CanCopyToGame can't flake depending on which one happens to run last.
         var outputPakPath = Path.Combine(_tempRoot, "Staged", "IcarusStarlink-Merged.pak");
         Directory.CreateDirectory(Path.GetDirectoryName(outputPakPath)!);
         File.WriteAllBytes(outputPakPath, []);
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(outputPakPath)!, IcarusStarlink.PakIO.InstallManifestNames.PakManifest), "");
 
         return new MergeInstallViewModel(
             libraryRepository ?? new FakeLibraryRepository(),

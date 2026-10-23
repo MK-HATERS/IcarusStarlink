@@ -62,6 +62,21 @@ public class InstallServiceTests : IDisposable
         Assert.False(File.Exists(TargetManifestPath));
     }
 
+    /// <summary>No list beside the staged pak: the game's old list is backed up and removed, so "In game" doesn't read the previous build's mods as this one's.</summary>
+    [Fact]
+    public async Task InstallAsync_NoManifestAlongsideThePak_TheGamesOldListGoes()
+    {
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+        Assert.True(File.Exists(TargetManifestPath));
+        File.Delete(_stagedManifestPath);
+
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+
+        Assert.False(File.Exists(TargetManifestPath));
+        Assert.Contains(Directory.GetFiles(_backupDirectory, "ISL-Merged_*.txt", SearchOption.AllDirectories), _ => true);
+        Assert.Empty((await _service.GetInstalledStateAsync(_fakeContentPath)).ModNames);
+    }
+
     [Fact]
     public async Task InstallAsync_ExistingTarget_BacksUpOldPakBeforeOverwriting()
     {
