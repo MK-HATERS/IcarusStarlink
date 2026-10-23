@@ -50,4 +50,35 @@ public static class NexusFileLineage
 
         return null;
     }
+
+    /// <summary>
+    /// Whether two file IDs are versions of one file — one replaced the other, directly or through
+    /// later updates — rather than two different files of the same mod (an optional add-on, another
+    /// variant). Installing a second file must not replace the first.
+    /// </summary>
+    public static bool AreVersionsOfOneFile(NexusModFileSet set, int fileId, int otherFileId) =>
+        fileId == otherFileId || Descends(set, fileId, otherFileId) || Descends(set, otherFileId, fileId);
+
+    private static bool Descends(NexusModFileSet set, int olderFileId, int newerFileId)
+    {
+        var next = new Dictionary<int, int>();
+        foreach (var update in set.Updates)
+        {
+            next[update.OldFileId] = update.NewFileId;
+        }
+
+        var seen = new HashSet<int> { olderFileId };
+        var current = olderFileId;
+        while (next.TryGetValue(current, out var newer) && seen.Add(newer))
+        {
+            if (newer == newerFileId)
+            {
+                return true;
+            }
+
+            current = newer;
+        }
+
+        return false;
+    }
 }
