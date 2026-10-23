@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Net.Http;
-using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -59,6 +58,28 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// <summary>How every copy of a mod is replaced (this page's Activate/Reinstall, and Library's Get update and Reinstall original).</summary>
     public ModReplacementService ModReplacement => _modReplacement;
 
+    /// <summary>UE4SS names staged and in the game — one answer for every check on this page.</summary>
+    private readonly Ue4ssInstalledNames _ue4ssNames;
+
+    /// <summary>
+    /// One install at a time. The nxm:// hand-off, Download &amp; extract, Download selected and the
+    /// Nexus cards could each run an import at once, and Library import isn't safe for concurrent
+    /// writers (two "which copies does this replace?" lookups could each miss the other's new mod).
+    /// Downloads themselves still run side by side; only the install step waits its turn.
+    /// </summary>
+    private readonly SemaphoreSlim _installGate = new(1, 1);
+
+    /// <summary>Downloads and installs running now — what BackgroundWorkRequestMessage is answered from.</summary>
+    private int _downloadsRunning;
+    private int _installsRunning;
+
+    /// <summary>Cancelled by Cancel downloads, then replaced so later downloads start fresh.</summary>
+    private CancellationTokenSource _downloadCancellation = new();
+
+    /// <summary>Drives the Downloads page's Cancel downloads button.</summary>
+    [ObservableProperty]
+    private bool _isDownloading;
+
     // --- Pending Downloads tab ---
     public ObservableCollection<PendingDownloadItemViewModel> PendingDownloads { get; } = [];
 
@@ -110,6 +131,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         _activityLog = activityLog;
         _activeDownloadsTracker = activeDownloadsTracker;
         _pendingDownloadsDirectory = pendingDownloadsDirectory;
+        _ue4ssNames = new Ue4ssInstalledNames(ue4ssModRepository, settingsService);
 
         _showAuthorColumn = settingsService.Current.CatalogShowAuthorColumn;
         _showVersionColumn = settingsService.Current.CatalogShowVersionColumn;
@@ -127,7 +149,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
         // handle every failure" shape a WPF event handler already has to use for async work —
         // RefreshCatalogAsync has its own top-level try/catch, so nothing here can produce an
         // unobserved exception.
-        _ = LoadCatalogAsync();
+        _catalogLoad = LoadCatalogAsync();
 
         // This ViewModel Sends LibraryChangedMessage itself (after a download/extract, an
         // Activate, or an import) but, until now, never Registered to receive it — so the IMM
@@ -152,6 +174,21 @@ public sealed partial class DownloadsViewModel : ObservableObject
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 self.PendingDownloadStatusMessage = $"Couldn't refresh the downloads list: {ex.Message}";
+            }
+        });
+
+        // An app update or closing the window must not cut a download or an install off halfway.
+        WeakReferenceMessenger.Default.Register<BackgroundWorkRequestMessage>(this, (recipient, message) =>
+        {
+            var self = (DownloadsViewModel)recipient;
+            if (Volatile.Read(ref self._downloadsRunning) > 0)
+            {
+                message.Reply("a Nexus download");
+            }
+
+            if (Volatile.Read(ref self._installsRunning) > 0)
+            {
+                message.Reply("a mod being installed");
             }
         });
     }
@@ -189,10 +226,23 @@ public sealed partial class DownloadsViewModel : ObservableObject
     }
 
     /// <summary>Records that a download was installed by something other than Activate (Library's Get update imports the catalog file itself).</summary>
-    public void RecordActivation(PendingDownloadItemViewModel item, IReadOnlyList<PendingDownloadActivatedItem> items)
+    public void RecordActivation(PendingDownloadItemViewModel item, IReadOnlyList<PendingDownloadActivatedItem> items) =>
+        MarkActivated(item, items, []);
+
+    /// <summary>
+    /// Saves what a download installed and shows it on its row. The row the caller holds can be
+    /// stale (another download landing reloads the list), so the row now listed for the same file
+    /// is updated too.
+    /// </summary>
+    private void MarkActivated(PendingDownloadItemViewModel item, IReadOnlyList<PendingDownloadActivatedItem> items, IReadOnlyList<string> requirements)
     {
-        _pendingDownloadStore.SetActivation(item.ModId, item.FileId, items, []);
-        item.SetActivated(items, []);
+        _pendingDownloadStore.SetActivation(item.ModId, item.FileId, items, requirements);
+        item.SetActivated(items, requirements);
+        if (PendingDownloads.FirstOrDefault(p => p.ModId == item.ModId && p.FileId == item.FileId) is { } current && !ReferenceEquals(current, item))
+        {
+            current.SetActivated(items, requirements);
+        }
+
         RefreshVisiblePendingDownloads();
     }
 
@@ -202,24 +252,21 @@ public sealed partial class DownloadsViewModel : ObservableObject
             d.ActivatedItems.Any(i => i.Kind == PendingDownloadActivationKind.Library && string.Equals(i.FolderName, libraryFolderName, StringComparison.OrdinalIgnoreCase))
             && File.Exists(ResolveLocalFilePath(d)));
 
+    /// <summary>
+    /// Matches the list to the store, keeping each row whose file is unchanged — overlapping
+    /// downloads used to rebuild every row, so an Activate still running on one then updated a row
+    /// no longer in the list (it kept saying "Activate").
+    /// </summary>
     private void ReloadPendingDownloads()
     {
-        PendingDownloads.Clear();
-        foreach (var entry in _pendingDownloadStore.Entries.OrderByDescending(e => e.DownloadedAtUtc))
-        {
-            PendingDownloads.Add(new PendingDownloadItemViewModel(entry, _libraryRepository, _ue4ssModRepository, Ue4ssNamesInGame));
-        }
+        var rows = _pendingDownloadStore.Entries
+            .OrderByDescending(e => e.DownloadedAtUtc)
+            .Select(entry => PendingDownloads.FirstOrDefault(row => row.IsSameDownload(entry))
+                ?? new PendingDownloadItemViewModel(entry, _libraryRepository, _ue4ssModRepository, _ue4ssNames))
+            .ToList();
+        ObservableCollectionSync.SyncTo(PendingDownloads, rows);
 
         RefreshVisiblePendingDownloads();
-    }
-
-    /// <summary>UE4SS mods currently enabled (sitting in the game's Mods folder rather than staging) — empty when the game path isn't set.</summary>
-    private IReadOnlyList<string> Ue4ssNamesInGame()
-    {
-        var icarusContentPath = _settingsService.Current.IcarusContentPath;
-        return !string.IsNullOrWhiteSpace(icarusContentPath)
-            ? _ue4ssModRepository.ListInstalledInGame(Ue4ssGamePaths.ResolveModsFolder(icarusContentPath))
-            : [];
     }
 
     /// <summary>
@@ -239,16 +286,39 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
     public void RefreshVisiblePendingDownloads()
     {
-        VisiblePendingDownloads.Clear();
+        // One read of the Library and the game's Mods folder for every row.
+        var installed = InstalledModsSnapshot.Take(_libraryRepository, _ue4ssNames);
         foreach (var item in PendingDownloads)
         {
-            item.Refresh();
-            if (ShowInstalledDownloads || !item.IsInstalled)
-            {
-                VisiblePendingDownloads.Add(item);
-            }
+            item.Refresh(installed);
         }
 
+        ObservableCollectionSync.SyncTo(VisiblePendingDownloads, [.. PendingDownloads.Where(item => ShowInstalledDownloads || !item.IsInstalled)]);
         OnPropertyChanged(nameof(InstalledDownloadCount));
+    }
+
+    [RelayCommand]
+    private void CancelDownloads()
+    {
+        var cancelling = _downloadCancellation;
+        _downloadCancellation = new CancellationTokenSource();
+        cancelling.Cancel();
+        PendingDownloadStatusMessage = "Cancelling downloads…";
+    }
+
+    /// <summary>Counts a download as running (for Cancel downloads and the busy check) and hands out the token Cancel downloads cancels.</summary>
+    private CancellationToken BeginDownload()
+    {
+        Interlocked.Increment(ref _downloadsRunning);
+        IsDownloading = true;
+        return _downloadCancellation.Token;
+    }
+
+    private void EndDownload()
+    {
+        if (Interlocked.Decrement(ref _downloadsRunning) == 0)
+        {
+            IsDownloading = false;
+        }
     }
 }

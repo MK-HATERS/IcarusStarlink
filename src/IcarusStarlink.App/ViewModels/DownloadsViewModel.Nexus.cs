@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Net.Http;
-using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -51,7 +50,7 @@ public sealed partial class DownloadsViewModel
         PendingDownloadStatusMessage = $"Finding mod #{nexusModId}'s file(s)…";
         try
         {
-            var fileSet = await _nexusApiClient.GetModFileSetAsync(apiKey, "icarus", nexusModId);
+            var fileSet = await _nexusApiClient.GetModFileSetAsync(apiKey, NxmHandlerCommand.IcarusDomain, nexusModId);
             var files = fileSet.Files;
             if (files.Count == 0)
             {
@@ -70,8 +69,7 @@ public sealed partial class DownloadsViewModel
             }
             else
             {
-                var dialog = new PickNexusFileDialog(displayName ?? $"Mod #{nexusModId}", files, newer) { Owner = Application.Current.MainWindow };
-                if (dialog.ShowDialog() != true || dialog.SelectedFile is not { } chosen)
+                if (_dialogService?.PickNexusFile(displayName ?? $"Mod #{nexusModId}", files, newer) is not { } chosen)
                 {
                     PendingDownloadStatusMessage = "Download cancelled.";
                     return;
@@ -80,7 +78,7 @@ public sealed partial class DownloadsViewModel
                 file = chosen;
             }
 
-            await FetchAndDownloadAsync($"nxm://icarus/mods/{nexusModId}/files/{file.FileId}", displayName);
+            await FetchAndDownloadAsync($"nxm://{NxmHandlerCommand.IcarusDomain}/mods/{nexusModId}/files/{file.FileId}", displayName);
         }
         catch (NexusRateLimitedException ex)
         {
@@ -156,10 +154,12 @@ public sealed partial class DownloadsViewModel
         }
 
         _activeDownloadsTracker.Start(trackerKey, trackerDisplayName);
+        var cancellationToken = BeginDownload();
+        var downloading = true;
         try
         {
             var links = await _nexusApiClient.GetDownloadLinksAsync(
-                apiKey, nxmUrl.GameDomain, nxmUrl.ModId, nxmUrl.FileId, nxmUrl.Key, nxmUrl.Expires);
+                apiKey, nxmUrl.GameDomain, nxmUrl.ModId, nxmUrl.FileId, nxmUrl.Key, nxmUrl.Expires, cancellationToken);
             if (links.Count == 0)
             {
                 PendingDownloadStatusMessage = "Nexus didn't return a download link for this file.";
@@ -176,7 +176,12 @@ public sealed partial class DownloadsViewModel
             {
                 fileName = ChooseNexusFileName(response, nxmUrl, links[0].Uri);
                 return Path.Combine(_pendingDownloadsDirectory, fileName);
-            }, HttpFileDownloader.DefaultIdleTimeout);
+            }, HttpFileDownloader.DefaultIdleTimeout, cancellationToken);
+
+            // The import below doesn't count as downloading: Cancel downloads must not cut an
+            // install off halfway. (The Library's in-progress row stays until it has landed.)
+            downloading = false;
+            EndDownload();
 
             _pendingDownloadStore.Add(new PendingDownloadEntry
             {
@@ -195,7 +200,11 @@ public sealed partial class DownloadsViewModel
                 await ActivatePendingDownloadAsync(justDownloaded);
             }
         }
-        catch (InvalidOperationException ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            PendingDownloadStatusMessage = $"Cancelled downloading '{trackerDisplayName}'.";
+        }
+        catch (NexusDownloadRejectedException ex)
         {
             // Nexus's own real rejection for exactly this case: a non-premium account's API key
             // alone isn't accepted for a direct download-link request (GetDownloadLinksAsync
@@ -207,7 +216,9 @@ public sealed partial class DownloadsViewModel
             // "Download failed: ..." message below with no actionable next step at all, since
             // ResolvePrimaryFileAndFetchAsync's own separate (more helpful) catch for this same
             // exception type was unreachable dead code — this method's own broad catch already
-            // swallowed it first, every time, before it could ever propagate that far.
+            // swallowed it first, every time, before it could ever propagate that far. Only this
+            // rejection: any InvalidOperationException (a failed import, say) used to send the user
+            // to the website with Premium advice.
             UrlOpener.TryOpen(NexusModWebUrl.For(nxmUrl.ModId));
             PendingDownloadStatusMessage =
                 $"{ex.Message} Opened the mod's Nexus page — if your account isn't Premium, click its "
@@ -222,6 +233,11 @@ public sealed partial class DownloadsViewModel
         }
         finally
         {
+            if (downloading)
+            {
+                EndDownload();
+            }
+
             _activeDownloadsTracker.Finish(trackerKey);
         }
     }
@@ -270,7 +286,8 @@ public sealed partial class DownloadsViewModel
         var installedFileIds = _libraryRepository.GetAll()
             .Where(e => e.NexusModId == nexusModId && e.NexusFileId is not null)
             .Select(e => e.NexusFileId!.Value)
-            .Concat(_ue4ssModRepository.GetAll()
+            // Enabled UE4SS mods too: they sit in the game's Mods folder, not staging.
+            .Concat(_ue4ssNames.All()
                 .Select(folder => _ue4ssModMetaStore.Load(folder))
                 .Where(meta => meta.NexusModId == nexusModId && meta.NexusFileId is not null)
                 .Select(meta => meta.NexusFileId!.Value))
@@ -305,7 +322,7 @@ public sealed partial class DownloadsViewModel
         {
             try
             {
-                var files = await _nexusApiClient.GetModFilesAsync(apiKey, "icarus", modId);
+                var files = await _nexusApiClient.GetModFilesAsync(apiKey, NxmHandlerCommand.IcarusDomain, modId);
                 fileVersion = files.FirstOrDefault(f => f.FileId == fileId)?.Version is { Length: > 0 } v ? v : null;
             }
             catch (Exception)
@@ -338,9 +355,6 @@ public sealed partial class DownloadsViewModel
                 _activityLog.Log($"Couldn't record which Nexus file '{activated.FolderName}' came from: {ex.Message}", ActivityEntryKind.Warning);
             }
         }
-
-        // Callers refreshed the Library before this ran; once more so it sees the file id.
-        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
     }
 
     /// <summary>
@@ -364,7 +378,7 @@ public sealed partial class DownloadsViewModel
 
         try
         {
-            var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
+            var info = await _nexusApiClient.GetModInfoAsync(apiKey, NxmHandlerCommand.IcarusDomain, modId);
             if (info is not null)
             {
                 _libraryRepository.SetNexusMetadata(folderName, info.Name, info.Author, info.Summary, info.Version);
@@ -410,7 +424,7 @@ public sealed partial class DownloadsViewModel
 
         try
         {
-            var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
+            var info = await _nexusApiClient.GetModInfoAsync(apiKey, NxmHandlerCommand.IcarusDomain, modId);
             if (info is not null)
             {
                 meta.NexusVersion = info.Version;

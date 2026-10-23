@@ -78,6 +78,9 @@ public sealed class DownloadsViewModelTests : IDisposable
         /// <summary>The game's Content folder for the built view model's settings — null leaves the game path unset.</summary>
         public string? IcarusContentPath { get; set; }
 
+        /// <summary>Both catalog sources (Daedalus and Jimk72) — a test can swap in one that counts fetches.</summary>
+        public FakeCatalogClient Catalog { get; set; } = new();
+
         /// <summary>What any HTTP download returns — a catalog download test hands it the archive bytes.</summary>
         public byte[]? HttpResponseBytes { get; set; }
 
@@ -87,7 +90,7 @@ public sealed class DownloadsViewModelTests : IDisposable
             settings.Current.IcarusContentPath = IcarusContentPath;
             var httpClient = HttpResponseBytes is null ? new HttpClient() : new HttpClient(new FixedBytesHandler(HttpResponseBytes));
             return new DownloadsViewModel(
-                new FakeCatalogClient(), new FakeCatalogClient(), new FakeGitHubRepoDateClient(),
+                Catalog, Catalog, new FakeGitHubRepoDateClient(),
                 Library, Ue4ss, Ue4ssMeta, settings, NexusApi, new FakeCredentialStore(), PendingStore,
                 httpClient, new PerformanceTracker(settings, Path.Combine(PendingDownloadsDirectory, "..", "Perf")),
                 ActivityLog, new ActiveDownloadsTracker(), PendingDownloadsDirectory, PakImporter, Path.Combine(PendingDownloadsDirectory, "..", "Data"),
@@ -771,6 +774,136 @@ public sealed class DownloadsViewModelTests : IDisposable
         Assert.Equal(["UE4SS for Icarus (Lua mods)."], reloaded.Entries.Single().Requirements);
     }
 
+    private static NexusModFile NexusFile(int id) => new(id, $"file{id}.zip", $"File {id}", "1", "MAIN", IsPrimary: false);
+
+    /// <summary>
+    /// A mod offering two files side by side (a main file and an optional add-on): installing the
+    /// second used to replace every copy of the mod, deleting the first.
+    /// </summary>
+    [Fact]
+    public async Task Activate_SecondFileOfTheSameMod_KeepsTheFirst()
+    {
+        var harness = new Harness(_root);
+        harness.NexusApi.FileSet = new NexusModFileSet([NexusFile(10), NexusFile(20)], []);
+        var vm = harness.Build();
+        var first = harness.AddDownload("Main.zip", a => WriteEntry(a, "MainPart/Scripts/main.lua", "x"), modId: 400, fileId: 10);
+        await vm.ActivateAsync(first);
+        var second = harness.AddDownload("Addon.zip", a => WriteEntry(a, "AddonPart/Scripts/main.lua", "x"), modId: 400, fileId: 20);
+
+        var result = await vm.ActivateAsync(second);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(["AddonPart", "MainPart"], harness.Ue4ss.GetAll().Order());
+    }
+
+    /// <summary>The same file's newer version (Nexus's file_updates: 10 → 30) still replaces the copy it updates.</summary>
+    [Fact]
+    public async Task Activate_NewerVersionOfAnInstalledFile_ReplacesIt()
+    {
+        var harness = new Harness(_root);
+        harness.NexusApi.FileSet = new NexusModFileSet([NexusFile(20), NexusFile(30)], [new NexusFileUpdate(10, 30)]);
+        var vm = harness.Build();
+        var old = harness.AddDownload("Main.zip", a => WriteEntry(a, "MainOld/Scripts/main.lua", "x"), modId: 400, fileId: 10);
+        await vm.ActivateAsync(old);
+        var addon = harness.AddDownload("Addon.zip", a => WriteEntry(a, "AddonPart/Scripts/main.lua", "x"), modId: 400, fileId: 20);
+        await vm.ActivateAsync(addon);
+        var newer = harness.AddDownload("Main v2.zip", a => WriteEntry(a, "MainNew/Scripts/main.lua", "x"), modId: 400, fileId: 30);
+
+        var result = await vm.ActivateAsync(newer);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(["AddonPart", "MainNew"], harness.Ue4ss.GetAll().Order());
+    }
+
+    /// <summary>A copy installed before Starlink recorded its Nexus file could be any of the mod's files: the user is asked, and No keeps it.</summary>
+    [Fact]
+    public async Task Activate_CopyWithNoRecordedFile_AsksAndNoKeepsIt()
+    {
+        var harness = new Harness(_root) { Dialogs = new FakeDialogService(confirmResult: false) };
+        harness.NexusApi.FileSet = new NexusModFileSet([NexusFile(10), NexusFile(20)], []);
+        Directory.CreateDirectory(Path.Combine(_root, "Staged_UE4SS", "OldCopy", "Scripts"));
+        harness.Ue4ssMeta.Save("OldCopy", new Ue4ssModMeta { NexusModId = 400 });
+        var vm = harness.Build();
+        var item = harness.AddDownload("Addon.zip", a => WriteEntry(a, "AddonPart/Scripts/main.lua", "x"), modId: 400, fileId: 20);
+
+        await vm.ActivateAsync(item);
+
+        Assert.Contains(harness.Dialogs.ConfirmMessages, m => m.Contains("OldCopy"));
+        Assert.Equal(["AddonPart", "OldCopy"], harness.Ue4ss.GetAll().Order());
+    }
+
+    /// <summary>Another download landing reloads the list; the row an Activate holds must still be the row on the page, or it keeps saying "Activate".</summary>
+    [Fact]
+    public void PendingList_Reload_KeepsTheRowsOfUnchangedDownloads()
+    {
+        var harness = new Harness(_root);
+        harness.AddDownload("a.zip", a => WriteEntry(a, "Scripts/main.lua", "x"), modId: 1, fileId: 1);
+        harness.AddDownload("b.zip", a => WriteEntry(a, "Scripts/main.lua", "x"), modId: 2, fileId: 2);
+        var vm = harness.Build();
+        var rowA = vm.PendingDownloads.Single(p => p.ModId == 1);
+
+        vm.DiscardPendingDownloadCommand.Execute(vm.PendingDownloads.Single(p => p.ModId == 2));
+
+        Assert.Same(rowA, Assert.Single(vm.PendingDownloads));
+    }
+
+    /// <summary>Only Nexus's download-link rejection is "you may need Premium": any other failure says what went wrong instead of opening the website.</summary>
+    [Fact]
+    public async Task FetchAndDownload_OtherFailure_IsNotReportedAsNeedingPremium()
+    {
+        var harness = new Harness(_root);
+        harness.NexusApi.DownloadLinksError = new InvalidOperationException("Something else broke.");
+        var vm = harness.Build();
+
+        await vm.FetchAndDownloadAsync("nxm://icarus/mods/12/files/34");
+
+        Assert.Equal("Download failed: Something else broke.", vm.PendingDownloadStatusMessage);
+    }
+
+    /// <summary>A Database pak used to get author "Unknown" when installed from the Downloads page, but the real author through Library's Get update.</summary>
+    [Fact]
+    public async Task CatalogDownload_Pak_IsImportedWithTheCatalogAuthor()
+    {
+        var harness = new Harness(_root) { HttpResponseBytes = [1, 2, 3] };
+        var vm = harness.Build();
+        var catalogEntry = new CatalogEntry(
+            CatalogSource.Jimk72, "jimk72:stacks", "Bigger Stacks", "jimk72", "1.0", "D", "", null, null, null,
+            PakUrl: "https://example.com/Stacks.pak", ExmodzUrl: null, Categories: []);
+
+        await vm.DownloadAndExtractCommand.ExecuteAsync(new CatalogEntryViewModel(catalogEntry, null, null));
+
+        Assert.Equal(["jimk72"], harness.PakImporter.Authors);
+    }
+
+    /// <summary>Two callers asking for the catalog while the first load is still running share that load instead of fetching again.</summary>
+    [Fact]
+    public async Task GetOrFetchCatalog_WhileTheFirstLoadRuns_FetchesOnce()
+    {
+        var pending = new TaskCompletionSource<IReadOnlyList<CatalogEntry>>();
+        var harness = new Harness(_root) { Catalog = new FakeCatalogClient { Pending = pending } };
+        var vm = harness.Build();
+        var fetchesByConstructor = harness.Catalog.FetchCount;
+
+        var first = vm.GetOrFetchCatalogAsync();
+        var second = vm.GetOrFetchCatalogAsync();
+        pending.SetResult([new CatalogEntry(CatalogSource.Daedalus, "daedalus:x", "X", "A", "1", "D", "", null, null, null, PakUrl: null, ExmodzUrl: null, Categories: [])]);
+        await Task.WhenAll(first, second);
+
+        Assert.Equal(fetchesByConstructor, harness.Catalog.FetchCount);
+        Assert.NotEmpty(await first);
+    }
+
+    /// <summary>The catalog row's Outdated uses the same version rule as the Nexus cards: "1.0" installed against a listed "1" is up to date.</summary>
+    [Theory]
+    [InlineData("1", "1.0", false)]
+    [InlineData("1.2", "1.1", true)]
+    public void CatalogRow_Outdated_ComparesVersionsNotStrings(string listed, string installed, bool expectedOutdated)
+    {
+        var entry = new CatalogEntry(CatalogSource.Daedalus, "daedalus:x", "X", "A", listed, "D", "", null, null, null, PakUrl: null, ExmodzUrl: null, Categories: []);
+
+        Assert.Equal(expectedOutdated, new CatalogEntryViewModel(entry, installed, null).IsOutdated);
+    }
+
     // --- Fakes: only the network and UnrealPak; everything else above is the real storage layer ---
 
     /// <summary>Stands in for UnrealPak only: the pak is imported into the REAL Library repository as an opaque entry, exactly as the real importer does when conversion isn't possible.</summary>
@@ -778,12 +911,16 @@ public sealed class DownloadsViewModelTests : IDisposable
     {
         public List<string> ImportedPaks { get; } = [];
 
+        /// <summary>The author passed with each import, in order.</summary>
+        public List<string?> Authors { get; } = [];
+
         public Task<LibraryEntry> ImportAsync(
             string pakFilePath, string dataFolder, string? unrealPakExePath,
             string? source = null, int? nexusModId = null, string? catalogEntryId = null,
             string? name = null, string? author = null, CancellationToken cancellationToken = default)
         {
             ImportedPaks.Add(Path.GetFileName(pakFilePath));
+            Authors.Add(author);
             return Task.FromResult(library.ImportPak(pakFilePath, source: source, nexusModId: nexusModId));
         }
     }
@@ -791,7 +928,11 @@ public sealed class DownloadsViewModelTests : IDisposable
     private sealed class FakeNexusApiClient : INexusApiClient
     {
         public Task<NexusUserInfo?> ValidateKeyAsync(string apiKey, CancellationToken cancellationToken = default) => Task.FromResult<NexusUserInfo?>(null);
-        public Task<IReadOnlyList<NexusDownloadLink>> GetDownloadLinksAsync(string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        /// <summary>What GetDownloadLinksAsync throws; unset, it isn't supported.</summary>
+        public Exception? DownloadLinksError { get; set; }
+
+        public Task<IReadOnlyList<NexusDownloadLink>> GetDownloadLinksAsync(string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default) =>
+            throw (DownloadLinksError ?? new NotSupportedException());
         public Task<NexusModInfo?> GetModInfoAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
             Task.FromResult<NexusModInfo?>(new NexusModInfo(modId, $"Nexus Mod {modId}", "author", "summary", "1", null));
         public Task<IReadOnlyList<NexusModInfo>> GetModListAsync(string apiKey, string gameDomain, NexusModList list, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -807,13 +948,16 @@ public sealed class DownloadsViewModelTests : IDisposable
             return Task.FromResult<IReadOnlyList<NexusModFile>>([new NexusModFile(1, $"mod{modId}.zip", "Main", "1", "MAIN", IsPrimary: true)]);
         }
 
+        /// <summary>What GetModFileSetAsync answers; unset, one main file.</summary>
+        public NexusModFileSet? FileSet { get; set; }
+
         /// <summary>Mod IDs whose files were listed to START a download (the dependency offer's "Yes" lands here). Recording an activated download's file version uses GetModFilesAsync instead.</summary>
         public List<int> FileSetCalls { get; } = [];
 
         public Task<NexusModFileSet> GetModFileSetAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
         {
             FileSetCalls.Add(modId);
-            return Task.FromResult(new NexusModFileSet([new NexusModFile(1, $"mod{modId}.zip", "Main", "1", "MAIN", IsPrimary: true)], []));
+            return Task.FromResult(FileSet ?? new NexusModFileSet([new NexusModFile(1, $"mod{modId}.zip", "Main", "1", "MAIN", IsPrimary: true)], []));
         }
 
         public Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default)
@@ -867,7 +1011,16 @@ public sealed class DownloadsViewModelTests : IDisposable
 
     private sealed class FakeCatalogClient : IDaedalusCatalogClient, IJimk72CatalogClient
     {
-        public Task<IReadOnlyList<CatalogEntry>> FetchAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<CatalogEntry>>([]);
+        /// <summary>When set, every fetch waits for it — so a test can ask again while a fetch is still running.</summary>
+        public TaskCompletionSource<IReadOnlyList<CatalogEntry>>? Pending { get; set; }
+
+        public int FetchCount { get; private set; }
+
+        public Task<IReadOnlyList<CatalogEntry>> FetchAsync(CancellationToken cancellationToken = default)
+        {
+            FetchCount++;
+            return Pending?.Task ?? Task.FromResult<IReadOnlyList<CatalogEntry>>([]);
+        }
     }
 
     private sealed class FakeGitHubRepoDateClient : IGitHubRepoDateClient

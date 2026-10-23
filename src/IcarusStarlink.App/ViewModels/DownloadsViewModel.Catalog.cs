@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Net.Http;
-using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -184,11 +183,25 @@ public sealed partial class DownloadsViewModel
     {
         if (_allCatalogEntries.Count == 0)
         {
-            await LoadCatalogAsync();
+            // The load already under way (the constructor's, or another caller's) is awaited, not
+            // started again — two callers early in startup used to fetch both catalogs twice. A
+            // finished load that came back empty (offline) is retried.
+            if (_catalogLoad is null || _catalogLoad.IsCompleted)
+            {
+                _catalogLoad = LoadCatalogAsync();
+            }
+
+            await _catalogLoad;
         }
 
         return _allCatalogEntries;
     }
+
+    private Task? _catalogLoad;
+
+    /// <summary>The author the loaded catalog lists for this entry, or null (not loaded yet, or no longer listed).</summary>
+    private string? CatalogAuthorOf(string? catalogEntryId) =>
+        catalogEntryId is null ? null : _allCatalogEntries.FirstOrDefault(e => e.Id == catalogEntryId)?.Author;
 
     /// <summary>How old a snapshot may be and still answer the automatic load; Refresh always goes to the network.</summary>
     private static readonly TimeSpan CatalogSnapshotMaxAge = TimeSpan.FromHours(6);
@@ -507,8 +520,8 @@ public sealed partial class DownloadsViewModel
         CatalogStatusMessage = message;
         if (success)
         {
+            // Activate already told the Library (and this page) that it changed.
             ApplyCatalogFilters();
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         }
     }
 
@@ -540,6 +553,10 @@ public sealed partial class DownloadsViewModel
 
             _activityLog.Log($"Downloaded and imported '{catalogEntry.Name}' from the catalog.", ActivityEntryKind.Success);
             return (true, $"Downloaded and imported '{catalogEntry.Name}'.");
+        }
+        catch (OperationCanceledException)
+        {
+            return (false, $"Cancelled downloading '{catalogEntry.Name}'.");
         }
         catch (Exception ex)
         {
@@ -580,7 +597,15 @@ public sealed partial class DownloadsViewModel
         // Streamed to disk through a .part file, same as the Nexus path (an audit finding):
         // GetByteArrayAsync buffered the whole pak in memory AND put the entire transfer under
         // HttpClient's 100 s timeout, so a large catalog pak on a slow connection failed every time.
-        await HttpFileDownloader.DownloadToFileAsync(_downloadHttpClient, [downloadUrl], localPath, HttpFileDownloader.DefaultIdleTimeout);
+        var cancellationToken = BeginDownload();
+        try
+        {
+            await HttpFileDownloader.DownloadToFileAsync(_downloadHttpClient, [downloadUrl], localPath, HttpFileDownloader.DefaultIdleTimeout, cancellationToken);
+        }
+        finally
+        {
+            EndDownload();
+        }
 
         // catalogEntryId is the Database counterpart of the Nexus pipeline's nexusModId — the
         // stable link that keeps the Downloaded badge and update-checking working after a
@@ -595,6 +620,7 @@ public sealed partial class DownloadsViewModel
             Source = PendingDownloadEntry.DatabaseSource,
             CatalogEntryId = catalogEntry.Id,
             DisplayName = catalogEntry.Name,
+            Author = catalogEntry.Author,
         });
         ReloadPendingDownloads();
 
@@ -640,7 +666,6 @@ public sealed partial class DownloadsViewModel
             ? $"Downloaded and imported {successCount} mod(s)."
             : $"Downloaded and imported {successCount} of {entries.Count} — {failures.Count} failed: {string.Join("; ", failures)}";
         ApplyCatalogFilters();
-        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
     }
 
     /// <summary>Opens the given row's readme, or the selected row's — same reason as DownloadAndExtractAsync.</summary>
