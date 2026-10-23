@@ -172,46 +172,6 @@ public sealed partial class LibraryViewModel
         OnPropertyChanged(nameof(Ue4ssSelectedCount));
     }
 
-    /// <summary>The selection bar's Turn on / Turn off ("data" or "ue4ss" panel): every selected mod in that panel, as if each ON box were ticked.</summary>
-    [RelayCommand]
-    private void TurnOnSelected(string? panel) => SetSelectedEnabled(panel, true);
-
-    [RelayCommand]
-    private void TurnOffSelected(string? panel) => SetSelectedEnabled(panel, false);
-
-    /// <summary>Space in the list: turns the selection on, or off when every selected mod is already on.</summary>
-    public void ToggleSelectedEnabled()
-    {
-        var states = BulkSelectedItems.Select(i => i.IsEnabled).Concat(BulkSelectedUe4ssRows.Select(r => r.IsEnabled)).ToList();
-        if (states.Count == 0)
-        {
-            return;
-        }
-
-        var enable = !states.All(on => on);
-        SetSelectedEnabled("data", enable);
-        SetSelectedEnabled("ue4ss", enable);
-    }
-
-    private void SetSelectedEnabled(string? panel, bool enabled)
-    {
-        if (panel is null or "data")
-        {
-            foreach (var item in BulkSelectedItems.ToList().Where(i => i.IsEnabled != enabled))
-            {
-                item.IsEnabled = enabled;
-            }
-        }
-
-        if (panel is null or "ue4ss")
-        {
-            foreach (var row in BulkSelectedUe4ssRows.ToList().Where(r => r.IsEnabled != enabled))
-            {
-                row.IsEnabled = enabled;
-            }
-        }
-    }
-
     /// <summary>The selection bar's ✕ and Escape.</summary>
     [RelayCommand]
     private void ClearSelection() => ClearBulkSelection();
@@ -261,79 +221,6 @@ public sealed partial class LibraryViewModel
         if (e.PropertyName == nameof(DownloadsViewModel.PendingDownloadStatusMessage))
         {
             ShowNotice(Downloads.PendingDownloadStatusMessage);
-        }
-    }
-
-    // ---- Linked halves (MkHaters Bags ↔ MkHatersBags) ----
-
-    /// <summary>
-    /// Pairs each UE4SS mod with the data mod that is its other half: the same Nexus mod, or the same
-    /// name once spaces, case and "&amp;"/"and" are ignored (MkHaters Bags / MkHatersBags, Minimap &amp;
-    /// Map Icons / MiniMapa's Nexus title "Minimap and Map Icons"). Only a hint for the eye.
-    /// </summary>
-    private void LinkHalves()
-    {
-        var items = _itemsByFolderName.Values.ToList();
-        foreach (var item in items)
-        {
-            item.LinkedPartner = null;
-        }
-
-        foreach (var row in Ue4ssMods)
-        {
-            row.LinkedPartner = null;
-            if (row.IsLinkedToLibraryMod)
-            {
-                continue; // shown inside its data row ("Pak + UE4SS"), not as a row of its own
-            }
-
-            var keys = new[] { LinkKey(row.Name), row.NexusName is null ? null : LinkKey(row.NexusName) };
-            var partner = items.FirstOrDefault(i => row.NexusModId is { } id && i.NexusModId == id)
-                ?? items.FirstOrDefault(i => keys.Contains(LinkKey(i.Name)));
-            row.LinkedPartner = partner;
-            if (partner is not null)
-            {
-                partner.LinkedPartner = row;
-            }
-        }
-    }
-
-    internal static string LinkKey(string name) =>
-        new([.. name.Replace("&", "and", StringComparison.Ordinal).ToLowerInvariant().Where(char.IsLetterOrDigit)]);
-
-    // ---- Endorsing a UE4SS mod (data rows endorse themselves: LibraryItemViewModel.Endorse) ----
-
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
-    private async Task EndorseUe4ssMod(Ue4ssModRowViewModel? row)
-    {
-        if (row?.NexusModId is not { } modId || row.IsEndorsed)
-        {
-            return;
-        }
-
-        var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
-        if (apiKey is null)
-        {
-            StatusMessage = "Sign in with your Nexus API key in Settings to endorse mods.";
-            return;
-        }
-
-        try
-        {
-            var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
-            if (info is null)
-            {
-                StatusMessage = $"Couldn't reach '{row.Name}' on Nexus.";
-                return;
-            }
-
-            row.EndorsementStatus = await _nexusApiClient.SetEndorsementAsync(apiKey, "icarus", modId, info.Version, endorse: true);
-            StatusMessage = $"Endorsed '{row.Name}' on Nexus.";
-            _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Couldn't endorse '{row.Name}': {ex.Message}";
         }
     }
 }
