@@ -10,16 +10,84 @@ using IcarusStarlink.Core.Ue4ss;
 
 namespace IcarusStarlink.App.ViewModels;
 
-/// <summary>One of the game's own UE4SS mods, offered for the server with a tick box.</summary>
-public sealed partial class Ue4ssServerPick(string name, bool enabledInGame, bool onServer) : ObservableObject
+/// <summary>
+/// One UE4SS mod in the server's table: the game's copy, the server's copy, how they compare, and
+/// what to do about it (user request 2026-10-23 — the page used to list the same mods twice and
+/// never said a server copy was out of date). ServerOn is the server's own on/off switch.
+/// </summary>
+public sealed partial class ServerUe4ssRow : ObservableObject
 {
-    public string Name { get; } = name;
-    public bool EnabledInGame { get; } = enabledInGame;
-    public bool OnServer { get; } = onServer;
-    public string Note => OnServer ? "on the server" : EnabledInGame ? "enabled in your game" : "disabled in your game";
+    private readonly Action<ServerUe4ssRow, bool>? _onServerToggled;
+    private bool _applying;
+
+    public ServerUe4ssRow(ServerUe4ssComparison comparison, Action<ServerUe4ssRow, bool>? onServerToggled = null)
+    {
+        Comparison = comparison;
+        _onServerToggled = onServerToggled;
+        _serverOn = comparison.OnOnServer;
+    }
+
+    public ServerUe4ssComparison Comparison { get; }
+
+    public string Name => Comparison.Name;
+
+    public ServerModState State => Comparison.State;
+
+    public bool IsOnServer => Comparison.OnServer;
+
+    /// <summary>"v1.9.0 · on", "off", or "—" when the game doesn't have it.</summary>
+    public string GameText => Comparison.InGame ? Describe(Comparison.GameVersion, Comparison.OnInGame) : "—";
+
+    public string ServerText => Comparison.OnServer ? (Comparison.ServerVersion is { } v ? $"v{v}" : "") : "—";
+
+    public string StateText => State switch
+    {
+        ServerModState.Same => "Same as your game",
+        ServerModState.ServerOutOfDate => Comparison.GameVersion is not null && Comparison.ServerVersion is not null && Comparison.GameVersion != Comparison.ServerVersion
+            ? "Server out of date"
+            : "Server copy differs",
+        ServerModState.ServerNewer => "Server has a newer version",
+        ServerModState.NotOnServer => "Not on the server",
+        ServerModState.OnlyOnServer => "Only on the server",
+        _ => "",
+    };
+
+    /// <summary>Shown in the accent colour: the server's copy should be updated.</summary>
+    public bool NeedsUpdate => State == ServerModState.ServerOutOfDate;
+
+    public bool IsSame => State == ServerModState.Same;
+
+    /// <summary>The row's main button: put the game's copy on the server ("Copy to server" / "Update on server"); none when they match or the game doesn't have it.</summary>
+    public string? CopyActionLabel => State switch
+    {
+        ServerModState.NotOnServer => "Copy to server",
+        ServerModState.ServerOutOfDate => "Update on server",
+        ServerModState.ServerNewer => "Use your game's copy",
+        _ => null,
+    };
+
+    public bool HasCopyAction => CopyActionLabel is not null;
 
     [ObservableProperty]
-    private bool _isChecked = enabledInGame && !onServer;
+    private bool _serverOn;
+
+    partial void OnServerOnChanged(bool value)
+    {
+        if (!_applying)
+        {
+            _onServerToggled?.Invoke(this, value);
+        }
+    }
+
+    /// <summary>Puts the switch back without asking the server again (a refused change).</summary>
+    public void ResetServerOn(bool value)
+    {
+        _applying = true;
+        ServerOn = value;
+        _applying = false;
+    }
+
+    private static string Describe(string? version, bool on) => version is null ? (on ? "on" : "off") : $"v{version} · {(on ? "on" : "off")}";
 }
 
 /// <summary>
@@ -44,9 +112,34 @@ public sealed partial class LocalServerViewModel
     [NotifyCanExecuteChangedFor(nameof(RemoveSelectedPakCommand))]
     private ServerPakFile? _selectedServerPak;
 
-    public ObservableCollection<ServerUe4ssMod> ServerUe4ssMods { get; } = [];
+    /// <summary>Every UE4SS mod in the game or on the server, one row each.</summary>
+    public ObservableCollection<ServerUe4ssRow> Ue4ssModRows { get; } = [];
 
-    public ObservableCollection<Ue4ssServerPick> GameUe4ssMods { get; } = [];
+    /// <summary>Mods whose server copy is older than (or differs from) the game's.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ModsTabHeader), nameof(HasModsToUpdate))]
+    private int _modsToUpdateCount;
+
+    /// <summary>The server has an older merged pak than the one Merge &amp; Install last built.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ModsTabHeader), nameof(HasModsToUpdate))]
+    private bool _isServerPakOutOfDate;
+
+    public bool HasModsToUpdate => ModsTabHeader != "Mods";
+
+    /// <summary>"Mods (3 to update)" on the tab itself, so it shows from any tab.</summary>
+    public string ModsTabHeader
+    {
+        get
+        {
+            var count = ModsToUpdateCount + (IsServerPakOutOfDate ? 1 : 0);
+            return count == 0 ? "Mods" : $"Mods ({count} to update)";
+        }
+    }
+
+    /// <summary>"Install my merged pak" when the server lacks it, "Update the server's pak" when the server's is older.</summary>
+    [ObservableProperty]
+    private string _installMergedPakLabel = "Install my merged pak";
 
     [ObservableProperty]
     private bool _serverHasUe4ss;
@@ -67,9 +160,39 @@ public sealed partial class LocalServerViewModel
     public void RefreshMergedPak()
     {
         OnPropertyChanged(nameof(HasMergedPak));
-        MergedPakSummary = HasMergedPak
-            ? $"Your merged pak: {Path.GetFileName(_mergedPakPath)} — built {File.GetLastWriteTime(_mergedPakPath!):g}"
-            : "No merged pak yet — build one on the Merge & Install page first.";
+        IsServerPakOutOfDate = false;
+        InstallMergedPakLabel = "Install my merged pak";
+        if (!HasMergedPak)
+        {
+            MergedPakSummary = "No merged pak yet — build one on the Merge & Install page first.";
+            return;
+        }
+
+        var built = File.GetLastWriteTime(_mergedPakPath!);
+        var serverCopy = SelectedProfile is { } p ? Path.Combine(DedicatedServerLayout.PakModsFolder(p.InstallFolder), Path.GetFileName(_mergedPakPath!)) : null;
+        if (serverCopy is null || !File.Exists(serverCopy))
+        {
+            MergedPakSummary = $"Your merged pak ({built:g}) isn't on the server yet.";
+            return;
+        }
+
+        bool same;
+        try
+        {
+            same = ServerUe4ssSync.SamePak(_mergedPakPath!, serverCopy);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Locked by the running server: say what's known rather than guess.
+            MergedPakSummary = $"Your merged pak was built {built:g}; the server's copy is from {File.GetLastWriteTime(serverCopy):g}.";
+            return;
+        }
+
+        IsServerPakOutOfDate = !same;
+        InstallMergedPakLabel = same ? "Install my merged pak" : "Update the server's pak";
+        MergedPakSummary = same
+            ? $"✓ The server has your current merged pak (built {built:g})."
+            : $"The server's merged pak is from {File.GetLastWriteTime(serverCopy):g}; yours was built {built:g}. Update it so players match the server.";
     }
 
     /// <summary>
@@ -82,8 +205,8 @@ public sealed partial class LocalServerViewModel
     private void RefreshMods()
     {
         ServerPaks.Clear();
-        ServerUe4ssMods.Clear();
-        GameUe4ssMods.Clear();
+        Ue4ssModRows.Clear();
+        ModsToUpdateCount = 0;
         RefreshMergedPak();
         if (SelectedProfile is not { } p)
         {
@@ -108,22 +231,20 @@ public sealed partial class LocalServerViewModel
                   "Press Install UE4SS from my game to copy your game's build over (the server's settings and mods are kept)."
                 : $"UE4SS is installed on the server{(version is null ? "" : $" ({Ue4ssBuild.Describe(version, commit)})")}.";
 
-        var onServer = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var mod in ServerModFiles.ListUe4ssMods(p.InstallFolder).Where(m => !Ue4ssFrameworkMods.Contains(m.Name)))
+        try
         {
-            ServerUe4ssMods.Add(mod);
-            onServer.Add(mod.Name);
-        }
-
-        if (GameModsFolder() is { } gameMods && Directory.Exists(gameMods))
-        {
-            var gameTxt = Ue4ssModsTxt.Load(Path.Combine(gameMods, "mods.txt"));
-            foreach (var folder in Directory.GetDirectories(gameMods).Select(Path.GetFileName).Where(n => n is not null && !Ue4ssFrameworkMods.Contains(n)).Order(StringComparer.OrdinalIgnoreCase))
+            var comparisons = ServerUe4ssSync.Compare(GameModsFolder() ?? "", DedicatedServerLayout.Ue4ssModsFolder(p.InstallFolder), Ue4ssFrameworkMods);
+            foreach (var comparison in comparisons)
             {
-                var enabled = Ue4ssModStart.Starts(gameMods, folder!, gameTxt);
-                GameUe4ssMods.Add(new Ue4ssServerPick(folder!, enabled, onServer.Contains(folder!)));
+                Ue4ssModRows.Add(new ServerUe4ssRow(comparison, OnServerModToggled));
             }
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = $"Couldn't compare the UE4SS mods: {ex.Message}";
+        }
+
+        ModsToUpdateCount = Ue4ssModRows.Count(r => r.NeedsUpdate);
     }
 
     private string? GameModsFolder() =>
@@ -246,18 +367,48 @@ public sealed partial class LocalServerViewModel
         RefreshMods();
     }
 
+    /// <summary>A row's Copy to server / Update on server: the game's copy goes on, keeping the server's own config and on/off (ServerUe4ssSync.CopyToServer).</summary>
     [RelayCommand]
-    private void CopyCheckedUe4ssMods()
+    private void CopyUe4ssModToServer(ServerUe4ssRow? row)
     {
-        if (SelectedProfile is not { } p || !EnsureStoppedFor("change its mods"))
+        if (row is null)
         {
             return;
         }
 
-        var picked = GameUe4ssMods.Where(m => m.IsChecked).ToList();
-        if (picked.Count == 0 || GameModsFolder() is not { } gameMods)
+        CopyRowsToServer([row]);
+    }
+
+    /// <summary>
+    /// Make the server match my game: every mod whose server copy is out of date, plus every mod
+    /// that's on in the game but missing from the server. Nothing is removed, the server's settings
+    /// stay, and its worlds are backed up first. Asks first, naming them.
+    /// </summary>
+    [RelayCommand]
+    private void MatchServerToGame()
+    {
+        var rows = Ue4ssModRows.Where(r => r.NeedsUpdate || (r.State == ServerModState.NotOnServer && r.Comparison.OnInGame)).ToList();
+        if (rows.Count == 0)
         {
-            StatusMessage = "Tick the UE4SS mods to put on the server first.";
+            StatusMessage = "The server's UE4SS mods already match your game.";
+            return;
+        }
+
+        var list = string.Join("\n", rows.Select(r => $"• {r.Name} — {(r.IsOnServer ? "update" : "copy")}"));
+        if (!_dialogService.Confirm(
+                $"Put your game's copy of these on the server?\n\n{list}\n\nThe server's own config files and on/off settings are kept, old copies go to its backups folder, and nothing else is removed.",
+                "Make the server match my game", ThemedConfirmSeverity.Question))
+        {
+            return;
+        }
+
+        CopyRowsToServer(rows);
+    }
+
+    private void CopyRowsToServer(IReadOnlyList<ServerUe4ssRow> rows)
+    {
+        if (SelectedProfile is not { } p || !EnsureStoppedFor("change its mods"))
+        {
             return;
         }
 
@@ -267,32 +418,60 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        if (GameModsFolder() is not { } gameMods)
+        {
+            StatusMessage = "Set your Icarus Content folder in Settings first — mods are copied from your game.";
+            return;
+        }
+
         var failures = new List<string>();
         TryBackup("before-mods");
-        foreach (var mod in picked)
+        foreach (var row in rows)
         {
             try
             {
-                ServerModFiles.CopyUe4ssModToServer(gameMods, mod.Name, p.InstallFolder);
+                ServerUe4ssSync.CopyToServer(gameMods, row.Name, p.InstallFolder, ServerBackupsFolder(p));
             }
             catch (Exception ex)
             {
-                failures.Add($"{mod.Name}: {ex.Message}");
+                failures.Add($"{row.Name}: {ex.Message}");
             }
         }
 
+        var names = string.Join(", ", rows.Select(r => r.Name));
         StatusMessage = failures.Count == 0
-            ? $"Copied {picked.Count} UE4SS mod(s) to '{p.Name}': {string.Join(", ", picked.Select(m => m.Name))}. Mods that run on players' games too must be installed by every player."
-            : $"Copied {picked.Count - failures.Count} of {picked.Count} — {string.Join("; ", failures)}";
+            ? $"Put your game's copy of {names} on '{p.Name}' (the server's settings were kept). Mods that run on players' games too must be installed by every player."
+            : $"Updated {rows.Count - failures.Count} of {rows.Count} — {string.Join("; ", failures)}";
         _activityLog.Log(StatusMessage, failures.Count == 0 ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
         RefreshMods();
         RefreshBackups();
     }
 
-    [RelayCommand]
-    private void RemoveServerUe4ssMod(ServerUe4ssMod? mod)
+    /// <summary>A row's On switch: turns the mod on or off on the server only (mods.txt / enabled.txt). Needs the server stopped; refused, the switch goes back.</summary>
+    private void OnServerModToggled(ServerUe4ssRow row, bool on)
     {
-        if (SelectedProfile is not { } p || mod is null || !EnsureStoppedFor("change its mods"))
+        if (SelectedProfile is not { } p || !EnsureStoppedFor("change its mods"))
+        {
+            row.ResetServerOn(!on);
+            return;
+        }
+
+        try
+        {
+            ServerUe4ssSync.SetEnabled(p.InstallFolder, row.Name, on);
+            StatusMessage = $"{row.Name} is {(on ? "on" : "off")} on '{p.Name}' — it takes effect when the server starts.";
+        }
+        catch (Exception ex)
+        {
+            row.ResetServerOn(!on);
+            StatusMessage = $"Couldn't turn {row.Name} {(on ? "on" : "off")}: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void RemoveServerUe4ssMod(ServerUe4ssRow? mod)
+    {
+        if (SelectedProfile is not { } p || mod is null || !mod.IsOnServer || !EnsureStoppedFor("change its mods"))
         {
             return;
         }

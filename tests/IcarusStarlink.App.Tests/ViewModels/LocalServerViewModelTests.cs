@@ -587,26 +587,68 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     }
 
     [Fact]
-    public void Ue4ss_InstallFromGameThenCopyTickedMods_PutsThemOnTheServerAndTurnsThemOn()
+    public void Ue4ss_InstallFromGameThenMatch_CopiesTheModsOnInTheGame()
     {
         var gameWin64 = MakeGameWithUe4ss(("StorageLink", true), ("NearbyCrafting", false));
         Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
         var (vm, _, _, _) = Build(pick: _install);
         vm.AddExistingServerCommand.Execute(null);
         Assert.False(vm.ServerHasUe4ss);
-        Assert.Equal(["NearbyCrafting", "StorageLink"], vm.GameUe4ssMods.Select(m => m.Name));
-        Assert.True(vm.GameUe4ssMods.Single(m => m.Name == "StorageLink").IsChecked, "mods enabled in the game start ticked");
-        Assert.False(vm.GameUe4ssMods.Single(m => m.Name == "NearbyCrafting").IsChecked);
+        Assert.Equal(["NearbyCrafting", "StorageLink"], vm.Ue4ssModRows.Select(m => m.Name));
+        Assert.All(vm.Ue4ssModRows, r => Assert.Equal(ServerModState.NotOnServer, r.State));
 
         vm.InstallUe4ssOnServerCommand.Execute(null);
         Assert.True(vm.ServerHasUe4ss);
 
-        vm.CopyCheckedUe4ssModsCommand.Execute(null);
+        vm.MatchServerToGameCommand.Execute(null);
 
-        var onServer = Assert.Single(vm.ServerUe4ssMods);
-        Assert.Equal("StorageLink", onServer.Name);
-        Assert.True(onServer.Enabled);
+        var storage = vm.Ue4ssModRows.Single(r => r.Name == "StorageLink");
+        Assert.Equal(ServerModState.Same, storage.State);
+        Assert.True(storage.ServerOn);
+        Assert.Equal(ServerModState.NotOnServer, vm.Ue4ssModRows.Single(r => r.Name == "NearbyCrafting").State); // off in the game: not copied
         Assert.True(File.Exists(Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(_install), "StorageLink", "Scripts", "main.lua")));
+    }
+
+    /// <summary>
+    /// User report 2026-10-23: a mod updated in the game stayed old on the server and the page never
+    /// said so. Now the row says "Server out of date", the tab says how many, and Update keeps the
+    /// server's own config and on/off.
+    /// </summary>
+    [Fact]
+    public void Ue4ss_ServerCopyOlder_IsFlagged_AndUpdateKeepsTheServersConfigAndOnOff()
+    {
+        var gameWin64 = MakeGameWithUe4ss(("MkHatersTools", true));
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        var gameMod = Path.Combine(gameWin64, "ue4ss", "Mods", "MkHatersTools");
+        File.WriteAllText(Path.Combine(gameMod, "Scripts", "main.lua"), "local VERSION = \"1.0.5\"\nprint(VERSION)");
+        File.WriteAllText(Path.Combine(gameMod, "config.lua"), "return { Range = 10 }");
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+        vm.MatchServerToGameCommand.Execute(null);
+
+        // The server gets its own settings, is switched off there, and then the game's copy moves on.
+        var serverMod = Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(_install), "MkHatersTools");
+        File.WriteAllText(Path.Combine(serverMod, "config.lua"), "return { Range = 50 }");
+        vm.Ue4ssModRows.Single().ServerOn = false;
+        File.WriteAllText(Path.Combine(gameMod, "Scripts", "main.lua"), "local VERSION = \"1.0.6\"\nprint(VERSION)");
+        vm.OnPageShown();
+
+        var row = vm.Ue4ssModRows.Single();
+        Assert.Equal(ServerModState.ServerOutOfDate, row.State);
+        Assert.Equal("Server out of date", row.StateText);
+        Assert.Equal("v1.0.6 · on", row.GameText);
+        Assert.Equal("v1.0.5", row.ServerText);
+        Assert.Equal("Mods (1 to update)", vm.ModsTabHeader);
+
+        vm.CopyUe4ssModToServerCommand.Execute(row);
+
+        row = vm.Ue4ssModRows.Single();
+        Assert.Equal(ServerModState.Same, row.State);
+        Assert.False(row.ServerOn); // still off on the server
+        Assert.Equal("return { Range = 50 }", File.ReadAllText(Path.Combine(serverMod, "config.lua")));
+        Assert.Contains("1.0.6", File.ReadAllText(Path.Combine(serverMod, "Scripts", "main.lua")));
+        Assert.Equal("Mods", vm.ModsTabHeader);
     }
 
     [Fact]

@@ -117,7 +117,18 @@ public sealed partial class LocalServerViewModelTests
             WeakReferenceMessenger.Default.Send(new MergedPakBuiltMessage());
 
             Assert.True(vm.HasMergedPak);
-            Assert.StartsWith("Your merged pak:", vm.MergedPakSummary);
+            Assert.Contains("isn't on the server yet", vm.MergedPakSummary);
+
+            // Installed: the summary says the server has it; a newer build then says it's out of date.
+            vm.InstallMergedPakCommand.Execute(null);
+            Assert.StartsWith("✓ The server has your current merged pak", vm.MergedPakSummary);
+            Assert.False(vm.IsServerPakOutOfDate);
+
+            File.WriteAllBytes(MergedPakPath, [1, 2, 3, 4]);
+            WeakReferenceMessenger.Default.Send(new MergedPakBuiltMessage());
+            Assert.True(vm.IsServerPakOutOfDate);
+            Assert.Equal("Update the server's pak", vm.InstallMergedPakLabel);
+            Assert.Equal("Mods (1 to update)", vm.ModsTabHeader);
         }
         finally
         {
