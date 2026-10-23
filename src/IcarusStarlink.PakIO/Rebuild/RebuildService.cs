@@ -10,6 +10,7 @@ using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.GameplayToggles;
 using IcarusStarlink.PakIO.Pak;
 using IcarusStarlink.PakIO.Safety;
+using Microsoft.Extensions.Logging;
 
 namespace IcarusStarlink.PakIO.Rebuild;
 
@@ -20,7 +21,7 @@ namespace IcarusStarlink.PakIO.Rebuild;
 /// DataTable JSON's array shape to the keyed shape those expect, and IUnrealPakService (Phase 5,
 /// extended for this) packs the result. Nothing here re-implements any of that — this is glue.
 /// </summary>
-public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuildService
+public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<RebuildService>? logger = null) : IRebuildService
 {
     private static readonly JsonSerializerOptions JsonWriteOptions = new() { WriteIndented = true };
 
@@ -35,7 +36,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     {
         var report = new MergeReport();
         var lowPriorityPaks = lowPriorityPrebuiltPakFilePaths ?? [];
-        var order = MergeOrder(queuedMods.Count, prebuiltPakFilePaths, prebuiltPakQueuePositions);
+        var order = MergeParticipants.QueueOrder(queuedMods.Count, prebuiltPakFilePaths.Count, prebuiltPakQueuePositions);
         // Every prebuilt pak, lowest priority first (in queue order among themselves): extracted,
         // folded in (a later pak wins a literal file collision) and listed in the manifest in this order.
         IReadOnlyList<string> allPrebuiltPaks = [.. lowPriorityPaks, .. order.Where(o => o.PakIndex >= 0).Select(o => prebuiltPakFilePaths[o.PakIndex])];
@@ -76,7 +77,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             // offloaded via Task.Run so it doesn't block the calling (UI) thread the way running it
             // bare ahead of this method's first real await used to.
             var (mergedTables, originalFileJsonByFile, prebuiltPakDiffedPaths) = await Task.Run(
-                () => ComputeMergedTables(queuedMods, gameplayOptions, dataFolder, lowPriorityPaks, prebuiltPakFilePaths, order, prebuiltPakScratchDirectories, manualPicks, report),
+                () => ComputeMergedTables(queuedMods, gameplayOptions, dataFolder, lowPriorityPaks, prebuiltPakFilePaths, prebuiltPakQueuePositions, prebuiltPakScratchDirectories, manualPicks, report),
                 cancellationToken);
 
             var stagingDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"Rebuild_{Guid.NewGuid():N}");
@@ -92,15 +93,9 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                 await Task.Run(() =>
                 {
                     StageMergedTables(mergedTables, originalFileJsonByFile, stagingDirectory, report);
-                    StageAssets(queuedMods, stagingDirectory);
+                    StageFilesInQueueOrder(
+                        queuedMods, lowPriorityPaks, prebuiltPakFilePaths, order, prebuiltPakScratchDirectories, prebuiltPakDiffedPaths, stagingDirectory, report);
                 }, cancellationToken);
-
-                if (allPrebuiltPaks.Count > 0)
-                {
-                    progress?.Report(new RebuildStageProgress("Folding in prebuilt paks…", 50));
-                }
-
-                FoldInUnmergedPrebuiltPakFiles(allPrebuiltPaks, prebuiltPakScratchDirectories, prebuiltPakDiffedPaths, stagingDirectory, report);
 
                 progress?.Report(new RebuildStageProgress("Packing…", 75));
                 // The manifest lists everything in merge order (Restore queue from game reads it back).
@@ -119,66 +114,51 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             }
             finally
             {
-                Directory.Delete(stagingDirectory, recursive: true);
+                TryDeleteScratch(stagingDirectory);
             }
         }
         finally
         {
             foreach (var prebuiltScratchDirectory in prebuiltPakScratchDirectories.Values)
             {
-                if (Directory.Exists(prebuiltScratchDirectory))
-                {
-                    Directory.Delete(prebuiltScratchDirectory, recursive: true);
-                }
+                TryDeleteScratch(prebuiltScratchDirectory);
             }
         }
     }
 
     /// <summary>
-    /// The queue's true order: each prebuilt pak sits after the number of queued EXMOD mods its
-    /// position says (prebuiltPakQueuePositions, one per pak; null puts every pak after the mods,
-    /// the order before positions were passed). One entry per participant, lowest priority first:
-    /// ModIndex into queuedMods, or PakIndex into prebuiltPakFilePaths (the other is -1).
+    /// Removes a scratch folder under TEMP, logging (not throwing) when it can't: this runs in a
+    /// finally, after the pak was built and verified, so a folder antivirus still holds open turned
+    /// a good build into "Rebuild failed" — and, when the build had failed, hid its real error
+    /// behind the cleanup's own. A leftover scratch folder costs only disk space.
     /// </summary>
-    internal static IReadOnlyList<(int ModIndex, int PakIndex)> MergeOrder(
-        int queuedModCount, IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyList<int>? prebuiltPakQueuePositions)
+    private void TryDeleteScratch(string directory)
     {
-        if (prebuiltPakQueuePositions is not null && prebuiltPakQueuePositions.Count != prebuiltPakFilePaths.Count)
+        try
         {
-            throw new ArgumentException("prebuiltPakQueuePositions must have exactly one entry per prebuilt pak.", nameof(prebuiltPakQueuePositions));
-        }
-
-        var order = new List<(int ModIndex, int PakIndex)>();
-        var nextPak = 0;
-        int PositionOf(int pak) => prebuiltPakQueuePositions?[pak] ?? int.MaxValue;
-        for (var mod = 0; mod <= queuedModCount; mod++)
-        {
-            // Paks are taken in their own list order; a position lower than an earlier pak's is clamped up to it.
-            while (nextPak < prebuiltPakFilePaths.Count && (mod == queuedModCount || PositionOf(nextPak) <= mod))
+            if (Directory.Exists(directory))
             {
-                order.Add((-1, nextPak++));
-            }
-
-            if (mod < queuedModCount)
-            {
-                order.Add((mod, -1));
+                Directory.Delete(directory, recursive: true);
             }
         }
-
-        return order;
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger?.LogWarning(ex, "Couldn't remove the merge's scratch folder {Directory}; left behind", directory);
+        }
     }
 
     /// <summary>
     /// The synchronous half of RebuildAsync (see its own remarks on why this runs via Task.Run):
     /// reads every required base-game JSON file, resolves field conflicts across the queue (plus
-    /// any prebuilt paks' reverse-engineered changes and Category 1 gameplay options), and applies
+    /// any prebuilt paks' reverse-engineered changes and Category 1 gameplay options, in
+    /// MergeParticipants' order), and applies
     /// Category 2 gameplay options as a final pass. Split out of RebuildAsync purely for
     /// readability — same body, same closures-turned-parameters, no behavior change.
     /// </summary>
     private static (Dictionary<string, JsonObject> Merged, Dictionary<string, JsonObject> Original, Dictionary<string, IReadOnlySet<string>> PrebuiltPakDiffedPaths) ComputeMergedTables(
         IReadOnlyList<ExmodPackageContents> queuedMods, GameplayOptions gameplayOptions, string dataFolder,
         IReadOnlyList<string> lowPriorityPrebuiltPakFilePaths,
-        IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyList<(int ModIndex, int PakIndex)> order,
+        IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyList<int>? prebuiltPakQueuePositions,
         IReadOnlyDictionary<string, string> prebuiltPakScratchDirectories,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks, MergeReport report)
     {
@@ -187,55 +167,54 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
 
         var orderedModChanges = new List<IReadOnlyList<FieldChange>>();
 
-        // Low-priority prebuilt paks (ArcFission Library's data pak) come before every queued mod,
-        // so any queued mod, prebuilt pak or gameplay option touching the same field wins over them.
-        foreach (var prebuiltPakPath in lowPriorityPrebuiltPakFilePaths)
-        {
-            var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
-            var (changes, diffedPaths) = PrebuiltPakFieldChangeExtractor.Extract(
-                prebuiltPakScratchDirectories[prebuiltPakPath], dataFolder, pakName, classifier, report);
-            prebuiltPakDiffedPaths[prebuiltPakPath] = diffedPaths;
-            changes = PrebuiltPakFieldChangeExtractor.WithoutOldCopies(changes, dataFolder, pakName, classifier, report);
-            if (changes.Count > 0)
-            {
-                orderedModChanges.Add(changes);
-            }
-        }
-
-        // The queue in its true order (MergeOrder): a prebuilt pak carries no EXMOD-style declared
-        // changes, so its own DataTable JSON is reverse-engineered into real FieldChanges by diffing
-        // it against current base game data, then merged at its own queue position like any mod —
-        // lower in the queue wins, the same as for EXMOD mods (it used to come after every EXMOD mod
-        // whatever its position). Its sure old copies are left out first, as at import.
-        foreach (var (modIndex, pakIndex) in order)
-        {
-            if (modIndex >= 0)
-            {
-                orderedModChanges.Add(ExmodFieldChangeMapper.ToFieldChanges(queuedMods[modIndex].Package, classifier));
-                continue;
-            }
-
-            var prebuiltPakPath = prebuiltPakFilePaths[pakIndex];
-            var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
-            var (changes, diffedPaths) = PrebuiltPakFieldChangeExtractor.Extract(
-                prebuiltPakScratchDirectories[prebuiltPakPath], dataFolder, pakName, classifier, report);
-            prebuiltPakDiffedPaths[prebuiltPakPath] = diffedPaths;
-            changes = PrebuiltPakFieldChangeExtractor.WithoutOldCopies(changes, dataFolder, pakName, classifier, report);
-            if (changes.Count > 0)
-            {
-                orderedModChanges.Add(changes);
-            }
-        }
-
+        // Every participant in MergeParticipants' order (the one Merge & Install's conflict check
+        // counts picks in). Low-priority prebuilt paks (ArcFission Library's data pak) come first,
+        // so any queued mod, prebuilt pak or gameplay option touching the same field wins over
+        // them. Then the queue in its true order: a prebuilt pak carries no EXMOD-style declared
+        // changes, so its own DataTable JSON is reverse-engineered into real FieldChanges by
+        // diffing it against current base game data, then merged at its own queue position like
+        // any mod — lower in the queue wins, the same as for EXMOD mods (it used to come after
+        // every EXMOD mod whatever its position). Its sure old copies are left out first, as at
+        // import (PrebuiltPakFieldChangeExtractor.ExtractMergeable).
+        //
         // Category 1 gameplay options (Speed/Player/XP Boost, Disable Temperatures — the ones
-        // that write into one fixed row) become one more entry here, appended last so they stay
-        // highest-priority — matching the "built-in wins" default this always had — but now as
-        // a real MergeEngine participant: a queued mod also touching Base_Stats.StatsGranted
-        // shows up as a genuine, visible conflict instead of a silent post-merge overwrite.
-        var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(gameplayOptions, dataFolder, report);
-        if (fixedOptionChanges.Count > 0)
+        // that write into one fixed row) are the last entry, so they stay highest-priority —
+        // matching the "built-in wins" default this always had — but as a real MergeEngine
+        // participant: a queued mod also touching Base_Stats.StatsGranted shows up as a genuine,
+        // visible conflict instead of a silent post-merge overwrite.
+        void AddPak(string prebuiltPakPath)
         {
-            orderedModChanges.Add(fixedOptionChanges);
+            var (changes, diffedPaths) = PrebuiltPakFieldChangeExtractor.ExtractMergeable(
+                prebuiltPakScratchDirectories[prebuiltPakPath], dataFolder, Path.GetFileNameWithoutExtension(prebuiltPakPath), classifier, report);
+            prebuiltPakDiffedPaths[prebuiltPakPath] = diffedPaths;
+            if (changes.Count > 0)
+            {
+                orderedModChanges.Add(changes);
+            }
+        }
+
+        foreach (var participant in MergeParticipants.Build(lowPriorityPrebuiltPakFilePaths.Count, queuedMods.Count, prebuiltPakFilePaths.Count, prebuiltPakQueuePositions))
+        {
+            switch (participant.Kind)
+            {
+                case MergeParticipantKind.LowPriorityPak:
+                    AddPak(lowPriorityPrebuiltPakFilePaths[participant.Index]);
+                    break;
+                case MergeParticipantKind.Mod:
+                    orderedModChanges.Add(ExmodFieldChangeMapper.ToFieldChanges(queuedMods[participant.Index].Package, classifier));
+                    break;
+                case MergeParticipantKind.Pak:
+                    AddPak(prebuiltPakFilePaths[participant.Index]);
+                    break;
+                case MergeParticipantKind.Options:
+                    var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(gameplayOptions, dataFolder, report);
+                    if (fixedOptionChanges.Count > 0)
+                    {
+                        orderedModChanges.Add(fixedOptionChanges);
+                    }
+
+                    break;
+            }
         }
 
         // Read before merging (against the raw, pre-merge file set — a strict superset of
@@ -282,63 +261,88 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     }
 
     /// <summary>
-    /// Whatever wasn't field-mergeable above (binary assets, or a data/*.json file with no
-    /// matching base table at all) still needs to land in the final pak — copied through
-    /// from the same scratch extraction taken up front, so nothing is extracted twice. A
-    /// file the field-level merge above already produced is deliberately skipped here:
-    /// copying the prebuilt pak's own raw, unmerged copy of it back in would silently undo
-    /// that merge. Later paks in the list still win on a literal remaining collision (a
-    /// real file overwrite, not application logic) — same policy StageAssets already
-    /// documents for queued mods' own binary assets — surfaced as a MergeReport warning
-    /// rather than a silent one.
+    /// Every file that isn't a field-merged table, staged walking the merge order (low-priority paks
+    /// first, then the queue as MergeOrder lays it out), so the later queue entry wins a literal
+    /// file collision — the same "later wins" the field merge uses. A queued EXMOD mod adds its real
+    /// game assets (IsStagedAsset); a prebuilt pak adds whatever wasn't field-mergeable (binary
+    /// assets, or a data/*.json with no matching base table), copied from the scratch extraction
+    /// taken up front so nothing is extracted twice. A pak file the field-level merge already
+    /// produced is skipped: copying the pak's own raw copy back in would undo that merge.
+    ///
+    /// Before 2026-10-23 every EXMOD asset was staged first and every pak's files copied over them,
+    /// so a prebuilt pak won a collision even when it sat earlier in the queue (and the warning
+    /// named it as the winner either way). A collision involving a prebuilt pak or the merged tables
+    /// is a MergeReport warning naming the real winner; two EXMOD mods bundling the same file are
+    /// left to Validate mods' own asset-collision check, as before.
     /// </summary>
-    private static void FoldInUnmergedPrebuiltPakFiles(
-        IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyDictionary<string, string> prebuiltPakScratchDirectories,
+    private static void StageFilesInQueueOrder(
+        IReadOnlyList<ExmodPackageContents> queuedMods, IReadOnlyList<string> lowPriorityPrebuiltPakFilePaths,
+        IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyList<(int ModIndex, int PakIndex)> order,
+        IReadOnlyDictionary<string, string> prebuiltPakScratchDirectories,
         IReadOnlyDictionary<string, IReadOnlySet<string>> prebuiltPakDiffedPaths,
         string stagingDirectory, MergeReport report)
     {
-        // Scanned once, up front — previously rebuilt from scratch on every single iteration of the
-        // loop below (a real cost for a queue with several prebuilt paks attached). Updated
-        // incrementally as each pak's own files are folded in (the HashSet.Add below), so a LATER
-        // prebuilt pak in this same loop still correctly detects a collision against an EARLIER
-        // one's own folded-in file — exactly what the from-scratch rescan used to guarantee, just
-        // without redoing the scan itself every time.
-        var alreadyStaged = new HashSet<string>(
-            Directory.GetFiles(stagingDirectory, "*", SearchOption.AllDirectories)
-                .Select(f => Path.GetRelativePath(stagingDirectory, f).Replace('\\', '/')),
-            StringComparer.OrdinalIgnoreCase);
+        // Who staged each path so far (a null name: the merged tables StageMergedTables wrote).
+        var owners = new Dictionary<string, (string? Name, bool IsPrebuiltPak)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in Directory.GetFiles(stagingDirectory, "*", SearchOption.AllDirectories))
+        {
+            owners[Path.GetRelativePath(stagingDirectory, file).Replace('\\', '/')] = (null, false);
+        }
 
-        foreach (var prebuiltPakPath in prebuiltPakFilePaths)
+        void Claim(string relativePath, string name, bool isPrebuiltPak)
+        {
+            if (owners.TryGetValue(relativePath, out var previous) && (isPrebuiltPak || previous.IsPrebuiltPak || previous.Name is null))
+            {
+                var loser = previous.Name is { } previousName ? $"'{previousName}'" : "the merged data tables";
+                report.AddWarning(
+                    $"'{name}' overwrites '{relativePath}' from {loser}, and it isn't a field-mergeable DataTable file "
+                    + $"— '{name}' is later in the queue, so it wins for this one file.");
+            }
+
+            owners[relativePath] = (name, isPrebuiltPak);
+        }
+
+        void StagePak(string prebuiltPakPath)
         {
             var pakName = Path.GetFileNameWithoutExtension(prebuiltPakPath);
             var prebuiltScratchDirectory = prebuiltPakScratchDirectories[prebuiltPakPath];
             var diffedPaths = prebuiltPakDiffedPaths[prebuiltPakPath];
-
             foreach (var sourceFile in Directory.GetFiles(prebuiltScratchDirectory, "*", SearchOption.AllDirectories))
             {
-                var scratchRelativePath = Path.GetRelativePath(prebuiltScratchDirectory, sourceFile).Replace('\\', '/');
-                if (diffedPaths.Contains(scratchRelativePath))
+                // Already its path under the game's Content root (restaged at extraction).
+                var relativePath = Path.GetRelativePath(prebuiltScratchDirectory, sourceFile).Replace('\\', '/');
+                if (diffedPaths.Contains(relativePath))
                 {
                     continue;
                 }
 
-                // Already its path under the game's Content root (restaged at extraction).
-                var relativePath = scratchRelativePath;
-
-                // Add's own return value doubles as the collision check — false means this exact
-                // relative path was already staged (by a queued mod's own merge/asset output, or an
-                // earlier prebuilt pak in this same loop).
-                if (!alreadyStaged.Add(relativePath))
-                {
-                    report.AddWarning(
-                        $"Prebuilt pak '{pakName}' overwrites '{relativePath}', which another queued mod (or "
-                        + $"an earlier prebuilt pak) also touches and isn't a field-mergeable DataTable file "
-                        + $"— '{pakName}' wins for this one file.");
-                }
-
+                Claim(relativePath, pakName, isPrebuiltPak: true);
                 var destPath = Path.Combine(stagingDirectory, relativePath);
                 Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
                 File.Copy(sourceFile, destPath, overwrite: true);
+            }
+        }
+
+        foreach (var lowPriorityPak in lowPriorityPrebuiltPakFilePaths)
+        {
+            StagePak(lowPriorityPak);
+        }
+
+        foreach (var (modIndex, pakIndex) in order)
+        {
+            if (pakIndex >= 0)
+            {
+                StagePak(prebuiltPakFilePaths[pakIndex]);
+                continue;
+            }
+
+            var mod = queuedMods[modIndex];
+            foreach (var asset in mod.Assets.Where(a => IsStagedAsset(a.RelativePath)))
+            {
+                Claim(asset.RelativePath.Replace('\\', '/'), mod.Package.Name, isPrebuiltPak: false);
+                var destPath = Path.Combine(stagingDirectory, asset.RelativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
+                File.WriteAllBytes(destPath, asset.Content);
             }
         }
     }
@@ -408,9 +412,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
                 // Old copies left out the same way RebuildAsync leaves them out, so a preview's
                 // candidates (and a pick's index into them) match the real merge.
                 var changes = await Task.Run(
-                    () => PrebuiltPakFieldChangeExtractor.WithoutOldCopies(
-                        PrebuiltPakFieldChangeExtractor.Extract(scratchDirectory, dataFolder, pakName, classifier, report).Changes,
-                        dataFolder, pakName, classifier, report),
+                    () => PrebuiltPakFieldChangeExtractor.ExtractMergeable(scratchDirectory, dataFolder, pakName, classifier, report).Changes,
                     cancellationToken);
                 if (changes.Count > 0)
                 {
@@ -419,10 +421,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
             }
             finally
             {
-                if (Directory.Exists(scratchDirectory))
-                {
-                    Directory.Delete(scratchDirectory, recursive: true);
-                }
+                TryDeleteScratch(scratchDirectory);
             }
         }
 
@@ -634,8 +633,8 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     /// <summary>
     /// A mod's own asset paths are already pak-root-relative (confirmed against real mods' own
     /// extracted folders — e.g. "BP/Building/BP_Building_Beam.uasset", no per-mod prefix), so
-    /// they're staged as-is. Later mods in the queue win on a literal path collision — same
-    /// last-write-wins default the field-conflict resolution already uses.
+    /// they're staged as-is (StageFilesInQueueOrder: later mods in the queue win on a literal path
+    /// collision — same last-write-wins default the field-conflict resolution already uses).
     ///
     /// Only real compiled Unreal assets (GameAssetExtensions.IsRealGameAsset) are actually staged —
     /// a mod's own Assets list can legitimately also contain a Readme.txt or an "ImageOnly.png"
@@ -645,23 +644,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService) : IRebuil
     /// silently overwriting each other in every merged pak this app has ever built, for content
     /// that did nothing either way.
     /// </summary>
-    private static void StageAssets(IReadOnlyList<ExmodPackageContents> queuedMods, string stagingDirectory)
-    {
-        foreach (var mod in queuedMods)
-        {
-            foreach (var asset in mod.Assets)
-            {
-                if (!GameAssetExtensions.IsRealGameAsset(asset.RelativePath))
-                {
-                    continue;
-                }
-
-                var destPath = Path.Combine(stagingDirectory, asset.RelativePath);
-                Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
-                File.WriteAllBytes(destPath, asset.Content);
-            }
-        }
-    }
+    private static bool IsStagedAsset(string relativePath) => GameAssetExtensions.IsRealGameAsset(relativePath);
 
     /// <summary>
     /// A build with an empty queue and no prebuilt paks but at least one gameplay option enabled

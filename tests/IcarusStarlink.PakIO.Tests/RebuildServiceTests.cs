@@ -125,6 +125,9 @@ public class RebuildServiceTests : IDisposable
 
         public Exception? CreatePakException { get; set; }
 
+        /// <summary>Set by a test that wants the staging folder's cleanup to fail: CreatePakAsync marks a staged file read-only, which Directory.Delete refuses.</summary>
+        public bool LockStagedFileForCleanup { get; set; }
+
         /// <summary>When set, what CreatePakAsync says it packed, instead of the staged file count.</summary>
         public int? PackedFileCountToReport { get; set; }
 
@@ -145,6 +148,10 @@ public class RebuildServiceTests : IDisposable
             StagedFileContentsAtCallTime = files.ToDictionary(
                 f => Path.GetRelativePath(stagingDirectory, f).Replace('\\', '/'),
                 File.ReadAllText);
+            if (LockStagedFileForCleanup && files.Length > 0)
+            {
+                File.SetAttributes(files[0], FileAttributes.ReadOnly);
+            }
 
             // A real UnrealPak.exe reports back everything it actually packed via -List — mirrored
             // here so RebuildAsync's own post-pack verification (ListPakContentsAsync against
@@ -736,6 +743,37 @@ public class RebuildServiceTests : IDisposable
         Assert.Equal("from B", stagedContent); // later pak in the list still wins on disk
     }
 
+    /// <summary>
+    /// A literal asset collision between a prebuilt pak and an EXMOD mod goes to whichever is later
+    /// in the queue, like a field clash does: every EXMOD asset used to be staged first and every
+    /// pak's files copied over them, so the pak won even when it was queued before the mod.
+    /// </summary>
+    [Fact]
+    public async Task RebuildAsync_PrebuiltPakAndModShareAnAsset_TheLaterInTheQueueWinsAndIsNamed()
+    {
+        var mod = MakeMod("Mod A", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) },
+            assets: [new ExmodAssetEntry("BP/Thing.uasset", "from mod"u8.ToArray())]);
+        var prebuiltPakPath = Path.Combine(_tempDir, "SomeMod_P.pak");
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFilesByPakPath[prebuiltPakPath] = new() { ["BP/Thing.uasset"] = "from pak" };
+        var service = new RebuildService(pakService);
+
+        // The pak first in the queue: the mod after it wins.
+        var result = await service.RebuildAsync(
+            [mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath], prebuiltPakQueuePositions: [0]);
+
+        Assert.Equal("from mod", pakService.StagedFileContentsAtCallTime["BP/Thing.uasset"]);
+        Assert.Contains(result.Warnings, w => w.StartsWith("'Mod A' overwrites 'BP/Thing.uasset' from 'SomeMod_P'"));
+
+        // The pak after the mod: the pak wins.
+        result = await service.RebuildAsync(
+            [mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [prebuiltPakPath], prebuiltPakQueuePositions: [1]);
+
+        Assert.Equal("from pak", pakService.StagedFileContentsAtCallTime["BP/Thing.uasset"]);
+        Assert.Contains(result.Warnings, w => w.StartsWith("'SomeMod_P' overwrites 'BP/Thing.uasset' from 'Mod A'"));
+    }
+
     [Fact]
     public async Task RebuildAsync_PrebuiltPakWithNoCollisions_NoWarning()
     {
@@ -1030,14 +1068,27 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
-    public void MergeOrder_PutsEachPakAfterItsNumberOfMods_AndALowerPositionAfterAHigherOneIsBumped()
+    public void QueueOrder_PutsEachPakAfterItsNumberOfMods_AndALowerPositionAfterAHigherOneIsBumped()
     {
         // Paks at positions 1 and 0: the second can't go before the first, so it follows it.
-        var order = RebuildService.MergeOrder(2, ["A.pak", "B.pak"], [1, 0]);
+        var order = MergeParticipants.QueueOrder(2, 2, [1, 0]);
 
         Assert.Equal([(0, -1), (-1, 0), (-1, 1), (1, -1)], order);
-        Assert.Equal([(0, -1), (1, -1), (-1, 0)], RebuildService.MergeOrder(2, ["A.pak"], null));
-        Assert.Throws<ArgumentException>(() => RebuildService.MergeOrder(2, ["A.pak", "B.pak"], [1]));
+        Assert.Equal([(0, -1), (1, -1), (-1, 0)], MergeParticipants.QueueOrder(2, 1, null));
+        Assert.Throws<ArgumentException>(() => MergeParticipants.QueueOrder(2, 2, [1]));
+    }
+
+    [Fact]
+    public void MergeParticipants_LowPriorityPaksFirst_ThenTheQueue_ThenTheOptionsLast()
+    {
+        Assert.Equal(
+        [
+            new MergeParticipant(MergeParticipantKind.LowPriorityPak, 0),
+            new MergeParticipant(MergeParticipantKind.Mod, 0),
+            new MergeParticipant(MergeParticipantKind.Pak, 0),
+            new MergeParticipant(MergeParticipantKind.Mod, 1),
+            new MergeParticipant(MergeParticipantKind.Options, -1),
+        ], MergeParticipants.Build(1, 2, 1, [1]));
     }
 
     [Fact]
@@ -1054,6 +1105,36 @@ public class RebuildServiceTests : IDisposable
         var result = await new RebuildService(pakService).RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [pak]);
 
         Assert.Contains(result.Warnings, w => w.Contains("Engine_P") && w.Contains("outside the game's Content folder"));
+    }
+
+    /// <summary>The staging folder can't be removed afterwards (antivirus, a read-only file): the verified build still succeeds.</summary>
+    [Fact]
+    public async Task RebuildAsync_StagingCleanupFails_TheBuildStillSucceeds()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Mod", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var pakService = new FakeUnrealPakService { LockStagedFileForCleanup = true };
+
+        try
+        {
+            var result = await new RebuildService(pakService).RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+            Assert.True(File.Exists(result.OutputPakPath));
+            Assert.True(File.Exists(result.ManifestPath));
+        }
+        finally
+        {
+            if (pakService.LastStagingDirectory is { } staging && Directory.Exists(staging))
+            {
+                foreach (var file in Directory.GetFiles(staging, "*", SearchOption.AllDirectories))
+                {
+                    File.SetAttributes(file, FileAttributes.Normal);
+                }
+
+                Directory.Delete(staging, recursive: true);
+            }
+        }
     }
 
     [Fact]

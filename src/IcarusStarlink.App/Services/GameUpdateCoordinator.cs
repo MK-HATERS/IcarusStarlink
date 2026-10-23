@@ -91,7 +91,9 @@ public sealed class GameUpdateCoordinator(
         var viewModel = new GameUpdateReviewViewModel(this);
         var snapshot = snapshots.Latest();
         var record = snapshot is null ? null : snapshots.LoadRunRecord(snapshot);
-        viewModel.Snapshot = snapshot;
+        // Roll back from here goes to the setup before this game update's first run: a retry's
+        // own snapshot already holds what the earlier run changed.
+        viewModel.Snapshot = snapshots.PreUpdate() ?? snapshot;
         viewModel.Summary = (snapshot, record) switch
         {
             (null, _) => "Update everything hasn't run yet. When Icarus updates, the Library's bar offers it. Below is how your mods look against the game now.",
@@ -102,6 +104,24 @@ public sealed class GameUpdateCoordinator(
         _ = FillReviewAsync(viewModel, record?.Fixed ?? [], null);
     }
 
+    /// <summary>
+    /// The review's groups filled in, or what went wrong shown in the window: ShowLastReview starts
+    /// this without awaiting it, and a failure (a Library pass throwing) used to vanish with the
+    /// task, leaving the window empty with no reason.
+    /// </summary>
+    private async Task FillReviewAsync(GameUpdateReviewViewModel viewModel, IReadOnlyList<GameUpdateFixedMod> fixedMods, string? build)
+    {
+        try
+        {
+            await FillReviewCoreAsync(viewModel, fixedMods, build);
+        }
+        catch (Exception ex)
+        {
+            viewModel.Note = $"Couldn't check your mods against the game: {ex.Message}";
+            activityLog.Log(viewModel.Note, ActivityEntryKind.Warning);
+        }
+    }
+
     private void ShowWindow(GameUpdateReviewViewModel viewModel)
     {
         _window?.Close();
@@ -109,7 +129,7 @@ public sealed class GameUpdateCoordinator(
         _window.Show();
     }
 
-    private async Task FillReviewAsync(GameUpdateReviewViewModel viewModel, IReadOnlyList<GameUpdateFixedMod> fixedMods, string? build)
+    private async Task FillReviewCoreAsync(GameUpdateReviewViewModel viewModel, IReadOnlyList<GameUpdateFixedMod> fixedMods, string? build)
     {
         var page = library();
         build ??= await detector.ReadCurrentBuildAsync();
@@ -312,11 +332,18 @@ public sealed class GameUpdateCoordinator(
             return "Merge & Install is building right now. Roll back once it's done.";
         }
 
+        // Nor while it installs: that install's copy would land over (or be undone by) the roll back.
+        if (mergeInstall().IsInstalling)
+        {
+            return "Merge & Install is changing the game's mods folder right now. Roll back once it's done.";
+        }
+
         if (!dialogService.Confirm(
                 $"Roll back puts your mod setup back as it was on {snapshot.CreatedAtUtc.ToLocalTime():g}:\n\n"
                 + "• the merged pak in the game (what's there now is backed up first)\n"
                 + $"• what's ticked, in what order, merge options and conflict picks{(snapshot.ProfileName is { } name ? $" (profile '{name}')" : "")}\n"
                 + "• which UE4SS mods are on\n\n"
+                + "Other paks Install took out of the mods folder aren't put back (they're in Starlink's Backups folder).\n\n"
                 + "The game itself can't be rolled back, only your mod setup. That merge was made for the game before its update, so some things in it may not fit. "
                 + "Fixes made to mods stay (right-click a mod › Restore latest backup undoes them).\n\nRoll back?",
                 "Roll back", ThemedConfirmSeverity.Warning))

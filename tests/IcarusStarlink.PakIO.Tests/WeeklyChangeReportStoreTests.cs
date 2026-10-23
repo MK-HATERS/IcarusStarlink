@@ -26,6 +26,20 @@ public class WeeklyChangeReportStoreTests : IDisposable
     // value within a single test run, not because the time-of-day component matters anywhere here.
     private static readonly DateTimeOffset Now = DateTimeOffset.UtcNow.Date;
 
+    /// <summary>Saving over a report with the same timestamp replaces it in the history too, instead of listing it twice.</summary>
+    [Fact]
+    public void Save_SameTimestampAgain_ReplacesTheEntry()
+    {
+        var store = CreateStore();
+        store.Save(MakeReport(Now));
+        var again = MakeReport(Now);
+
+        store.Save(again);
+
+        Assert.Same(again, Assert.Single(store.History));
+        Assert.Single(CreateStore().History);
+    }
+
     /// <summary>The file name is the Gregorian date whatever calendar the PC uses, so Prune finds the file Save wrote.</summary>
     [Fact]
     public void Save_OnAPcWithAnotherCalendar_NamesTheFileByTheGregorianDate()

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.PakIO;
 using IcarusStarlink.PakIO.Install;
@@ -52,9 +53,9 @@ public sealed class GameUpdateRunRecord
 
 /// <summary>
 /// The "last known good" snapshots in &lt;appdata&gt;\Backups\LastKnownGood\&lt;yyyyMMdd-HHmmss&gt;\:
-/// made before Update everything changes anything, newest three kept. Roll back puts the
-/// merged pak back from one (RestoreMergedPak); the profile and UE4SS parts are put back by the
-/// pages that own them.
+/// made before Update everything changes anything, newest three kept plus the pre-update one
+/// (PreUpdate). Roll back puts the merged pak back from one (RestoreMergedPak); the profile and
+/// UE4SS parts are put back by the pages that own them.
 /// </summary>
 public sealed class LastKnownGoodStore(string rootDirectory)
 {
@@ -104,7 +105,7 @@ public sealed class LastKnownGoodStore(string rootDirectory)
         }
 
         // The description last: a folder without one is a snapshot that didn't finish, never listed.
-        File.WriteAllText(Path.Combine(folder, SnapshotFile), JsonSerializer.Serialize(snapshot, JsonOptions));
+        AtomicFile.WriteAllText(Path.Combine(folder, SnapshotFile), JsonSerializer.Serialize(snapshot, JsonOptions));
         Prune();
         return snapshot;
     }
@@ -139,9 +140,21 @@ public sealed class LastKnownGoodStore(string rootDirectory)
 
     public LastKnownGoodSnapshot? Latest() => List().FirstOrDefault();
 
+    /// <summary>
+    /// The first snapshot taken on the newest game build: the setup as it was before any Update
+    /// everything run for that game update changed it. A retry after a failed or partial run takes
+    /// a snapshot of the already-changed setup, so the newest isn't always the one to go back to.
+    /// </summary>
+    public LastKnownGoodSnapshot? PreUpdate() => PreUpdate(List());
+
+    private static LastKnownGoodSnapshot? PreUpdate(IReadOnlyList<LastKnownGoodSnapshot> newestFirst) =>
+        newestFirst.FirstOrDefault() is not { GameBuildId: { } build } newest
+            ? newestFirst.FirstOrDefault()
+            : newestFirst.Last(s => s == newest || string.Equals(s.GameBuildId, build, StringComparison.Ordinal));
+
     /// <summary>Keeps what the run did beside its snapshot.</summary>
     public void SaveRunRecord(LastKnownGoodSnapshot snapshot, GameUpdateRunRecord record) =>
-        File.WriteAllText(Path.Combine(snapshot.FolderPath, RunFile), JsonSerializer.Serialize(record, JsonOptions));
+        AtomicFile.WriteAllText(Path.Combine(snapshot.FolderPath, RunFile), JsonSerializer.Serialize(record, JsonOptions));
 
     /// <summary>What the run after this snapshot did; null when it didn't get to the end.</summary>
     public GameUpdateRunRecord? LoadRunRecord(LastKnownGoodSnapshot snapshot)
@@ -162,7 +175,11 @@ public sealed class LastKnownGoodStore(string rootDirectory)
     /// is backed up first into backupDirectory (where Install keeps its backups, so Merge &amp;
     /// Install's Restore previous install can switch back). With nothing saved in the snapshot
     /// (nothing was installed then), the current merged pak is backed up and removed.
-    /// ArcFission Library's own data pak is never touched. The game must not be running.
+    /// ArcFission Library's own data pak is never touched, nor any other pak Install cleared from
+    /// the folder (those are in backupDirectory; the snapshot only holds the merge). The game must
+    /// not be running. The snapshot's copies go in first, each replacing its file in one move, and
+    /// only then is a merged file it doesn't have removed: deleting first (as before 2026-10-23) left
+    /// the game with no merge at all when a copy failed.
     /// </summary>
     public void RestoreMergedPak(LastKnownGoodSnapshot snapshot, string icarusContentPath, string backupDirectory)
     {
@@ -177,30 +194,28 @@ public sealed class LastKnownGoodStore(string rootDirectory)
             }
         }
 
-        foreach (var name in MergedFileNames())
+        var current = MergedFileNames().Select(name => Path.Combine(modsDirectory, name)).Where(File.Exists).ToList();
+        foreach (var path in current)
         {
-            var current = Path.Combine(modsDirectory, name);
-            if (File.Exists(current))
+            // Same backups Install makes (the pak's are trimmed together below).
+            if (string.Equals(Path.GetFileName(path), InstallManifestNames.PakManifest, StringComparison.OrdinalIgnoreCase))
             {
-                // Same backups Install makes (the pak's are trimmed together below).
-                if (string.Equals(name, InstallManifestNames.PakManifest, StringComparison.OrdinalIgnoreCase))
-                {
-                    FolderBackup.BackupFile(current, backupDirectory, BackupCleanup.MergedPakBackupsKept);
-                }
-                else
-                {
-                    FolderBackup.BackupFile(current, backupDirectory);
-                }
-
-                File.Delete(current);
+                FolderBackup.BackupFile(path, backupDirectory, BackupCleanup.MergedPakBackupsKept);
+            }
+            else
+            {
+                FolderBackup.BackupFile(path, backupDirectory);
             }
         }
 
         foreach (var name in snapshot.MergedFiles)
         {
-            var temp = Path.Combine(modsDirectory, name + ".isl-tmp");
-            File.Copy(Path.Combine(saved, name), temp, overwrite: true);
-            File.Move(temp, Path.Combine(modsDirectory, name), overwrite: true);
+            AtomicFile.Copy(Path.Combine(saved, name), Path.Combine(modsDirectory, name));
+        }
+
+        foreach (var path in current.Where(p => !snapshot.MergedFiles.Contains(Path.GetFileName(p), StringComparer.OrdinalIgnoreCase)))
+        {
+            File.Delete(path);
         }
 
         BackupCleanup.PruneMergedPakBackups(backupDirectory);
@@ -210,14 +225,14 @@ public sealed class LastKnownGoodStore(string rootDirectory)
 
     /// <summary>The merged pak under its current and earlier names, and its mod list.</summary>
     private static IEnumerable<string> MergedFileNames() =>
-        InstallManifestNames.LegacyMergedPakFileNames
-            .Prepend(InstallManifestNames.MergedPakFileName)
-            .Append(InstallManifestNames.PakManifest)
-            .Distinct(StringComparer.OrdinalIgnoreCase);
+        InstallManifestNames.AllMergedPakFileNames.Append(InstallManifestNames.PakManifest);
 
+    /// <summary>The newest Kept, and the pre-update snapshot (PreUpdate) however many retries came after it.</summary>
     private void Prune()
     {
-        foreach (var stale in List().Skip(Kept))
+        var all = List();
+        var preUpdate = PreUpdate(all);
+        foreach (var stale in all.Skip(Kept).Where(s => s != preUpdate))
         {
             try
             {

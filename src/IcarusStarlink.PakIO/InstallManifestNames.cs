@@ -33,6 +33,16 @@ public static class InstallManifestNames
     /// <summary>The merged pak's earlier name(s), cleared wherever the merged pak is installed.</summary>
     public static readonly IReadOnlyList<string> LegacyMergedPakFileNames = ["ISL-Merged_P.pak", "ISL-Merged_9999_P.pak"];
 
+    /// <summary>
+    /// The merged pak's current name, then its earlier ones: everywhere that looks for "a merged pak
+    /// this app installed" (Install, Remove, Restore, the snapshots, backup cleanup, the Library's
+    /// "is this our own pack") — each used to build this list by hand.
+    /// </summary>
+    public static readonly IReadOnlyList<string> AllMergedPakFileNames = [MergedPakFileName, .. LegacyMergedPakFileNames];
+
+    /// <summary>Whether a file name (with its .pak) is the merged pak under its current or an earlier name.</summary>
+    public static bool IsMergedPakFile(string fileName) => AllMergedPakFileNames.Contains(fileName, StringComparer.OrdinalIgnoreCase);
+
     private static readonly Regex ArcFissionDataPak = new(@"^ZZ_ArcFission_Data_(\d+)_P\.pak$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>

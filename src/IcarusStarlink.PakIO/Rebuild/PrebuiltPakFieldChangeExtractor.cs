@@ -106,6 +106,18 @@ public static class PrebuiltPakFieldChangeExtractor
     }
 
     /// <summary>
+    /// Extract, then WithoutOldCopies: a prebuilt pak's changes as the merge uses them — the build,
+    /// its conflict preview and the picks' indices all start from this same set. Each caller used
+    /// to chain the two itself.
+    /// </summary>
+    public static (IReadOnlyList<FieldChange> Changes, IReadOnlySet<string> DiffedScratchRelativePaths) ExtractMergeable(
+        string scratchExtractDirectory, string dataFolder, string pakName, ISemanticClassifier classifier, MergeReport report)
+    {
+        var (changes, diffedPaths) = Extract(scratchExtractDirectory, dataFolder, pakName, classifier, report);
+        return (WithoutOldCopies(changes, dataFolder, pakName, classifier, report), diffedPaths);
+    }
+
+    /// <summary>
     /// The merge's version of what PrebuiltPakToExmodConverter does at import: a prebuilt pak ships
     /// whole tables from the game version it was built for, so beside the author's changes its diff
     /// "changes" every row the game has updated since. The sure old copies (ModHealthChecker's

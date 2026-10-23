@@ -255,7 +255,7 @@ public static class BackupCleanup
             var baseName = timestamped.Groups["base"].Value;
             var extension = timestamped.Groups["ext"].Value;
             var setKey = isFolder ? $"dir|{baseName}".ToUpperInvariant()
-                : IsMergedPakName(baseName + extension) ? MergedPakSetKey
+                : InstallManifestNames.IsMergedPakFile(baseName + extension) ? MergedPakSetKey
                 : (baseName + extension).Equals(InstallManifestNames.PakManifest, StringComparison.OrdinalIgnoreCase) ? MergedManifestSetKey
                 : $"file|{baseName}{extension}".ToUpperInvariant();
             var suffix = timestamped.Groups["n"].Success && int.TryParse(timestamped.Groups["n"].Value, out var n) ? n : 1;
@@ -280,10 +280,6 @@ public static class BackupCleanup
 
         return null;
     }
-
-    private static bool IsMergedPakName(string fileName) =>
-        fileName.Equals(InstallManifestNames.MergedPakFileName, StringComparison.OrdinalIgnoreCase)
-        || InstallManifestNames.LegacyMergedPakFileNames.Contains(fileName, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>"before-mods_2.zip" → "BEFORE-MODS": the reason a server zip was made, without its collision number.</summary>
     private static string ZipReason(string rest)

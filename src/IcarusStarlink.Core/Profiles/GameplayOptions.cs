@@ -125,19 +125,19 @@ public sealed class GameplayOptions
     /// One human-readable line per currently-active option — RebuildService.WriteManifest uses this
     /// to give an options-only build (empty queue, no prebuilt paks, at least one option on) a real,
     /// non-degenerate manifest record instead of the bare "Includes the following mods:" header it
-    /// used to produce with nothing under it. MergeInstallViewModel.BuildActiveOptionParts is a
-    /// separate, UI-bound-property version of this same idea (it needs a WPF value converter for
-    /// level labels that can't be referenced from this project) — the wording here doesn't need to
-    /// match it exactly, only every option this covers has to stay in sync with HasCategory1Active/
-    /// HasCategory2Active above.
+    /// used to produce with nothing under it. Merge &amp; Install's collapsed options summary is the
+    /// same list with its pills' short labels (levelLabel: "L1", "25%"), which a WPF value converter
+    /// this project can't reference makes; it used to be a second copy of this list that could
+    /// drift. Every option this covers has to stay in sync with HasCategory1Active/HasCategory2Active.
     /// </summary>
-    public IReadOnlyList<string> DescribeActiveOptions()
+    /// <param name="levelLabel">How a Speed/Player/XP Boost level or a Craft Cost is written; null: "Level 1", "25%".</param>
+    public IReadOnlyList<string> DescribeActiveOptions(Func<Enum, string>? levelLabel = null)
     {
         var parts = new List<string>();
-        if (SpeedBoost != BoostLevel.Off) parts.Add($"Speed Boost {DescribeBoostLevel(SpeedBoost)}");
-        if (PlayerBoost != BoostLevel.Off) parts.Add($"Player Boost {DescribeBoostLevel(PlayerBoost)}");
-        if (XpBoost != XpBoostLevel.Off) parts.Add($"XP Boost {DescribeXpBoostLevel(XpBoost)}");
-        if (CraftCost != CraftCostReduction.Off) parts.Add($"Craft Cost {DescribeCraftCost(CraftCost)}");
+        if (SpeedBoost != BoostLevel.Off) parts.Add($"Speed Boost {levelLabel?.Invoke(SpeedBoost) ?? DescribeBoostLevel(SpeedBoost)}");
+        if (PlayerBoost != BoostLevel.Off) parts.Add($"Player Boost {levelLabel?.Invoke(PlayerBoost) ?? DescribeBoostLevel(PlayerBoost)}");
+        if (XpBoost != XpBoostLevel.Off) parts.Add($"XP Boost {levelLabel?.Invoke(XpBoost) ?? DescribeXpBoostLevel(XpBoost)}");
+        if (CraftCost != CraftCostReduction.Off) parts.Add($"Craft Cost {levelLabel?.Invoke(CraftCost) ?? DescribeCraftCost(CraftCost)}");
         if (StacksMultiplier is > 0 and var stacks) parts.Add(FormattableString.Invariant($"Stacks x{stacks:0.##}"));
         if (SlotsMultiplier is > 0 and var slots) parts.Add(FormattableString.Invariant($"Slots x{slots:0.##}"));
         if (SpeedCraftingReductionPercent is > 0 and var speedCrafting) parts.Add(FormattableString.Invariant($"Speed Crafting {speedCrafting:0.##}%"));

@@ -284,7 +284,8 @@ internal static class AppServices
             Path.Combine(appDataDirectory, "Backups"),
             messenger: null,
             gameProcessChecker: sp.GetRequiredService<IGameProcessChecker>(),
-            gameDataFreshness: new GameDataFreshness(sp.GetRequiredService<IUnrealPakService>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<SettingsViewModel>)));
+            gameDataFreshness: new GameDataFreshness(sp.GetRequiredService<IUnrealPakService>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<SettingsViewModel>),
+            dialogService: sp.GetRequiredService<IDialogService>()));
         services.AddSingleton(sp => new DownloadsViewModel(
             sp.GetRequiredService<IDaedalusCatalogClient>(),
             sp.GetRequiredService<IJimk72CatalogClient>(),

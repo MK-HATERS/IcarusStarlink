@@ -5,6 +5,7 @@ using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Daedalus;
 using IcarusStarlink.Catalog.Jimk72;
@@ -25,8 +26,8 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>
 /// MergeInstallViewModel's rebuild/install orchestration, against a fake per constructor
-/// dependency. Every Yes/No question goes through its Confirm seam, names through
-/// PromptForProfileName and the patch file through PickPatchFile, so Install, Remove from game,
+/// dependency. Every Yes/No question and file picker goes through a fake IDialogService (_dialogs),
+/// names through PromptForProfileName, so Install, Remove from game,
 /// Restore previous install, Suggest order and the profile commands all run here; only Review
 /// conflicts and Validate mods still open a real window (MergeConflictsWindow,
 /// ValidationIssueReportWindow), so those are reached through the same recompute the badges use
@@ -90,13 +91,14 @@ public sealed class MergeInstallViewModelTests : IDisposable
         settingsService ??= new FakeSettingsService();
 
         // RefreshHasExistingInstallAsync (constructor's own fire-and-forget background task) sets
-        // CanCopyToGame from File.Exists(outputPakPath) independently of anything a test does —
-        // pre-creating this empty file makes that background write agree with what a successful
+        // CanCopyToGame from the staged pak and its mod list independently of anything a test does —
+        // pre-creating both makes that background write agree with what a successful
         // RebuildAsync's own (synchronous, awaited) CanCopyToGame = true also sets, so a test
         // asserting CanCopyToGame can't flake depending on which one happens to run last.
         var outputPakPath = Path.Combine(_tempRoot, "Staged", "IcarusStarlink-Merged.pak");
         Directory.CreateDirectory(Path.GetDirectoryName(outputPakPath)!);
         File.WriteAllBytes(outputPakPath, []);
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(outputPakPath)!, IcarusStarlink.PakIO.InstallManifestNames.PakManifest), "");
 
         return new MergeInstallViewModel(
             libraryRepository ?? new FakeLibraryRepository(),
@@ -120,7 +122,26 @@ public sealed class MergeInstallViewModelTests : IDisposable
             Path.Combine(_tempRoot, "Backups"),
             _messenger,
             new FakeGameProcessChecker(gameRunning),
-            gameDataFreshness);
+            gameDataFreshness,
+            _dialogs);
+    }
+
+    /// <summary>Every question and file picker the view model shows; a test sets the answers it needs.</summary>
+    private readonly FakeDialogService _dialogs = new();
+
+    private sealed class FakeDialogService : IDialogService
+    {
+        public Func<string, string, bool> OnConfirm { get; set; } = (_, title) => throw new InvalidOperationException($"Unexpected question: {title}");
+
+        public Func<string?> OnPickFile { get; set; } = () => null;
+
+        public bool Confirm(string message, string title, ThemedConfirmSeverity severity) => OnConfirm(message, title);
+
+        public RenamePromptResult PromptRename(
+            string currentName, string description = "", string? resetValue = null, string resetLabel = "", string resetTooltip = "",
+            string title = "", string fieldLabel = "") => throw new NotSupportedException("Not exercised by these tests.");
+
+        public string? PickFile(string title, string filter, string? initialDirectory = null) => OnPickFile();
     }
 
     private sealed class FakeGameProcessChecker(bool running) : IGameProcessChecker
@@ -390,6 +411,43 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Equal("Default", vm.SelectedProfileName);
         Assert.Equal(["ModA"], vm.Queue.Select(e => e.FolderName));
         Assert.Equal(["ModA"], store.Load("Default").MergeQueueFolderNames);
+    }
+
+    /// <summary>
+    /// A profile value the pills/sliders can't show (Stacks x2.5, Speed Crafting 33.3%) survives the
+    /// auto-save as it is; changing that option replaces it. It used to be saved as Off / 33%.
+    /// </summary>
+    [Fact]
+    public void LoadingAProfile_WithValuesTheControlsCantShow_KeepsThemUntilTheyAreChanged()
+    {
+        var store = new FakeProfileStore();
+        store.Save(new Profile
+        {
+            Name = "Coop",
+            Options = new GameplayOptions { StacksMultiplier = 2.5, SlotsMultiplier = 3, SpeedCraftingReductionPercent = 33.3, WeightReductionPercent = 12.5 },
+        });
+        var vm = CreateViewModel(profileStore: store);
+        vm.SelectedProfileName = "Coop";
+        vm.UnlimitedAmmo = true; // any change: the profile is saved again
+
+        vm.SaveWorkingState();
+
+        var saved = store.Load("Coop").Options;
+        Assert.Equal(2.5, saved.StacksMultiplier);
+        Assert.Equal(3, saved.SlotsMultiplier);
+        Assert.Equal(33.3, saved.SpeedCraftingReductionPercent);
+        Assert.Equal(12.5, saved.WeightReductionPercent);
+        Assert.False(saved.RemoveWeight);
+        Assert.Contains("Stacks x2.5", vm.ActiveOptionsSummary);
+
+        vm.StacksMultiplierLevel = MultiplierLevel.Times3;
+        vm.SpeedCraftingPercent = 50;
+        vm.SaveWorkingState();
+
+        saved = store.Load("Coop").Options;
+        Assert.Equal(3, saved.StacksMultiplier);
+        Assert.Equal(50, saved.SpeedCraftingReductionPercent);
+        Assert.Equal(12.5, saved.WeightReductionPercent);
     }
 
     /// <summary>Deleting the only profile empties the queue and options and saves nothing.</summary>
@@ -835,7 +893,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var libraryRepository = new FakeLibraryRepository();
         libraryRepository.FolderPaths["OpaquePak1"] = CreateOpaquePakFolder("OpaquePak1");
         var vm = CreateViewModel(libraryRepository: libraryRepository);
-        vm.Confirm = (_, _) => throw new InvalidOperationException("Must not ask.");
+        _dialogs.OnConfirm = (_, _) => throw new InvalidOperationException("Must not ask.");
         vm.Queue.Add(MakeEntry("OpaquePak1", isOpaquePak: true));
 
         await vm.SuggestQueueOrderCommand.ExecuteAsync(null);
@@ -1054,7 +1112,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, settingsService: settings, gameDataFreshness: freshness);
         vm.Queue.Add(library.AllEntries[0]);
         string? asked = null;
-        vm.Confirm = (message, _) => { asked = message; return false; };
+        _dialogs.OnConfirm = (message, _) => { asked = message; return false; };
 
         Assert.False(await vm.RebuildAsync());
 
@@ -1074,7 +1132,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var freshness = new FakeGameDataFreshness { Outdated = true, RefreshSucceeds = false };
         var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, settingsService: settings, gameDataFreshness: freshness);
         vm.Queue.Add(library.AllEntries[0]);
-        vm.Confirm = (_, _) => true;
+        _dialogs.OnConfirm = (_, _) => true;
 
         Assert.False(await vm.RebuildAsync());
         Assert.Equal(1, freshness.RefreshCallCount);
@@ -1086,7 +1144,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Equal(1, rebuild.RebuildCallCount);
 
         // Up to date now: no question, no refresh.
-        vm.Confirm = (_, _) => throw new InvalidOperationException("Nothing to ask.");
+        _dialogs.OnConfirm = (_, _) => throw new InvalidOperationException("Nothing to ask.");
         Assert.True(await vm.RebuildAsync());
         Assert.Equal(2, freshness.RefreshCallCount);
     }
@@ -1313,7 +1371,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
 
         // Library gone: asked about the leftover first; Yes removes it.
         var asked = new List<string>();
-        vm.Confirm = (message, title) => { asked.Add($"{title}: {message}"); return true; };
+        _dialogs.OnConfirm = (message, title) => { asked.Add($"{title}: {message}"); return true; };
         await vm.RebuildAndInstallCommand.ExecuteAsync(null);
         Assert.Equal(2, asked.Count);
         Assert.StartsWith("Leftover ArcFission data", asked[0]);
@@ -1339,7 +1397,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
         var install = new FakeInstallService();
         var vm = CreateViewModel(installService: install, settingsService: settings, gameRunning: true);
-        vm.Confirm = (_, _) => throw new InvalidOperationException("Must not ask.");
+        _dialogs.OnConfirm = (_, _) => throw new InvalidOperationException("Must not ask.");
 
         await vm.RemoveFromGameCommand.ExecuteAsync(null);
 
@@ -1360,11 +1418,11 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Contains("no earlier install", vm.InstallStatusMessage);
 
         install.Previous = new PreviousInstall("old.pak", "old.txt", DateTime.UtcNow);
-        vm.Confirm = (_, _) => false;
+        _dialogs.OnConfirm = (_, _) => false;
         await vm.RestorePreviousInstallCommand.ExecuteAsync(null);
         Assert.Equal(0, install.RestoreCallCount);
 
-        vm.Confirm = (_, _) => true;
+        _dialogs.OnConfirm = (_, _) => true;
         await vm.RestorePreviousInstallCommand.ExecuteAsync(null);
         Assert.Equal(1, install.RestoreCallCount);
         Assert.Contains("Restored", vm.InstallStatusMessage);
@@ -1394,7 +1452,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var vm = CreateViewModel(libraryRepository: library, profileStore: store, patchService: patches);
         vm.SelectedProfileName = "Coop";
         vm.UnlimitedAmmo = true; // a pending auto-save of Coop
-        vm.PickPatchFile = () => "patch.json";
+        _dialogs.OnPickFile = () => "patch.json";
 
         await vm.ImportPatchCommand.ExecuteAsync(null);
         vm.SaveWorkingState();
@@ -1413,7 +1471,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
         var install = new FakeInstallService();
         var vm = CreateViewModel(installService: install, settingsService: settings);
-        vm.Confirm = (_, _) => true;
+        _dialogs.OnConfirm = (_, _) => true;
         vm.IsRebuilding = true;
 
         await vm.CopyToGameCommand.ExecuteAsync(null);
@@ -1438,7 +1496,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var library = new FakeLibraryRepository { ImportPakException = new IOException("folder is locked") };
         var install = new FakeInstallService();
         var vm = CreateViewModel(libraryRepository: library, installService: install, settingsService: settings);
-        vm.Confirm = (_, _) => true;
+        _dialogs.OnConfirm = (_, _) => true;
 
         var outcome = await vm.InstallAsync();
 
@@ -1448,6 +1506,106 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.NotNull(settings.Current.LastInstallAtUtc);
         Assert.StartsWith("Installed to", vm.InstallStatusMessage);
         Assert.Contains("folder is locked", vm.InstallStatusMessage);
+    }
+
+    /// <summary>
+    /// While an install's question is open (and its copy runs), Copy to game, Remove from game,
+    /// Restore previous install and a build are refused: the build step used to clear its busy flag
+    /// before the install, so they could all overlap it.
+    /// </summary>
+    [Fact]
+    public async Task Install_WhileItRuns_OtherInstallStepsAndBuildsAreRefused()
+    {
+        var settings = new FakeSettingsService();
+        settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(installService: install, settingsService: settings);
+        var refusals = new List<string?>();
+        _dialogs.OnConfirm = (_, _) =>
+        {
+            Assert.True(vm.IsInstalling);
+            Assert.False(vm.IsInstallIdle);
+            vm.CopyToGameCommand.Execute(null);
+            refusals.Add(vm.InstallStatusMessage);
+            vm.RemoveFromGameCommand.Execute(null);
+            refusals.Add(vm.InstallStatusMessage);
+            vm.RestorePreviousInstallCommand.Execute(null);
+            refusals.Add(vm.InstallStatusMessage);
+            Assert.False(vm.RebuildAsync().GetAwaiter().GetResult());
+            refusals.Add(vm.StatusMessage);
+            return true;
+        };
+
+        var outcome = await vm.InstallAsync();
+
+        Assert.Equal(MergeInstallViewModel.InstallOutcome.Installed, outcome);
+        Assert.Equal(1, install.InstallCallCount);
+        Assert.All(refusals, r => Assert.Contains("wait for it to finish", r));
+        Assert.False(vm.IsInstalling);
+        Assert.True(vm.IsInstallIdle);
+    }
+
+    /// <summary>
+    /// The build already put its pak in the Library: Install doesn't import it again (which filed it
+    /// under whichever profile was selected by then and dropped the picks). When the build's import
+    /// failed, Install imports it under the profile it was built from, keeping the picks.
+    /// </summary>
+    [Fact]
+    public async Task Install_AfterABuild_ImportsTheBuiltPackOnlyIfTheBuildCouldnt_UnderTheBuildsProfile()
+    {
+        var libraryRepository = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA")] };
+        libraryRepository.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        var rebuildService = new FakeRebuildService
+        {
+            Result = new RebuildResult(
+                MergedFileCount: 1, PackedFileCount: 1, OutputPakPath: "out.pak", ManifestPath: "out.manifest", Warnings: [], Notes: []),
+        };
+        var settingsService = new FakeSettingsService();
+        settingsService.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        settingsService.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModA"] });
+        store.Save(new Profile { Name = "Solo" });
+        var vm = CreateViewModel(libraryRepository: libraryRepository, rebuildService: rebuildService, settingsService: settingsService, profileStore: store);
+        vm.SelectedProfileName = "Coop";
+        _dialogs.OnConfirm = (_, _) => true;
+
+        Assert.True(await vm.RebuildAsync());
+        await vm.InstallAsync();
+        Assert.Equal(1, libraryRepository.ImportPakCallCount);
+
+        libraryRepository.ImportPakException = new IOException("folder is locked");
+        Assert.True(await vm.RebuildAsync());
+        libraryRepository.ImportPakException = null;
+        vm.SelectedProfileName = "Solo";
+        var pick = new Dictionary<(string, string, string), int> { [("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime")] = 0 };
+        vm.ManualPicksForTesting = pick;
+
+        Assert.Equal(MergeInstallViewModel.InstallOutcome.Installed, await vm.InstallAsync());
+
+        Assert.Equal(3, libraryRepository.ImportPakCallCount);
+        Assert.Equal("Coop", libraryRepository.LastMergedPackProfileName);
+        Assert.Same(pick, vm.ManualPicksForTesting);
+    }
+
+    /// <summary>An install in progress is reported to AppBusyCheck's question (the update, the close prompt and Refresh game data ask it); nothing once it's done.</summary>
+    [Fact]
+    public async Task Install_WhileItRuns_IsReportedAsRunningWork()
+    {
+        var settings = new FakeSettingsService();
+        settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
+        var vm = CreateViewModel(settingsService: settings);
+        IReadOnlyList<string> during = [];
+        _dialogs.OnConfirm = (_, _) =>
+        {
+            during = [.. _messenger.Send(new BackgroundWorkRequestMessage()).Responses];
+            return true;
+        };
+
+        await vm.InstallAsync();
+
+        Assert.Equal(["a merge being installed"], during);
+        Assert.Empty(_messenger.Send(new BackgroundWorkRequestMessage()).Responses);
     }
 
     /// <summary>Suggest order asks through the same seam as every other question, and applying it saves into the profile in use.</summary>
@@ -1463,7 +1621,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var vm = CreateViewModel(libraryRepository: libraryRepository, rebuildService: rebuildService, profileStore: store);
         vm.SelectedProfileName = "Coop";
         string? asked = null;
-        vm.Confirm = (message, _) => { asked = message; return true; };
+        _dialogs.OnConfirm = (message, _) => { asked = message; return true; };
 
         await vm.SuggestQueueOrderCommand.ExecuteAsync(null);
 
