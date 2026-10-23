@@ -378,8 +378,47 @@ public sealed partial class HelpViewModel : ObservableObject
     [ObservableProperty]
     private HelpTopic? _selectedTopic;
 
+    /// <summary>The search box over the topic list: every word must appear in a topic's title or text.</summary>
+    [ObservableProperty]
+    private string _searchText = "";
+
+    /// <summary>The topics the search keeps, title matches first; every topic while the box is empty.</summary>
+    [ObservableProperty]
+    private IReadOnlyList<HelpTopic> _visibleTopics;
+
+    public bool HasNoMatches => VisibleTopics.Count == 0;
+
     public HelpViewModel()
     {
+        _visibleTopics = Topics;
         _selectedTopic = Topics[0];
+    }
+
+    partial void OnSearchTextChanged(string value)
+    {
+        VisibleTopics = Filter(Topics, value);
+        OnPropertyChanged(nameof(HasNoMatches));
+
+        // Keep the open topic while it still matches, so typing doesn't jump around.
+        if (SelectedTopic is null || !VisibleTopics.Contains(SelectedTopic))
+        {
+            SelectedTopic = VisibleTopics.FirstOrDefault();
+        }
+    }
+
+    public static IReadOnlyList<HelpTopic> Filter(IReadOnlyList<HelpTopic> topics, string? search)
+    {
+        var words = (search ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (words.Length == 0)
+        {
+            return topics;
+        }
+
+        bool InTitle(HelpTopic t) => words.All(w => t.Title.Contains(w, StringComparison.OrdinalIgnoreCase));
+        return
+        [
+            .. topics.Where(InTitle),
+            .. topics.Where(t => !InTitle(t) && words.All(w => t.Title.Contains(w, StringComparison.OrdinalIgnoreCase) || t.Markdown.Contains(w, StringComparison.OrdinalIgnoreCase))),
+        ];
     }
 }

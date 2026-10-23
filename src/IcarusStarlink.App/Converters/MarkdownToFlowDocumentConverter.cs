@@ -23,6 +23,9 @@ public sealed class MarkdownToFlowDocumentConverter : IValueConverter
             PagePadding = new Thickness(0),
             FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
             FontSize = 13,
+
+            // A little air between lines for long help/readme paragraphs (taller lines still grow).
+            LineHeight = 20,
         };
         if (value is not string text || string.IsNullOrWhiteSpace(text))
         {
@@ -40,23 +43,24 @@ public sealed class MarkdownToFlowDocumentConverter : IValueConverter
             Paragraph paragraph;
             if (line.StartsWith("## ", StringComparison.Ordinal))
             {
-                paragraph = new Paragraph { FontSize = 15, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 8, 0, 4) };
+                paragraph = new Paragraph { FontSize = 15, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 6) };
                 AddInlines(paragraph, line[3..]);
             }
             else if (line.StartsWith("# ", StringComparison.Ordinal))
             {
-                paragraph = new Paragraph { FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 10, 0, 6) };
+                paragraph = new Paragraph { FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 10, 0, 10) };
                 AddInlines(paragraph, line[2..]);
             }
             else if (line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal))
             {
-                paragraph = new Paragraph { Margin = new Thickness(12, 1, 0, 1) };
+                // Hanging indent: a wrapped bullet's second line lines up under its text, not the dot.
+                paragraph = new Paragraph { Margin = new Thickness(26, 3, 0, 3), TextIndent = -12 };
                 paragraph.Inlines.Add(new Run("• "));
                 AddInlines(paragraph, line[2..]);
             }
             else
             {
-                paragraph = new Paragraph { Margin = new Thickness(0, 1, 0, 1) };
+                paragraph = new Paragraph { Margin = new Thickness(0, 3, 0, 5) };
                 AddInlines(paragraph, line);
             }
 
