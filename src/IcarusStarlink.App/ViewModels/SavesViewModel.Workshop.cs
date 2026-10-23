@@ -165,35 +165,15 @@ public sealed partial class SavesViewModel
     private void BuildWorkshopTalents()
     {
         WorkshopTalents.Clear();
-        var ranks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        if (_profile?["Talents"] is JsonArray talentArray)
-        {
-            foreach (var entry in talentArray.OfType<JsonObject>())
-            {
-                if (SaveJson.String(entry["RowName"]) is { } rowName)
-                {
-                    ranks[rowName] = SaveJson.Int(entry["Rank"]) ?? 0;
-                }
-            }
-        }
 
         // The profile's own list first (its order), then any Workshop_* talent the game defines
-        // that isn't researched yet — rank one up to research it.
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (rowName, rank) in ranks)
+        // that isn't researched yet — rank one up to research it — and missions not done yet
+        // (Prospect_*), so the Missions tab lists every one.
+        var others = _gameNames.Talents.Keys.Where(rowName =>
+            rowName.StartsWith("Workshop_", StringComparison.OrdinalIgnoreCase) || rowName.StartsWith("Prospect_", StringComparison.OrdinalIgnoreCase));
+        foreach (var (rowName, rank) in TalentArray.LearnedThenOthers(TalentArray.Read(_profile?["Talents"]), others))
         {
             AddWorkshopTalent(new SaveTalentViewModel(rowName, SaveCharacterViewModel.DisplayInfoFor(_gameNames, rowName), rank, NotifyDirtyChanged));
-            seen.Add(rowName);
-        }
-
-        // Missions not done yet too (Prospect_*), so the Missions tab lists every one.
-        foreach (var (rowName, info) in _gameNames.Talents)
-        {
-            if ((rowName.StartsWith("Workshop_", StringComparison.OrdinalIgnoreCase) || rowName.StartsWith("Prospect_", StringComparison.OrdinalIgnoreCase))
-                && !seen.Contains(rowName))
-            {
-                AddWorkshopTalent(new SaveTalentViewModel(rowName, SaveCharacterViewModel.DisplayInfoFor(_gameNames, info), 0, NotifyDirtyChanged));
-            }
         }
 
         LinkMissionRewards();
@@ -210,31 +190,6 @@ public sealed partial class SavesViewModel
         WorkshopTalents.Add(talent);
     }
 
-    private void ApplyWorkshopTalentEdits(JsonObject profile)
-    {
-        var byRow = WorkshopTalents.ToDictionary(t => t.RowName, t => t.Rank, StringComparer.OrdinalIgnoreCase);
-        var talentArrayNew = new JsonArray();
-        var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (profile["Talents"] is JsonArray existing)
-        {
-            foreach (var entry in existing.OfType<JsonObject>())
-            {
-                if (SaveJson.String(entry["RowName"]) is { } rowName && byRow.GetValueOrDefault(rowName) > 0)
-                {
-                    talentArrayNew.Add(new JsonObject { ["RowName"] = rowName, ["Rank"] = byRow[rowName] });
-                    written.Add(rowName);
-                }
-            }
-        }
-
-        foreach (var talent in WorkshopTalents)
-        {
-            if (talent.Rank > 0 && !written.Contains(talent.RowName))
-            {
-                talentArrayNew.Add(new JsonObject { ["RowName"] = talent.RowName, ["Rank"] = talent.Rank });
-            }
-        }
-
-        profile["Talents"] = talentArrayNew;
-    }
+    private void ApplyWorkshopTalentEdits(JsonObject profile) =>
+        profile["Talents"] = TalentArray.Write(profile["Talents"], [.. WorkshopTalents.Select(t => (t.RowName, t.Rank))]);
 }

@@ -68,4 +68,20 @@ public class SaveJsonTests
         Assert.Equal([1, 2, 3], SaveJson.IdArray(JsonNode.Parse("[1, \"2\", 3.0, -1, \"x\", {}, null, 2.5]")));
         Assert.Empty(SaveJson.IdArray(JsonNode.Parse("{}")));
     }
+
+    [Fact]
+    public void TalentArrayWrite_KeepsTheSavesOrder_DropsRankZero_AppendsNewOnes()
+    {
+        var existing = JsonNode.Parse("""[ { "RowName": "B", "Rank": 1 }, { "RowName": "A", "Rank": 2 }, { "RowName": "Gone", "Rank": 1 } ]""");
+
+        var written = TalentArray.Write(existing, [("A", 3), ("Gone", 0), ("C", 1), ("B", 1), ("D", 0)]);
+
+        Assert.Equal("""[{"RowName":"B","Rank":1},{"RowName":"A","Rank":3},{"RowName":"C","Rank":1}]""", written.ToJsonString());
+    }
+
+    [Fact]
+    public void MergeIds_KeepsTheSavesOrder_AndAppendsNewOnesAscending()
+    {
+        Assert.Equal("[5,1,3,9]", SaveJson.MergeIds(JsonNode.Parse("[5,2,1]"), [9, 1, 3, 5]).ToJsonString());
+    }
 }

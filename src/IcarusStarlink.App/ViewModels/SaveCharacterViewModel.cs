@@ -114,7 +114,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
 
     private void BuildFlags(SaveGameNames names)
     {
-        var unlocked = ReadIntArray(_node["UnlockedFlags"]);
+        var unlocked = SaveJson.IdArray(_node["UnlockedFlags"]);
 
         // Every flag the game's own table defines, plus any ID the save carries that the table
         // doesn't know (an older/newer game version) — nothing in the save is ever hidden.
@@ -128,37 +128,20 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
 
     private void BuildTalents(SaveGameNames names)
     {
-        var ranks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        if (_node["Talents"] is JsonArray talentArray)
-        {
-            foreach (var entry in talentArray.OfType<JsonObject>())
-            {
-                if (SaveJson.String(entry["RowName"]) is { } rowName)
-                {
-                    ranks[rowName] = SaveJson.Int(entry["Rank"]) ?? 0;
-                }
-            }
-        }
-
         // Learned first (the save's own order), then everything else a CHARACTER can learn at rank
         // 0 — only the character trees (SaveGameNames.CharacterTalentTrees), never workshop,
         // prospect or mount talents, which live elsewhere and do nothing on a character.
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (rowName, rank) in ranks)
+        var characterTrees = names.CharacterTalentTrees;
+        var learnable = names.Talents
+            .Where(kv => characterTrees.Count == 0 || characterTrees.Contains(kv.Value.Tree))
+            .OrderBy(kv => kv.Value.Tree, StringComparer.OrdinalIgnoreCase).ThenBy(kv => kv.Value.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select(kv => kv.Key);
+
+        // Same display info for a learned and an unlearned talent (tree group, Player/Blueprint/Solo):
+        // without it, ranks given here counted towards no budget and hid under Show (review, 2026-10-23).
+        foreach (var (rowName, rank) in TalentArray.LearnedThenOthers(TalentArray.Read(_node["Talents"]), learnable))
         {
             Talents.Add(new SaveTalentViewModel(rowName, DisplayInfoFor(names, rowName), rank, _onDirtyChanged));
-            seen.Add(rowName);
-        }
-
-        var characterTrees = names.CharacterTalentTrees;
-        foreach (var (rowName, info) in names.Talents.OrderBy(kv => kv.Value.Tree, StringComparer.OrdinalIgnoreCase).ThenBy(kv => kv.Value.DisplayName, StringComparer.OrdinalIgnoreCase))
-        {
-            if (!seen.Contains(rowName) && (characterTrees.Count == 0 || characterTrees.Contains(info.Tree)))
-            {
-                // Same display info as a learned talent (tree group, Player/Blueprint/Solo): without it,
-                // ranks given here counted towards no budget and hid under Show (review, 2026-10-23).
-                Talents.Add(new SaveTalentViewModel(rowName, DisplayInfoFor(names, info), 0, _onDirtyChanged));
-            }
         }
     }
 
@@ -200,48 +183,10 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
 
         // UnlockedFlags: keep the save's own ordering for flags that stay set, append newly-set
         // ones — minimal diff against what the game itself wrote.
-        var originallyUnlocked = ReadIntArray(target["UnlockedFlags"]);
-        var nowUnlocked = Flags.Where(f => f.IsUnlocked).Select(f => f.Id).ToHashSet();
-        var flagArray = new JsonArray();
-        foreach (var id in originallyUnlocked.Where(nowUnlocked.Contains))
-        {
-            flagArray.Add(id);
-        }
+        target["UnlockedFlags"] = SaveJson.MergeIds(target["UnlockedFlags"], Flags.Where(f => f.IsUnlocked).Select(f => f.Id));
 
-        foreach (var id in nowUnlocked.Except(originallyUnlocked).OrderBy(i => i))
-        {
-            flagArray.Add(id);
-        }
-
-        target["UnlockedFlags"] = flagArray;
-
-        // Talents: same minimal-diff shape — existing entries keep their position (rank updated in
-        // place), rank-0 entries drop out, newly-learned append. Rank 0 IS "doesn't have it" in
-        // the format, so it's never written.
-        var byRow = Talents.ToDictionary(t => t.RowName, t => t.Rank, StringComparer.OrdinalIgnoreCase);
-        var talentArrayNew = new JsonArray();
-        var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (target["Talents"] is JsonArray existing)
-        {
-            foreach (var entry in existing.OfType<JsonObject>())
-            {
-                if (SaveJson.String(entry["RowName"]) is { } rowName && byRow.GetValueOrDefault(rowName) > 0)
-                {
-                    talentArrayNew.Add(new JsonObject { ["RowName"] = rowName, ["Rank"] = byRow[rowName] });
-                    written.Add(rowName);
-                }
-            }
-        }
-
-        foreach (var talent in Talents)
-        {
-            if (talent.Rank > 0 && !written.Contains(talent.RowName))
-            {
-                talentArrayNew.Add(new JsonObject { ["RowName"] = talent.RowName, ["Rank"] = talent.Rank });
-            }
-        }
-
-        target["Talents"] = talentArrayNew;
+        // Talents: same minimal-diff shape (TalentArray.Write).
+        target["Talents"] = TalentArray.Write(target["Talents"], [.. Talents.Select(t => (t.RowName, t.Rank))]);
 
         // Cosmetics: values updated in place on the existing sub-object — every field this class
         // doesn't know about (non-number fields like IsReworkedCharacter, which BuildCosmetics
@@ -293,7 +238,4 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         _originalIsMale = IsMale;
         OnPropertyChanged(nameof(IsDirty));
     }
-
-    private static List<int> ReadIntArray(JsonNode? node) =>
-        SaveJson.IdArray(node);
 }

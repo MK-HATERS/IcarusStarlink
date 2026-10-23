@@ -166,21 +166,6 @@ public sealed partial class SavesViewModel
         OnPropertyChanged(nameof(OwnedDlcSummary));
     }
 
-    private void ApplyAccountFlagEdits(JsonObject profile)
-    {
-        var originallyUnlocked = SaveJson.IdArray(profile["UnlockedFlags"]);
-        var nowUnlocked = AccountFlags.Where(f => f.IsUnlocked).Select(f => f.Id).ToHashSet();
-        var flagArray = new JsonArray();
-        foreach (var id in originallyUnlocked.Where(nowUnlocked.Contains))
-        {
-            flagArray.Add(id);
-        }
-
-        foreach (var id in nowUnlocked.Except(originallyUnlocked).OrderBy(i => i))
-        {
-            flagArray.Add(id);
-        }
-
-        profile["UnlockedFlags"] = flagArray;
-    }
+    private void ApplyAccountFlagEdits(JsonObject profile) =>
+        profile["UnlockedFlags"] = SaveJson.MergeIds(profile["UnlockedFlags"], AccountFlags.Where(f => f.IsUnlocked).Select(f => f.Id));
 }
