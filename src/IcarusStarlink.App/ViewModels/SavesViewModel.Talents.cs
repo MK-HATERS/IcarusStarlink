@@ -53,10 +53,12 @@ public sealed partial class SavesViewModel
     }
 
     /// <summary>Marks every talent and research row that's for a DLC or the Supporters Edition (the user's ask, 2026-10-23).</summary>
-    private void ApplyPackNotes()
+    private void ApplyPackNotes() => ApplyPackNotes(Characters.SelectMany(c => c.Talents).Concat(WorkshopTalents));
+
+    private void ApplyPackNotes(IEnumerable<SaveTalentViewModel> talents)
     {
         var rules = _gameNames.TalentRules;
-        foreach (var talent in Characters.SelectMany(c => c.Talents).Concat(WorkshopTalents))
+        foreach (var talent in talents)
         {
             var packs = (rules.GetValueOrDefault(talent.RowName)?.RequiredFlags ?? [])
                 .Where(f => f.Table == "D_DLCPackageData")

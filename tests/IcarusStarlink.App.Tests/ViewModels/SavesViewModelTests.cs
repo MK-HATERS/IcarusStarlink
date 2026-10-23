@@ -303,6 +303,41 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
+    /// <summary>A duplicated character's talents had no Source, so Remove leftovers missed the copy's leftovers.</summary>
+    [Fact]
+    public async Task DuplicateCharacter_ItsLeftoverTalents_AreLabelledAndCounted()
+    {
+        var character = MakeCharacter("Alpha", 0);
+        character["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "Old_Mod_Talent", ["Rank"] = 1 });
+        var repository = new FakeSaveRepository
+        {
+            Characters = [character],
+            Profile = MakeProfile(nextChrSlot: 1),
+        };
+        var index = new SaveModSources.Index(
+            new Dictionary<string, HashSet<string>>(),
+            new Dictionary<string, HashSet<string>>(),
+            new Dictionary<string, Dictionary<string, List<string>>>(),
+            IcarusStarlink.PakIO.Exmod.GameRowHistory.Empty,
+            canTellInstalled: true);
+        var vm = CreateViewModel(repository, readModSources: () => index);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForModSourcesAsync();
+
+            vm.DuplicateCharacterCommand.Execute(vm.Characters.Single());
+
+            var copy = vm.Characters.Single(c => c.Name == "Alpha (Copy)");
+            Assert.True(copy.Talents.Single(t => t.RowName == "Old_Mod_Talent").Source?.IsRemovable);
+            Assert.Contains("Alpha (Copy): 1", vm.LeftoversSummary);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     /// <summary>The user's ask (2026-10-23): talents and items from mods that are gone can be taken out; a mod's that's installed stay.</summary>
     [Fact]
     public async Task RemoveLeftovers_TakesOutOnlyWhatNoModGives()

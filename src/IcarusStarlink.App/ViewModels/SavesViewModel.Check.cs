@@ -132,10 +132,8 @@ public sealed partial class SavesViewModel
             return;
         }
 
-        foreach (var talent in Characters.SelectMany(c => c.Talents).Concat(WorkshopTalents))
-        {
-            talent.Source = index.Classify(SaveModSources.TalentsFile, talent.RowName);
-        }
+        _modSources = index;
+        ClassifyTalents(Characters.SelectMany(c => c.Talents).Concat(WorkshopTalents));
 
         foreach (var item in MetaInventoryItems)
         {
@@ -146,6 +144,22 @@ public sealed partial class SavesViewModel
 
         // Mis-named items are only known now.
         RunSaveCheck();
+    }
+
+    /// <summary>The last read of where mod rows come from, for rows made after it (a duplicated character); null until read.</summary>
+    private SaveModSources.Index? _modSources;
+
+    private void ClassifyTalents(IEnumerable<SaveTalentViewModel> talents)
+    {
+        if (_modSources is not { } index)
+        {
+            return;
+        }
+
+        foreach (var talent in talents)
+        {
+            talent.Source = index.Classify(SaveModSources.TalentsFile, talent.RowName);
+        }
     }
 
     private IEnumerable<(string Where, SaveTalentViewModel Talent)> LeftoverTalents() =>

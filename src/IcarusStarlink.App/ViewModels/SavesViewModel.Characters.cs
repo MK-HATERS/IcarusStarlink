@@ -69,6 +69,11 @@ public sealed partial class SavesViewModel
 
         var newCharacter = new SaveCharacterViewModel(clone, _gameNames, NotifyDirtyChanged);
 
+        // Its rows get what a loaded character's get: the DLC notes and where a mod's talent comes
+        // from (they had neither, so Remove leftovers missed the copy's leftovers).
+        ApplyPackNotes(newCharacter.Talents);
+        ClassifyTalents(newCharacter.Talents);
+
         // Kept adjacent to the source in both lists — purely cosmetic (order has no meaning to the
         // game; SaveCharacters below writes the whole array regardless of order), but it keeps the
         // duplicate easy to find right next to what it was duplicated from.
@@ -80,6 +85,7 @@ public sealed partial class SavesViewModel
         _charactersListDirty = true;
         SelectedCharacter = newCharacter;
         NotifyDirtyChanged();
+        NotifyLeftoversChanged();
         StatusMessage = $"Duplicated '{character.Name}' as '{newName}' (slot {SaveJson.Int(clone["ChrSlot"])}) — click Save player data to make it permanent.";
     }
 
@@ -143,6 +149,7 @@ public sealed partial class SavesViewModel
 
         _charactersListDirty = true;
         NotifyDirtyChanged();
+        NotifyLeftoversChanged();
         StatusMessage = $"Removed '{character.Name}' — click Save player data to make it permanent.";
     }
 }
