@@ -216,6 +216,14 @@ public partial class LibraryView : UserControl
     {
         if (DataContext is LibraryViewModel viewModel)
         {
+            // One selection across both panels: picking a row in one clears the other's, or a row
+            // left selected there wouldn't fire again when clicked, and Enter/F2 acted on the other
+            // panel's mod (review, 2026-10-23).
+            if (e.NewValue is not null)
+            {
+                ClearTreeViewSelection(ReferenceEquals(sender, Ue4ssTree) ? LibraryTree : Ue4ssTree);
+            }
+
             viewModel.SelectedItem = e.NewValue as LibraryItemViewModel;
         }
     }
@@ -474,7 +482,7 @@ public partial class LibraryView : UserControl
         switch (e.Key)
         {
             case System.Windows.Input.Key.A when ctrl:
-                viewModel.SelectAllForBulkCommand.Execute(null);
+                viewModel.SelectAllForBulkCommand.Execute(Ue4ssTree.IsKeyboardFocusWithin ? "ue4ss" : "data");
                 break;
             case System.Windows.Input.Key.Space when modifiers == System.Windows.Input.ModifierKeys.None:
                 viewModel.ToggleSelectedEnabled();

@@ -47,9 +47,15 @@ public static class NxmHandlerCommand
 
         var text = command!.Trim();
         var rest = text[0] == '"' ? text[(exe.Length + 2)..] : text[exe.Length..];
-        var arguments = rest.Contains("%1", StringComparison.Ordinal)
-            ? rest.Replace("%1", nxmUrl, StringComparison.Ordinal)
-            : $"{rest} \"{nxmUrl}\"";
+
+        // Always one argument: a stray quote is percent-encoded, and a bare %1 gets quotes, so a
+        // link can't split into extra arguments for the other app (review, 2026-10-23).
+        var url = nxmUrl.Replace("\"", "%22", StringComparison.Ordinal);
+        var arguments = rest.Contains("\"%1\"", StringComparison.Ordinal)
+            ? rest.Replace("\"%1\"", $"\"{url}\"", StringComparison.Ordinal)
+            : rest.Contains("%1", StringComparison.Ordinal)
+                ? rest.Replace("%1", $"\"{url}\"", StringComparison.Ordinal)
+                : $"{rest} \"{url}\"";
         return (exe, arguments.Trim());
     }
 

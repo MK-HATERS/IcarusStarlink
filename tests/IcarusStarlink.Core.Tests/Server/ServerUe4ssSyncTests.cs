@@ -87,5 +87,39 @@ public sealed class ServerUe4ssSyncTests : IDisposable
         Assert.Equal("server pets", File.ReadAllText(Path.Combine(serverMods, "Pets", "remembered.txt")));
         var saved = Assert.Single(Directory.GetDirectories(Path.Combine(backups, "removed-ue4ss")));
         Assert.Equal("old code", File.ReadAllText(Path.Combine(saved, "Scripts", "main.lua")));
+        Assert.Empty(Directory.GetDirectories(serverMods, "*.updating-*"));
+    }
+
+    /// <summary>Review 2026-10-23: a file only the server has (state a mod writes there) is the server's: no "differs", kept on update.</summary>
+    [Fact]
+    public void FilesOnlyOnTheServer_AreNotADifference_AndStayOnUpdate()
+    {
+        var install = Path.Combine(_root, "install");
+        var serverMods = DedicatedServerLayout.Ue4ssModsFolder(install);
+        Mod("game", "Pets", ("Scripts/main.lua", "code"));
+        Directory.CreateDirectory(Path.Combine(serverMods, "Pets", "Scripts"));
+        Directory.CreateDirectory(Path.Combine(serverMods, "Pets", "data"));
+        File.WriteAllText(Path.Combine(serverMods, "Pets", "Scripts", "main.lua"), "code");
+        File.WriteAllText(Path.Combine(serverMods, "Pets", "data", "players.json"), "{\"server\":1}");
+
+        var row = Assert.Single(ServerUe4ssSync.Compare(Path.Combine(_root, "game"), serverMods, new HashSet<string>()));
+        Assert.Equal(ServerModState.Same, row.State);
+
+        File.WriteAllText(Path.Combine(_root, "game", "Pets", "Scripts", "main.lua"), "new code");
+        ServerUe4ssSync.CopyToServer(Path.Combine(_root, "game"), "Pets", install, Path.Combine(_root, "backups"));
+
+        Assert.Equal("new code", File.ReadAllText(Path.Combine(serverMods, "Pets", "Scripts", "main.lua")));
+        Assert.Equal("{\"server\":1}", File.ReadAllText(Path.Combine(serverMods, "Pets", "data", "players.json")));
+    }
+
+    /// <summary>A file missing from the server is a difference.</summary>
+    [Fact]
+    public void AFileMissingFromTheServer_IsADifference()
+    {
+        Mod("game", "Tools", ("Scripts/main.lua", "code"), ("Scripts/extra.lua", "more"));
+        Mod("server", "Tools", ("Scripts/main.lua", "code"));
+
+        var row = Assert.Single(ServerUe4ssSync.Compare(Path.Combine(_root, "game"), Path.Combine(_root, "server"), new HashSet<string>()));
+        Assert.Equal(ServerModState.ServerOutOfDate, row.State);
     }
 }

@@ -267,7 +267,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         {
             if (value)
             {
-                SelectAllForBulk();
+                SelectAllForBulk("data");
             }
             else
             {
@@ -627,12 +627,19 @@ public sealed partial class LibraryViewModel : ObservableObject
         // Shift-clicks stays possible instead of the anchor chasing the most recent click.
     }
 
-    /// <summary>Context menu's "Select all" — every mod currently shown (respects the active search filter, since RootItems already reflects it), not the whole unfiltered Library.</summary>
+    /// <summary>
+    /// "Select all" (context menu, Ctrl+A) — every mod currently shown in ONE panel ("data" or
+    /// "ue4ss"; respects the search filter). It used to select both panels, so Ctrl+A then Delete
+    /// in the UE4SS panel offered to delete every data mod (review, 2026-10-23).
+    /// </summary>
     [RelayCommand]
-    private void SelectAllForBulk()
+    private void SelectAllForBulk(string? panel)
     {
         ClearBulkSelection();
-        foreach (var row in FlattenRows())
+        var rows = panel == "ue4ss"
+            ? Ue4ssRootItems.SelectMany(entry => entry is LibraryGroupViewModel group ? group.Items.Cast<object>() : [entry])
+            : DataRootItems.SelectMany(entry => entry is LibraryGroupViewModel group ? group.Items.Cast<object>() : [entry]);
+        foreach (var row in rows.ToList())
         {
             SetRowSelected(row, true);
         }

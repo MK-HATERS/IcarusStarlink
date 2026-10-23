@@ -49,7 +49,8 @@ public static class ServerUe4ssSync
         {
             var game = Path.Combine(gameModsFolder, name);
             var server = Path.Combine(serverModsFolder, name);
-            var inGame = Directory.Exists(game);
+            // No game folder set: nothing is "in the game" (an empty path would read the working folder).
+            var inGame = gameModsFolder.Length > 0 && Directory.Exists(game);
             var onServer = Directory.Exists(server);
             var gameVersion = inGame ? Ue4ssModVersion.TryRead(game) : null;
             var serverVersion = onServer ? Ue4ssModVersion.TryRead(server) : null;
@@ -65,7 +66,9 @@ public static class ServerUe4ssSync
     }
 
     private static IEnumerable<string> ModFolders(string modsFolder) =>
-        Directory.Exists(modsFolder) ? Directory.GetDirectories(modsFolder).Select(Path.GetFileName).OfType<string>() : [];
+        modsFolder.Length > 0 && Directory.Exists(modsFolder)
+            ? Directory.GetDirectories(modsFolder).Select(Path.GetFileName).OfType<string>().Where(n => !IsUpdateLeftover(n))
+            : [];
 
     private static ServerModState CompareCopies(string game, string server, string? gameVersion, string? serverVersion)
     {
@@ -74,7 +77,34 @@ public static class ServerUe4ssSync
             return order > 0 ? ServerModState.ServerOutOfDate : ServerModState.ServerNewer;
         }
 
-        return SameContent(game, server) ? ServerModState.Same : ServerModState.ServerOutOfDate;
+        return ServerHasGameFiles(game, server) ? ServerModState.Same : ServerModState.ServerOutOfDate;
+    }
+
+    /// <summary>
+    /// The server has every file the game's copy ships, byte for byte (config, logs and the like
+    /// aside). Files only on the server are its own (state a mod writes there: players.json,
+    /// remembered.txt) and never a difference (review 2026-10-23: they read as "differs" and an
+    /// update took them off the live server).
+    /// </summary>
+    public static bool ServerHasGameFiles(string game, string server)
+    {
+        var gameFiles = ContentFiles(game);
+        var serverLocal = LocalFiles(server);
+        foreach (var (relative, gamePath) in gameFiles)
+        {
+            var serverPath = Path.Combine(server, relative);
+            if (serverLocal.Contains(relative) || !File.Exists(serverPath))
+            {
+                return false;
+            }
+
+            if (new FileInfo(gamePath).Length != new FileInfo(serverPath).Length || !HashOf(gamePath).SequenceEqual(HashOf(serverPath)))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>Dotted numbers ("1.9.0" vs "1.10.0"); null when either isn't one.</summary>
@@ -137,15 +167,39 @@ public static class ServerUe4ssSync
 
     private static readonly string[] RuntimeExtensions = [".log", ".bak", ".cache", ".tmp", ".old", ".txt", ".md"];
 
+    // A folder moved aside mid-update (CopyToServer) isn't a mod.
+    private static bool IsUpdateLeftover(string folder) => folder.Contains(".updating-", StringComparison.Ordinal);
+
     /// <summary>Written by the mod or the user, not shipped code: enabled.txt, logs, caches, backups, notes and state text files.</summary>
     private static bool IsRuntimeFile(string relativePath) =>
         string.Equals(relativePath, Ue4ssModStart.EnabledFileName, StringComparison.OrdinalIgnoreCase)
         || RuntimeExtensions.Contains(Path.GetExtension(relativePath).ToLowerInvariant());
 
+    /// <summary>
+    /// Hashes by path, size and time written: the Server page compares on every visit and after
+    /// every action, and hashing a merged pak of hundreds of MB each time froze the page (review,
+    /// 2026-10-23). A file that changes gets a new size or time, so it's hashed again.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Path, long Length, DateTime Written), byte[]> Hashes = new();
+
     private static byte[] HashOf(string path)
     {
+        var info = new FileInfo(path);
+        var key = (Path.GetFullPath(path).ToLowerInvariant(), info.Length, info.LastWriteTimeUtc);
+        if (Hashes.TryGetValue(key, out var known))
+        {
+            return known;
+        }
+
         using var stream = File.OpenRead(path);
-        return SHA256.HashData(stream);
+        var hash = SHA256.HashData(stream);
+        if (Hashes.Count > 20_000)
+        {
+            Hashes.Clear();
+        }
+
+        Hashes[key] = hash;
+        return hash;
     }
 
     /// <summary>
@@ -172,25 +226,56 @@ public static class ServerUe4ssSync
 
         var txtPath = Path.Combine(serverMods, Ue4ssModStart.ListFileName);
         var wasOn = Ue4ssModStart.Starts(serverMods, modName, Ue4ssModsTxt.Load(txtPath));
-        // The server's config and what the mod wrote there (remembered.txt, caches) stay the server's.
-        var keptFiles = LocalFiles(target)
+
+        // Kept from the server's copy: its config, what the mod writes while running (logs, state
+        // .txt files like remembered.txt, which the game's copy has too), and anything the game's
+        // copy doesn't ship at all (players.json, data files a mod writes: review 2026-10-23, those
+        // used to be taken off the live server by an update).
+        var local = LocalFiles(target);
+        var keptFiles = Directory.EnumerateFiles(target, "*", SearchOption.AllDirectories)
+            .Select(file => Path.GetRelativePath(target, file))
             .Where(relative => !string.Equals(relative, Ue4ssModStart.EnabledFileName, StringComparison.OrdinalIgnoreCase))
+            .Where(relative => local.Contains(relative) || !File.Exists(Path.Combine(source, relative)))
             .Select(relative => (RelativePath: relative, Bytes: File.ReadAllBytes(Path.Combine(target, relative))))
             .ToList();
 
-        // The old copy goes to the backups (the same place Remove puts mods), then the game's copy in.
-        var backup = Path.Combine(backupsFolder, "removed-ue4ss", $"{DateTime.Now:yyyy-MM-dd_HHmmss}_{modName}_before-update");
-        CopyDirectory(target, backup);
-        Directory.Delete(target, recursive: true);
-        CopyDirectory(source, target);
-
-        foreach (var (relative, bytes) in keptFiles)
+        // The old copy is moved aside first (a rename, so it can't half-delete), the game's copy goes
+        // in, and only then does the old one go to the backups (the same place Remove puts mods). If
+        // the copy fails, the old copy is put back as it was.
+        var aside = $"{target}.updating-{DateTime.Now:yyyyMMddHHmmss}";
+        Directory.Move(target, aside);
+        try
         {
-            var path = Path.Combine(target, relative);
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllBytes(path, bytes);
+            CopyDirectory(source, target);
+            foreach (var (relative, bytes) in keptFiles)
+            {
+                var path = Path.Combine(target, relative);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllBytes(path, bytes);
+            }
+        }
+        catch
+        {
+            try
+            {
+                if (Directory.Exists(target))
+                {
+                    Directory.Delete(target, recursive: true);
+                }
+
+                Directory.Move(aside, target);
+            }
+            catch (IOException)
+            {
+                // Leave the moved-aside copy where it is: the error below names the mod, and nothing is lost.
+            }
+
+            throw;
         }
 
+        var backup = Path.Combine(backupsFolder, "removed-ue4ss", $"{DateTime.Now:yyyy-MM-dd_HHmmss}_{modName}_before-update");
+        CopyDirectory(aside, backup);
+        Directory.Delete(aside, recursive: true);
         SetEnabled(installFolder, modName, wasOn);
     }
 

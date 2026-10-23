@@ -74,6 +74,14 @@ public sealed class NxmHandlerWatch(INxmProtocolRegistrar registrar, ISettingsSe
         }
 
         var current = registrar.CurrentHandlerCommand();
+
+        // Another Starlink install has them (two installs open at once): links still open in a
+        // Starlink, and taking them back would trade the key between the two forever (review, 2026-10-23).
+        if (NxmHandlerCommand.IsStarlink(current))
+        {
+            return;
+        }
+
         var owner = HandlerName(current);
         if (settings.KeepNxmHandler && TakeBackAllowed())
         {

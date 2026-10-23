@@ -144,7 +144,8 @@
                     <ContextMenu>
                         <MenuItem Header="Select all"
                                   Command="{Binding PlacementTarget.Tag.SelectAllForBulkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                  ToolTip="Selects every mod currently shown, so one ON tick turns them all on or off"/>
+                                  CommandParameter="ue4ss"
+                                  ToolTip="Selects every UE4SS mod currently shown, so one ON tick turns them all on or off"/>
                         <Separator/>
                         <MenuItem Header="Open folder"
                                   Command="{Binding PlacementTarget.Tag.OpenUe4ssModFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
@@ -376,7 +377,8 @@
                     <ContextMenu>
                         <MenuItem Header="Select all"
                                   Command="{Binding PlacementTarget.Tag.SelectAllForBulkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                  ToolTip="Selects every mod currently shown (respects the search box), ready for a bulk action below"/>
+                                  CommandParameter="data"
+                                  ToolTip="Selects every data mod currently shown (respects the search box), ready for a bulk action below"/>
                         <Separator/>
                         <MenuItem Header="Pinned" IsCheckable="True" IsChecked="{Binding IsPinned}"/>
                         <MenuItem Header="Favorite" IsCheckable="True" IsChecked="{Binding IsFavorite}"/>
@@ -1182,7 +1184,8 @@
                                 <TextBlock Text="PENDING" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <TextBlock Text="{Binding GameUpdateText}" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" Margin="0,0,8,0"
                                            Visibility="{Binding HasGameUpdate, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                <TextBlock Text="{Binding TickWhatsInTheGameHint}" VerticalAlignment="Center" FontSize="13"/>
+                                <TextBlock Text="Mods in the game aren't ticked: Merge &amp; Install would take them out." VerticalAlignment="Center" FontSize="13"
+                                           Visibility="{Binding CanTickWhatsInTheGame, Converter={StaticResource BoolToVisibilityConverter}}"/>
                             </StackPanel>
                         </DockPanel>
                     </Border>

@@ -29,6 +29,16 @@ public class NxmHandlerCommandTests
         Assert.Equal(("C:\\Mgr\\Mgr.exe", "\"nxm://skyrim/mods/1/files/2\""), launch);
     }
 
+    /// <summary>Review 2026-10-23: a bare %1 or a quote in the link must not split it into several arguments.</summary>
+    [Fact]
+    public void LaunchFor_BarePercentOneAndQuotes_StayOneArgument()
+    {
+        Assert.Equal(("C:\\Mgr\\Mgr.exe", "-d \"nxm://skyrim/mods/1/files/2\""),
+            NxmHandlerCommand.LaunchFor("C:\\Mgr\\Mgr.exe -d %1", "nxm://skyrim/mods/1/files/2"));
+        Assert.Equal(("C:\\Mgr\\Mgr.exe", "\"nxm://skyrim/mods/1?x=%22a%22\""),
+            NxmHandlerCommand.LaunchFor("\"C:\\Mgr\\Mgr.exe\" \"%1\"", "nxm://skyrim/mods/1?x=\"a\""));
+    }
+
     /// <summary>Two Starlink installs remembering each other would pass a link back and forth forever.</summary>
     [Theory]
     [InlineData("\"F:\\ModManager\\Icarus Mod Manager\\IcarusStarlink.App.exe\" \"%1\"", true)]
