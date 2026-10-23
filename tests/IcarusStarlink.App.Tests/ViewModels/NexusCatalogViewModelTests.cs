@@ -54,6 +54,19 @@ public class NexusCatalogViewModelTests
     }
 
     [Fact]
+    public void EmptyStateText_NoCards_SaysLoadingWhileLoadingThenTheStatusReason()
+    {
+        var vm = new Harness().Build();
+
+        vm.IsLoading = true;
+        Assert.Equal("Loading mods from Nexus…", vm.EmptyStateText);
+
+        vm.IsLoading = false;
+        vm.StatusMessage = "Nothing matches the filters.";
+        Assert.Equal("Nothing matches the filters.", vm.EmptyStateText);
+    }
+
+    [Fact]
     public void Construction_NoSavedApiKey_IsPremiumStaysNull()
     {
         var harness = new Harness();

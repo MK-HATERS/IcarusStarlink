@@ -87,13 +87,21 @@ public sealed partial class DownloadsViewModel
     private CatalogEntryViewModel? _selectedCatalogEntry;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CatalogEmptyStateText))]
     private bool _isLoadingCatalog;
 
     [ObservableProperty]
     private string? _catalogStatusMessage;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CatalogEmptyStateText))]
     private int _catalogShownCount;
+
+    /// <summary>What the empty IMM Database list says instead of showing blank rows: loading, nothing loaded yet, or nothing matching. Null while rows show.</summary>
+    public string? CatalogEmptyStateText => CatalogShownCount > 0 ? null
+        : IsLoadingCatalog ? "Loading mods from the IMM Database…"
+        : CatalogTotalCount == 0 ? "No mods loaded yet — press Refresh."
+        : "No mods match — clear the search or the filters.";
 
     /// <summary>DataGrid.SelectedItems isn't a bindable DependencyProperty — set from ImmDatabaseView's own code-behind SelectionChanged handler, same limitation/workaround the EXMOD editor's mass-edit selection already uses.</summary>
     private IReadOnlyList<CatalogEntryViewModel> _selectedCatalogEntriesForBatch = [];
@@ -107,6 +115,7 @@ public sealed partial class DownloadsViewModel
     partial void OnSelectedCatalogEntryCountChanged(int value) => OnPropertyChanged(nameof(HasCatalogSelectionForBatch));
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CatalogEmptyStateText))]
     private int _catalogTotalCount;
 
     [ObservableProperty]

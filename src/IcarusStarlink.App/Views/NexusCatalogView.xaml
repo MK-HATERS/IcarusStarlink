@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:utilities="clr-namespace:IcarusStarlink.App.Utilities"
              mc:Ignorable="d">
 
     <!-- The whole Nexus page: a native mod list driven by the API key saved in Settings. There is
@@ -91,15 +92,24 @@
             <ItemsControl ItemsSource="{Binding Mods}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <WrapPanel/>
+                        <!-- Equal columns that fill the width; each row is as tall as its tallest card. -->
+                        <utilities:CardGridPanel MinColumnWidth="330" Spacing="12" Margin="0,0,4,12"/>
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Width="320" Margin="0,0,12,12" Background="{DynamicResource CardBackgroundBrush}"
+                        <Border Background="{DynamicResource CardBackgroundBrush}"
                                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
-                            <StackPanel>
-                                <Grid Height="150" Background="{DynamicResource CardRaisedBackgroundBrush}" ClipToBounds="True">
+                            <!-- DockPanel so the button row sits on the card's bottom edge and lines up
+                                 across a row whatever the description's length. -->
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid Grid.Row="0" Height="150" Background="{DynamicResource CardRaisedBackgroundBrush}" ClipToBounds="True">
                                     <Path Data="{StaticResource IconMountains}" Stroke="{DynamicResource FaintForegroundBrush}" StrokeThickness="1.6"
                                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                           Width="30" Height="30" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -132,7 +142,7 @@
                                         </Border>
                                     </StackPanel>
                                 </Grid>
-                                <StackPanel Margin="12,10,12,12">
+                                <StackPanel Grid.Row="1" Margin="12,10,12,10">
                                     <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"
                                                ToolTip="{Binding DisplayName}"/>
                                     <TextBlock Margin="0,1,0,0" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -141,131 +151,140 @@
                                     <TextBlock Text="{Binding Mod.DatesDisplay}" Margin="0,1,0,6" FontSize="10.5"
                                                Foreground="{DynamicResource FaintForegroundBrush}"
                                                Visibility="{Binding Mod.DatesDisplay, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                    <!-- Three whole lines, then an ellipsis: a fixed line height makes MaxHeight
+                                         land on a line boundary, so WPF trims the last line instead of cutting it. -->
                                     <TextBlock Text="{Binding Mod.Summary}" Style="{StaticResource PageBodyTextStyle}" FontSize="12"
-                                               TextWrapping="Wrap" MaxHeight="52" ClipToBounds="True" ToolTip="{Binding Mod.Summary}"/>
-                                    <WrapPanel Margin="0,10,0,0">
-                                        <Button Margin="0,0,8,4"
-                                                Command="{Binding DataContext.DownloadModCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                CommandParameter="{Binding Mod}"
-                                                AutomationProperties.Name="Download mod">
-                                            <Button.Style>
-                                                <!-- A real bug found live: Download here can never succeed for a confirmed non-Premium
-                                                     account (see NexusCatalogViewModel.IsPremium's own doc comment) — disabling it instead
-                                                     of leaving it clickable-but-doomed, with the working alternative explained right in the
-                                                     tooltip instead of only after a failed click. -->
-                                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
-                                                    <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
-                                                    <Setter Property="BorderThickness" Value="0"/>
-                                                    <Setter Property="FontWeight" Value="SemiBold"/>
-                                                    <Setter Property="ToolTip" Value="Downloads the mod and adds it to your Library (it's listed on the Downloads page too) — needs a Nexus Premium account"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding DataContext.IsKnownNonPremium, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="True">
-                                                            <Setter Property="IsEnabled" Value="False"/>
-                                                            <Setter Property="ToolTip" Value="Not available on a free account — use Open page instead (its own Mod Manager Download button works for every account)"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Button.Style>
-                                            <StackPanel Orientation="Horizontal">
-                                                <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
-                                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
-                                                <TextBlock Text="Download" VerticalAlignment="Center"/>
-                                            </StackPanel>
-                                        </Button>
-                                        <!-- Same button toggles Track/Untrack — TrackModCommand checks
-                                             watchlist membership itself, so the click always does
-                                             the opposite of whatever IsTracked shows right now. -->
-                                        <Button Command="{Binding DataContext.TrackModCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                CommandParameter="{Binding Mod}" Margin="0,0,0,4"
-                                                AutomationProperties.Name="{Binding IsTracked, Converter={StaticResource TrackedAutomationNameConverter}}">
-                                            <Button.Style>
-                                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                                    <Setter Property="ToolTip" Value="Track this mod, so the Tracked switch above can show just the mods you follow"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsTracked}" Value="True">
-                                                            <Setter Property="ToolTip" Value="Stop tracking this mod"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Button.Style>
-                                            <StackPanel Orientation="Horizontal">
-                                                <Path Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
-                                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round">
-                                                    <Path.Style>
-                                                        <Style TargetType="Path">
-                                                            <Setter Property="Data" Value="{StaticResource IconPlus}"/>
-                                                            <Setter Property="Stroke" Value="{DynamicResource ForegroundBrush}"/>
-                                                            <Setter Property="StrokeThickness" Value="1.8"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsTracked}" Value="True">
-                                                                    <Setter Property="Data" Value="{StaticResource IconCheck}"/>
-                                                                    <Setter Property="Stroke" Value="{DynamicResource AccentBrush}"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Path.Style>
-                                                </Path>
-                                                <TextBlock VerticalAlignment="Center">
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Setter Property="Text" Value="Track"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsTracked}" Value="True">
-                                                                    <Setter Property="Text" Value="Tracked"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
-                                            </StackPanel>
-                                        </Button>
-                                        <Button Margin="0,0,0,4" Style="{StaticResource IconButtonStyle}"
-                                                Command="{Binding DataContext.RenameTrackedEntryCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                CommandParameter="{Binding}"
-                                                Visibility="{Binding IsTracked, Converter={StaticResource BoolToVisibilityConverter}}"
-                                                ToolTip="Rename this tracked entry (local only — doesn't touch anything on Nexus)"
-                                                AutomationProperties.Name="Rename tracked entry">
-                                            <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
-                                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform"/>
-                                        </Button>
-                                        <Button Margin="8,0,8,4"
-                                                Command="{Binding DataContext.OpenModPageCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                CommandParameter="{Binding Mod}"
-                                                AutomationProperties.Name="Open mod page">
-                                            <Button.Style>
-                                                <!-- Promoted to the same look Download normally has, once a confirmed non-Premium
-                                                     account means this is genuinely the one button that will actually work here. -->
-                                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                                    <Setter Property="ToolTip" Value="Open the mod's page in your browser — downloads start there via Mod Manager Download"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding DataContext.IsKnownNonPremium, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="True">
-                                                            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
-                                                            <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
-                                                            <Setter Property="BorderThickness" Value="0"/>
-                                                            <Setter Property="FontWeight" Value="SemiBold"/>
-                                                            <Setter Property="ToolTip" Value="Open the mod's page in your browser — click its Mod Manager Download button there, it works on a free account"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Button.Style>
-                                            <StackPanel Orientation="Horizontal">
-                                                <Path Data="{StaticResource IconGlobeMeridian}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
-                                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
-                                                <TextBlock Text="Open page" VerticalAlignment="Center"/>
-                                            </StackPanel>
-                                        </Button>
-                                        <Button Margin="0,0,0,4" Style="{StaticResource IconButtonStyle}"
-                                                Command="{Binding DataContext.ShowChangelogCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                CommandParameter="{Binding Mod}"
-                                                ToolTip="Show this mod's changelog for its current version"
-                                                AutomationProperties.Name="Show changelog">
-                                            <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
-                                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform"/>
-                                        </Button>
-                                    </WrapPanel>
+                                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                                               LineHeight="17" LineStackingStrategy="BlockLineHeight" MaxHeight="51"
+                                               ToolTip="{Binding Mod.Summary}"/>
                                 </StackPanel>
-                            </StackPanel>
+                                <!-- Pinned to the card's bottom edge so the row lines up across the grid.
+                                     The small icon buttons (changelog, rename) sit at the right end of the
+                                     same row instead of wrapping onto a line of their own. -->
+                                <DockPanel Grid.Row="3" Margin="12,0,8,8" LastChildFill="True" VerticalAlignment="Bottom">
+                                    <Button DockPanel.Dock="Right" Margin="4,0,0,4" Style="{StaticResource IconButtonStyle}"
+                                            Command="{Binding DataContext.ShowChangelogCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                            CommandParameter="{Binding Mod}"
+                                            ToolTip="Show this mod's changelog for its current version"
+                                            AutomationProperties.Name="Show changelog">
+                                        <Path Data="{StaticResource IconBook}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform"/>
+                                    </Button>
+                                    <Button DockPanel.Dock="Right" Margin="4,0,0,4" Style="{StaticResource IconButtonStyle}"
+                                            Command="{Binding DataContext.RenameTrackedEntryCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                            CommandParameter="{Binding}"
+                                            Visibility="{Binding IsTracked, Converter={StaticResource BoolToVisibilityConverter}}"
+                                            ToolTip="Rename this tracked entry (local only — doesn't touch anything on Nexus)"
+                                            AutomationProperties.Name="Rename tracked entry">
+                                        <Path Data="{StaticResource IconPencil}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform"/>
+                                    </Button>
+                                    <WrapPanel VerticalAlignment="Center">
+                                            <Button Margin="0,0,8,4"
+                                                    Command="{Binding DataContext.DownloadModCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding Mod}"
+                                                    AutomationProperties.Name="Download mod">
+                                                <Button.Style>
+                                                    <!-- A real bug found live: Download here can never succeed for a confirmed non-Premium
+                                                         account (see NexusCatalogViewModel.IsPremium's own doc comment) — disabling it instead
+                                                         of leaving it clickable-but-doomed, with the working alternative explained right in the
+                                                         tooltip instead of only after a failed click. -->
+                                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                        <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
+                                                        <Setter Property="BorderThickness" Value="0"/>
+                                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                                        <Setter Property="ToolTip" Value="Downloads the mod and adds it to your Library (it's listed on the Downloads page too) — needs a Nexus Premium account"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding DataContext.IsKnownNonPremium, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="True">
+                                                                <Setter Property="IsEnabled" Value="False"/>
+                                                                <Setter Property="ToolTip" Value="Not available on a free account — use Open page instead (its own Mod Manager Download button works for every account)"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
+                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
+                                                    <TextBlock Text="Download" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <!-- Same button toggles Track/Untrack — TrackModCommand checks
+                                                 watchlist membership itself, so the click always does
+                                                 the opposite of whatever IsTracked shows right now. -->
+                                            <Button Command="{Binding DataContext.TrackModCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding Mod}" Margin="0,0,8,4"
+                                                    AutomationProperties.Name="{Binding IsTracked, Converter={StaticResource TrackedAutomationNameConverter}}">
+                                                <Button.Style>
+                                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                        <Setter Property="ToolTip" Value="Track this mod, so the Tracked switch above can show just the mods you follow"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsTracked}" Value="True">
+                                                                <Setter Property="ToolTip" Value="Stop tracking this mod"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"
+                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round">
+                                                        <Path.Style>
+                                                            <Style TargetType="Path">
+                                                                <Setter Property="Data" Value="{StaticResource IconPlus}"/>
+                                                                <Setter Property="Stroke" Value="{DynamicResource ForegroundBrush}"/>
+                                                                <Setter Property="StrokeThickness" Value="1.8"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsTracked}" Value="True">
+                                                                        <Setter Property="Data" Value="{StaticResource IconCheck}"/>
+                                                                        <Setter Property="Stroke" Value="{DynamicResource AccentBrush}"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Path.Style>
+                                                    </Path>
+                                                    <TextBlock VerticalAlignment="Center">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Text" Value="Track"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsTracked}" Value="True">
+                                                                        <Setter Property="Text" Value="Tracked"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Margin="0,0,0,4"
+                                                    Command="{Binding DataContext.OpenModPageCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding Mod}"
+                                                    AutomationProperties.Name="Open mod page">
+                                                <Button.Style>
+                                                    <!-- Promoted to the same look Download normally has, once a confirmed non-Premium
+                                                         account means this is genuinely the one button that will actually work here. -->
+                                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                        <Setter Property="ToolTip" Value="Open the mod's page in your browser — downloads start there via Mod Manager Download"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding DataContext.IsKnownNonPremium, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="True">
+                                                                <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
+                                                                <Setter Property="BorderThickness" Value="0"/>
+                                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                                                <Setter Property="ToolTip" Value="Open the mod's page in your browser — click its Mod Manager Download button there, it works on a free account"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource IconGlobeMeridian}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
+                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
+                                                    <TextBlock Text="Open page" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                    </WrapPanel>
+                                </DockPanel>
+                            </Grid>
                         </Border>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
@@ -289,5 +308,9 @@
             </StackPanel>
             </StackPanel>
         </ScrollViewer>
+
+        <!-- Says why the grid is empty (loading, nothing matched, needs a key) right where the cards would be. -->
+        <TextBlock Grid.Row="4" Text="{Binding EmptyStateText}" Style="{StaticResource EmptyStateTextStyle}"
+                   Visibility="{Binding EmptyStateText, Converter={StaticResource NullToVisibilityConverter}}"/>
     </Grid>
 </UserControl>

@@ -893,6 +893,27 @@ public sealed class DownloadsViewModelTests : IDisposable
         Assert.NotEmpty(await first);
     }
 
+    /// <summary>The empty IMM Database list says why it's empty instead of showing blank rows.</summary>
+    [Fact]
+    public void CatalogEmptyStateText_SaysLoadingNothingLoadedOrNothingMatching()
+    {
+        var vm = new Harness(_root).Build();
+
+        vm.CatalogShownCount = 0;
+        vm.CatalogTotalCount = 0;
+        vm.IsLoadingCatalog = true;
+        Assert.Equal("Loading mods from the IMM Database…", vm.CatalogEmptyStateText);
+
+        vm.IsLoadingCatalog = false;
+        Assert.Equal("No mods loaded yet — press Refresh.", vm.CatalogEmptyStateText);
+
+        vm.CatalogTotalCount = 12;
+        Assert.Equal("No mods match — clear the search or the filters.", vm.CatalogEmptyStateText);
+
+        vm.CatalogShownCount = 3;
+        Assert.Null(vm.CatalogEmptyStateText);
+    }
+
     /// <summary>The catalog row's Outdated uses the same version rule as the Nexus cards: "1.0" installed against a listed "1" is up to date.</summary>
     [Theory]
     [InlineData("1", "1.0", false)]
