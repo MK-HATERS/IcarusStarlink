@@ -685,6 +685,31 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.NotNull(creature.Icon);
     }
 
+    /// <summary>One Bestiary edit used to rebuild every entry as bare {BestiaryGroup, NumPoints}, dropping other fields and RowName-less entries.</summary>
+    [Fact]
+    public async Task SaveBestiary_ChangesOnlyTheEditedEntry_InPlace()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+        };
+        repository.Bestiary["BestiaryTracking"] = JsonNode.Parse("""
+            [ { "Odd": 1 },
+              { "BestiaryGroup": { "RowName": "OldCreature", "DataTableName": "D_BestiaryData" }, "NumPoints": 7 },
+              { "BestiaryGroup": { "RowName": "PackWolf", "DataTableName": "D_BestiaryData" }, "NumPoints": 10, "Extra": "kept" } ]
+            """);
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateGameDataFolder()));
+        await vm.WaitForPendingSlotLoadAsync();
+
+        vm.BestiaryEntries.Single(b => b.RowName == "PackWolf").PointsText = "50";
+        vm.SaveChangesCommand.Execute(null);
+
+        Assert.Equal(
+            """[{"Odd":1},{"BestiaryGroup":{"RowName":"OldCreature","DataTableName":"D_BestiaryData"},"NumPoints":7},{"BestiaryGroup":{"RowName":"PackWolf","DataTableName":"D_BestiaryData"},"NumPoints":50,"Extra":"kept"}]""",
+            repository.Bestiary["BestiaryTracking"]!.ToJsonString());
+    }
+
     [Fact]
     public async Task LoadSlot_ItemWithNoIconPath_NeverCallsTheIconDecoder_StaysTextOnly()
     {

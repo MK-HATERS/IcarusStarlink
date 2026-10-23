@@ -77,7 +77,14 @@ public sealed partial class SavesViewModel
         OnPropertyChanged(nameof(BestiarySummary));
     }
 
-    /// <summary>Writes BestiaryEntries back into its own root node — a plain per-row rebuild (unlike the array-membership rewrite pattern above) since every tracked creature always has exactly one NumPoints entry, not a present/absent one.</summary>
+    /// <summary>
+    /// Writes the edited creatures back into BestiaryData.json's own BestiaryTracking, in place:
+    /// each entry the save has keeps its place and every field the game wrote, and only an edited
+    /// creature's NumPoints changes (set to 0, it drops out, the game's own "not tracked"). A
+    /// creature newly given points is appended. One edit used to rebuild the whole list as bare
+    /// {BestiaryGroup, NumPoints} entries in table order, dropping every other field and any entry
+    /// without a RowName.
+    /// </summary>
     private void ApplyBestiaryEdits()
     {
         if (_bestiaryRoot is null)
@@ -85,19 +92,52 @@ public sealed partial class SavesViewModel
             return;
         }
 
-        var newArray = new JsonArray();
+        var byRow = new Dictionary<string, SaveBestiaryEntryViewModel>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in BestiaryEntries)
         {
-            // EffectivePoints, not a re-parse of PointsText: a box left unparsable (e.g. cleared
-            // mid-edit) must fall back to the entry's own last-known-good value, never silently
-            // drop the whole creature's tracking entry out of the save.
-            var points = entry.EffectivePoints;
-            if (points > 0)
+            byRow.TryAdd(entry.RowName, entry);
+        }
+
+        var newArray = new JsonArray();
+        var inSave = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_bestiaryRoot["BestiaryTracking"] is JsonArray existing)
+        {
+            foreach (var node in existing)
+            {
+                if (node is JsonObject tracked && SaveJson.String((tracked["BestiaryGroup"] as JsonObject)?["RowName"]) is { } rowName
+                    && byRow.TryGetValue(rowName, out var creature) && creature.IsDirty)
+                {
+                    inSave.Add(rowName);
+
+                    // EffectivePoints, not a re-parse of PointsText: a box left unparsable (e.g.
+                    // cleared mid-edit) falls back to the entry's own last-known-good value.
+                    if (creature.EffectivePoints > 0)
+                    {
+                        var copy = tracked.DeepClone().AsObject();
+                        copy["NumPoints"] = creature.EffectivePoints;
+                        newArray.Add(copy);
+                    }
+
+                    continue;
+                }
+
+                if (node is JsonObject other && SaveJson.String((other["BestiaryGroup"] as JsonObject)?["RowName"]) is { } otherRow)
+                {
+                    inSave.Add(otherRow);
+                }
+
+                newArray.Add(node?.DeepClone());
+            }
+        }
+
+        foreach (var creature in BestiaryEntries)
+        {
+            if (creature.IsDirty && creature.EffectivePoints > 0 && inSave.Add(creature.RowName))
             {
                 newArray.Add(new JsonObject
                 {
-                    ["BestiaryGroup"] = new JsonObject { ["RowName"] = entry.RowName, ["DataTableName"] = "D_BestiaryData" },
-                    ["NumPoints"] = points,
+                    ["BestiaryGroup"] = new JsonObject { ["RowName"] = creature.RowName, ["DataTableName"] = "D_BestiaryData" },
+                    ["NumPoints"] = creature.EffectivePoints,
                 });
             }
         }
