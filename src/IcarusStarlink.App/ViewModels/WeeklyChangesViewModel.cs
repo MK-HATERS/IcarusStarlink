@@ -41,16 +41,18 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
     [ObservableProperty]
     private string _summaryMessage = "";
 
-    public WeeklyChangesViewModel(IWeeklyChangeReportStore store, SettingsViewModel settings)
+    /// <param name="messenger">Injectable like Merge &amp; Install's, so a test can use its own instead of the shared Default.</param>
+    public WeeklyChangesViewModel(IWeeklyChangeReportStore store, SettingsViewModel settings, IMessenger? messenger = null)
     {
         _store = store;
         Settings = settings;
+        messenger ??= WeakReferenceMessenger.Default;
 
         // This VM is a DI singleton, constructed once on first navigation here — without this, a
         // report saved later (from Settings' Refresh game data, or this page's own shortcut)
         // wouldn't show up until some unrelated trigger happened to rebuild this page. Same
         // rationale as LibraryViewModel's own LibraryChangedMessage registration.
-        WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((WeeklyChangesViewModel)recipient).ReloadHistory());
+        messenger.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((WeeklyChangesViewModel)recipient).ReloadHistory());
 
         ReloadHistory();
     }
