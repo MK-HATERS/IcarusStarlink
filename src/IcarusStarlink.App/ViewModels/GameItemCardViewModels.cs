@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -19,8 +18,8 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     public GameItemFieldViewModel(EditableField field, bool? decimalField = null)
     {
         Field = field;
-        _gameText = Display(field.GameValue);
-        _startText = Display(field.CurrentValue ?? field.GameValue);
+        _gameText = EditorValueText.Display(field.GameValue);
+        _startText = EditorValueText.Display(field.CurrentValue ?? field.GameValue);
         _valueText = _startText;
         // A stack size or slot count is a whole number in the game; 2.5 would be read as 2 or
         // rejected. Stats always are (an int each). Otherwise it's the FIELD that decides: a
@@ -66,7 +65,7 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
 
     public string? Error =>
         Field.Kind != EditableKind.Number || IsRemoved ? null
-        : !double.TryParse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) || !double.IsFinite(n) ? "Needs a number, like 50 or 0.5."
+        : !EditorValueText.TryParseNumber(ValueText, out var n) ? "Needs a number, like 50 or 0.5."
         : _wholeNumber && n != Math.Floor(n) ? (IsStat(Field) ? "Needs a whole number: stats have no fractions in the game, like 15." : "Needs a whole number here, like 50.")
         : null;
 
@@ -99,17 +98,9 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
             return JsonValue.Create(ValueText);
         }
 
-        var number = double.Parse(ValueText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture);
+        EditorValueText.TryParseNumber(ValueText, out var number); // Save checks Error first
         return number == Math.Floor(number) && Math.Abs(number) < int.MaxValue ? JsonValue.Create((long)number) : JsonValue.Create(number);
     }
-
-    internal static string Display(JsonNode? value) => value switch
-    {
-        null => "",
-        JsonValue v when v.TryGetValue<string>(out var s) => NsLocText.TextOf(s) ?? s,
-        _ when ScaleRules.TryReadNumber(value, out var n) => n.ToString("0.######", CultureInfo.InvariantCulture),
-        _ => value.ToJsonString(),
-    };
 }
 
 /// <summary>One game row the item uses, as a card on the Editor page.</summary>
