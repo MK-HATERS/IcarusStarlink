@@ -104,6 +104,24 @@ public sealed class GameUpdateCoordinator(
         _ = FillReviewAsync(viewModel, record?.Fixed ?? [], null);
     }
 
+    /// <summary>
+    /// The review's groups filled in, or what went wrong shown in the window: ShowLastReview starts
+    /// this without awaiting it, and a failure (a Library pass throwing) used to vanish with the
+    /// task, leaving the window empty with no reason.
+    /// </summary>
+    private async Task FillReviewAsync(GameUpdateReviewViewModel viewModel, IReadOnlyList<GameUpdateFixedMod> fixedMods, string? build)
+    {
+        try
+        {
+            await FillReviewCoreAsync(viewModel, fixedMods, build);
+        }
+        catch (Exception ex)
+        {
+            viewModel.Note = $"Couldn't check your mods against the game: {ex.Message}";
+            activityLog.Log(viewModel.Note, ActivityEntryKind.Warning);
+        }
+    }
+
     private void ShowWindow(GameUpdateReviewViewModel viewModel)
     {
         _window?.Close();
@@ -111,7 +129,7 @@ public sealed class GameUpdateCoordinator(
         _window.Show();
     }
 
-    private async Task FillReviewAsync(GameUpdateReviewViewModel viewModel, IReadOnlyList<GameUpdateFixedMod> fixedMods, string? build)
+    private async Task FillReviewCoreAsync(GameUpdateReviewViewModel viewModel, IReadOnlyList<GameUpdateFixedMod> fixedMods, string? build)
     {
         var page = library();
         build ??= await detector.ReadCurrentBuildAsync();
