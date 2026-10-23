@@ -41,6 +41,13 @@ public interface IBaseGameContentProvider
     BlueprintSummary? TrySummarizeBlueprint(string assetPath) => null;
 
     /// <summary>
+    /// The raw cooked files of the game's package at this /Game/-relative path, keyed by extension
+    /// (".uasset", ".uexp"): a template for a mod's own copy (a growth curve with new keys). Null
+    /// when it can't be read.
+    /// </summary>
+    IReadOnlyDictionary<string, byte[]>? TryReadPackageFiles(string assetPath) => null;
+
+    /// <summary>
     /// Same lookup as TryLoadExport, but runs <paramref name="project"/> under the SAME lock that
     /// protects the load itself — required for any consumer that reads a lazily-resolved
     /// cross-package reference off the export (CueUassetMaterialDecoder's GetParams call resolving

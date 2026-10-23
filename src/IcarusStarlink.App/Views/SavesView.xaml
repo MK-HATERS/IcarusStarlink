@@ -394,13 +394,41 @@
                     <!-- Where the budgets come from: level cap, which curves keep rising, bonuses, mods. -->
                     <Expander DockPanel.Dock="Top" Header="How these points work" Margin="0,0,0,6"
                               Visibility="{Binding HasPointsNotes, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <ItemsControl ItemsSource="{Binding PointsNotes}" Margin="4,4,0,0" MaxWidth="900" HorizontalAlignment="Left">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding StringFormat='• {0}'}" TextWrapping="Wrap" FontSize="12" Margin="0,1" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                        <StackPanel Margin="4,4,0,4" MaxWidth="900" HorizontalAlignment="Left">
+                            <ItemsControl ItemsSource="{Binding PointsNotes}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding StringFormat='• {0}'}" TextWrapping="Wrap" FontSize="12" Margin="0,1" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- Change points per level: makes the "Starlink Player Points" Library mod. -->
+                            <StackPanel Margin="0,12,0,0" Visibility="{Binding CanChangePoints, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <TextBlock Text="Change points per level" FontWeight="SemiBold" FontSize="12.5"/>
+                                <TextBlock TextWrapping="Wrap" FontSize="11.5" Margin="0,2,0,6" Foreground="{DynamicResource FaintForegroundBrush}"
+                                           Text="Makes a mod in your Library with its own copies of the game's point curves (no game file replaced). 1 = the game's own, 2 = twice as many at every level. Works with Remove Level Cap; the save itself isn't changed."/>
+                                <ItemsControl ItemsSource="{Binding PointsEditors}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" Margin="0,3">
+                                                <TextBlock Text="{Binding Label}" Width="80" VerticalAlignment="Center" FontSize="12.5"/>
+                                                <TextBlock Text="×" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                <TextBox Text="{Binding MultiplierText, UpdateSourceTrigger=PropertyChanged}" Width="60" FontFamily="Consolas" AutomationProperties.Name="{Binding Label, StringFormat='{}{0} points multiplier'}"/>
+                                                <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding KeepRisingLabel}" IsChecked="{Binding KeepRising}" Margin="14,0,0,0" VerticalAlignment="Center"/>
+                                                <TextBlock Text="{Binding Preview}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <Button Content="Make the mod" Command="{Binding MakePointsModCommand}" Padding="10,3"/>
+                                    <Button Content="Turn on and go to Merge &amp; Install" Command="{Binding TurnOnPointsModCommand}" Padding="10,3" Margin="8,0,0,0"/>
+                                </StackPanel>
+                                <TextBlock Text="{Binding PointsModStatus}" TextWrapping="Wrap" FontSize="12" Margin="0,6,0,0" Foreground="{DynamicResource AccentBrush}"
+                                           Visibility="{Binding PointsModStatus, Converter={StaticResource NullToVisibilityConverter}}"/>
+                            </StackPanel>
+                        </StackPanel>
                     </Expander>
                     <ListBox ItemsSource="{Binding Source={StaticResource TalentGroups}}" HorizontalContentAlignment="Stretch"
                              VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">

@@ -12,8 +12,15 @@ namespace IcarusStarlink.PakIO.Assets;
 public sealed record PlayerGrowth(
     int MaxLevel, int MaxDisplayLevel, bool TableFromMods,
     GrowthCurve? Experience, GrowthCurve? TalentPoints, GrowthCurve? BlueprintPoints, GrowthCurve? SoloPoints,
-    IReadOnlyList<string> CurvesFromMods, int GameMaxLevel = 0, bool StarlinkMergeInstalled = false)
+    IReadOnlyList<string> CurvesFromMods, int GameMaxLevel = 0, bool StarlinkMergeInstalled = false,
+    IReadOnlyDictionary<string, string>? GameCurvePaths = null, IReadOnlyDictionary<string, GrowthCurve>? GameCurves = null)
 {
+    /// <summary>The game's own curves by D_CharacterGrowth field ("TalentPointsPerLevel"), whatever mods install: what "Change points" scales.</summary>
+    public IReadOnlyDictionary<string, GrowthCurve> GameCurvesByField { get; } = GameCurves ?? new Dictionary<string, GrowthCurve>();
+
+    /// <summary>Where the game keeps each of its own curves ("Data/Character/C_PlayerTalentGrowth.uasset").</summary>
+    public IReadOnlyDictionary<string, string> GameCurvePathsByField { get; } = GameCurvePaths ?? new Dictionary<string, string>();
+
     /// <summary>The value Starlink's Remove Level Cap writes (GameplayOptionsFieldChangeGenerator).</summary>
     public const int RemovedLevelCap = 50000;
 
@@ -77,7 +84,12 @@ public static class PlayerGrowthReader
                 Curve("SoloPointsPerLevel", "Solo points"),
                 curvesFromMods,
                 gameRow?.MaxLevel ?? 0,
-                starlinkMerge);
+                starlinkMerge,
+                gameRow?.Curves,
+                gameRow?.Curves
+                    .Select(kv => (kv.Key, Curve: game.TryLoadExportAndProject<UObject, GrowthCurve>(kv.Value, c => GrowthCurve.From(c)!)))
+                    .Where(x => x.Curve is not null)
+                    .ToDictionary(x => x.Key, x => x.Curve!));
         }
         catch (Exception)
         {

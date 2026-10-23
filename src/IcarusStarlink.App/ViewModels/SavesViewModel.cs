@@ -56,6 +56,8 @@ public sealed partial class SavesViewModel : ObservableObject
     private readonly Func<IcarusStarlink.PakIO.Assets.PlayerGrowth?>? _readPlayerGrowth;
 
     private IcarusStarlink.PakIO.Assets.PlayerGrowth? _playerGrowth;
+
+    private readonly PlayerPointsMod? _pointsMod;
     private readonly SaveGameNames _gameNames;
     private readonly IDialogService _dialogService;
     private readonly IGameProcessChecker _gameProcessChecker;
@@ -201,9 +203,10 @@ public sealed partial class SavesViewModel : ObservableObject
         ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames,
         IDialogService dialogService, IGameProcessChecker gameProcessChecker, IBaseGameIconDecoder baseGameIconDecoder,
         string? worldBackupFolder = null, Func<SaveModSources.Index>? readModSources = null,
-        Func<IcarusStarlink.PakIO.Assets.PlayerGrowth?>? readPlayerGrowth = null)
+        Func<IcarusStarlink.PakIO.Assets.PlayerGrowth?>? readPlayerGrowth = null, PlayerPointsMod? pointsMod = null)
     {
         _readPlayerGrowth = readPlayerGrowth;
+        _pointsMod = pointsMod;
         _readModSources = readModSources;
         _repository = repository;
         _activityLog = activityLog;
@@ -447,6 +450,95 @@ public sealed partial class SavesViewModel : ObservableObject
         OnPropertyChanged(nameof(TalentRanksSummary));
         OnPropertyChanged(nameof(PointsNotes));
         OnPropertyChanged(nameof(HasPointsNotes));
+        BuildPointsEditors();
+    }
+
+    // --- Change points per level: a "Starlink Player Points" Library mod (PlayerPointsMod). ---
+
+    public ObservableCollection<PointsTreeEditor> PointsEditors { get; } = [];
+
+    public bool CanChangePoints => _pointsMod is not null && PointsEditors.Count > 0;
+
+    /// <summary>What happened last ("Made Starlink Player Points: ..."), or what's installed.</summary>
+    [ObservableProperty]
+    private string? _pointsModStatus;
+
+    /// <summary>The Library folder of the mod just made, for "Turn on and go to Merge & Install".</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(TurnOnPointsModCommand))]
+    private string? _pointsModFolder;
+
+    private void BuildPointsEditors()
+    {
+        PointsEditors.Clear();
+        if (_playerGrowth is { } growth)
+        {
+            void Add(string field, string label, IcarusStarlink.PakIO.Assets.GrowthCurve? installed)
+            {
+                if (growth.GameCurvesByField.GetValueOrDefault(field) is { } gameCurve)
+                {
+                    PointsEditors.Add(new PointsTreeEditor(field, label, gameCurve, installed, () => SelectedLevel, () => field == "TalentPointsPerLevel" ? TalentPointBonus : 0));
+                }
+            }
+
+            Add("TalentPointsPerLevel", "Talents", growth.TalentPoints);
+            Add("BlueprintPointsPerLevel", "Blueprints", growth.BlueprintPoints);
+            Add("SoloPointsPerLevel", "Solo", growth.SoloPoints);
+        }
+
+        PointsModFolder = _pointsMod?.Existing?.FolderName;
+        PointsModStatus = PointsModFolder is null ? null : $"{PlayerPointsMod.DisplayName} is in your Library.";
+        OnPropertyChanged(nameof(CanChangePoints));
+    }
+
+    private void RefreshPointsEditors()
+    {
+        foreach (var editor in PointsEditors)
+        {
+            editor.Refresh();
+        }
+    }
+
+    [RelayCommand]
+    private void MakePointsMod()
+    {
+        if (_pointsMod is null || _playerGrowth is not { } growth)
+        {
+            return;
+        }
+
+        if (PointsEditors.FirstOrDefault(e => !e.IsValid) is { } bad)
+        {
+            PointsModStatus = $"{bad.Label}: enter a number above 0.";
+            return;
+        }
+
+        try
+        {
+            var folder = _pointsMod.Build([.. PointsEditors.Select(e => new PointsCurveChange(e.Field, e.Multiplier, e.KeepRising))], growth);
+            PointsModFolder = folder;
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            PointsModStatus = folder is null
+                ? "Everything matches the game's own points, so there's no mod to make (an old one was taken out of the Library)."
+                : $"Made {PlayerPointsMod.DisplayName} in your Library. Turn it on in Merge & Install and rebuild; it counts in game, and here, once installed.";
+            _activityLog.Log(PointsModStatus, ActivityEntryKind.Success);
+        }
+        catch (Exception ex)
+        {
+            PointsModStatus = $"Couldn't make the mod: {ex.Message}";
+            _activityLog.Log(PointsModStatus, ActivityEntryKind.Warning);
+        }
+    }
+
+    private bool CanTurnOnPointsMod() => PointsModFolder is not null;
+
+    [RelayCommand(CanExecute = nameof(CanTurnOnPointsMod))]
+    private void TurnOnPointsMod()
+    {
+        if (PointsModFolder is { } folder)
+        {
+            WeakReferenceMessenger.Default.Send(new TurnOnModMessage(folder));
+        }
     }
 
     /// <summary>The selected character's level, from its XP on the installed XP curve; null when it can't be worked out.</summary>
@@ -551,6 +643,7 @@ public sealed partial class SavesViewModel : ObservableObject
         OnPropertyChanged(nameof(TalentRanksSummary));
         OnPropertyChanged(nameof(PointsNotes));
         OnPropertyChanged(nameof(HasPointsNotes));
+        RefreshPointsEditors();
     }
 
     // --- Workshop research and Missions: both live in the profile's Talents list (WorkshopTalents
@@ -1285,6 +1378,7 @@ public sealed partial class SavesViewModel : ObservableObject
         OnPropertyChanged(nameof(TalentRanksSummary));
         OnPropertyChanged(nameof(PointsNotes));
         OnPropertyChanged(nameof(HasPointsNotes));
+        RefreshPointsEditors();
         OnPropertyChanged(nameof(WorkshopSummary));
         OnPropertyChanged(nameof(MissionsSummary));
         OnPropertyChanged(nameof(HasUnsavedChanges));

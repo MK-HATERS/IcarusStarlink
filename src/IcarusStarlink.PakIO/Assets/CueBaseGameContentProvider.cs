@@ -122,6 +122,45 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
         return mounted.ContentPathIndex.ContainsKey(assetPath.Replace('\\', '/').TrimStart('/'));
     }
 
+    public IReadOnlyDictionary<string, byte[]>? TryReadPackageFiles(string assetPath)
+    {
+        // Twice at most: the mount may be let go (ReleaseIfIdle) between getting it and locking.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var mounted = GetOrMountProvider();
+            if (mounted is null)
+            {
+                return null;
+            }
+
+            lock (_lock)
+            {
+                if (mounted.Released)
+                {
+                    continue;
+                }
+
+                if (!mounted.ContentPathIndex.TryGetValue(assetPath.Replace('\\', '/').TrimStart('/'), out var matchedKey))
+                {
+                    return null;
+                }
+
+                try
+                {
+                    // Keyed by extension: the package's .uasset and its .uexp (and .ubulk if any).
+                    return mounted.Provider.SavePackage(matchedKey)
+                        .ToDictionary(kv => Path.GetExtension(kv.Key).ToLowerInvariant(), kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
+            }
+        }
+
+        return null;
+    }
+
     public BlueprintSummary? TrySummarizeBlueprint(string assetPath)
     {
         // Twice at most: the mount may be let go (ReleaseIfIdle) between getting it and locking.

@@ -451,7 +451,8 @@ public partial class App : Application
             new SaveModSources(sp.GetRequiredService<ILibraryRepository>(), sp.GetRequiredService<ISettingsService>(), Path.Combine(appDataDirectory, "Data"),
                 Path.Combine(appDataDirectory, "Staged_UE4SS")).Read,
             () => PlayerGrowthReader.Read(Path.Combine(appDataDirectory, "Data"),
-                sp.GetRequiredService<ISettingsService>().Current.IcarusContentPath, sp.GetRequiredService<IBaseGameContentProvider>())));
+                sp.GetRequiredService<ISettingsService>().Current.IcarusContentPath, sp.GetRequiredService<IBaseGameContentProvider>()),
+            new PlayerPointsMod(sp.GetRequiredService<ILibraryRepository>(), sp.GetRequiredService<IBaseGameContentProvider>())));
         builder.Services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUnrealPakService>(),
