@@ -1,5 +1,7 @@
 using System.IO;
 using System.Text.Json.Nodes;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Core.Library;
@@ -87,5 +89,22 @@ public sealed class ExmodEditorViewModelTests : IDisposable
         editor.ViewMode = ExmodEditorViewMode.FullExmodJson;
         var rows = JsonNode.Parse(editor.FullExmodJsonText)!["Rows"]!.AsArray();
         Assert.Single(rows, r => string.Equals(r!["CurrentFile"]!.GetValue<string>(), "Traits-D_Itemable.json", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The window's own Save prompt can't stop the app closing, so the main window's close prompt asks the editor first.</summary>
+    [Fact]
+    public void UnsavedChanges_AreReportedToTheAppsCloseCheck_UntilTheWindowCloses()
+    {
+        var editor = OpenMod();
+        Assert.True(WeakReferenceMessenger.Default.IsRegistered<UnsavedEditsRequestMessage>(editor));
+
+        editor.SelectedItem = editor.Items.Single();
+        editor.Fields.Single(f => f.FieldName == "Weight").ValueText = "25";
+
+        Assert.True(editor.HasUnsavedChanges);
+        Assert.Contains("an open mod editor's changes", AppBusyCheck.UnsavedEdits());
+
+        editor.Detach();
+        Assert.False(WeakReferenceMessenger.Default.IsRegistered<UnsavedEditsRequestMessage>(editor));
     }
 }

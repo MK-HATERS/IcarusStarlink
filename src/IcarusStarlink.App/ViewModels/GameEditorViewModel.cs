@@ -54,6 +54,14 @@ public sealed partial class GameEditorViewModel : ObservableObject
         // Game data changes under the page when Refresh game data runs.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).ResetGameData());
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).RefreshTargets());
+        // Typed values live only on this page until Save: closing the app would drop them unasked.
+        WeakReferenceMessenger.Default.Register<UnsavedEditsRequestMessage>(this, (recipient, message) =>
+        {
+            if (((GameEditorViewModel)recipient).PendingCount > 0)
+            {
+                message.Reply("typed changes on the Editor page");
+            }
+        });
         WeakReferenceMessenger.Default.Register<OpenGameItemMessage>(this, (recipient, message) => ((GameEditorViewModel)recipient).Open(message.ItemName, message.TargetFolder));
         RefreshTargets();
     }

@@ -233,6 +233,17 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         SelectedItem = Items.FirstOrDefault();
         LoadScaleRules();
 
+        // The window's own Save / Don't save / Cancel can't stop the app closing (WPF ignores
+        // Cancel in an owned window during shutdown), so the main window's close prompt asks here
+        // first. Unregistered when the window closes (Detach): a closed editor has nothing to lose.
+        WeakReferenceMessenger.Default.Register<UnsavedEditsRequestMessage>(this, (recipient, message) =>
+        {
+            if (((ExmodEditorViewModel)recipient).HasUnsavedChanges)
+            {
+                message.Reply("an open mod editor's changes");
+            }
+        });
+
         // A mod that has rules but no rows yet (fresh from the Quality of life template): build its
         // rows from this PC's game data right away and open on the rules, so the user starts from
         // a working mod. Nothing is saved until they Save.
@@ -793,6 +804,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
                 return !HasUnsavedChanges;
         }
     }
+
+    /// <summary>Called when the editor window has closed: stops answering app-wide messages.</summary>
+    public void Detach() => WeakReferenceMessenger.Default.UnregisterAll(this);
 
     /// <summary>False once the mod was deleted (or moved) in Library; the repository throws for a folder it no longer knows.</summary>
     private bool ModFolderExists()

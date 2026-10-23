@@ -403,4 +403,16 @@ public sealed class GameEditorViewModelTests : IDisposable
 
         Assert.Equal(["A new mod"], Open().Targets.Select(t => t.Display));
     }
+
+    /// <summary>Closing the app (or updating it) asks first when values are typed here and not saved.</summary>
+    [Fact]
+    public void TypedChanges_AreReportedAsUnsavedWork()
+    {
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+
+        Weight(vm).ValueText = "50";
+
+        Assert.Contains("typed changes on the Editor page", IcarusStarlink.App.Services.AppBusyCheck.UnsavedEdits());
+    }
 }
