@@ -20,9 +20,9 @@
 
         <StackPanel Grid.Row="0" Orientation="Horizontal">
             <TextBlock Text="Downloads" Style="{StaticResource PageHeaderStyle}"/>
-            <!-- How many downloads in all, installed ones included. -->
-            <TextBlock Text="{Binding PendingDownloads.Count, StringFormat='· {0}'}" Style="{StaticResource SectionCountTextStyle}"
-                       FontSize="16" Margin="8,0,0,8" ToolTip="Downloads in all, installed ones included"/>
+            <!-- The rows shown: installed ones are hidden unless Show installed is ticked, so a total read wrong. -->
+            <TextBlock Text="{Binding VisiblePendingDownloads.Count, StringFormat='· {0}'}" Style="{StaticResource SectionCountTextStyle}"
+                       FontSize="16" Margin="8,0,0,8" ToolTip="Downloads shown in the list below"/>
         </StackPanel>
         <TextBlock Grid.Row="1" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,4,0,12"
                    Text="Everything downloaded through this app, from Nexus or the IMM Database. A download is imported the moment it finishes — one download is one mod: its paks and any Lua part all land in Library's list, as linked rows. Reinstall puts a removed mod back; Discard deletes the downloaded file."/>
