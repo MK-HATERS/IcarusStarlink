@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IcarusStarlink.App.Services;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.PakIO.Worlds;
 
@@ -95,14 +97,21 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
     private readonly Func<string?> _blockedReason;
     private readonly string _backupFolder;
     private readonly IActivityLog _activityLog;
+    private readonly IDialogService? _dialogService;
     private IReadOnlyList<WorldSettingDefinition>? _definitions;
+
+    /// <summary>Set while the list itself changes the selection (a reload, or putting a refused switch back): no question then.</summary>
+    private bool _settingSelection;
 
     /// <param name="prospectsFolder">The Prospects folder of the slot or server (null: none chosen).</param>
     /// <param name="blockedReason">Why saving can't happen right now ("Close Icarus first…"), or null.</param>
     /// <param name="activityLog">Save, refusal and failure go to the app-wide activity feed too (and so pop up), not only this editor's status line.</param>
-    public WorldSettingsViewModel(Func<string?> prospectsFolder, Func<string?> dataFolder, Func<string?> blockedReason, string backupFolder, IActivityLog activityLog)
+    /// <param name="dialogService">Asks before picking another world drops unsaved settings; null switches without asking.</param>
+    public WorldSettingsViewModel(Func<string?> prospectsFolder, Func<string?> dataFolder, Func<string?> blockedReason, string backupFolder, IActivityLog activityLog,
+        IDialogService? dialogService = null)
     {
         _activityLog = activityLog;
+        _dialogService = dialogService;
         _prospectsFolder = prospectsFolder;
         _dataFolder = dataFolder;
         _blockedReason = blockedReason;
@@ -168,31 +177,77 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
             return;
         }
 
+        // A reload replaces the list (whoever asked for it already asked about unsaved settings).
         var keep = SelectedWorld?.Save.Path;
-        Worlds.Clear();
-        foreach (var save in saves)
+        _settingSelection = true;
+        try
         {
-            Worlds.Add(new WorldItemViewModel(save));
+            Worlds.Clear();
+            foreach (var save in saves)
+            {
+                Worlds.Add(new WorldItemViewModel(save));
+            }
+
+            SelectedWorld = Worlds.FirstOrDefault(w => string.Equals(w.Save.Path, keep, StringComparison.OrdinalIgnoreCase)) ?? Worlds.FirstOrDefault();
+        }
+        finally
+        {
+            _settingSelection = false;
         }
 
-        SelectedWorld = Worlds.FirstOrDefault(w => string.Equals(w.Save.Path, keep, StringComparison.OrdinalIgnoreCase)) ?? Worlds.FirstOrDefault();
+        LoadRows();
         OnPropertyChanged(nameof(HasWorlds));
         OnPropertyChanged(nameof(HasNoWorlds));
         OnPropertyChanged(nameof(EmptyText));
-        if (SelectedWorld is null)
-        {
-            Rows.Clear();
-        }
     }
 
-    /// <summary>Forgets the cached setting list (after Refresh game data).</summary>
+    /// <summary>
+    /// Forgets the cached setting list (after Refresh game data). The rows are built again from it
+    /// now only when none holds an unsaved change; otherwise on the next world switch, reload or
+    /// Revert (Refresh game data used to throw the edits away).
+    /// </summary>
     public void InvalidateDefinitions()
     {
         _definitions = null;
-        LoadRows();
+        if (!HasChanges)
+        {
+            LoadRows();
+        }
     }
 
-    partial void OnSelectedWorldChanged(WorldItemViewModel? value) => LoadRows();
+    /// <summary>Picking another world asks first when this one has unsaved settings (they were dropped without a word).</summary>
+    partial void OnSelectedWorldChanged(WorldItemViewModel? oldValue, WorldItemViewModel? newValue)
+    {
+        if (_settingSelection)
+        {
+            return;
+        }
+
+        if (HasChanges && oldValue is not null && _dialogService is { } dialogs
+            && !dialogs.Confirm($"Switch worlds? Your unsaved settings for '{oldValue.Name}' will be lost.", "Unsaved world settings", ThemedConfirmSeverity.Warning))
+        {
+            // Put back after the list finishes its own selection change, or it keeps showing the new one.
+            void Revert()
+            {
+                _settingSelection = true;
+                SelectedWorld = oldValue;
+                _settingSelection = false;
+            }
+
+            if (System.Windows.Application.Current?.Dispatcher is { } dispatcher)
+            {
+                dispatcher.BeginInvoke(Revert);
+            }
+            else
+            {
+                Revert();
+            }
+
+            return;
+        }
+
+        LoadRows();
+    }
 
     private void LoadRows()
     {

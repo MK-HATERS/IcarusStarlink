@@ -191,7 +191,8 @@ public sealed partial class SavesViewModel : ObservableObject
             () => gameNames.DataFolder,
             () => gameProcessChecker.IsRunning() ? "Close Icarus first: it rewrites its worlds when it exits, which would undo this." : null,
             worldBackupFolder ?? Path.Combine(Path.GetTempPath(), "IcarusStarlink", "WorldBackups"),
-            activityLog);
+            activityLog,
+            dialogService);
 
         WorldSettings.PropertyChanged += (_, e) =>
         {
@@ -217,7 +218,8 @@ public sealed partial class SavesViewModel : ObservableObject
 
     /// <summary>
     /// Drops the cached names and reloads the current slot so they show. Unsaved edits are never
-    /// thrown away for this — the new names then appear on the next slot load instead.
+    /// thrown away for this (the Worlds tab's included) — the new names then appear on the next
+    /// slot load instead.
     /// </summary>
     private void OnGameDataRefreshed()
     {

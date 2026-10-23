@@ -1,5 +1,7 @@
 using System.IO;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.PakIO.Worlds;
 
@@ -31,14 +33,15 @@ public sealed class WorldSettingsViewModelTests : IDisposable
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
-    private WorldSettingsViewModel Create(string? prospects = "use")
+    private WorldSettingsViewModel Create(string? prospects = "use", IDialogService? dialogs = null)
     {
         var vm = new WorldSettingsViewModel(
             () => prospects is null ? null : Path.Combine(_root, "Prospects"),
             () => Path.Combine(_root, "Data"),
             () => _blocked,
             Path.Combine(_root, "Backups"),
-            _log);
+            _log,
+            dialogs);
         vm.Reload();
         return vm;
     }
@@ -133,5 +136,52 @@ public sealed class WorldSettingsViewModelTests : IDisposable
         Assert.Equal(50, row.Value);
         row.ValueText = "nonsense";
         Assert.Equal(50, row.Value);
+    }
+
+    /// <summary>Refresh game data used to rebuild the rows (InvalidateDefinitions) and drop the unsaved settings.</summary>
+    [Fact]
+    public void InvalidateDefinitions_KeepsUnsavedSettings()
+    {
+        var vm = Create();
+        vm.Rows.Single(r => r.Definition.Name == "Arachnophobia").BoolValue = true;
+
+        vm.InvalidateDefinitions();
+
+        Assert.True(vm.HasChanges);
+        Assert.True(vm.Rows.Single(r => r.Definition.Name == "Arachnophobia").BoolValue);
+    }
+
+    /// <summary>Clicking another world used to drop the unsaved settings without a word.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PickingAnotherWorld_WithUnsavedSettings_AsksFirst(bool discard)
+    {
+        File.Copy(Path.Combine(_root, "Prospects", "World.json"), Path.Combine(_root, "Prospects", "World2.json"));
+        var dialogs = new FakeDialogs(discard);
+        var vm = Create(dialogs: dialogs);
+        var first = vm.SelectedWorld!;
+        vm.Rows.Single(r => r.Definition.Name == "Arachnophobia").BoolValue = true;
+
+        vm.SelectedWorld = vm.Worlds.Single(w => w != first);
+
+        Assert.Equal(1, dialogs.Asked);
+        Assert.Equal(discard, !ReferenceEquals(first, vm.SelectedWorld));
+        Assert.Equal(!discard, vm.HasChanges);
+    }
+
+    private sealed class FakeDialogs(bool answer) : IDialogService
+    {
+        public int Asked { get; private set; }
+
+        public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
+        {
+            Asked++;
+            return answer;
+        }
+
+        public RenamePromptResult PromptRename(
+            string currentName, string description = "", string? resetValue = null, string resetLabel = "",
+            string resetTooltip = "", string title = "", string fieldLabel = "") => new(true, null);
     }
 }
