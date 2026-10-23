@@ -17,9 +17,12 @@
                      Visibility="{Binding HasWorlds, Converter={StaticResource BoolToVisibilityConverter}}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <StackPanel Margin="0,3">
-                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                        <!-- A world saved under an id is titled by its prospect; the id shows faint (WorldItemViewModel.Title). -->
+                        <StackPanel Margin="0,3" ToolTip="{Binding Name}">
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                             <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding RawId}" FontSize="10.5" Foreground="{DynamicResource FaintForegroundBrush}" TextTrimming="CharacterEllipsis"
+                                       Visibility="{Binding RawId, Converter={StaticResource NullToVisibilityConverter}}"/>
                         </StackPanel>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
@@ -28,23 +31,37 @@
 
         <DockPanel Grid.Column="2" Visibility="{Binding SelectedWorld, Converter={StaticResource NullToVisibilityConverter}}">
             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                <TextBlock Text="{Binding SelectedWorld.Name}" FontSize="16" FontWeight="SemiBold"/>
+                <TextBlock FontSize="16" FontWeight="SemiBold">
+                    <Run Text="{Binding SelectedWorld.Title, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding SelectedWorld.RawId, Mode=OneWay}" FontSize="10.5" FontWeight="Normal" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                </TextBlock>
                 <TextBlock Text="{Binding SelectedWorld.Detail}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                 <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,4,0,0"
                            Text="The world's own custom settings, the same ones the game shows when you create a world. Difficulty and Hardcore can't change after a world is made. Saving backs the world up first; the game (or server) must be closed, since it rewrites its saves when it exits."/>
             </StackPanel>
             <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" LastChildFill="False">
                 <Button DockPanel.Dock="Left" Content="Save world settings" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                        IsEnabled="{Binding HasChanges}" ToolTip="Backs the world up, then writes these settings into it. Greyed out: nothing changed." ToolTipService.ShowOnDisabled="True"/>
+                        IsEnabled="{Binding HasChanges}" ToolTipService.ShowOnDisabled="True"
+                        ToolTip="Backs this world up, then writes these settings into it. Only this world's file is written. Greyed out: nothing changed."/>
                 <Button DockPanel.Dock="Left" Content="Undo changes" Command="{Binding RevertCommand}" Margin="8,0,0,0" IsEnabled="{Binding HasChanges}"/>
                 <TextBlock DockPanel.Dock="Left" Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="460"
                            Foreground="{DynamicResource SecondaryForegroundBrush}"/>
             </DockPanel>
             <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <ItemsControl ItemsSource="{Binding Rows}">
+                <!-- Capped width, so each switch sits near its setting's name on a wide window. -->
+                <ItemsControl ItemsSource="{Binding Rows}" MaxWidth="900" HorizontalAlignment="Left">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,8">
+                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="6,8">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="{DynamicResource NavItemHoverBrush}"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>

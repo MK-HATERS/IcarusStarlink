@@ -1,7 +1,43 @@
-<!-- What the Saves page's tabs share: the row marks, the group heading, the rank stepper, the talent
+<!-- What the Saves page's tabs share: the row marks, the group headings, the rank stepper, the talent
      row and the search box. Merged into SavesView and each of its tab controls. -->
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime"
+                    xmlns:views="clr-namespace:IcarusStarlink.App.Views"
+                    xmlns:converters="clr-namespace:IcarusStarlink.App.Converters">
+
+    <converters:SaveGroupCountConverter x:Key="SaveGroupCountConverter"/>
+
+    <!-- How wide a list row's content gets: on a wide window the rank stepper, count box or switch
+         otherwise sits ~1,600 px from the name it belongs to. -->
+    <sys:Double x:Key="SaveRowMaxWidth">1000</sys:Double>
+
+    <!-- A row id ("Exploration_Base_Health") beside or under its readable name: the same faint size everywhere. -->
+    <Style x:Key="SaveRawIdRunStyle" TargetType="Run">
+        <Setter Property="FontSize" Value="10.5"/>
+        <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
+    </Style>
+
+    <Style x:Key="SaveRawIdTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="10.5"/>
+        <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
+        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+
+    <!-- A row in a plain ItemsControl (no ListBoxItem to light it up): the same hover as list rows. -->
+    <Style x:Key="SaveRowHoverStyle" TargetType="Border">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="CornerRadius" Value="4"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource NavItemHoverBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- Game icons (bestiary, items) are dark art on a transparent background: a light tile in
+         every theme keeps them readable on the dark ones. -->
+    <SolidColorBrush x:Key="SaveIconTileBrush" Color="#D3D8DF"/>
 
     <!-- A row changed since the last load or save: a small dot before it. -->
     <Style x:Key="ChangedMarkStyle" TargetType="Ellipse">
@@ -34,10 +70,69 @@
         </Style.Triggers>
     </Style>
 
-    <!-- The heading of a grouped list (talent tree, biome, accolade category). -->
-    <DataTemplate x:Key="SaveGroupHeaderTemplate">
-        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AccentBrush}" Margin="4,10,0,4"/>
-    </DataTemplate>
+    <!-- A grouped list's group (talent tree, workshop category, mission map, biome, accolade
+         category): the app's Expander with the group's name and count ("9 of 14 complete"). The
+         list's Tag carries the tab's own summary, so the count follows a row switched on or off.
+         SaveGroupExpansion keeps a folded group folded while the list is searched or filtered
+         (set SaveGroupExpansion.Scope on the list). -->
+    <Style x:Key="SaveCollapsibleGroupItemStyle" TargetType="GroupItem">
+        <Setter Property="Margin" Value="0,0,0,6"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="GroupItem">
+                    <Expander IsExpanded="True" views:SaveGroupExpansion.Remember="True" AutomationProperties.Name="{Binding Name}">
+                        <Expander.Header>
+                            <DockPanel LastChildFill="True">
+                                <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                <TextBlock Style="{StaticResource ExpanderHeaderStateStyle}">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource SaveGroupCountConverter}">
+                                            <Binding/>
+                                            <Binding Path="Tag" RelativeSource="{RelativeSource AncestorType=ItemsControl}"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </DockPanel>
+                        </Expander.Header>
+                        <ItemsPresenter/>
+                    </Expander>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- One tier of a tiered accolade ("III"): a small chip, filled when earned. -->
+    <Style x:Key="AccoladeTierChipStyle" TargetType="ToggleButton">
+        <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+        <Setter Property="FontFamily" Value="Consolas"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Margin" Value="3,0,0,0"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Chip" MinWidth="30" Padding="4,1" CornerRadius="4" Background="Transparent"
+                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chip" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chip" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter TargetName="Chip" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Chip" Property="BorderBrush" Value="{DynamicResource ForegroundBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 
     <!-- −, the rank, + : a character's talents, the account's research, a mount's talents. -->
     <DataTemplate x:Key="RankStepperTemplate">
@@ -52,6 +147,12 @@
     <!-- A talent or research row: its name and row name, where a mod's comes from, the pack it
          needs, its research cost when it has one, and the rank stepper. -->
     <DataTemplate x:Key="SaveTalentRowTemplate">
+        <!-- The star column stops at SaveRowMaxWidth and stays left: a Stretch'd MaxWidth would centre. -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="{StaticResource SaveRowMaxWidth}"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
         <DockPanel Margin="2">
             <DockPanel.Style>
                 <Style TargetType="DockPanel">
@@ -70,13 +171,14 @@
                        Visibility="{Binding Cost, Converter={StaticResource NullToVisibilityConverter}}"/>
             <StackPanel VerticalAlignment="Center">
                 <TextBlock FontSize="12.5">
-                    <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
+                    <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Style="{StaticResource SaveRawIdRunStyle}"/>
                 </TextBlock>
                 <TextBlock Text="{Binding Source.Label}" FontSize="11" TextWrapping="Wrap" Style="{StaticResource SaveRowSourceStyle}"/>
                 <TextBlock Text="{Binding PackNote}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"
                            Visibility="{Binding PackNote, Converter={StaticResource NullToVisibilityConverter}}"/>
             </StackPanel>
         </DockPanel>
+        </Grid>
     </DataTemplate>
 
     <!-- A search box with its hint inside (Tag) while it's empty. Based on the app's own TextBox
