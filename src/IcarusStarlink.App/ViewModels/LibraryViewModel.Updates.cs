@@ -389,7 +389,7 @@ public sealed partial class LibraryViewModel
             {
                 try
                 {
-                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", nexusModId);
+                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, NxmHandlerCommand.IcarusDomain, nexusModId);
                     if (info is not null)
                     {
                         _repository.SetNexusMetadata(folderName, info.Name, info.Author, info.Summary, info.Version);
@@ -449,7 +449,7 @@ public sealed partial class LibraryViewModel
         {
             var endorsements = await _nexusApiClient.GetEndorsementsAsync(apiKey);
             var statusByModId = endorsements
-                .Where(e => string.Equals(e.DomainName, "icarus", StringComparison.OrdinalIgnoreCase))
+                .Where(e => string.Equals(e.DomainName, NxmHandlerCommand.IcarusDomain, StringComparison.OrdinalIgnoreCase))
                 .ToDictionary(e => e.ModId, e => e.Status);
 
             var notEndorsedCount = 0;
@@ -652,7 +652,7 @@ public sealed partial class LibraryViewModel
         {
             try
             {
-                return (ModId: modId, Set: (NexusModFileSet?)await _nexusApiClient.GetModFileSetAsync(apiKey, "icarus", modId));
+                return (ModId: modId, Set: (NexusModFileSet?)await _nexusApiClient.GetModFileSetAsync(apiKey, NxmHandlerCommand.IcarusDomain, modId));
             }
             catch (Exception)
             {
@@ -702,7 +702,7 @@ public sealed partial class LibraryViewModel
         {
             try
             {
-                var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", getNexusModId(item));
+                var info = await _nexusApiClient.GetModInfoAsync(apiKey, NxmHandlerCommand.IcarusDomain, getNexusModId(item));
                 return (Item: item, Version: info?.Version, Failed: info is null);
             }
             catch (Exception)

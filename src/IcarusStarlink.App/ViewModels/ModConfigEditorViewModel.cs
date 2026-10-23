@@ -391,9 +391,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
     {
         var path = Path.Combine(location.ModFolder, file.RelativePath);
         FolderBackup.BackupFile(path, Path.Combine(_backupDirectory, "UE4SS-Mod-Configs", SafeName(ModName), SafeName(location.Name)));
-        var temp = path + ".tmp";
-        File.WriteAllText(temp, text, new UTF8Encoding(bom));
-        File.Move(temp, path, overwrite: true);
+        IcarusStarlink.Core.IO.AtomicFile.WriteAllText(path, text, new UTF8Encoding(bom));
     }
 
     private static string SafeName(string name) =>

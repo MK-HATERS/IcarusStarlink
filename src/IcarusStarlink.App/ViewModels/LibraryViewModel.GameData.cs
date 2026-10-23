@@ -282,7 +282,12 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>The tables, old values and Library-added rows one pass of checks shares (each Check would otherwise read them again).</summary>
-    private sealed record CheckPass(Dictionary<string, JsonObject?> Tables, GameValueHistory History, IReadOnlySet<string> AddedRows);
+    private sealed record CheckPass(Dictionary<string, JsonObject?> Tables, GameValueHistory History, IReadOnlySet<string> AddedRows)
+    {
+        /// <summary>Reads what a pass shares (reads every mod: off the UI thread).</summary>
+        public static CheckPass Create(ModFixService fixService) =>
+            new(new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase), fixService.History(), fixService.LibraryAddedRows());
+    }
 
     private async Task RefreshConvertedOpaqueModsCoreAsync()
     {
@@ -334,7 +339,7 @@ public sealed partial class LibraryViewModel
 
             try
             {
-                pass ??= await Task.Run(() => new CheckPass(new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase), FixService.History(), FixService.LibraryAddedRows()));
+                pass ??= await Task.Run(() => CheckPass.Create(FixService));
                 var report = new MergeReport();
                 var converted = await _prebuiltPakToExmodConverter.TryConvertAsync(
                     sourcePakPath, _dataFolder, _settingsService.Current.UnrealPakExePath ?? "", item.Name, item.Author, report, pass.History);
@@ -674,6 +679,20 @@ public sealed partial class LibraryViewModel
         }
     }
 
+    /// <summary>What this page is rewriting mods for right now (asked before the app closes for an update); empty when nothing.</summary>
+    internal IEnumerable<string> DescribeWorkInProgress()
+    {
+        if (IsCheckingStaleness)
+        {
+            yield return "checking or fixing mods against the game data";
+        }
+
+        if (IsConvertingAllOpaqueMods || _foldersCurrentlyConvertingToExmod.Count > 0)
+        {
+            yield return "making prebuilt paks editable";
+        }
+    }
+
     /// <summary>The fix window's own check is running (off the UI thread): a second click waits for it.</summary>
     private bool _openingModFix;
 
@@ -781,9 +800,7 @@ public sealed partial class LibraryViewModel
         {
             var results = await Task.Run(() =>
             {
-                var cache = new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
-                var history = FixService.History();
-                var addedRows = FixService.LibraryAddedRows();
+                var pass = CheckPass.Create(FixService);
                 var outcome = new Dictionary<string, (int Applied, ModHealthReport After)>(StringComparer.OrdinalIgnoreCase);
                 foreach (var folder in folders)
                 {
@@ -795,8 +812,8 @@ public sealed partial class LibraryViewModel
 
                     try
                     {
-                        var (applied, _) = FixService.FixSure(folder, cache, history, addedRows);
-                        outcome[folder] = (applied, FixService.Check(folder, cache, history, addedRows));
+                        var (applied, _) = FixService.FixSure(folder, pass.Tables, pass.History, pass.AddedRows);
+                        outcome[folder] = (applied, FixService.Check(folder, pass.Tables, pass.History, pass.AddedRows));
                     }
                     catch (Exception)
                     {
@@ -914,7 +931,7 @@ public sealed partial class LibraryViewModel
                 // Shared for the whole pass, not per mod — many mods touch the same real file (e.g.
                 // Traits-D_Itemable.json), and re-parsing it once per mod that touches it is real,
                 // avoidable cost.
-                var pass = new CheckPass(new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase), FixService.History(), FixService.LibraryAddedRows());
+                var pass = CheckPass.Create(FixService);
                 var results = new Dictionary<string, ModHealthReport?>();
                 foreach (var folderName in folderNames)
                 {

@@ -383,14 +383,14 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         IsEndorsing = true;
         try
         {
-            var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
+            var info = await _nexusApiClient.GetModInfoAsync(apiKey, NxmHandlerCommand.IcarusDomain, modId);
             if (info is null)
             {
                 _reportStatus($"Couldn't reach '{Name}' on Nexus.");
                 return;
             }
 
-            EndorsementStatus = await _nexusApiClient.SetEndorsementAsync(apiKey, "icarus", modId, info.Version, endorse);
+            EndorsementStatus = await _nexusApiClient.SetEndorsementAsync(apiKey, NxmHandlerCommand.IcarusDomain, modId, info.Version, endorse);
             _reportStatus(endorse ? $"Endorsed '{Name}' on Nexus." : $"Told Nexus you won't endorse '{Name}'.");
         }
         catch (Exception ex)
@@ -1482,7 +1482,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
                 var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
                 if (apiKey is not null)
                 {
-                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
+                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, NxmHandlerCommand.IcarusDomain, modId);
                     imageUrl = info?.PictureUrl;
                 }
             }

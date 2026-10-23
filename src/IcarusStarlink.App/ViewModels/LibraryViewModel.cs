@@ -407,6 +407,15 @@ public sealed partial class LibraryViewModel : ObservableObject
             _ = ((LibraryViewModel)recipient).RefreshConvertedOpaqueModsAsync();
         });
 
+        // Closing for an app update mid-pass would leave a mod half rewritten.
+        WeakReferenceMessenger.Default.Register<BackgroundWorkRequestMessage>(this, (recipient, message) =>
+        {
+            foreach (var work in ((LibraryViewModel)recipient).DescribeWorkInProgress())
+            {
+                message.Reply(work);
+            }
+        });
+
         BulkSelectedItems.CollectionChanged += (_, _) => RaiseBulkSelectionChanged();
         BulkSelectedUe4ssRows.CollectionChanged += (_, _) => RaiseBulkSelectionChanged();
 
@@ -1039,12 +1048,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         // any of its mods matches.
         EnsureMergeQueueSubscription();
         RefreshEnabledAndStatus();
-        var searchedItems = libraryRows.SelectMany(r => r.Row switch
-        {
-            LibraryGroupViewModel family => family.Items,
-            LibraryItemViewModel item => (IEnumerable<LibraryItemViewModel>)[item],
-            _ => [],
-        }).ToList();
+        var searchedItems = ExpandGroups(libraryRows.Select(r => r.Row)).OfType<LibraryItemViewModel>().ToList();
         var searchedLua = ue4ssRows.Select(r => (Ue4ssModRowViewModel)r.Row).ToList();
         _searchedItems = searchedItems;
         _searchedLua = searchedLua;
@@ -1083,7 +1087,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         ObservableCollectionSync.SyncTo(DataRootItems, targetDataItems);
         ObservableCollectionSync.SyncTo(Ue4ssRootItems, targetLuaItems);
         SyncRootItems([.. targetDataItems, .. targetLuaItems]);
-        DataShownCount = targetDataItems.Sum(row => row is LibraryGroupViewModel family ? family.Items.Count : row is LibraryItemViewModel ? 1 : 0);
+        DataShownCount = ExpandGroups(targetDataItems).Count();
         Ue4ssShownCount = targetLuaItems.Count;
         OnPropertyChanged(nameof(IsUe4ssPanelEmpty));
         OnPropertyChanged(nameof(IsDataPanelEmpty));

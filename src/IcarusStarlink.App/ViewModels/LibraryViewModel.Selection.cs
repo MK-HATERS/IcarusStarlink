@@ -146,21 +146,18 @@ public sealed partial class LibraryViewModel
     /// app's own bulk actions (Add to merge queue, Delete) already treat a family as a transparent
     /// container rather than something that can hide its members from a bulk operation.
     /// </summary>
-    private List<object> FlattenRows() =>
-        [.. RootItems.SelectMany(entry => entry switch
+    private List<object> FlattenRows() => [.. ExpandGroups(RootItems)];
+
+    private List<LibraryItemViewModel> FlattenModItems() => [.. ExpandGroups(RootItems).OfType<LibraryItemViewModel>()];
+
+    /// <summary>The mod rows (pak/EXMOD and UE4SS) in order, each variant family's mods in place of the family; download stubs dropped.</summary>
+    private static IEnumerable<object> ExpandGroups(IEnumerable<object> rows) =>
+        rows.SelectMany(entry => entry switch
         {
             LibraryItemViewModel or Ue4ssModRowViewModel => (IEnumerable<object>)[entry],
             LibraryGroupViewModel group => group.Items,
             _ => [],
-        })];
-
-    private List<LibraryItemViewModel> FlattenModItems() =>
-        [.. RootItems.SelectMany(entry => entry switch
-        {
-            LibraryItemViewModel item => (IEnumerable<LibraryItemViewModel>)[item],
-            LibraryGroupViewModel group => group.Items,
-            _ => [],
-        })];
+        });
 
     /// <summary>Used by ModDetailWindow's own Prev/Next navigation — the same flattened visible
     /// order FlattenModItems already produces for Shift-click/Select all, so "next" matches
@@ -218,10 +215,7 @@ public sealed partial class LibraryViewModel
     private void SelectAllForBulk(string? panel)
     {
         ClearBulkSelection();
-        var rows = panel == "ue4ss"
-            ? Ue4ssRootItems.SelectMany(entry => entry is LibraryGroupViewModel group ? group.Items.Cast<object>() : [entry])
-            : DataRootItems.SelectMany(entry => entry is LibraryGroupViewModel group ? group.Items.Cast<object>() : [entry]);
-        foreach (var row in rows.ToList())
+        foreach (var row in ExpandGroups(panel == "ue4ss" ? Ue4ssRootItems : DataRootItems).ToList())
         {
             SetRowSelected(row, true);
         }

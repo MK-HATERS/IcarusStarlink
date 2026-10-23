@@ -492,9 +492,7 @@ public sealed class ModFixService(
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temp = path + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(decisions.Entries, DecisionJson));
-        File.Move(temp, path, overwrite: true);
+        IcarusStarlink.Core.IO.AtomicFile.WriteAllText(path, JsonSerializer.Serialize(decisions.Entries, DecisionJson));
     }
 
     private string? DecisionsPath(string folderName) =>

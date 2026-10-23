@@ -111,8 +111,8 @@ public sealed partial class LibraryViewModel
                 row.LoaderMissing = !IsUe4ssLoaderInstalled;
                 row.NotStartedReason = state.IsSwitchedOffInGame ? state.WhyNotStarted : null;
                 row.NexusFileId = meta.NexusFileId;
-                row.HasConfig = ModHasConfig(modsFolder, state);
-                row.LocalVersion = ModLocalVersion(modsFolder, state);
+                row.HasConfig = ModHasConfig(state);
+                row.LocalVersion = ModLocalVersion(state);
                 Ue4ssMods.Add(row);
             }
             RecomputeHasPendingUe4ssChanges();
@@ -164,12 +164,21 @@ public sealed partial class LibraryViewModel
         HasPendingUe4ssChanges = false;
     }
 
+    /// <summary>Where a UE4SS mod's current copy is: the game's Mods folder when it's in the game (and a game folder is set), this app's staging otherwise.</summary>
+    private string ResolveUe4ssModFolder(string name, bool inGame)
+    {
+        var contentPath = _settingsService.Current.IcarusContentPath;
+        return inGame && !string.IsNullOrWhiteSpace(contentPath)
+            ? Path.Combine(Ue4ssGamePaths.ResolveModsFolder(contentPath), name)
+            : _ue4ssModRepository.GetFolderPath(name);
+    }
+
     /// <summary>The version the mod's current copy states in its main.lua; null when it states none or can't be read, so the list never breaks over it.</summary>
-    private string? ModLocalVersion(string modsFolder, Ue4ssModState state)
+    private string? ModLocalVersion(Ue4ssModState state)
     {
         try
         {
-            return Ue4ssModVersion.TryRead(state.IsInGame ? Path.Combine(modsFolder, state.Name) : _ue4ssModRepository.GetFolderPath(state.Name));
+            return Ue4ssModVersion.TryRead(ResolveUe4ssModFolder(state.Name, state.IsInGame));
         }
         catch (Exception)
         {
@@ -178,11 +187,11 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>Whether the mod's current copy (game when on, staging when off) has a config file; false when that can't be read, so the list never breaks over it.</summary>
-    private bool ModHasConfig(string modsFolder, Ue4ssModState state)
+    private bool ModHasConfig(Ue4ssModState state)
     {
         try
         {
-            return Ue4ssModConfigFiles.HasAny(state.IsInGame ? Path.Combine(modsFolder, state.Name) : _ue4ssModRepository.GetFolderPath(state.Name));
+            return Ue4ssModConfigFiles.HasAny(ResolveUe4ssModFolder(state.Name, state.IsInGame));
         }
         catch (Exception)
         {
@@ -303,15 +312,8 @@ public sealed partial class LibraryViewModel
         try
         {
             var locations = new List<ModConfigLocation>();
-            var contentPath = _settingsService.Current.IcarusContentPath;
-            if (row.IsFolderInGame && !string.IsNullOrWhiteSpace(contentPath))
-            {
-                locations.Add(new ModConfigLocation("Your game", Path.Combine(Ue4ssGamePaths.ResolveModsFolder(contentPath), row.Name), IsServer: false));
-            }
-            else
-            {
-                locations.Add(new ModConfigLocation("Starlink (the mod is off)", _ue4ssModRepository.GetFolderPath(row.Name), IsServer: false));
-            }
+            var inGame = row.IsFolderInGame && !string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath);
+            locations.Add(new ModConfigLocation(inGame ? "Your game" : "Starlink (the mod is off)", ResolveUe4ssModFolder(row.Name, inGame), IsServer: false));
 
             foreach (var profile in ServerProfiles?.Invoke() ?? [])
             {
@@ -348,10 +350,7 @@ public sealed partial class LibraryViewModel
 
         try
         {
-            var contentPath = _settingsService.Current.IcarusContentPath;
-            var path = item.IsFolderInGame && !string.IsNullOrWhiteSpace(contentPath)
-                ? Path.Combine(Ue4ssGamePaths.ResolveModsFolder(contentPath), item.Name)
-                : _ue4ssModRepository.GetFolderPath(item.Name);
+            var path = ResolveUe4ssModFolder(item.Name, item.IsFolderInGame);
             if (!Directory.Exists(path))
             {
                 Ue4ssStatusMessage = $"'{item.Name}' has no folder at {path}.";
@@ -437,7 +436,7 @@ public sealed partial class LibraryViewModel
             {
                 try
                 {
-                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", dialog.NexusModId);
+                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, NxmHandlerCommand.IcarusDomain, dialog.NexusModId);
                     if (info is not null)
                     {
                         meta.NexusVersion = info.Version;
@@ -558,14 +557,14 @@ public sealed partial class LibraryViewModel
 
         try
         {
-            var info = await _nexusApiClient.GetModInfoAsync(apiKey, "icarus", modId);
+            var info = await _nexusApiClient.GetModInfoAsync(apiKey, NxmHandlerCommand.IcarusDomain, modId);
             if (info is null)
             {
                 StatusMessage = $"Couldn't reach '{row.Name}' on Nexus.";
                 return;
             }
 
-            row.EndorsementStatus = await _nexusApiClient.SetEndorsementAsync(apiKey, "icarus", modId, info.Version, endorse: true);
+            row.EndorsementStatus = await _nexusApiClient.SetEndorsementAsync(apiKey, NxmHandlerCommand.IcarusDomain, modId, info.Version, endorse: true);
             StatusMessage = $"Endorsed '{row.Name}' on Nexus.";
             _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
         }
