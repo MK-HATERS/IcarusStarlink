@@ -41,7 +41,9 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Text="Saved sites" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                <TextBlock Grid.Row="0" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6">
+                    <Run Text="SAVED SITES"/><Run Text="{Binding Sites.Count, Mode=OneWay, StringFormat='  ·  {0}'}" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                </TextBlock>
                 <ListBox Grid.Row="1" ItemsSource="{Binding Sites}" SelectedItem="{Binding SelectedSite}"
                          BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
                     <ListBox.ItemTemplate>
@@ -55,6 +57,18 @@
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
+                <TextBlock Grid.Row="1" IsHitTestVisible="False" Text="No saved sites — New site adds your host's FTP details.">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource EmptyStateTextStyle}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Sites.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
                     <Button Command="{Binding NewSiteCommand}" AutomationProperties.Name="New site">
@@ -173,7 +187,7 @@
                          Mods path/Win64 path above overriding it when set. Each one names exactly
                          what it's about to delete/upload/skip in its own confirmation prompt
                          before doing anything. -->
-                    <TextBlock Text="Icarus server sync" Style="{StaticResource FieldLabelStyle}"
+                    <TextBlock Text="ICARUS SERVER SYNC" Style="{StaticResource FieldLabelStyle}"
                                Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,20,0,6"/>
                     <WrapPanel IsEnabled="{Binding IsNotBusy}" Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Button Content="Install merged pak" Command="{Binding InstallPakToServerCommand}"
@@ -260,9 +274,15 @@
                 </StackPanel>
             </Grid>
 
-            <TextBlock Grid.Column="2" Text="Connect to a saved site to browse and manage its files."
-                       Foreground="{DynamicResource SecondaryForegroundBrush}" VerticalAlignment="Top" Margin="0,40,0,0"
-                       Visibility="{Binding IsNotConnected, Converter={StaticResource BoolToVisibilityConverter}}"/>
+            <!-- Not connected: what this side is for and how to get there. -->
+            <StackPanel Grid.Column="2" VerticalAlignment="Top" HorizontalAlignment="Left" MaxWidth="520" Margin="0,40,0,0"
+                        Visibility="{Binding IsNotConnected, Converter={StaticResource BoolToVisibilityConverter}}">
+                <TextBlock Text="Not connected" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <TextBlock TextWrapping="Wrap" FontSize="12.5" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                           Text="Pick a saved site on the left (or add one with New site), then Connect. Its files show here: browse folders, upload, download and delete."/>
+                <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,8,0,0"
+                           Text="Once connected, Icarus server sync puts your merged pak and UE4SS mods on the server in one click."/>
+            </StackPanel>
         </Grid>
             </TabItem>
         </TabControl>
