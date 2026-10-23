@@ -58,6 +58,11 @@ public sealed partial class SavesViewModel : ObservableObject
     private IcarusStarlink.PakIO.Assets.PlayerGrowth? _playerGrowth;
 
     private readonly PlayerPointsMod? _pointsMod;
+
+    /// <summary>PlayerGrowthReader.ReadMounts: each mount type's growth, archetype and looks as installed.</summary>
+    private readonly Func<IReadOnlyDictionary<string, IcarusStarlink.PakIO.Assets.MountGrowth>>? _readMountGrowth;
+
+    private IReadOnlyDictionary<string, IcarusStarlink.PakIO.Assets.MountGrowth> _mountGrowth = new Dictionary<string, IcarusStarlink.PakIO.Assets.MountGrowth>();
     private readonly SaveGameNames _gameNames;
     private readonly IDialogService _dialogService;
     private readonly IGameProcessChecker _gameProcessChecker;
@@ -203,8 +208,10 @@ public sealed partial class SavesViewModel : ObservableObject
         ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames,
         IDialogService dialogService, IGameProcessChecker gameProcessChecker, IBaseGameIconDecoder baseGameIconDecoder,
         string? worldBackupFolder = null, Func<SaveModSources.Index>? readModSources = null,
-        Func<IcarusStarlink.PakIO.Assets.PlayerGrowth?>? readPlayerGrowth = null, PlayerPointsMod? pointsMod = null)
+        Func<IcarusStarlink.PakIO.Assets.PlayerGrowth?>? readPlayerGrowth = null, PlayerPointsMod? pointsMod = null,
+        Func<IReadOnlyDictionary<string, IcarusStarlink.PakIO.Assets.MountGrowth>>? readMountGrowth = null)
     {
+        _readMountGrowth = readMountGrowth;
         _readPlayerGrowth = readPlayerGrowth;
         _pointsMod = pointsMod;
         _readModSources = readModSources;
@@ -1171,6 +1178,7 @@ public sealed partial class SavesViewModel : ObservableObject
         OnPropertyChanged(nameof(ChangesSummary));
         _pendingModSources = ClassifyModRowsAsync();
         _pendingPlayerGrowth = ReadPlayerGrowthAsync();
+        _pendingMountGrowth = ReadMountGrowthAsync();
         ApplyPackNotes();
         RunSaveCheck();
         await worldsLoad;
@@ -1920,11 +1928,47 @@ public sealed partial class SavesViewModel : ObservableObject
                 var level = SaveJson.Int(entry["MountLevel"]) ?? 0;
                 var typeRowName = SaveJson.String(entry["MountType"]) ?? "";
                 var iconPath = _gameNames.MountTypeIcons.GetValueOrDefault(typeRowName);
-                Mounts.Add(new SaveMountViewModel(entry, name, level, typeRowName, iconPath, NotifyDirtyChanged));
+                var mount = new SaveMountViewModel(entry, name, level, typeRowName, iconPath, NotifyDirtyChanged);
+                mount.SetGameData(_gameNames, _mountGrowth.GetValueOrDefault(typeRowName));
+                Mounts.Add(mount);
             }
         }
 
         RefreshMountFilter();
+        SelectedMount = Mounts.FirstOrDefault();
+    }
+
+    /// <summary>The mount whose inside is shown beside the list.</summary>
+    [ObservableProperty]
+    private SaveMountViewModel? _selectedMount;
+
+    private Task _pendingMountGrowth = Task.CompletedTask;
+
+    internal Task WaitForMountGrowthAsync() => _pendingMountGrowth;
+
+    /// <summary>Each type's growth (XP and talent points per level), read once per load off the UI thread; mounts not edited yet get it.</summary>
+    private async Task ReadMountGrowthAsync()
+    {
+        if (_readMountGrowth is not { } read)
+        {
+            return;
+        }
+
+        try
+        {
+            _mountGrowth = await Task.Run(read);
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        foreach (var mount in Mounts.Where(m => !m.IsDirty))
+        {
+            mount.SetGameData(_gameNames, _mountGrowth.GetValueOrDefault(mount.TypeRowName));
+        }
+
+        RunSaveCheck();
     }
 
     /// <summary>Same view+delete shape as DeleteMetaInventoryItem, mirrored exactly — no confirmation prompt (a mount is one collectible among many, the same severity as one inventory item, unlike deleting a whole character), just remove-and-mark-dirty; Save's own confirm covers the actual write.</summary>

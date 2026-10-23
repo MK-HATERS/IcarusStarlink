@@ -225,6 +225,25 @@ public static class SaveChecker
             }
         }
 
+        foreach (var mount in page.Mounts)
+        {
+            if (mount.InsideRefusal is { } why)
+            {
+                findings.Add(new(SaveCheckSeverity.Note, "Mounts", $"{mount.Name}: only its name and level in the list can be edited, because {why}."));
+            }
+            else if (mount.OverBudget is not null)
+            {
+                findings.Add(new(SaveCheckSeverity.Note, "Mounts", $"{mount.Name}: {mount.TalentSummary}. The game keeps the ranks, but nothing more can be bought until under."));
+            }
+
+            if (mount.Blob?.Name is { } blobName && blobName != mount.Name)
+            {
+                findings.Add(new(SaveCheckSeverity.Warning, "Mounts",
+                    $"{mount.Name}: the game's own copy of its name is \"{blobName}\" (the two drifted apart; the game may show either).",
+                    $"Use \"{mount.Name}\" for both", mount.SyncNameOnSave));
+            }
+        }
+
         foreach (var shared in page.Mounts.GroupBy(m => SaveJson.String(m.Node["MountIconName"]) ?? "").Where(g => g.Key.Length > 0 && g.Count() > 1))
         {
             findings.Add(new(SaveCheckSeverity.Problem, "Mounts",

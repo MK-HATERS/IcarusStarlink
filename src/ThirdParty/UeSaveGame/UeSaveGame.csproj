@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Vendored third-party code: its own warnings aren't ours to fix. -->
+    <NoWarn>$(NoWarn);CS1591;CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8625</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+	<ProductName>UeSaveGame</ProductName>
+	<Description>UeSaveGame</Description>
+	<Authors>Crystal Ferrai</Authors>
+	<Copyright>Copyright © 2025 Crystal Ferrai</Copyright>
+	<Version>0.1.0.0</Version>
+	<ProductVersion>$(Version)</ProductVersion>
+	<AssemblyVersion>$(Version)</AssemblyVersion>
+	<FileVersion>$(Version)</FileVersion>
+	<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+</Project>

@@ -7,6 +7,7 @@
     <Project Path="src/IcarusStarlink.PakIO/IcarusStarlink.PakIO.csproj" />
     <Project Path="src/IcarusStarlink.Storage/IcarusStarlink.Storage.csproj" />
     <Project Path="src/IcarusStarlink.Updater/IcarusStarlink.Updater.csproj" />
+    <Project Path="src/ThirdParty/UeSaveGame/UeSaveGame.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/IcarusStarlink.App.Tests/IcarusStarlink.App.Tests.csproj" />

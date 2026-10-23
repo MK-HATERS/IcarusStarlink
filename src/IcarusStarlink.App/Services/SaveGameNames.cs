@@ -91,6 +91,8 @@ public sealed class SaveGameNames(string dataFolder)
         _missionRewardFlags = null;
         _talentRules = null;
         _talentPointModifiers = null;
+        _geneticValues = null;
+        _lineages = null;
     }
 
     /// <summary>What each talent needs and gives (D_Talents RequiredFlags, RequiredTalents, Rewards[].GrantedFlags), for the save check.</summary>
@@ -286,7 +288,7 @@ public sealed class SaveGameNames(string dataFolder)
                 {
                     var archetype = row.TryGetProperty("Archetype", out var a) && a.ValueKind == JsonValueKind.Object && a.TryGetProperty("RowName", out var ar) ? ar.GetString() ?? "" : "";
                     var (archetypeDisplay, model) = archetypes.GetValueOrDefault(archetype, (HumanizeMountType(archetype), ""));
-                    trees[name] = new TreeInfo(ParseLocText(row, "DisplayName") ?? HumanizeMountType(name), archetypeDisplay, model);
+                    trees[name] = new TreeInfo(ParseLocText(row, "DisplayName") ?? HumanizeMountType(name), archetypeDisplay, model, archetype);
                 }
             }
         }
@@ -455,6 +457,42 @@ public sealed class SaveGameNames(string dataFolder)
     }
 
     private IReadOnlyDictionary<string, int>? _talentPointModifiers;
+
+    private IReadOnlyList<(string Row, string Title)>? _geneticValues;
+    private IReadOnlyList<(string Row, string Title)>? _lineages;
+
+    /// <summary>D_GeneticValues in order: "Vitality" shown as "Vigor", ...</summary>
+    public IReadOnlyList<(string Row, string Title)> GeneticValues => _geneticValues ??= LoadTitles(Path.Combine("AI", "D_GeneticValues.json"));
+
+    /// <summary>D_GeneticLineages in order: "Wild", "Brave", ... "Alpha".</summary>
+    public IReadOnlyList<(string Row, string Title)> Lineages => _lineages ??= LoadTitles(Path.Combine("AI", "D_GeneticLineages.json"));
+
+    private IReadOnlyList<(string Row, string Title)> LoadTitles(string relativePath)
+    {
+        var titles = new List<(string, string)>();
+        try
+        {
+            var path = Path.Combine(dataFolder, relativePath);
+            if (File.Exists(path))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                var defaults = DefaultsOf(document);
+                foreach (var row in document.RootElement.GetProperty("Rows").EnumerateArray())
+                {
+                    if (row.TryGetProperty("Name", out var n) && n.GetString() is { } name)
+                    {
+                        titles.Add((name, ParseLocText(row, "Title", defaults) is { Length: > 0 } t ? t : HumanizeMountType(name)));
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+            titles.Clear();
+        }
+
+        return titles;
+    }
 
     /// <summary>Account flag -> the bonus talent points it gives ("GrantedTalent_Nullsector_Story" -> 3).</summary>
     public IReadOnlyDictionary<string, int> TalentPointModifiers => _talentPointModifiers ??= LoadTalentPointModifiers();
@@ -1118,7 +1156,8 @@ public sealed record TalentInfo(string DisplayName, string Description, string T
 /// <param name="Display">The tree's own name ("Resources").</param>
 /// <param name="ArchetypeDisplay">Its archetype's ("Survival", "Tier 1", "Olympus", "Envirosuits").</param>
 /// <param name="Model">Player, Blueprint, Solo (a character's), Workshop or Prospect (the account's).</param>
-public sealed record TreeInfo(string Display, string ArchetypeDisplay, string Model)
+/// <param name="ArchetypeRow">Its D_TalentArchetypes row ("Creature_Raptor"): a mount's talents are the trees of its archetype.</param>
+public sealed record TreeInfo(string Display, string ArchetypeDisplay, string Model, string ArchetypeRow = "")
 {
     /// <summary>
     /// "Survival · Resources" for a character's trees; just "Armors" / "Elysium" for workshop and

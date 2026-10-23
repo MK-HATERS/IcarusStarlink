@@ -452,7 +452,9 @@ public partial class App : Application
                 Path.Combine(appDataDirectory, "Staged_UE4SS")).Read,
             () => PlayerGrowthReader.Read(Path.Combine(appDataDirectory, "Data"),
                 sp.GetRequiredService<ISettingsService>().Current.IcarusContentPath, sp.GetRequiredService<IBaseGameContentProvider>()),
-            new PlayerPointsMod(sp.GetRequiredService<ILibraryRepository>(), sp.GetRequiredService<IBaseGameContentProvider>())));
+            new PlayerPointsMod(sp.GetRequiredService<ILibraryRepository>(), sp.GetRequiredService<IBaseGameContentProvider>()),
+            () => PlayerGrowthReader.ReadMounts(Path.Combine(appDataDirectory, "Data"),
+                sp.GetRequiredService<ISettingsService>().Current.IcarusContentPath, sp.GetRequiredService<IBaseGameContentProvider>())));
         builder.Services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUnrealPakService>(),

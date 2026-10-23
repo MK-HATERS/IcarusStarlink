@@ -14,6 +14,7 @@ This list was generated from the actual resolved NuGet dependency closure of a r
 
 - **[CUE4Parse](https://github.com/FabianFG/CUE4Parse)** and **CUE4Parse-Conversion** (1.2.2.202608) — Copyright FabianFG and contributors. The core Unreal Engine asset-parsing/conversion library this app's own data extraction, diffing, and asset-preview features are built on. CUE4Parse's own upstream NOTICE file lists the further third-party components *it* bundles — reproduced in full below, per Apache-2.0 §4(d).
 - **Serilog**, **Serilog.Extensions.Hosting**, **Serilog.Extensions.Logging**, **Serilog.Sinks.Console**, **Serilog.Sinks.File** — Copyright Serilog Contributors.
+- **[UeSaveGame](https://github.com/CrystalFerrai/UeSaveGame)** (commit c716f8f, vendored as source in `src/ThirdParty/UeSaveGame`, which notes the one change: its project file) — Copyright Crystal Ferrai. Reads and writes a saved mount's data (Mounts.json's RecorderBlob) for the Saves page's mount editor; the commit [IcarusSaveLib](https://github.com/CrystalFerrai/IcarusSaveLib) builds against.
 - **SQLitePCLRaw.bundle_e_sqlite3**, **SQLitePCLRaw.core**, **SQLitePCLRaw.lib.e_sqlite3**, **SQLitePCLRaw.provider.e_sqlite3** (2.1.12) — Copyright Kim Christensen, Eric Sink et al.
 
 Full license text: <https://www.apache.org/licenses/LICENSE-2.0>
