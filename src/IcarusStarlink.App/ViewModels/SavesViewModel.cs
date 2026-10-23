@@ -213,8 +213,21 @@ public sealed partial class SavesViewModel : ObservableObject
         // Refresh game data re-extracts the tables every name here comes from.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((SavesViewModel)recipient).OnGameDataRefreshed());
 
+        // What's installed or in the Library may have changed: the next load reads the paks again.
+        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((SavesViewModel)recipient)._gameContentStale = true);
+        WeakReferenceMessenger.Default.Register<MergedPakBuiltMessage>(this, (recipient, _) => ((SavesViewModel)recipient)._gameContentStale = true);
+        WeakReferenceMessenger.Default.Register<SettingsSavedMessage>(this, (recipient, _) => ((SavesViewModel)recipient)._gameContentStale = true);
+
         RefreshSlots();
     }
+
+    /// <summary>
+    /// The installed growth curves, mount growth and where mod rows come from are read from the
+    /// game's paks and the Library, not the slot: they're read again only once something there
+    /// may have changed (Library, Merge &amp; Install, Settings, Refresh game data). Every slot load
+    /// and Reload used to read them all again.
+    /// </summary>
+    private bool _gameContentStale = true;
 
     /// <summary>
     /// Drops the cached names and reloads the current slot so they show. Unsaved edits are never
@@ -224,6 +237,7 @@ public sealed partial class SavesViewModel : ObservableObject
     private void OnGameDataRefreshed()
     {
         _gameNames.Invalidate();
+        _gameContentStale = true;
         WorldSettings.InvalidateDefinitions();
         if (SelectedSlot is null)
         {
@@ -692,9 +706,11 @@ public sealed partial class SavesViewModel : ObservableObject
         RefreshFlagFilter();
         OnPropertyChanged(nameof(HasUnsavedChanges));
         OnPropertyChanged(nameof(ChangesSummary));
-        _pendingModSources = ClassifyModRowsAsync();
-        _pendingPlayerGrowth = ReadPlayerGrowthAsync();
-        _pendingMountGrowth = ReadMountGrowthAsync();
+        var reread = _gameContentStale;
+        _gameContentStale = false;
+        _pendingModSources = ClassifyModRowsAsync(reread);
+        _pendingPlayerGrowth = ReadPlayerGrowthAsync(reread);
+        _pendingMountGrowth = ReadMountGrowthAsync(reread);
         ApplyPackNotes();
         RunSaveCheck();
         await worldsLoad;
@@ -733,8 +749,41 @@ public sealed partial class SavesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Above 0 inside BatchedDirtyChanges: row edits only note that something changed.</summary>
+    private int _dirtyBatchDepth;
+
+    private bool _dirtyChangedInBatch;
+
+    /// <summary>
+    /// Many row edits at once (Complete all shown, Fix all, Remove leftovers) tell the page once,
+    /// at the end: each used to re-check every list and every points editor, per row.
+    /// </summary>
+    private DirtyBatch BatchedDirtyChanges()
+    {
+        _dirtyBatchDepth++;
+        return new DirtyBatch(this);
+    }
+
+    private readonly struct DirtyBatch(SavesViewModel page) : IDisposable
+    {
+        public void Dispose()
+        {
+            if (--page._dirtyBatchDepth == 0 && page._dirtyChangedInBatch)
+            {
+                page._dirtyChangedInBatch = false;
+                page.NotifyDirtyChanged();
+            }
+        }
+    }
+
     private void NotifyDirtyChanged()
     {
+        if (_dirtyBatchDepth > 0)
+        {
+            _dirtyChangedInBatch = true;
+            return;
+        }
+
         OnPropertyChanged(nameof(ChangesSummary));
         OnPropertyChanged(nameof(AccoladesSummary));
         OnPropertyChanged(nameof(BestiarySummary));

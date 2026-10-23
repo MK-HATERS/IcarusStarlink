@@ -51,10 +51,14 @@ public sealed partial class SavesViewModel
 
     internal Task WaitForMountGrowthAsync() => _pendingMountGrowth;
 
-    /// <summary>Each type's growth (XP and talent points per level), read once per load off the UI thread; mounts not edited yet get it.</summary>
-    private async Task ReadMountGrowthAsync()
+    /// <summary>
+    /// Each type's growth (XP and talent points per level), read off the UI thread when the game's
+    /// content may have changed (GameContentStale); mounts not edited yet get it. Otherwise
+    /// BuildMounts already gave every mount the last read.
+    /// </summary>
+    private async Task ReadMountGrowthAsync(bool reread)
     {
-        if (_readMountGrowth is not { } read)
+        if (_readMountGrowth is not { } read || !reread)
         {
             return;
         }
@@ -65,6 +69,7 @@ public sealed partial class SavesViewModel
         }
         catch (Exception)
         {
+            _gameContentStale = true;
             return;
         }
 

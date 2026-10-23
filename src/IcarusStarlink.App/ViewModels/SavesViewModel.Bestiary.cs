@@ -36,6 +36,7 @@ public sealed partial class SavesViewModel
     [RelayCommand]
     private void CompleteShownBestiary()
     {
+        using var batch = BatchedDirtyChanges();
         foreach (var entry in FilteredBestiaryEntries.Where(b => b.CanSetMax && !b.IsComplete).ToList())
         {
             entry.SetMaxCommand.Execute(null);

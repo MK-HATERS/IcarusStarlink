@@ -93,13 +93,16 @@ public sealed partial class SavesViewModel
             return;
         }
 
-        ApplyLink(() =>
+        using (BatchedDirtyChanges())
         {
-            foreach (var finding in fixes)
+            ApplyLink(() =>
             {
-                finding.Fix!();
-            }
-        });
+                foreach (var finding in fixes)
+                {
+                    finding.Fix!();
+                }
+            });
+        }
 
         _activityLog.Log($"Save check: made {fixes.Count} fixes (press Save to keep them).", ActivityEntryKind.Success);
         RunSaveCheck();
@@ -115,24 +118,28 @@ public sealed partial class SavesViewModel
     /// <summary>Test seam: the background read of where mod rows come from.</summary>
     internal Task WaitForModSourcesAsync() => _pendingModSources;
 
-    private async Task ClassifyModRowsAsync()
+    /// <param name="reread">Read every Library mod and the installed paks again; otherwise the last read labels the rows (see GameContentStale).</param>
+    private async Task ClassifyModRowsAsync(bool reread)
     {
         if (_readModSources is not { } read)
         {
             return;
         }
 
-        SaveModSources.Index index;
-        try
+        if (reread || _modSources is null)
         {
-            index = await Task.Run(read);
-        }
-        catch (Exception)
-        {
-            return;
+            try
+            {
+                _modSources = await Task.Run(read);
+            }
+            catch (Exception)
+            {
+                _gameContentStale = true;
+                return;
+            }
         }
 
-        _modSources = index;
+        var index = _modSources;
         ClassifyTalents(Characters.SelectMany(c => c.Talents).Concat(WorkshopTalents));
 
         foreach (var item in MetaInventoryItems)
@@ -218,9 +225,12 @@ public sealed partial class SavesViewModel
             return;
         }
 
-        foreach (var (_, talent) in talents)
+        using (BatchedDirtyChanges())
         {
-            talent.Rank = 0;
+            foreach (var (_, talent) in talents)
+            {
+                talent.Rank = 0;
+            }
         }
 
         foreach (var item in items)

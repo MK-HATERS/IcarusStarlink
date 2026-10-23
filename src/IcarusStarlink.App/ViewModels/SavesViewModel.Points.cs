@@ -17,20 +17,25 @@ public sealed partial class SavesViewModel
 
     internal Task WaitForPlayerGrowthAsync() => _pendingPlayerGrowth;
 
-    private async Task ReadPlayerGrowthAsync()
+    /// <param name="reread">Read the installed paks again; otherwise the last read is applied (see GameContentStale).</param>
+    private async Task ReadPlayerGrowthAsync(bool reread)
     {
         if (_readPlayerGrowth is not { } read)
         {
             return;
         }
 
-        try
+        if (reread)
         {
-            _playerGrowth = await Task.Run(read);
-        }
-        catch (Exception)
-        {
-            _playerGrowth = null;
+            try
+            {
+                _playerGrowth = await Task.Run(read);
+            }
+            catch (Exception)
+            {
+                _playerGrowth = null;
+                _gameContentStale = true;
+            }
         }
 
         OnPropertyChanged(nameof(TalentRanksSummary));
@@ -60,6 +65,9 @@ public sealed partial class SavesViewModel
 
     private void BuildPointsEditors()
     {
+        // What the user typed stays: a reload or a re-read of the curves used to put the
+        // multipliers back to what's installed.
+        var typed = PointsEditors.ToDictionary(e => e.Field, e => (e.MultiplierText, e.KeepRising));
         PointsEditors.Clear();
         IReadOnlyDictionary<string, PointsCurveChange> lastMade;
         try
@@ -77,8 +85,15 @@ public sealed partial class SavesViewModel
             {
                 if (growth.GameCurvesByField.GetValueOrDefault(field) is { } gameCurve)
                 {
-                    PointsEditors.Add(new PointsTreeEditor(field, label, gameCurve, installed, () => SelectedLevel, () => field == "TalentPointsPerLevel" ? TalentPointBonus : 0,
-                        lastMade.GetValueOrDefault(field)));
+                    var editor = new PointsTreeEditor(field, label, gameCurve, installed, () => SelectedLevel, () => field == "TalentPointsPerLevel" ? TalentPointBonus : 0,
+                        lastMade.GetValueOrDefault(field));
+                    if (typed.TryGetValue(field, out var kept))
+                    {
+                        editor.MultiplierText = kept.MultiplierText;
+                        editor.KeepRising = kept.KeepRising;
+                    }
+
+                    PointsEditors.Add(editor);
                 }
             }
 

@@ -142,7 +142,10 @@ public sealed partial class SaveMountViewModel : DirtyRow
         }
     }
 
-    public IReadOnlyList<int> VariationOptions => Growth is { Variations: > 0 } g ? [.. Enumerable.Range(0, g.Variations)] : [Variation];
+    /// <summary>The species' looks, and always the mount's own: one past the table's count (a mod's, or an older table) showed a blank box.</summary>
+    public IReadOnlyList<int> VariationOptions => Growth is { Variations: > 0 } g
+        ? [.. Enumerable.Range(0, g.Variations).Append(Variation).Distinct().Order()]
+        : [Variation];
 
     [ObservableProperty]
     private int _variation;

@@ -303,6 +303,67 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
+    /// <summary>Where mod rows come from doesn't depend on the slot: read again only once the Library (or the game's content) may have changed.</summary>
+    [Fact]
+    public async Task Reload_ReusesTheModSourcesRead_UntilTheLibraryChanges()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+        };
+        var reads = 0;
+        var vm = CreateViewModel(repository, readModSources: () =>
+        {
+            reads++;
+            return SaveModSources.Index.Empty;
+        });
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForModSourcesAsync();
+            vm.ReloadCommand.Execute(null);
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForModSourcesAsync();
+            Assert.Equal(1, reads);
+
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            vm.ReloadCommand.Execute(null);
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForModSourcesAsync();
+            Assert.Equal(2, reads);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Complete all shown used to re-check every list per creature; the page now hears about it once.</summary>
+    [Fact]
+    public async Task CompleteShownBestiary_TellsThePageOnce()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+        };
+        var data = CreateGameDataFolder();
+        File.WriteAllText(Path.Combine(data, "Bestiary", "D_BestiaryData.json"), """
+            { "Defaults": { "TotalPointsRequired": 100 }, "Rows": [ { "Name": "Wolf" }, { "Name": "Bear" }, { "Name": "Moa" } ] }
+            """);
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(data));
+        await vm.WaitForPendingSlotLoadAsync();
+        Assert.Equal(3, vm.FilteredBestiaryEntries.Count);
+        var summaries = 0;
+        vm.PropertyChanged += (_, e) => summaries += e.PropertyName == nameof(SavesViewModel.ChangesSummary) ? 1 : 0;
+
+        vm.CompleteShownBestiaryCommand.Execute(null);
+
+        Assert.Equal(1, summaries);
+        Assert.All(vm.BestiaryEntries.Where(b => b.CanSetMax), b => Assert.True(b.IsComplete));
+    }
+
     /// <summary>A duplicated character's talents had no Source, so Remove leftovers missed the copy's leftovers.</summary>
     [Fact]
     public async Task DuplicateCharacter_ItsLeftoverTalents_AreLabelledAndCounted()
