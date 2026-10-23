@@ -28,7 +28,6 @@ using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
-using Microsoft.Win32;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -443,17 +442,18 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void BrowseImmFolder()
     {
-        var dialog = new OpenFolderDialog { Title = "Select your classic IMM folder (the one containing Extracted_Mods)" };
-        if (dialog.ShowDialog() != true)
+        if (_dialogService.PickFolder(ImmFolderPickerTitle) is not { } folder)
         {
             return;
         }
 
-        ImmFolderPath = dialog.FolderName;
-        MigrationStatusMessage = ImmInstallPaths.LooksLikeInstallRoot(dialog.FolderName)
+        ImmFolderPath = folder;
+        MigrationStatusMessage = ImmInstallPaths.LooksLikeInstallRoot(folder)
             ? "Classic IMM folder set — now pick its mod list."
             : $"Careful: that folder has no Extracted_Mods + {ImmExtractedMods.FileName} in it, so it may not be a classic IMM install.";
     }
+
+    private const string ImmFolderPickerTitle = "Select your classic IMM folder (the one containing Extracted_Mods)";
 
     public ObservableCollection<string> MigrationResults { get; } = [];
 
@@ -469,12 +469,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportImmModListAsync()
     {
-        var dialog = new OpenFileDialog
-        {
-            Title = "Pick your classic IMM mod list (LastMergedMods.txt or IMM_Merged_Mod.txt)",
-            Filter = "Mod list (*.txt, *.lst)|*.txt;*.lst|All files (*.*)|*.*",
-        };
-        if (dialog.ShowDialog() != true)
+        if (_dialogService.PickFile(
+                "Pick your classic IMM mod list (LastMergedMods.txt or IMM_Merged_Mod.txt)",
+                "Mod list (*.txt, *.lst)|*.txt;*.lst|All files (*.*)|*.*") is not { } listPath)
         {
             return;
         }
@@ -483,27 +480,26 @@ public sealed partial class SettingsViewModel : ObservableObject
         // else's does, and auto-detection only works when the list happens to sit inside it.
         var installRoot = !string.IsNullOrWhiteSpace(ImmFolderPath) && ImmInstallPaths.LooksLikeInstallRoot(ImmFolderPath)
             ? ImmFolderPath
-            : ImmInstallPaths.FindInstallRoot(dialog.FileName);
+            : ImmInstallPaths.FindInstallRoot(listPath);
 
         if (installRoot is null)
         {
             // A list taken from the game's own Paks\mods folder has no IMM install anywhere near
             // it, so the mods themselves can't be found without being told where they live.
             MigrationStatusMessage = "That list isn't inside a classic IMM folder — pick your classic IMM folder so the mods can be found.";
-            var folderDialog = new OpenFolderDialog { Title = "Select your classic IMM folder (the one containing Extracted_Mods)" };
-            if (folderDialog.ShowDialog() != true)
+            if (_dialogService.PickFolder(ImmFolderPickerTitle) is not { } pickedRoot)
             {
                 MigrationStatusMessage = null;
                 return;
             }
 
-            if (!ImmInstallPaths.LooksLikeInstallRoot(folderDialog.FolderName))
+            if (!ImmInstallPaths.LooksLikeInstallRoot(pickedRoot))
             {
-                MigrationStatusMessage = $"'{folderDialog.FolderName}' doesn't look like a classic IMM folder — it needs an Extracted_Mods folder and an {ImmExtractedMods.FileName} file.";
+                MigrationStatusMessage = $"'{pickedRoot}' doesn't look like a classic IMM folder — it needs an Extracted_Mods folder and an {ImmExtractedMods.FileName} file.";
                 return;
             }
 
-            installRoot = folderDialog.FolderName;
+            installRoot = pickedRoot;
         }
 
         // Shown back in the box so it's visible what was used, and reusable next time.
@@ -516,7 +512,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         try
         {
             var progress = new Progress<string>(message => MigrationStatusMessage = message);
-            var result = await _immMigrationService.MigrateAsync(dialog.FileName, installRoot, progress);
+            var result = await _immMigrationService.MigrateAsync(listPath, installRoot, progress);
 
             foreach (var mod in result.Mods)
             {
@@ -532,7 +528,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             // listening, and the queue would silently stay empty (found live).
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             var mergeInstall = _mergeInstallViewModel();
-            mergeInstall.LoadModListFromFile(dialog.FileName);
+            mergeInstall.LoadModListFromFile(listPath);
 
             var linked = new List<string>();
             if (result.LinkedToDatabaseCount > 0)
@@ -727,14 +723,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void BrowseIcarusContentFolder()
     {
-        var dialog = new OpenFolderDialog
+        if (_dialogService.PickFolder("Select the Icarus\\Icarus\\Content folder", IcarusContentPath) is { } folder)
         {
-            Title = "Select the Icarus\\Icarus\\Content folder",
-        };
-
-        if (dialog.ShowDialog() == true)
-        {
-            IcarusContentPath = dialog.FolderName;
+            IcarusContentPath = folder;
         }
     }
 
@@ -761,15 +752,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void BrowseUnrealPakExe()
     {
-        var dialog = new OpenFileDialog
+        if (_dialogService.PickFile("Select UnrealPak.exe", "UnrealPak.exe|UnrealPak.exe|Executable files (*.exe)|*.exe") is { } exePath)
         {
-            Title = "Select UnrealPak.exe",
-            Filter = "UnrealPak.exe|UnrealPak.exe|Executable files (*.exe)|*.exe",
-        };
-
-        if (dialog.ShowDialog() == true)
-        {
-            UnrealPakExePath = dialog.FileName;
+            UnrealPakExePath = exePath;
             _ = VerifyUnrealPakAsync();
         }
     }
@@ -1574,12 +1559,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    /// <summary>Picks a UE4SS release zip the user downloaded themselves (tests swap in a fake).</summary>
-    internal Func<string?> PickUe4ssZip { get; set; } = () =>
-    {
-        var dialog = new OpenFileDialog { Title = "Pick a UE4SS release zip (for example UE4SS_v3.0.1-1181-g83330635.zip)", Filter = "UE4SS release (*.zip)|*.zip" };
-        return dialog.ShowDialog() == true ? dialog.FileName : null;
-    };
 
     /// <summary>
     /// Installs UE4SS from a zip the user downloaded (a version GitHub no longer lists as latest,
@@ -1596,7 +1575,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        if (IsInstallingUe4ss || IsUninstallingUe4ss || PickUe4ssZip() is not { } zipPath)
+        if (IsInstallingUe4ss || IsUninstallingUe4ss
+            || _dialogService.PickFile("Pick a UE4SS release zip (for example UE4SS_v3.0.1-1181-g83330635.zip)", "UE4SS release (*.zip)|*.zip") is not { } zipPath)
         {
             return;
         }
@@ -1782,21 +1762,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void ExportDiagnostics()
     {
-        var dialog = new SaveFileDialog
-        {
-            Title = "Export diagnostics zip",
-            FileName = $"IcarusStarlink-Diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.zip",
-            Filter = "Zip archive (*.zip)|*.zip",
-        };
-        if (dialog.ShowDialog() != true)
+        if (_dialogService.PickSaveFile(
+                "Export diagnostics zip", "Zip archive (*.zip)|*.zip", $"IcarusStarlink-Diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.zip") is not { } zipPath)
         {
             return;
         }
 
         try
         {
-            DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, dialog.FileName);
-            DiagnosticsStatusMessage = $"Exported to '{dialog.FileName}'.";
+            DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, zipPath);
+            DiagnosticsStatusMessage = $"Exported to '{zipPath}'.";
         }
         catch (Exception ex)
         {

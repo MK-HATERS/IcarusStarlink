@@ -467,12 +467,12 @@ public sealed class SettingsViewModelTests
         using var harness = new Harness(dialogConfirmResult: true);
         harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, "3.0.1", "1ba38db4");
         var vm = harness.BuildViewModel();
-        vm.PickUe4ssZip = () => null;
+        harness.DialogService.FileToPick = null;
 
         await vm.InstallUe4ssFromZipCommand.ExecuteAsync(null);
         Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
 
-        vm.PickUe4ssZip = () => @"C:\Downloads\UE4SS_v3.0.1-1176-g1ba38db4.zip";
+        harness.DialogService.FileToPick = @"C:\Downloads\UE4SS_v3.0.1-1176-g1ba38db4.zip";
         await vm.InstallUe4ssFromZipCommand.ExecuteAsync(null);
 
         Assert.Equal(@"C:\Downloads\UE4SS_v3.0.1-1176-g1ba38db4.zip", harness.Ue4ssLoaderInstallService.LastDownloadedZipPath);
@@ -488,7 +488,7 @@ public sealed class SettingsViewModelTests
         using var harness = new Harness(dialogConfirmResult: true);
         harness.Ue4ssLoaderInstallService.InstallOrUpdateException = new InvalidOperationException("This UE4SS archive doesn't have the expected layout");
         var vm = harness.BuildViewModel();
-        vm.PickUe4ssZip = () => @"C:\Downloads\something.zip";
+        harness.DialogService.FileToPick = @"C:\Downloads\something.zip";
 
         await vm.InstallUe4ssFromZipCommand.ExecuteAsync(null);
 
@@ -817,6 +817,21 @@ public sealed class SettingsViewModelTests
         Assert.Null(vm.IcarusContentPath);
         Assert.Contains("Auto-detect or Browse", vm.SavedMessage);
         Assert.True(vm.FirstLaunchSetupNeededAttention);
+    }
+
+    [Fact]
+    public async Task FirstLaunch_NoGameFolder_SteamCantFindIt_BrowsedFolderIsSaved()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        harness.Settings.IcarusContentPath = null;
+        var picked = Path.Combine(harness.TempDir, "Games", "Icarus", "Icarus", "Content");
+        harness.DialogService.FolderToPick = picked;
+
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+
+        Assert.Equal(picked, vm.IcarusContentPath);
+        Assert.Equal(picked, harness.Settings.IcarusContentPath);
     }
 
     [Fact]
@@ -1383,6 +1398,16 @@ public sealed class SettingsViewModelTests
         public int ConfirmCallCount { get; private set; }
         public string? LastConfirmMessage { get; private set; }
         public string? LastConfirmTitle { get; private set; }
+
+        /// <summary>What PickFile answers (null = cancelled).</summary>
+        public string? FileToPick { get; set; }
+
+        public string? PickFile(string title, string filter, string? initialDirectory = null) => FileToPick;
+
+        /// <summary>What PickFolder answers (null = cancelled).</summary>
+        public string? FolderToPick { get; set; }
+
+        public string? PickFolder(string title, string? initialDirectory = null) => FolderToPick;
 
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {
