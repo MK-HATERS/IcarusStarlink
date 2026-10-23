@@ -19,13 +19,6 @@ namespace IcarusStarlink.App.ViewModels;
 /// </summary>
 public sealed partial class LocalServerViewModel
 {
-    /// <summary>The framework's own mods — they come with the loader, so they are not offered one by one.</summary>
-    private static readonly HashSet<string> Ue4ssFrameworkMods = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "shared", "Keybinds", "BPML_GenericFunctions", "BPModLoaderMod", "CheatManagerEnablerMod",
-        "ConsoleCommandsMod", "ConsoleEnablerMod", "LineTraceMod", "SplitScreenMod",
-    };
-
     public ObservableCollection<ServerPakFile> ServerPaks { get; } = [];
 
     [ObservableProperty]
@@ -153,7 +146,7 @@ public sealed partial class LocalServerViewModel
 
         try
         {
-            var comparisons = ServerUe4ssSync.Compare(GameModsFolder() ?? "", DedicatedServerLayout.Ue4ssModsFolder(p.InstallFolder), Ue4ssFrameworkMods);
+            var comparisons = ServerUe4ssSync.Compare(GameModsFolder() ?? "", DedicatedServerLayout.Ue4ssModsFolder(p.InstallFolder), Ue4ssServerFiles.FrameworkMods);
             foreach (var comparison in comparisons)
             {
                 Ue4ssModRows.Add(new ServerUe4ssRow(comparison, OnServerModToggled));

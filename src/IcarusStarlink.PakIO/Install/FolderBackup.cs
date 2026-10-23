@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.PakIO.Install;
 
@@ -71,19 +72,8 @@ public static class FolderBackup
         return path;
     }
 
-    public static void CopyDirectory(string sourceDir, string destDir)
-    {
-        Directory.CreateDirectory(destDir);
-        foreach (var file in Directory.GetFiles(sourceDir))
-        {
-            File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)), overwrite: true);
-        }
-
-        foreach (var subDir in Directory.GetDirectories(sourceDir))
-        {
-            CopyDirectory(subDir, Path.Combine(destDir, Path.GetFileName(subDir)));
-        }
-    }
+    /// <summary>The one recursive copy (Core's Directories.Copy), kept under this name for its many callers.</summary>
+    public static void CopyDirectory(string sourceDir, string destDir) => Directories.Copy(sourceDir, destDir);
 
     /// <summary>
     /// Exactly the backups MakeUniqueTimestampedPath produced for THIS base name — "{name}_yyyyMMdd-HHmmss"

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Ue4ss;
 
 namespace IcarusStarlink.Core.Server;
@@ -206,10 +207,12 @@ public static class ServerUe4ssSync
     /// Puts the game's copy of a mod on the server. When the server already has it, the server's
     /// own config files, the files the mod wrote there (LocalFiles) and its on/off state are kept, and the old
     /// copy is moved into <paramref name="backupsFolder"/>\removed-ue4ss rather than deleted. A mod new
-    /// to the server is turned on.
+    /// to the server is turned on. The one way a mod goes onto a local server: nothing replaces the
+    /// server's copy by deleting it first.
     /// </summary>
     public static void CopyToServer(string gameModsFolder, string modName, string installFolder, string backupsFolder)
     {
+        ServerModFiles.RequireFolderName(modName);
         var source = Path.Combine(gameModsFolder, modName);
         if (!Directory.Exists(source))
         {
@@ -218,13 +221,16 @@ public static class ServerUe4ssSync
 
         var serverMods = DedicatedServerLayout.Ue4ssModsFolder(installFolder);
         var target = Path.Combine(serverMods, modName);
+        var txtPath = Path.Combine(serverMods, Ue4ssModStart.ListFileName);
         if (!Directory.Exists(target))
         {
-            ServerModFiles.CopyUe4ssModToServer(gameModsFolder, modName, installFolder);
+            Directories.Copy(source, target);
+            var list = Ue4ssModsTxt.Load(txtPath);
+            list.Set(modName, true);
+            list.Save(txtPath);
             return;
         }
 
-        var txtPath = Path.Combine(serverMods, Ue4ssModStart.ListFileName);
         var wasOn = Ue4ssModStart.Starts(serverMods, modName, Ue4ssModsTxt.Load(txtPath));
 
         // Kept from the server's copy: its config, what the mod writes while running (logs, state
@@ -246,7 +252,7 @@ public static class ServerUe4ssSync
         Directory.Move(target, aside);
         try
         {
-            CopyDirectory(source, target);
+            Directories.Copy(source, target);
             foreach (var (relative, bytes) in keptFiles)
             {
                 var path = Path.Combine(target, relative);
@@ -274,7 +280,7 @@ public static class ServerUe4ssSync
         }
 
         var backup = Path.Combine(backupsFolder, "removed-ue4ss", $"{DateTime.Now:yyyy-MM-dd_HHmmss}_{modName}_before-update");
-        CopyDirectory(aside, backup);
+        Directories.Copy(aside, backup);
         Directory.Delete(aside, recursive: true);
         SetEnabled(installFolder, modName, wasOn);
     }
@@ -306,15 +312,4 @@ public static class ServerUe4ssSync
         File.Exists(localPak) && File.Exists(serverPak)
         && new FileInfo(localPak).Length == new FileInfo(serverPak).Length
         && HashOf(localPak).SequenceEqual(HashOf(serverPak));
-
-    private static void CopyDirectory(string source, string target)
-    {
-        Directory.CreateDirectory(target);
-        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
-        {
-            var dest = Path.Combine(target, Path.GetRelativePath(source, file));
-            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-            File.Copy(file, dest, overwrite: true);
-        }
-    }
 }
