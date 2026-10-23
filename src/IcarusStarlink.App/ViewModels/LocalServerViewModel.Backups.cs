@@ -63,13 +63,25 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        // Saved on every keystroke, but nothing is deleted here: typing "15" over "10" passes
+        // through "1", which used to prune down to one backup of each kind there and then.
         BackupsToKeepError = null;
         SaveAutomation(p => p.BackupsToKeep = keep);
-        if (SelectedProfile is { } profile && keep > 0)
+    }
+
+    /// <summary>
+    /// Applies the keep count to the backups already there: when the box loses focus (the view
+    /// calls this), and after every new backup anyway. Not while the typed text is invalid.
+    /// </summary>
+    internal void ApplyBackupsToKeep()
+    {
+        if (BackupsToKeepError is not null || SelectedProfile is not { BackupsToKeep: > 0 } profile)
         {
-            PruneBackups(profile, ServerBackupsFolder(profile));
-            RefreshBackups();
+            return;
         }
+
+        PruneBackups(profile, ServerBackupsFolder(profile));
+        RefreshBackups();
     }
 
     /// <summary>Deletes backups beyond the profile's keep count (never the one just made). A failure only costs disk space, so it is logged, not shown.</summary>

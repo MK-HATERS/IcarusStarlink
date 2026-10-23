@@ -38,6 +38,9 @@ public partial class LocalServerView : UserControl
         }
     }
 
+    /// <summary>The keep count is saved as it is typed but applied to existing backups only here, once the number is finished.</summary>
+    private void OnBackupsToKeepLostFocus(object sender, RoutedEventArgs e) => _viewModel?.ApplyBackupsToKeep();
+
     /// <summary>"Follow": keep the newest log line in view as it arrives.</summary>
     private void ScrollLogToEnd(object? sender, EventArgs e)
     {

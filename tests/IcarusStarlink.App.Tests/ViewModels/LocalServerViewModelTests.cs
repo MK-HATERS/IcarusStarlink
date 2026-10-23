@@ -712,6 +712,34 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.True(File.Exists(before), "other kinds keep their own count");
     }
 
+    /// <summary>Typing "15" over "10" passes through "1": that used to delete all but one backup of each kind on the keystroke. Now nothing goes until the box is left.</summary>
+    [Fact]
+    public void BackupsToKeep_IsSavedPerKeystroke_ButPrunesOnlyWhenApplied()
+    {
+        var (vm, store, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        Directory.CreateDirectory(vm.BackupsFolderPath);
+        for (var i = 1; i <= 3; i++)
+        {
+            var zip = Path.Combine(vm.BackupsFolderPath, $"2026-01-0{i}_000000_manual.zip");
+            File.WriteAllText(zip, "");
+            File.SetLastWriteTimeUtc(zip, new DateTime(2026, 1, i, 0, 0, 0, DateTimeKind.Utc));
+        }
+
+        vm.BackupsToKeepText = "";
+        vm.BackupsToKeepText = "1";
+        Assert.Equal(1, store.Profiles.Single().BackupsToKeep);
+        vm.BackupsToKeepText = "15";
+
+        Assert.Equal(3, Directory.GetFiles(vm.BackupsFolderPath, "*.zip").Length);
+        Assert.Equal(15, store.Profiles.Single().BackupsToKeep);
+
+        vm.BackupsToKeepText = "2";
+        vm.ApplyBackupsToKeep();
+        Assert.Equal(2, Directory.GetFiles(vm.BackupsFolderPath, "*.zip").Length);
+        Assert.False(File.Exists(Path.Combine(vm.BackupsFolderPath, "2026-01-01_000000_manual.zip")));
+    }
+
     [Fact]
     public void SaveAccessLists_RequiresSteam64IdsForAdmins()
     {
