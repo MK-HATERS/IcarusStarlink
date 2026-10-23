@@ -2,6 +2,8 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:IcarusStarlink.App.Views"
+             xmlns:converters="clr-namespace:IcarusStarlink.App.Converters"
+             xmlns:server="clr-namespace:IcarusStarlink.Core.Server;assembly=IcarusStarlink.Core"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d">
@@ -11,6 +13,25 @@
          tiles, then tabs: Overview (automation, firewall), Log (live tail of the server's own log
          file), Settings (launch options + ServerSettings.ini), Mods, Worlds & backups, World
          settings, Admins & bans. -->
+    <UserControl.Resources>
+        <converters:LogLineLevelConverter x:Key="LogLineLevelConverter"/>
+
+        <!-- Eye for the password show/hide toggles; a slash is drawn over it while the text shows. -->
+        <Geometry x:Key="ServerIconEye">M2 12C5 6.8 8.5 5 12 5C15.5 5 19 6.8 22 12C19 17.2 15.5 19 12 19C8.5 19 5 17.2 2 12Z M9.5 12A2.5 2.5 0 1 0 14.5 12A2.5 2.5 0 1 0 9.5 12Z</Geometry>
+
+        <!-- A small hint under a field or section label. -->
+        <Style x:Key="ServerHintStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
+        </Style>
+
+        <!-- Section labels on every tab: the app's small caps label (FieldLabelStyle), with room under it. -->
+        <Style x:Key="ServerSectionLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource FieldLabelStyle}">
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+    </UserControl.Resources>
+
     <Grid Margin="0,12,0,0">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="250" MinWidth="180" MaxWidth="480"/>
@@ -28,7 +49,7 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Text="SERVERS ON THIS PC" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="0" Text="SERVERS ON THIS PC" Style="{StaticResource ServerSectionLabelStyle}" Margin="0,0,0,6"/>
             <!-- No sideways scrolling: a long name or path is cut with … and shown in full on hover. -->
             <ListBox Grid.Row="1" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}" IsEnabled="{Binding IsNotBusy}"
                      BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
@@ -36,9 +57,9 @@
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Margin="0,3">
-                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" ToolTipService.ShowOnDisabled="True"/>
                             <TextBlock Text="{Binding InstallFolder}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}" TextTrimming="CharacterEllipsis"
-                                       ToolTip="{Binding InstallFolder}"/>
+                                       ToolTip="{Binding InstallFolder}" ToolTipService.ShowOnDisabled="True"/>
                             <TextBlock FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}">
                                 <Run Text="port "/><Run Text="{Binding Port, Mode=OneWay}"/><Run Text=" · query "/><Run Text="{Binding QueryPort, Mode=OneWay}"/>
                             </TextBlock>
@@ -204,6 +225,9 @@
                         <Setter Property="Margin" Value="0,2,0,1"/>
                         <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
                     </Style>
+                    <Style x:Key="TileLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource FieldLabelStyle}">
+                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                    </Style>
                     <Style x:Key="TileHintStyle" TargetType="TextBlock">
                         <Setter Property="FontSize" Value="11"/>
                         <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
@@ -212,44 +236,44 @@
                 </UniformGrid.Resources>
                 <Border Style="{StaticResource TileStyle}">
                     <StackPanel>
-                        <TextBlock Text="PLAYERS" Style="{StaticResource FieldLabelStyle}"/>
-                        <TextBlock Text="{Binding PlayersTile}" Style="{StaticResource TileValueStyle}"/>
+                        <TextBlock Text="PLAYERS" Style="{StaticResource TileLabelStyle}"/>
+                        <TextBlock Text="{Binding PlayersTile}" Style="{StaticResource TileValueStyle}" ToolTip="{Binding PlayersTile}"/>
                         <TextBlock Text="{Binding PlayersHint}" Style="{StaticResource TileHintStyle}" ToolTip="{Binding PlayersHint}"/>
                     </StackPanel>
                 </Border>
                 <Border Style="{StaticResource TileStyle}">
                     <StackPanel>
-                        <TextBlock Text="WORLD" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Text="WORLD" Style="{StaticResource TileLabelStyle}"/>
                         <TextBlock Text="{Binding WorldTile}" Style="{StaticResource TileValueStyle}" ToolTip="{Binding WorldTile}"/>
-                        <TextBlock Text="{Binding WorldHint}" Style="{StaticResource TileHintStyle}"/>
+                        <TextBlock Text="{Binding WorldHint}" Style="{StaticResource TileHintStyle}" ToolTip="{Binding WorldHint}"/>
                     </StackPanel>
                 </Border>
                 <Border Style="{StaticResource TileStyle}">
                     <StackPanel>
-                        <TextBlock Text="UPTIME" Style="{StaticResource FieldLabelStyle}"/>
-                        <TextBlock Text="{Binding UptimeTile}" Style="{StaticResource TileValueStyle}"/>
-                        <TextBlock Text="{Binding UptimeHint}" Style="{StaticResource TileHintStyle}"/>
+                        <TextBlock Text="UPTIME" Style="{StaticResource TileLabelStyle}"/>
+                        <TextBlock Text="{Binding UptimeTile}" Style="{StaticResource TileValueStyle}" ToolTip="{Binding UptimeTile}"/>
+                        <TextBlock Text="{Binding UptimeHint}" Style="{StaticResource TileHintStyle}" ToolTip="{Binding UptimeHint}"/>
                     </StackPanel>
                 </Border>
                 <Border Style="{StaticResource TileStyle}">
                     <StackPanel>
-                        <TextBlock Text="MEMORY" Style="{StaticResource FieldLabelStyle}"/>
-                        <TextBlock Text="{Binding MemoryTile}" Style="{StaticResource TileValueStyle}"/>
-                        <TextBlock Text="{Binding MemoryHint}" Style="{StaticResource TileHintStyle}"/>
+                        <TextBlock Text="MEMORY" Style="{StaticResource TileLabelStyle}"/>
+                        <TextBlock Text="{Binding MemoryTile}" Style="{StaticResource TileValueStyle}" ToolTip="{Binding MemoryTile}"/>
+                        <TextBlock Text="{Binding MemoryHint}" Style="{StaticResource TileHintStyle}" ToolTip="{Binding MemoryHint}"/>
                     </StackPanel>
                 </Border>
                 <Border Style="{StaticResource TileStyle}">
                     <StackPanel>
-                        <TextBlock Text="BUILD" Style="{StaticResource FieldLabelStyle}"/>
-                        <TextBlock Text="{Binding BuildTile}" Style="{StaticResource TileValueStyle}"/>
-                        <TextBlock Text="{Binding BuildHint}" Style="{StaticResource TileHintStyle}"/>
+                        <TextBlock Text="BUILD" Style="{StaticResource TileLabelStyle}"/>
+                        <TextBlock Text="{Binding BuildTile}" Style="{StaticResource TileValueStyle}" ToolTip="{Binding BuildTile}"/>
+                        <TextBlock Text="{Binding BuildHint}" Style="{StaticResource TileHintStyle}" ToolTip="{Binding BuildHint}"/>
                     </StackPanel>
                 </Border>
                 <Border Style="{StaticResource TileStyle}" Margin="0">
                     <StackPanel>
-                        <TextBlock Text="LAST BACKUP" Style="{StaticResource FieldLabelStyle}"/>
-                        <TextBlock Text="{Binding BackupTile}" Style="{StaticResource TileValueStyle}"/>
-                        <TextBlock Text="{Binding BackupHint}" Style="{StaticResource TileHintStyle}"/>
+                        <TextBlock Text="LAST BACKUP" Style="{StaticResource TileLabelStyle}"/>
+                        <TextBlock Text="{Binding BackupTile}" Style="{StaticResource TileValueStyle}" ToolTip="{Binding BackupTile}"/>
+                        <TextBlock Text="{Binding BackupHint}" Style="{StaticResource TileHintStyle}" ToolTip="{Binding BackupHint}"/>
                     </StackPanel>
                 </Border>
             </UniformGrid>
@@ -338,7 +362,7 @@
                             <StackPanel Grid.Column="2">
                                 <TextBlock Text="{Binding SaveOnExitWarning}" Foreground="{DynamicResource DangerBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,10"
                                            Visibility="{Binding SaveOnExitWarning, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                <TextBlock Text="NEXT UP" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                                <TextBlock Text="NEXT UP" Style="{StaticResource ServerSectionLabelStyle}"/>
                                 <ItemsControl ItemsSource="{Binding NextUp}" Margin="0,0,0,14">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
@@ -422,14 +446,18 @@
                         <DockPanel Grid.Row="0" Margin="0,0,0,6">
                             <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearLogCommand}" Margin="8,0,0,0"
                                     ToolTip="Clears this view only; the server's log file is not touched"/>
-                            <TextBox DockPanel.Dock="Right" Width="180" Text="{Binding LogFilter, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="Show only lines containing this text" AutomationProperties.Name="Filter log"/>
+                            <Grid DockPanel.Dock="Right" Width="200">
+                                <TextBox Text="{Binding LogFilter, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Show only lines containing this text" AutomationProperties.Name="Filter log"/>
+                                <TextBlock Text="Filter…" Style="{StaticResource PlaceholderTextStyle}"
+                                           Visibility="{Binding LogFilter, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                            </Grid>
                             <CheckBox DockPanel.Dock="Right" Content="Follow" IsChecked="{Binding FollowLog}" Margin="12,0,12,0" VerticalAlignment="Center"
                                       ToolTip="Keeps the newest line in view as the server writes"/>
                             <CheckBox DockPanel.Dock="Right" Content="Hide noise" IsChecked="{Binding HideNoise}" VerticalAlignment="Center"
                                       ToolTip="Hides engine chatter (texture streaming, shaders, audio, HTTP…) — joins, prospect loads, mods, warnings and errors stay"/>
                             <TextBlock Text="{Binding LogPath}" FontFamily="Consolas" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"
-                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding LogPath}"/>
                         </DockPanel>
                         <!-- Drag the gap to give the log or the players/events side more room. -->
                         <Grid Grid.Row="1">
@@ -444,12 +472,40 @@
                                      BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
                                      VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                                      ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                                <!-- Errors red, warnings amber. The level is worked out as a row is shown
+                                     (two Contains calls), so a 4,000-line log costs nothing extra. -->
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding}"/>
+                                        <TextBlock Text="{Binding}">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Converter={StaticResource LogLineLevelConverter}}" Value="{x:Static server:ServerLogLevel.Error}">
+                                                            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Converter={StaticResource LogLineLevelConverter}}" Value="{x:Static server:ServerLogLevel.Warning}">
+                                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
+                            <TextBlock Grid.Column="0" IsHitTestVisible="False"
+                                       Text="No log lines to show. The server's log appears here while it runs — or no line matches the filter.">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource EmptyStateTextStyle}">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding LogLines.Count}" Value="0">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                             <Grid Grid.Column="2">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
@@ -472,7 +528,7 @@
                                 <TextBlock Grid.Row="2" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap">
                                     <Run Text="World: " Foreground="{DynamicResource SecondaryForegroundBrush}"/><Run Text="{Binding CurrentProspect, Mode=OneWay, TargetNullValue='lobby'}"/>
                                 </TextBlock>
-                                <TextBlock Grid.Row="3" Text="EVENTS" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                                <TextBlock Grid.Row="3" Text="EVENTS" Style="{StaticResource ServerSectionLabelStyle}"/>
                                 <ListBox Grid.Row="4" ItemsSource="{Binding Events}" FontSize="11.5" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                     <ListBox.ItemTemplate>
@@ -518,17 +574,71 @@
                                 </Expander.Header>
                                 <StackPanel>
                                     <TextBlock Text="Profile name (only in this app)" FontSize="12"/>
-                                    <TextBox Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
+                                    <TextBox Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}" Width="360" HorizontalAlignment="Left" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StackPanel}}" Margin="0,2,0,8"/>
                                     <TextBlock Text="Server name in the browser (64 characters max)" FontSize="12"/>
-                                    <TextBox Text="{Binding SteamServerName, UpdateSourceTrigger=PropertyChanged}" MaxLength="64" Margin="0,2,0,8"
+                                    <TextBox Text="{Binding SteamServerName, UpdateSourceTrigger=PropertyChanged}" MaxLength="64" Width="360" HorizontalAlignment="Left" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StackPanel}}" Margin="0,2,0,8"
                                              ToolTip="Sent as -SteamServerName — the ini's SessionName key does nothing, per the official docs"/>
                                     <TextBlock Text="Max players (1-8, blank = game default)" FontSize="12"/>
                                     <TextBox Text="{Binding MaxPlayersText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,2"/>
                                     <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Higher = more people can play at once; lower = a smaller group."/>
                                     <TextBlock Text="Join password (blank = anyone can join)" FontSize="12"/>
-                                    <TextBox Text="{Binding JoinPassword, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
+                                    <Grid Width="280" HorizontalAlignment="Left" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StackPanel}}" Margin="0,2,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <PasswordBox views:PasswordBoxText.Text="{Binding JoinPassword}" AutomationProperties.Name="Join password">
+                                            <PasswordBox.Style>
+                                                <Style TargetType="PasswordBox" BasedOn="{StaticResource {x:Type PasswordBox}}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsChecked, ElementName=ShowJoinPasswordToggle}" Value="True">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </PasswordBox.Style>
+                                        </PasswordBox>
+                                        <TextBox Text="{Binding JoinPassword, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Join password"
+                                                 Visibility="{Binding IsChecked, ElementName=ShowJoinPasswordToggle, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        <ToggleButton x:Name="ShowJoinPasswordToggle" Grid.Column="1" Style="{StaticResource IconToggleButtonStyle}" Width="28" Height="28" Margin="4,0,0,0"
+                                                      ToolTip="Show or hide the password" AutomationProperties.Name="Show join password">
+                                            <Grid Width="16" Height="16">
+                                                <Path Data="{StaticResource ServerIconEye}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
+                                                      StrokeLineJoin="Round" Stretch="Uniform"/>
+                                                <Line X1="2" Y1="14" X2="14" Y2="2" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                      Visibility="{Binding IsChecked, ElementName=ShowJoinPasswordToggle, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                            </Grid>
+                                        </ToggleButton>
+                                    </Grid>
                                     <TextBlock Text="Admin password" FontSize="12"/>
-                                    <TextBox Text="{Binding AdminPassword, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,2"/>
+                                    <Grid Width="280" HorizontalAlignment="Left" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StackPanel}}" Margin="0,2,0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <PasswordBox views:PasswordBoxText.Text="{Binding AdminPassword}" AutomationProperties.Name="Admin password">
+                                            <PasswordBox.Style>
+                                                <Style TargetType="PasswordBox" BasedOn="{StaticResource {x:Type PasswordBox}}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsChecked, ElementName=ShowAdminPasswordToggle}" Value="True">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </PasswordBox.Style>
+                                        </PasswordBox>
+                                        <TextBox Text="{Binding AdminPassword, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Admin password"
+                                                 Visibility="{Binding IsChecked, ElementName=ShowAdminPasswordToggle, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        <ToggleButton x:Name="ShowAdminPasswordToggle" Grid.Column="1" Style="{StaticResource IconToggleButtonStyle}" Width="28" Height="28" Margin="4,0,0,0"
+                                                      ToolTip="Show or hide the password" AutomationProperties.Name="Show admin password">
+                                            <Grid Width="16" Height="16">
+                                                <Path Data="{StaticResource ServerIconEye}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6"
+                                                      StrokeLineJoin="Round" Stretch="Uniform"/>
+                                                <Line X1="2" Y1="14" X2="14" Y2="2" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                      Visibility="{Binding IsChecked, ElementName=ShowAdminPasswordToggle, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                            </Grid>
+                                        </ToggleButton>
+                                    </Grid>
                                     <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource AccentBrush}" Margin="0,0,0,8"
                                                Visibility="{Binding AdminPasswordIsEmpty, Converter={StaticResource BoolToVisibilityConverter}}"
                                                Text="Empty: any player who types /AdminLogin in chat becomes admin. Set one."/>
@@ -582,11 +692,11 @@
                                         <Run Text="Last prospect: "/><Run Text="{Binding LastProspectName, Mode=OneWay, TargetNullValue='(none yet)'}"/>
                                     </TextBlock>
                                     <TextBlock Text="Load prospect on start (blank = none)" FontSize="12"/>
-                                    <ComboBox ItemsSource="{Binding Prospects}" Text="{Binding LoadProspect, UpdateSourceTrigger=PropertyChanged}" IsEditable="True" Margin="0,2,0,8"
+                                    <ComboBox ItemsSource="{Binding Prospects}" Text="{Binding LoadProspect, UpdateSourceTrigger=PropertyChanged}" IsEditable="True" Width="360" HorizontalAlignment="Left" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StackPanel}}" Margin="0,2,0,8"
                                               ToolTip="A save under Saved\PlayerData\DedicatedServer\Prospects. Applied before Resume and Create."/>
                                     <TextBlock Text="Create a new world on start" FontSize="12"/>
                                     <StackPanel Visibility="{Binding HasProspectChoices, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,2,0,2">
-                                        <ComboBox ItemsSource="{Binding ProspectChoices}" SelectedItem="{Binding NewProspectType}" DisplayMemberPath="Display"
+                                        <ComboBox ItemsSource="{Binding ProspectChoices}" SelectedItem="{Binding NewProspectType}" DisplayMemberPath="Display" Width="360" HorizontalAlignment="Left" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StackPanel}}"
                                                   ToolTip="The prospect the server creates when it starts: an open world, an outpost or a mission (the game's own list)"/>
                                         <WrapPanel Margin="0,4,0,0" Visibility="{Binding IsCreatingProspect, Converter={StaticResource BoolToVisibilityConverter}}">
                                             <ComboBox ItemsSource="{Binding ProspectDifficulties}" SelectedItem="{Binding NewProspectDifficulty}" DisplayMemberPath="Label" Width="110" Margin="0,0,8,4"
@@ -599,7 +709,7 @@
                                             </Grid>
                                         </WrapPanel>
                                     </StackPanel>
-                                    <TextBox Text="{Binding CreateProspect, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,2"
+                                    <TextBox Text="{Binding CreateProspect, UpdateSourceTrigger=PropertyChanged}" Width="360" HorizontalAlignment="Left" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StackPanel}}" Margin="0,2,0,2"
                                              Visibility="{Binding HasNoProspectChoices, Converter={StaticResource BoolToVisibilityConverter}}"
                                              ToolTip="[ProspectType] [Difficulty 1-4] [Hardcore True/False] [SaveName] — run Refresh game data in Settings to pick from a list instead"/>
                                     <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"
@@ -641,7 +751,7 @@
                                 </Expander.Header>
                                 <StackPanel>
                                     <TextBlock Text="Bind to IP (-MULTIHOME, blank = all)" FontSize="12"/>
-                                    <TextBox Text="{Binding Multihome, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,8"/>
+                                    <TextBox Text="{Binding Multihome, UpdateSourceTrigger=PropertyChanged}" Width="200" HorizontalAlignment="Left" Margin="0,2,0,8"/>
                                     <TextBlock Text="Saved folder suffix (for a second server on the same install)" FontSize="12"/>
                                     <TextBox Text="{Binding SavedDirSuffix, UpdateSourceTrigger=PropertyChanged}" Width="140" HorizontalAlignment="Left" Margin="0,2,0,8"
                                              ToolTip="-saveddirsuffix — e.g. _2 makes this profile use Icarus\Saved_2 for its settings, logs and worlds"/>
@@ -653,7 +763,8 @@
                                                 ToolTip="Copies this command line, to run the server the same way from your own script"/>
                                         <TextBox Text="{Binding CommandLinePreview, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="11.5" TextWrapping="Wrap"/>
                                     </DockPanel>
-                                    <TextBlock FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0" TextTrimming="CharacterEllipsis">
+                                    <TextBlock FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0" TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding SettingsIniPath}">
                                         <Run Text="Settings file: "/><Run Text="{Binding SettingsIniPath, Mode=OneWay}"/>
                                     </TextBlock>
                                 </StackPanel>
@@ -678,7 +789,7 @@
                             <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,10"
                                        Text="Stop the server before changing its mods. Installing mods backs up its worlds and settings first, and anything taken off the server is moved into its backups folder, never deleted. Players need the same content mods as the server."/>
 
-                            <TextBlock Text="PAK MODS ON THE SERVER" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                            <TextBlock Text="PAK MODS ON THE SERVER" Style="{StaticResource ServerSectionLabelStyle}"/>
                             <!-- Whether the server has the merged pak Merge & Install last built (compared by contents). -->
                             <TextBlock Text="{Binding MergedPakSummary}" FontSize="12.5" TextWrapping="Wrap" Margin="0,0,0,6">
                                 <TextBlock.Style>
@@ -700,10 +811,13 @@
                             </StackPanel>
                             <Expander Margin="0,0,0,16" AutomationProperties.Name="All paks on the server">
                                 <Expander.Header>
-                                    <TextBlock FontSize="12"><Run Text="All paks on the server ("/><Run Text="{Binding ServerPaks.Count, Mode=OneWay}"/><Run Text=")"/></TextBlock>
+                                    <DockPanel LastChildFill="True">
+                                        <TextBlock DockPanel.Dock="Left" Text="All paks on the server" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                        <TextBlock Text="{Binding ServerPaks.Count, StringFormat='{}{0} files'}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                    </DockPanel>
                                 </Expander.Header>
                                 <StackPanel>
-                                    <ListBox ItemsSource="{Binding ServerPaks}" SelectedItem="{Binding SelectedServerPak}" MaxHeight="140"
+                                    <ListBox ItemsSource="{Binding ServerPaks}" SelectedItem="{Binding SelectedServerPak}" MaxHeight="140" MaxWidth="900" HorizontalAlignment="Left" MinWidth="360"
                                              BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate>
@@ -719,7 +833,9 @@
                                 </StackPanel>
                             </Expander>
 
-                            <TextBlock Text="UE4SS ON THE SERVER" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                            <TextBlock Style="{StaticResource ServerSectionLabelStyle}">
+                                <Run Text="UE4SS MODS ON THE SERVER"/><Run Text="{Binding ServerUe4ssModCount, Mode=OneWay, StringFormat='  ·  {0}'}" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                            </TextBlock>
                             <DockPanel Margin="0,0,0,10">
                                 <Button DockPanel.Dock="Right" Content="Install UE4SS from my game" Command="{Binding InstallUe4ssOnServerCommand}" VerticalAlignment="Center" Margin="10,0,0,0"
                                         ToolTip="Copies the loader (dwmapi.dll, UE4SS.dll), its settings and framework mods from your game's install — verified to run on the dedicated server. Existing settings on the server are kept."/>
@@ -727,7 +843,7 @@
                             </DockPanel>
 
                             <!-- One row per mod: your game's copy, the server's, how they compare, and the action. -->
-                            <DockPanel Margin="0,0,0,6">
+                            <DockPanel Margin="0,0,0,6" MaxWidth="1100" HorizontalAlignment="Left">
                                 <Button DockPanel.Dock="Right" Content="Make the server match my game" Command="{Binding MatchServerToGameCommand}"
                                         IsEnabled="{Binding ServerHasUe4ss}"
                                         ToolTip="Updates every out-of-date mod on the server and copies the ones on in your game that it lacks. Keeps the server's own settings; never removes anything; backs up worlds first.">
@@ -746,7 +862,9 @@
                                 <TextBlock FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" VerticalAlignment="Center" TextWrapping="Wrap"
                                            Text="Versions come from each mod's main.lua; without one, the files are compared. The server's own config files don't count as a difference and are kept on update."/>
                             </DockPanel>
-                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource CardBackgroundBrush}">
+                            <!-- Capped so Remove stays near the mod's name on a wide window. -->
+                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource CardBackgroundBrush}"
+                                    MaxWidth="1100" HorizontalAlignment="Left">
                                 <StackPanel Grid.IsSharedSizeScope="True">
                                     <Grid Margin="10,6">
                                         <Grid.ColumnDefinitions>
@@ -821,7 +939,7 @@
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
-                                    <TextBlock Text="No UE4SS mods in your game or on the server." Margin="10,8" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                                    <TextBlock Text="No UE4SS mods in your game or on the server yet. Turn one on in the Library, then copy it here." Margin="10,8" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}">
                                         <TextBlock.Style>
                                             <Style TargetType="TextBlock">
                                                 <Setter Property="Visibility" Value="Collapsed"/>
@@ -847,44 +965,107 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <DockPanel Grid.Column="0">
-                            <TextBlock DockPanel.Dock="Top" Text="WORLDS (PROSPECTS)" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
-                            <TextBlock DockPanel.Dock="Bottom" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0"
-                                       Text="Saved under PlayerData\DedicatedServer\Prospects, newest first. Pick which one starts in Settings → Load prospect. The game also keeps rolling .backup copies of each."/>
-                            <ListBox ItemsSource="{Binding Prospects}" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"/>
+                            <TextBlock DockPanel.Dock="Top" Style="{StaticResource ServerSectionLabelStyle}">
+                                <Run Text="WORLDS (PROSPECTS)"/><Run Text="{Binding ProspectRows.Count, Mode=OneWay, StringFormat='  ·  {0}'}" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                            </TextBlock>
+                            <TextBlock DockPanel.Dock="Top" Style="{StaticResource ServerHintStyle}" Margin="0,0,0,6"
+                                       Text="Saved under PlayerData\DedicatedServer\Prospects, newest first. Pick which one starts in Settings → Load prospect on start. The game also keeps rolling .backup copies of each."/>
+                            <Grid>
+                                <ListBox ItemsSource="{Binding ProspectRows}" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                                         HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <DockPanel Margin="0,3">
+                                                <TextBlock DockPanel.Dock="Right" Text="{Binding SizeBytes, Converter={StaticResource FileSizeConverter}}" FontSize="11"
+                                                           Foreground="{DynamicResource SecondaryForegroundBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                <StackPanel>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" VerticalAlignment="Center"/>
+                                                        <Border CornerRadius="8" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center" Background="{DynamicResource CardRaisedBackgroundBrush}"
+                                                        Visibility="{Binding IsLoadOnStart, Converter={StaticResource BoolToVisibilityConverter}}" ToolTip="Settings → Load prospect on start names this world">
+                                                    <TextBlock Text="LOADS ON START" FontSize="10" FontFamily="Consolas" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/>
+                                                </Border>
+                                                        <Border CornerRadius="8" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center" Background="{DynamicResource SuccessSoftBrush}"
+                                                        Visibility="{Binding IsLastPlayed, Converter={StaticResource BoolToVisibilityConverter}}" ToolTip="The world the server ran last (LastProspectName in its settings)">
+                                                    <TextBlock Text="LAST RUN" FontSize="10" FontFamily="Consolas" FontWeight="SemiBold" Foreground="{DynamicResource SuccessBrush}"/>
+                                                </Border>
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding ModifiedLocal, StringFormat='saved {0:g}'}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                                <TextBlock IsHitTestVisible="False"
+                                           Text="No worlds yet. The server saves one the first time a prospect runs on it — set one up in Settings → World.">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource EmptyStateTextStyle}">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding ProspectRows.Count}" Value="0">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
                         </DockPanel>
                         <DockPanel Grid.Column="2">
-                            <TextBlock DockPanel.Dock="Top" Text="BACKUPS" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                            <TextBlock DockPanel.Dock="Top" Style="{StaticResource ServerSectionLabelStyle}">
+                                <Run Text="BACKUPS"/><Run Text="{Binding Backups.Count, Mode=OneWay, StringFormat='  ·  {0}'}" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                            </TextBlock>
+                            <TextBlock DockPanel.Dock="Top" Style="{StaticResource ServerHintStyle}" Margin="0,0,0,6"
+                                       Text="Zips of every world, ServerSettings.ini and the admin and ban lists. Starlink also makes one before every update, mod change and restore."/>
                             <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
-                                <StackPanel Orientation="Horizontal">
-                                    <Button Content="Back up now" Command="{Binding BackUpNowCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                <WrapPanel>
+                                    <Button Content="Back up now" Command="{Binding BackUpNowCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,4"
                                             ToolTip="Zips every world, ServerSettings.ini and the admin/ban lists (safe while the server runs)"/>
-                                    <Button Content="Restore selected" Command="{Binding RestoreSelectedBackupCommand}" Margin="8,0,0,0"
+                                    <Button Content="Restore selected" Command="{Binding RestoreSelectedBackupCommand}" Margin="0,0,8,4"
                                             ToolTip="Server must be stopped. The current state is backed up first, so a restore can be undone."/>
-                                    <Button Content="Open folder" Command="{Binding OpenBackupsFolderCommand}" Margin="8,0,0,0"/>
-                                </StackPanel>
-                                <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0"
-                                           Text="Made automatically before every Update, mod change and restore."/>
-                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                    <TextBlock Text="Keep the newest" VerticalAlignment="Center" FontSize="12"/>
-                                    <TextBox Text="{Binding BackupsToKeepText, UpdateSourceTrigger=PropertyChanged}" Width="44" Margin="6,0,6,0" Padding="2,0"
-                                             LostFocus="OnBackupsToKeepLostFocus"
-                                             AutomationProperties.Name="Backups to keep of each kind"
-                                             ToolTip="Older backups of the same kind (manual, daily, before-update, before-mods, before-restore) are deleted after each new one, and when you leave this box. 0 keeps every backup."/>
-                                    <TextBlock Text="of each kind (0 keeps all)" VerticalAlignment="Center" FontSize="12"/>
-                                </StackPanel>
+                                    <Button Content="Open folder" Command="{Binding OpenBackupsFolderCommand}" Margin="0,0,16,4"/>
+                                    <!-- One line: "Keep [10] of each kind · 0 keeps all". -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4" VerticalAlignment="Center"
+                                                ToolTip="Older backups of the same kind (manual, daily, before-update, before-mods, before-restore) are deleted after each new one, and when you leave this box. 0 keeps every backup.">
+                                        <TextBlock Text="Keep" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBox Text="{Binding BackupsToKeepText, UpdateSourceTrigger=PropertyChanged}" Width="44" Margin="6,0,6,0" Padding="2,0"
+                                                 HorizontalContentAlignment="Center" LostFocus="OnBackupsToKeepLostFocus"
+                                                 AutomationProperties.Name="Backups to keep of each kind"/>
+                                        <TextBlock VerticalAlignment="Center" FontSize="12">
+                                            <Run Text="of each kind"/><Run Text="  ·  0 keeps all" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </WrapPanel>
                                 <TextBlock Text="{Binding BackupsToKeepError}" Foreground="{DynamicResource DangerBrush}" FontSize="11.5" TextWrapping="Wrap"
                                            Visibility="{Binding BackupsToKeepError, Converter={StaticResource NullToVisibilityConverter}}"/>
                             </StackPanel>
-                            <ListBox ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock>
-                                            <Run Text="{Binding Name, Mode=OneWay}"/>
-                                            <Run Text="  " FontSize="11"/><Run Text="{Binding SizeBytes, Mode=OneWay, Converter={StaticResource FileSizeConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
-                                        </TextBlock>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                            <Grid>
+                                <ListBox ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                                         HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <DockPanel Margin="0,2">
+                                                <TextBlock DockPanel.Dock="Right" Text="{Binding SizeBytes, Converter={StaticResource FileSizeConverter}}" FontSize="11"
+                                                           Foreground="{DynamicResource SecondaryForegroundBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" VerticalAlignment="Center"/>
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                                <TextBlock IsHitTestVisible="False"
+                                           Text="No backups yet — Back up now makes one; Starlink also makes one before every update, mod change and restore.">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource EmptyStateTextStyle}">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Backups.Count}" Value="0">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
                         </DockPanel>
                     </Grid>
                 </TabItem>
@@ -894,37 +1075,52 @@
                 </TabItem>
 
                 <TabItem Header="Admins &amp; bans">
-                    <Grid Margin="0,8,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="16"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <DockPanel Grid.Column="0">
-                            <TextBlock DockPanel.Dock="Top" Text="ADMINS (STEAM64 IDS, ONE PER LINE)" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
-                            <TextBlock DockPanel.Dock="Bottom" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0"
-                                       Text="These players are admin without typing /AdminLogin (AdminWhitelist.txt). Known side effect from the official wiki: it breaks the lobby's prospect Delete button."/>
-                            <TextBox Text="{Binding AdminWhitelistText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" FontFamily="Consolas"
-                                     VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
-                        </DockPanel>
-                        <DockPanel Grid.Column="2">
-                            <TextBlock DockPanel.Dock="Top" Text="BAN LIST" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
-                            <TextBlock DockPanel.Dock="Bottom" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,6,0,0"
-                                       Text="PlayerBanList.txt as the server stores it. In game, admins can also type /BanPlayer name and /UnbanPlayer name in chat."/>
-                            <TextBox Text="{Binding BanListText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" FontFamily="Consolas"
-                                     VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
-                        </DockPanel>
-                        <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,10,0,0">
-                            <Button Content="Save lists" Command="{Binding SaveAccessListsCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                    ToolTip="Server must be stopped (it rewrites the ban list itself while running). Applies on the next start."/>
-                            <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}"
-                                       Text="Admin chat commands: /AdminLogin password, /KickPlayer, /BanPlayer, /UnbanPlayer, /ReturnToLobby, /AdminSay."/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+                        <StackPanel Margin="0,0,8,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="16"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="ADMINS" Style="{StaticResource ServerSectionLabelStyle}"/>
+                                    <TextBlock Style="{StaticResource ServerHintStyle}" Margin="0,0,0,6"
+                                               Text="Steam64 ids, one per line. These players are admin without typing /AdminLogin (AdminWhitelist.txt). Known side effect from the official wiki: it breaks the lobby's prospect Delete button."/>
+                                    <Grid>
+                                    <TextBox Text="{Binding AdminWhitelistText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" FontFamily="Consolas"
+                                             Height="240" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
+                                             AutomationProperties.Name="Admins"/>
+                                    <TextBlock Text="One Steam64 id per line, like 76561198000000000" Style="{StaticResource PlaceholderTextStyle}" VerticalAlignment="Top" Margin="9,7,0,0"
+                                               Visibility="{Binding AdminWhitelistText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                </Grid>
+                                    <TextBlock Text="{Binding AdminListHint}" Foreground="{DynamicResource DangerBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,4,0,0"
+                                               Visibility="{Binding AdminListHint, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="BAN LIST" Style="{StaticResource ServerSectionLabelStyle}"/>
+                                    <TextBlock Style="{StaticResource ServerHintStyle}" Margin="0,0,0,6"
+                                               Text="PlayerBanList.txt as the server stores it. In game, admins can also type /BanPlayer name and /UnbanPlayer name in chat."/>
+                                    <Grid>
+                                    <TextBox Text="{Binding BanListText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" FontFamily="Consolas"
+                                             Height="240" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
+                                             AutomationProperties.Name="Ban list"/>
+                                    <TextBlock Text="Nobody is banned" Style="{StaticResource PlaceholderTextStyle}" VerticalAlignment="Top" Margin="9,7,0,0"
+                                               Visibility="{Binding BanListText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                </Grid>
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <Button Content="Save lists" Command="{Binding SaveAccessListsCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                        ToolTip="Server must be stopped (it rewrites the ban list itself while running). Applies on the next start."/>
+                                <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource ServerHintStyle}"
+                                           Text="Saves both lists. The server must be stopped; they apply on its next start."/>
+                            </StackPanel>
+                            <TextBlock Text="ADMIN CHAT COMMANDS" Style="{StaticResource ServerSectionLabelStyle}" Margin="0,16,0,4"/>
+                            <TextBlock Style="{StaticResource ServerHintStyle}"
+                                       Text="Typed in game chat: /AdminLogin password, /KickPlayer, /BanPlayer, /UnbanPlayer, /ReturnToLobby, /AdminSay."/>
                         </StackPanel>
-                    </Grid>
+                    </ScrollViewer>
                 </TabItem>
             </TabControl>
         </Grid>
