@@ -807,6 +807,26 @@ public sealed class SettingsViewModelTests
     }
 
     /// <summary>An install that predates the flow and already extracted its data gets no offer — just marked done so the check stops running.</summary>
+    /// <summary>Settings › Maintenance › "Check for updates when Starlink starts" (user request 2026-10-23): off means no look at launch; the button still checks.</summary>
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public async Task LaunchUpdateCheck_FollowsTheAutoCheckSetting(bool autoCheck, int expectedCalls)
+    {
+        using var harness = new Harness();
+        harness.Settings.AutoCheckAppUpdates = autoCheck;
+
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+        for (var i = 0; i < 50 && harness.AppUpdateClient.LatestReleaseCalls < expectedCalls; i++)
+        {
+            await Task.Delay(10);
+        }
+
+        await Task.Delay(50);
+        Assert.Equal(expectedCalls, harness.AppUpdateClient.LatestReleaseCalls);
+    }
+
     [Fact]
     public async Task FirstLaunch_NxmHandlerNotRegistered_OffersToRegister_AcceptedRegisters()
     {
@@ -1108,6 +1128,10 @@ public sealed class SettingsViewModelTests
 
         public bool IsRegisteredToThisApp() => Registered;
 
+        public string? CurrentHandlerCommand() => Registered ? "\"C:\\IcarusStarlink\\IcarusStarlink.App.exe\" \"%1\"" : null;
+
+        public string? PreviousHandlerCommand() => null;
+
         public void Register()
         {
             RegisterCallCount++;
@@ -1226,9 +1250,13 @@ public sealed class SettingsViewModelTests
     private sealed class FakeAppUpdateClient : IAppUpdateClient
     {
         public AppUpdateRelease? ReleaseToReturn { get; set; }
+        public int LatestReleaseCalls { get; private set; }
 
-        public Task<AppUpdateRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(ReleaseToReturn);
+        public Task<AppUpdateRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken = default)
+        {
+            LatestReleaseCalls++;
+            return Task.FromResult(ReleaseToReturn);
+        }
 
         public Task DownloadAssetAsync(AppUpdateRelease release, string destinationPath, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("not exercised by these tests");

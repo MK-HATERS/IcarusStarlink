@@ -122,6 +122,84 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     partial void OnIsNxmProtocolRegisteredToThisAppChanged(bool value) => OnPropertyChanged(nameof(IsNxmProtocolNotRegistered));
 
+    /// <summary>The other app that has nxm:// links now ("Vortex"), or null when it's Starlink or nothing — the header and the Take them back button say it.</summary>
+    [ObservableProperty]
+    private string? _nxmHandlerOwner;
+
+    /// <summary>Settings › Nexus › Take them back automatically (AppSettings.KeepNxmHandler; NxmHandlerWatch acts on it).</summary>
+    public bool KeepNxmHandler
+    {
+        get => _settingsService.Current.KeepNxmHandler;
+        set
+        {
+            if (_settingsService.Current.KeepNxmHandler == value)
+            {
+                return;
+            }
+
+            _settingsService.Current.KeepNxmHandler = value;
+            _settingsService.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>Settings › Nexus › "Links for other games": the mod managers Starlink replaced and the games each one is passed.</summary>
+    public ObservableCollection<NxmOtherAppRow> NxmOtherApps { get; } = [];
+
+    public bool HasNxmOtherApps => NxmOtherApps.Count > 0;
+
+    [RelayCommand]
+    private void RemoveNxmOtherApp(NxmOtherAppRow? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _nxmProtocolRegistrar.RemoveOtherApp(row.Command);
+        }
+        catch (Exception ex)
+        {
+            NxmProtocolStatusMessage = $"Couldn't remove it: {ex.Message}";
+        }
+
+        RefreshNxmHandlerState();
+    }
+
+    private void RefreshNxmHandlerState()
+    {
+        IsNxmProtocolRegisteredToThisApp = _nxmProtocolRegistrar.IsRegisteredToThisApp();
+        var current = IsNxmProtocolRegisteredToThisApp ? null : _nxmProtocolRegistrar.CurrentHandlerCommand();
+        NxmHandlerOwner = current is null ? null : NxmHandlerWatch.HandlerName(current);
+
+        NxmOtherApps.Clear();
+        try
+        {
+            var previous = _nxmProtocolRegistrar.PreviousHandlerCommand();
+            foreach (var app in _nxmProtocolRegistrar.OtherApps())
+            {
+                NxmOtherApps.Add(new NxmOtherAppRow(app, string.Equals(app.Command, previous, StringComparison.OrdinalIgnoreCase), _nxmProtocolRegistrar));
+            }
+        }
+        catch (Exception)
+        {
+            // An unreadable list just shows empty; routing falls back to the app replaced last.
+        }
+
+        OnPropertyChanged(nameof(HasNxmOtherApps));
+        OnPropertyChanged(nameof(NxmHandlerHeaderState));
+        OnPropertyChanged(nameof(NxmRegisterButtonText));
+    }
+
+    public string NxmHandlerHeaderState =>
+        IsNxmProtocolRegisteredToThisApp ? "Registered to this app"
+        : NxmHandlerOwner is { } owner ? $"{owner} has them now"
+        : "Not set up (optional)";
+
+    public string NxmRegisterButtonText => NxmHandlerOwner is { } owner ? $"Take them back from {owner}" : "Register";
+
     [ObservableProperty]
     private bool _isUe4ssInstalled;
 
@@ -314,7 +392,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             _advancedLogging = false;
             OnPropertyChanged(nameof(AdvancedLogging));
         };
-        _isNxmProtocolRegisteredToThisApp = nxmProtocolRegistrar.IsRegisteredToThisApp();
+        RefreshNxmHandlerState();
+        WeakReferenceMessenger.Default.Register<NxmHandlerChangedMessage>(this, (recipient, _) => ((SettingsViewModel)recipient).RefreshNxmHandlerState());
 
         if (!string.IsNullOrWhiteSpace(IcarusContentPath))
         {
@@ -1198,7 +1277,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         var result = _dialogService.Confirm(
             "This registers IcarusStarlink as the handler for nxm:// links (Nexus's \"Mod Manager Download\" buttons) for your Windows account.\n\n" +
-            "If another mod manager (e.g. Vortex) currently handles these, it will be replaced — you can switch back with Unregister below, or by re-registering that other app.\n\n" +
+            "If another mod manager (e.g. Vortex) currently handles these, Starlink takes over but passes it the links for its own games, so it keeps working. Unregister below gives the links back to it.\n\n" +
             "Continue?",
             "Register as Nexus download handler", ThemedConfirmSeverity.Question);
 
@@ -1210,7 +1289,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         try
         {
             _nxmProtocolRegistrar.Register();
-            IsNxmProtocolRegisteredToThisApp = _nxmProtocolRegistrar.IsRegisteredToThisApp();
+            RefreshNxmHandlerState();
             NxmProtocolStatusMessage = IsNxmProtocolRegisteredToThisApp
                 ? "Registered — Nexus \"Mod Manager Download\" buttons now open IcarusStarlink."
                 : "Registration didn't take effect — try again, or check that nothing is blocking registry writes.";
@@ -1227,8 +1306,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         try
         {
             _nxmProtocolRegistrar.Unregister();
-            IsNxmProtocolRegisteredToThisApp = _nxmProtocolRegistrar.IsRegisteredToThisApp();
-            NxmProtocolStatusMessage = "Unregistered.";
+            // Turned off on purpose: no "another app took them" warnings or automatic take-backs.
+            _settingsService.Current.NxmHandlerSetUp = false;
+            _settingsService.Save();
+            RefreshNxmHandlerState();
+            NxmProtocolStatusMessage = NxmHandlerOwner is { } owner
+                ? $"Unregistered — Nexus download links open {owner} again."
+                : "Unregistered.";
         }
         catch (Exception ex)
         {
@@ -1796,13 +1880,83 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string? _appUpdateStatusMessage;
 
-    public bool IsAppUpdateAvailable =>
-        LatestAppUpdateRelease is { } release
-        && Version.TryParse(release.Version, out var latest)
-        && Version.TryParse(InstalledAppVersion, out var installed)
-        && latest > installed;
+    /// <summary>What the last check offers (AppUpdateChoice.Classify): a newer release, a stable one ready while on a beta, or the way back to stable.</summary>
+    public AppUpdateOffer AppUpdateOffer => AppUpdateChoice.Classify(InstalledAppVersion, LatestAppUpdateRelease, UpdateChannel == BetaChannel);
 
-    partial void OnLatestAppUpdateReleaseChanged(AppUpdateRelease? value) => OnPropertyChanged(nameof(IsAppUpdateAvailable));
+    public bool IsAppUpdateAvailable => AppUpdateOffer != AppUpdateOffer.None;
+
+    public bool IsSwitchBackToStable => AppUpdateOffer == AppUpdateOffer.SwitchBackToStable;
+
+    private bool IsStableReadyForBeta => AppUpdateOffer == AppUpdateOffer.StableReady;
+
+    partial void OnLatestAppUpdateReleaseChanged(AppUpdateRelease? value) => RaiseAppUpdateOfferChanged();
+
+    private void RaiseAppUpdateOfferChanged()
+    {
+        OnPropertyChanged(nameof(AppUpdateOffer));
+        OnPropertyChanged(nameof(IsAppUpdateAvailable));
+        OnPropertyChanged(nameof(IsSwitchBackToStable));
+    }
+
+    public const string StableChannel = "Stable";
+    public const string BetaChannel = "Beta";
+
+    public IReadOnlyList<string> UpdateChannelOptions { get; } = [StableChannel, BetaChannel];
+
+    /// <summary>
+    /// Settings › Maintenance › Update channel (AppSettings.UpdateChannel). Beta also offers betas
+    /// (GitHub prereleases); Stable offers only releases, and while running a beta offers the
+    /// newest one to switch back. Changing it checks again straight away.
+    /// </summary>
+    public string UpdateChannel
+    {
+        get => _settingsService.Current.UpdateChannel == BetaChannel ? BetaChannel : StableChannel;
+        set
+        {
+            var channel = value == BetaChannel ? BetaChannel : StableChannel;
+            if (channel == UpdateChannel)
+            {
+                return;
+            }
+
+            _settingsService.Current.UpdateChannel = channel;
+            _settingsService.Save();
+            OnPropertyChanged();
+            RaiseAppUpdateOfferChanged();
+            CheckForAppUpdatesCommand.Execute(null);
+        }
+    }
+
+    /// <summary>The release this channel offers (AppUpdateChoice.Pick); betas are only looked up on the Beta channel.</summary>
+    private async Task<AppUpdateRelease?> GetChannelReleaseAsync()
+    {
+        var betaChannel = UpdateChannel == BetaChannel;
+        var stable = await _appUpdateClient.GetLatestReleaseAsync();
+        var beta = betaChannel ? await _appUpdateClient.GetLatestBetaReleaseAsync() : null;
+        return AppUpdateChoice.Pick(stable, beta, betaChannel);
+    }
+
+    /// <summary>Settings › Maintenance › Check for updates when Starlink starts (AppSettings.AutoCheckAppUpdates).</summary>
+    public bool AutoCheckAppUpdates
+    {
+        get => _settingsService.Current.AutoCheckAppUpdates;
+        set
+        {
+            if (_settingsService.Current.AutoCheckAppUpdates == value)
+            {
+                return;
+            }
+
+            _settingsService.Current.AutoCheckAppUpdates = value;
+            _settingsService.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    private static bool SameAppVersion(string a, string b) =>
+        AppReleaseVersion.TryParse(a) is { } left && AppReleaseVersion.TryParse(b) is { } right
+            ? left.CompareTo(right) == 0
+            : string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task CheckForAppUpdatesAsync()
@@ -1811,12 +1965,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         AppUpdateStatusMessage = null;
         try
         {
-            LatestAppUpdateRelease = await _appUpdateClient.GetLatestReleaseAsync();
+            LatestAppUpdateRelease = await GetChannelReleaseAsync();
             AppUpdateStatusMessage = LatestAppUpdateRelease switch
             {
                 null => IcarusStarlink.Catalog.GitHub.GitHubApiCache.RateLimitMessage is { } limit
                     ? $"Couldn't check for updates. {limit}"
                     : "Couldn't check for updates: GitHub didn't answer (offline, or GitHub is down).",
+                { } r when IsSwitchBackToStable => $"Stable v{r.Version} is available — Update now switches you back from beta v{InstalledAppVersion}.",
+                { } r when IsStableReadyForBeta => $"Stable v{r.Version} is ready — you're on beta v{InstalledAppVersion}.",
                 { } r when IsAppUpdateAvailable => $"v{r.Version} is available (you have v{InstalledAppVersion}).",
                 _ => "You're up to date.",
             };
@@ -1859,7 +2015,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         var confirmed = _dialogService.Confirm(
-            $"Download and install v{LatestAppUpdateRelease.Version} now?\n\nThe app will close, update itself, and reopen. Your mods, profiles, and settings are not touched.",
+            (IsSwitchBackToStable ? $"Switch back from beta v{InstalledAppVersion} to stable v{LatestAppUpdateRelease.Version}?" : $"Download and install v{LatestAppUpdateRelease.Version} now?")
+            + "\n\nThe app will close, update itself, and reopen. Your mods, profiles, and settings are not touched.",
             "Install update", ThemedConfirmSeverity.Question);
         if (confirmed)
         {
@@ -2066,7 +2223,12 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private async Task CheckForAppUpdatesOnLaunchAsync()
     {
-        var release = await _appUpdateClient.GetLatestReleaseAsync();
+        if (!AutoCheckAppUpdates)
+        {
+            return;
+        }
+
+        var release = await GetChannelReleaseAsync();
         if (release is null)
         {
             return;
@@ -2079,7 +2241,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         // silent when LastSeenAppVersion is still null (a fresh install, or an existing user's
         // first launch after this field was introduced) — only a genuine detected version change
         // shows the dialog, so it never appears out of nowhere on an unrelated launch.
-        if (string.Equals(release.Version, InstalledAppVersion, StringComparison.OrdinalIgnoreCase))
+        if (SameAppVersion(release.Version, InstalledAppVersion))
         {
             var settings = _settingsService.Current;
             if (settings.LastSeenAppVersion is not null
@@ -2104,7 +2266,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         var result = _dialogService.Confirm(
-            $"IcarusStarlink v{release.Version} is available — you're on v{InstalledAppVersion}.\n\nDownload and install it now? The app will close, update itself, and reopen — your mods, profiles, and settings are not touched.",
+            (IsSwitchBackToStable
+                ? $"You're on beta v{InstalledAppVersion} with the Stable update channel. Switch back to stable v{release.Version} now?"
+                : IsStableReadyForBeta
+                ? $"Stable v{release.Version} is ready — you're on beta v{InstalledAppVersion}.\n\nInstall the stable release now?"
+                : $"IcarusStarlink v{release.Version} is available — you're on v{InstalledAppVersion}.\n\nDownload and install it now?")
+            + " The app will close, update itself, and reopen — your mods, profiles, and settings are not touched.",
             "Update available", ThemedConfirmSeverity.Information);
         if (result)
         {

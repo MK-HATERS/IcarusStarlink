@@ -17,9 +17,18 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
     /// </summary>
     private const string LatestManifestUrl = $"https://github.com/{Owner}/{Repo}/releases/latest/download/release.json";
 
+    /// <summary>
+    /// The Beta channel's pointer: a prerelease tagged "beta" whose release.json names the newest
+    /// beta (same shape as a stable release's; the zip itself is on that beta's own vX.Y.Z-beta.N
+    /// release). The release workflow replaces it with each beta. Not an API call either.
+    /// </summary>
+    private const string BetaManifestUrl = $"https://github.com/{Owner}/{Repo}/releases/download/beta/release.json";
+
+    private const string ReleasesListUrl = $"https://api.github.com/repos/{Owner}/{Repo}/releases?per_page=20";
+
     public async Task<AppUpdateRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken = default)
     {
-        if (await TryManifestAsync(cancellationToken) is { } fromManifest)
+        if (await TryManifestAsync(LatestManifestUrl, cancellationToken) is { } fromManifest)
         {
             return fromManifest;
         }
@@ -46,11 +55,38 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
         }
     }
 
-    private async Task<AppUpdateRelease?> TryManifestAsync(CancellationToken cancellationToken)
+    public async Task<AppUpdateRelease?> GetLatestBetaReleaseAsync(CancellationToken cancellationToken = default)
+    {
+        if (await TryManifestAsync(BetaManifestUrl, cancellationToken) is { } fromPointer)
+        {
+            return fromPointer;
+        }
+
+        // No pointer (or it couldn't be read): the newest prerelease with a zip in GitHub's list
+        // (an API call, so cached like the stable fallback).
+        try
+        {
+            var body = await GitHubApiCache.GetAsync(httpClient, ReleasesListUrl, TimeSpan.FromHours(1), cancellationToken);
+            var releases = body is null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AppUpdateReleaseDto>>(body);
+            return (releases ?? [])
+                .Where(r => r.Prerelease && !r.Draft)
+                .Select(r => (Release: r, Version: AppReleaseVersion.TryParse(r.TagName), Asset: r.Assets.FirstOrDefault(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))))
+                .Where(r => r.Version is { IsPrerelease: true } && r.Asset is not null)
+                .OrderByDescending(r => r.Version)
+                .Select(r => new AppUpdateRelease(r.Version!.ToString(), r.Release.Body ?? "", r.Asset!.BrowserDownloadUrl, r.Asset.Digest))
+                .FirstOrDefault();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private async Task<AppUpdateRelease?> TryManifestAsync(string manifestUrl, CancellationToken cancellationToken)
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, LatestManifestUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Get, manifestUrl);
             GitHubUserAgent.EnsureOn(request);
             using var response = await httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)

@@ -11,6 +11,13 @@ internal sealed class AppUpdateReleaseDto
     [JsonPropertyName("body")]
     public string? Body { get; init; }
 
+    /// <summary>A beta (Beta update channel only).</summary>
+    [JsonPropertyName("prerelease")]
+    public bool Prerelease { get; init; }
+
+    [JsonPropertyName("draft")]
+    public bool Draft { get; init; }
+
     [JsonPropertyName("assets")]
     public List<AppUpdateAssetDto> Assets { get; init; } = [];
 }

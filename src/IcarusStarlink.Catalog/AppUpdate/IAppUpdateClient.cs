@@ -6,6 +6,14 @@ public interface IAppUpdateClient
     Task<AppUpdateRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The newest beta (a GitHub prerelease, tagged like v2.10.0-beta.1) for the Beta update channel;
+    /// null when there is none or it can't be reached. Stable users never see these: GitHub's
+    /// "latest release" skips prereleases. The default serves clients without betas.
+    /// </summary>
+    Task<AppUpdateRelease?> GetLatestBetaReleaseAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<AppUpdateRelease?>(null);
+
+    /// <summary>
     /// Downloads release's own zip asset to destinationPath. Throws on failure — unlike
     /// GetLatestReleaseAsync, a caller that got this far already knows a real update exists and
     /// needs to know if fetching it failed. Also throws (deleting the downloaded file first) if
