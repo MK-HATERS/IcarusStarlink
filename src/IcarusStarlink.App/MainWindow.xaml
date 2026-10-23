@@ -108,16 +108,18 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Icarus Starlink" FontSize="18" FontWeight="Bold"
+                <!-- A DockPanel, not a StackPanel: on a narrow window the tagline shortens with "…"
+                     and the version (a beta's is long) always shows whole. -->
+                <DockPanel VerticalAlignment="Center" LastChildFill="True" Margin="0,0,12,0">
+                    <TextBlock DockPanel.Dock="Left" Text="Icarus Starlink" FontSize="18" FontWeight="Bold"
                                Foreground="{DynamicResource AccentBrush}"/>
-                    <TextBlock Text="{Binding AppVersionDisplay, Mode=OneTime}" FontSize="12" Margin="6,0,0,0"
-                               VerticalAlignment="Bottom"
+                    <TextBlock DockPanel.Dock="Left" Text="{Binding AppVersionDisplay, Mode=OneTime}" FontSize="12" Margin="6,0,0,2"
+                               VerticalAlignment="Bottom" ToolTip="Installed version"
                                Foreground="{DynamicResource FaintForegroundBrush}"/>
-                    <TextBlock Text="mod manager for Icarus" FontSize="12" Margin="10,0,0,0"
-                               VerticalAlignment="Bottom"
+                    <TextBlock Text="mod manager for Icarus" FontSize="12" Margin="10,0,0,2"
+                               VerticalAlignment="Bottom" TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                </StackPanel>
+                </DockPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="Theme:" VerticalAlignment="Center" Margin="0,0,4,0"
@@ -201,8 +203,9 @@
                             <GroupStyle.HeaderTemplate>
                                 <DataTemplate>
                                     <Grid>
-                                        <TextBlock x:Name="GroupTitle" Text="{Binding Name}" FontSize="10.5" FontWeight="SemiBold"
-                                                   Foreground="{DynamicResource FaintForegroundBrush}" Margin="24,12,0,2"
+                                        <!-- Small caps shrink the text, so 12.5 reads like ~10px capitals: readable, still quieter than the items. -->
+                                        <TextBlock x:Name="GroupTitle" Text="{Binding Name}" FontSize="12.5" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource FaintForegroundBrush}" Margin="24,14,0,4"
                                                    Typography.Capitals="AllSmallCaps"/>
                                         <Border x:Name="GroupLine" Height="1" Margin="16,10,16,4" Visibility="Collapsed"
                                                 Background="{DynamicResource BorderBrush}"/>
