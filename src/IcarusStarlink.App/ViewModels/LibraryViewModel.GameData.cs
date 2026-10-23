@@ -553,6 +553,9 @@ public sealed partial class LibraryViewModel
         {
             item.FileRisk = risks.GetValueOrDefault(item.FolderName);
         }
+
+        // The Problems chip counts high-risk rows, and with it on, its list shows them.
+        RefreshFilters();
     }
 
     private ModFixService FixService => _modFixService ??= ModFixService.Registered(new ModFixService(_repository, _dataFolder, GameHistory, FixDecisionsDirectory,
@@ -649,7 +652,16 @@ public sealed partial class LibraryViewModel
     private bool _openingModFix;
 
     /// <summary>Why the fix window can't open for this mod right now (null: it can).</summary>
-    internal string? ModFixBlockedReason(LibraryItemViewModel item)
+    internal string? ModFixBlockedReason(LibraryItemViewModel item) => ModBusyReason(item, "so its next Save doesn't undo the fixes");
+
+    /// <summary>
+    /// Why the mod can't be restored, deleted, reinstalled or updated right now (null: it can) — the
+    /// fix window's guards: a check or fix pass rewriting mods in the background, this mod being
+    /// converted again, or its editor open (whose next Save would write the old copy back).
+    /// </summary>
+    internal string? ModChangeBlockedReason(LibraryItemViewModel item) => ModBusyReason(item, "so its next Save doesn't write the old copy back");
+
+    private string? ModBusyReason(LibraryItemViewModel item, string editorReason)
     {
         if (IsCheckingStaleness)
         {
@@ -662,7 +674,7 @@ public sealed partial class LibraryViewModel
         }
 
         return _openEditorCountByFolder.ContainsKey(item.FolderName)
-            ? $"'{item.Name}' is open in the mod editor. Close it there first, so its next Save doesn't undo the fixes."
+            ? $"'{item.Name}' is open in the mod editor. Close it there first, {editorReason}."
             : null;
     }
 
@@ -677,6 +689,7 @@ public sealed partial class LibraryViewModel
         try
         {
             item.SetHealth(await Task.Run(() => FixService.Check(folderName)));
+            RefreshFilters();
         }
         catch (Exception)
         {
@@ -802,6 +815,7 @@ public sealed partial class LibraryViewModel
                 + (failed.Count > 0 ? $" Couldn't read: {string.Join(", ", failed)}." : "")
                 + (openedDuringPass.Count > 0 ? $" Opened in the mod editor while fixing: {string.Join(", ", openedDuringPass)} — close that editor without saving, or its Save undoes the fixes." : "");
 
+            RefreshFilters();
             if (total > 0)
             {
                 // Like Apply and the editor's Save: the rest of the app (merge state, details) re-reads the rewritten mods.
@@ -925,6 +939,7 @@ public sealed partial class LibraryViewModel
             }
 
             StalenessCheckStatusMessage = string.Join(" ", messageParts);
+            RefreshFilters();
         }
         finally
         {
@@ -941,6 +956,7 @@ public sealed partial class LibraryViewModel
         try
         {
             item.SetHealth(await Task.Run(() => FixService.Check(folderName, pass?.Tables, pass?.History, pass?.AddedRows)));
+            RefreshFilters();
         }
         catch (Exception)
         {

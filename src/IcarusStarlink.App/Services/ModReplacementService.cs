@@ -88,8 +88,12 @@ public sealed class ModReplacementService(
     string backupDirectory,
     IDialogService? dialogs = null,
     ModFixService? fixService = null,
-    IPrebuiltPakSourceStore? pakSourceStore = null)
+    IPrebuiltPakSourceStore? pakSourceStore = null,
+    string? pakPreviewCacheDirectory = null)
 {
+    /// <summary>Takes the old copies out the same way Library's Delete does (the preview cache goes too).</summary>
+    private readonly LibraryModRemover _remover = new(library, pakSourceStore, pakPreviewCacheDirectory, fixService);
+
     private sealed record OldLibraryCopy(LibraryEntry Entry, string? MetaSnapshot, bool HadRememberedFixes);
 
     private sealed record OldUe4ssCopy(string Name, bool WasEnabled, Ue4ssModMeta Meta);
@@ -197,7 +201,7 @@ public sealed class ModReplacementService(
 
             foreach (var copy in oldLibrary)
             {
-                library.Delete(copy.Entry.FolderName);
+                _remover.RemoveForReplacement(copy.Entry.FolderName);
                 removedLibrary.Add(copy);
             }
         }
@@ -362,14 +366,7 @@ public sealed class ModReplacementService(
                 continue; // the import saved the new pak under this name
             }
 
-            try
-            {
-                pakSourceStore.Delete(old.Entry.FolderName);
-            }
-            catch (Exception)
-            {
-                // A leftover source pak is harmless clutter.
-            }
+            _remover.DeleteSourcePak(old.Entry.FolderName);
         }
     }
 

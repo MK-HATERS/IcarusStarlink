@@ -133,6 +133,27 @@ public sealed partial class LibraryViewModel
         }
     }
 
+    /// <summary>What the search found at the last Reload: the rows the chips count.</summary>
+    private IReadOnlyList<LibraryItemViewModel> _searchedItems = [];
+
+    private IReadOnlyList<Ue4ssModRowViewModel> _searchedLua = [];
+
+    /// <summary>
+    /// After something changed what the chips count without a Reload — the risk pass, a check
+    /// against game data, Fix sure problems, an update check: the counts again, and with a chip
+    /// on, the filtered lists too (a row that just got a problem shows under Problems).
+    /// </summary>
+    private void RefreshFilters()
+    {
+        if (ListFilter != FilterAll)
+        {
+            Reload();
+            return;
+        }
+
+        UpdateFilterCounts(_searchedItems, _searchedLua);
+    }
+
     // ---- Each panel's "not in the game yet" bar ----
 
     /// <summary>"Lasers turned on" / "3 mods: A turned on, B turned off…" for the left panel's bar; empty when nothing is pending.</summary>

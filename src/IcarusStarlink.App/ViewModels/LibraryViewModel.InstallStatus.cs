@@ -117,7 +117,7 @@ public sealed partial class LibraryViewModel
             return;
         }
 
-        foreach (var luaRow in Ue4ssMods.Where(r => item.LinkedUe4ssNames.Contains(r.Name, StringComparer.OrdinalIgnoreCase)))
+        foreach (var luaRow in LinkedLuaRows(item))
         {
             luaRow.IsEnabled = enabled;
         }
@@ -146,7 +146,7 @@ public sealed partial class LibraryViewModel
                 ? item.PakFileNames.All(p => installed.Contains(Path.GetFileNameWithoutExtension(p)))
                 : installed.Contains(item.Name) || installed.Contains(item.FolderName);
 
-            var luaRows = Ue4ssMods.Where(r => item.LinkedUe4ssNames.Contains(r.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+            var luaRows = LinkedLuaRows(item).ToList();
             var luaDirty = luaRows.Any(r => r.IsDirty);
             var luaInGame = luaRows.Count > 0 && luaRows.All(r => r.RealIsEnabled);
 

@@ -30,73 +30,113 @@ public sealed partial class LibraryViewModel
 {
     /// <summary>
     /// One Nexus download that landed as several things — a Lua mod plus its asset paks (WirelessPower)
-    /// — is one "package": every part carries the same Nexus mod ID (LibraryEntry.NexusModId,
-    /// Ue4ssModMeta.NexusModId). Most Nexus mods are a single part and never form one.
+    /// — is one "package": every part carries the same Nexus mod ID and file ID (LibraryEntry /
+    /// Ue4ssModMeta .NexusModId and .NexusFileId). Keyed by the download, not the mod: two variant
+    /// files from one Nexus page are two downloads, so deleting one mustn't take the other, and
+    /// ticking an optional pak mustn't flip the main file's Lua half. Most Nexus mods are a single
+    /// part and never form one.
     /// </summary>
     private sealed record ModPackage(int NexusModId, string DisplayName, IReadOnlyList<string> LibraryFolderNames, IReadOnlyList<string> Ue4ssFolderNames)
     {
         public int PartCount => LibraryFolderNames.Count + Ue4ssFolderNames.Count;
     }
 
-    private IReadOnlyDictionary<int, ModPackage> _packagesByNexusModId = new Dictionary<int, ModPackage>();
+    /// <summary>The package each part belongs to, by Library folder name and by UE4SS mod name.</summary>
+    private Dictionary<string, ModPackage> _packageByLibraryFolder = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Groups every Library entry and staged UE4SS mod by Nexus mod ID; only groups with two or more parts count.</summary>
-    private Dictionary<int, ModPackage> BuildPackages()
+    private Dictionary<string, ModPackage> _packageByUe4ssName = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Every UE4SS mod's sidecar as ReloadInstalledUe4ssMods last read it, so BuildPackages (run on every Reload) doesn't read each one again.</summary>
+    private readonly Dictionary<string, Ue4ssModMeta> _ue4ssMetaByName = new(StringComparer.OrdinalIgnoreCase);
+
+    private ModPackage? PackageOf(LibraryItemViewModel item) => _packageByLibraryFolder.GetValueOrDefault(item.FolderName);
+
+    private ModPackage? PackageOf(Ue4ssModRowViewModel row) => _packageByUe4ssName.GetValueOrDefault(row.Name);
+
+    /// <summary>The UE4SS rows that are this data mod's Lua half (same download).</summary>
+    private IEnumerable<Ue4ssModRowViewModel> LinkedLuaRows(LibraryItemViewModel item) =>
+        Ue4ssMods.Where(r => item.LinkedUe4ssNames.Contains(r.Name, StringComparer.OrdinalIgnoreCase));
+
+    private Ue4ssModMeta CachedUe4ssMeta(string name)
     {
-        var libraryByNexusId = _repository.GetAll()
-            .Where(e => e.NexusModId is not null)
-            .GroupBy(e => e.NexusModId!.Value)
-            .ToDictionary(g => g.Key, g => g.ToList());
+        if (!_ue4ssMetaByName.TryGetValue(name, out var meta))
+        {
+            _ue4ssMetaByName[name] = meta = _ue4ssModMetaStore.Load(name);
+        }
 
-        var ue4ssByNexusId = new Dictionary<int, List<(string Folder, string? NexusName)>>();
+        return meta;
+    }
+
+    /// <summary>
+    /// Groups every Library entry and staged UE4SS mod by the Nexus download they came from; only
+    /// groups with two or more parts count. A part recorded before file IDs were (no NexusFileId)
+    /// goes with its mod's one download when the Library knows only one; with several it can't tell
+    /// which, so the parts without a file ID group only with each other.
+    /// </summary>
+    private void BuildPackages()
+    {
+        var parts = new List<(int ModId, int? FileId, string? Library, string? Ue4ss, string? NexusName, string? EntryName)>();
+        foreach (var entry in _repository.GetAll().Where(e => e.NexusModId is not null))
+        {
+            parts.Add((entry.NexusModId!.Value, entry.NexusFileId, entry.FolderName, null, null, entry.Name));
+        }
+
         foreach (var folderName in SafeStagedUe4ssNames())
         {
-            var meta = _ue4ssModMetaStore.Load(folderName);
+            var meta = CachedUe4ssMeta(folderName);
             if (meta.NexusModId is { } id)
             {
-                if (!ue4ssByNexusId.TryGetValue(id, out var list))
+                parts.Add((id, meta.NexusFileId, null, folderName, meta.NexusName, null));
+            }
+        }
+
+        var byLibrary = new Dictionary<string, ModPackage>(StringComparer.OrdinalIgnoreCase);
+        var byUe4ss = new Dictionary<string, ModPackage>(StringComparer.OrdinalIgnoreCase);
+        foreach (var mod in parts.GroupBy(p => p.ModId))
+        {
+            var fileIds = mod.Where(p => p.FileId is not null).Select(p => p.FileId).Distinct().ToList();
+            var onlyFile = fileIds.Count == 1 ? fileIds[0] : null;
+            foreach (var download in mod.GroupBy(p => p.FileId ?? onlyFile))
+            {
+                if (download.Count() < 2)
                 {
-                    ue4ssByNexusId[id] = list = [];
+                    continue;
                 }
 
-                list.Add((folderName, meta.NexusName));
+                var id = mod.Key;
+                // The Nexus title: the UE4SS sidecar records it verbatim; a Library part's name is
+                // "<title> — <part>" (see DownloadsViewModel.RecordNexusMetadataAsync), so cut at the dash.
+                var displayName = download.Select(p => p.NexusName).FirstOrDefault(n => !string.IsNullOrWhiteSpace(n))
+                    ?? download.Where(p => p.EntryName is not null).Select(p => p.EntryName!.Split(" — ")[0]).FirstOrDefault()
+                    ?? $"Nexus mod #{id}";
+                var package = new ModPackage(id, displayName,
+                    [.. download.Where(p => p.Library is not null).Select(p => p.Library!)],
+                    [.. download.Where(p => p.Ue4ss is not null).Select(p => p.Ue4ss!)]);
+                foreach (var folder in package.LibraryFolderNames)
+                {
+                    byLibrary[folder] = package;
+                }
+
+                foreach (var name in package.Ue4ssFolderNames)
+                {
+                    byUe4ss[name] = package;
+                }
             }
         }
 
-        var packages = new Dictionary<int, ModPackage>();
-        foreach (var id in libraryByNexusId.Keys.Union(ue4ssByNexusId.Keys))
-        {
-            var libraryEntries = libraryByNexusId.GetValueOrDefault(id) ?? [];
-            var ue4ss = ue4ssByNexusId.GetValueOrDefault(id) ?? [];
-            if (libraryEntries.Count + ue4ss.Count < 2)
-            {
-                continue;
-            }
-
-            // The Nexus title: the UE4SS sidecar records it verbatim; a Library part's name is
-            // "<title> — <part>" (see DownloadsViewModel.RecordNexusMetadataAsync), so cut at the dash.
-            var displayName = ue4ss.Select(u => u.NexusName).FirstOrDefault(n => !string.IsNullOrWhiteSpace(n))
-                ?? libraryEntries.Select(e => e.Name.Split(" — ")[0]).FirstOrDefault()
-                ?? $"Nexus mod #{id}";
-            packages[id] = new ModPackage(id, displayName, [.. libraryEntries.Select(e => e.FolderName)], [.. ue4ss.Select(u => u.Folder)]);
-        }
+        _packageByLibraryFolder = byLibrary;
+        _packageByUe4ssName = byUe4ss;
 
         foreach (var item in AllLibraryItems())
         {
-            item.LinkedUe4ssNames = item.NexusModId is { } id && packages.TryGetValue(id, out var package) && package.LibraryFolderNames.Count > 0
-                ? package.Ue4ssFolderNames
-                : [];
-            item.HasLuaConfig = Ue4ssMods.Any(r => r.HasConfig && item.LinkedUe4ssNames.Contains(r.Name, StringComparer.OrdinalIgnoreCase));
+            item.LinkedUe4ssNames = PackageOf(item)?.Ue4ssFolderNames ?? [];
+            item.HasLuaConfig = LinkedLuaRows(item).Any(r => r.HasConfig);
         }
 
         foreach (var row in Ue4ssMods)
         {
-            row.LinkedLibraryModName = row.NexusModId is { } id && packages.TryGetValue(id, out var package) && package.LibraryFolderNames.Count > 0
-                ? package.DisplayName
-                : null;
+            row.LinkedLibraryModName = PackageOf(row) is { LibraryFolderNames.Count: > 0 } package ? package.DisplayName : null;
         }
-
-        return packages;
     }
 
     /// <summary>Staged UE4SS names, or none when staging can't be read — package grouping must never break the Library reload.</summary>
@@ -113,7 +153,7 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
-    /// Pairs each UE4SS mod with the data mod that is its other half: the same Nexus mod, or the same
+    /// Pairs each UE4SS mod with the data mod that is its other half: the same
     /// name once spaces, case and "&amp;"/"and" are ignored (MkHaters Bags / MkHatersBags, Minimap &amp;
     /// Map Icons / MiniMapa's Nexus title "Minimap and Map Icons"). Only a hint for the eye.
     /// </summary>
@@ -133,9 +173,10 @@ public sealed partial class LibraryViewModel
                 continue; // shown inside its data row ("Pak + UE4SS"), not as a row of its own
             }
 
+            // By name only: a row from the same Nexus download as a data mod is already folded into
+            // that row by BuildPackages; one from a different file of the same mod is a separate mod.
             var keys = new[] { LinkKey(row.Name), row.NexusName is null ? null : LinkKey(row.NexusName) };
-            var partner = items.FirstOrDefault(i => row.NexusModId is { } id && i.NexusModId == id)
-                ?? items.FirstOrDefault(i => keys.Contains(LinkKey(i.Name)));
+            var partner = items.FirstOrDefault(i => keys.Contains(LinkKey(i.Name)));
             row.LinkedPartner = partner;
             if (partner is not null)
             {

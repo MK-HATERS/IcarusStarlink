@@ -22,7 +22,6 @@ using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Import;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
-using Microsoft.Win32;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -37,10 +36,9 @@ public sealed partial class LibraryViewModel
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportFolder()
     {
-        var dialog = new OpenFolderDialog { Title = "Select the mod's extracted folder" };
-        if (dialog.ShowDialog() == true)
+        if (_dialogService.PickFolder("Select the mod's extracted folder") is { } folder)
         {
-            await ImportPaths([dialog.FolderName]);
+            await ImportPaths([folder]);
         }
     }
 
@@ -57,19 +55,13 @@ public sealed partial class LibraryViewModel
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportFile()
     {
-        var dialog = new OpenFileDialog
-        {
-            Title = "Select one or more mod archives",
-            Filter = "Mod archive (*.EXMODZ, *.zip, *.rar, *.7z)|*.EXMODZ;*.zip;*.rar;*.7z",
-            Multiselect = true,
-        };
-
-        if (dialog.ShowDialog() != true)
+        var paths = _dialogService.PickFiles("Select one or more mod archives", "Mod archive (*.EXMODZ, *.zip, *.rar, *.7z)|*.EXMODZ;*.zip;*.rar;*.7z");
+        if (paths.Count == 0)
         {
             return;
         }
 
-        await ImportPaths(dialog.FileNames);
+        await ImportPaths(paths);
     }
 
     /// <summary>A hint for the end of the current import batch's summary (set by the manual install).</summary>
@@ -247,9 +239,8 @@ public sealed partial class LibraryViewModel
             }
         }
 
-        Reload();
+        // Its own handler reloads both panels (the UE4SS rows too).
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-        ReloadInstalledUe4ssMods();
 
         StatusMessage = (failures.Count == 0
             ? (paths.Count == 1 ? "Imported 1 mod." : $"Imported {importedCount} mod(s).")
@@ -271,18 +262,12 @@ public sealed partial class LibraryViewModel
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportPak()
     {
-        var dialog = new OpenFileDialog
-        {
-            Title = "Select a prebuilt .pak file",
-            Filter = "Unreal pak package (*.pak)|*.pak",
-        };
-
-        if (dialog.ShowDialog() != true)
+        if (_dialogService.PickFile("Select a prebuilt .pak file", "Unreal pak package (*.pak)|*.pak") is not { } pakPath)
         {
             return;
         }
 
-        var entry = await TryImportPakAsync(dialog.FileName);
+        var entry = await TryImportPakAsync(pakPath);
         if (entry is null)
         {
             return;
@@ -318,7 +303,6 @@ public sealed partial class LibraryViewModel
         {
             var entry = _repository.CreateBlankMod(dialog.ModName, dialog.ModAuthor, dialog.SelectedTemplate);
             StatusMessage = $"Created '{entry.Name}'.";
-            Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             _activityLog.Log($"Created new mod '{entry.Name}'.", ActivityEntryKind.Success);
             OpenEditor(entry.FolderName, startWizard: ModTemplateContent.ItemPresetFor(dialog.SelectedTemplate));
@@ -349,7 +333,6 @@ public sealed partial class LibraryViewModel
                 : $"Imported '{entry.Name}' as a real, editable mod — its data changes are now visible in the mod editor.";
             LogImportWarnings(pakFilePath, entry.ImportWarnings);
             StatusMessage += ExtractedModClassifier.WarningSummary(entry.ImportWarnings);
-            Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
             return entry;

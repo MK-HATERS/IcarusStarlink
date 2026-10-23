@@ -83,6 +83,24 @@ public sealed partial class LibraryViewModel
             return;
         }
 
+        await UpdateFromCatalogAsync(item, offerComparison: true);
+    }
+
+    /// <summary>
+    /// A Database mod's Get update: downloaded and installed through Downloads' own Activate (the
+    /// same path as Download &amp; extract — author kept, the download classified, its requirements
+    /// offered), which replaces the Library copy through ModReplacementService (backed up first,
+    /// pin/notes/rename carried over, remembered fixes made again, the old copy put back on
+    /// failure). True when the mod was updated.
+    /// </summary>
+    /// <param name="offerComparison">Ask "See what the author changed?" afterwards — not during Update all, which would ask once per mod.</param>
+    private async Task<bool> UpdateFromCatalogAsync(LibraryItemViewModel item, bool offerComparison)
+    {
+        if (RefuseWhileBusy(item))
+        {
+            return false;
+        }
+
         StatusMessage = $"Updating '{item.Name}'…";
         try
         {
@@ -98,97 +116,85 @@ public sealed partial class LibraryViewModel
             if (catalogEntry is null)
             {
                 StatusMessage = $"Couldn't find '{item.Name}' in the catalog anymore.";
-                return;
+                return false;
             }
 
-            var downloadUrl = catalogEntry.ExmodzUrl ?? catalogEntry.PakUrl;
-            if (downloadUrl is null)
+            if ((catalogEntry.ExmodzUrl ?? catalogEntry.PakUrl) is null)
             {
                 StatusMessage = $"'{catalogEntry.Name}' has no downloadable file listed.";
-                return;
+                return false;
             }
 
-            // A real catalog entry can point at a github.com "view this file" page instead of its
-            // raw content (a common submission mistake — see GitHubBlobUrl's own doc comment) —
-            // downloading that HTML page and treating it as an archive fails opaquely, so this is
-            // normalized before ever reaching the actual GetByteArrayAsync call below.
-            downloadUrl = GitHubBlobUrl.ToRawContentUrl(downloadUrl);
-
-            var isExmodz = catalogEntry.ExmodzUrl is not null;
-
-            // Into Pending_Downloads and recorded like any download, named after the catalog entry
-            // (an audit finding): a %TEMP%\IcarusStarlink_<guid>.pak named an opaque mod after the
-            // guid, and with nothing recorded, Reinstall original reinstalled the PREVIOUS version.
             var download = await Downloads.DownloadCatalogFileAsync(catalogEntry);
-            var downloadedPath = download.LocalFilePath;
-            var folderName = item.FolderName;
-            // Cancel any pending debounced notes save first, same reasoning DeleteSelected documents.
-            item.CancelPendingSave();
-
-            // The shared replacement: backed up first, an edited copy only after asking, pin/notes/
-            // rename carried over, remembered fixes made again, the old copy put back on failure.
-            LibraryEntry? imported = null;
-            var result = await Downloads.ModReplacement.ReplaceAsync(
-                new ModReplacementRequest(item.Name, [folderName], []),
-                async removeOld =>
-                {
-                    removeOld();
-                    var entry = isExmodz
-                        ? _repository.Import(downloadedPath, source: "Database", catalogEntryId: catalogEntry.Id)
-                        : await _prebuiltPakImporter.ImportAsync(
-                            downloadedPath, _dataFolder, _settingsService.Current.UnrealPakExePath,
-                            source: "Database", catalogEntryId: catalogEntry.Id, name: catalogEntry.Name, author: catalogEntry.Author);
-                    imported = entry;
-                    return [new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library)];
-                });
-
-            if (result.Succeeded && imported is not null)
+            // The download may have taken a while: a pass may have started or the editor opened.
+            if (RefuseWhileBusy(item))
             {
-                Downloads.RecordActivation(download, result.Items);
-                StatusMessage = $"Updated '{imported.Name}' to v{imported.Version}.{result.Summary}";
-                _activityLog.Log($"Updated '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
-
-                // A real bug found live: HasUpdateAvailable compares Version against LatestVersion
-                // (set by CheckForUpdatesAsync from the CATALOG's own listed version string), but
-                // imported.Version comes from the downloaded file's OWN internal metadata — a mod
-                // author can bump one and not the other (e.g. catalog says "2.0", the .EXMODZ
-                // itself still declares "2.0.0"), so even a fully successful update could leave
-                // the two permanently unequal and the "Update available" badge stuck forever. The
-                // file we just fetched and installed is, by definition, current as of right now —
-                // syncing LatestVersion straight to what we actually just installed (rather than
-                // whatever string the catalog separately happens to use) clears the badge
-                // regardless of any such mismatch in the source data.
-                item.LatestVersion = imported.Version;
-
-                // The backup taken by the replacement is the mod's own previous version, so "what
-                // did the author actually change?" is answerable right now — offered rather than
-                // shown automatically. Passes BOTH folder names, since a reimport can land on a
-                // different one than it started with (e.g. the mod's own declared fileName changed
-                // between versions): the OLD folderName is where the backup was saved, but
-                // imported.FolderName is where the CURRENT copy now lives on disk.
-                await OfferVersionComparisonAsync(imported.Name, folderName, imported.FolderName);
+                return false;
             }
-            else
+
+            var folderName = item.FolderName;
+            // Matched by name only: linked to the entry first, so Activate finds this copy and
+            // replaces it (it looks for the previous copies by catalog entry) instead of adding a "_2".
+            if (item.CatalogEntryId is null)
             {
-                StatusMessage = result.Cancelled ? result.Message : $"Update failed: {result.Message}";
+                _repository.SetCatalogEntry(folderName, catalogEntry.Id);
+            }
+
+            // The notes typed a moment ago go into the copy that is backed up and carried over.
+            item.FlushPendingSave();
+            var result = await Downloads.ActivateAsync(download);
+            var newFolder = result.Items.FirstOrDefault(i => i.Kind == PendingDownloadActivationKind.Library)?.FolderName;
+            var imported = newFolder is null ? null
+                : _repository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, newFolder, StringComparison.OrdinalIgnoreCase));
+            if (!result.Succeeded || imported is null)
+            {
+                StatusMessage = result.Cancelled ? result.Message : $"Update failed: {result.Message ?? Downloads.PendingDownloadStatusMessage}";
                 if (!result.Cancelled)
                 {
-                    _activityLog.Log($"Updating '{item.Name}' failed: {result.Message}", ActivityEntryKind.Warning);
+                    _activityLog.Log($"Updating '{item.Name}' failed: {StatusMessage}", ActivityEntryKind.Warning);
                 }
+
+                return false;
             }
 
-            // Plain Reload(), not fullResync — the LibraryChangedMessage sent right below is
-            // handled by this same VM's own registration (see the constructor), which itself
-            // calls Reload(fullResync: true) on every such message.
-            Reload();
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            StatusMessage = $"Updated '{imported.Name}' to v{imported.Version}.{result.Summary}";
+            _activityLog.Log($"Updated '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
+
+            // A real bug found live: HasUpdateAvailable compares Version against LatestVersion
+            // (set by CheckForUpdatesAsync from the CATALOG's own listed version string), but
+            // imported.Version comes from the downloaded file's OWN internal metadata — a mod
+            // author can bump one and not the other (e.g. catalog says "2.0", the .EXMODZ
+            // itself still declares "2.0.0"), so even a fully successful update could leave
+            // the two permanently unequal and the "Update available" badge stuck forever. The
+            // file we just fetched and installed is, by definition, current as of right now —
+            // syncing LatestVersion straight to what we actually just installed (rather than
+            // whatever string the catalog separately happens to use) clears the badge
+            // regardless of any such mismatch in the source data. On the row of the folder it
+            // landed in: a reimport can land under a different folder name.
+            var row = _itemsByFolderName.GetValueOrDefault(imported.FolderName) ?? item;
+            row.LatestVersion = imported.Version;
+            RefreshFilters();
+
+            // The backup taken by the replacement is the mod's own previous version, so "what
+            // did the author actually change?" is answerable right now — offered rather than
+            // shown automatically. Passes BOTH folder names, since a reimport can land on a
+            // different one than it started with (e.g. the mod's own declared fileName changed
+            // between versions): the OLD folderName is where the backup was saved, but
+            // imported.FolderName is where the CURRENT copy now lives on disk.
+            if (offerComparison)
+            {
+                await OfferVersionComparisonAsync(imported.Name, folderName, imported.FolderName);
+            }
+
+            return true;
         }
         catch (Exception ex)
         {
             // Failures before the swap starts (catalog fetch, download) — the mod on disk is
-            // untouched at this point; the swap itself has its own backup-and-restore path above.
+            // untouched at this point; the swap itself has its own backup-and-restore path.
             StatusMessage = $"Update failed: {ex.Message}";
             _activityLog.Log($"Updating '{item.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
+            return false;
         }
     }
 
@@ -225,11 +231,13 @@ public sealed partial class LibraryViewModel
         var databaseItems = outdated.Where(i => string.Equals(i.Source, "Database", StringComparison.OrdinalIgnoreCase)).ToList();
         var nexusItems = outdated.Where(i => string.Equals(i.Source, "Nexus", StringComparison.OrdinalIgnoreCase)).ToList();
 
+        // Counted from what each update reports: a reimport can land in a new folder (a new row),
+        // so the old row's badge says nothing about it. Not asking "See what the author changed?"
+        // once per mod: right-click a mod and pick it to see that on demand.
         var updated = 0;
         foreach (var item in databaseItems)
         {
-            await GetUpdateAsync(item);
-            if (!item.HasUpdateAvailable)
+            if (await UpdateFromCatalogAsync(item, offerComparison: false))
             {
                 updated++;
             }
@@ -251,11 +259,12 @@ public sealed partial class LibraryViewModel
             _activityLog.Log($"Nexus mod(s) with updates to download: {nexusNames}.", ActivityEntryKind.Info);
         }
 
+        var compareHint = updated > 0 ? " Right-click a mod › See what changed vs previous version to see what its author changed." : "";
         StatusMessage = (databaseItems.Count, nexusItems.Count) switch
         {
-            (> 0, 0) => $"Updated {updated} of {databaseItems.Count} catalog mod(s).",
+            (> 0, 0) => $"Updated {updated} of {databaseItems.Count} catalog mod(s).{compareHint}",
             (0, > 0) => $"{nexusItems.Count} Nexus mod(s) have updates: {nexusNames}. Download each from its Nexus page (right-click › Open on Nexus).",
-            _ => $"Updated {updated} of {databaseItems.Count} catalog mod(s); {nexusItems.Count} Nexus mod(s) have updates: {nexusNames}. Download each from its Nexus page (right-click › Open on Nexus).",
+            _ => $"Updated {updated} of {databaseItems.Count} catalog mod(s).{compareHint} {nexusItems.Count} Nexus mod(s) have updates: {nexusNames}. Download each from its Nexus page (right-click › Open on Nexus).",
         };
     }
 
@@ -393,7 +402,6 @@ public sealed partial class LibraryViewModel
             }
 
             StatusMessage = $"Linked '{displayName}' to Nexus mod #{nexusModId}.";
-            Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         }
         catch (Exception ex)
@@ -616,6 +624,8 @@ public sealed partial class LibraryViewModel
         finally
         {
             IsCheckingForUpdates = false;
+            // The Updates chip counts what was just found.
+            RefreshFilters();
         }
     }
 

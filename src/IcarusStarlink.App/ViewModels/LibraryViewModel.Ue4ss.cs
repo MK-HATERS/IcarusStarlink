@@ -22,7 +22,6 @@ using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Import;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Pak;
-using Microsoft.Win32;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -30,14 +29,23 @@ namespace IcarusStarlink.App.ViewModels;
 public sealed partial class LibraryViewModel
 {
     [RelayCommand]
-    private void ReloadInstalledUe4ssMods()
+    private void ReloadInstalledUe4ssMods() => ReloadUe4ssRows();
+
+    /// <summary>
+    /// Reads the UE4SS mods again, then rebuilds both panels with one Reload (the UE4SS rows live in
+    /// the same lists as everything else) — every way out, so the right panel, its selection and the
+    /// packages never keep rows that are gone (they did when the Content path was cleared, or the
+    /// Mods folder couldn't be read).
+    /// </summary>
+    /// <param name="fullResync">Passed on to Reload: another page changed mods on disk.</param>
+    private void ReloadUe4ssRows(bool fullResync = false)
     {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
-            Ue4ssMods.Clear();
-            HasPendingUe4ssChanges = false;
+            ClearUe4ssRows();
             IsUe4ssLoaderInstalled = true; // nothing to check against yet, so nothing to warn about
             Ue4ssEmptyText = "Set the Icarus Content folder in Settings first.";
+            Reload(fullResync);
             return;
         }
 
@@ -66,9 +74,11 @@ public sealed partial class LibraryViewModel
             BulkSelectedUe4ssRows.Clear();
 
             Ue4ssMods.Clear();
+            _ue4ssMetaByName.Clear();
             foreach (var state in states)
             {
                 var meta = _ue4ssModMetaStore.Load(state.Name);
+                _ue4ssMetaByName[state.Name] = meta;
                 // IsFrameworkOwned, not membership in ListUserAddedMods — that list only enumerates
                 // what's currently IN the game's real Mods folder, so a disabled/staged mod (built-in
                 // or not) would silently misclassify as "user-added" by simple absence from it.
@@ -121,17 +131,37 @@ public sealed partial class LibraryViewModel
                 }
             }
 
-            _packagesByNexusModId = BuildPackages();
             Ue4ssEmptyText = states.Count == 0 ? "No UE4SS mods yet. Import one, or download one from Nexus." : "No UE4SS mods match.";
-
-            // The UE4SS rows live in the same list as everything else — rebuild it with the fresh rows.
-            Reload();
         }
         catch (Exception ex)
         {
+            // Not a half-built list: none, and why.
+            ClearUe4ssRows();
             Ue4ssStatusMessage = $"Couldn't read the game's UE4SS Mods folder: {ex.Message}";
             Ue4ssEmptyText = Ue4ssStatusMessage;
         }
+
+        // The UE4SS rows live in the same lists as everything else — rebuild them with the fresh rows.
+        Reload(fullResync);
+    }
+
+    /// <summary>No UE4SS rows: none selected or anchored, no sidecars cached, nothing pending.</summary>
+    private void ClearUe4ssRows()
+    {
+        foreach (var row in BulkSelectedUe4ssRows)
+        {
+            row.IsSelectedForBulk = false;
+        }
+
+        BulkSelectedUe4ssRows.Clear();
+        if (_bulkSelectionAnchor is Ue4ssModRowViewModel)
+        {
+            _bulkSelectionAnchor = null;
+        }
+
+        Ue4ssMods.Clear();
+        _ue4ssMetaByName.Clear();
+        HasPendingUe4ssChanges = false;
     }
 
     /// <summary>The version the mod's current copy states in its main.lua; null when it states none or can't be read, so the list never breaks over it.</summary>
@@ -218,7 +248,7 @@ public sealed partial class LibraryViewModel
             return;
         }
 
-        if (item.NexusModId is { } id && _packagesByNexusModId.TryGetValue(id, out var package) && package.LibraryFolderNames.Count > 0)
+        if (PackageOf(item) is { LibraryFolderNames.Count: > 0 } package)
         {
             var libraryParts = AllLibraryItems().Where(i => package.LibraryFolderNames.Contains(i.FolderName, StringComparer.OrdinalIgnoreCase)).ToList();
             if (libraryParts.Count > 0)
@@ -239,7 +269,6 @@ public sealed partial class LibraryViewModel
         }
 
         var failure = DeleteUe4ssModCore(item.Name);
-        ReloadInstalledUe4ssMods();
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         Ue4ssStatusMessage = failure is null ? $"Deleted '{item.Name}'." : $"Couldn't delete '{item.Name}': {failure}";
         _activityLog.Log(failure is null ? $"Deleted UE4SS mod '{item.Name}'." : $"Couldn't delete UE4SS mod '{item.Name}': {failure}",
@@ -263,7 +292,7 @@ public sealed partial class LibraryViewModel
     [RelayCommand]
     private void EditLinkedUe4ssConfig(LibraryItemViewModel? item)
     {
-        if (item is not null && Ue4ssMods.FirstOrDefault(r => r.HasConfig && item.LinkedUe4ssNames.Contains(r.Name, StringComparer.OrdinalIgnoreCase)) is { } row)
+        if (item is not null && LinkedLuaRows(item).FirstOrDefault(r => r.HasConfig) is { } row)
         {
             OpenModConfigEditor(row);
         }
@@ -495,20 +524,14 @@ public sealed partial class LibraryViewModel
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportUe4ssModAsync()
     {
-        var dialog = new OpenFileDialog
-        {
-            Title = "Select a UE4SS mod archive",
-            Filter = "Mod archives (*.zip;*.rar;*.7z)|*.zip;*.rar;*.7z|All files (*.*)|*.*",
-            Multiselect = true,
-        };
-        if (dialog.ShowDialog() != true)
+        var paths = _dialogService.PickFiles("Select a UE4SS mod archive", "Mod archives (*.zip;*.rar;*.7z)|*.zip;*.rar;*.7z|All files (*.*)|*.*");
+        if (paths.Count == 0)
         {
             return;
         }
 
         var before = new HashSet<string>(SafeStagedUe4ssNames(), StringComparer.OrdinalIgnoreCase);
-        await ImportPaths(dialog.FileNames);
-        ReloadInstalledUe4ssMods();
+        await ImportPaths(paths); // reloads both panels
         var added = SafeStagedUe4ssNames().Where(n => !before.Contains(n)).ToList();
         Ue4ssStatusMessage = added.Count switch
         {

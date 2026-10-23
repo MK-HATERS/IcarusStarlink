@@ -368,12 +368,12 @@ public sealed partial class LibraryViewModel : ObservableObject
             // A full resync can replace row instances outright — a stale bulk selection referencing
             // an orphaned instance would show a nonzero count with nothing actually highlighted.
             self.ClearBulkSelection();
-            self.Reload(fullResync: true);
             // A UE4SS mod downloaded through Downloads' own pipeline sends this same message (see
             // DownloadsViewModel.ClassifyAndImportExtractedModAsync) — without this, the UE4SS tab
             // stayed stale until Refresh was clicked by hand, even though Library's own Mods tab
-            // already refreshed correctly.
-            self.ReloadInstalledUe4ssMods();
+            // already refreshed correctly. One Reload for both: this page's own actions send this
+            // message instead of reloading themselves (a delete used to reload five times).
+            self.ReloadUe4ssRows(fullResync: true);
         });
 
         // A download in progress shows as a stub row here (see Reload's own use of this) — starting
@@ -414,8 +414,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         Downloads.PropertyChanged += OnDownloadsPropertyChanged;
         FilterChips[0].IsSelected = true;
 
-        Reload();
-        ReloadInstalledUe4ssMods();
+        ReloadInstalledUe4ssMods(); // ends with the first Reload
 
         // Constructors can't be async — same "fire it and let the method itself handle every
         // failure" shape DownloadsViewModel's own launch-time Nexus check already uses. Silent:
@@ -553,6 +552,18 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
     }
 
+    /// <summary>Says why and returns true when the mod can't be changed on disk right now (ModChangeBlockedReason).</summary>
+    private bool RefuseWhileBusy(LibraryItemViewModel item)
+    {
+        if (ModChangeBlockedReason(item) is not { } blocked)
+        {
+            return false;
+        }
+
+        StatusMessage = blocked;
+        return true;
+    }
+
     /// <summary>
     /// Replaces the mod's current folder with its own most recent backup — a real point-in-time
     /// restore, so this is gated the same way every other hard-to-reverse action in this app is.
@@ -565,22 +576,27 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
+        if (RefuseWhileBusy(item))
+        {
+            return;
+        }
+
         var confirmResult = _dialogService.Confirm(
             $"This replaces the current content of '{item.Name}' with its most recent backup — any edit made since then is lost.\n\nContinue?",
             "Restore backup", ThemedConfirmSeverity.Question);
-        if (!(confirmResult))
+        if (!(confirmResult) || RefuseWhileBusy(item))
         {
             return;
         }
 
         try
         {
-            var restored = _repository.RestoreLatestModBackup(item.FolderName);
+            // Through the fix service: it takes the same lock as every other writer of the mod.
+            var restored = FixService.RestoreBackup(item.FolderName);
             StatusMessage = restored ? $"Restored '{item.Name}' from its latest backup." : $"No backup exists yet for '{item.Name}'.";
             if (restored)
             {
                 _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
-                Reload();
                 WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             }
         }
@@ -604,6 +620,11 @@ public sealed partial class LibraryViewModel : ObservableObject
             return;
         }
 
+        if (RefuseWhileBusy(item))
+        {
+            return;
+        }
+
         if (Downloads.FindOriginalDownload(item.FolderName) is not { } download)
         {
             StatusMessage = $"ISL doesn't have the original download for '{item.Name}' (it was imported from a file, or the download was discarded). Import that file again, or use Restore latest backup.";
@@ -612,10 +633,13 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         if (!_dialogService.Confirm(
                 $"Reinstall '{item.Name}' from its original download ({download.FileName})?\n\nThis replaces the Library copy: fixes, edits and a rename made since are lost, and its remembered fix choices are forgotten. It's backed up first, so Restore latest backup can bring this copy back.",
-                "Reinstall original", ThemedConfirmSeverity.Warning))
+                "Reinstall original", ThemedConfirmSeverity.Warning)
+            || RefuseWhileBusy(item))
         {
             return;
         }
+
+        item.FlushPendingSave();
 
         var name = item.Name;
         try
@@ -660,7 +684,6 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             _repository.SetDisplayNameOverride(item.FolderName, result.NewDisplayName);
-            Reload();
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         }
         catch (Exception ex)
@@ -788,6 +811,10 @@ public sealed partial class LibraryViewModel : ObservableObject
     [RelayCommand]
     private void DeleteAll() => DeleteMods([.. AllLibraryItems()]);
 
+    private LibraryModRemover? _modRemover;
+
+    private LibraryModRemover ModRemover => _modRemover ??= new LibraryModRemover(_repository, _prebuiltPakSourceStore, _pakPreviewCacheDirectory, FixService);
+
     private void DeleteMods(IReadOnlyList<LibraryItemViewModel> items)
     {
         if (items.Count == 0)
@@ -801,11 +828,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         // three rows belong together otherwise.
         var selectedFolders = new HashSet<string>(items.Select(i => i.FolderName), StringComparer.OrdinalIgnoreCase);
         var packages = items
-            .Where(i => i.NexusModId is not null)
-            .Select(i => _packagesByNexusModId.GetValueOrDefault(i.NexusModId!.Value))
-            .Where(p => p is not null)
-            .Select(p => p!)
-            .DistinctBy(p => p.NexusModId)
+            .Select(PackageOf)
+            .OfType<ModPackage>()
+            .Distinct()
             .ToList();
         var siblingItems = AllLibraryItems()
             .Where(i => !selectedFolders.Contains(i.FolderName) && packages.Any(p => p.LibraryFolderNames.Contains(i.FolderName, StringComparer.OrdinalIgnoreCase)))
@@ -814,6 +839,15 @@ public sealed partial class LibraryViewModel : ObservableObject
         if (siblingItems.Count > 0)
         {
             items = [.. items, .. siblingItems];
+        }
+
+        // Not while a check or fix pass rewrites mods, one of them is being converted again, or its
+        // editor is open (the fix window's guards): asked to delete, it would race the pass, and the
+        // editor's next Save would bring the deleted mod back half-made.
+        if (items.Select(ModChangeBlockedReason).FirstOrDefault(r => r is not null) is { } blocked)
+        {
+            StatusMessage = blocked;
+            return;
         }
 
         // Deleting removes each mod's real folder from disk and can't be undone from here — and a
@@ -864,32 +898,16 @@ public sealed partial class LibraryViewModel : ObservableObject
         foreach (var item in items)
         {
             var name = item.Name;
-            // Cancel first: a pending debounced notes save firing after Delete() below could write
-            // this entry's metadata into a different mod that reuses the same freed folder name.
-            item.CancelPendingSave();
+            // Saved now, not dropped: the backup below keeps the notes typed a moment ago, and a
+            // timer left pending can't fire after the delete and write them into a different mod
+            // that reuses the freed folder name.
+            item.FlushPendingSave();
             try
             {
                 // Backed up first, so a delete (an easy right-click to hit by accident) isn't
-                // permanent — a mod that can't be backed up isn't deleted.
-                _repository.BackupMod(item.FolderName);
-                _repository.Delete(item.FolderName);
-                // Its remembered fix choices too: a different mod later imported under the same
-                // folder name must not have them made for it.
-                FixService.Forget(item.FolderName);
-                // Purges this mod's saved original pak (if it has one — a no-op otherwise) so a
-                // deleted mod doesn't leave an orphaned copy under PrebuiltPakSources forever; mirrors
-                // how the repository already purges its own LibraryMeta sidecar record on Delete.
-                _prebuiltPakSourceStore.Delete(item.FolderName);
-                // Same reasoning, for this mod's own cached opaque-pak preview extraction (if any
-                // was ever populated — see DecodeOpaquePakAssetPreviewAsync). Unlike the small,
-                // deliberately-never-purged Thumbnails cache just below, this cache can be as
-                // large as the mod's own .pak itself, so — like PrebuiltPakSources above — it
-                // shouldn't survive as an orphaned copy forever once the mod it came from is gone.
-                var pakPreviewCacheDirectory = Path.Combine(_pakPreviewCacheDirectory, item.FolderName);
-                if (Directory.Exists(pakPreviewCacheDirectory))
-                {
-                    Directory.Delete(pakPreviewCacheDirectory, recursive: true);
-                }
+                // permanent — a mod that can't be backed up isn't deleted. Its remembered fix
+                // choices, saved source pak and preview cache go with it (LibraryModRemover).
+                ModRemover.Delete(item.FolderName);
                 deletedCount++;
                 if (SelectedItem == item)
                 {
@@ -916,12 +934,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             0 => $"Deleted {deletedCount} mod(s).{nextStep}",
             _ => $"Deleted {deletedCount} of {items.Count} — {string.Join("; ", failures)}",
         };
-        Reload();
-        if (ue4ssParts.Count > 0)
-        {
-            ReloadInstalledUe4ssMods();
-        }
-
+        // Its own handler reloads both panels (the UE4SS parts too): no Reload of its own here.
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
     }
 
@@ -966,7 +979,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         ModCount = groups.Sum(g => g.Entries.Count);
         GroupCount = groups.Count(g => g.IsFamily);
-        _packagesByNexusModId = BuildPackages();
+        BuildPackages();
 
         // A folder that's visibly on disk but unreadable (corrupt EXMOD, locked file) was only
         // ever explained in the log file — surfaced here so "why isn't my mod showing?" has an
@@ -1033,6 +1046,8 @@ public sealed partial class LibraryViewModel : ObservableObject
             _ => [],
         }).ToList();
         var searchedLua = ue4ssRows.Select(r => (Ue4ssModRowViewModel)r.Row).ToList();
+        _searchedItems = searchedItems;
+        _searchedLua = searchedLua;
         UpdateFilterCounts(searchedItems, searchedLua);
         if (ListFilter != FilterAll)
         {
