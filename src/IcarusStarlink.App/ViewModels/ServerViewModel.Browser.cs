@@ -4,7 +4,6 @@ using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Server;
-using Microsoft.Win32;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -239,8 +238,7 @@ public sealed partial class ServerViewModel
             return;
         }
 
-        var dialog = new OpenFileDialog { Title = "Select a file to upload" };
-        if (dialog.ShowDialog() != true)
+        if (_dialogService.PickFile("Select a file to upload", "All files (*.*)|*.*") is not { } localPath)
         {
             return;
         }
@@ -248,11 +246,11 @@ public sealed partial class ServerViewModel
         IsBusy = true;
         try
         {
-            var remotePath = CombineRemotePath(CurrentRemotePath, Path.GetFileName(dialog.FileName));
-            await _connectedClient.UploadFileAsync(dialog.FileName, remotePath);
+            var remotePath = CombineRemotePath(CurrentRemotePath, Path.GetFileName(localPath));
+            await _connectedClient.UploadFileAsync(localPath, remotePath);
             await LoadDirectoryAsync(CurrentRemotePath);
-            ConnectionStatusMessage = $"Uploaded '{Path.GetFileName(dialog.FileName)}'.";
-            _activityLog.Log($"Uploaded '{Path.GetFileName(dialog.FileName)}' to '{_connectedSite?.Name}'.", ActivityEntryKind.Success);
+            ConnectionStatusMessage = $"Uploaded '{Path.GetFileName(localPath)}'.";
+            _activityLog.Log($"Uploaded '{Path.GetFileName(localPath)}' to '{_connectedSite?.Name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
@@ -279,8 +277,7 @@ public sealed partial class ServerViewModel
             return;
         }
 
-        var dialog = new SaveFileDialog { Title = "Save downloaded file", FileName = entry.Name };
-        if (dialog.ShowDialog() != true)
+        if (_dialogService.PickSaveFile("Save downloaded file", "All files (*.*)|*.*", entry.Name) is not { } savePath)
         {
             return;
         }
@@ -289,7 +286,7 @@ public sealed partial class ServerViewModel
         try
         {
             var remotePath = CombineRemotePath(CurrentRemotePath, entry.Name);
-            await _connectedClient.DownloadFileAsync(remotePath, dialog.FileName);
+            await _connectedClient.DownloadFileAsync(remotePath, savePath);
             ConnectionStatusMessage = $"Downloaded '{entry.Name}'.";
             _activityLog.Log($"Downloaded '{entry.Name}' from '{_connectedSite?.Name}'.", ActivityEntryKind.Success);
         }

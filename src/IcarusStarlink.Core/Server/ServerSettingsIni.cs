@@ -1,4 +1,5 @@
 using System.Globalization;
+using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.Core.Server;
 
@@ -35,28 +36,7 @@ public sealed class ServerSettingsIni
     public static ServerSettingsIni Load(string path) => Parse(File.Exists(path) ? File.ReadAllText(path) : null);
 
     /// <summary>Written to a temp file and moved into place, so a crash mid-save can't leave the file cut short.</summary>
-    public void Save(string path)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temp = $"{path}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            File.WriteAllText(temp, ToString());
-            File.Move(temp, path, overwrite: true);
-        }
-        catch
-        {
-            try
-            {
-                File.Delete(temp);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-            }
-
-            throw;
-        }
-    }
+    public void Save(string path) => AtomicFile.WriteAllText(path, ToString());
 
     public override string ToString() => _lines.Count == 0 ? "" : string.Join("\r\n", _lines) + "\r\n";
 

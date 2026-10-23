@@ -12,7 +12,6 @@ using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Server;
-using Microsoft.Win32;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -60,8 +59,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
         _processes = processes;
         _dialogService = dialogService;
         _activityLog = activityLog;
-        _pickFolder = pickFolder ?? PickFolderWithDialog;
-        _pickSteamCmdExe = pickSteamCmdExe ?? PickSteamCmdWithDialog;
+        _pickFolder = pickFolder ?? (title => dialogService.PickFolder(title));
+        _pickSteamCmdExe = pickSteamCmdExe ?? (() => dialogService.PickFile("Select your steamcmd.exe", "steamcmd.exe|steamcmd.exe|Programs (*.exe)|*.exe"));
         WorldSettings = new WorldSettingsViewModel(
             () => SelectedProfile is { } p ? DedicatedServerLayout.ProspectsFolder(p.InstallFolder, p.SavedDirSuffix) : null,
             () => DataFolder,
@@ -487,18 +486,6 @@ public sealed partial class LocalServerViewModel : ObservableObject
     }
 
     // ---- Internals ----
-
-    private static string? PickSteamCmdWithDialog()
-    {
-        var dialog = new OpenFileDialog { Title = "Select your steamcmd.exe", Filter = "steamcmd.exe|steamcmd.exe|Programs (*.exe)|*.exe" };
-        return dialog.ShowDialog() == true ? dialog.FileName : null;
-    }
-
-    private static string? PickFolderWithDialog(string title)
-    {
-        var dialog = new OpenFolderDialog { Title = title };
-        return dialog.ShowDialog() == true ? dialog.FolderName : null;
-    }
 
     private static string FormatUptime(TimeSpan span) =>
         span.TotalHours >= 1 ? $"{(int)span.TotalHours}h {span.Minutes:00}m" : span.TotalMinutes >= 1 ? $"{span.Minutes}m {span.Seconds:00}s" : $"{Math.Max(0, span.Seconds)}s";
