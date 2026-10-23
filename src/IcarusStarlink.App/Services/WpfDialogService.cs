@@ -1,5 +1,6 @@
 using System.Windows;
 using IcarusStarlink.App.Views;
+using IcarusStarlink.Catalog.Nexus;
 
 namespace IcarusStarlink.App.Services;
 
@@ -66,6 +67,15 @@ public sealed class WpfDialogService : IDialogService
 
         return Show(dialog) == true ? dialog.FileName : null;
     }
+
+    public NexusModFile? PickNexusFile(string modName, IReadOnlyList<NexusModFile> files, NexusModFile? preselect)
+    {
+        var dialog = new PickNexusFileDialog(modName, files, preselect) { Owner = OwnerWindow() };
+        return dialog.ShowDialog() == true ? dialog.SelectedFile : null;
+    }
+
+    public void ShowNexusChangelog(string modName, IReadOnlyList<ChangelogVersionEntry> versions) =>
+        new NexusChangelogWindow(modName, versions) { Owner = Application.Current?.MainWindow }.Show();
 
     private static bool? Show(Microsoft.Win32.CommonDialog dialog) => OwnerWindow() is { } owner ? dialog.ShowDialog(owner) : dialog.ShowDialog();
 
