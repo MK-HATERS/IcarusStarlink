@@ -420,14 +420,28 @@ public sealed partial class LocalServerViewModel
         try
         {
             ServerUe4ssSync.SetEnabled(p.InstallFolder, row.Name, on);
-            StatusMessage = $"{row.Name} is {(on ? "on" : "off")} on '{p.Name}' — it takes effect when the server starts.";
+            StatusMessage = on
+                ? $"{row.Name} is on on '{p.Name}' — it takes effect when the server starts."
+                : $"{row.Name} is off on '{p.Name}' (still on the server; Remove takes it off) — it takes effect when the server starts.";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Info);
         }
         catch (Exception ex)
         {
             row.ResetServerOn(!on);
             StatusMessage = $"Couldn't turn {row.Name} {(on ? "on" : "off")}: {ex.Message}";
+            return;
         }
+
+        // Read back from the server, so the row shows what UE4SS will really do (it used to keep
+        // its old text until the page was opened again).
+        var message = StatusMessage;
+        RefreshMods();
+        StatusMessage = message;
     }
+
+    /// <summary>The UE4SS table's Refresh: reads the server's and the game's mods again.</summary>
+    [RelayCommand]
+    private void RefreshServerMods() => RefreshMods();
 
     [RelayCommand]
     private void RemoveServerUe4ssMod(ServerUe4ssRow? mod)

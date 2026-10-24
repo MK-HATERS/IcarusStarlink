@@ -170,6 +170,67 @@ public sealed partial class MergeInstallViewModel
             LastInstalledModNames = [];
             ArcFissionNeedsMerge = false;
         }
+
+        await RefreshChangedSinceInstallAsync();
+    }
+
+    /// <summary>
+    /// Mods in the installed merge whose Library copy changed since it was built (folder name →
+    /// "v1.0 → v1.1" or "files changed"): updated in Starlink, re-imported, fixed, or edited
+    /// outside it. Empty when the game's pak isn't one this app recorded a build of.
+    /// </summary>
+    [ObservableProperty]
+    private IReadOnlyDictionary<string, string> _changedSinceInstall = new Dictionary<string, string>();
+
+    /// <summary>
+    /// Re-works out ChangedSinceInstall: on every Library change, after installs, and when the
+    /// window comes forward again (a mod may have been edited outside the app meanwhile).
+    /// </summary>
+    public async Task RefreshChangedSinceInstallAsync()
+    {
+        var contentPath = _settingsService.Current.IcarusContentPath;
+        if (string.IsNullOrWhiteSpace(contentPath))
+        {
+            ChangedSinceInstall = new Dictionary<string, string>();
+            return;
+        }
+
+        var installedPak = Path.Combine(contentPath, "Paks", "mods", Path.GetFileName(_outputPakPath));
+        var recordPath = BuildRecordPath;
+        var current = _libraryRepository.GetAll().ToDictionary(e => e.FolderName, StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            ChangedSinceInstall = await Task.Run(() =>
+            {
+                var changed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (MergedModFingerprints.ForInstalledPak(recordPath, installedPak) is not { } record)
+                {
+                    return changed;
+                }
+
+                foreach (var mod in record.Mods)
+                {
+                    // A mod gone from the Library is the queue's business (a missing row), not "changed".
+                    if (!current.TryGetValue(mod.FolderName, out var entry)
+                        || MergedModFingerprints.HashFolder(_libraryRepository.GetFolderPath(mod.FolderName)) is not { Length: > 0 } hash
+                        || string.Equals(hash, mod.Hash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    changed[mod.FolderName] = string.Equals(entry.Version, mod.Version, StringComparison.OrdinalIgnoreCase)
+                        ? "files changed"
+                        : $"v{mod.Version.TrimStart('v', 'V')} → v{entry.Version.TrimStart('v', 'V')}";
+                }
+
+                return changed;
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Can't tell: no hint rather than a wrong one.
+            ChangedSinceInstall = new Dictionary<string, string>();
+        }
     }
 
     /// <summary>

@@ -97,6 +97,11 @@ public sealed partial class LocalServerViewModel : ObservableObject
         // A new merged pak was built — "Install my merged pak" and its summary follow it.
         WeakReferenceMessenger.Default.Register<MergedPakBuiltMessage>(this, (recipient, _) => ((LocalServerViewModel)recipient).RefreshMergedPak());
 
+        // A UE4SS mod added, updated or removed in the Library (or the loader changed): the server
+        // table compares against the game's copy, so it's read again.
+        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((LocalServerViewModel)recipient).RefreshMods());
+        WeakReferenceMessenger.Default.Register<Ue4ssLoaderChangedMessage>(this, (recipient, _) => ((LocalServerViewModel)recipient).RefreshMods());
+
         if (startTimer && Application.Current is not null)
         {
             _timer = new DispatcherTimer(DispatcherPriority.Normal, System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher) { Interval = TimeSpan.FromSeconds(1) };

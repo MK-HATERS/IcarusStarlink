@@ -873,6 +873,8 @@
 
                             <!-- One row per mod: your game's copy, the server's, how they compare, and the action. -->
                             <DockPanel Margin="0,0,0,6">
+                                <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshServerModsCommand}" Margin="8,0,0,0"
+                                        ToolTip="Reads the server's and your game's UE4SS mods again"/>
                                 <Button DockPanel.Dock="Right" Content="Make the server match my game" Command="{Binding MatchServerToGameCommand}"
                                         IsEnabled="{Binding ServerHasUe4ss}"
                                         ToolTip="Updates every out-of-date mod on the server and copies the ones on in your game that it lacks. Keeps the server's own settings; never removes anything; backs up worlds first.">
@@ -928,7 +930,7 @@
                                                         <CheckBox Grid.Column="3" IsChecked="{Binding ServerOn}" VerticalAlignment="Center" Margin="0,0,14,0"
                                                                   Visibility="{Binding IsOnServer, Converter={StaticResource BoolToHiddenConverter}}"
                                                                   AutomationProperties.Name="{Binding Name, StringFormat='On on the server: {0}'}"
-                                                                  ToolTip="On or off on the server (takes effect when it starts). Your game isn't changed."/>
+                                                                  ToolTip="On or off on the server (takes effect when it starts). An unticked mod stays on the server, switched off; Remove takes it off. Your game isn't changed."/>
                                                         <TextBlock Grid.Column="4" Text="{Binding StateText}" VerticalAlignment="Center" FontSize="12">
                                                             <TextBlock.Style>
                                                                 <Style TargetType="TextBlock">
@@ -937,7 +939,7 @@
                                                                         <DataTrigger Binding="{Binding IsSame}" Value="True">
                                                                             <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
                                                                         </DataTrigger>
-                                                                        <DataTrigger Binding="{Binding NeedsUpdate}" Value="True">
+                                                                        <DataTrigger Binding="{Binding NeedsAttention}" Value="True">
                                                                             <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                                                                             <Setter Property="FontWeight" Value="SemiBold"/>
                                                                         </DataTrigger>

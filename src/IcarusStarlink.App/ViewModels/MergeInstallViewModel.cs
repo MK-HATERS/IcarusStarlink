@@ -283,13 +283,15 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         // and there is no way to detect that from the index alone. Same reasoning already applied
         // to Queue.CollectionChanged/InvalidateManualPicks above; this was the one other place a
         // pick's own meaning can silently change out from under it.
-        _messenger.Register<LibraryChangedMessage>(this, (recipient, _) =>
+        _messenger.Register<LibraryChangedMessage>(this, (recipient, message) =>
         {
             var viewModel = (MergeInstallViewModel)recipient;
             viewModel.InvalidatePackageCache();
             viewModel.InvalidateManualPicks();
             // A profile's missing mod imported again under its folder name takes its row back.
             viewModel.ResolveMissingQueueEntries();
+            // A mod updated or re-imported since the installed merge was built needs another one.
+            _ = viewModel.RefreshChangedSinceInstallAsync();
         });
 
         // _dataFolder's own contents only ever change via a real "Update data folder" run — the

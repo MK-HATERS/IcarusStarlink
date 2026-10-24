@@ -638,7 +638,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Equal(ServerModState.ServerOutOfDate, row.State);
         Assert.Equal("Server out of date", row.StateText);
         Assert.Equal("v1.0.6 · on", row.GameText);
-        Assert.Equal("v1.0.5", row.ServerText);
+        Assert.Equal("v1.0.5 · off", row.ServerText);
         Assert.Equal("Mods (1 to update)", vm.ModsTabHeader);
 
         vm.CopyUe4ssModToServerCommand.Execute(row);
@@ -649,6 +649,38 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Equal("return { Range = 50 }", File.ReadAllText(Path.Combine(serverMod, "config.lua")));
         Assert.Contains("1.0.6", File.ReadAllText(Path.Combine(serverMod, "Scripts", "main.lua")));
         Assert.Equal("Mods", vm.ModsTabHeader);
+    }
+
+    /// <summary>
+    /// User report 2026-10-24: unticking a mod on the server, or removing it from the Library, left
+    /// the row reading as before (even after a restart: unticking only switches it off). The row now
+    /// re-reads at once and says off; a mod gone from the game says Remove takes it off.
+    /// </summary>
+    [Fact]
+    public void Ue4ss_UntickingReadsBackOff_AndAModGoneFromTheGameSaysRemoveTakesItOff()
+    {
+        var gameWin64 = MakeGameWithUe4ss(("MkHatersTools", true));
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+        vm.MatchServerToGameCommand.Execute(null);
+
+        vm.Ue4ssModRows.Single().ServerOn = false;
+
+        var row = vm.Ue4ssModRows.Single();
+        Assert.False(row.ServerOn);
+        Assert.EndsWith("off", row.ServerText);
+        Assert.False(row.Comparison.OnOnServer);
+
+        // Removed from the Library: the game's copy is gone, the server's stays until Remove.
+        Directory.Delete(Path.Combine(gameWin64, "ue4ss", "Mods", "MkHatersTools"), recursive: true);
+        vm.RefreshServerModsCommand.Execute(null);
+
+        row = vm.Ue4ssModRows.Single();
+        Assert.Equal(ServerModState.OnlyOnServer, row.State);
+        Assert.True(row.NeedsAttention);
+        Assert.Contains("Remove", row.StateText);
     }
 
     [Fact]

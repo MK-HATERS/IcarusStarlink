@@ -71,7 +71,7 @@ public sealed partial class LibraryViewModel
         mergeInstall.Queue.CollectionChanged += (_, _) => RefreshEnabledAndStatus();
         mergeInstall.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(MergeInstallViewModel.LastInstalledModNames))
+            if (e.PropertyName is nameof(MergeInstallViewModel.LastInstalledModNames) or nameof(MergeInstallViewModel.ChangedSinceInstall))
             {
                 RefreshEnabledAndStatus();
             }
@@ -133,7 +133,9 @@ public sealed partial class LibraryViewModel
     {
         var mergeInstall = TryGetMergeInstall();
         var installed = new HashSet<string>(mergeInstall?.LastInstalledModNames ?? [], StringComparer.OrdinalIgnoreCase);
+        var changedSinceInstall = mergeInstall?.ChangedSinceInstall ?? new Dictionary<string, string>();
         var pendingPak = 0;
+        var updatedCount = 0;
         var inGameNotTicked = 0;
         var pendingDataChanges = new List<(string Name, bool TurnedOn)>();
         foreach (var item in _itemsByFolderName.Values)
@@ -167,6 +169,12 @@ public sealed partial class LibraryViewModel
                 status = "In game";
                 detail = "not ticked: Merge & Install will take it out";
             }
+            else if (queued && inGame && changedSinceInstall.TryGetValue(item.FolderName, out var change))
+            {
+                // Updated (in Starlink or outside it) since the game's merge was built: the game has the old copy.
+                status = "Updated";
+                detail = $"{change} · needs Merge & Install";
+            }
             else if (queued && inGame)
             {
                 status = "In game";
@@ -177,11 +185,16 @@ public sealed partial class LibraryViewModel
                 status = "Not enabled";
             }
 
-            item.IsPendingChange = queued != inGame;
+            var updated = queued && inGame && changedSinceInstall.ContainsKey(item.FolderName);
+            item.IsPendingChange = queued != inGame || updated;
             if (queued != inGame)
             {
                 pendingPak++;
                 pendingDataChanges.Add((item.Name, queued));
+            }
+            else if (updated)
+            {
+                updatedCount++;
             }
 
             if (inGame && !queued && !item.IsMergedPack)
@@ -197,7 +210,7 @@ public sealed partial class LibraryViewModel
         InGameNotTickedCount = inGameNotTicked;
         // ArcFission Library rebuilt its data since the merge: its new rows need a Merge & Install.
         var arcFission = mergeInstall?.ArcFissionNeedsMerge == true;
-        HasPendingPakChanges = pendingPak > 0 || arcFission;
+        HasPendingPakChanges = pendingPak > 0 || updatedCount > 0 || arcFission;
         HasPendingChanges = HasPendingPakChanges || pendingLua > 0;
         var parts = new List<string>();
         if (pendingLua > 0)
@@ -210,6 +223,11 @@ public sealed partial class LibraryViewModel
             parts.Add(pendingPak == 1 ? "1 pak mod" : $"{pendingPak} pak mods");
         }
 
+        if (updatedCount > 0)
+        {
+            parts.Add(updatedCount == 1 ? "1 updated mod" : $"{updatedCount} updated mods");
+        }
+
         if (arcFission)
         {
             parts.Add("ArcFission's data (WirelessPower and other ArcFission mods) changed since the last merge");
@@ -218,9 +236,16 @@ public sealed partial class LibraryViewModel
         PendingChangesSummary = parts.Count == 0
             ? ""
             : $"Not in the game yet: {string.Join(" and ", parts)}";
-        PendingDataText = arcFission && pendingDataChanges.Count == 0
+        var updatedNames = _itemsByFolderName.Values
+            .Where(i => i.InstallStatus == "Updated")
+            .Select(i => i.Name)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var updatedText = updatedNames.Count == 0 ? "" : $"Updated since your last Merge & Install: {string.Join(", ", updatedNames)}";
+        var dataText = arcFission && pendingDataChanges.Count == 0
             ? "ArcFission's data changed since the last merge"
             : DescribePending([.. pendingDataChanges.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)]);
+        PendingDataText = string.Join("\n", new[] { dataText, updatedText }.Where(t => t.Length > 0));
         PendingUe4ssText = DescribePending([.. Ue4ssMods.Where(m => m.IsDirty).OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).Select(m => (m.Name, m.IsEnabled))]);
 
         // A ticked Lua mod (on its own, or the Lua half of a pak mod) with no UE4SS in the game can't run.

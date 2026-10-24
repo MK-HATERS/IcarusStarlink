@@ -7,6 +7,7 @@ using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.PakIO;
+using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Rebuild;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -218,6 +219,7 @@ public sealed partial class MergeInstallViewModel
             }
 
             CanCopyToGame = true;
+            await RecordBuildAsync(snapshot.Queue);
 
             // The Server page's "Install my merged pak" shows the new build without a page switch.
             _messenger.Send(new MergedPakBuiltMessage());
@@ -255,6 +257,30 @@ public sealed partial class MergeInstallViewModel
         finally
         {
             IsRebuilding = false;
+        }
+    }
+
+    private string BuildRecordPath => Path.Combine(Path.GetDirectoryName(_outputPakPath)!, MergedModFingerprints.FileName);
+
+    /// <summary>
+    /// What this build was made from (each mod's version and a hash of its files), keyed by the
+    /// pak's hash, so the Library can later say which installed mods changed since
+    /// (ChangedSinceInstall). Best-effort: a failure only loses that hint.
+    /// </summary>
+    private async Task RecordBuildAsync(IReadOnlyList<LibraryEntry> queue)
+    {
+        var mods = queue.Select(e => (e.FolderName, e.Version, Folder: _libraryRepository.GetFolderPath(e.FolderName))).ToList();
+        var pak = _outputPakPath;
+        var recordPath = BuildRecordPath;
+        try
+        {
+            await Task.Run(() => MergedModFingerprints.Add(recordPath, new MergedBuildRecord(
+                MergedModFingerprints.HashFile(pak), DateTimeOffset.UtcNow,
+                [.. mods.Select(m => new MergedModFingerprint(m.FolderName, m.Version, MergedModFingerprints.HashFolder(m.Folder)))])));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "Couldn't record what the merge was built from");
         }
     }
 

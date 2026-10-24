@@ -31,7 +31,8 @@ public sealed partial class ServerUe4ssRow : ObservableObject
     /// <summary>"v1.9.0 · on", "off", or "—" when the game doesn't have it.</summary>
     public string GameText => Comparison.InGame ? Describe(Comparison.GameVersion, Comparison.OnInGame) : "—";
 
-    public string ServerText => Comparison.OnServer ? (Comparison.ServerVersion is { } v ? $"v{v}" : "") : "—";
+    /// <summary>"v1.9.0 · on", "off": like the game's column, so a switched-off mod reads as off (it used to show only the version, as if unticking hadn't worked).</summary>
+    public string ServerText => Comparison.OnServer ? Describe(Comparison.ServerVersion, Comparison.OnOnServer) : "—";
 
     public string StateText => State switch
     {
@@ -41,12 +42,16 @@ public sealed partial class ServerUe4ssRow : ObservableObject
             : "Server copy differs",
         ServerModState.ServerNewer => "Server has a newer version",
         ServerModState.NotOnServer => "Not on the server",
-        ServerModState.OnlyOnServer => "Only on the server",
+        // Removed from the Library (or never in the game): Remove is what takes it off; unticking only switches it off.
+        ServerModState.OnlyOnServer => "Not in your game — Remove takes it off",
         _ => "",
     };
 
-    /// <summary>Shown in the accent colour: the server's copy should be updated.</summary>
+    /// <summary>The server's copy should be updated.</summary>
     public bool NeedsUpdate => State == ServerModState.ServerOutOfDate;
+
+    /// <summary>Shown in the accent colour: out of date, or left on the server after it left your game.</summary>
+    public bool NeedsAttention => NeedsUpdate || State == ServerModState.OnlyOnServer;
 
     public bool IsSame => State == ServerModState.Same;
 
