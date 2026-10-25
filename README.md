@@ -85,7 +85,10 @@ nodes on top of each other, nodes that wait for each other and can never be unlo
 another tree's) and a manual per-field conflict picker that shows the live base-game value plus a
 buff/nerf hint alongside each candidate; array-shaped fields (recipe lists, loot tables) combine
 automatically when every mod's change is a clean addition rather than picking just one and dropping
-the rest; a baseline mod list that auto-joins every profile's queue, gameplay-option toggles
+the rest; a **Check the merge** window with every finding in three tabs (conflicts, clashes between
+mods such as two mods bringing the same file or an add-on queued without the mod it needs, and each
+queued mod's own problems from the Library's mod check, with a Fix… button and a copyable report
+with short codes); gameplay-option toggles
 (stack/slot size, craft cost, XP/speed/player/taming boosts, remove weight, unlimited ammo, disable
 temperatures, remove level cap — values sourced from classic IMM's own documented behavior, or a
 real community mod's where classic IMM never covered one) that participate in the same conflict
@@ -94,9 +97,10 @@ patches, and a rebuild → install pipeline that backs up whatever it's about to
 independently re-reads the pak it just built to confirm nothing staged for packing went missing.
 Conflicts can be decided per line: pick the winning mod for each conflicting field, and the
 profile remembers it. The queue and your last merge are kept across restarts. Everything installs
-as one merged pak (`zz_zz_ISL-Merged_9999_P.pak`, named so it loads after other paks); a runtime
-data pak written by ArcFission Library is folded into the merge at low priority, so the two don't
-override each other.
+as one merged pak (`zz_zz_ISL-Merged_9999_P.pak`, named so it loads after other paks). ArcFission
+mods (Wireless Power, Lumber Yard…) have their rows read straight from the mods' own `rows.lua` and
+merged at low priority, so they're in the merge before the game has ever run with them; ArcFission
+Library's own runtime data pak stays and loads before the merge, so the two don't override each other.
 
 **Weekly Changes** — a real, row-by-row diff of what the game's own data changed between two
 "Update data folder" runs, so you can see exactly why a mod broke after a patch instead of guessing.
@@ -182,7 +186,11 @@ itself deserves a straight answer to "what does this actually do to my computer.
 gathered from the feature descriptions above:
 
 - **Your Icarus game install folder** — reads/extracts the game's own data, and writes merged
-  `.pak` files into `Content\Paks\mods`. Every write that replaces something is backed up first.
+  `.pak` files into `Content\Paks\mods`. Every write that replaces something is backed up first,
+  with one exception: older copies of ArcFission Library's own data pak
+  (`ZZ_ArcFission_Data_<n>_P.pak`, about 19 MB each, which that library rebuilds from the game's
+  data) are removed at Install without a backup; its current one is never touched. On a local
+  dedicated server they are moved into the server's backups instead.
 - **Your save files** — reads and writes them only through the Save editor (and the world settings
   editor, on the Saves and Server pages), always backing up before a write, and refuses to touch a
   save while the game (or that server) is running (checked again immediately before the write
@@ -198,9 +206,10 @@ gathered from the feature descriptions above:
   server; and, only if you configure one, your own FTP server on the Server tab. Nothing
   else. There is no telemetry, analytics, or usage tracking of any kind anywhere in this app.
 - **Self-update** — downloads only from this project's own GitHub Releases
-  (`github.com/MK-HATERS/IcarusStarlink`), verifies the download's SHA-256 against GitHub's own
-  published digest when available, and always asks for confirmation before applying anything; a
-  failed update rolls back automatically rather than leaving a half-updated install.
+  (`github.com/MK-HATERS/IcarusStarlink`), or, on the Stable channel when you're signed in to Nexus,
+  from this app's own Nexus page (mod 330); either way it verifies the download's SHA-256 against the
+  digest published with the GitHub release, and always asks for confirmation before applying
+  anything; a failed update rolls back automatically rather than leaving a half-updated install.
 - **The app never requests administrator/elevated permissions for anything.**
 
 The startup GitHub/Nexus version checks above are read-only "is a newer version available"
