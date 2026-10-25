@@ -98,6 +98,8 @@
         <EllipseGeometry Center="12,12" RadiusX="9" RadiusY="9"/>
         <PathGeometry Figures="M9.7 9.6C9.7 8 10.9 7.2 12.2 7.2C13.6 7.2 14.6 8 14.6 9.3C14.6 10.5 13.8 11 13 11.5C12.4 11.9 12 12.4 12 13.3L12 13.8 M12 16.6L12.01 16.6"/>
     </GeometryGroup>
+    <!-- An open book (Library): the two plain rectangles read as one box at 16 px. -->
+    <Geometry x:Key="NavIconBook">M12 6.5C10 5 6.5 4.5 3 5L3 18.5C6.5 18 10 18.5 12 20C14 18.5 17.5 18 21 18.5L21 5C17.5 4.5 14 5 12 6.5Z M12 6.5L12 20</Geometry>
     <GeometryGroup x:Key="NavIconPerson">
         <EllipseGeometry Center="12,7.5" RadiusX="3.5" RadiusY="3.5"/>
         <PathGeometry Figures="M5 20.5C5 16.5 8 14 12 14C16 14 19 16.5 19 20.5"/>

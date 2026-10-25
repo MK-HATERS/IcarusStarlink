@@ -255,7 +255,7 @@
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#D9B44A"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="library">
-                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconBook}"/>
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource NavIconBook}"/>
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#4A90D9"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="editor">
