@@ -254,8 +254,9 @@ public sealed partial class MergeConflictsViewModel : ObservableObject
     {
         BetweenMods = betweenMods ?? [];
         ModsWithProblems = modsWithProblems ?? [];
-        // Open on the first tab with something in it.
-        _selectedTab = conflicts.Count > 0 || collisions.Count > 0 ? 0 : BetweenMods.Count > 0 ? 1 : ModsWithProblems.Count > 0 ? 2 : 0;
+        // Open on the first tab with something to look at (same-name new items are combined with
+        // nothing to pick, so they don't count).
+        _selectedTab = conflicts.Count > 0 ? 0 : BetweenMods.Count > 0 ? 1 : ModsWithProblems.Count > 0 ? 2 : 0;
         _earlierWinners = winners ?? new Dictionary<string, string>();
         var registry = new MergeRuleRegistry();
         _all = [.. conflicts.Select(c => new MergeConflictViewModel(c, _earlierWinners.GetValueOrDefault(WinnerKey(c.CurrentFile, c.ItemName, c.FieldName)), registry))];

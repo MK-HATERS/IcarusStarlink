@@ -748,6 +748,17 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.False(vm.HasCheckFindings);
     }
 
+    /// <summary>Seen live: two same-name new items (combined, nothing to pick) opened the window on an empty Conflicts tab.</summary>
+    [Fact]
+    public void CheckWindow_OpensOnTheFirstTabWithSomethingToLookAt_NotOnCombinedNewItems()
+    {
+        var combined = new NewItemNameCollision("Items-D_ItemsStatic.json", "Lamp", ["ModA", "ModB"]);
+        var clash = new BetweenModsFinding("Same file", "ModA, ModB", "T_Steel.uasset", "Only ModB's is used.", BetweenModsFinding.SameFileCode);
+
+        Assert.Equal(1, new MergeConflictsViewModel([], [combined], null, [clash]).SelectedTab);
+        Assert.Equal(0, new MergeConflictsViewModel([], [combined], null).SelectedTab);
+    }
+
     /// <summary>Two queued mods each adding a workshop node to the same spot of one tree: fine alone, one hides the other together.</summary>
     [Fact]
     public async Task RecomputeChecksAsync_FlagsTwoModsNodesOnTopOfEachOther()
