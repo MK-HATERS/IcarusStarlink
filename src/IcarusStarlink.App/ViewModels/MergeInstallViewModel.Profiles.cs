@@ -4,6 +4,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
@@ -215,8 +216,6 @@ public sealed partial class MergeInstallViewModel
                     Queue.Add(entry);
                 }
             }
-
-            PrependBaselineMods();
 
             var notes = new List<string>();
             if (missingCount > 0)
@@ -495,6 +494,16 @@ public sealed partial class MergeInstallViewModel
             return;
         }
 
+        var fallback = !string.Equals(name, "Default", StringComparison.OrdinalIgnoreCase) && _profileStore.ProfileNames.Contains("Default", StringComparer.OrdinalIgnoreCase)
+            ? "the 'Default' profile's list"
+            : "an empty list";
+        if (!_dialogs.Confirm(
+                $"Delete profile '{name}'?\n\nYour mods stay in the Library, but the ticks switch to {fallback}. This can't be undone.",
+                "Delete profile", ThemedConfirmSeverity.Warning))
+        {
+            return;
+        }
+
         try
         {
             // A pending auto-save of this profile must not write it back once it's deleted (or, with
@@ -523,7 +532,6 @@ public sealed partial class MergeInstallViewModel
                     _winners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     OnPropertyChanged(nameof(SavedWinnerCount));
                     Queue.Clear();
-                    PrependBaselineMods();
                 }
                 finally
                 {
@@ -583,6 +591,14 @@ public sealed partial class MergeInstallViewModel
         if (SelectedProfileName is not { } name)
         {
             ProfileStatusMessage = "Select a profile first.";
+            return;
+        }
+
+        // The list as it is now isn't kept (backing it up would make it the backup to restore).
+        if (!_dialogs.Confirm(
+                $"Replace the list and merge options of '{name}' with its last backup?\n\nWhat's ticked now is replaced, and the Library's ticks follow.",
+                "Restore profile backup", ThemedConfirmSeverity.Warning))
+        {
             return;
         }
 

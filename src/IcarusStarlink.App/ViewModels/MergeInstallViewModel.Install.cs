@@ -717,7 +717,7 @@ public sealed partial class MergeInstallViewModel
                 return;
             }
 
-            InstallStatusMessage = $"Restored the install from {restored.BackedUpAtUtc.ToLocalTime():g}. What was installed is backed up.";
+            InstallStatusMessage = $"Restored the install from {restored.BackedUpAtUtc.ToLocalTime():g}. What was installed is backed up. Your ticks stay as they are: the next Install builds from them again.";
             _activityLog.Log($"Restored the previous install ({Path.GetFileName(restored.PakBackupPath)}).", ActivityEntryKind.Success);
             SetHasExistingInstall(true);
             await RefreshInstalledModNamesAsync();

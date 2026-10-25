@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.Input;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Diffing;
@@ -63,29 +64,6 @@ public sealed partial class MergeInstallViewModel
         || InstallManifestNames.AllMergedPakFileNames
             .Prepend(Path.GetFileName(_outputPakPath))
             .Any(n => string.Equals(entry.FolderName, Path.GetFileNameWithoutExtension(n), StringComparison.OrdinalIgnoreCase));
-
-    /// <summary>
-    /// The "standard/minimum" baseline list — classic IMM's own "create a standard list and then
-    /// always merge that list with your current one" (ver 2.4.9). Saves the CURRENT queue as the
-    /// baseline; an empty queue clears it. Baseline mods are then prepended (lowest merge
-    /// priority, so a profile's own mods win conflicts) into every future queue load — visibly,
-    /// as real queue rows, never as an invisible union at rebuild time.
-    /// </summary>
-    [RelayCommand]
-    private void SetBaseline()
-    {
-        if (RefuseWhileRebuilding())
-        {
-            return;
-        }
-
-        _settingsService.Current.BaselineModFolderNames = [.. Queue.Select(e => e.FolderName)];
-        _settingsService.Save();
-        StatusMessage = Queue.Count == 0
-            ? "Baseline cleared — no mods are auto-added anymore."
-            : $"Baseline set — these {Queue.Count} mod(s) will be auto-added to every profile's queue.";
-        _activityLog.Log(Queue.Count == 0 ? "Cleared the baseline mod list." : $"Set baseline mod list ({Queue.Count} mod(s)).", ActivityEntryKind.Info);
-    }
 
     /// <summary>
     /// Reorders the queue's real EXMOD mods so the ones making fewer genuine edits (compared to
@@ -225,34 +203,6 @@ public sealed partial class MergeInstallViewModel
     }
 
     /// <summary>
-    /// Inserts baseline mods missing from the queue at its front, preserving the baseline's own
-    /// stored order (index 0 = lowest merge priority, so the queue's own mods override a baseline
-    /// mod on any conflicting field). A baseline mod no longer in the Library, or a pack Merge &amp;
-    /// Install built (see IsIslBuiltPack), is skipped silently — the queue rows themselves are the
-    /// visible truth of what will merge.
-    /// </summary>
-    private void PrependBaselineMods()
-    {
-        var insertAt = 0;
-        foreach (var folderName in _settingsService.Current.BaselineModFolderNames)
-        {
-            if (Queue.Any(q => string.Equals(q.FolderName, folderName, StringComparison.OrdinalIgnoreCase)))
-            {
-                continue;
-            }
-
-            var entry = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
-            if (entry is null || IsIslBuiltPack(entry))
-            {
-                continue;
-            }
-
-            Queue.Insert(insertAt, entry);
-            insertAt++;
-        }
-    }
-
-    /// <summary>
     /// Called from Library's own "Add to merge queue" action (Ctrl/Shift-click multi-select +
     /// right-click, or the toolbar button once 2+ rows are selected) — the only way mods reach this
     /// queue now that this page's own Library browsing pane is gone (redesign-round-2 pilot). Each
@@ -362,13 +312,43 @@ public sealed partial class MergeInstallViewModel
         }
     }
 
+    /// <summary>
+    /// Empties the list, which unticks every mod in the Library and is auto-saved into the
+    /// profile: asked first, and the list is kept as a backup point first so Restore profile
+    /// backup brings it back (the auto-save itself makes no backup).
+    /// </summary>
     [RelayCommand]
     private void ClearQueue()
     {
-        if (!RefuseWhileRebuilding())
+        if (RefuseWhileRebuilding() || Queue.Count == 0)
         {
-            Queue.Clear();
+            return;
         }
+
+        var profile = SelectedProfileName ?? "Default";
+        if (!_dialogs.Confirm(
+                $"Untick all {Queue.Count} mods and empty the list of profile '{profile}'?\n\nYour mods stay in the Library. Profile ▾ › Restore profile backup brings this list back.",
+                "Clear the merge list", ThemedConfirmSeverity.Warning))
+        {
+            return;
+        }
+
+        try
+        {
+            // Write the list as it is now first (an auto-save may still be pending), then save it
+            // again so the backup made by that second save is this list.
+            var current = CurrentWorkingProfile(profile);
+            _profileStore.SaveWithoutBackup(current);
+            _profileStore.Save(current);
+            RefreshCanRestoreProfileBackup();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't back up the list first ({ex.Message}), so it wasn't cleared.";
+            return;
+        }
+
+        Queue.Clear();
     }
 
     [RelayCommand]

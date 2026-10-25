@@ -205,8 +205,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             SelectedProfileName = "Default";
         }
 
-        PrependBaselineMods();
-
         // Any queue change at all invalidates existing conflict picks — see _manualPicks' own
         // comment for why an Add/Remove/Move/Clear can silently change what a pick's index means.
         // The actual conflict/validation recompute is debounced (_recomputeDebounceTimer, above)
@@ -303,7 +301,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         _ = RefreshHasExistingInstallAsync();
 
         // The CollectionChanged subscription above is attached AFTER SelectedProfileName = "Default"
-        // (and PrependBaselineMods) already populated Queue via Clear()+Add() during construction —
+        // already populated Queue via Clear()+Add() during construction —
         // by design, so a 30+-mod profile load doesn't fire dozens of redundant recomputes while
         // the queue is still being built. But that also means neither badge's own proactive
         // recompute ever ran for the initial load — confirmed live: a real saved profile with a mod

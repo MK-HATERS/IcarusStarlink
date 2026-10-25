@@ -33,7 +33,7 @@
                                   ToolTip="Replaces this profile with its own most recent backup — every save keeps a backup of the version before it (greyed out: no backup yet)"
                                   ToolTipService.ShowOnDisabled="True"/>
                         <Separator/>
-                        <MenuItem Header="Delete profile" Command="{Binding DeleteProfileCommand}" ToolTip="Deletes this saved queue+options preset — never touches any mod in your Library"/>
+                        <MenuItem Header="Delete profile" Command="{Binding DeleteProfileCommand}" ToolTip="Deletes this saved list and its options (asks first). Your mods stay in the Library; the ticks switch to the 'Default' profile's list"/>
                     </ContextMenu>
                 </Button.ContextMenu>
             </Button>
@@ -224,7 +224,7 @@
                                 Visibility="{Binding IsQueueEmpty, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="Nothing queued — turn mods on in Library." Style="{StaticResource EmptyStateTextStyle}" Margin="16,8,16,8"/>
                         <Button Content="Go to Library" Command="{Binding GoToLibraryCommand}" HorizontalAlignment="Center"
-                                ToolTip="Tick a mod's ON box there (or right-click › Add to merge queue)"/>
+                                ToolTip="Tick a mod's ON box there (select several rows with Ctrl or Shift and tick one to tick them all)"/>
                     </StackPanel>
                     </Grid>
                 </DockPanel>
@@ -252,14 +252,12 @@
                             <TextBlock Text="Remove" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Content="Clear" Command="{Binding ClearQueueCommand}" Margin="0,0,8,0" ToolTip="Empties the queue — each mod's ON tick in Library goes off too (nothing is deleted)"/>
-                    <Button Content="More ▾" Click="DropdownButton_Click" Margin="0,0,0,0" ToolTip="Suggest an order, set a baseline">
+                    <Button Content="Clear" Command="{Binding ClearQueueCommand}" Margin="0,0,8,0" ToolTip="Empties the list: each mod's ON tick in Library goes off too. Asks first; nothing is deleted, and Profile ▾ › Restore profile backup brings the list back"/>
+                    <Button Content="More ▾" Click="DropdownButton_Click" Margin="0,0,0,0" ToolTip="Suggest an order">
                         <Button.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Suggest order" Command="{Binding SuggestQueueOrderCommand}"
                                           ToolTip="Proposes reordering the queue so mods making fewer real edits sit later and win conflicts. Shows the new order and asks before changing anything."/>
-                                <MenuItem Header="Set baseline" Command="{Binding SetBaselineCommand}"
-                                          ToolTip="Saves the current queue as your baseline — these mods are auto-added (lowest priority) to every profile's queue from now on. With an empty queue it clears the baseline."/>
                             </ContextMenu>
                         </Button.ContextMenu>
                     </Button>
@@ -396,7 +394,7 @@
                                 </StackPanel>
                             </Button>
                             <Button Command="{Binding RestorePreviousInstallCommand}" Content="Restore previous install" Margin="8,0,0,4"
-                                    ToolTip="Puts back the merged pak that was installed before the current one, with its mod list. What's installed now is backed up first, so you can switch back."/>
+                                    ToolTip="Puts back the merged pak that was installed before the current one. What's installed now is backed up first, so you can switch back. Your ticks stay as they are, so the next Install builds from them again."/>
                         </WrapPanel>
                     </StackPanel>
                 </Expander>
