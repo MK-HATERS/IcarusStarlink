@@ -586,6 +586,38 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.True(File.Exists(Path.Combine(DedicatedServerLayout.PakModsFolder(_install), "ISL-Merged.txt")));
     }
 
+    /// <summary>
+    /// The server's own ArcFission Library writes a new data pak number on each rebuild and can't
+    /// delete the old ones while the server runs: copying the merge moves those into the server's
+    /// backups (never deleted), keeps the one the library's state.lua names, and doesn't call that
+    /// one a stray merged pak in the question.
+    /// </summary>
+    [Fact]
+    public void InstallMergedPak_MovesTheServersOlderArcFissionCopiesIntoItsBackups()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(MergedPakPath)!);
+        File.WriteAllBytes(MergedPakPath, [1, 2, 3]);
+        var modsFolder = DedicatedServerLayout.PakModsFolder(_install);
+        Directory.CreateDirectory(modsFolder);
+        File.WriteAllBytes(Path.Combine(modsFolder, "ZZ_ArcFission_Data_1_P.pak"), [1]);
+        File.WriteAllBytes(Path.Combine(modsFolder, "ZZ_ArcFission_Data_2_P.pak"), [2]);
+        var library = Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(_install), "ArcFissionLibrary");
+        Directory.CreateDirectory(library);
+        File.WriteAllText(Path.Combine(library, "enabled.txt"), "");
+        File.WriteAllText(Path.Combine(library, "state.lua"), "return {\n    [\"gen\"] = 2,\n}\n");
+        var (vm, _, _, dialogs) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        dialogs.Messages.Clear();
+
+        vm.InstallMergedPakCommand.Execute(null);
+
+        Assert.Equal(["ZZ_ArcFission_Data_2_P.pak", "zz_zz_ISL-Merged_9999_P.pak"], vm.ServerPaks.Select(p => p.FileName).Order(StringComparer.Ordinal));
+        var question = Assert.Single(dialogs.Messages);
+        Assert.Contains("1 older copy of ArcFission's data", question);
+        Assert.DoesNotContain("left alone", question);
+        Assert.Single(Directory.GetFiles(BackupsRoot, "*ZZ_ArcFission_Data_1_P.pak", SearchOption.AllDirectories));
+    }
+
     [Fact]
     public void Ue4ss_InstallFromGameThenMatch_CopiesTheModsOnInTheGame()
     {

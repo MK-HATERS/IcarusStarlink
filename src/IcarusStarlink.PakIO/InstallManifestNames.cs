@@ -116,6 +116,27 @@ public static class InstallManifestNames
     }
 
     /// <summary>
+    /// ArcFission data paks in a game's or a dedicated server's mods folder other than the one its
+    /// library uses now (CurrentArcFissionDataPak): file names, empty while ArcFission Library isn't
+    /// installed and on there (then every one is a leftover, handled as such). Each rebuild writes
+    /// the next number because the game keeps the loaded one locked, and the library can only delete
+    /// the old ones while the game is closed, which it never is when the library runs.
+    /// </summary>
+    public static IReadOnlyList<string> OlderArcFissionDataPaks(string icarusContentPath)
+    {
+        var modsFolder = Path.Combine(icarusContentPath, "Paks", "mods");
+        if (!Directory.Exists(modsFolder) || !IsArcFissionLibraryActive(icarusContentPath))
+        {
+            return [];
+        }
+
+        var current = Path.GetFileName(CurrentArcFissionDataPak(icarusContentPath));
+        return [.. Directory.GetFiles(modsFolder).Select(Path.GetFileName).OfType<string>()
+            .Where(n => IsArcFissionDataPak(n) && !string.Equals(n, current, StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>
     /// The ArcFission data pak the library uses now: the one its own state.lua names (gen), when
     /// that file is there, else the highest number. A stray file with a higher number than the
     /// library's own (copied in by hand, say) isn't taken for its current one.

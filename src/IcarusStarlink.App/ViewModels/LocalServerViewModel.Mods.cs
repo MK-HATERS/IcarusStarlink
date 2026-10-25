@@ -219,15 +219,26 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        // Older names of the merged pak are replaced by InstallPak, so they aren't "left alone".
+        // Older names of the merged pak are replaced by InstallPak, so they aren't "left alone". The
+        // server's own ArcFission Library data pak is that library's (the merge outranks it): its
+        // current one isn't a stray, and its older copies are moved into the backups.
+        var serverContent = Path.Combine(p.InstallFolder, "Icarus", "Content");
+        var oldArcFission = PakIO.InstallManifestNames.OlderArcFissionDataPaks(serverContent);
+        var arcFissionActive = PakIO.InstallManifestNames.IsArcFissionLibraryActive(serverContent);
         var others = ServerModFiles.ListPaks(p.InstallFolder)
             .Where(f => !string.Equals(f.FileName, Path.GetFileName(_mergedPakPath), StringComparison.OrdinalIgnoreCase))
             .Where(f => !ServerModFiles.LegacyMergedPakFileNames.Contains(f.FileName, StringComparer.OrdinalIgnoreCase))
+            .Where(f => !(arcFissionActive && PakIO.InstallManifestNames.IsArcFissionDataPak(f.FileName)))
             .Select(f => f.FileName)
             .ToList();
         var otherNote = others.Count == 0
             ? ""
             : $"\n\nAlso in the server's mods folder (left alone — both load): {string.Join(", ", others)}. Remove an old merged pak of the same mods, or players get both.";
+        if (oldArcFission.Count > 0)
+        {
+            otherNote += $"\n\n{oldArcFission.Count} older cop{(oldArcFission.Count == 1 ? "y" : "ies")} of ArcFission's data on the server (not used; its ArcFission Library only needs the newest) "
+                + "are moved into the server's backups folder.";
+        }
         if (!_dialogService.Confirm(
                 $"Copy your merged pak to '{p.Name}'?\n\nIt goes into {DedicatedServerLayout.PakModsFolder(p.InstallFolder)}. Players need the same content mods, so they should install the same build.{otherNote}",
                 "Install mods on the server", ThemedConfirmSeverity.Question))
@@ -243,8 +254,17 @@ public sealed partial class LocalServerViewModel
             await TryBackupAsync(p, "before-mods");
             // A merged pak under its earlier name is moved into the backups, not deleted.
             var backups = ServerBackupsFolder(p);
-            await OffUiThread(() => ServerModFiles.InstallPak(_mergedPakPath!, p.InstallFolder, PakIO.InstallManifestNames.PakManifest, backups));
-            StatusMessage = $"Installed {Path.GetFileName(_mergedPakPath)} on '{p.Name}'. It loads on the next start.";
+            await OffUiThread(() =>
+            {
+                ServerModFiles.InstallPak(_mergedPakPath!, p.InstallFolder, PakIO.InstallManifestNames.PakManifest, backups);
+                // Moved like every pak taken off a server (never deleted); Clean up backups trims them.
+                foreach (var old in oldArcFission)
+                {
+                    ServerModFiles.RemovePak(p.InstallFolder, old, backups);
+                }
+            });
+            StatusMessage = $"Installed {Path.GetFileName(_mergedPakPath)} on '{p.Name}'. It loads on the next start."
+                + (oldArcFission.Count > 0 ? $" {oldArcFission.Count} older ArcFission data cop{(oldArcFission.Count == 1 ? "y" : "ies")} moved into its backups." : "");
             _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
         }
         catch (Exception ex)
