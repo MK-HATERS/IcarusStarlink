@@ -35,6 +35,7 @@ public sealed class InstallService : IInstallService
         // before this fix, both the old and new merged paks loaded side by side in-game — backed
         // up (not just deleted outright) before removal, matching every other real-game-folder
         // write this app makes.
+        var newestArcFission = Path.GetFileName(InstallManifestNames.NewestArcFissionDataPak(modsDirectory));
         foreach (var existingFile in Directory.GetFiles(modsDirectory))
         {
             var existingFileName = Path.GetFileName(existingFile);
@@ -49,6 +50,22 @@ public sealed class InstallService : IInstallService
             // the library is installed: a leftover one is old data and goes like any other file.
             if (keepArcFissionDataPak && InstallManifestNames.IsArcFissionDataPak(existingFileName))
             {
+                // Its older copies (each rebuild writes the next number, since the game keeps the
+                // loaded one locked; the library can only delete them with the game closed, which it
+                // never is when the library runs) are 19 MB of tables nothing uses but the game
+                // still loads: removed, without a backup, since the library rebuilds from the game.
+                if (!string.Equals(existingFileName, newestArcFission, StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        File.Delete(existingFile);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // Still locked (the game started meanwhile): the next install tries again.
+                    }
+                }
+
                 continue;
             }
 

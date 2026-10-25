@@ -205,6 +205,21 @@ public sealed class MergeInstallViewModelTests : IDisposable
         File.WriteAllText(Path.Combine(folder, "enabled.txt"), "");
     }
 
+    /// <summary>An ArcFission mod turned on in the game, adding one recipe row (its CraftTime as given), as WirelessPower ships it.</summary>
+    private static void InstallArcFissionMod(string contentPath, string row, int craftTime)
+    {
+        var folder = Path.Combine(Path.GetDirectoryName(contentPath)!, "Binaries", "Win64", "ue4ss", "Mods", "WirelessPower");
+        Directory.CreateDirectory(Path.Combine(folder, "ArcFission"));
+        File.WriteAllText(Path.Combine(folder, "enabled.txt"), "");
+        File.WriteAllText(Path.Combine(folder, "ArcFission", "mod.lua"),
+            """return { arcfission = 1, author = "ArcFission", id = "WirelessPower", name = "Wireless Power", version = "0.9.5", rows = "rows.lua" }""");
+        File.WriteAllText(Path.Combine(folder, "ArcFission", "rows.lua"), $$"""
+            return { format = 1, tables = { ["Crafting/D_ProcessorRecipes.json"] = {
+                { name = "{{row}}", json = [[{ "Name": "{{row}}", "CraftTime": {{craftTime}} }]] },
+            } } }
+            """);
+    }
+
     private (FakeLibraryRepository Library, FakeSettingsService Settings) TwoConflictingMods(string nameA = "ModA", string nameB = "ModB")
     {
         var settings = new FakeSettingsService();
@@ -508,45 +523,49 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Empty(store.ProfileNames);
     }
 
-    /// <summary>ArcFission's prompt shows only with a merge installed that its newest data pak isn't part of.</summary>
+    /// <summary>ArcFission's prompt shows only with a merge installed whose ArcFission rows aren't the ones the mods add now.</summary>
     [Fact]
-    public async Task ArcFissionNeedsMerge_OnlyWhenAMergeIsInstalledWithoutItsNewestPak()
+    public async Task ArcFissionNeedsMerge_OnlyWhenAMergeIsInstalledWithoutTheModsRowsAsTheyAreNow()
     {
         var contentPath = Path.Combine(_tempRoot, "Content");
-        var modsFolder = Path.Combine(contentPath, "Paks", "mods");
-        Directory.CreateDirectory(modsFolder);
-        File.WriteAllBytes(Path.Combine(modsFolder, "ZZ_ArcFission_Data_3_P.pak"), []);
+        Directory.CreateDirectory(Path.Combine(contentPath, "Paks", "mods"));
         InstallArcFissionLibrary(contentPath);
+        InstallArcFissionMod(contentPath, "Wireless_Power_Node", craftTime: 10);
         var settings = new FakeSettingsService();
         settings.Current.IcarusContentPath = contentPath;
         var install = new FakeInstallService();
         var vm = CreateViewModel(installService: install, settingsService: settings);
+        var rows = vm.ScanArcFission()!.ManifestName;
 
         await vm.RefreshInstalledModNamesAsync();
         Assert.False(vm.ArcFissionNeedsMerge); // nothing installed
 
-        install.InstalledModNames = ["ModA", "ZZ_ArcFission_Data_2_P"];
+        install.InstalledModNames = ["ModA", "ZZ_ArcFission_Data_3_P"]; // a merge from before (the library's pak)
         await vm.RefreshInstalledModNamesAsync();
         Assert.True(vm.ArcFissionNeedsMerge);
 
-        install.InstalledModNames = ["ModA", "ZZ_ArcFission_Data_3_P"];
+        install.InstalledModNames = ["ModA", rows];
         await vm.RefreshInstalledModNamesAsync();
         Assert.False(vm.ArcFissionNeedsMerge);
+
+        // The mod updated: its rows changed, so the merge has old ones.
+        InstallArcFissionMod(contentPath, "Wireless_Power_Node", craftTime: 20);
+        await vm.RefreshInstalledModNamesAsync();
+        Assert.True(vm.ArcFissionNeedsMerge);
     }
 
     /// <summary>
-    /// ArcFission's data pak goes to Rebuild as the lowest-priority input, and a saved winner's
-    /// index counts it first, the same order Rebuild merges in.
+    /// The ArcFission mods' rows (read from their rows.lua, no game start and no pak needed) go to
+    /// Rebuild as the lowest-priority input, and a saved winner's index counts them first, the same
+    /// order Rebuild merges in.
     /// </summary>
     [Fact]
-    public async Task Rebuild_ArcFissionPakIsLowestPriority_AndSavedWinnerIndexCountsIt()
+    public async Task Rebuild_ArcFissionRowsAreLowestPriority_AndSavedWinnerIndexCountsThem()
     {
         var contentPath = Path.Combine(_tempRoot, "Content");
-        var modsFolder = Path.Combine(contentPath, "Paks", "mods");
-        Directory.CreateDirectory(modsFolder);
-        var arcFissionPak = Path.Combine(modsFolder, "ZZ_ArcFission_Data_3_P.pak");
-        File.WriteAllBytes(arcFissionPak, []);
+        Directory.CreateDirectory(Path.Combine(contentPath, "Paks", "mods"));
         InstallArcFissionLibrary(contentPath);
+        InstallArcFissionMod(contentPath, "SmelterRecipe", craftTime: 42);
         var settings = new FakeSettingsService();
         settings.Current.IcarusContentPath = contentPath;
         settings.Current.UnrealPakExePath = Path.Combine(_tempRoot, "UnrealPak.exe");
@@ -555,8 +574,6 @@ public sealed class MergeInstallViewModelTests : IDisposable
         library.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
         library.FolderPaths["ModB"] = CreateExmodFolder("ModB", BuildCraftTimeExmodJson("ModB", craftTime: 99), out _);
         var rebuild = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables() };
-        rebuild.PrebuiltPakChanges[arcFissionPak] =
-            [new FieldChange("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime", JsonValue.Create(3), JsonValue.Create(42), ValueSemantic.Scalar)];
         var store = new FakeProfileStore();
         store.Save(new Profile
         {
@@ -568,7 +585,9 @@ public sealed class MergeInstallViewModelTests : IDisposable
 
         Assert.True(await vm.RebuildAsync());
 
-        Assert.Equal([arcFissionPak], rebuild.LastLowPriorityPrebuiltPakFilePaths);
+        var rows = Assert.Single(rebuild.LastLowPriorityPackages!);
+        Assert.Equal(vm.ScanArcFission()!.ManifestName, rows.Name);
+        Assert.Equal(42, rows.Rows.Single().FileItems.Single().Fields["CraftTime"]!.GetValue<int>());
         Assert.Empty(rebuild.LastPrebuiltPakFilePaths!);
         // Candidates in merge order: ArcFission (0), ModA (1), ModB (2).
         Assert.Equal(1, rebuild.LastManualPicks![("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime")]);
@@ -1454,23 +1473,24 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Contains(vm.Warnings, w => w.StartsWith("1 saved conflict pick(s) no longer match"));
     }
 
-    /// <summary>ArcFission's data pak is only merged in while ArcFission Library itself is installed and on.</summary>
+    /// <summary>The ArcFission mods' rows are only merged in while ArcFission Library itself is installed and on.</summary>
     [Fact]
-    public async Task Rebuild_ArcFissionPakWithoutTheLibrary_IsNotMergedIn()
+    public async Task Rebuild_ArcFissionRowsWithoutTheLibrary_AreNotMergedIn()
     {
         var contentPath = Path.Combine(_tempRoot, "Content");
         var modsFolder = Path.Combine(contentPath, "Paks", "mods");
         Directory.CreateDirectory(modsFolder);
         File.WriteAllBytes(Path.Combine(modsFolder, "ZZ_ArcFission_Data_3_P.pak"), []);
+        InstallArcFissionMod(contentPath, "Wireless_Power_Node", craftTime: 10);
         var (library, settings) = TwoConflictingMods();
         settings.Current.IcarusContentPath = contentPath;
         var rebuild = new FakeRebuildService();
         var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, settingsService: settings);
         vm.Queue.Add(library.AllEntries[0]);
 
-        Assert.Null(vm.ArcFissionDataPakPath());
+        Assert.Null(vm.ScanArcFission());
         Assert.True(await vm.RebuildAsync());
-        Assert.Empty(rebuild.LastLowPriorityPrebuiltPakFilePaths!);
+        Assert.Empty(rebuild.LastLowPriorityPackages!);
     }
 
     /// <summary>
@@ -1854,7 +1874,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public int RebuildCallCount { get; private set; }
         public IReadOnlyList<ExmodPackageContents>? LastQueuedMods { get; private set; }
         public IReadOnlyList<string>? LastPrebuiltPakFilePaths { get; private set; }
-        public IReadOnlyList<string>? LastLowPriorityPrebuiltPakFilePaths { get; private set; }
+        public IReadOnlyList<ExmodPackage>? LastLowPriorityPackages { get; private set; }
         public IReadOnlyList<int>? LastPrebuiltPakQueuePositions { get; private set; }
         public GameplayOptions? LastGameplayOptions { get; private set; }
 
@@ -1870,12 +1890,12 @@ public sealed class MergeInstallViewModelTests : IDisposable
             string outputPakPath, IReadOnlyList<string> prebuiltPakFilePaths,
             IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
             IProgress<RebuildStageProgress>? progress = null, CancellationToken cancellationToken = default,
-            IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null, IReadOnlyList<int>? prebuiltPakQueuePositions = null)
+            IReadOnlyList<ExmodPackage>? lowPriorityPackages = null, IReadOnlyList<int>? prebuiltPakQueuePositions = null)
         {
             RebuildCallCount++;
             LastQueuedMods = queuedMods;
             LastPrebuiltPakFilePaths = prebuiltPakFilePaths;
-            LastLowPriorityPrebuiltPakFilePaths = lowPriorityPrebuiltPakFilePaths;
+            LastLowPriorityPackages = lowPriorityPackages;
             LastPrebuiltPakQueuePositions = prebuiltPakQueuePositions;
             LastManualPicks = manualPicks;
             LastGameplayOptions = gameplayOptions;

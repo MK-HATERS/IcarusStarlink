@@ -7,6 +7,8 @@ using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.PakIO;
+using IcarusStarlink.PakIO.ArcFission;
+using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.PakIO.Rebuild;
 
@@ -170,9 +172,17 @@ public sealed partial class MergeInstallViewModel
 
             using var perfScope = _performanceTracker.Track("Rebuild");
             var loaded = await LoadQueuedPackagesAsync(snapshot.Queue);
-            // ArcFission Library's data pak: its rows go into the merge (which outranks its pak),
-            // as the lowest-priority input so any queued mod or option wins a clash with it.
-            List<string> lowPriorityPaks = snapshot.ArcFissionPakPath is { } arcFission ? [arcFission] : [];
+            // The ArcFission mods' rows (read from their rows.lua): into the merge (which outranks
+            // the data pak ArcFission Library writes), lowest priority, so any queued mod or option
+            // wins a clash with them.
+            var arcFissionNotes = new List<string>(snapshot.ArcFission?.Problems ?? []);
+            List<ExmodPackage> lowPriority = snapshot.ArcFission is { HasRows: true } arcFission
+                ? [await Task.Run(() => ArcFissionRows.ToPackage(arcFission, GetOrCreateGameTableIndex(), arcFissionNotes))]
+                : [];
+            foreach (var note in arcFissionNotes)
+            {
+                Warnings.Add($"ArcFission: {note}");
+            }
 
             // Progress<T>'s own callback marshals back through the SynchronizationContext captured
             // at construction time — safe to update these bound properties directly from it since
@@ -195,13 +205,13 @@ public sealed partial class MergeInstallViewModel
             // Advanced log: exactly what this build was made from.
             Serilog.Log.Debug("Merge & Install build: queue (lowest priority first) {Queue}; prebuilt paks {Paks} at {Positions}; ArcFission/low-priority {Low}; {Picks} conflict pick(s) {PickList}; options {Options}",
                 string.Join(" > ", snapshot.Queue.Select(e => e.Name)), loaded.PrebuiltPakFilePaths.Select(Path.GetFileName), loaded.PrebuiltPakQueuePositions,
-                lowPriorityPaks.Select(Path.GetFileName),
+                lowPriority.Select(p => $"{p.Name} ({p.Rows.Sum(r => r.FileItems.Count)} rows)"),
                 picks?.Count ?? 0, picks?.Select(p => $"{p.Key.CurrentFile}/{p.Key.ItemName}.{p.Key.FieldName}=#{p.Value}"), snapshot.OptionsSummary);
             var result = await _rebuildService.RebuildAsync(
                 loaded.Packages, snapshot.Options, _dataFolder, snapshot.UnrealPakExePath, _outputPakPath, loaded.PrebuiltPakFilePaths, picks, progress,
-                lowPriorityPrebuiltPakFilePaths: lowPriorityPaks, prebuiltPakQueuePositions: loaded.PrebuiltPakQueuePositions);
+                lowPriorityPackages: lowPriority, prebuiltPakQueuePositions: loaded.PrebuiltPakQueuePositions);
 
-            var foldedInCount = loaded.PrebuiltPakFilePaths.Count + lowPriorityPaks.Count;
+            var foldedInCount = loaded.PrebuiltPakFilePaths.Count;
             var prebuiltNote = foldedInCount > 0 ? $", {foldedInCount} prebuilt pak(s) folded in" : "";
             StatusMessage = $"Built '{result.OutputPakPath}' — {result.PackedFileCount} files packed, "
                 + $"{result.MergedFileCount} data table(s) merged{prebuiltNote}.";
@@ -379,7 +389,7 @@ public sealed partial class MergeInstallViewModel
     /// <summary>
     /// Everything one build or conflict check is made from, taken at once from the page: the queue
     /// in order (only rows that can build — no greyed missing rows, no ISL-built packs), the options,
-    /// the conflict winners, ArcFission's data pak and the profile name.
+    /// the conflict winners, the ArcFission mods' rows and the profile name.
     /// </summary>
     internal sealed record BuildSnapshot(
         IReadOnlyList<LibraryEntry> Queue,
@@ -388,7 +398,7 @@ public sealed partial class MergeInstallViewModel
         string OptionsSummary,
         IReadOnlyDictionary<string, string> Winners,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? ManualPicks,
-        string? ArcFissionPakPath,
+        ArcFissionScan? ArcFission,
         string ProfileName,
         string UnrealPakExePath);
 
@@ -401,7 +411,7 @@ public sealed partial class MergeInstallViewModel
         ActiveOptionsSummary,
         new Dictionary<string, string>(_winners, StringComparer.OrdinalIgnoreCase),
         _manualPicks,
-        ArcFissionDataPakPath(),
+        ScanArcFission(),
         SelectedProfileName ?? "Default",
         _settingsService.Current.UnrealPakExePath ?? "");
 

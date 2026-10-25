@@ -860,32 +860,28 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RebuildAsync_LowPriorityPrebuiltPakAndModTouchSameField_ModWinsAndPicksCountThePakFirst()
+    public async Task RebuildAsync_LowPriorityRowsAndModTouchSameField_ModWinsAndPicksCountTheRowsFirst()
     {
-        // ArcFission Library's data pak goes in as a low-priority prebuilt pak: its changes come
-        // before every queued mod, so the queued mod wins a clash by default, and a manual pick's
-        // index counts it first (index 0 = the pak, index 1 = the mod).
+        // The ArcFission mods' rows go in at the lowest priority: their changes come before every
+        // queued mod, so the queued mod wins a clash by default, and a manual pick's index counts
+        // them first (index 0 = the rows, index 1 = the mod). Nothing is extracted for them.
         WriteBaseTable("Crafting/D_ProcessorRecipes.json",
             """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5,"RequiredMillijoules":100}]}""");
         var mod = MakeMod("Mod A", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
             new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
-        var arcFissionPakPath = Path.Combine(_tempDir, "ZZ_ArcFission_Data_3_P.pak");
+        var rows = MakeMod("ArcFission rows a8c639ff4269", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(999), ["RequiredMillijoules"] = System.Text.Json.Nodes.JsonValue.Create(42) }).Package;
         var pakService = new FakeUnrealPakService();
-        pakService.FakeExtractedFilesByPakPath[arcFissionPakPath] = new()
-        {
-            ["data/Crafting/D_ProcessorRecipes.json"] =
-                """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":999,"RequiredMillijoules":42}]}""",
-        };
         var service = new RebuildService(pakService);
 
         var result = await service.RebuildAsync(
             [mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [],
-            lowPriorityPrebuiltPakFilePaths: [arcFissionPakPath]);
+            lowPriorityPackages: [rows]);
 
         var row = System.Text.Json.Nodes.JsonNode.Parse(pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"])!["Rows"]![0]!;
         Assert.Equal(1, (int)row["CraftTime"]!);
         Assert.Equal(42, (int)row["RequiredMillijoules"]!);
-        Assert.Contains("ZZ_ArcFission_Data_3_P", await File.ReadAllTextAsync(result.ManifestPath));
+        Assert.Contains("ArcFission rows a8c639ff4269", await File.ReadAllTextAsync(result.ManifestPath));
 
         var picked = await service.RebuildAsync(
             [mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, [],
@@ -893,7 +889,7 @@ public class RebuildServiceTests : IDisposable
             {
                 [("Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe", "CraftTime")] = 0,
             },
-            lowPriorityPrebuiltPakFilePaths: [arcFissionPakPath]);
+            lowPriorityPackages: [rows]);
 
         row = System.Text.Json.Nodes.JsonNode.Parse(pakService.StagedFileContentsAtCallTime["data/Crafting/D_ProcessorRecipes.json"])!["Rows"]![0]!;
         Assert.Equal(999, (int)row["CraftTime"]!);
@@ -1079,11 +1075,11 @@ public class RebuildServiceTests : IDisposable
     }
 
     [Fact]
-    public void MergeParticipants_LowPriorityPaksFirst_ThenTheQueue_ThenTheOptionsLast()
+    public void MergeParticipants_LowPriorityRowsFirst_ThenTheQueue_ThenTheOptionsLast()
     {
         Assert.Equal(
         [
-            new MergeParticipant(MergeParticipantKind.LowPriorityPak, 0),
+            new MergeParticipant(MergeParticipantKind.LowPriority, 0),
             new MergeParticipant(MergeParticipantKind.Mod, 0),
             new MergeParticipant(MergeParticipantKind.Pak, 0),
             new MergeParticipant(MergeParticipantKind.Mod, 1),

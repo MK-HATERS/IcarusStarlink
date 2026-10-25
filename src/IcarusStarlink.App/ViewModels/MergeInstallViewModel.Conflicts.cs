@@ -8,6 +8,7 @@ using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Diffing;
+using IcarusStarlink.PakIO.ArcFission;
 using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.GameplayToggles;
 using IcarusStarlink.PakIO.Rebuild;
@@ -171,7 +172,10 @@ public sealed partial class MergeInstallViewModel
 
         var exmodChanges = await Task.Run(
             () => loaded.Packages.Select(p => ExmodFieldChangeMapper.ToFieldChanges(p.Package, classifier)).ToList());
-        var arcFission = canUnpack ? snapshot.ArcFissionPakPath : null;
+        // The ArcFission mods' rows, as the build takes them (read from their rows.lua; no UnrealPak needed).
+        var arcFission = snapshot.ArcFission is { HasRows: true } scan
+            ? await Task.Run(() => ArcFissionRows.ToPackage(scan, GetOrCreateGameTableIndex()))
+            : null;
         // MergeParticipants' order, the same one RebuildService merges in.
         foreach (var participant in MergeParticipants.Build(
                      arcFission is null ? 0 : 1, loaded.Packages.Count, canUnpack ? loaded.PrebuiltPakFilePaths.Count : 0,
@@ -179,12 +183,12 @@ public sealed partial class MergeInstallViewModel
         {
             switch (participant.Kind)
             {
-                case MergeParticipantKind.LowPriorityPak:
-                    var arcFissionChanges = await GetPrebuiltPakChangesAsync(arcFission!, unrealPak);
+                case MergeParticipantKind.LowPriority:
+                    var arcFissionChanges = ExmodFieldChangeMapper.ToFieldChanges(arcFission!, classifier);
                     if (arcFissionChanges.Count > 0)
                     {
                         orderedModChanges.Add(arcFissionChanges);
-                        names.Add(Path.GetFileNameWithoutExtension(arcFission!));
+                        names.Add("ArcFission mods");
                         ids.Add(ArcFissionWinnerId);
                     }
 

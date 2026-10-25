@@ -31,15 +31,15 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
         IProgress<RebuildStageProgress>? progress = null,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null,
+        IReadOnlyList<ExmodPackage>? lowPriorityPackages = null,
         IReadOnlyList<int>? prebuiltPakQueuePositions = null)
     {
         var report = new MergeReport();
-        var lowPriorityPaks = lowPriorityPrebuiltPakFilePaths ?? [];
+        var lowPriority = lowPriorityPackages ?? [];
         var order = MergeParticipants.QueueOrder(queuedMods.Count, prebuiltPakFilePaths.Count, prebuiltPakQueuePositions);
-        // Every prebuilt pak, lowest priority first (in queue order among themselves): extracted,
-        // folded in (a later pak wins a literal file collision) and listed in the manifest in this order.
-        IReadOnlyList<string> allPrebuiltPaks = [.. lowPriorityPaks, .. order.Where(o => o.PakIndex >= 0).Select(o => prebuiltPakFilePaths[o.PakIndex])];
+        // Every prebuilt pak, in queue order: extracted, folded in (a later pak wins a literal file
+        // collision) and listed in the manifest in this order.
+        IReadOnlyList<string> allPrebuiltPaks = [.. order.Where(o => o.PakIndex >= 0).Select(o => prebuiltPakFilePaths[o.PakIndex])];
         progress?.Report(new RebuildStageProgress("Merging queued mods…", 0));
 
         // Each prebuilt/opaque pak is extracted to its own scratch folder exactly once, up front —
@@ -77,7 +77,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
             // offloaded via Task.Run so it doesn't block the calling (UI) thread the way running it
             // bare ahead of this method's first real await used to.
             var (mergedTables, originalFileJsonByFile, prebuiltPakDiffedPaths) = await Task.Run(
-                () => ComputeMergedTables(queuedMods, gameplayOptions, dataFolder, lowPriorityPaks, prebuiltPakFilePaths, prebuiltPakQueuePositions, prebuiltPakScratchDirectories, manualPicks, report),
+                () => ComputeMergedTables(queuedMods, gameplayOptions, dataFolder, lowPriority, prebuiltPakFilePaths, prebuiltPakQueuePositions, prebuiltPakScratchDirectories, manualPicks, report),
                 cancellationToken);
 
             var stagingDirectory = Path.Combine(Path.GetTempPath(), "IcarusStarlink", $"Rebuild_{Guid.NewGuid():N}");
@@ -94,14 +94,14 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
                 {
                     StageMergedTables(mergedTables, originalFileJsonByFile, stagingDirectory, report);
                     StageFilesInQueueOrder(
-                        queuedMods, lowPriorityPaks, prebuiltPakFilePaths, order, prebuiltPakScratchDirectories, prebuiltPakDiffedPaths, stagingDirectory, report);
+                        queuedMods, prebuiltPakFilePaths, order, prebuiltPakScratchDirectories, prebuiltPakDiffedPaths, stagingDirectory, report);
                 }, cancellationToken);
 
                 progress?.Report(new RebuildStageProgress("Packing…", 75));
                 // The manifest lists everything in merge order (Restore queue from game reads it back).
                 IReadOnlyList<string> manifestNames =
                 [
-                    .. lowPriorityPaks.Select(p => Path.GetFileNameWithoutExtension(p)!),
+                    .. lowPriority.Select(p => p.Name),
                     .. order.Select(o => o.PakIndex >= 0
                         ? Path.GetFileNameWithoutExtension(prebuiltPakFilePaths[o.PakIndex])!
                         : queuedMods[o.ModIndex].Package.Name),
@@ -157,7 +157,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
     /// </summary>
     private static (Dictionary<string, JsonObject> Merged, Dictionary<string, JsonObject> Original, Dictionary<string, IReadOnlySet<string>> PrebuiltPakDiffedPaths) ComputeMergedTables(
         IReadOnlyList<ExmodPackageContents> queuedMods, GameplayOptions gameplayOptions, string dataFolder,
-        IReadOnlyList<string> lowPriorityPrebuiltPakFilePaths,
+        IReadOnlyList<ExmodPackage> lowPriorityPackages,
         IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyList<int>? prebuiltPakQueuePositions,
         IReadOnlyDictionary<string, string> prebuiltPakScratchDirectories,
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks, MergeReport report)
@@ -170,7 +170,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
         var participantNames = new List<string>();
 
         // Every participant in MergeParticipants' order (the one Merge & Install's conflict check
-        // counts picks in). Low-priority prebuilt paks (ArcFission Library's data pak) come first,
+        // counts picks in). Low-priority rows (the ArcFission mods' rows, ArcFissionRows) come first,
         // so any queued mod, prebuilt pak or gameplay option touching the same field wins over
         // them. Then the queue in its true order: a prebuilt pak carries no EXMOD-style declared
         // changes, so its own DataTable JSON is reverse-engineered into real FieldChanges by
@@ -196,12 +196,19 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
             }
         }
 
-        foreach (var participant in MergeParticipants.Build(lowPriorityPrebuiltPakFilePaths.Count, queuedMods.Count, prebuiltPakFilePaths.Count, prebuiltPakQueuePositions))
+        foreach (var participant in MergeParticipants.Build(lowPriorityPackages.Count, queuedMods.Count, prebuiltPakFilePaths.Count, prebuiltPakQueuePositions))
         {
             switch (participant.Kind)
             {
-                case MergeParticipantKind.LowPriorityPak:
-                    AddPak(lowPriorityPrebuiltPakFilePaths[participant.Index]);
+                case MergeParticipantKind.LowPriority:
+                    // Only when it adds something, as the conflict check counts it (a pick's index).
+                    var rows = ExmodFieldChangeMapper.ToFieldChanges(lowPriorityPackages[participant.Index], classifier);
+                    if (rows.Count > 0)
+                    {
+                        orderedModChanges.Add(rows);
+                        participantNames.Add(lowPriorityPackages[participant.Index].Name);
+                    }
+
                     break;
                 case MergeParticipantKind.Mod:
                     orderedModChanges.Add(ExmodFieldChangeMapper.ToFieldChanges(queuedMods[participant.Index].Package, classifier));
@@ -307,7 +314,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
     /// left to Validate mods' own asset-collision check, as before.
     /// </summary>
     private static void StageFilesInQueueOrder(
-        IReadOnlyList<ExmodPackageContents> queuedMods, IReadOnlyList<string> lowPriorityPrebuiltPakFilePaths,
+        IReadOnlyList<ExmodPackageContents> queuedMods,
         IReadOnlyList<string> prebuiltPakFilePaths, IReadOnlyList<(int ModIndex, int PakIndex)> order,
         IReadOnlyDictionary<string, string> prebuiltPakScratchDirectories,
         IReadOnlyDictionary<string, IReadOnlySet<string>> prebuiltPakDiffedPaths,
@@ -352,11 +359,6 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
                 Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
                 File.Copy(sourceFile, destPath, overwrite: true);
             }
-        }
-
-        foreach (var lowPriorityPak in lowPriorityPrebuiltPakFilePaths)
-        {
-            StagePak(lowPriorityPak);
         }
 
         foreach (var (modIndex, pakIndex) in order)

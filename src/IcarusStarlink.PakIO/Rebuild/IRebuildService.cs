@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Container;
+using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.PakIO.Rebuild;
 
@@ -31,11 +32,11 @@ public interface IRebuildService
     /// computed against (see MergeEngine.FindConflicts) — a stale pick against a since-changed queue
     /// throws ArgumentOutOfRangeException rather than silently applying the wrong mod's value.
     /// </param>
-    /// <param name="lowPriorityPrebuiltPakFilePaths">
-    /// Prebuilt paks folded in the same way as prebuiltPakFilePaths, but whose changes come FIRST
-    /// (lowest priority, before every queued mod) rather than after — ArcFission Library's own data
-    /// pak, which copies whole tables from the game, so any queued mod or gameplay option wins a
-    /// clash with it. A manualPicks index counts these first, ahead of the queued mods.
+    /// <param name="lowPriorityPackages">
+    /// Rows merged FIRST (lowest priority, before every queued mod): the rows the ArcFission mods in
+    /// the game add (ArcFissionRows.ToPackage), so any queued mod or gameplay option wins a clash with
+    /// them. Listed first in the manifest under their package name. A manualPicks index counts each
+    /// one with changes first, ahead of the queued mods.
     /// </param>
     /// <param name="prebuiltPakQueuePositions">
     /// Where each prebuilt pak sits in the queue: one entry per prebuiltPakFilePaths entry, the number
@@ -52,7 +53,7 @@ public interface IRebuildService
         IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? manualPicks = null,
         IProgress<RebuildStageProgress>? progress = null,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<string>? lowPriorityPrebuiltPakFilePaths = null,
+        IReadOnlyList<ExmodPackage>? lowPriorityPackages = null,
         IReadOnlyList<int>? prebuiltPakQueuePositions = null);
 
     /// <summary>

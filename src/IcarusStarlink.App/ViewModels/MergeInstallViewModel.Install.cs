@@ -7,6 +7,7 @@ using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.InstallComparison;
 using IcarusStarlink.PakIO;
+using IcarusStarlink.PakIO.ArcFission;
 using IcarusStarlink.PakIO.Install;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -108,15 +109,28 @@ public sealed partial class MergeInstallViewModel
     private IReadOnlyList<string> _lastInstalledModNames = [];
 
     /// <summary>
-    /// ArcFission Library's newest data pak in the game's mods folder, if any: written by the game
-    /// at start from the game's data plus its mods' rows (WirelessPower…). Merged in at each build,
-    /// but only while ArcFission Library itself is installed and on: a pak it left behind holds
-    /// whole tables from the game version it was written for (see LeftoverArcFissionDataPaks).
+    /// The ArcFission mods turned on in the game (WirelessPower…) and the rows they add, read from
+    /// their own rows.lua (ArcFissionRows): merged in at each build, lowest priority. Null while
+    /// ArcFission Library itself isn't installed and on (then those rows aren't in game either).
+    /// Read straight from the mods rather than from the data pak the library writes at game start,
+    /// so a build has them before the game has run, and never the pak's copies of the game's tables.
     /// </summary>
-    internal string? ArcFissionDataPakPath() =>
-        _settingsService.Current.IcarusContentPath is { Length: > 0 } content && InstallManifestNames.IsArcFissionLibraryActive(content)
-            ? InstallManifestNames.NewestArcFissionDataPak(Path.Combine(content, "Paks", "mods"))
-            : null;
+    internal ArcFissionScan? ScanArcFission()
+    {
+        if (_settingsService.Current.IcarusContentPath is not { Length: > 0 } content)
+        {
+            return null;
+        }
+
+        try
+        {
+            return ArcFissionRows.Scan(content);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>ArcFission data paks in the game's mods folder while ArcFission Library isn't installed or is off: old data nothing writes again, offered for removal at Install.</summary>
     private static List<string> LeftoverArcFissionDataPaks(string contentPath)
@@ -131,9 +145,9 @@ public sealed partial class MergeInstallViewModel
     }
 
     /// <summary>
-    /// ArcFission Library rebuilt its data since the installed merge (an ArcFission mod added or
-    /// updated, or a game update): its newest pak isn't one the merge was built from, so its new
-    /// rows aren't in the game until the next Merge &amp; Install.
+    /// An ArcFission mod was added, removed or updated since the installed merge was built: the
+    /// fingerprint of the rows the mods add now (ArcFissionScan.ManifestName) isn't the one in the
+    /// merge's manifest, so their rows aren't in the game until the next Merge &amp; Install.
     /// </summary>
     [ObservableProperty]
     private bool _arcFissionNeedsMerge;
@@ -160,8 +174,8 @@ public sealed partial class MergeInstallViewModel
             // Only with a merge installed (its manifest lists mods): with none, there's nothing for
             // ArcFission's newer rows to be missing from.
             ArcFissionNeedsMerge = installed.ModNames.Count > 0
-                && ArcFissionDataPakPath() is { } arcFission
-                && !installed.ModNames.Contains(Path.GetFileNameWithoutExtension(arcFission), StringComparer.OrdinalIgnoreCase);
+                && ScanArcFission() is { HasRows: true } arcFission
+                && !installed.ModNames.Contains(arcFission.ManifestName, StringComparer.OrdinalIgnoreCase);
             LastInstalledModNames = installed.ModNames;
         }
         catch (Exception)
@@ -285,10 +299,10 @@ public sealed partial class MergeInstallViewModel
                 var pakPaths = Directory.GetFiles(_libraryRepository.GetFolderPath(entry.FolderName), "*.pak").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
                 return pakPaths.Count > 0 ? pakPaths.Select(Path.GetFileNameWithoutExtension).Select(n => n!) : [entry.Name];
             }).ToList();
-            // Rebuild folds ArcFission Library's data pak in too, and the manifest lists it.
-            if (ArcFissionDataPakPath() is { } arcFission)
+            // Rebuild merges the ArcFission mods' rows in too, and the manifest lists them.
+            if (ScanArcFission() is { HasRows: true } arcFission)
             {
-                currentList.Insert(0, Path.GetFileNameWithoutExtension(arcFission));
+                currentList.Insert(0, arcFission.ManifestName);
             }
 
             var comparison = InstalledVsListComparer.Compare(installed.ModNames, currentList);
@@ -463,6 +477,17 @@ public sealed partial class MergeInstallViewModel
             ? $"\n\nIt will also remove {otherFilesToClear.Count} other file(s) already there (backed up first, not part of this merge):\n"
                 + string.Join('\n', otherFilesToClear.Select(n => $"  - {n}"))
             : "";
+
+        // ArcFission's older data copies go too (InstallService keeps only the newest).
+        var newestArcFission = Path.GetFileName(InstallManifestNames.NewestArcFissionDataPak(modsDirectory));
+        var oldArcFission = keepArcFission && Directory.Exists(modsDirectory)
+            ? Directory.GetFiles(modsDirectory).Select(Path.GetFileName).OfType<string>()
+                .Count(n => InstallManifestNames.IsArcFissionDataPak(n) && !string.Equals(n, newestArcFission, StringComparison.OrdinalIgnoreCase))
+            : 0;
+        if (oldArcFission > 0)
+        {
+            clearNote += $"\n\nIt also removes {oldArcFission} older cop{(oldArcFission == 1 ? "y" : "ies")} of ArcFission's data (not used; ArcFission Library only needs its newest).";
+        }
 
         // Same explicit Yes/No gate as every other real-machine write this app makes (the nxm://
         // registry registration, the UE4SS loader install) — this one specifically overwrites the

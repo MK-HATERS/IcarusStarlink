@@ -1,9 +1,9 @@
 namespace IcarusStarlink.PakIO.Rebuild;
 
-/// <summary>What one merge participant is: Index is into the low-priority paks, the queued EXMOD mods or the prebuilt paks (unused for Options).</summary>
+/// <summary>What one merge participant is: Index is into the low-priority rows, the queued EXMOD mods or the prebuilt paks (unused for Options).</summary>
 public enum MergeParticipantKind
 {
-    LowPriorityPak,
+    LowPriority,
     Mod,
     Pak,
     Options,
@@ -22,18 +22,18 @@ public readonly record struct MergeParticipant(MergeParticipantKind Kind, int In
 public static class MergeParticipants
 {
     /// <summary>
-    /// Low-priority paks (ArcFission Library's data pak) first, so anything queued wins over them;
-    /// then the queue in its true order (QueueOrder); then the built-in gameplay options last, so
-    /// they win by default. A caller leaves out a participant with no changes the same way either
-    /// way — that doesn't move any candidate index, only the relative order does.
+    /// Low-priority rows (the ArcFission mods' rows, ArcFissionRows) first, so anything queued wins
+    /// over them; then the queue in its true order (QueueOrder); then the built-in gameplay options
+    /// last, so they win by default. A caller leaves out a participant with no changes the same way
+    /// either way — that doesn't move any candidate index, only the relative order does.
     /// </summary>
     public static IReadOnlyList<MergeParticipant> Build(
-        int lowPriorityPakCount, int queuedModCount, int prebuiltPakCount, IReadOnlyList<int>? prebuiltPakQueuePositions)
+        int lowPriorityCount, int queuedModCount, int prebuiltPakCount, IReadOnlyList<int>? prebuiltPakQueuePositions)
     {
         var participants = new List<MergeParticipant>();
-        for (var i = 0; i < lowPriorityPakCount; i++)
+        for (var i = 0; i < lowPriorityCount; i++)
         {
-            participants.Add(new MergeParticipant(MergeParticipantKind.LowPriorityPak, i));
+            participants.Add(new MergeParticipant(MergeParticipantKind.LowPriority, i));
         }
 
         foreach (var (modIndex, pakIndex) in QueueOrder(queuedModCount, prebuiltPakCount, prebuiltPakQueuePositions))

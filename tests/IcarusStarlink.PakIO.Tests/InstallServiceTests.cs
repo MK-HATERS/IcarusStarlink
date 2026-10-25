@@ -132,6 +132,23 @@ public class InstallServiceTests : IDisposable
     /// merge outranks it, so it stays (deleting it only makes the library write it again). The
     /// merged pak's old name is cleared like any other leftover.
     /// </summary>
+    /// <summary>Each ArcFission rebuild writes the next number and the old one stays locked while the game runs: Install keeps the newest and removes the rest (not backed up: the library rebuilds from the game).</summary>
+    [Fact]
+    public async Task InstallAsync_KeepsOnlyTheNewestArcFissionDataPak()
+    {
+        var modsDirectory = Path.Combine(_fakeContentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsDirectory);
+        foreach (var name in new[] { "ZZ_ArcFission_Data_1_P.pak", "ZZ_ArcFission_Data_2_P.pak", "ZZ_ArcFission_Data_10_P.pak" })
+        {
+            await File.WriteAllTextAsync(Path.Combine(modsDirectory, name), "library data");
+        }
+
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+
+        Assert.Equal(["ZZ_ArcFission_Data_10_P.pak"], Directory.GetFiles(modsDirectory, "ZZ_ArcFission_*").Select(Path.GetFileName));
+        Assert.Empty(Directory.Exists(_backupDirectory) ? Directory.GetFiles(_backupDirectory, "ZZ_ArcFission_*") : []);
+    }
+
     [Fact]
     public async Task InstallAsync_LeavesArcFissionsOwnDataPak_ButClearsTheOldMergedPakName()
     {
