@@ -37,7 +37,9 @@ public class ExmodFieldValidityCheckerTests : IDisposable
 
         var finding = Assert.Single(findings);
         Assert.Equal("MaxStackk", finding.FieldName);
-        Assert.Contains("isn't a field", finding.Reason);
+        Assert.True(finding.IsUnknownField);
+        Assert.Equal("MaxStack", finding.SuggestedField);
+        Assert.Contains("has no field 'MaxStackk'", finding.Reason);
     }
 
     [Fact]

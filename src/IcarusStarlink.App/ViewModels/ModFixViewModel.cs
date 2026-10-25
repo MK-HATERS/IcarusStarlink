@@ -34,13 +34,14 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
     /// <summary>A game file a mod's cooked file uses (MissingAsset, MissingAssetPart): the file and what it uses, not a table row.</summary>
     private bool IsAsset => Issue.Kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart;
 
-    public string Row => IsAsset ? NameOf(Issue.CurrentFile) : Issue.ItemName;
+    public string Row => IsAsset ? NameOf(Issue.CurrentFile) : Issue.Kind == ModIssueKind.UnknownTable ? "(every row)" : Issue.ItemName;
 
     /// <summary>Under the row: the table, or for a mod's file what kind of file it is and where ("mesh · Deployables").</summary>
     public string Table => IsAsset ? AssetSubtitle(Issue.CurrentFile, "Mod's")
+        : Issue.Kind == ModIssueKind.UnknownTable ? Issue.CurrentFile
         : GameTableIndex.TableNameOf(Issue.CurrentFile).Replace("D_", "", StringComparison.Ordinal);
 
-    public string Field => IsAsset ? NameOf(Issue.ItemName) : Issue.FieldName ?? "(whole row)";
+    public string Field => IsAsset ? NameOf(Issue.ItemName) : Issue.Kind == ModIssueKind.UnknownTable ? "(whole table)" : Issue.FieldName ?? "(whole row)";
 
     /// <summary>Under the field: for a game file the mod uses, what kind it is ("game's material").</summary>
     public string? FieldSubtitle => IsAsset && GameContentNames.KindOf(NameOf(Issue.ItemName)) is { } kind
@@ -87,7 +88,14 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
         : Issue.Kind == ModIssueKind.OldGameRow ? $"carries an old copy of '{Issue.ItemName}'"
         : Issue.Kind == ModIssueKind.MissingRow ? $"changes '{Issue.ItemName}'"
         : Issue.Kind == ModIssueKind.SameAsGame ? ModFixViewModel.Describe(Issue.ModValue)
+        : Issue.Kind == ModIssueKind.UnknownTable ? $"names '{Issue.CurrentFile}'"
+        : Issue.Kind == ModIssueKind.UnknownField ? $"sets '{Issue.FieldName}' to {ModFixViewModel.Describe(Issue.ModValue)}"
+        : Issue.Kind == ModIssueKind.SharedTextKey ? TextAndKey(Issue.ModValue)
         : ModFixViewModel.OnlyIn(Issue.ModValue, Issue.GameValue) ?? ModFixViewModel.Describe(Issue.ModValue);
+
+    /// <summary>"'Rope' under key Item_Fiber-DisplayName".</summary>
+    private static string TextAndKey(JsonNode? value) =>
+        value is JsonValue v && v.TryGetValue<string>(out var s) && NsLocText.TryParse(s, out _, out var key, out var text) ? $"'{text}' under key {key}" : ModFixViewModel.Describe(value);
 
     public string GameText => Issue.Kind == ModIssueKind.MissingAssetPart ? $"took out: {Issue.FieldName}"
         : Issue.Kind == ModIssueKind.MissingAsset ? (Issue.SuggestedRow is null ? "doesn't have it any more" : $"has it in {GameContentNames.FolderWithArea(FolderOf(Issue.SuggestedRow))}")
@@ -95,10 +103,14 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
         : Issue.Kind == ModIssueKind.MissingRow ? (Issue.SuggestedRow is null ? "doesn't have it any more" : $"has '{Issue.SuggestedRow}'")
         : Issue.Kind == ModIssueKind.BrokenLink && Issue.GameValue is null ? "doesn't have what it links to"
         : Issue.Kind == ModIssueKind.SameAsGame ? "the same (no change)"
+        : Issue.Kind == ModIssueKind.UnknownTable ? (Issue.SuggestedRow is null ? "has no such table" : $"has it as '{Issue.SuggestedRow}'")
+        : Issue.Kind == ModIssueKind.UnknownField ? (Issue.SuggestedRow is null ? "has no such field" : $"calls it '{Issue.SuggestedRow}'")
+        : Issue.Kind == ModIssueKind.SharedTextKey ? $"another row has other words under that key; its own is {Issue.SuggestedRow}"
         : ModFixViewModel.OnlyIn(Issue.GameValue, Issue.ModValue) ?? ModFixViewModel.Describe(Issue.GameValue);
 
-    /// <summary>A renamed row has no values to compare, only the names; nor has a link with no game value to go back to.</summary>
-    public bool ShowValues => Issue.Kind is not (ModIssueKind.MissingRow or ModIssueKind.OldGameRow or ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart)
+    /// <summary>A renamed row has no values to compare, only the names; nor has a link with no game value to go back to, nor a table, field or text key the game reads under another name.</summary>
+    public bool ShowValues => Issue.Kind is not (ModIssueKind.MissingRow or ModIssueKind.OldGameRow or ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart
+            or ModIssueKind.UnknownTable or ModIssueKind.UnknownField or ModIssueKind.SharedTextKey)
         && !(Issue.Kind == ModIssueKind.BrokenLink && Issue.GameValue is null);
 
     /// <summary>"ASS/DEP/SM_X.uasset" or "/Game/ASS/DEP/M_X" → "SM_X" / "M_X".</summary>
@@ -489,6 +501,11 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.MissingAssetPart => -2,
         ModIssueKind.MissingRow => 3,
         ModIssueKind.OldGameRow => 5,
+        // What the game can't read at all comes first: nothing in it does anything yet.
+        ModIssueKind.UnknownTable => -6,
+        ModIssueKind.UnknownField => -5,
+        ModIssueKind.WrongType => -4,
+        ModIssueKind.SharedTextKey => 3,
         _ => 4,
     };
 
@@ -503,6 +520,10 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.OldGameRow => "Old game rows (tidy-up)",
         ModIssueKind.MissingAsset => "Game files it can't find",
         ModIssueKind.MissingAssetPart => "Parts the game took out",
+        ModIssueKind.UnknownTable => "Tables the game doesn't have",
+        ModIssueKind.UnknownField => "Fields the game doesn't have",
+        ModIssueKind.WrongType => "Values of the wrong kind",
+        ModIssueKind.SharedTextKey => "Text under another row's key",
         _ => kind.ToString(),
     };
 
@@ -517,17 +538,24 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.MissingAsset => "The mod's own files (meshes, materials, blueprints) use these game files where the game doesn't have them any more, so that part of the mod is broken: a missing look, a missing sound, or, if something is built on it, the game stopping when it loads. Where the game only moved a file (same name, same contents), the fix points the mod to the new place and changes nothing else. The rest needs the mod's author.",
         ModIssueKind.MissingAssetPart => "The game still has these files, but has taken out parts the mod's files use (a component of a game blueprint, say). Those parts of the mod do nothing now; nothing to fix here, the mod's author has to update it. Keep the mod's to stop it being listed.",
         ModIssueKind.OldGameRow => "Nothing wrong in game: the mod was made from an older game version and still carries whole rows the game has since removed (the game's own row history shows it had them, or another mod in your Library carries the same rows). Nothing uses them, so they do nothing. Removing them only makes the mod smaller.",
+        ModIssueKind.UnknownTable => "The mod names a table the game doesn't have, so the merge skips every row in it. Most often the folder part of the name is missing or wrong; where the game has a table of that name, the fix moves the rows there.",
+        ModIssueKind.UnknownField => "The mod sets fields these tables don't have, so the game ignores them and the change does nothing: a typo, or a field a game update renamed or removed. Where only the case differs, the fix matches the game's spelling. A close name is offered, but check it is what the author meant. Taking a field out changes nothing in game.",
+        ModIssueKind.WrongType => "The mod sets these to another kind of value than the game has (text where the game has a number, say), so the game may ignore them. Nothing to fix automatically; the mod's author has to correct it.",
+        ModIssueKind.SharedTextKey => "Each text in the game has its own key (row name and field). These texts use another row's key with other words, usually a row copied without changing its key, so the game can show one text in place of the other. The fix gives each its own key; the words stay the same.",
         _ => "",
     };
 
     internal static string ChoiceLabel(ModIssueFix fix, ModIssue issue) => fix switch
     {
-        ModIssueFix.UseGame => issue.Kind == ModIssueKind.SameAsGame ? "Take it out" : "Use the game's",
-        ModIssueFix.KeepMod => issue.Kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart ? "Leave it as it is" : "Keep the mod's",
+        ModIssueFix.UseGame => issue.Kind is ModIssueKind.SameAsGame or ModIssueKind.UnknownField ? "Take it out" : "Use the game's",
+        ModIssueFix.KeepMod => issue.Kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart or ModIssueKind.UnknownTable or ModIssueKind.WrongType ? "Leave it as it is" : "Keep the mod's",
         ModIssueFix.Merge => "Merge both",
         ModIssueFix.RenameRow => $"Rename to {issue.SuggestedRow}",
         ModIssueFix.RemoveRow => "Remove the row",
         ModIssueFix.Repoint => issue.SuggestedRow is null ? "Point to the new place" : $"Use the one in {FolderOfPackage(issue.SuggestedRow)}",
+        ModIssueFix.RenameTable => $"Move to {issue.SuggestedRow}",
+        ModIssueFix.RenameField => $"Rename to {issue.SuggestedRow}",
+        ModIssueFix.OwnTextKey => "Give it its own key",
         _ => fix.ToString(),
     };
 
@@ -542,13 +570,17 @@ public sealed partial class ModFixViewModel : ObservableObject
     {
         ModIssueFix.UseGame when kind == ModIssueKind.SameAsGame => "Take them all out",
         ModIssueFix.KeepMod when kind == ModIssueKind.SameAsGame => "Leave them all",
-        ModIssueFix.KeepMod when kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart => "Leave them all as they are",
+        ModIssueFix.KeepMod when kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart or ModIssueKind.UnknownTable or ModIssueKind.WrongType => "Leave them all as they are",
+        ModIssueFix.UseGame when kind == ModIssueKind.UnknownField => "Take them all out",
         ModIssueFix.UseGame => "Use the game's for all",
         ModIssueFix.KeepMod => "Keep the mod's for all",
         ModIssueFix.Merge => "Merge all",
         ModIssueFix.RenameRow => "Rename all",
         ModIssueFix.RemoveRow => "Remove all",
         ModIssueFix.Repoint => "Point all to the new places",
+        ModIssueFix.RenameTable => "Move all",
+        ModIssueFix.RenameField => "Rename all",
+        ModIssueFix.OwnTextKey => "Give each its own key",
         _ => fix.ToString(),
     };
 

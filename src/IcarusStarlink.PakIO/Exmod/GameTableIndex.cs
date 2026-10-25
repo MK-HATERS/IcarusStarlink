@@ -25,12 +25,24 @@ public sealed class GameTableIndex(string dataFolder)
     {
         lock (_gate)
         {
-            _currentFileByTable ??= ScaleRules.ListTables(DataFolder)
-                .GroupBy(f => Path.GetFileNameWithoutExtension(f.Split('-').Last()), StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-            return _currentFileByTable.GetValueOrDefault(tableName);
+            return TablesByName().GetValueOrDefault(tableName);
         }
     }
+
+    /// <summary>Whether there's extracted game data at all (without it, every table looks unknown).</summary>
+    public bool HasAnyTable()
+    {
+        lock (_gate)
+        {
+            return TablesByName().Count > 0;
+        }
+    }
+
+    /// <summary>Under _gate.</summary>
+    private Dictionary<string, string> TablesByName() =>
+        _currentFileByTable ??= ScaleRules.ListTables(DataFolder)
+            .GroupBy(f => Path.GetFileNameWithoutExtension(f.Split('-').Last()), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
     /// <summary>"Traits-D_Itemable.json" → "D_Itemable".</summary>
     public static string TableNameOf(string currentFile) => Path.GetFileNameWithoutExtension(currentFile.Split('-').Last());

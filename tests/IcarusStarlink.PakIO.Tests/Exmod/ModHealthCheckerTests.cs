@@ -399,6 +399,91 @@ public sealed class ModHealthCheckerTests : IDisposable
         Assert.DoesNotContain(ModHealthChecker.Check(unused, _data, fromPrebuiltPak: false, rowsSeveralModsAdd: several).Issues, i => i.Kind == ModIssueKind.OldGameRow);
     }
 
+    [Fact]
+    public void ATableNamedWithoutItsFolder_IsSureToMove_AndTheFixMovesItsRows()
+    {
+        // Real: This_Weeks_Changes wrote "D_FieldGuideSubcategories.json"; the merge skipped all 26 rows.
+        var package = Mod(("D_ItemsStatic.json", "Bread", "Weight", 5));
+
+        var report = ModHealthChecker.Check(package, _data);
+
+        var issue = Assert.Single(report.Issues, i => i.Kind == ModIssueKind.UnknownTable);
+        Assert.Equal("D_ItemsStatic.json", issue.CurrentFile);
+        Assert.Equal(Items, issue.SuggestedRow);
+        Assert.True(issue.IsAutomatic);
+        Assert.Contains("skips its row", issue.Why);
+
+        ModHealthChecker.ApplySure(package, report);
+        Assert.Equal(5, package.Rows.Single(r => r.CurrentFile == Items).FileItems.Single(i => i.Name == "Bread").Fields["Weight"]!.GetValue<int>());
+        Assert.DoesNotContain(package.Rows, r => r.CurrentFile == "D_ItemsStatic.json");
+    }
+
+    [Fact]
+    public void ATableTheGameDoesntHaveAnywhere_IsOnlyListed_AndNoGameDataMeansNoTableIsUnknown()
+    {
+        var package = Mod(("Items-D_NoSuchThing.json", "Bread", "Weight", 5));
+
+        var issue = Assert.Single(ModHealthChecker.Check(package, _data).Issues, i => i.Kind == ModIssueKind.UnknownTable);
+        Assert.False(issue.IsSure);
+        Assert.Equal([ModIssueFix.KeepMod], issue.Choices);
+
+        var empty = Path.Combine(_data, "empty");
+        Directory.CreateDirectory(empty);
+        Assert.DoesNotContain(ModHealthChecker.Check(package, empty).Issues, i => i.Kind == ModIssueKind.UnknownTable);
+    }
+
+    [Fact]
+    public void AFieldInOtherCase_IsSureToRename_ATypoIsOnlySuggested_AndMetadataIsAlwaysAField()
+    {
+        var package = Mod((Items, "Bread", "weight", 5), (Items, "Cheese", "Wieght", 6), (Items, "Wood_Floor", "Banana", 1),
+            (Items, "Canteen", "Metadata", new JsonObject { ["RequiredFeatureLevel"] = "Base" }));
+
+        var fields = ModHealthChecker.Check(package, _data).Issues.Where(i => i.Kind == ModIssueKind.UnknownField).ToDictionary(i => i.ItemName);
+
+        Assert.Equal(3, fields.Count);
+        Assert.True(fields["Bread"].IsAutomatic);
+        Assert.Equal("Weight", fields["Bread"].SuggestedRow);
+        Assert.False(fields["Cheese"].IsSure);
+        Assert.Equal(ModIssueFix.RenameField, fields["Cheese"].DefaultFix);
+        Assert.Equal("Weight", fields["Cheese"].SuggestedRow);
+        Assert.Null(fields["Wood_Floor"].SuggestedRow);
+        Assert.Equal([ModIssueFix.UseGame, ModIssueFix.KeepMod], fields["Wood_Floor"].Choices);
+
+        ModHealthChecker.Apply(package, [(fields["Bread"], ModIssueFix.RenameField), (fields["Wood_Floor"], ModIssueFix.UseGame)]);
+        var items = package.Rows.Single(r => r.CurrentFile == Items).FileItems;
+        Assert.Equal(5, items.Single(i => i.Name == "Bread").Fields["Weight"]!.GetValue<int>());
+        Assert.DoesNotContain(items, i => i.Name == "Wood_Floor");
+    }
+
+    [Fact]
+    public void TextUnderAnotherRowsKeyWithOtherWords_IsListed_AndTheFixGivesItItsOwnKey()
+    {
+        Write("Traits/D_Itemable.json", new JsonArray
+        {
+            new JsonObject { ["Name"] = "Item_Fiber", ["DisplayName"] = NsLocText.Make("D_Itemable", "Item_Fiber-DisplayName", "Fiber") },
+        });
+        const string Itemable = "Traits-D_Itemable.json";
+        var package = Mod(
+            // Copied from the game's Fiber with the words changed but not the key.
+            (Itemable, "Item_Rope", "DisplayName", NsLocText.Make("D_Itemable", "Item_Fiber-DisplayName", "Rope")),
+            // Reusing the game's text as it is: the game's words and translations, fine.
+            (Itemable, "Item_Fiber_Bundle", "DisplayName", NsLocText.Make("D_Itemable", "Item_Fiber-DisplayName", "Fiber")),
+            // Two of the mod's own rows under one key.
+            (Itemable, "Item_Lamp", "DisplayName", NsLocText.Make("D_Itemable", "Item_Lamp-DisplayName", "Lamp")),
+            (Itemable, "Item_Lamp_Small", "DisplayName", NsLocText.Make("D_Itemable", "Item_Lamp-DisplayName", "Small lamp")));
+
+        var shared = ModHealthChecker.Check(package, _data).Issues.Where(i => i.Kind == ModIssueKind.SharedTextKey).ToDictionary(i => i.ItemName);
+
+        Assert.Equal(["Item_Lamp_Small", "Item_Rope"], shared.Keys.Order());
+        Assert.Contains("the game's 'Item_Fiber'", shared["Item_Rope"].Why);
+        Assert.False(shared["Item_Rope"].IsSure);
+
+        ModHealthChecker.Apply(package, [(shared["Item_Rope"], ModIssueFix.OwnTextKey)]);
+        var rope = package.Rows.Single(r => r.CurrentFile == Itemable).FileItems.Single(i => i.Name == "Item_Rope").Fields["DisplayName"]!.GetValue<string>();
+        Assert.True(NsLocText.TryParse(rope, out _, out var key, out var text));
+        Assert.Equal(("Item_Rope-DisplayName", "Rope"), (key, text));
+    }
+
     private void AddGameTagToCheese()
     {
         var path = Path.Combine(_data, "Items", "D_ItemsStatic.json");

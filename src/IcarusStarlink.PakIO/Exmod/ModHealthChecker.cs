@@ -49,6 +49,30 @@ public enum ModIssueKind
 
     /// <summary>A file of the mod uses parts of a game file the game has since taken out of it (a component of a game blueprint): those parts of the mod do nothing. Only listed.</summary>
     MissingAssetPart,
+
+    /// <summary>
+    /// A CurrentFile that names no game table: the merge skips every row in it. Sure when the game
+    /// has a table of that name in one place (the folder part is missing or wrong): the fix moves
+    /// the rows there (SuggestedRow is that CurrentFile). ItemName is empty.
+    /// </summary>
+    UnknownTable,
+
+    /// <summary>
+    /// A field the table doesn't have: the game ignores it, so the change does nothing. SuggestedRow
+    /// is the field it most likely means (the same name in other case: sure, matching the spelling;
+    /// a close name: a guess).
+    /// </summary>
+    UnknownField,
+
+    /// <summary>A value of another kind than the game's (text where the game has a number): the game may ignore it. Only listed.</summary>
+    WrongType,
+
+    /// <summary>
+    /// Text (NSLOCTEXT) using the key of another row's text with other words: two texts under one
+    /// key, so the game can show one in place of the other. The fix gives it its own key
+    /// ("&lt;Row&gt;-&lt;Field&gt;", SuggestedRow); the words stay.
+    /// </summary>
+    SharedTextKey,
 }
 
 /// <summary>How to handle one issue.</summary>
@@ -62,6 +86,15 @@ public enum ModIssueFix
 
     /// <summary>Point the mod's file at the game's new place for what it uses (MissingAsset; the place is SuggestedRow).</summary>
     Repoint,
+
+    /// <summary>Move the rows to the game's table of that name (UnknownTable; the CurrentFile is SuggestedRow).</summary>
+    RenameTable,
+
+    /// <summary>Give the field the game's name for it (UnknownField; the name is SuggestedRow).</summary>
+    RenameField,
+
+    /// <summary>Give the text its own key (SharedTextKey; the key is SuggestedRow).</summary>
+    OwnTextKey,
 }
 
 /// <param name="FieldName">Null for a whole-row issue (MissingRow). A path ("Inputs[0].Element") for a link inside a field.</param>
@@ -88,6 +121,11 @@ public sealed record ModIssue(
         ModIssueKind.OldGameRow => [ModIssueFix.RemoveRow, ModIssueFix.KeepMod],
         ModIssueKind.MissingAsset when SuggestedRow is not null => [ModIssueFix.Repoint, ModIssueFix.KeepMod],
         ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart => [ModIssueFix.KeepMod],
+        ModIssueKind.UnknownTable => SuggestedRow is null ? [ModIssueFix.KeepMod] : [ModIssueFix.RenameTable, ModIssueFix.KeepMod],
+        // Taking out a field the game doesn't have changes nothing in game (UseGame leaves a field out).
+        ModIssueKind.UnknownField => SuggestedRow is null ? [ModIssueFix.UseGame, ModIssueFix.KeepMod] : [ModIssueFix.RenameField, ModIssueFix.UseGame, ModIssueFix.KeepMod],
+        ModIssueKind.WrongType => [ModIssueFix.KeepMod],
+        ModIssueKind.SharedTextKey => [ModIssueFix.OwnTextKey, ModIssueFix.KeepMod],
         // A link inside a field, or in the mod's own row: no game value to go back to, only to look at.
         ModIssueKind.BrokenLink when GameValue is null => [ModIssueFix.KeepMod],
         _ when MergedValue is not null => [ModIssueFix.Merge, ModIssueFix.UseGame, ModIssueFix.KeepMod],
@@ -138,7 +176,7 @@ public sealed record ModHealthReport(IReadOnlyList<ModIssue> Issues, int AuthorC
 /// an object whose differences are all such lists, a field the mod deletes that the game has, and
 /// a value the game's own change history (the weekly reports) shows it had before an update.
 /// </summary>
-public static class ModHealthChecker
+public static partial class ModHealthChecker
 {
     /// <summary>A table where the mod changes at least this many rows, and at least this share of them carry an old copy, was copied wholesale.</summary>
     private const int WholesaleCopyMinRows = 25;
@@ -461,6 +499,11 @@ public static class ModHealthChecker
                     : $"{links} to '{link.Row}' in {link.Table}, which neither the game nor any mod in your Library has: it needs a mod that adds '{link.Row}'. Without one this link does nothing in game."));
         }
 
+        // Tables, fields and text keys the game can't use as the mod writes them; not on rows
+        // already listed as old or missing (they go as a whole).
+        issues.AddRange(FormatIssues(package, gameIndex).Where(i => !oldRows.Contains(AddedRowKey(i.CurrentFile, i.ItemName))
+            && !missingRows.Contains(AddedRowKey(i.CurrentFile, i.ItemName))));
+
         // What the mod's cooked files use that the game doesn't have (AssetReferenceIssues): its
         // remembered choices apply to them too.
         if (assetIssues is { Count: > 0 })
@@ -505,7 +548,12 @@ public static class ModHealthChecker
         // Field fixes first, through an index (a wholesale-copied mod has a thousand-plus fixes over
         // hundreds of rows); row renames and removals last, since they change the names indexed.
         var changing = fixes.Where(f => f.Fix != ModIssueFix.KeepMod)
-            .OrderBy(f => f.Fix is ModIssueFix.RenameRow or ModIssueFix.RemoveRow ? 1 : 0)
+            .OrderBy(f => f.Fix switch
+            {
+                ModIssueFix.RenameRow or ModIssueFix.RemoveRow => 1,
+                ModIssueFix.RenameTable => 2,
+                _ => 0,
+            })
             .ToList();
         var rowsByFile = new Dictionary<string, ExmodFileRow>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in package.Rows)
@@ -518,6 +566,16 @@ public static class ModHealthChecker
         var applied = 0;
         foreach (var (issue, fix) in changing)
         {
+            if (fix == ModIssueFix.RenameTable)
+            {
+                if (issue.SuggestedRow is { } table && MoveTable(package, issue.CurrentFile, table))
+                {
+                    applied++;
+                }
+
+                continue;
+            }
+
             if (!rowsByFile.TryGetValue(issue.CurrentFile, out var row))
             {
                 continue;
@@ -543,6 +601,24 @@ public static class ModHealthChecker
                     break;
                 case ModIssueFix.RenameRow when issue.SuggestedRow is { } newName:
                     items.ForEach(i => i.Name = newName);
+                    break;
+                case ModIssueFix.RenameField when issue.FieldName is { } field && issue.SuggestedRow is { } newField:
+                    items.ForEach(i =>
+                    {
+                        if (i.Fields.Remove(field, out var value))
+                        {
+                            i.Fields[newField] = value;
+                        }
+                    });
+                    break;
+                case ModIssueFix.OwnTextKey when issue.FieldName is { } field && issue.SuggestedRow is { } key:
+                    items.ForEach(i =>
+                    {
+                        if (i.Fields.GetValueOrDefault(field) is JsonValue text && text.TryGetValue<string>(out var value) && NsLocText.WithKey(value, key) is { } rekeyed)
+                        {
+                            i.Fields[field] = JsonValue.Create(rekeyed);
+                        }
+                    });
                     break;
                 case ModIssueFix.RemoveRow:
                     row.FileItems.RemoveAll(items.Contains);
