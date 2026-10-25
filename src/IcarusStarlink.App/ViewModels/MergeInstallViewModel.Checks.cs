@@ -1,5 +1,7 @@
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO.Exmod;
@@ -30,8 +32,10 @@ public sealed record QueuedModProblems(string FolderName, string Name, int Probl
 /// The merge's check besides conflicts, behind the page's one bar and the one Review window:
 /// what clashes between queued mods (the same file in two mods, talent trees, a link to a row only
 /// a mod outside this merge adds), and which queued mods the Library's own health check flags
-/// (the same check as the Library's badge, so the two never disagree; each mod's problems are
-/// fixed in the Library's fix window). Nothing here stops a merge.
+/// (the same check as the Library's badge, and the results are sent to the Library's rows, so
+/// their badges agree; each mod's problems are fixed in the Library's fix window). The Library's
+/// Problems chip also counts mods replacing high-risk game files, which this doesn't. Nothing
+/// here stops a merge.
 /// </summary>
 public sealed partial class MergeInstallViewModel
 {
@@ -42,6 +46,13 @@ public sealed partial class MergeInstallViewModel
     private readonly Dictionary<string, ModHealthReport> _healthCache = new(StringComparer.OrdinalIgnoreCase);
 
     private LibraryAddedRowSet? _libraryAddedRows;
+
+    /// <summary>
+    /// Bumped by every InvalidateCheckCache (under _packageCacheLock). A check that started before
+    /// the Library changed must not put what it read back into the cache after it was cleared, or
+    /// the old rows and reports would stay until the next change.
+    /// </summary>
+    private int _checkCacheGeneration;
 
     [ObservableProperty]
     private IReadOnlyList<BetweenModsFinding> _betweenModsFindings = [];
@@ -95,6 +106,7 @@ public sealed partial class MergeInstallViewModel
         {
             _healthCache.Clear();
             _libraryAddedRows = null;
+            _checkCacheGeneration++;
         }
     }
 
@@ -114,11 +126,16 @@ public sealed partial class MergeInstallViewModel
 
         try
         {
-            var (between, perMod) = await FindQueueChecksAsync();
+            var (between, perMod, reports) = await FindQueueChecksAsync();
             if (version == _checkVersion)
             {
                 BetweenModsFindings = between;
                 ModsWithProblems = perMod;
+                // The Library's badges and Problems count show the same results.
+                if (reports.Count > 0)
+                {
+                    _messenger.Send(new ModHealthCheckedMessage(reports));
+                }
             }
         }
         catch (Exception)
@@ -132,13 +149,19 @@ public sealed partial class MergeInstallViewModel
     /// built it (its old copies are the health check's once it's made editable), and the built-in
     /// gameplay options write fields Starlink knows.
     /// </summary>
-    private async Task<(IReadOnlyList<BetweenModsFinding> Between, IReadOnlyList<QueuedModProblems> PerMod)> FindQueueChecksAsync()
+    private async Task<(IReadOnlyList<BetweenModsFinding> Between, IReadOnlyList<QueuedModProblems> PerMod, IReadOnlyDictionary<string, ModHealthReport> Reports)> FindQueueChecksAsync()
     {
         var loaded = await LoadQueuedPackagesAsync();
         var (entries, packages) = (loaded.Entries, loaded.Packages);
 
         return await Task.Run(() =>
         {
+            int generation;
+            lock (_packageCacheLock)
+            {
+                generation = _checkCacheGeneration;
+            }
+
             var gameIndex = GetOrCreateGameTableIndex();
             var queued = entries.Zip(packages, (entry, package) => (entry.Name, package)).ToList();
             var between = new List<BetweenModsFinding>();
@@ -159,20 +182,27 @@ public sealed partial class MergeInstallViewModel
                 between.Add(new BetweenModsFinding("Talent tree", string.Join(", ", finding.Mods), $"D_Talents · {finding.Node}", finding.Reason, BetweenModsFinding.TalentTreeCode));
             }
 
-            var libraryRows = LibraryAddedRowsForCheck();
+            var libraryRows = LibraryAddedRowsForCheck(generation);
             if (libraryRows is not null)
             {
                 between.AddRange(NeedsModsOutsideTheMerge(entries, packages.Select(p => p.Package).ToList(), gameIndex, libraryRows));
             }
 
             var perMod = new List<QueuedModProblems>();
+            var reports = new Dictionary<string, ModHealthReport>(StringComparer.OrdinalIgnoreCase);
             if (_fixService is not null && libraryRows is not null && gameIndex.HasAnyTable())
             {
                 var history = _fixService.History();
                 var baseTables = new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
                 foreach (var entry in entries)
                 {
-                    if (HealthFor(entry, baseTables, history, libraryRows) is { ProblemCount: > 0 } report)
+                    if (HealthFor(entry, baseTables, history, libraryRows, generation) is not { } report)
+                    {
+                        continue;
+                    }
+
+                    reports[entry.FolderName] = report;
+                    if (report.ProblemCount > 0)
                     {
                         var problems = report.Issues.Where(i => !i.IsTidyOnly).ToList();
                         var kinds = string.Join(", ", problems.GroupBy(i => i.Kind).OrderByDescending(g => g.Count())
@@ -182,7 +212,7 @@ public sealed partial class MergeInstallViewModel
                 }
             }
 
-            return ((IReadOnlyList<BetweenModsFinding>)between, (IReadOnlyList<QueuedModProblems>)perMod);
+            return ((IReadOnlyList<BetweenModsFinding>)between, (IReadOnlyList<QueuedModProblems>)perMod, (IReadOnlyDictionary<string, ModHealthReport>)reports);
         });
     }
 
@@ -217,8 +247,8 @@ public sealed partial class MergeInstallViewModel
         }
     }
 
-    /// <summary>The rows every Library mod adds, read once until the Library changes (null without the health check).</summary>
-    private LibraryAddedRowSet? LibraryAddedRowsForCheck()
+    /// <summary>The rows every Library mod adds, read once until the Library changes (null without the health check). Kept only when the cache wasn't cleared meanwhile (generation).</summary>
+    private LibraryAddedRowSet? LibraryAddedRowsForCheck(int generation)
     {
         if (_fixService is null)
         {
@@ -236,12 +266,12 @@ public sealed partial class MergeInstallViewModel
         var rows = _fixService.LibraryAddedRows() as LibraryAddedRowSet;
         lock (_packageCacheLock)
         {
-            return _libraryAddedRows ??= rows;
+            return generation == _checkCacheGeneration ? _libraryAddedRows ??= rows : rows;
         }
     }
 
     /// <summary>A queued mod's health report, the Library's check (cached until the Library or the game data changes); null when it can't be read.</summary>
-    private ModHealthReport? HealthFor(LibraryEntry entry, IDictionary<string, JsonObject?> baseTables, GameValueHistory history, LibraryAddedRowSet libraryRows)
+    private ModHealthReport? HealthFor(LibraryEntry entry, IDictionary<string, JsonObject?> baseTables, GameValueHistory history, LibraryAddedRowSet libraryRows, int generation)
     {
         lock (_packageCacheLock)
         {
@@ -256,7 +286,10 @@ public sealed partial class MergeInstallViewModel
             var report = _fixService!.Check(entry.FolderName, baseTables, history, libraryRows);
             lock (_packageCacheLock)
             {
-                _healthCache[entry.FolderName] = report;
+                if (generation == _checkCacheGeneration)
+                {
+                    _healthCache[entry.FolderName] = report;
+                }
             }
 
             return report;

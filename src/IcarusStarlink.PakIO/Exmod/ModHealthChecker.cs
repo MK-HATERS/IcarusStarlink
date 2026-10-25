@@ -624,9 +624,10 @@ public static partial class ModHealthChecker
                 case ModIssueFix.RenameField when issue.FieldName is { } field && issue.SuggestedRow is { } newField:
                     items.ForEach(i =>
                     {
+                        // A copy of the row that already has the right name keeps its value; the misspelt one goes.
                         if (i.Fields.Remove(field, out var value))
                         {
-                            i.Fields[newField] = value;
+                            i.Fields.TryAdd(newField, value);
                         }
                     });
                     break;

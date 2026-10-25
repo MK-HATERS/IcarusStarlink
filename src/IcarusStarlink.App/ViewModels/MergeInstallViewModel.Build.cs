@@ -189,7 +189,7 @@ public sealed partial class MergeInstallViewModel
             {
                 Warnings.Add(
                     $"{unmatchedPicks} saved conflict pick(s) no longer match what the queued mods change (a mod was updated or reordered into agreement), so they weren't used. "
-                    + "Review conflicts to pick again.");
+                    + "Check the merge to pick again.");
             }
 
             // Advanced log: exactly what this build was made from.

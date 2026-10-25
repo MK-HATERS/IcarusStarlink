@@ -456,6 +456,21 @@ public sealed class ModHealthCheckerTests : IDisposable
     }
 
     [Fact]
+    public void ARowListedTwice_GivesOneFinding_AndTheRenameKeepsACopyThatAlreadyHasTheRightName()
+    {
+        var package = Mod((Items, "Bread", "Wieght", 5));
+        var items = package.Rows.Single(r => r.CurrentFile == Items).FileItems;
+        items.Insert(0, new ExmodFileItem { Name = "Bread", Fields = new() { ["Weight"] = 7, ["Wieght"] = 6 } });
+
+        var issue = Assert.Single(ModHealthChecker.Check(package, _data).Issues, i => i.Kind == ModIssueKind.UnknownField);
+        ModHealthChecker.Apply(package, [(issue, ModIssueFix.RenameField)]);
+
+        Assert.Equal(7, items[0].Fields["Weight"]!.GetValue<int>());
+        Assert.False(items[0].Fields.ContainsKey("Wieght"));
+        Assert.Equal(5, items[1].Fields["Weight"]!.GetValue<int>());
+    }
+
+    [Fact]
     public void TextUnderAnotherRowsKeyWithOtherWords_IsListed_AndTheFixGivesItItsOwnKey()
     {
         Write("Traits/D_Itemable.json", new JsonArray

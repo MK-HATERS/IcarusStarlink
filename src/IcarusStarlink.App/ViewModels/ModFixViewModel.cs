@@ -484,6 +484,8 @@ public sealed partial class ModFixViewModel : ObservableObject
             ChangedWithoutApply = true;
             Load(_service.Check(_folderName));
             StatusMessage = "Earlier choices forgotten: everything below is suggested afresh.";
+            // What's flagged changed (kept values are listed again): Merge & Install checks again.
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         }
         catch (Exception ex)
         {

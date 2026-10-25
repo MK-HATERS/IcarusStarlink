@@ -437,13 +437,25 @@ public sealed partial class MergeInstallViewModel
         {
             var found = await FindQueueConflictsAsync(snapshot, await LoadQueuedPackagesAsync(snapshot.Queue));
             var (conflicts, newItemCollisions, modNames) = (found.Conflicts, found.NewItemCollisions, found.Names);
-            await RecomputeChecksAsync();
+            // Checked afresh for this window (a failure shows below, never last time's findings),
+            // and superseding any background check still running.
+            var version = ++_checkVersion;
+            var (between, perMod, reports) = await FindQueueChecksAsync();
+            if (version == _checkVersion)
+            {
+                BetweenModsFindings = between;
+                ModsWithProblems = perMod;
+                if (reports.Count > 0)
+                {
+                    _messenger.Send(new ModHealthCheckedMessage(reports));
+                }
+            }
             // The window and the bar count from the same tally (the window's own), so they agree.
             var shownWinners = ToDisplayWinners(snapshot.Winners, found);
-            var reviewViewModel = new MergeConflictsViewModel(conflicts, newItemCollisions, shownWinners, BetweenModsFindings, ModsWithProblems);
+            var reviewViewModel = new MergeConflictsViewModel(conflicts, newItemCollisions, shownWinners, between, perMod);
             ApplyConflicts(found);
 
-            if (conflicts.Count == 0 && newItemCollisions.Count == 0 && BetweenModsFindings.Count == 0 && ModsWithProblems.Count == 0)
+            if (conflicts.Count == 0 && newItemCollisions.Count == 0 && between.Count == 0 && perMod.Count == 0)
             {
                 _manualPicks = null;
                 ConflictStatusMessage = $"Nothing to look at among {modNames.Count} mod(s): no conflicts, nothing clashing between mods, and no problems in the queued mods.";
@@ -472,7 +484,11 @@ public sealed partial class MergeInstallViewModel
                 // Fix… on a mod: the Library's own fix window for it.
                 if (reviewViewModel.FixFolderName is { } folder)
                 {
-                    _messenger.Send(new OpenModFixMessage(folder));
+                    var request = _messenger.Send(new OpenModFixMessage(folder));
+                    if (request.HasReceivedResponse && request.Response is { } refused)
+                    {
+                        ConflictStatusMessage = $"Couldn't open the fix window: {refused}";
+                    }
                 }
             }
         }

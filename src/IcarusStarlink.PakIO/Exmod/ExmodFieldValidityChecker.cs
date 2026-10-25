@@ -79,7 +79,9 @@ public static class ExmodFieldValidityChecker
                 continue;
             }
 
-            foreach (var item in row.FileItems)
+            // A row listed twice: the last one is what the merge uses (as the health check judges it),
+            // and one finding per place, not one per copy.
+            foreach (var item in row.FileItems.GroupBy(i => i.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.Last()))
             {
                 foreach (var (fieldName, value) in item.Fields)
                 {

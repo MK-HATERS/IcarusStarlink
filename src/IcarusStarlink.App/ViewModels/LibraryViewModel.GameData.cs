@@ -679,6 +679,41 @@ public sealed partial class LibraryViewModel
         }
     }
 
+    /// <summary>
+    /// Fix… from Merge &amp; Install's check: why the fix window can't open right now (said on the
+    /// page the click came from, since this page's notice isn't on screen), or null when it's opening.
+    /// </summary>
+    internal string? OpenModFixFromElsewhere(string folderName)
+    {
+        if (FindItem(folderName) is not { } item)
+        {
+            return "That mod isn't in the Library any more.";
+        }
+
+        if (item.IsOpaquePak)
+        {
+            return $"'{item.Name}' is a prebuilt pak: make it editable in the Library first.";
+        }
+
+        if (_openingModFix)
+        {
+            return "A fix window is already opening.";
+        }
+
+        if (ModFixBlockedReason(item) is { } blocked)
+        {
+            return blocked;
+        }
+
+        if (!HasExtractedGameData())
+        {
+            return "No game data found — run Refresh game data in Settings first.";
+        }
+
+        _ = OpenModFixCommand.ExecuteAsync(item);
+        return null;
+    }
+
     /// <summary>What this page is rewriting mods for right now (asked before the app closes for an update); empty when nothing.</summary>
     internal IEnumerable<string> DescribeWorkInProgress()
     {

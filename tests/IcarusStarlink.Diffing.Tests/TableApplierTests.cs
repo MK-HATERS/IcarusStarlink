@@ -123,6 +123,20 @@ public class TableApplierTests
     }
 
     [Fact]
+    public void Diff_APakRowInOtherCase_IsTheGamesRow_OnlyRealDifferencesCount()
+    {
+        // A prebuilt pak's table is diffed against the game's: "pickaxe_mk2" used to come out as a
+        // new item with every field a change, the unchanged ones too (extra conflicts).
+        var baseTable = JsonNode.Parse("""{"Pickaxe_MK2": {"Damage": 10, "Weight": 3}}""")!.AsObject();
+        var pak = JsonNode.Parse("""{"pickaxe_mk2": {"Damage": 50, "Weight": 3}}""")!.AsObject();
+
+        var change = Assert.Single(TableDiffer.Diff(baseTable, pak, "Items-D_ItemsStatic.json", Classifier));
+
+        Assert.Equal("Damage", change.FieldName);
+        Assert.False(change.IsNewItem);
+    }
+
+    [Fact]
     public void Apply_NewRowInTwoSpellings_MakesOneRow()
     {
         var baseTable = JsonNode.Parse("""{}""")!.AsObject();

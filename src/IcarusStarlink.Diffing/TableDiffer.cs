@@ -33,7 +33,9 @@ public static class TableDiffer
                 continue;
             }
 
-            var baseRow = baseTable[itemName] as JsonObject;
+            // Found the way the game finds it, ignoring case (RowNames): a pak's "pickaxe_mk2" is the
+            // game's row, so only its real differences count, not every field as new.
+            var baseRow = RowNames.FindKey(baseTable, itemName) is { } baseName ? baseTable[baseName] as JsonObject : null;
             var isNewItem = baseRow is null;
 
             var fieldNames = isNewItem

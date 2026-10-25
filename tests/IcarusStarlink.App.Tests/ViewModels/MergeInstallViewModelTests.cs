@@ -82,7 +82,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         FakeLibraryRepository? libraryRepository = null,
         FakeRebuildService? rebuildService = null,
         FakeInstallService? installService = null,
-        FakeProfileStore? profileStore = null,
+        IProfileStore? profileStore = null,
         FakeSettingsService? settingsService = null,
         bool gameRunning = false,
         FakeGameDataFreshness? gameDataFreshness = null,
@@ -439,6 +439,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var vm = CreateViewModel(libraryRepository: library, profileStore: store);
         vm.SelectedProfileName = "Coop";
         vm.Queue.Add(library.AllEntries[0]); // pending auto-save of Coop
+        _dialogs.OnConfirm = (_, title) => title == "Delete profile";
 
         vm.DeleteProfileCommand.Execute(null);
         vm.SaveWorkingState();
@@ -496,6 +497,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var vm = CreateViewModel(libraryRepository: library, profileStore: store);
         vm.SelectedProfileName = "Coop";
         vm.UnlimitedAmmo = true; // pending auto-save of Coop
+        _dialogs.OnConfirm = (_, title) => title == "Delete profile";
 
         vm.DeleteProfileCommand.Execute(null);
         vm.SaveWorkingState();
@@ -703,9 +705,15 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var vm = CreateViewModel(libraryRepository: libraryRepository, dataFolder: WriteGameData(), withHealthCheck: true);
         vm.Queue.Add(libraryRepository.AllEntries[0]);
         vm.Queue.Add(libraryRepository.AllEntries[1]);
+        ModHealthCheckedMessage? sent = null;
+        _messenger.Register<ModHealthCheckedMessage>(this, (_, message) => sent = message);
 
         await vm.RecomputeChecksAsync();
 
+        // Both mods' results go to the Library's rows, the clean one too (its badge clears).
+        Assert.NotNull(sent);
+        Assert.Equal(["ModA", "ModB"], sent.ReportsByFolder.Keys.Order());
+        Assert.Equal(0, sent.ReportsByFolder["ModB"].ProblemCount);
         var flagged = Assert.Single(vm.ModsWithProblems);
         Assert.Equal("ModA", flagged.FolderName);
         Assert.Equal(1, flagged.ProblemCount);
@@ -746,6 +754,32 @@ public sealed class MergeInstallViewModelTests : IDisposable
 
         Assert.Empty(vm.BetweenModsFindings);
         Assert.False(vm.HasCheckFindings);
+    }
+
+    /// <summary>Clear unticks every mod and is auto-saved into the profile: asked first, and Restore profile backup brings the list back.</summary>
+    [Fact]
+    public void ClearQueue_AsksFirst_AndRestoreProfileBackupBringsTheListBack()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA"), MakeEntry("ModB")] };
+        var store = new IcarusStarlink.Storage.Profiles.ProfileStore(Path.Combine(_tempRoot, "Profiles"), Path.Combine(_tempRoot, "ProfileBackups"),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<IcarusStarlink.Storage.Profiles.ProfileStore>.Instance);
+        store.Save(new Profile { Name = "Default", MergeQueueFolderNames = ["ModA", "ModB"] });
+        var vm = CreateViewModel(libraryRepository: library, profileStore: store);
+        Assert.Equal(["ModA", "ModB"], vm.Queue.Select(e => e.FolderName));
+
+        _dialogs.OnConfirm = (_, title) => title == "Clear the merge list" ? false : throw new InvalidOperationException(title);
+        vm.ClearQueueCommand.Execute(null);
+        Assert.Equal(2, vm.Queue.Count);
+
+        _dialogs.OnConfirm = (_, title) => title is "Clear the merge list" or "Restore profile backup";
+        vm.ClearQueueCommand.Execute(null);
+        vm.SaveWorkingState();
+        Assert.Empty(vm.Queue);
+        Assert.Empty(store.Load("Default").MergeQueueFolderNames);
+
+        vm.RestoreProfileBackupCommand.Execute(null);
+
+        Assert.Equal(["ModA", "ModB"], vm.Queue.Select(e => e.FolderName));
     }
 
     /// <summary>Seen live: two same-name new items (combined, nothing to pick) opened the window on an empty Conflicts tab.</summary>
