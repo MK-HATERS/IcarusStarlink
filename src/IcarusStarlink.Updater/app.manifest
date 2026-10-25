@@ -21,6 +21,15 @@
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
       <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+      <!-- The "Installing…" window (NativeProgressWindow) drawn sharp on scaled screens. -->
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
     </windowsSettings>
   </application>
+  <!-- Common Controls 6: the "Installing…" window's moving (marquee) bar needs it. -->
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
+    </dependentAssembly>
+  </dependency>
 </assembly>

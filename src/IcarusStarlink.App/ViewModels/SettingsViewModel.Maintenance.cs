@@ -216,7 +216,8 @@ public sealed partial class SettingsViewModel
     {
         var betaChannel = UpdateChannel == BetaChannel;
         var fromGitHub = await _appUpdateClient.GetLatestReleaseAsync();
-        var fromNexus = _credentialStore.Read(CredentialTargets.NexusApiKey) is { } apiKey
+        // A local test release (STARLINK_UPDATE_FEED) stands in for every source.
+        var fromNexus = _appUpdateClient.UpdateTestFeed is null && _credentialStore.Read(CredentialTargets.NexusApiKey) is { } apiKey
             ? await NexusAppUpdates.FindLatestStableAsync(_nexusApiClient, _appUpdateClient, apiKey)
             : null;
         var stable = NexusAppUpdates.PickStable(fromNexus, fromGitHub);
@@ -225,7 +226,9 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>Settings › Maintenance: where the Stable channel's updates come from.</summary>
-    public string StableUpdateSourceText => _credentialStore.Read(CredentialTargets.NexusApiKey) is null
+    public string StableUpdateSourceText => _appUpdateClient.UpdateTestFeed is { } testFeed
+        ? $"Testing: updates come from the release in {testFeed} (STARLINK_UPDATE_FEED)."
+        : _credentialStore.Read(CredentialTargets.NexusApiKey) is null
         ? "Stable updates come from GitHub. Sign in to Nexus (Nexus tab) to get them from Starlink's Nexus page instead."
         : "Stable updates come from Starlink's Nexus page (GitHub if Nexus doesn't answer); betas from GitHub.";
 

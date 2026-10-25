@@ -26,8 +26,24 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
 
     private const string ReleasesListUrl = $"https://api.github.com/repos/{Owner}/{Repo}/releases?per_page=20";
 
+    /// <summary>
+    /// For testing an update before it ships: when the STARLINK_UPDATE_FEED environment variable
+    /// names a folder holding a release.json and its zip (the release workflow's own output), every
+    /// check reads that release instead of GitHub (and Nexus), and the zip is copied from there.
+    /// Nothing in the app sets it; it's for the developer's test copy.
+    /// </summary>
+    public string? TestFeedFolder { get; init; } =
+        Environment.GetEnvironmentVariable("STARLINK_UPDATE_FEED") is { Length: > 0 } folder && Directory.Exists(folder) ? folder : null;
+
+    public string? UpdateTestFeed => TestFeedFolder;
+
     public async Task<AppUpdateRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken = default)
     {
+        if (TestFeedFolder is not null)
+        {
+            return await ReadTestFeedAsync(cancellationToken);
+        }
+
         if (await TryManifestAsync(LatestManifestUrl, cancellationToken) is { } fromManifest)
         {
             return fromManifest;
@@ -57,6 +73,11 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
 
     public async Task<AppUpdateRelease?> GetLatestBetaReleaseAsync(CancellationToken cancellationToken = default)
     {
+        if (TestFeedFolder is not null)
+        {
+            return await ReadTestFeedAsync(cancellationToken);
+        }
+
         if (await TryManifestAsync(BetaManifestUrl, cancellationToken) is { } fromPointer)
         {
             return fromPointer;
@@ -120,6 +141,27 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
     public Task<AppUpdateRelease?> GetReleaseAsync(string version, CancellationToken cancellationToken = default) =>
         TryManifestAsync($"https://github.com/{Owner}/{Repo}/releases/download/v{GitHubReleaseTag.StripLeadingV(version)}/release.json", cancellationToken);
 
+    /// <summary>The test feed's release.json, its zip as a file link.</summary>
+    private async Task<AppUpdateRelease?> ReadTestFeedAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = File.OpenRead(Path.Combine(TestFeedFolder!, "release.json"));
+            var manifest = await System.Text.Json.JsonSerializer.DeserializeAsync<ReleaseManifest>(stream, cancellationToken: cancellationToken);
+            if (manifest is not { Version: { Length: > 0 } version, Asset: { Length: > 0 } asset })
+            {
+                return null;
+            }
+
+            return new AppUpdateRelease(GitHubReleaseTag.StripLeadingV(version), manifest.Notes ?? "", new Uri(Path.Combine(TestFeedFolder!, asset)).AbsoluteUri,
+                manifest.Sha256 is { Length: > 0 } hash ? $"sha256:{hash}" : null);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
     public Task DownloadAssetAsync(AppUpdateRelease release, string destinationPath, CancellationToken cancellationToken = default) =>
         DownloadAsync([release.AssetBrowserDownloadUrl], release.AssetDigest, destinationPath, null, cancellationToken);
 
@@ -155,19 +197,32 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
 
     private async Task DownloadOneAsync(string url, string destinationPath, IProgress<AppUpdateDownloadProgress>? progress, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        GitHubUserAgent.EnsureOn(request);
-
-        using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        var total = response.Content.Headers.ContentLength;
+        // The test feed's zip (TestFeedFolder): read from disk, through the same progress loop.
+        HttpResponseMessage? response = null;
+        Stream source;
+        long? total;
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.IsFile)
+        {
+            source = File.OpenRead(uri.LocalPath);
+            total = source.Length;
+        }
+        else
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            GitHubUserAgent.EnsureOn(request);
+            response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            total = response.Content.Headers.ContentLength;
+            source = await response.Content.ReadAsStreamAsync(cancellationToken);
+        }
 
         // Both streams are disposed (and the file handle released) before VerifySha256Async
         // re-opens the same path to hash it — a using-declaration here would keep fileStream open
         // for the rest of the method and turn that re-open into a sharing-violation bug.
+        using var disposeResponse = response;
         try
         {
-            await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            await using var contentStream = source;
             await using var fileStream = File.Create(destinationPath);
             var buffer = new byte[81920];
             long received = 0;

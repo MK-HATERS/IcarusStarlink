@@ -67,8 +67,12 @@ void Log(string message)
 
 Log($"Updater started — waiting for process {mainProcessId} to exit.");
 
+// On screen while Starlink is closed (it used to vanish for a few seconds with nothing showing).
+using var progressWindow = new NativeProgressWindow("Updating Icarus Starlink", "Waiting for Icarus Starlink to close…");
+
 bool Relaunch()
 {
+    progressWindow.SetText("Starting Icarus Starlink…");
     try
     {
         // The exe was renamed in 3.0: whichever name the install has now, if the given one isn't there.
@@ -80,6 +84,9 @@ bool Relaunch()
                 .FirstOrDefault(File.Exists) ?? exe;
         }
 
+        // Closed as Starlink starts: its own splash screen takes over (both showing at once looked
+        // like two windows doing the same thing — user report 2026-10-25).
+        progressWindow.Dispose();
         Process.Start(new ProcessStartInfo(exe) { WorkingDirectory = installDirectory, UseShellExecute = true });
         return true;
     }
@@ -128,6 +135,7 @@ catch (ArgumentException)
 
 // WaitForExit returning doesn't guarantee every file handle is released yet; a short grace
 // period plus UpdateApplier's own per-file retry covers the stragglers.
+progressWindow.SetText("Installing the update…");
 Thread.Sleep(500);
 
 UpdateRunner.Result result;
@@ -153,6 +161,7 @@ catch (Exception ex)
 // real bug this was fixed for (the app used to just close and never come back).
 if (result.Outcome == UpdateRunner.Outcome.RollbackIncomplete)
 {
+    progressWindow.Dispose();
     NativeMessageBox.Show(
         $"The IcarusStarlink update failed and could not be fully rolled back.\n\n"
         + $"A backup of the files that were overwritten is kept at:\n{result.BackupDirectory}\n\n"

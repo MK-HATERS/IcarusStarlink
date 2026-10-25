@@ -5,6 +5,9 @@ public interface IAppUpdateClient
     /// <summary>Null if the release can't be reached (offline, rate-limited, GitHub API shape changed, no zip asset attached) — never throws for a network-shaped failure.</summary>
     Task<AppUpdateRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>The local test release folder in use instead of GitHub and Nexus (AppUpdateClient.TestFeedFolder); null normally.</summary>
+    string? UpdateTestFeed => null;
+
     /// <summary>
     /// The newest beta (a GitHub prerelease, tagged like v2.10.0-beta.1) for the Beta update channel;
     /// null when there is none or it can't be reached. Stable users never see these: GitHub's
