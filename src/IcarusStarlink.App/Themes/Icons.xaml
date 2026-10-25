@@ -77,4 +77,30 @@
     <Geometry x:Key="IconSidebar">M4 5L20 5L20 19L4 19Z M9 5L9 19</Geometry>
     <Geometry x:Key="IconSearch">M4 11A7 7 0 1 0 18 11A7 7 0 1 0 4 11Z M16 16L21 21</Geometry>
 
+    <!-- Nav rail icons that need their ring: the bare globe/clock/gear/help marks above are meant to
+         sit inside an Ellipse at their use site, which the nav's single Path doesn't have, so they
+         read as stray strokes there (user report 2026-10-25). These carry the circle themselves. -->
+    <GeometryGroup x:Key="NavIconGlobe">
+        <EllipseGeometry Center="12,12" RadiusX="9" RadiusY="9"/>
+        <EllipseGeometry Center="12,12" RadiusX="3.8" RadiusY="9"/>
+        <LineGeometry StartPoint="3,12" EndPoint="21,12"/>
+    </GeometryGroup>
+    <GeometryGroup x:Key="NavIconClock">
+        <EllipseGeometry Center="12,12" RadiusX="9" RadiusY="9"/>
+        <PathGeometry Figures="M12 7L12 12L15.5 14"/>
+    </GeometryGroup>
+    <GeometryGroup x:Key="NavIconGear">
+        <EllipseGeometry Center="12,12" RadiusX="6" RadiusY="6"/>
+        <EllipseGeometry Center="12,12" RadiusX="2.3" RadiusY="2.3"/>
+        <PathGeometry Figures="M12 2.5L12 6 M12 18L12 21.5 M21.5 12L18 12 M6 12L2.5 12 M18.7 5.3L16.2 7.8 M7.8 16.2L5.3 18.7 M18.7 18.7L16.2 16.2 M7.8 7.8L5.3 5.3"/>
+    </GeometryGroup>
+    <GeometryGroup x:Key="NavIconHelp">
+        <EllipseGeometry Center="12,12" RadiusX="9" RadiusY="9"/>
+        <PathGeometry Figures="M9.7 9.6C9.7 8 10.9 7.2 12.2 7.2C13.6 7.2 14.6 8 14.6 9.3C14.6 10.5 13.8 11 13 11.5C12.4 11.9 12 12.4 12 13.3L12 13.8 M12 16.6L12.01 16.6"/>
+    </GeometryGroup>
+    <GeometryGroup x:Key="NavIconPerson">
+        <EllipseGeometry Center="12,7.5" RadiusX="3.5" RadiusY="3.5"/>
+        <PathGeometry Figures="M5 20.5C5 16.5 8 14 12 14C16 14 19 16.5 19 20.5"/>
+    </GeometryGroup>
+
 </ResourceDictionary>

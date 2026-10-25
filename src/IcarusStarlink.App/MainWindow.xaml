@@ -116,7 +116,7 @@
                     <TextBlock DockPanel.Dock="Left" Text="{Binding AppVersionDisplay, Mode=OneTime}" FontSize="12" Margin="6,0,0,2"
                                VerticalAlignment="Bottom" ToolTip="Installed version"
                                Foreground="{DynamicResource FaintForegroundBrush}"/>
-                    <TextBlock Text="mod manager for Icarus" FontSize="12" Margin="10,0,0,2"
+                    <TextBlock Text="mod manager for Icarus by MkHaters" FontSize="12" Margin="10,0,0,2"
                                VerticalAlignment="Bottom" TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                 </DockPanel>
@@ -247,7 +247,7 @@
                                      selection is already shown via the row's own background/accent
                                      bar, not the icon's color. -->
                                 <DataTrigger Binding="{Binding Id}" Value="database">
-                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconGlobeMeridian}"/>
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource NavIconGlobe}"/>
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#E08A3C"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="downloads">
@@ -267,7 +267,7 @@
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#9B6FDE"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="weekly-changes">
-                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconClockHands}"/>
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource NavIconClock}"/>
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#3EBFB0"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="server">
@@ -275,15 +275,15 @@
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#4CAF6D"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="saves">
-                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconPerson}"/>
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource NavIconPerson}"/>
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#D9668B"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="settings">
-                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconGearTeeth}"/>
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource NavIconGear}"/>
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#6B92A8"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Id}" Value="help">
-                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource IconHelpMark}"/>
+                                    <Setter TargetName="NavIcon" Property="Data" Value="{StaticResource NavIconHelp}"/>
                                     <Setter TargetName="NavIcon" Property="Stroke" Value="#D9B44A"/>
                                 </DataTrigger>
                             </DataTemplate.Triggers>

@@ -27,3 +27,6 @@ packages/
 # OS
 Thumbs.db
 .DS_Store
+
+# Claude Code machine-specific guide (paths on this PC)
+CLAUDE.local.md
