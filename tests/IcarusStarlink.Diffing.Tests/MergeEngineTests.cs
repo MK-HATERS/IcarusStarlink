@@ -21,6 +21,25 @@ public class MergeEngineTests
     }
 
     [Fact]
+    public void FindConflicts_SameRowSpelledInTwoCases_IsOneConflict()
+    {
+        // Row names are FNames in game, so "Pickaxe_MK2" and "pickaxe_mk2" are one row: two mods
+        // setting it differently disagree, and only one value can win.
+        var modA = new List<FieldChange> { ScalarChange("Pickaxe_MK2", "Damage", 20) };
+        var modB = new List<FieldChange> { ScalarChange("pickaxe_mk2", "Damage", 30) };
+        var baseTables = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Items-D_ItemsStatic.json"] = JsonNode.Parse("""{"Pickaxe_MK2": {"Damage": 10}}""")!.AsObject(),
+        };
+
+        var conflict = Assert.Single(MergeEngine.FindConflicts(["A", "B"], [modA, modB], baseTables));
+        Assert.Equal(["A", "B"], conflict.Candidates.Select(c => c.ModName));
+        Assert.True(conflict.HasBaseValue);
+        var resolved = Assert.Single(MergeEngine.Merge([modA, modB], new MergeRuleRegistry(), baseTablesByFile: baseTables));
+        Assert.Equal(30, resolved.NewValue!.GetValue<int>());
+    }
+
+    [Fact]
     public void Merge_ModsTouchingDifferentFields_KeepsBoth()
     {
         var modA = new List<FieldChange> { ScalarChange("Sword", "Damage", 20) };

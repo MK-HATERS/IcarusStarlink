@@ -25,8 +25,8 @@ public static class TableApplier
         // The lookup key normalizes CurrentFile to uppercase-invariant — it denotes a real Windows
         // file path, and different EXMOD authors' extraction tools aren't guaranteed to emit it
         // with consistent casing (the same convention FieldChangeKeyComparer already applies for
-        // MergeEngine/MultiFileMerger) — while ItemName stays exactly as-is (a real JSON row name,
-        // not a file path). Without this, two changes to the "same" newly-created item that only
+        // MergeEngine/MultiFileMerger); the item part is the table's own spelling of the row
+        // (rowKeys below). Without this, two changes to the "same" newly-created item that only
         // differ in CurrentFile casing would be tracked as two separate items, splitting one item's
         // real field count across two notes instead of reporting it once, correctly.
         //
@@ -35,11 +35,16 @@ public static class TableApplier
         // added here, at creation, so its mere presence already means what a separate HashSet would.
         var createdItemInfo = new Dictionary<string, (string CurrentFile, string ItemName, int FieldCount)>(StringComparer.Ordinal);
 
+        // Row names ignore case in game (RowNames): a change to "pickaxe_mk2" edits the table's
+        // "Pickaxe_MK2" under the table's own spelling, and two spellings of one new row make one row.
+        var rowKeys = RowNames.BuildIndex(result);
+
         foreach (var change in changes)
         {
-            var createdKey = $"{change.CurrentFile.ToUpperInvariant()}|{change.ItemName}";
+            var rowName = rowKeys.TryGetValue(change.ItemName, out var known) ? known : change.ItemName;
+            var createdKey = $"{change.CurrentFile.ToUpperInvariant()}|{rowName}";
 
-            if (result[change.ItemName] is not JsonObject row)
+            if (result[rowName] is not JsonObject row)
             {
                 if (!change.IsNewItem)
                 {
@@ -49,8 +54,9 @@ public static class TableApplier
                 }
 
                 row = new JsonObject();
-                result[change.ItemName] = row;
-                createdItemInfo[createdKey] = (change.CurrentFile, change.ItemName, 0);
+                result[rowName] = row;
+                rowKeys[rowName] = rowName;
+                createdItemInfo[createdKey] = (change.CurrentFile, rowName, 0);
             }
 
             if (createdItemInfo.TryGetValue(createdKey, out var existing))

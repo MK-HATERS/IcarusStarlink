@@ -325,7 +325,8 @@ public static class MergeEngine
 
     private static (bool Found, JsonNode? Value) TryGetBaseValue(IReadOnlyDictionary<string, JsonObject> baseTablesByFile, string currentFile, string itemName, string fieldName)
     {
-        if (!baseTablesByFile.TryGetValue(currentFile, out var table) || table[itemName] is not JsonObject item || !item.ContainsKey(fieldName))
+        if (!baseTablesByFile.TryGetValue(currentFile, out var table) || RowNames.FindKey(table, itemName) is not { } row
+            || table[row] is not JsonObject item || !item.ContainsKey(fieldName))
         {
             return (false, null);
         }
@@ -335,17 +336,17 @@ public static class MergeEngine
 
     /// <summary>Whether ItemName exists at all in the current base table for CurrentFile — FindNewItemNameCollisions' own real "is this genuinely new" signal (see its own doc comment for why change.IsNewItem alone can't be trusted for this).</summary>
     private static bool ItemExistsInBase(IReadOnlyDictionary<string, JsonObject> baseTablesByFile, string currentFile, string itemName) =>
-        baseTablesByFile.TryGetValue(currentFile, out var table) && table[itemName] is JsonObject;
+        baseTablesByFile.TryGetValue(currentFile, out var table) && RowNames.FindKey(table, itemName) is { } row && table[row] is JsonObject;
 
-    /// <summary>Same case-insensitive-CurrentFile/case-sensitive-ItemName convention as FieldChangeKeyComparer, for the 2-part (file, item) key FindNewItemNameCollisions groups by.</summary>
+    /// <summary>Same case-insensitive CurrentFile and ItemName convention as FieldChangeKeyComparer, for the 2-part (file, item) key FindNewItemNameCollisions groups by.</summary>
     private sealed class FieldChangeItemKeyComparer : IEqualityComparer<(string CurrentFile, string ItemName)>
     {
         public static readonly FieldChangeItemKeyComparer Instance = new();
 
         public bool Equals((string CurrentFile, string ItemName) x, (string CurrentFile, string ItemName) y) =>
-            string.Equals(x.CurrentFile, y.CurrentFile, StringComparison.OrdinalIgnoreCase) && x.ItemName == y.ItemName;
+            string.Equals(x.CurrentFile, y.CurrentFile, StringComparison.OrdinalIgnoreCase) && RowNames.Comparer.Equals(x.ItemName, y.ItemName);
 
         public int GetHashCode((string CurrentFile, string ItemName) obj) =>
-            HashCode.Combine(obj.CurrentFile.ToUpperInvariant(), obj.ItemName);
+            HashCode.Combine(obj.CurrentFile.ToUpperInvariant(), RowNames.Comparer.GetHashCode(obj.ItemName));
     }
 }

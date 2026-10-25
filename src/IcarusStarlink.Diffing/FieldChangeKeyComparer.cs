@@ -4,8 +4,8 @@ namespace IcarusStarlink.Diffing;
 /// Equality for a (CurrentFile, ItemName, FieldName) key where CurrentFile is compared
 /// case-insensitively (it denotes a real Windows file path — different EXMOD authors' tools
 /// aren't guaranteed to emit it with consistent casing, and two mods editing "the same" file
-/// under different casing must still land in the same merge-conflict group) while ItemName/
-/// FieldName stay case-sensitive (real JSON property/row names, not file paths).
+/// under different casing must still land in the same merge-conflict group) and so is ItemName
+/// (a row name is an FName in game: see RowNames), while FieldName stays case-sensitive.
 /// </summary>
 public sealed class FieldChangeKeyComparer : IEqualityComparer<(string CurrentFile, string ItemName, string FieldName)>
 {
@@ -13,9 +13,9 @@ public sealed class FieldChangeKeyComparer : IEqualityComparer<(string CurrentFi
 
     public bool Equals((string CurrentFile, string ItemName, string FieldName) x, (string CurrentFile, string ItemName, string FieldName) y) =>
         string.Equals(x.CurrentFile, y.CurrentFile, StringComparison.OrdinalIgnoreCase)
-        && x.ItemName == y.ItemName
+        && RowNames.Comparer.Equals(x.ItemName, y.ItemName)
         && x.FieldName == y.FieldName;
 
     public int GetHashCode((string CurrentFile, string ItemName, string FieldName) obj) =>
-        HashCode.Combine(obj.CurrentFile.ToUpperInvariant(), obj.ItemName, obj.FieldName);
+        HashCode.Combine(obj.CurrentFile.ToUpperInvariant(), RowNames.Comparer.GetHashCode(obj.ItemName), obj.FieldName);
 }

@@ -102,6 +102,44 @@ public class TableApplierTests
     }
 
     [Fact]
+    public void Apply_RowNameInOtherCase_EditsTheGamesRowInsteadOfAddingAHalfRow()
+    {
+        // Row names are FNames in game: "pickaxe_mk2" is "Pickaxe_MK2". An EXMOD change always
+        // says IsNewItem, so an exact-spelling lookup used to add a second row holding only the
+        // mod's field beside the game's one.
+        var baseTable = JsonNode.Parse("""{"Pickaxe_MK2": {"Damage": 10, "Weight": 3}}""")!.AsObject();
+        var change = new FieldChange(
+            "Items-D_ItemsStatic.json", "pickaxe_mk2", "Damage",
+            OriginalValue: null, NewValue: JsonValue.Create(50), ValueSemantic.Scalar, IsNewItem: true);
+        var report = new MergeReport();
+
+        var result = TableApplier.Apply(baseTable, [change], report);
+
+        var (name, row) = Assert.Single(result);
+        Assert.Equal("Pickaxe_MK2", name);
+        Assert.Equal(50, row!["Damage"]!.GetValue<int>());
+        Assert.Equal(3, row["Weight"]!.GetValue<int>());
+        Assert.Empty(report.Notes);
+    }
+
+    [Fact]
+    public void Apply_NewRowInTwoSpellings_MakesOneRow()
+    {
+        var baseTable = JsonNode.Parse("""{}""")!.AsObject();
+        var changes = new[]
+        {
+            new FieldChange("Items-D_ItemsStatic.json", "LaserSword", "Damage", null, JsonValue.Create(99), ValueSemantic.Scalar, IsNewItem: true),
+            new FieldChange("Items-D_ItemsStatic.json", "lasersword", "GlowColor", null, JsonValue.Create("Blue"), ValueSemantic.Scalar, IsNewItem: true),
+        };
+
+        var result = TableApplier.Apply(baseTable, changes);
+
+        var (name, row) = Assert.Single(result);
+        Assert.Equal("LaserSword", name);
+        Assert.Equal(2, row!.AsObject().Count);
+    }
+
+    [Fact]
     public void Apply_ChangeToRowRemovedFromBase_SkipsWithWarning()
     {
         var currentBase = JsonNode.Parse("""{"Sword": {"Damage": 10}}""")!.AsObject();
