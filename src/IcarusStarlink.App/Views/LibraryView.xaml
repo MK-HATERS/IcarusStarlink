@@ -1029,7 +1029,7 @@
                             <DockPanel>
                                 <Button DockPanel.Dock="Right" Content="Merge &amp; Install →" Command="{Binding GoToMergeInstallCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="10,0,0,0"
                                         ToolTip="Opens Merge &amp; Install, where the ticked mods are built into the game's merged pak"/>
-                                <TextBlock Text="NOT IN GAME YET" Style="{StaticResource FieldLabelStyle}" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBlock Text="CHANGES WAITING" Style="{StaticResource FieldLabelStyle}" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <TextBlock Text="{Binding PendingDataText}" VerticalAlignment="Center" FontSize="13" TextTrimming="CharacterEllipsis" ToolTip="{Binding PendingDataText}"/>
                             </DockPanel>
                         </Border>
@@ -1160,7 +1160,7 @@
                             <DockPanel>
                                 <Button DockPanel.Dock="Right" Content="Apply" Command="{Binding ApplyUe4ssChangesCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="10,0,0,0"
                                         ToolTip="Moves every ticked/unticked UE4SS mod to match — backs up anything removed from the game folder first"/>
-                                <TextBlock Text="NOT IN GAME YET" Style="{StaticResource FieldLabelStyle}" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBlock Text="CHANGES WAITING" Style="{StaticResource FieldLabelStyle}" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <TextBlock Text="{Binding PendingUe4ssText}" VerticalAlignment="Center" FontSize="13" TextTrimming="CharacterEllipsis" ToolTip="{Binding PendingUe4ssText}"/>
                             </DockPanel>
                         </Border>

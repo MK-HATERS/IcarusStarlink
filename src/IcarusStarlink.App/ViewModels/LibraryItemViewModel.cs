@@ -121,7 +121,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         OnPropertyChanged(nameof(TypeLabel));
     }
 
-    /// <summary>"In game", "Updated" (changed since the game's merge was built), "Needs Merge &amp; Install", "Needs Apply", "Not enabled" — computed by LibraryViewModel from the queue, the installed manifest and the Lua half's own state.</summary>
+    /// <summary>"In game", "Changed" (changed since the game's merge was built; not "Updated", which read like the Update pill beside it), "Needs Merge &amp; Install", "Needs Apply", "Not enabled" — computed by LibraryViewModel from the queue, the installed manifest and the Lua half's own state.</summary>
     [ObservableProperty]
     private string _installStatus = "";
 
@@ -131,7 +131,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
     public bool IsInGame => InstallStatus == "In game";
 
-    public bool NeedsAction => InstallStatus.StartsWith("Needs", StringComparison.Ordinal) || InstallStatus == "Updated";
+    public bool NeedsAction => InstallStatus.StartsWith("Needs", StringComparison.Ordinal) || InstallStatus is "Changed" or "Will be removed";
 
     /// <summary>Ticked but not in the game, or in the game but unticked: the next Merge &amp; Install changes it (LibraryViewModel.RefreshEnabledAndStatus). The "Not in game yet" filter.</summary>
     [ObservableProperty]

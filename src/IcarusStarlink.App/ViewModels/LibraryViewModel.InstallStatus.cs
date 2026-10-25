@@ -166,13 +166,14 @@ public sealed partial class LibraryViewModel
             }
             else if (!queued && inGame)
             {
-                status = "In game";
-                detail = "not ticked: Merge & Install will take it out";
+                // Still in the game but unticked: a green "In game" read as if nothing would change.
+                status = "Will be removed";
+                detail = "not ticked: Merge & Install takes it out";
             }
             else if (queued && inGame && changedSinceInstall.TryGetValue(item.FolderName, out var change))
             {
-                // Updated (in Starlink or outside it) since the game's merge was built: the game has the old copy.
-                status = "Updated";
+                // Changed (in Starlink or outside it) since the game's merge was built: the game has the old copy.
+                status = "Changed";
                 detail = $"{change} · needs Merge & Install";
             }
             else if (queued && inGame)
@@ -225,7 +226,7 @@ public sealed partial class LibraryViewModel
 
         if (updatedCount > 0)
         {
-            parts.Add(updatedCount == 1 ? "1 updated mod" : $"{updatedCount} updated mods");
+            parts.Add(updatedCount == 1 ? "1 changed mod" : $"{updatedCount} changed mods");
         }
 
         if (arcFission)
@@ -235,13 +236,13 @@ public sealed partial class LibraryViewModel
 
         PendingChangesSummary = parts.Count == 0
             ? ""
-            : $"Not in the game yet: {string.Join(" and ", parts)}";
+            : $"Changes waiting: {string.Join(" and ", parts)}";
         var updatedNames = _itemsByFolderName.Values
-            .Where(i => i.InstallStatus == "Updated")
+            .Where(i => i.InstallStatus == "Changed")
             .Select(i => i.Name)
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var updatedText = updatedNames.Count == 0 ? "" : $"Updated since your last Merge & Install: {string.Join(", ", updatedNames)}";
+        var updatedText = updatedNames.Count == 0 ? "" : $"Changed since your last Merge & Install: {string.Join(", ", updatedNames)}";
         var dataText = arcFission && pendingDataChanges.Count == 0
             ? "ArcFission's data changed since the last merge"
             : DescribePending([.. pendingDataChanges.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)]);

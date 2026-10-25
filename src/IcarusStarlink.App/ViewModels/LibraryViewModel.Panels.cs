@@ -98,7 +98,8 @@ public sealed partial class LibraryViewModel
         new(FilterAll, "All", ""),
         new(FilterOn, "On", ""),
         new(FilterOff, "Off", ""),
-        new(FilterNotInGame, "Not in game yet", "accent"),
+        // Mods to put in the game and ones to take out: "Not in game yet" didn't cover the second.
+        new(FilterNotInGame, "Changes waiting", "accent"),
         new(FilterUpdates, "Updates", ""),
         new(FilterProblems, "Problems", "danger"),
         new(FilterFavourites, "★ Favourites", ""),
