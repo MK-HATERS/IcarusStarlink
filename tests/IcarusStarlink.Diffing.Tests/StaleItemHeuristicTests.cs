@@ -16,10 +16,10 @@ public class StaleItemHeuristicTests
     [Fact]
     public void BuildNote_MentionsItemFileAndFieldCount()
     {
-        var note = StaleItemHeuristic.BuildNote("Traits-D_Fuel.json", "Old_Item", fieldCount: 2);
+        var note = StaleItemHeuristic.BuildNote("Traits-D_Fuel.json", "Old_Item", fieldCount: 2, modName: "Better Fuel");
 
-        Assert.Contains("Old_Item", note);
+        Assert.StartsWith("Better Fuel: 'Old_Item'", note);
         Assert.Contains("Traits-D_Fuel.json", note);
-        Assert.Contains("2 field(s)", note);
+        Assert.Contains("only 2 fields", note);
     }
 }

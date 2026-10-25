@@ -18,7 +18,8 @@ public static class StaleItemHeuristic
     /// legitimately do. The field count is the useful signal: a real new item defines many
     /// fields, while one or two usually means a mod editing a row this game version no longer has.
     /// </summary>
-    public static string BuildNote(string currentFile, string itemName, int fieldCount) =>
-        $"'{itemName}' isn't in the game's current {currentFile} — created as a new item ({fieldCount} field(s)). "
-        + "That's normal for a mod that adds content; if this mod only meant to edit existing items, it's likely out of date for this game version and needs editing.";
+    /// <param name="modName">The mod the row came from, when known.</param>
+    public static string BuildNote(string currentFile, string itemName, int fieldCount, string? modName = null) =>
+        $"{(modName is null ? "" : $"{modName}: ")}'{itemName}' isn't in the game's {currentFile}, so it was added as a new row with only "
+        + $"{(fieldCount == 1 ? "1 field" : $"{fieldCount} fields")}. If the mod meant to change the game's row, the game has renamed or removed it and this change does nothing.";
 }

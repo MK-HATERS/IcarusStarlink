@@ -35,7 +35,8 @@ internal static class BaseDataFileReader
     /// original unkeyed file — e.g. to preserve its RowStruct/Defaults when writing a merged table
     /// back out. Resolves and parses only; does not key by row name.
     /// </summary>
-    public static JsonObject? ParseFile(string dataFolder, string currentFile, MergeReport? report)
+    /// <param name="reportMissing">Warn when the game has no such table (false: the caller reports it itself, naming the mods).</param>
+    public static JsonObject? ParseFile(string dataFolder, string currentFile, MergeReport? report, bool reportMissing = true)
     {
         var realRelativePath = currentFile.Replace('-', '/');
 
@@ -56,7 +57,11 @@ internal static class BaseDataFileReader
 
         if (!File.Exists(basePath))
         {
-            report?.AddWarning($"No matching base file for '{currentFile}' at '{realRelativePath}'.");
+            if (reportMissing)
+            {
+                report?.AddWarning($"No matching base file for '{currentFile}' at '{realRelativePath}'.");
+            }
+
             return null;
         }
 

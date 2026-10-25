@@ -11,7 +11,8 @@ namespace IcarusStarlink.Diffing;
 /// </summary>
 public static class TableApplier
 {
-    public static JsonObject Apply(JsonObject baseTable, IEnumerable<FieldChange> changes, MergeReport? report = null)
+    /// <param name="sourceOf">Which mod a change came from (its name), so the build's warnings and notes can say; null when unknown.</param>
+    public static JsonObject Apply(JsonObject baseTable, IEnumerable<FieldChange> changes, MergeReport? report = null, Func<FieldChange, string?>? sourceOf = null)
     {
         var result = baseTable.DeepClone()!.AsObject();
 
@@ -33,7 +34,7 @@ public static class TableApplier
         // One dictionary doing double duty as both "is this createdKey a newly-created item" (via
         // ContainsKey/TryGetValue) and "what's its running field count" — a createdKey is only ever
         // added here, at creation, so its mere presence already means what a separate HashSet would.
-        var createdItemInfo = new Dictionary<string, (string CurrentFile, string ItemName, int FieldCount)>(StringComparer.Ordinal);
+        var createdItemInfo = new Dictionary<string, (string CurrentFile, string ItemName, int FieldCount, string? Mod)>(StringComparer.Ordinal);
 
         // Row names ignore case in game (RowNames): a change to "pickaxe_mk2" edits the table's
         // "Pickaxe_MK2" under the table's own spelling, and two spellings of one new row make one row.
@@ -48,20 +49,21 @@ public static class TableApplier
             {
                 if (!change.IsNewItem)
                 {
+                    var mod = sourceOf?.Invoke(change);
                     report?.AddWarning(
-                        $"Skipped {change.CurrentFile}:{change.ItemName}.{change.FieldName} — item no longer exists in base data.");
+                        $"{(mod is null ? "" : $"{mod}: ")}skipped {change.ItemName}.{change.FieldName} in {change.CurrentFile}: the game no longer has that row.");
                     continue;
                 }
 
                 row = new JsonObject();
                 result[rowName] = row;
                 rowKeys[rowName] = rowName;
-                createdItemInfo[createdKey] = (change.CurrentFile, rowName, 0);
+                createdItemInfo[createdKey] = (change.CurrentFile, rowName, 0, sourceOf?.Invoke(change));
             }
 
             if (createdItemInfo.TryGetValue(createdKey, out var existing))
             {
-                createdItemInfo[createdKey] = (existing.CurrentFile, existing.ItemName, existing.FieldCount + 1);
+                createdItemInfo[createdKey] = existing with { FieldCount = existing.FieldCount + 1 };
             }
 
             // IsFieldRemoved (not NewValue == null — see FieldChange) distinguishes "remove the
@@ -76,9 +78,11 @@ public static class TableApplier
             }
         }
 
-        foreach (var (currentFile, itemName, fieldCount) in createdItemInfo.Values)
+        // Only the new rows that look like an edit to a row the game renamed or removed: a real new
+        // item has many fields, and listing every one (two thousand in a big library) buried the rest.
+        foreach (var (currentFile, itemName, fieldCount, mod) in createdItemInfo.Values.Where(c => StaleItemHeuristic.IsLikelyStale(c.FieldCount)))
         {
-            report?.AddNote(StaleItemHeuristic.BuildNote(currentFile, itemName, fieldCount));
+            report?.AddNote(StaleItemHeuristic.BuildNote(currentFile, itemName, fieldCount, mod));
         }
 
         return result;

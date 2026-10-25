@@ -166,6 +166,8 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
         var classifier = new DefaultSemanticClassifier();
 
         var orderedModChanges = new List<IReadOnlyList<FieldChange>>();
+        // Who each entry of orderedModChanges is, for the build's warnings ("ModX: skipped …").
+        var participantNames = new List<string>();
 
         // Every participant in MergeParticipants' order (the one Merge & Install's conflict check
         // counts picks in). Low-priority prebuilt paks (ArcFission Library's data pak) come first,
@@ -190,6 +192,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
             if (changes.Count > 0)
             {
                 orderedModChanges.Add(changes);
+                participantNames.Add(Path.GetFileNameWithoutExtension(prebuiltPakPath));
             }
         }
 
@@ -202,6 +205,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
                     break;
                 case MergeParticipantKind.Mod:
                     orderedModChanges.Add(ExmodFieldChangeMapper.ToFieldChanges(queuedMods[participant.Index].Package, classifier));
+                    participantNames.Add(queuedMods[participant.Index].Package.Name);
                     break;
                 case MergeParticipantKind.Pak:
                     AddPak(prebuiltPakFilePaths[participant.Index]);
@@ -211,11 +215,38 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
                     if (fixedOptionChanges.Count > 0)
                     {
                         orderedModChanges.Add(fixedOptionChanges);
+                        participantNames.Add("Built-in gameplay options");
                     }
 
                     break;
             }
         }
+
+        // The mod a resolved change came from: the very change a rule picked, else (a list that
+        // combines several mods' entries) the mods that change that row.
+        var sourceByChange = new Dictionary<FieldChange, string>(ReferenceEqualityComparer.Instance);
+        var sourcesByRow = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < orderedModChanges.Count; i++)
+        {
+            foreach (var change in orderedModChanges[i])
+            {
+                sourceByChange.TryAdd(change, participantNames[i]);
+                var row = $"{change.CurrentFile}|{change.ItemName}";
+                if (!sourcesByRow.TryGetValue(row, out var names))
+                {
+                    sourcesByRow[row] = names = [];
+                }
+
+                if (!names.Contains(participantNames[i]))
+                {
+                    names.Add(participantNames[i]);
+                }
+            }
+        }
+
+        string? SourceOf(FieldChange change) =>
+            sourceByChange.TryGetValue(change, out var name) ? name
+            : sourcesByRow.TryGetValue($"{change.CurrentFile}|{change.ItemName}", out var names) ? string.Join(", ", names) : null;
 
         // Read before merging (against the raw, pre-merge file set — a strict superset of
         // whatever survives resolution, since resolving only ever picks among a field's
@@ -234,7 +265,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
         // to case-sensitive keys even though baseTablesByFile/MultiFileMerger.Apply's own result
         // are both already case-insensitive.
         var merged = new Dictionary<string, JsonObject>(
-            MultiFileMerger.Apply(baseTablesByFile, resolvedChanges, report), StringComparer.OrdinalIgnoreCase);
+            MultiFileMerger.Apply(baseTablesByFile, resolvedChanges, report, SourceOf), StringComparer.OrdinalIgnoreCase);
 
         // Category 2 gameplay options (Stacks/Slots/Craft Cost/Speed Crafting/Unlimited Ammo/
         // Remove Weight — GameplayOptionsApplier.Apply) apply as a genuinely final pass over the
@@ -452,7 +483,8 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
 
         foreach (var currentFile in currentFiles.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var fileJson = BaseDataFileReader.ParseFile(dataFolder, currentFile, report);
+            // A table the game doesn't have is reported once, by MultiFileMerger, with the mods it's from.
+            var fileJson = BaseDataFileReader.ParseFile(dataFolder, currentFile, report, reportMissing: false);
             if (fileJson is null)
             {
                 continue;

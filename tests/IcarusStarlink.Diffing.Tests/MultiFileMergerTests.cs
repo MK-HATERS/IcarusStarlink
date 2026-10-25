@@ -7,6 +7,32 @@ public class MultiFileMergerTests
 {
     private static readonly ISemanticClassifier Classifier = new DefaultSemanticClassifier();
 
+    /// <summary>The build's warnings name the mod: one line for a table the game doesn't have, a note only for a new row that looks like an edit.</summary>
+    [Fact]
+    public void Apply_WarningsNameTheMod_AndOnlyAFewFieldNewRowGetsANote()
+    {
+        var baseTables = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Items-D_ItemsStatic.json"] = JsonNode.Parse("""{"Sword": {"Damage": 10}}""")!.AsObject(),
+        };
+        FieldChange New(string file, string item, string field) => new(file, item, field, null, JsonValue.Create(1), ValueSemantic.Scalar, IsNewItem: true);
+        var fromModA = new[] { New("D_FieldGuide.json", "Page", "Text"), New("D_FieldGuide.json", "Page2", "Text") };
+        var fromModB = new[]
+        {
+            New("Items-D_ItemsStatic.json", "Sord", "Damage"),
+            New("Items-D_ItemsStatic.json", "Laser", "Damage"), New("Items-D_ItemsStatic.json", "Laser", "Weight"), New("Items-D_ItemsStatic.json", "Laser", "Glow"),
+        };
+        var report = new MergeReport();
+
+        MultiFileMerger.Apply(baseTables, [.. fromModA, .. fromModB], report, c => fromModA.Contains(c) ? "Mod A" : "Mod B");
+
+        var warning = Assert.Single(report.Warnings);
+        Assert.StartsWith("Mod A: the game has no table 'D_FieldGuide.json'", warning);
+        Assert.Contains("its 2 rows", warning);
+        var note = Assert.Single(report.Notes);
+        Assert.StartsWith("Mod B: 'Sord'", note);
+    }
+
     [Fact]
     public void Apply_TwoModsAcrossTwoFiles_ProducesMergedTablesForEachFile()
     {
