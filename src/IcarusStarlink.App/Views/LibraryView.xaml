@@ -875,10 +875,31 @@
                                 <Run Text="{Binding DataShownCount, Mode=OneWay}"/><Run Text=" · EXMOD and pak mods — Merge &amp; Install puts them in the game"/>
                             </TextBlock>
                         </StackPanel>
-                        <!-- What the selected mods in this panel can do (Ctrl/Shift-click to select). -->
-                        <Border Grid.Row="1" Margin="10,0,10,8" Padding="12,4,6,4" CornerRadius="6" Background="{DynamicResource NavItemSelectedBrush}"
-                                Visibility="{Binding HasDataSelection, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <!-- What the selected mods in this panel can do (Ctrl/Shift-click to select). Its
+                             room is always kept, empty with nothing selected: appearing on the first
+                             click used to push the list down under the mouse. -->
+                        <Border Grid.Row="1" Margin="10,0,10,8" Padding="12,4,6,4" CornerRadius="6">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasDataSelection}" Value="True">
+                                            <Setter Property="Background" Value="{DynamicResource NavItemSelectedBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
                             <DockPanel>
+                                <DockPanel.Style>
+                                    <Style TargetType="DockPanel">
+                                        <Setter Property="Visibility" Value="Hidden"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasDataSelection}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DockPanel.Style>
                                 <Button DockPanel.Dock="Right" Style="{StaticResource IconButtonStyle}" Width="24" Height="24" Padding="0"
                                         Command="{Binding ClearSelectionCommand}" ToolTip="Clear the selection (Esc)" AutomationProperties.Name="Clear selection">
                                     <Path Data="M6,6 L18,18 M18,6 L6,18" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="10" Height="10" Stretch="Uniform"/>
@@ -1075,10 +1096,30 @@
                                 </TextBlock>
                             </StackPanel>
                         </DockPanel>
-                        <!-- What the selected mods in this panel can do (Ctrl/Shift-click to select). -->
-                        <Border Grid.Row="1" Margin="10,0,10,8" Padding="12,4,6,4" CornerRadius="6" Background="{DynamicResource NavItemSelectedBrush}"
-                                Visibility="{Binding HasUe4ssSelection, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <!-- What the selected mods in this panel can do (Ctrl/Shift-click to select). Its
+                             room is always kept, empty with nothing selected, as in the data panel. -->
+                        <Border Grid.Row="1" Margin="10,0,10,8" Padding="12,4,6,4" CornerRadius="6">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasUe4ssSelection}" Value="True">
+                                            <Setter Property="Background" Value="{DynamicResource NavItemSelectedBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
                             <DockPanel>
+                                <DockPanel.Style>
+                                    <Style TargetType="DockPanel">
+                                        <Setter Property="Visibility" Value="Hidden"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasUe4ssSelection}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DockPanel.Style>
                                 <Button DockPanel.Dock="Right" Style="{StaticResource IconButtonStyle}" Width="24" Height="24" Padding="0"
                                         Command="{Binding ClearSelectionCommand}" ToolTip="Clear the selection (Esc)" AutomationProperties.Name="Clear selection">
                                     <Path Data="M6,6 L18,18 M18,6 L6,18" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="10" Height="10" Stretch="Uniform"/>
