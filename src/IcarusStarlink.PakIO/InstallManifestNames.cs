@@ -102,11 +102,52 @@ public static class InstallManifestNames
             return null;
         }
 
+        // Numbers compared as digit strings (no overflow on a huge one), then by name so "_05_"
+        // and "_5_" always pick the same file.
         return Directory.EnumerateFiles(modsFolder, "*.pak")
             .Select(path => (Path: path, Match: ArcFissionDataPak.Match(Path.GetFileName(path))))
             .Where(p => p.Match.Success)
-            .OrderByDescending(p => long.TryParse(p.Match.Groups[1].Value, out var n) ? n : 0)
+            .Select(p => (p.Path, Number: p.Match.Groups[1].Value.TrimStart('0')))
+            .OrderByDescending(p => p.Number.Length)
+            .ThenByDescending(p => p.Number, StringComparer.Ordinal)
+            .ThenBy(p => Path.GetFileName(p.Path), StringComparer.Ordinal)
             .Select(p => p.Path)
             .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// The ArcFission data pak the library uses now: the one its own state.lua names (gen), when
+    /// that file is there, else the highest number. A stray file with a higher number than the
+    /// library's own (copied in by hand, say) isn't taken for its current one.
+    /// </summary>
+    public static string? CurrentArcFissionDataPak(string icarusContentPath)
+    {
+        var modsFolder = Path.Combine(icarusContentPath, "Paks", "mods");
+        try
+        {
+            var ue4ssMods = Ue4ssGamePaths.ResolveModsFolder(icarusContentPath);
+            foreach (var folder in Directory.Exists(ue4ssMods) ? Directory.GetDirectories(ue4ssMods) : [])
+            {
+                var letters = new string([.. Path.GetFileName(folder).Where(char.IsLetterOrDigit)]);
+                var state = new FileInfo(Path.Combine(folder, "state.lua"));
+                if (!letters.StartsWith("ArcFissionLibrary", StringComparison.OrdinalIgnoreCase) || !state.Exists || state.Length > 1024 * 1024)
+                {
+                    continue;
+                }
+
+                if (ArcFission.LuaData.Parse(File.ReadAllText(state.FullName)) is ArcFission.LuaTable table
+                    && table.Fields.GetValueOrDefault("gen") is double gen && gen is >= 1 and < 1e9 && gen == Math.Floor(gen)
+                    && Path.Combine(modsFolder, $"ZZ_ArcFission_Data_{(long)gen}_P.pak") is var current && File.Exists(current))
+                {
+                    return current;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // An unreadable state file: the highest number below.
+        }
+
+        return NewestArcFissionDataPak(modsFolder);
     }
 }

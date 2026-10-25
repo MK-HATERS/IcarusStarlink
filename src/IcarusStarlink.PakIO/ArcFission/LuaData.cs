@@ -13,6 +13,25 @@ public sealed class LuaTable
     public string? String(string name) => Fields.GetValueOrDefault(name) as string;
 
     public LuaTable? Table(string name) => Fields.GetValueOrDefault(name) as LuaTable;
+
+    /// <summary>
+    /// The list as Lua's ipairs sees it: entries 1, 2, 3… whether written in order ({ a, b }) or
+    /// numbered ({ [1] = a, [2] = b }, how ArcFission Library itself writes lists), up to the first
+    /// nil or gap.
+    /// </summary>
+    public IEnumerable<object?> Sequence()
+    {
+        for (var i = 1; ; i++)
+        {
+            var value = i <= Items.Count ? Items[i - 1] : Fields.GetValueOrDefault(i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (value is null)
+            {
+                yield break;
+            }
+
+            yield return value;
+        }
+    }
 }
 
 /// <summary>
@@ -220,18 +239,61 @@ public sealed class LuaData
                 case 'f': text.Append('\f'); break;
                 case 'v': text.Append('\v'); break;
                 case '\\' or '"' or '\'': text.Append(e); break;
-                case '\n': text.Append('\n'); break;
+                case '\n':
+                    text.Append('\n');
+                    break;
+                case '\r':
+                    // A backslash before a Windows line break: one line break.
+                    TryChar('\n');
+                    text.Append('\n');
+                    break;
+                case 'z':
+                    // \z skips the white space (line breaks too) that follows.
+                    while (_at < _text.Length && char.IsWhiteSpace(_text[_at]))
+                    {
+                        _at++;
+                    }
+
+                    break;
+                case 'x':
+                    if (_at + 2 > _text.Length || !char.IsAsciiHexDigit(_text[_at]) || !char.IsAsciiHexDigit(_text[_at + 1]))
+                    {
+                        throw Error("'\\x' needs two hex digits");
+                    }
+
+                    text.Append((char)int.Parse(_text.AsSpan(_at, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
+                    _at += 2;
+                    break;
+                case 'u':
+                    // \u{XXXX}: a Unicode character.
+                    var close = _text.IndexOf('}', _at);
+                    if (!TryChar('{') || close < 0 || close - _at is < 1 or > 8
+                        || !int.TryParse(_text.AsSpan(_at, close - _at), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var code)
+                        || code is < 0 or > 0x10FFFF)
+                    {
+                        throw Error("'\\u' needs {hex digits}");
+                    }
+
+                    text.Append(code is >= 0xD800 and <= 0xDFFF ? "�" : char.ConvertFromUtf32(code));
+                    _at = close + 1;
+                    break;
                 default:
                     if (char.IsAsciiDigit(e))
                     {
-                        // \ddd: up to three decimal digits, one byte.
+                        // \ddd: up to three decimal digits, one byte (Lua refuses more than 255).
                         var digits = e.ToString();
                         while (digits.Length < 3 && _at < _text.Length && char.IsAsciiDigit(_text[_at]))
                         {
                             digits += _text[_at++];
                         }
 
-                        text.Append((char)int.Parse(digits, CultureInfo.InvariantCulture));
+                        var value = int.Parse(digits, CultureInfo.InvariantCulture);
+                        if (value > 255)
+                        {
+                            throw Error($"'\\{digits}' is more than one byte");
+                        }
+
+                        text.Append((char)value);
                         break;
                     }
 

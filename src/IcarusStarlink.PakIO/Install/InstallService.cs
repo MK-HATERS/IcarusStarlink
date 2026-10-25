@@ -35,7 +35,7 @@ public sealed class InstallService : IInstallService
         // before this fix, both the old and new merged paks loaded side by side in-game — backed
         // up (not just deleted outright) before removal, matching every other real-game-folder
         // write this app makes.
-        var newestArcFission = Path.GetFileName(InstallManifestNames.NewestArcFissionDataPak(modsDirectory));
+        var newestArcFission = Path.GetFileName(InstallManifestNames.CurrentArcFissionDataPak(icarusContentPath));
         foreach (var existingFile in Directory.GetFiles(modsDirectory))
         {
             var existingFileName = Path.GetFileName(existingFile);

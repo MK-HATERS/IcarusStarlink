@@ -165,6 +165,71 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.Contains(scan.Problems, p => p.StartsWith("Broken:"));
     }
 
+    /// <summary>Review findings: whatever a downloaded card or rows file holds, it's one mod's problem, never the scan's.</summary>
+    [Fact]
+    public void HostileCards_AreOneModsProblem_AndTheOthersStillCount()
+    {
+        Mod("WirelessPower", "WirelessPower", Rows(("Crafting/D_ProcessorRecipes.json", "Wireless_Power_Node", 10)));
+        // A 20-digit version number (it used to overflow and break the conflict check).
+        Mod("HugeOld", "HugeOld", Rows(("Crafting/D_ProcessorRecipes.json", "Huge_Old", 1)), library: "1.0.99999999999999999999");
+        Mod("HugeNew", "HugeNew", Rows(("Crafting/D_ProcessorRecipes.json", "Huge_New", 1)), library: "99999999999999999999.0");
+        // A rows file name with a NUL in it (it used to drop every ArcFission row without a word).
+        Mod("NulName", "NulName", Rows(("Crafting/D_ProcessorRecipes.json", "Nul_Row", 1)));
+        File.WriteAllText(Path.Combine(ModsFolder, "NulName", "ArcFission", "mod.lua"),
+            """return { arcfission = 1, author = "ArcFission", id = "NulName", rows = "a\0b" }""");
+        // A rows file over the size limit.
+        Mod("Huge", "Huge", "return { tables = {} }" + new string(' ', 5 * 1024 * 1024));
+
+        var scan = ArcFissionRows.Scan(Content)!;
+
+        Assert.Equal(["HugeOld", "WirelessPower"], scan.Mods.Select(m => m.Id));
+        Assert.Contains(scan.Problems, p => p.StartsWith("HugeNew:") && p.Contains("needs ArcFission Library"));
+        Assert.Contains(scan.Problems, p => p.StartsWith("NulName:"));
+        Assert.Contains(scan.Problems, p => p.StartsWith("Huge:") && p.Contains("larger than"));
+    }
+
+    /// <summary>QuickSave (rows = false) only registers with the library: adding or updating it changes no data, so no "Changes waiting".</summary>
+    [Fact]
+    public void AModWithNoRows_DoesntChangeTheFingerprint()
+    {
+        Mod("WirelessPower", "WirelessPower", Rows(("Crafting/D_ProcessorRecipes.json", "Wireless_Power_Node", 10)));
+        var before = ArcFissionRows.Scan(Content)!.ManifestName;
+        var folder = Path.Combine(ModsFolder, "QuickSave");
+        Directory.CreateDirectory(Path.Combine(folder, "ArcFission"));
+        File.WriteAllText(Path.Combine(folder, "enabled.txt"), "");
+        File.WriteAllText(Path.Combine(folder, "ArcFission", "mod.lua"),
+            """return { arcfission = 1, author = "ArcFission", id = "QuickSave", version = "0.2.3", library = "1.2.1", rows = false }""");
+
+        var scan = ArcFissionRows.Scan(Content)!;
+
+        Assert.Equal(2, scan.Mods.Count);
+        Assert.Equal(before, scan.ManifestName);
+    }
+
+    /// <summary>Lists as the library's ipairs reads them: numbered ([1] = …, how the library writes lists) count, and a nil ends the list.</summary>
+    [Fact]
+    public void RowsAsANumberedList_AndANilEndingIt_ReadAsTheLibraryReadsThem()
+    {
+        Mod("WirelessPower", "WirelessPower", """
+            return { tables = { ["Crafting/D_ProcessorRecipes.json"] = {
+                [1] = { name = "First", json = [[{ "Name": "First" }]] },
+                [2] = { name = "Second", json = [[{ "Name": "Second" }]] },
+            }, ["Traits/D_Energy.json"] = { { name = "Kept", json = [[{ "Name": "Kept" }]] }, nil, { name = "AfterNil", json = "{}" } } } }
+            """);
+
+        var rows = Assert.Single(ArcFissionRows.Scan(Content)!.Mods).Rows.Select(r => r.Name);
+
+        Assert.Equal(["First", "Second", "Kept"], rows);
+    }
+
+    [Fact]
+    public void LuaData_ReadsTheEscapesLuaHas()
+    {
+        Assert.Equal("A\u00e9H-ok\nend", LuaData.Parse("return \"\\x41\\u{E9}\\72-\\z\r\n      ok\\\r\nend\""));
+        Assert.Throws<FormatException>(() => LuaData.Parse("return \"\\300\""));
+        Assert.Throws<FormatException>(() => LuaData.Parse("return \"\\xZZ\""));
+    }
+
     [Fact]
     public void LuaData_ReadsDataOnly()
     {

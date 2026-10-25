@@ -17,9 +17,13 @@ public sealed record ArcFissionMod(string Id, string Name, string Version, strin
 /// <summary>The ArcFission mods turned on in the game, and what stopped any of them being read (said, never thrown).</summary>
 public sealed record ArcFissionScan(IReadOnlyList<ArcFissionMod> Mods, IReadOnlyList<string> Problems)
 {
-    /// <summary>The mods and their rows files: changes when one is added, removed or updated.</summary>
+    /// <summary>
+    /// The mods that add rows and their rows files: changes when one is added, removed or updated.
+    /// A mod with no rows (QuickSave only registers with the library) is left out, as the library
+    /// leaves it out of its own fingerprint: updating it changes nothing in the data.
+    /// </summary>
     public string Fingerprint { get; } = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(
-        string.Join('\n', Mods.Select(m => $"{m.Id}@{m.Version}:{m.RowsHash}"))))).ToLowerInvariant();
+        string.Join('\n', Mods.Where(m => m.Rows.Count > 0).Select(m => $"{m.Id}@{m.Version}:{m.RowsHash}"))))).ToLowerInvariant();
 
     /// <summary>How the merge's manifest (ISL-Merged.txt) lists these rows; a different one means the installed merge has older rows.</summary>
     public string ManifestName => $"ArcFission rows {Fingerprint[..12]}";
@@ -73,17 +77,19 @@ public static partial class ArcFissionRows
                     continue;
                 }
 
+                // These files come from downloads: one that can't be read (whatever it throws) is
+                // said, and every other mod's rows still count.
                 try
                 {
-                    mods.Add(ReadMod(folder, libraryVersion));
+                    mods.Add(ReadModCached(folder, libraryVersion));
                 }
-                catch (Exception ex) when (ex is FormatException or IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+                catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
                     problems.Add($"{folderName}: its ArcFission files can't be read ({ex.Message}), so its rows aren't in the merge.");
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             problems.Add($"The UE4SS Mods folder can't be read ({ex.Message}), so no ArcFission rows are in the merge.");
         }
@@ -93,11 +99,42 @@ public static partial class ArcFissionRows
         return new ArcFissionScan(byId, problems);
     }
 
+    /// <summary>A file larger than this isn't read (WirelessPower's rows.lua is 11 KB).</summary>
+    private const long MaxFileBytes = 4 * 1024 * 1024;
+
+    /// <summary>Each mod as last read, by folder: read again only when its card or rows file changed (the scan runs on every queue change).</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Stamp, ArcFissionMod Mod)> ReadCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private static ArcFissionMod ReadModCached(string modFolder, string? libraryVersion)
+    {
+        var arcFissionFolder = Path.Combine(modFolder, "ArcFission");
+        var stamp = libraryVersion + "|" + string.Join("|", Directory.GetFiles(arcFissionFolder).Order(StringComparer.OrdinalIgnoreCase)
+            .Select(f => new FileInfo(f)).Select(f => $"{f.Name}:{f.Length}:{f.LastWriteTimeUtc.Ticks}"));
+        if (ReadCache.TryGetValue(modFolder, out var cached) && cached.Stamp == stamp)
+        {
+            return cached.Mod;
+        }
+
+        var mod = ReadMod(modFolder, libraryVersion);
+        ReadCache[modFolder] = (stamp, mod);
+        return mod;
+    }
+
+    private static string ReadText(string path)
+    {
+        if (new FileInfo(path).Length > MaxFileBytes)
+        {
+            throw new FormatException($"{Path.GetFileName(path)} is larger than {MaxFileBytes / (1024 * 1024)} MB");
+        }
+
+        return File.ReadAllText(path);
+    }
+
     /// <summary>One mod folder's identity card and rows. A FormatException says why the library wouldn't take it.</summary>
     public static ArcFissionMod ReadMod(string modFolder, string? libraryVersion)
     {
         var arcFissionFolder = Path.Combine(modFolder, "ArcFission");
-        if (LuaData.Parse(File.ReadAllText(Path.Combine(arcFissionFolder, "mod.lua"))) is not LuaTable card)
+        if (LuaData.Parse(ReadText(Path.Combine(arcFissionFolder, "mod.lua"))) is not LuaTable card)
         {
             throw new FormatException("its identity card ArcFission/mod.lua isn't a table");
         }
@@ -128,12 +165,13 @@ public static partial class ArcFissionRows
         }
 
         var rowsFileName = card.String("rows") ?? "rows.lua";
-        if (rowsFileName != Path.GetFileName(rowsFileName))
+        if (rowsFileName.Length == 0 || rowsFileName != Path.GetFileName(rowsFileName)
+            || rowsFileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || rowsFileName.Any(char.IsControl))
         {
-            throw new FormatException($"its rows file '{rowsFileName}' isn't inside its ArcFission folder");
+            throw new FormatException($"its rows file '{rowsFileName}' isn't a file name inside its ArcFission folder");
         }
 
-        var rowsText = File.ReadAllText(Path.Combine(arcFissionFolder, rowsFileName));
+        var rowsText = ReadText(Path.Combine(arcFissionFolder, rowsFileName));
         if (LuaData.Parse(rowsText) is not LuaTable rowsFile || rowsFile.Table("tables") is not { } tables)
         {
             throw new FormatException($"its {rowsFileName} has no 'tables'");
@@ -142,14 +180,15 @@ public static partial class ArcFissionRows
         var rows = new List<ArcFissionRow>();
         foreach (var (table, list) in tables.Fields.OrderBy(t => t.Key, StringComparer.Ordinal))
         {
-            if (list is not LuaTable entries || table.Contains("..", StringComparison.Ordinal) || Path.IsPathRooted(table))
+            if (list is not LuaTable entries || table.Contains("..", StringComparison.Ordinal) || Path.IsPathRooted(table) || table.Any(char.IsControl))
             {
                 throw new FormatException($"its rows for '{table}' aren't a list of rows");
             }
 
             // "Crafting/D_ProcessorRecipes.json" is the EXMOD CurrentFile "Crafting-D_ProcessorRecipes.json".
             var currentFile = table.Replace('\\', '/').Replace('/', '-');
-            foreach (var entry in entries.Items)
+            // As the library's ipairs reads it: { a, b } or { [1] = a, [2] = b }, up to the first nil.
+            foreach (var entry in entries.Sequence())
             {
                 if (entry is not LuaTable row || row.String("name") is not { Length: > 0 } rowName || row.String("json") is not { } json
                     || DuplicateTolerantJson.Parse(json) is not JsonObject rowJson)
@@ -181,6 +220,7 @@ public static partial class ArcFissionRows
             FileName = "ArcFission_Rows",
         };
         var owner = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var files = new Dictionary<string, ExmodFileRow>(StringComparer.OrdinalIgnoreCase);
         foreach (var mod in scan.Mods)
         {
             foreach (var row in mod.Rows)
@@ -199,9 +239,9 @@ public static partial class ArcFissionRows
                 }
 
                 owner[key] = mod.Name;
-                if (package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, row.CurrentFile, StringComparison.OrdinalIgnoreCase)) is not { } file)
+                if (!files.TryGetValue(row.CurrentFile, out var file))
                 {
-                    file = new ExmodFileRow { CurrentFile = row.CurrentFile };
+                    files[row.CurrentFile] = file = new ExmodFileRow { CurrentFile = row.CurrentFile };
                     package.Rows.Add(file);
                 }
 
@@ -219,10 +259,17 @@ public static partial class ArcFissionRows
         {
             var letters = new string([.. Path.GetFileName(folder).Where(char.IsLetterOrDigit)]);
             var main = Path.Combine(folder, "Scripts", "main.lua");
-            if (letters.StartsWith("ArcFissionLibrary", StringComparison.OrdinalIgnoreCase) && File.Exists(main)
-                && LibraryVersionLine().Match(File.ReadAllText(main)) is { Success: true } match)
+            try
             {
-                return match.Groups[1].Value;
+                if (letters.StartsWith("ArcFissionLibrary", StringComparison.OrdinalIgnoreCase) && File.Exists(main)
+                    && LibraryVersionLine().Match(ReadText(main)) is { Success: true } match)
+                {
+                    return match.Groups[1].Value;
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Unreadable: the version check is skipped, as when there's no version line.
             }
         }
 
@@ -235,17 +282,24 @@ public static partial class ArcFissionRows
     /// <summary>"1.2.0" vs "1.10": the library's own vercmp (number parts, missing ones 0).</summary>
     private static int CompareVersions(string a, string b)
     {
-        static List<long> Parts(string v) => [.. Regex.Matches(v, @"\d+").Select(m => long.Parse(m.Value, System.Globalization.CultureInfo.InvariantCulture))];
+        // Compared as digit strings (leading zeros off, then the longer is bigger, then digit by
+        // digit), so a card with a 30-digit number can't overflow anything. ASCII digits only, as
+        // Lua's %d.
+        static List<string> Parts(string v) => [.. AsciiDigits().Matches(v).Select(m => m.Value.TrimStart('0'))];
         var (pa, pb) = (Parts(a), Parts(b));
         for (var i = 0; i < Math.Max(pa.Count, pb.Count); i++)
         {
-            var (x, y) = (i < pa.Count ? pa[i] : 0, i < pb.Count ? pb[i] : 0);
-            if (x != y)
+            var (x, y) = (i < pa.Count ? pa[i] : "", i < pb.Count ? pb[i] : "");
+            var order = x.Length != y.Length ? x.Length.CompareTo(y.Length) : string.CompareOrdinal(x, y);
+            if (order != 0)
             {
-                return x < y ? -1 : 1;
+                return Math.Sign(order);
             }
         }
 
         return 0;
     }
+
+    [GeneratedRegex("[0-9]+")]
+    private static partial Regex AsciiDigits();
 }

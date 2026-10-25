@@ -149,6 +149,26 @@ public class InstallServiceTests : IDisposable
         Assert.Empty(Directory.Exists(_backupDirectory) ? Directory.GetFiles(_backupDirectory, "ZZ_ArcFission_*") : []);
     }
 
+    /// <summary>The library's own state.lua says which copy it uses: a stray higher number isn't taken for it (review finding).</summary>
+    [Fact]
+    public async Task InstallAsync_KeepsTheArcFissionDataPakTheLibrarysStateNames()
+    {
+        var modsDirectory = Path.Combine(_fakeContentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsDirectory);
+        foreach (var name in new[] { "ZZ_ArcFission_Data_1_P.pak", "ZZ_ArcFission_Data_2_P.pak", "ZZ_ArcFission_Data_99_P.pak" })
+        {
+            await File.WriteAllTextAsync(Path.Combine(modsDirectory, name), "library data");
+        }
+
+        var library = Path.Combine(Path.GetDirectoryName(_fakeContentPath.TrimEnd('\\', '/'))!, "Binaries", "Win64", "ue4ss", "Mods", "ArcFissionLibrary");
+        Directory.CreateDirectory(library);
+        await File.WriteAllTextAsync(Path.Combine(library, "state.lua"), "return {\n    [\"gen\"] = 2,\n    [\"library\"] = \"1.3.0\",\n}\n");
+
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+
+        Assert.Equal(["ZZ_ArcFission_Data_2_P.pak"], Directory.GetFiles(modsDirectory, "ZZ_ArcFission_*").Select(Path.GetFileName));
+    }
+
     [Fact]
     public async Task InstallAsync_LeavesArcFissionsOwnDataPak_ButClearsTheOldMergedPakName()
     {

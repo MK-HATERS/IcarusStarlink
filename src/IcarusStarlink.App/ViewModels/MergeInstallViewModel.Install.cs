@@ -479,7 +479,7 @@ public sealed partial class MergeInstallViewModel
             : "";
 
         // ArcFission's older data copies go too (InstallService keeps only the newest).
-        var newestArcFission = Path.GetFileName(InstallManifestNames.NewestArcFissionDataPak(modsDirectory));
+        var newestArcFission = Path.GetFileName(InstallManifestNames.CurrentArcFissionDataPak(_settingsService.Current.IcarusContentPath!));
         var oldArcFission = keepArcFission && Directory.Exists(modsDirectory)
             ? Directory.GetFiles(modsDirectory).Select(Path.GetFileName).OfType<string>()
                 .Count(n => InstallManifestNames.IsArcFissionDataPak(n) && !string.Equals(n, newestArcFission, StringComparison.OrdinalIgnoreCase))
