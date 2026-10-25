@@ -32,7 +32,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IUe4ssLoaderInstallService _ue4ssLoaderInstallService;
     private readonly IUe4ssReleaseClient _ue4ssReleaseClient;
     private readonly IAppUpdateClient _appUpdateClient;
-    private readonly AppUpdateInstaller _appUpdateInstaller;
     private readonly HttpClient _httpClient;
     private readonly IThemeService _themeService;
     private readonly ICustomSkinStore _customSkinStore;
@@ -85,7 +84,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ue4ssLoaderInstallService = ue4ssLoaderInstallService;
         _ue4ssReleaseClient = ue4ssReleaseClient;
         _appUpdateClient = appUpdateClient;
-        _appUpdateInstaller = new AppUpdateInstaller(appUpdateClient);
         _httpClient = httpClient;
         _themeService = themeService;
         _customSkinStore = customSkinStore;

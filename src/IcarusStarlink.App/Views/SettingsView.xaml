@@ -515,6 +515,8 @@
                             <TextBlock Text="Beta also offers test versions; Stable switches you back." Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12"
                                        Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                         </StackPanel>
+                        <TextBlock Text="{Binding StableUpdateSourceText}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,8"
+                                   Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                         <CheckBox Content="Check for updates when Starlink starts" IsChecked="{Binding AutoCheckAppUpdates}" Margin="0,0,0,10"
                                   ToolTip="Looks on this channel each time Starlink starts and asks before installing anything. On a beta, it also tells you when a stable release is ready."/>
 

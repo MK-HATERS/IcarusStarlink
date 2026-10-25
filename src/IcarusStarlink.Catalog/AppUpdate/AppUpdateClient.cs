@@ -117,13 +117,50 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
         [property: System.Text.Json.Serialization.JsonPropertyName("asset")] string? Asset,
         [property: System.Text.Json.Serialization.JsonPropertyName("sha256")] string? Sha256);
 
-    public async Task DownloadAssetAsync(AppUpdateRelease release, string destinationPath, CancellationToken cancellationToken = default)
+    public Task<AppUpdateRelease?> GetReleaseAsync(string version, CancellationToken cancellationToken = default) =>
+        TryManifestAsync($"https://github.com/{Owner}/{Repo}/releases/download/v{GitHubReleaseTag.StripLeadingV(version)}/release.json", cancellationToken);
+
+    public Task DownloadAssetAsync(AppUpdateRelease release, string destinationPath, CancellationToken cancellationToken = default) =>
+        DownloadAsync([release.AssetBrowserDownloadUrl], release.AssetDigest, destinationPath, null, cancellationToken);
+
+    public async Task DownloadAsync(IReadOnlyList<string> urls, string? digest, string destinationPath, IProgress<AppUpdateDownloadProgress>? progress,
+        CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, release.AssetBrowserDownloadUrl);
+        Exception? last = null;
+        foreach (var url in urls)
+        {
+            try
+            {
+                await DownloadOneAsync(url, destinationPath, progress, cancellationToken);
+                last = null;
+                break;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException && !cancellationToken.IsCancellationRequested)
+            {
+                // That server didn't answer or dropped: the next one (Nexus offers several).
+                last = ex;
+            }
+        }
+
+        if (last is not null)
+        {
+            throw last;
+        }
+
+        // See AppUpdateAssetDto.Digest's own doc comment for exactly what is and isn't confirmed
+        // about GitHub's "sha256:<hex>" digest field shape. Shared with the UE4SS loader install
+        // flow — see GitHubAssetIntegrity's own doc comment.
+        await GitHubAssetIntegrity.VerifySha256Async(digest, destinationPath, cancellationToken);
+    }
+
+    private async Task DownloadOneAsync(string url, string destinationPath, IProgress<AppUpdateDownloadProgress>? progress, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
         GitHubUserAgent.EnsureOn(request);
 
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
+        var total = response.Content.Headers.ContentLength;
 
         // Both streams are disposed (and the file handle released) before VerifySha256Async
         // re-opens the same path to hash it — a using-declaration here would keep fileStream open
@@ -132,7 +169,24 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
         {
             await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
             await using var fileStream = File.Create(destinationPath);
-            await contentStream.CopyToAsync(fileStream, cancellationToken);
+            var buffer = new byte[81920];
+            long received = 0;
+            var lastReport = DateTime.MinValue;
+            int read;
+            while ((read = await contentStream.ReadAsync(buffer, cancellationToken)) > 0)
+            {
+                await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                received += read;
+
+                // A few times a second is enough for a progress bar.
+                if (progress is not null && DateTime.UtcNow - lastReport > TimeSpan.FromMilliseconds(150))
+                {
+                    lastReport = DateTime.UtcNow;
+                    progress.Report(new AppUpdateDownloadProgress(received, total));
+                }
+            }
+
+            progress?.Report(new AppUpdateDownloadProgress(received, total));
         }
         catch
         {
@@ -140,11 +194,6 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
             TryDelete(destinationPath);
             throw;
         }
-
-        // See AppUpdateAssetDto.Digest's own doc comment for exactly what is and isn't confirmed
-        // about GitHub's "sha256:<hex>" digest field shape. Shared with the UE4SS loader install
-        // flow — see GitHubAssetIntegrity's own doc comment.
-        await GitHubAssetIntegrity.VerifySha256Async(release.AssetDigest, destinationPath, cancellationToken);
     }
 
     private static void TryDelete(string path)

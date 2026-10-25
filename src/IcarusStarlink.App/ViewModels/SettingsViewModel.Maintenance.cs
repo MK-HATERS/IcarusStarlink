@@ -8,6 +8,8 @@ using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog.AppUpdate;
 using IcarusStarlink.Core.Activity;
+using IcarusStarlink.Core.Nexus;
+using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Install;
 
@@ -205,14 +207,27 @@ public sealed partial class SettingsViewModel
         }
     }
 
-    /// <summary>The release this channel offers (AppUpdateChoice.Pick); betas are only looked up on the Beta channel.</summary>
+    /// <summary>
+    /// The release this channel offers (AppUpdateChoice.Pick); betas are only looked up on the Beta
+    /// channel. Stable releases come from Starlink's Nexus page when a Nexus key is set (the newer of
+    /// it and GitHub, Nexus on a tie), else from GitHub; betas always from GitHub.
+    /// </summary>
     private async Task<AppUpdateRelease?> GetChannelReleaseAsync()
     {
         var betaChannel = UpdateChannel == BetaChannel;
-        var stable = await _appUpdateClient.GetLatestReleaseAsync();
+        var fromGitHub = await _appUpdateClient.GetLatestReleaseAsync();
+        var fromNexus = _credentialStore.Read(CredentialTargets.NexusApiKey) is { } apiKey
+            ? await NexusAppUpdates.FindLatestStableAsync(_nexusApiClient, _appUpdateClient, apiKey)
+            : null;
+        var stable = NexusAppUpdates.PickStable(fromNexus, fromGitHub);
         var beta = betaChannel ? await _appUpdateClient.GetLatestBetaReleaseAsync() : null;
         return AppUpdateChoice.Pick(stable, beta, betaChannel);
     }
+
+    /// <summary>Settings › Maintenance: where the Stable channel's updates come from.</summary>
+    public string StableUpdateSourceText => _credentialStore.Read(CredentialTargets.NexusApiKey) is null
+        ? "Stable updates come from GitHub. Sign in to Nexus (Nexus tab) to get them from Starlink's Nexus page instead."
+        : "Stable updates come from Starlink's Nexus page (GitHub if Nexus doesn't answer); betas from GitHub.";
 
     /// <summary>Settings › Maintenance › Check for updates when Starlink starts (AppSettings.AutoCheckAppUpdates).</summary>
     public bool AutoCheckAppUpdates
@@ -321,18 +336,26 @@ public sealed partial class SettingsViewModel
             return;
         }
 
+        RunUpdateWindow(release, nexusLink: null);
+    }
+
+    /// <summary>
+    /// The update window: download (Nexus or GitHub), check, unpack, hand over, with progress and
+    /// Cancel. Closes Starlink once the updater has it.
+    /// </summary>
+    private void RunUpdateWindow(AppUpdateRelease release, NxmUrl? nexusLink)
+    {
         IsInstallingAppUpdate = true;
         try
         {
-            var problem = await _appUpdateInstaller.StartAsync(release, message => AppUpdateStatusMessage = message, DescribeBackgroundWork,
-                skipOldExe: _settingsService.Current.ExeRenameDone);
-            if (problem is not null)
+            var viewModel = new AppUpdateViewModel(release, _appUpdateClient, _nexusApiClient, _credentialStore.Read(CredentialTargets.NexusApiKey),
+                DescribeBackgroundWork, _settingsService.Current.ExeRenameDone, url => UrlOpener.TryOpen(url), nexusLink);
+            new AppUpdateWindow(Application.Current.MainWindow, viewModel).ShowDialog();
+            AppUpdateStatusMessage = viewModel.HandedOver ? "Installing the update…" : viewModel.ErrorText;
+            if (viewModel.HandedOver)
             {
-                AppUpdateStatusMessage = problem;
-                return;
+                Application.Current.Shutdown();
             }
-
-            Application.Current.Shutdown();
         }
         catch (Exception ex)
         {
@@ -342,6 +365,64 @@ public sealed partial class SettingsViewModel
         {
             IsInstallingAppUpdate = false;
         }
+    }
+
+    /// <summary>
+    /// A Mod Manager Download from Starlink's own Nexus page that no update window was waiting for
+    /// (App.HandleNxmUrl): it's Starlink itself, so it's offered as an update rather than imported
+    /// as a mod.
+    /// </summary>
+    public async Task OfferUpdateFromNexusLinkAsync(string nxmUrl)
+    {
+        if (IsInstallingAppUpdate || _credentialStore.Read(CredentialTargets.NexusApiKey) is not { } apiKey)
+        {
+            return;
+        }
+
+        NxmUrl link;
+        try
+        {
+            link = NxmUrl.Parse(nxmUrl);
+        }
+        catch (FormatException)
+        {
+            return;
+        }
+
+        // Which version that file is, and its checksum from GitHub when it's there too.
+        AppUpdateRelease? release = null;
+        try
+        {
+            var file = (await _nexusApiClient.GetModFilesAsync(apiKey, NxmHandlerCommand.IcarusDomain, NexusAppUpdates.StarlinkModId))
+                .FirstOrDefault(f => f.FileId == link.FileId);
+            if (file is not null && AppReleaseVersion.TryParse(file.Version) is { } version)
+            {
+                var onGitHub = await _appUpdateClient.GetReleaseAsync(version.ToString());
+                release = new AppUpdateRelease(version.ToString(), onGitHub?.ReleaseNotes ?? file.Notes ?? "", onGitHub?.AssetBrowserDownloadUrl ?? "",
+                    onGitHub?.AssetDigest, file.FileId);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Nexus didn't say which file it is: asked about below without a version.
+        }
+
+        if (release is null)
+        {
+            AppUpdateStatusMessage = "That Nexus download is Icarus Starlink itself, but Nexus didn't say which version it is — use Check for updates instead.";
+            return;
+        }
+
+        var same = SameAppVersion(release.Version, InstalledAppVersion);
+        if (!_dialogService.Confirm(
+                (same ? $"That Nexus download is Icarus Starlink v{release.Version}, the version you have. Install it again?" : $"That Nexus download is Icarus Starlink v{release.Version} (you have v{InstalledAppVersion}). Install it as an update?")
+                + "\n\nThe app will close, update itself, and reopen. Your mods, profiles, and settings are not touched.",
+                "Install Icarus Starlink", ThemedConfirmSeverity.Question))
+        {
+            return;
+        }
+
+        RunUpdateWindow(release, link);
     }
 
     /// <summary>"Wait until SteamCMD is updating a server has finished…" when a page has work that closing the app would cut off; null when it is safe to close.</summary>

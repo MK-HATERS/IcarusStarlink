@@ -17,6 +17,7 @@ public sealed partial class SettingsViewModel
 
     /// <summary>Null when not signed in — e.g. "SomeUser (Premium)".</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StableUpdateSourceText))]
     private string? _nexusSignedInAs;
 
     [ObservableProperty]

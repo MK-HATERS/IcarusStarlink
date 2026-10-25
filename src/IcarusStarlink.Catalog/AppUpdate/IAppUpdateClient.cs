@@ -14,6 +14,14 @@ public interface IAppUpdateClient
         Task.FromResult<AppUpdateRelease?>(null);
 
     /// <summary>
+    /// One version's GitHub release (its release.json: notes, zip and SHA-256), for a release found
+    /// on Nexus: the same zip is on both, so the download from Nexus is checked against GitHub's hash.
+    /// Null when GitHub has no such release or can't be reached.
+    /// </summary>
+    Task<AppUpdateRelease?> GetReleaseAsync(string version, CancellationToken cancellationToken = default) =>
+        Task.FromResult<AppUpdateRelease?>(null);
+
+    /// <summary>
     /// Downloads release's own zip asset to destinationPath. Throws on failure — unlike
     /// GetLatestReleaseAsync, a caller that got this far already knows a real update exists and
     /// needs to know if fetching it failed. Also throws (deleting the downloaded file first) if
@@ -22,4 +30,13 @@ public interface IAppUpdateClient
     /// error: verification is simply skipped and the download is returned as successful.
     /// </summary>
     Task DownloadAssetAsync(AppUpdateRelease release, string destinationPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The same, from the first of <paramref name="urls"/> that answers (GitHub's link, or Nexus's
+    /// CDN servers), reporting progress as it goes, then checked against <paramref name="digest"/>.
+    /// The default serves clients that only know GitHub's link.
+    /// </summary>
+    Task DownloadAsync(IReadOnlyList<string> urls, string? digest, string destinationPath, IProgress<AppUpdateDownloadProgress>? progress,
+        CancellationToken cancellationToken = default) =>
+        DownloadAssetAsync(new AppUpdateRelease("", "", urls[0], digest), destinationPath, cancellationToken);
 }

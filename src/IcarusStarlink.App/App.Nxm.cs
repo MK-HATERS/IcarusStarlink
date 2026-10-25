@@ -105,6 +105,18 @@ public partial class App
             MainWindow.Activate();
         }
 
+        // A download from Starlink's own Nexus page is an update, not a mod: the update window
+        // waiting for it takes it, else it's offered as one (it used to be imported into the Library).
+        if (Services.NexusAppUpdates.IsStarlinkLink(nxmUrl))
+        {
+            if (AppUpdateViewModel.Current?.TryDeliverNexusLink(nxmUrl) != true)
+            {
+                _ = _host.Services.GetRequiredService<SettingsViewModel>().OfferUpdateFromNexusLinkAsync(nxmUrl);
+            }
+
+            return;
+        }
+
         // Pending downloads (and what became of each one) live on the Downloads page — land there
         // so the user sees this download arrive.
         var mainViewModel = _host.Services.GetRequiredService<MainViewModel>();

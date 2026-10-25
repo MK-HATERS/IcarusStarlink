@@ -5,6 +5,9 @@ using IcarusStarlink.Core;
 
 namespace IcarusStarlink.App.Services;
 
+/// <summary>The update window's steps, in order.</summary>
+public enum AppUpdateStep { GetLink, Download, Check, Unpack, Handover }
+
 /// <summary>
 /// The file work of the in-app update, out of SettingsViewModel (which keeps the confirmation, the
 /// busy checks and the status line): clears old work folders, downloads and unzips the release,
@@ -13,20 +16,16 @@ namespace IcarusStarlink.App.Services;
 /// WITHOUT deleting anything (user data is safe by construction — see UpdateApplier), and
 /// relaunches it.
 /// </summary>
-public sealed class AppUpdateInstaller(IAppUpdateClient appUpdateClient)
+public static class AppUpdateInstaller
 {
     /// <summary>
-    /// Null once the updater is running (close the app now), else why it stopped before anything
-    /// was changed. Exceptions (a failed download, a full disk) are the caller's to report.
+    /// A fresh work folder for one update (the zip and the unpacked build go in it). Earlier
+    /// updates' work folders (zip + full extracted build, ~2x the release size each) were never
+    /// cleaned up — by anyone, since the updater runs from one and the app never looked (an audit
+    /// finding). Any previous AppUpdate_* folder is finished with by now.
     /// </summary>
-    /// <param name="status">Each step for the status line ("Downloading v2.10.0…").</param>
-    /// <param name="busyNow">Asked again right before the updater starts: the download took a while, and work may have started meanwhile.</param>
-    /// <param name="skipOldExe">The user was moved over to IcarusStarlink.exe (AppSettings.ExeRenameDone): don't copy the old-name launcher back.</param>
-    public async Task<string?> StartAsync(AppUpdateRelease release, Action<string> status, Func<string?> busyNow, bool skipOldExe = false)
+    public static string NewWorkFolder()
     {
-        // Earlier updates' work folders (zip + full extracted build, ~2x the release size each)
-        // were never cleaned up — by anyone, since the updater runs from one and the app never
-        // looked (an audit finding). Any previous AppUpdate_* folder is finished with by now.
         var updateWorkRoot = Path.Combine(Path.GetTempPath(), "IcarusStarlink");
         if (Directory.Exists(updateWorkRoot))
         {
@@ -45,12 +44,21 @@ public sealed class AppUpdateInstaller(IAppUpdateClient appUpdateClient)
 
         var workDirectory = Path.Combine(updateWorkRoot, $"AppUpdate_{Guid.NewGuid():N}");
         Directory.CreateDirectory(workDirectory);
+        return workDirectory;
+    }
 
-        status($"Downloading v{release.Version}…");
-        var zipPath = Path.Combine(workDirectory, "update.zip");
-        await appUpdateClient.DownloadAssetAsync(release, zipPath);
-
-        status("Preparing update…");
+    /// <summary>
+    /// From a downloaded (and checked) release zip in <paramref name="workDirectory"/>: unpacks it,
+    /// stages the updater and starts it. Null once the updater is running (close the app now),
+    /// else why it stopped before anything was changed. Exceptions (a full disk) are the caller's.
+    /// </summary>
+    /// <param name="unpacking">Called when the unpacking starts and when the updater is being readied, for the progress window.</param>
+    /// <param name="busyNow">Asked again right before the updater starts: the download took a while, and work may have started meanwhile.</param>
+    /// <param name="skipOldExe">The user was moved over to IcarusStarlink.exe (AppSettings.ExeRenameDone): don't copy the old-name launcher back.</param>
+    public static async Task<string?> InstallFromZipAsync(AppUpdateRelease release, string zipPath, string workDirectory, Action<AppUpdateStep> unpacking,
+        Func<string?> busyNow, bool skipOldExe = false)
+    {
+        unpacking(AppUpdateStep.Unpack);
         var extractDirectory = Path.Combine(workDirectory, "new");
         await Task.Run(() => System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, extractDirectory));
 
@@ -83,6 +91,8 @@ public sealed class AppUpdateInstaller(IAppUpdateClient appUpdateClient)
             return $"v{release.Version} is from before Starlink's exe was renamed, so it can't be installed over this version. "
                 + "Download it from GitHub into a new folder if you need it.";
         }
+
+        unpacking(AppUpdateStep.Handover);
 
         // The updater must run from OUTSIDE the install folder or it couldn't replace its own
         // files: stage it into the temp work folder and launch from there. In a published

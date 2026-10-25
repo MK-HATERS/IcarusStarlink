@@ -35,6 +35,50 @@ public class AppUpdateClientTests
         }
         """;
 
+    /// <summary>Stable from Nexus (2026-10-25): Nexus's servers in turn, progress for the update window, then GitHub's checksum.</summary>
+    [Fact]
+    public async Task DownloadAsync_TriesTheNextServer_ReportsProgress_AndChecksTheDigest()
+    {
+        var client = CreateClient(new Dictionary<string, string> { ["https://cdn-b.example/starlink.zip"] = "zip-bytes" });
+        var destinationPath = Path.Combine(Path.GetTempPath(), $"starlink-update-{Guid.NewGuid():N}.zip");
+        var reports = new List<AppUpdateDownloadProgress>();
+        try
+        {
+            await client.DownloadAsync(["https://cdn-a.example/starlink.zip", "https://cdn-b.example/starlink.zip"], MatchingDigestForZipBytes,
+                destinationPath, new SyncProgress(reports.Add));
+
+            Assert.Equal("zip-bytes", File.ReadAllText(destinationPath));
+            Assert.Equal(9, reports[^1].Received);
+        }
+        finally
+        {
+            File.Delete(destinationPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetReleaseAsync_ReadsThatVersionsReleaseJson()
+    {
+        var client = CreateClient(new Dictionary<string, string>
+        {
+            ["https://github.com/MK-HATERS/IcarusStarlink/releases/download/v3.0.2/release.json"] =
+                """{"version":"3.0.2","notes":"fixes","asset":"IcarusStarlink-v3.0.2-win-x64.zip","sha256":"abc"}""",
+        });
+
+        var release = await client.GetReleaseAsync("v3.0.2");
+
+        Assert.Equal("3.0.2", release!.Version);
+        Assert.Equal("sha256:abc", release.AssetDigest);
+        Assert.EndsWith("/v3.0.2/IcarusStarlink-v3.0.2-win-x64.zip", release.AssetBrowserDownloadUrl);
+        Assert.Null(await client.GetReleaseAsync("9.9.9"));
+    }
+
+    /// <summary>Progress&lt;T&gt; posts to a sync context; this reports straight away.</summary>
+    private sealed class SyncProgress(Action<AppUpdateDownloadProgress> report) : IProgress<AppUpdateDownloadProgress>
+    {
+        public void Report(AppUpdateDownloadProgress value) => report(value);
+    }
+
     [Fact]
     public async Task GetLatestReleaseAsync_RealisticResponse_StripsLeadingVAndPicksZipAsset()
     {
