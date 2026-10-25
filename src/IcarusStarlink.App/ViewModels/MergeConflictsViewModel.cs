@@ -248,8 +248,14 @@ public sealed partial class MergeConflictsViewModel : ObservableObject
     public MergeConflictsViewModel(
         IReadOnlyList<FieldConflict> conflicts,
         IReadOnlyList<NewItemNameCollision> collisions,
-        IReadOnlyDictionary<string, string>? winners)
+        IReadOnlyDictionary<string, string>? winners,
+        IReadOnlyList<BetweenModsFinding>? betweenMods = null,
+        IReadOnlyList<QueuedModProblems>? modsWithProblems = null)
     {
+        BetweenMods = betweenMods ?? [];
+        ModsWithProblems = modsWithProblems ?? [];
+        // Open on the first tab with something in it.
+        _selectedTab = conflicts.Count > 0 || collisions.Count > 0 ? 0 : BetweenMods.Count > 0 ? 1 : ModsWithProblems.Count > 0 ? 2 : 0;
         _earlierWinners = winners ?? new Dictionary<string, string>();
         var registry = new MergeRuleRegistry();
         _all = [.. conflicts.Select(c => new MergeConflictViewModel(c, _earlierWinners.GetValueOrDefault(WinnerKey(c.CurrentFile, c.ItemName, c.FieldName)), registry))];
@@ -279,6 +285,56 @@ public sealed partial class MergeConflictsViewModel : ObservableObject
 
     public static string WinnerKey(string currentFile, string itemName, string fieldName) =>
         $"{currentFile.ToLowerInvariant()}|{itemName}|{fieldName}";
+
+    /// <summary>The Between mods tab: the same file in two mods, talent trees, a mod that needs one outside the merge.</summary>
+    public IReadOnlyList<BetweenModsFinding> BetweenMods { get; }
+
+    /// <summary>The Per mod tab: queued mods the Library's health check flags.</summary>
+    public IReadOnlyList<QueuedModProblems> ModsWithProblems { get; }
+
+    public string ConflictsTabHeader => $"Conflicts ({Tally.NeedsDecision})";
+
+    public string BetweenModsTabHeader => $"Between mods ({BetweenMods.Count})";
+
+    public string PerModTabHeader => $"Per mod ({ModsWithProblems.Count})";
+
+    public bool HasNoBetweenMods => BetweenMods.Count == 0;
+
+    public bool HasNoModsWithProblems => ModsWithProblems.Count == 0;
+
+    /// <summary>0 Conflicts, 1 Between mods, 2 Per mod.</summary>
+    [ObservableProperty]
+    private int _selectedTab;
+
+    /// <summary>Set by Fix… on a mod: the window closes (keeping the picks) and the Library opens that mod's fix window.</summary>
+    public string? FixFolderName { get; set; }
+
+    /// <summary>Copy report: every finding in plain text with its code, to paste into a bug report or a message to a mod's author.</summary>
+    public string BuildReportText()
+    {
+        var text = new System.Text.StringBuilder();
+        text.AppendLine($"Icarus Starlink merge check: {Tally.NeedsDecision} conflict(s), {BetweenMods.Count} clash(es) between mods, {ModsWithProblems.Count} mod(s) with problems.");
+        foreach (var conflict in _all)
+        {
+            text.AppendLine($"[ISL-301] Conflict: {conflict.Row}.{conflict.Field} ({GameTableIndex.TableNameOf(conflict.Conflict.CurrentFile)}) changed by {conflict.ModsText}");
+        }
+
+        foreach (var finding in BetweenMods)
+        {
+            text.AppendLine($"[{finding.Code}] {finding.Kind}: {finding.Mods} · {finding.Where}: {finding.Why}");
+        }
+
+        foreach (var mod in ModsWithProblems)
+        {
+            foreach (var issue in mod.Problems)
+            {
+                var where = issue.ItemName.Length == 0 ? issue.CurrentFile : $"{GameTableIndex.TableNameOf(issue.CurrentFile)} · {issue.ItemName}{(issue.FieldName is null ? "" : $".{issue.FieldName}")}";
+                text.AppendLine($"[{issue.Code}] {mod.Name}: {where}: {issue.Why}");
+            }
+        }
+
+        return text.ToString();
+    }
 
     public ObservableCollection<MergeConflictGroupViewModel> Groups { get; }
 

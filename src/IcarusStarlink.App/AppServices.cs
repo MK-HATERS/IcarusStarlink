@@ -285,7 +285,9 @@ internal static class AppServices
             messenger: null,
             gameProcessChecker: sp.GetRequiredService<IGameProcessChecker>(),
             gameDataFreshness: new GameDataFreshness(sp.GetRequiredService<IUnrealPakService>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<SettingsViewModel>),
-            dialogService: sp.GetRequiredService<IDialogService>()));
+            dialogService: sp.GetRequiredService<IDialogService>(),
+            // The Library's health check, for the merge check's Per mod findings.
+            fixService: sp.GetRequiredService<ModFixService>()));
         services.AddSingleton(sp => new DownloadsViewModel(
             sp.GetRequiredService<IDaedalusCatalogClient>(),
             sp.GetRequiredService<IJimk72CatalogClient>(),

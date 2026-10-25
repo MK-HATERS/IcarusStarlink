@@ -50,7 +50,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// <summary>
     /// Per-folder cache of ExmodFolder.Read's own result, keyed by LibraryEntry.FolderName plus a
     /// cheap on-disk fingerprint (see ComputeFolderFingerprint) — LoadQueuedPackagesAsync runs on
-    /// every Queue mutation (both RecomputeConflictCountAsync and RecomputeValidationIssueCountAsync
+    /// every Queue mutation (both RecomputeConflictCountAsync and RecomputeChecksAsync
     /// call it independently, per the Queue.CollectionChanged handler below), and until this existed
     /// EVERY queued mod's own .EXMOD got re-read and re-parsed from disk on every single one of
     /// those, even for a mod that wasn't the one that changed (e.g. reordering two OTHER mods, or
@@ -64,24 +64,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     private readonly object _packageCacheLock = new();
 
     /// <summary>
-    /// FindQueueValidationIssuesAsync's own base DataTableRowIndex.Build(_dataFolder) call — a full
-    /// walk-and-parse of every extracted game-data JSON file (measured ~500ms-1.3s against this
-    /// app's real ~300-file data folder) — used to run fresh on every single call, even though
-    /// RecomputeValidationIssueCountAsync (its only real caller) fires on every debounced Queue
-    /// mutation and _dataFolder's own contents only ever change on a real "Update data folder" run.
-    /// GameDataIndexCache already solved this exact problem for the same data; this mirrors that
-    /// same lazy-build-once-then-invalidate-on-WeeklyChangeReportUpdatedMessage pattern locally,
-    /// under _packageCacheLock (reused rather than a second lock — both guard state read/written by
-    /// the same pair of concurrently-fired Recompute methods). WithDeclaredRows below returns a
-    /// fresh copy without mutating the cached base index, so caching it here is safe.
-    /// </summary>
-    private DataTableRowIndex? _cachedBaseDataTableIndex;
-
-    /// <summary>
-    /// The talent-tree check's game tables (GameTableIndex reads and parses each table once, then
-    /// keeps it). Made fresh on every validation pass before, so every queue change parsed the
-    /// talent tables again. Same lifetime as _cachedBaseDataTableIndex, and let go with the
-    /// package cache when the app sits idle.
+    /// The merge check's game tables (GameTableIndex reads and parses each table once, then keeps
+    /// it). Made fresh on every check before, so every queue change parsed the tables again.
+    /// Dropped when the game data changes, and let go with the package cache when the app sits idle.
     /// </summary>
     private GameTableIndex? _cachedGameTableIndex;
 
@@ -92,7 +77,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// Test-only seam (see DebounceTimerTests' own doc comment on why a real elapsed-time firing
     /// isn't observable without a live Dispatcher message pump): proves a Queue mutation defers to
     /// the debounced recompute rather than running it synchronously inline, without needing the
-    /// timer to actually elapse. RecomputeConflictCountAsync/RecomputeValidationIssueCountAsync
+    /// timer to actually elapse. RecomputeConflictCountAsync/RecomputeChecksAsync
     /// (internal for the same reason) let a test then invoke the exact same recompute the timer
     /// would have, on demand, to check it produces the right answer for the current queue.
     /// </summary>
@@ -147,18 +132,6 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
 
     public ObservableCollection<string> Warnings { get; } = [];
 
-    // --- Mod validation ("will this actually do anything in-game") ---
-    [ObservableProperty]
-    private string? _validationStatusMessage;
-
-    /// <summary>Proactive badge on the queue, recomputed in the background whenever Queue changes — same shape as ConflictCount, but flags a mod setting a field name/type or a reference that isn't real in the currently-extracted game data (the merge and pak build both succeed either way, but the game's own importer silently ignores what it doesn't recognize, so the edit does nothing in-game).</summary>
-    [ObservableProperty]
-    private int _validationIssueCount;
-
-    public bool HasValidationIssues => ValidationIssueCount > 0;
-
-    partial void OnValidationIssueCountChanged(int value) => OnPropertyChanged(nameof(HasValidationIssues));
-
     private readonly IMessenger _messenger;
 
     /// <summary>Null only in tests that don't care; the app always wires the real checker — see InstallAsync.</summary>
@@ -178,10 +151,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
         ISettingsService settingsService, IPakCompareService pakCompareService, PerformanceTracker performanceTracker, IActivityLog activityLog,
         string dataFolder, string outputPakPath, string backupDirectory, IMessenger? messenger = null, IGameProcessChecker? gameProcessChecker = null,
-        IGameDataFreshness? gameDataFreshness = null, IDialogService? dialogService = null)
+        IGameDataFreshness? gameDataFreshness = null, IDialogService? dialogService = null, ModFixService? fixService = null)
     {
         IcarusStarlink.Core.Memory.IdleMemory.Register(this);
         _dialogs = dialogService ?? new WpfDialogService();
+        _fixService = fixService;
 
         // Injectable so tests can give each view model its own messenger — the shared Default one
         // made this class's tests interfere with each other under the parallel runner.
@@ -211,7 +185,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         _recomputeDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), () =>
         {
             _ = RecomputeConflictCountAsync();
-            _ = RecomputeValidationIssueCountAsync();
+            _ = RecomputeChecksAsync();
         });
 
         ReloadProfileNames();
@@ -249,11 +223,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             OnPropertyChanged(nameof(IsQueueEmpty));
             OnPropertyChanged(nameof(QueueCount));
 
-            // Validation findings only ever depend on which mods are queued (unlike conflicts,
-            // which also depend on gameplay options), so this recomputes on Queue changes only —
-            // not from every gameplay-option toggle the way InvalidateManualPicks does.
-            ValidationStatusMessage = null;
-
+            // The check's findings only depend on which mods are queued (unlike conflicts, which
+            // also depend on gameplay options), so they're recomputed on Queue changes only.
             _recomputeDebounceTimer.Restart();
             MarkWorkingStateChanged();
         };
@@ -288,6 +259,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             var viewModel = (MergeInstallViewModel)recipient;
             viewModel.InvalidatePackageCache();
             viewModel.InvalidateManualPicks();
+            // A fix, an edit or a choice in a mod's fix window changes what the check flags.
+            viewModel.InvalidateCheckCache();
+            _ = viewModel.RecomputeChecksAsync();
             // A profile's missing mod imported again under its folder name takes its row back.
             viewModel.ResolveMissingQueueEntries();
             // A mod updated or re-imported since the installed merge was built needs another one.
@@ -301,12 +275,11 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         // candidate list (which now starts from the FRESH base data this message signals) at
         // Rebuild time, and a pick stored as a plain index has no way to detect that its own
         // meaning may have shifted underneath it.
-        _messenger.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) =>
+        _messenger.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, message) =>
         {
             var viewModel = (MergeInstallViewModel)recipient;
             lock (viewModel._packageCacheLock)
             {
-                viewModel._cachedBaseDataTableIndex = null;
                 viewModel._cachedGameTableIndex = null;
                 // A prebuilt pak's changes are its diff against the game data, which just changed.
                 viewModel._prebuiltPakChangesCache.Clear();
@@ -314,6 +287,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             }
 
             viewModel.InvalidateManualPicks();
+            viewModel.InvalidateCheckCache();
+            _ = viewModel.RecomputeChecksAsync();
         });
 
         // Closing the app, an update or Refresh game data mid-build or mid-install: asked first.
@@ -336,7 +311,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         // only after some LATER Add/Remove. One explicit recompute here, once the queue has fully
         // settled, covers exactly that gap without reordering the subscription itself.
         _ = RecomputeConflictCountAsync();
-        _ = RecomputeValidationIssueCountAsync();
+        _ = RecomputeChecksAsync();
 
         // Any merge option changing raises the options summary: that's the cue to save too.
         _workingStateSaveTimer = new DebounceTimer(TimeSpan.FromMilliseconds(800), SaveWorkingState);
@@ -499,211 +474,12 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         }
     }
 
-    /// <summary>
-    /// Builds DataTableRowIndex.Build(_dataFolder) — a full walk-and-parse of every extracted
-    /// game-data JSON file — at most once, reused by every later call until a real "Update data
-    /// folder" run invalidates it (see the WeeklyChangeReportUpdatedMessage registration in the
-    /// constructor). Safe to cache the base build: WithDeclaredRows (the only thing callers do with
-    /// the result) copies before mutating, never touching this cached instance.
-    /// </summary>
-    private DataTableRowIndex GetOrBuildBaseDataTableIndex()
-    {
-        lock (_packageCacheLock)
-        {
-            return _cachedBaseDataTableIndex ??= DataTableRowIndex.Build(_dataFolder);
-        }
-    }
-
     private GameTableIndex GetOrCreateGameTableIndex()
     {
         lock (_packageCacheLock)
         {
             _packageCacheUsedUtc = DateTime.UtcNow;
             return _cachedGameTableIndex ??= new GameTableIndex(_dataFolder);
-        }
-    }
-
-    /// <summary>
-    /// Shared by ReviewValidationIssuesAsync and the background badge computation. Runs three
-    /// checks over the queue, all answering the same real underlying question ("will this actually
-    /// do something in-game") from a different angle, combined into one report rather than three
-    /// near-identical warning strips in this page: ExmodFieldValidityChecker ("is this field
-    /// name/type real", per mod), ExmodReferenceChecker ("does this reference point at something
-    /// real", per mod), ExmodAssetCollisionChecker ("do two queued mods silently overwrite each
-    /// other's binary asset", across the whole queue — unlike the other two, this one only makes
-    /// sense computed once over every mod together, not mod-by-mod), and TalentTreeChecker (the
-    /// talent/blueprint/workshop trees as the whole queue leaves them: nodes on top of each other,
-    /// circles, nodes needing another tree's).
-    ///
-    /// Deliberately scoped to only the real EXMOD mods in the queue (LoadQueuedPackagesAsync's own
-    /// Packages) — an attached prebuilt pak's own compiled DataTable JSON was already written by
-    /// whatever tool built that pak, not authored here, and the built-in gameplay options write
-    /// hardcoded, app-defined field names that already have their own dedicated "zero rows
-    /// matched" warning in GameplayOptionsApplier, so re-checking either through this
-    /// general-purpose path would be redundant, not a gap.
-    /// </summary>
-    private async Task<IReadOnlyList<ValidationIssueRowViewModel>> FindQueueValidationIssuesAsync()
-    {
-        var loaded = await LoadQueuedPackagesAsync();
-        var (entries, packages) = (loaded.Entries, loaded.Packages);
-
-        return await Task.Run(() =>
-        {
-            var schemaCache = new Dictionary<string, Dictionary<string, System.Text.Json.JsonValueKind>?>();
-
-            // Layer EVERY queued mod's own declared rows into ONE combined index before checking
-            // any of them — not just each package's own rows, which is all ExmodReferenceChecker.
-            // Check's own internal WithDeclaredRows call does on its own. Without this, Mod B
-            // referencing a row only Mod A (also queued) declares produced a false "broken
-            // reference": the base-game index alone has no way to know about a row a DIFFERENT
-            // queued mod is adding. Built once per validation pass, not once per package (the
-            // IEnumerable<ExmodPackage> overload copies the base tables exactly once), so this
-            // scales with the queue, not the queue squared.
-            //
-            // The REVERSE direction (a queued mod's own edit removing or renaming a row some OTHER
-            // queued mod's reference depends on) does NOT need the same treatment — confirmed by
-            // reading the format, not assumed: there is no mechanism anywhere in this pipeline by
-            // which a queued mod can make that happen.
-            //   - No row can be deleted at all. TableDiffer's own doc comment is explicit: "no
-            //     invented row deletion semantics... there's no evidence that's a real modding
-            //     pattern" — confirmed all the way through TableApplier.Apply too, which only ever
-            //     creates a row or edits/removes a FIELD within one; nothing removes a row itself.
-            //   - No row can be renamed either, because a row's identity IS its own "Name" key, and
-            //     "Name" categorically cannot travel through the sparse EXMOD field-change format:
-            //     ReservedFieldNames.EnsureFieldNameAllowed rejects it as an ordinary field outright
-            //     (ExmodFieldChangeMapper.FromFieldChanges/ExmodJson.ToJsonObject both enforce this
-            //     on write), and even a hand-crafted .EXMOD file that snuck a "Name" key into one
-            //     File_Item's own object would have it silently skipped on read — see
-            //     ExmodJson.ParseRow's own `if (key == "Name") continue;`.
-            //   - A mod CAN remove an individual FIELD from a row it declares (FieldChange.
-            //     IsFieldRemoved), but that never removes the row's own Name from THIS index —
-            //     AddDeclaredRows below adds item.Name unconditionally, regardless of which fields
-            //     that item does or doesn't carry — so a field-level edit from one queued mod can
-            //     never make another queued mod's row-existence reference look broken.
-            // Net: nothing a queued mod can actually express invalidates another queued mod's
-            // reference, so there is no reverse-direction gap here to detect. (A row genuinely
-            // renamed/removed by an upstream GAME PATCH is a real, different case — already handled
-            // by TableApplier's own "item no longer exists in base data" warning at Rebuild time,
-            // orthogonal to this queue-vs-queue check.)
-            var queueWideReferenceIndex = GetOrBuildBaseDataTableIndex().WithDeclaredRows(packages.Select(p => p.Package));
-            var rows = new List<ValidationIssueRowViewModel>();
-
-            for (var i = 0; i < packages.Count; i++)
-            {
-                var modName = entries[i].Name;
-                var package = packages[i].Package;
-
-                foreach (var finding in ExmodFieldValidityChecker.Check(package, _dataFolder, schemaCache))
-                {
-                    rows.Add(new ValidationIssueRowViewModel(
-                        "Field", modName, finding.CurrentFile.Replace('-', '/'), finding.ItemName, finding.FieldName, finding.Reason));
-                }
-
-                foreach (var finding in ExmodReferenceChecker.Check(package, _dataFolder, queueWideReferenceIndex))
-                {
-                    rows.Add(new ValidationIssueRowViewModel(
-                        "Reference", modName, finding.CurrentFile.Replace('-', '/'), finding.ItemName, finding.FieldPath, finding.Reason));
-                }
-            }
-
-            var queuedForCollisionCheck = entries.Zip(packages, (entry, package) => (entry.Name, package)).ToList();
-            foreach (var collision in ExmodAssetCollisionChecker.Check(queuedForCollisionCheck))
-            {
-                // Last-in-queue-order wins on a literal asset path collision — same convention
-                // RebuildService's own raw-copy-through pass already uses for field conflicts.
-                var reason = collision.AreIdentical
-                    ? $"{collision.ModNames.Count} queued mods bundle this exact same file (byte-identical) — harmless, but worth knowing."
-                    : $"{collision.ModNames.Count} queued mods bundle DIFFERENT versions of this file — '{collision.ModNames[^1]}' silently wins, the others are discarded.";
-                rows.Add(new ValidationIssueRowViewModel(
-                    "Asset collision", string.Join(", ", collision.ModNames), collision.RelativePath, "—", "—", reason));
-            }
-
-            // The talent, blueprint and workshop trees as the whole queue leaves them (later mods
-            // win, as in the merge): nodes on top of each other, circles, another tree's nodes.
-            foreach (var finding in TalentTreeChecker.Check([.. queuedForCollisionCheck.Select(q => (q.Name, q.package.Package))], GetOrCreateGameTableIndex()))
-            {
-                var field = finding.Kind switch
-                {
-                    TalentTreeChecker.FindingKind.Overlap => "Position",
-                    TalentTreeChecker.FindingKind.MissingTree => "TalentTree",
-                    _ => "RequiredTalents",
-                };
-                rows.Add(new ValidationIssueRowViewModel(
-                    "Talent tree", string.Join(", ", finding.Mods), "Talents/D_Talents.json", finding.Node, field, finding.Reason));
-            }
-
-            return (IReadOnlyList<ValidationIssueRowViewModel>)rows;
-        });
-    }
-
-    /// <summary>Guards RecomputeValidationIssueCountAsync the same way _conflictCountVersion guards its own sibling — see that field's own comment for why.</summary>
-    private int _validationIssueCountVersion;
-
-    /// <summary>Best-effort background refresh of ValidationIssueCount — a malformed queued mod here just leaves the badge at its last value; ReviewValidationIssuesAsync surfaces the real error when the user actually acts. Internal (not private) for the same test-seam reason as RecomputeConflictCountAsync — see IsRecomputeDebouncePending's own doc comment.</summary>
-    internal async Task RecomputeValidationIssueCountAsync()
-    {
-        var version = ++_validationIssueCountVersion;
-
-        if (Queue.Count == 0)
-        {
-            ValidationIssueCount = 0;
-            return;
-        }
-
-        try
-        {
-            var rows = await FindQueueValidationIssuesAsync();
-            if (version == _validationIssueCountVersion)
-            {
-                ValidationIssueCount = rows.Count;
-            }
-        }
-        catch (Exception)
-        {
-            // Left at its last value on purpose — same reasoning as RecomputeConflictCountAsync.
-        }
-    }
-
-    /// <summary>
-    /// Checks every queued mod's own declared fields and references against the currently-
-    /// extracted real game data and opens a read-only report of anything that looks wrong — a
-    /// field name that isn't real (typo, or renamed/removed by a game update), a value whose JSON
-    /// type doesn't match what that field normally holds, or a reference (e.g. a recipe input)
-    /// pointing at a row that doesn't exist. None of these make the merge or the pak build fail;
-    /// Icarus's own importer just silently ignores what it doesn't recognize, so this is the one
-    /// place this app can tell you before you install that a change is quietly going to do nothing
-    /// in-game.
-    /// </summary>
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
-    private async Task ReviewValidationIssuesAsync()
-    {
-        if (Queue.Count == 0)
-        {
-            ValidationStatusMessage = "Add mods to the queue first.";
-            return;
-        }
-
-        try
-        {
-            var rows = await FindQueueValidationIssuesAsync();
-            ValidationIssueCount = rows.Count;
-
-            if (rows.Count == 0)
-            {
-                ValidationStatusMessage = $"No issues found among {Queue.Count} queued mod(s).";
-                return;
-            }
-
-            _activityLog.Log($"{rows.Count} validation issue(s) found among {Queue.Count} queued mod(s).", ActivityEntryKind.Warning);
-            ValidationStatusMessage = $"{rows.Count} issue(s) found — see the report window.";
-
-            var window = new ValidationIssueReportWindow(rows) { Owner = Application.Current.MainWindow };
-            window.Show();
-        }
-        catch (Exception ex)
-        {
-            // Same UI boundary as ReviewConflictsAsync — a malformed queued mod shouldn't crash the app.
-            ValidationStatusMessage = $"Couldn't validate mods: {ex.Message}";
         }
     }
 }

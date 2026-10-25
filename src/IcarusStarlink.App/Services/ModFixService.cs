@@ -413,6 +413,8 @@ public sealed class ModFixService(
                         {
                             rows.AddedBySeveral.Add(key);
                         }
+
+                        rows.AddedBy.TryAdd(key, entry.Name);
                     }
                 }
                 catch (Exception)
@@ -499,10 +501,13 @@ public sealed class ModFixService(
         decisionsDirectory is null ? null : Path.Combine(decisionsDirectory, string.Join("_", folderName.Split(Path.GetInvalidFileNameChars())) + ".json");
 }
 
-/// <summary>The rows every Library mod adds (AddedRowKey keys), which of them more than one mod adds (old game rows two prebuilt paks both carry), and the game files Library mods have.</summary>
+/// <summary>The rows every Library mod adds (AddedRowKey keys), which of them more than one mod adds (old game rows two prebuilt paks both carry) and by whom, and the game files Library mods have.</summary>
 public sealed class LibraryAddedRowSet() : HashSet<string>(StringComparer.Ordinal)
 {
     public HashSet<string> AddedBySeveral { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Which Library mod adds each row (the first one found, by name): the Merge check names the mod a queued one needs.</summary>
+    public Dictionary<string, string> AddedBy { get; } = new(StringComparer.Ordinal);
 
     /// <summary>Every game package path a Library mod has a file of (see ModFixService.LibraryPackages).</summary>
     public HashSet<string> Packages { get; } = new(StringComparer.OrdinalIgnoreCase);

@@ -29,9 +29,9 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// dependency. Every Yes/No question and file picker goes through a fake IDialogService (_dialogs),
 /// names through PromptForProfileName, so Install, Remove from game,
 /// Restore previous install, Suggest order and the profile commands all run here; only Review
-/// conflicts and Validate mods still open a real window (MergeConflictsWindow,
-/// ValidationIssueReportWindow), so those are reached through the same recompute the badges use
-/// (RecomputeConflictCountAsync/RecomputeValidationIssueCountAsync, CreateConflictReviewForTesting).
+/// still opens a real window (MergeConflictsWindow, "Check the merge"), so it is reached through
+/// the same recompute the bar uses (RecomputeConflictCountAsync/RecomputeChecksAsync,
+/// CreateConflictReviewForTesting).
 /// The first groups below cover:
 ///
 ///   1. Queue mutation -&gt; the debounced conflict/validation recompute (does a mutation defer to
@@ -86,9 +86,13 @@ public sealed class MergeInstallViewModelTests : IDisposable
         FakeSettingsService? settingsService = null,
         bool gameRunning = false,
         FakeGameDataFreshness? gameDataFreshness = null,
-        FakePatchService? patchService = null)
+        FakePatchService? patchService = null,
+        string? dataFolder = null,
+        bool withHealthCheck = false)
     {
         settingsService ??= new FakeSettingsService();
+        libraryRepository ??= new FakeLibraryRepository();
+        dataFolder ??= Path.Combine(_tempRoot, "NoRealGameData");
 
         // RefreshHasExistingInstallAsync (constructor's own fire-and-forget background task) sets
         // CanCopyToGame from the staged pak and its mod list independently of anything a test does —
@@ -101,7 +105,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         File.WriteAllText(Path.Combine(Path.GetDirectoryName(outputPakPath)!, IcarusStarlink.PakIO.InstallManifestNames.PakManifest), "");
 
         return new MergeInstallViewModel(
-            libraryRepository ?? new FakeLibraryRepository(),
+            libraryRepository,
             rebuildService ?? new FakeRebuildService(),
             installService ?? new FakeInstallService(),
             profileStore ?? new FakeProfileStore(),
@@ -112,19 +116,43 @@ public sealed class MergeInstallViewModelTests : IDisposable
             new FakePakCompareService(),
             new PerformanceTracker(settingsService, Path.Combine(_tempRoot, "PerfLogs")),
             new FakeActivityLog(),
-            // Deliberately a folder that doesn't exist — DataTableRowIndex.Build/BaseDataFileReader
-            // both degrade to "nothing found" rather than throwing (matching SavesViewModelTests'
-            // own "no real extracted game data" convention), which every test below relies on:
-            // ExmodFieldValidityChecker/ExmodAssetCollisionChecker then contribute zero findings,
-            // so ValidationIssueCount is driven ONLY by whatever ExmodReferenceChecker finds.
-            Path.Combine(_tempRoot, "NoRealGameData"),
+            // By default a folder that doesn't exist: game-data readers degrade to "nothing found"
+            // rather than throwing (SavesViewModelTests' "no real extracted game data" convention).
+            dataFolder,
             outputPakPath,
             Path.Combine(_tempRoot, "Backups"),
             _messenger,
             new FakeGameProcessChecker(gameRunning),
             gameDataFreshness,
-            _dialogs);
+            _dialogs,
+            withHealthCheck ? new ModFixService(libraryRepository, dataFolder) : null);
     }
+
+    /// <summary>A small extracted game: a few items, and the drinks they can link to.</summary>
+    private string WriteGameData()
+    {
+        var data = Path.Combine(_tempRoot, "GameData");
+        void Table(string relative, string rows)
+        {
+            var path = Path.Combine(data, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, $$$"""{"RowStruct": "S", "Defaults": {"Weight": 0, "Consumable": {"RowName": "None", "DataTableName": "D_Consumable"}}, "Rows": [{{{rows}}}]}""");
+        }
+
+        Table(Path.Combine("Items", "D_ItemsStatic.json"), """{"Name": "Bread", "Weight": 20}, {"Name": "Canteen", "Weight": 5}""");
+        Table(Path.Combine("Traits", "D_Consumable.json"), """{"Name": "BasicWater"}""");
+        return data;
+    }
+
+    private static string ItemsMod(string name, string items, string? drinks = null) => $$"""
+        {
+            "name": "{{name}}", "author": "Test", "version": "1", "description": "D", "fileName": "{{name}}",
+            "Rows": [
+                {"CurrentFile": "Items-D_ItemsStatic.json", "File_Items": [{{items}}]}
+                {{(drinks is null ? "" : $$""", {"CurrentFile": "Traits-D_Consumable.json", "File_Items": [{{drinks}}]}""")}}
+            ]
+        }
+        """;
 
     /// <summary>Every question and file picker the view model shows; a test sets the answers it needs.</summary>
     private readonly FakeDialogService _dialogs = new();
@@ -255,19 +283,6 @@ public sealed class MergeInstallViewModelTests : IDisposable
             ["SmelterRecipe"] = new JsonObject { ["CraftTime"] = 3 },
         },
     };
-
-    /// <summary>A field shaped exactly like a real recipe reference (RowName + an explicit DataTableName — see ExmodReferenceChecker's own doc comment) naming a table that can never exist in the fake (nonexistent) dataFolder CreateViewModel always uses — guaranteed to resolve as ReferenceResolution.TableNotFound, independent of any base-game data or self-declared rows.</summary>
-    private static string BuildBrokenReferenceExmodJson(string fileName) => $$"""
-        {
-            "name": "{{fileName}}", "author": "Test", "version": "1", "description": "D",
-            "fileName": "{{fileName}}",
-            "Rows": [
-                {"CurrentFile": "Crafting-D_ProcessorRecipes.json",
-                 "File_Items": [{"Name": "SmelterRecipe",
-                     "Requirement": {"RowName": "SomeItem", "DataTableName": "D_ThisTableDoesNotExist"} }]}
-            ]
-        }
-        """;
 
     // ---------------------------------------------------------------------------------------
     // 1. Queue mutation -> debounced conflict/validation recompute
@@ -677,24 +692,65 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Equal(0, vm.ConflictCount);
     }
 
+    /// <summary>The Library's own health check per queued mod: the same problems as its badge, in the one bar.</summary>
     [Fact]
-    public async Task RecomputeValidationIssueCountAsync_FlagsARealBrokenReference()
+    public async Task RecomputeChecksAsync_ListsAQueuedModTheLibrarysCheckFlags_InTheOneBar()
     {
-        var libraryRepository = new FakeLibraryRepository();
-        libraryRepository.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildBrokenReferenceExmodJson("ModA"), out _);
-        var vm = CreateViewModel(libraryRepository: libraryRepository);
+        var libraryRepository = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA"), MakeEntry("ModB")] };
+        // A typo'd field (the game ignores it) and a fine change.
+        libraryRepository.FolderPaths["ModA"] = CreateExmodFolder("ModA", ItemsMod("ModA", """{"Name": "Bread", "Wieght": 5}"""), out _);
+        libraryRepository.FolderPaths["ModB"] = CreateExmodFolder("ModB", ItemsMod("ModB", """{"Name": "Canteen", "Weight": 9}"""), out _);
+        var vm = CreateViewModel(libraryRepository: libraryRepository, dataFolder: WriteGameData(), withHealthCheck: true);
+        vm.Queue.Add(libraryRepository.AllEntries[0]);
+        vm.Queue.Add(libraryRepository.AllEntries[1]);
 
-        vm.Queue.Add(MakeEntry("ModA"));
-        Assert.Equal(0, vm.ValidationIssueCount);
+        await vm.RecomputeChecksAsync();
 
-        await vm.RecomputeValidationIssueCountAsync();
+        var flagged = Assert.Single(vm.ModsWithProblems);
+        Assert.Equal("ModA", flagged.FolderName);
+        Assert.Equal(1, flagged.ProblemCount);
+        Assert.Contains("Fields the game doesn't have", flagged.Kinds);
+        Assert.True(vm.HasCheckFindings);
+        Assert.Equal("1 mod with problems", vm.CheckSummary);
+        var report = new MergeConflictsViewModel([], [], null, vm.BetweenModsFindings, vm.ModsWithProblems).BuildReportText();
+        Assert.Contains("[ISL-111] ModA: D_ItemsStatic · Bread.Wieght:", report);
+    }
 
-        Assert.Equal(1, vm.ValidationIssueCount);
+    /// <summary>An add-on queued without the mod it's for: its links do nothing in game, named with the mod to add.</summary>
+    [Fact]
+    public async Task RecomputeChecksAsync_ALinkToARowOnlyAModOutsideTheMergeAdds_NamesThatMod()
+    {
+        var drinks = MakeEntry("DrinksMod");
+        drinks.Name = "Better Drinks";
+        var libraryRepository = new FakeLibraryRepository { AllEntries = [MakeEntry("AddOn"), drinks] };
+        libraryRepository.FolderPaths["AddOn"] = CreateExmodFolder("AddOn",
+            ItemsMod("AddOn", """{"Name": "Canteen", "Consumable": {"RowName": "Lemonade", "DataTableName": "D_Consumable"}}"""), out _);
+        libraryRepository.FolderPaths["DrinksMod"] = CreateExmodFolder("DrinksMod",
+            ItemsMod("DrinksMod", """{"Name": "Lemonade_Item", "Weight": 1}""", drinks: """{"Name": "Lemonade"}"""), out _);
+        var vm = CreateViewModel(libraryRepository: libraryRepository, dataFolder: WriteGameData(), withHealthCheck: true);
+        vm.Queue.Add(libraryRepository.AllEntries[0]);
+
+        await vm.RecomputeChecksAsync();
+
+        var needs = Assert.Single(vm.BetweenModsFindings);
+        Assert.Equal("Needs a mod", needs.Kind);
+        Assert.Equal("AddOn", needs.Mods);
+        Assert.Contains("only 'Better Drinks' adds", needs.Why);
+        Assert.Empty(vm.ModsWithProblems);
+        var review = new MergeConflictsViewModel([], [], null, vm.BetweenModsFindings, vm.ModsWithProblems);
+        Assert.Equal(1, review.SelectedTab);
+        Assert.Contains("[ISL-203] Needs a mod: AddOn", review.BuildReportText());
+
+        vm.Queue.Add(drinks);
+        await vm.RecomputeChecksAsync();
+
+        Assert.Empty(vm.BetweenModsFindings);
+        Assert.False(vm.HasCheckFindings);
     }
 
     /// <summary>Two queued mods each adding a workshop node to the same spot of one tree: fine alone, one hides the other together.</summary>
     [Fact]
-    public async Task RecomputeValidationIssueCountAsync_FlagsTwoModsNodesOnTopOfEachOther()
+    public async Task RecomputeChecksAsync_FlagsTwoModsNodesOnTopOfEachOther()
     {
         const string treeRow = """{"CurrentFile": "Talents-D_TalentTrees.json", "File_Items": [{"Name": "Workshop_Extras"}]},""";
         static string Node(string mod, string node, bool addsTree) => $$$"""
@@ -713,13 +769,14 @@ public sealed class MergeInstallViewModelTests : IDisposable
         libraryRepository.FolderPaths["ModB"] = CreateExmodFolder("ModB", Node("ModB", "Workshop_Bone_Axe", addsTree: false), out _);
         var vm = CreateViewModel(libraryRepository: libraryRepository);
         vm.Queue.Add(MakeEntry("ModA"));
-        await vm.RecomputeValidationIssueCountAsync();
-        Assert.Equal(0, vm.ValidationIssueCount);
+        await vm.RecomputeChecksAsync();
+        Assert.Empty(vm.BetweenModsFindings);
 
         vm.Queue.Add(MakeEntry("ModB"));
-        await vm.RecomputeValidationIssueCountAsync();
+        await vm.RecomputeChecksAsync();
 
-        Assert.Equal(1, vm.ValidationIssueCount);
+        Assert.Equal("Talent tree", Assert.Single(vm.BetweenModsFindings).Kind);
+        Assert.Equal("1 clash between mods", vm.CheckSummary);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -1729,7 +1786,8 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank) =>
             throw new NotSupportedException("Not exercised by these tests.");
 
-        public IReadOnlyList<string> ListAssetPaths(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
+        // The health check lists a mod's cooked files; these test mods have none.
+        public IReadOnlyList<string> ListAssetPaths(string folderName) => [];
 
         public IReadOnlyList<string> ListAssetPaths(string folderName, IReadOnlyList<string> precomputedFiles) =>
             throw new NotSupportedException("Not exercised by these tests.");

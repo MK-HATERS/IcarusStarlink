@@ -24,4 +24,27 @@ public partial class MergeConflictsWindow : Window
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+
+    private void CopyReport_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText(_viewModel.BuildReportText());
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            // Another program holds the clipboard; a second click works.
+        }
+    }
+
+    /// <summary>Fix… on a mod: keeps the picks made so far and closes, and the Library opens that mod's fix window.</summary>
+    private void Fix_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is QueuedModProblems mod)
+        {
+            _viewModel.FixFolderName = mod.FolderName;
+            ResultWinners = _viewModel.BuildWinners();
+            DialogResult = true;
+        }
+    }
 }

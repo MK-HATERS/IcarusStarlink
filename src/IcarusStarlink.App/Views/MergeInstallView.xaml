@@ -113,39 +113,25 @@
                                ToolTip="The mods Install builds into the game, in order. When two change the same value, the one lower in the list wins.">
                         <Run Text="Mods to merge ("/><Run Text="{Binding QueueCount, Mode=OneWay}"/><Run Text=") — the lower one wins a conflict"/>
                     </TextBlock>
-                    <!-- Phase 10: a proactive conflict-count badge — surfaces a problem before the
-                         user thinks to click Review conflicts. -->
-                    <Border DockPanel.Dock="Right" Background="{DynamicResource DangerSoftBrush}" CornerRadius="9" Padding="7,1"
-                            Visibility="{Binding HasConflicts, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBlock FontFamily="Consolas" FontSize="10" Foreground="{DynamicResource DangerBrush}" FontWeight="SemiBold">
-                            <Run Text="{Binding ConflictCount, Mode=OneWay}"/><Run Text=" conflict(s)"/>
-                        </TextBlock>
-                    </Border>
-                    <!-- Same proactive-badge pattern as conflicts, for a different question: not
-                         "do two mods disagree" but "will this mod's own content actually work". -->
-                    <Border DockPanel.Dock="Right" Background="{DynamicResource DangerSoftBrush}" CornerRadius="9" Padding="7,1" Margin="0,0,6,0"
-                            Visibility="{Binding HasValidationIssues, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBlock FontFamily="Consolas" FontSize="10" Foreground="{DynamicResource DangerBrush}" FontWeight="SemiBold">
-                            <Run Text="{Binding ValidationIssueCount, Mode=OneWay}"/><Run Text=" issue(s)"/>
-                        </TextBlock>
-                    </Border>
                 </DockPanel>
 
-                <!-- Phase 10: a banner surfacing conflicts right above the queue, not just a count
-                     off to the side — matches the mockup's own conflict-banner treatment. Docked
-                     with the ListBox in one DockPanel so the two never overlap in the same cell. -->
+                <!-- The one bar for the merge check, right above the queue: conflicts, clashes
+                     between mods and mods with problems in one line, one Review. Docked with the
+                     ListBox in one DockPanel so the two never overlap in the same cell. -->
                 <DockPanel Grid.Row="1" LastChildFill="True">
                     <Border DockPanel.Dock="Top" Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBrush}"
                             BorderThickness="1" CornerRadius="5" Padding="10,7" Margin="0,0,0,8"
-                            Visibility="{Binding HasConflicts, Converter={StaticResource BoolToVisibilityConverter}}">
+                            Visibility="{Binding HasCheckFindings, Converter={StaticResource BoolToVisibilityConverter}}">
                         <DockPanel LastChildFill="True">
-                            <Button DockPanel.Dock="Right" Content="Review" Command="{Binding ReviewConflictsCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                    AutomationProperties.Name="Review conflicts from banner"/>
+                            <Button DockPanel.Dock="Right" Content="Review" Command="{Binding ReviewMergeCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                    AutomationProperties.Name="Review the merge check"/>
                             <Path DockPanel.Dock="Left" Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}"
                                   StrokeThickness="1.6" StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Top"/>
-                            <!-- Counted by MergeConflictTally, the same count Review conflicts lists. -->
-                            <StackPanel Margin="0,0,10,0" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding ConflictTally.BannerText}" TextWrapping="Wrap" FontSize="11.5"/>
+                            <StackPanel Margin="0,0,10,0" VerticalAlignment="Center"
+                                        ToolTip="Conflicts: values two mods change differently (the mod lower in the queue wins unless you pick). Clashes between mods: the same file in two mods, talent nodes on top of each other, a mod that needs one that isn't queued. Mods with problems: what the Library's check finds in a mod. None of these stop the merge.">
+                                <TextBlock Text="{Binding CheckSummary}" TextWrapping="Wrap" FontSize="11.5" FontWeight="SemiBold"/>
+                                <TextBlock Text="Review lists them. None of them stop the merge." TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0"
+                                           Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                                 <TextBlock Text="{Binding ConflictTally.CombinedText}" TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0"
                                            Foreground="{DynamicResource SecondaryForegroundBrush}">
                                     <TextBlock.Style>
@@ -159,25 +145,6 @@
                                     </TextBlock.Style>
                                 </TextBlock>
                             </StackPanel>
-                        </DockPanel>
-                    </Border>
-                    <!-- Same banner treatment as the conflict one above, for validation findings —
-                         both can show at once (stacked, DockPanel.Dock="Top" on each), since a conflict
-                         and a validation issue are independent problems a queue can have simultaneously. -->
-                    <Border DockPanel.Dock="Top" Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBrush}"
-                            BorderThickness="1" CornerRadius="5" Padding="10,7" Margin="0,0,0,8"
-                            Visibility="{Binding HasValidationIssues, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <DockPanel LastChildFill="True">
-                            <Button DockPanel.Dock="Right" Content="Review" Command="{Binding ReviewValidationIssuesCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                    AutomationProperties.Name="Review validation issues from banner"/>
-                            <Path DockPanel.Dock="Left" Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}"
-                                  StrokeThickness="1.6" StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Top"/>
-                            <!-- One line, so a small window keeps its height for the queue; the long
-                                 explanation is the tooltip. -->
-                            <TextBlock Margin="0,0,10,0" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Center"
-                                       ToolTip="Changes the game won't use (a field or link that isn't real), two mods overwriting the same file, or talent and workshop nodes on top of each other or that can't be unlocked. Review lists them.">
-                                <Run Text="{Binding ValidationIssueCount, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"/><Run Text=" issue(s) in the queued mods — Review lists them."/>
-                            </TextBlock>
                         </DockPanel>
                     </Border>
                     <Grid>
@@ -315,10 +282,8 @@
                             <TextBlock Text="{Binding InstallButtonLabel}" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button DockPanel.Dock="Left" Content="Review conflicts" Command="{Binding ReviewConflictsCommand}" Margin="0,0,8,0"
-                            ToolTip="See which values two or more queued mods change differently, and pick a winner per value instead of the default (the mod lower in the list wins)"/>
-                    <Button DockPanel.Dock="Left" Content="Validate mods" Command="{Binding ReviewValidationIssuesCommand}" Margin="0,0,8,0"
-                            ToolTip="Checks the queued mods against the game data and each other: a mistyped or renamed field, a recipe pointing at an item that doesn't exist, two mods overwriting the same file, talent nodes on top of each other. These merge fine but do nothing in game."/>
+                    <Button DockPanel.Dock="Left" Content="Check the merge" Command="{Binding ReviewMergeCommand}" Margin="0,0,8,0"
+                            ToolTip="Checks the queued mods together: values two mods change differently (pick a winner, or the mod lower in the list wins), clashes between mods, and problems in each mod. Nothing here stops the merge."/>
                 </DockPanel>
 
                 <!-- What the last action said; a line with nothing to say takes no room. The install
@@ -326,8 +291,6 @@
                 <StackPanel Grid.Row="4" Margin="0,8,0,0">
                     <TextBlock Text="{Binding ConflictStatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"
                                Visibility="{Binding ConflictStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-                    <TextBlock Text="{Binding ValidationStatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0"
-                               Visibility="{Binding ValidationStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                     <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0"
                                Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                     <TextBlock Text="{Binding InstallStatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0"

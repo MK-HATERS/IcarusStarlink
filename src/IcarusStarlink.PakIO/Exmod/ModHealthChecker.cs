@@ -135,6 +135,25 @@ public sealed record ModIssue(
     /// <summary>Changes nothing in game either way: taking it out only makes the mod smaller.</summary>
     public bool IsTidyOnly => Kind is ModIssueKind.SameAsGame or ModIssueKind.OldGameRow;
 
+    /// <summary>A short fixed code for this kind of finding, for bug reports and searching (never renumber one).</summary>
+    public string Code => Kind switch
+    {
+        ModIssueKind.SameAsGame => "ISL-101",
+        ModIssueKind.OldCopy => "ISL-102",
+        ModIssueKind.LikelyOld => "ISL-103",
+        ModIssueKind.MixedList => "ISL-104",
+        ModIssueKind.MissingRow => "ISL-105",
+        ModIssueKind.BrokenLink => "ISL-106",
+        ModIssueKind.OldGameRow => "ISL-107",
+        ModIssueKind.MissingAsset => "ISL-108",
+        ModIssueKind.MissingAssetPart => "ISL-109",
+        ModIssueKind.UnknownTable => "ISL-110",
+        ModIssueKind.UnknownField => "ISL-111",
+        ModIssueKind.WrongType => "ISL-112",
+        ModIssueKind.SharedTextKey => "ISL-113",
+        _ => "ISL-100",
+    };
+
     /// <summary>
     /// Made by Fix sure problems without asking: a sure fix to something that matters in game, or a
     /// choice the user made before. Tidying alone never is: a hand-made mod's values that match the
@@ -993,6 +1012,15 @@ public static partial class ModHealthChecker
             }
         }
     }
+
+    /// <summary>
+    /// The mod's links (any depth, its own new rows too) to rows neither the game, the mod itself
+    /// nor <paramref name="rowsAvailable"/> (AddedRowKey keys) has: in a merge, the rows the other
+    /// queued mods add. Key is the AddedRowKey of the row linked to.
+    /// </summary>
+    public static IEnumerable<(string File, string Item, string Path, string Row, string Table, string Key)> LinksMissingFrom(
+        ExmodPackage package, GameTableIndex index, IReadOnlySet<string> rowsAvailable) =>
+        BrokenLinks(package, index, rowsAvailable).Select(l => (l.File, l.Item, l.Path, l.Row, l.Table, AddedRowKey(l.TargetFile, l.Row)));
 
     private static string OlderWhy(JsonNode? mod, JsonNode? game)
     {

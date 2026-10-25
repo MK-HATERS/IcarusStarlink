@@ -3,6 +3,8 @@ using System.Text.Json.Nodes;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Diffing;
@@ -58,7 +60,11 @@ public sealed partial class MergeInstallViewModel
 
     public bool HasConflicts => ConflictCount > 0;
 
-    partial void OnConflictCountChanged(int value) => OnPropertyChanged(nameof(HasConflicts));
+    partial void OnConflictCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasConflicts));
+        RaiseCheckSummaryChanged();
+    }
 
     /// <summary>The bar's counts and wording; ConflictCount is its NeedsDecision. Set only through ApplyConflicts, which the review window's own count comes from too.</summary>
     [ObservableProperty]
@@ -410,14 +416,15 @@ public sealed partial class MergeInstallViewModel
     }
 
     /// <summary>
-    /// The advanced conflict picker's own entry point — computes which fields two or more queued
-    /// mods change differently and, if any, opens a window to let the user pick a winner per field
-    /// (or leave it on Default — usually last-mod-wins, but a combine rule instead unions every
-    /// candidate's own value for some field shapes; see MergeConflictViewModel). Winners are saved
-    /// with the profile by mod (folder) id and used by every later build.
+    /// The page's one Review: checks the queue afresh and opens the check window, with conflicts
+    /// (pick a winner per value, or leave it on Default: usually the mod lower in the queue, but a
+    /// combine rule unions every candidate's value for some field shapes; see
+    /// MergeConflictViewModel), what clashes between mods, and which queued mods have problems
+    /// (Fix… opens that mod's fix window in the Library). Winners are saved with the profile by mod
+    /// (folder) id and used by every later build.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
-    private async Task ReviewConflictsAsync()
+    private async Task ReviewMergeAsync()
     {
         var snapshot = TakeSnapshot();
         if (snapshot.Queue.Count == 0)
@@ -430,38 +437,49 @@ public sealed partial class MergeInstallViewModel
         {
             var found = await FindQueueConflictsAsync(snapshot, await LoadQueuedPackagesAsync(snapshot.Queue));
             var (conflicts, newItemCollisions, modNames) = (found.Conflicts, found.NewItemCollisions, found.Names);
+            await RecomputeChecksAsync();
             // The window and the bar count from the same tally (the window's own), so they agree.
             var shownWinners = ToDisplayWinners(snapshot.Winners, found);
-            var conflictsViewModel = new MergeConflictsViewModel(conflicts, newItemCollisions, shownWinners);
+            var reviewViewModel = new MergeConflictsViewModel(conflicts, newItemCollisions, shownWinners, BetweenModsFindings, ModsWithProblems);
             ApplyConflicts(found);
 
-            if (conflicts.Count == 0 && newItemCollisions.Count == 0)
+            if (conflicts.Count == 0 && newItemCollisions.Count == 0 && BetweenModsFindings.Count == 0 && ModsWithProblems.Count == 0)
             {
                 _manualPicks = null;
-                ConflictStatusMessage = $"No conflicts among {modNames.Count} mod(s) — every changed field is touched by only one mod, or they all agree.";
+                ConflictStatusMessage = $"Nothing to look at among {modNames.Count} mod(s): no conflicts, nothing clashing between mods, and no problems in the queued mods.";
                 return;
             }
 
             var collisionNote = newItemCollisions.Count > 0 ? $" ({newItemCollisions.Count} same-name new item(s) combined automatically)" : "";
-            _activityLog.Log($"{conflicts.Count} conflict(s){collisionNote} found among {modNames.Count} queued mod(s).", ActivityEntryKind.Warning);
+            if (conflicts.Count > 0)
+            {
+                _activityLog.Log($"{conflicts.Count} conflict(s){collisionNote} found among {modNames.Count} queued mod(s).", ActivityEntryKind.Warning);
+            }
 
-            var window = new MergeConflictsWindow(conflictsViewModel) { Owner = Application.Current.MainWindow };
+            var window = new MergeConflictsWindow(reviewViewModel) { Owner = Application.Current.MainWindow };
             if (window.ShowDialog() == true)
             {
                 _winners = FromDisplayWinners(window.ResultWinners!, snapshot.Winners, shownWinners, found);
                 OnPropertyChanged(nameof(SavedWinnerCount));
                 SaveWinnersToProfile();
-                var pickedNow = conflictsViewModel.PickedCount;
-                ConflictStatusMessage = pickedNow > 0
-                    ? $"{conflicts.Count} conflict(s){collisionNote}, {pickedNow} won by your pick (saved with the profile). Merge & Install to apply."
-                    // "Default" per line: the mod lower in the queue wins, or a list takes everyone's additions.
-                    : $"{conflicts.Count} conflict(s){collisionNote}, all left on default.";
+                var pickedNow = reviewViewModel.PickedCount;
+                ConflictStatusMessage = conflicts.Count == 0 ? null
+                    : pickedNow > 0
+                        ? $"{conflicts.Count} conflict(s){collisionNote}, {pickedNow} won by your pick (saved with the profile). Merge & Install to apply."
+                        // "Default" per line: the mod lower in the queue wins, or a list takes everyone's additions.
+                        : $"{conflicts.Count} conflict(s){collisionNote}, all left on default.";
+
+                // Fix… on a mod: the Library's own fix window for it.
+                if (reviewViewModel.FixFolderName is { } folder)
+                {
+                    _messenger.Send(new OpenModFixMessage(folder));
+                }
             }
         }
         catch (Exception ex)
         {
             // Same UI boundary as Rebuild itself — a malformed queued mod shouldn't crash the app.
-            ConflictStatusMessage = $"Couldn't check for conflicts: {ex.Message}";
+            ConflictStatusMessage = $"Couldn't check the merge: {ex.Message}";
         }
     }
 }

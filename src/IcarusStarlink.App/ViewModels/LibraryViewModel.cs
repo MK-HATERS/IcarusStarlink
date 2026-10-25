@@ -407,6 +407,16 @@ public sealed partial class LibraryViewModel : ObservableObject
             _ = ((LibraryViewModel)recipient).RefreshConvertedOpaqueModsAsync();
         });
 
+        // Fix… on Merge & Install's check: the same fix window as the row's badge.
+        WeakReferenceMessenger.Default.Register<OpenModFixMessage>(this, (recipient, message) =>
+        {
+            var viewModel = (LibraryViewModel)recipient;
+            if (viewModel.FindItem(message.FolderName) is { } item)
+            {
+                _ = viewModel.OpenModFixCommand.ExecuteAsync(item);
+            }
+        });
+
         // Closing for an app update mid-pass would leave a mod half rewritten.
         WeakReferenceMessenger.Default.Register<BackgroundWorkRequestMessage>(this, (recipient, message) =>
         {
