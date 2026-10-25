@@ -106,6 +106,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         };
         RefreshNxmHandlerState();
         WeakReferenceMessenger.Default.Register<NxmHandlerChangedMessage>(this, (recipient, _) => ((SettingsViewModel)recipient).RefreshNxmHandlerState());
+        WeakReferenceMessenger.Default.Register<StarlinkUpdateLinkMessage>(this, (recipient, message) =>
+        {
+            var offer = ((SettingsViewModel)recipient).OfferUpdateFromNexusLinkAsync(message.NxmUrl);
+        });
 
         RefreshUe4ssStatus();
 

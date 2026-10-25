@@ -379,6 +379,14 @@ public sealed partial class SettingsViewModel
             return;
         }
 
+        // The same waits as Update now: closing mid-extraction or mid-UE4SS-install breaks them.
+        if (IsUpdatingDataFolder || IsInstallingUe4ss || IsUninstallingUe4ss)
+        {
+            AppUpdateStatusMessage = "Wait for the current data extraction / UE4SS change to finish, then start the Nexus download again.";
+            _activityLog.Log(AppUpdateStatusMessage, ActivityEntryKind.Warning);
+            return;
+        }
+
         NxmUrl link;
         try
         {

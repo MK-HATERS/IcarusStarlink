@@ -142,6 +142,14 @@ public sealed partial class DownloadsViewModel
             return;
         }
 
+        // Starlink's own page (the Download button on its card): that's an app update, not a mod.
+        if (nxmUrl.ModId == Services.NexusAppUpdates.StarlinkModId)
+        {
+            PendingDownloadStatusMessage = "That's Icarus Starlink itself — it's offered as an update instead of a mod.";
+            WeakReferenceMessenger.Default.Send(new StarlinkUpdateLinkMessage(nxmUrlText));
+            return;
+        }
+
         var trackerKey = $"{nxmUrl.ModId}:{nxmUrl.FileId}";
         var trackerDisplayName = displayName ?? $"Mod #{nxmUrl.ModId}";
 
