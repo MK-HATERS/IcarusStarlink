@@ -1221,10 +1221,22 @@
                             <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
                             <Setter Property="FontWeight" Value="SemiBold"/>
                         </Trigger>
+                        <DataTrigger Binding="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                            <Setter TargetName="AccentBar" Property="Margin" Value="0,0,6,0"/>
+                        </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+        <!-- The rail folded to icons is 76 wide: with the full margin and padding an item had about
+             14 of its 29 needed once the list showed a scrollbar, so it was laid out wider and cut
+             off on the right. Tighter here, it fits with the scrollbar too. -->
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                <Setter Property="Margin" Value="4,2"/>
+                <Setter Property="Padding" Value="8,10"/>
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
 
     <!-- "Add a stat" (StatPickerViewModel): search by plain name, see flat vs percent, pick, add.
