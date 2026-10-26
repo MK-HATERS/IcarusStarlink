@@ -117,4 +117,50 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
 
         Assert.Contains("Mode = Off\r\n", File.ReadAllText(Path.Combine(game, "config.ini")));
     }
+
+    /// <summary>
+    /// MkHaters Stability's config.ini with a comment after each value: the fields get the bare
+    /// value, a drop-down, a switch, a slider and a range, and saving keeps every comment.
+    /// </summary>
+    [Fact]
+    public void IniWithCommentsAfterValues_GivesDropDownsSwitchesAndSliders_AndKeepsTheComments()
+    {
+        const string ini =
+            "[Mode]\r\n" +
+            "Mode = Forgiving ; NoStability, Forgiving, Observe or Off\r\n" +
+            "[NoStability]\r\n" +
+            "SkipOriginal = 1 ; 1 = skip the game's calculation (faster); 0 = run it\r\n" +
+            "[Forgiving]\r\n" +
+            "ExtraReach = 2 ; extra pieces of reach (0-10)\r\n" +
+            "WeightMultiplier = 1 ; how much less weight counts [slider 1 10 0.5]\r\n";
+        var game = Mod("game", "config.ini", ini);
+        var vm = new ModConfigEditorViewModel("MkHatersStability", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+
+        var mode = Field(vm, "Mode");
+        Assert.Equal(("Forgiving", "Forgiving"), (mode.Value, mode.ChoiceValue));
+        mode.ChoiceValue = null; // the drop-down clearing itself
+        Assert.Equal("Forgiving", mode.Value);
+        mode.ChoiceValue = "Observe";
+        Assert.True(Field(vm, "SkipOriginal").IsToggle);
+
+        var reach = Field(vm, "ExtraReach");
+        Assert.Equal((true, false, "0 to 10"), (reach.IsPlainNumber, reach.HasSlider, reach.RangeText));
+        reach.Value = "12";
+        Assert.Equal("Outside 0 to 10", reach.ValueProblem);
+        reach.Value = "x";
+        Assert.Equal("Not a number", reach.ValueProblem);
+        reach.Value = "4";
+        Assert.False(reach.HasValueProblem);
+
+        var weight = Field(vm, "WeightMultiplier");
+        Assert.True(weight.HasSlider);
+        weight.NumberValue = 2.4; // the slider snaps to its step
+        Assert.Equal("2.5", weight.Value);
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(
+            ini.Replace("Mode = Forgiving ;", "Mode = Observe ;").Replace("ExtraReach = 2 ;", "ExtraReach = 4 ;").Replace("WeightMultiplier = 1 ;", "WeightMultiplier = 2.5 ;"),
+            File.ReadAllText(Path.Combine(game, "config.ini")));
+    }
 }

@@ -23,7 +23,8 @@
                     <ComboBox ItemsSource="{Binding Locations}" SelectedItem="{Binding SelectedLocation}" DisplayMemberPath="Name" MinWidth="180"
                               AutomationProperties.Name="Which copy of the mod"/>
                 </StackPanel>
-                <TextBox Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="0,0,16,6"
+                <TextBox Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Width="220" Margin="0,0,16,6"
+                         Style="{StaticResource SearchBoxStyle}" Tag="Find a setting…"
                          Visibility="{Binding ShowFields, Converter={StaticResource BoolToVisibilityConverter}}"
                          ToolTip="Show only settings whose name or description contains this" AutomationProperties.Name="Filter settings"/>
                 <CheckBox Content="Edit as text" IsChecked="{Binding IsTextMode}" VerticalAlignment="Center" Margin="0,0,0,6"
@@ -84,13 +85,17 @@
                                                 <Grid>
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="260"/>
+                                                        <ColumnDefinition Width="300"/>
+                                                        <ColumnDefinition Width="14"/>
                                                     </Grid.ColumnDefinitions>
                                                     <StackPanel Margin="0,0,12,0">
                                                         <StackPanel Orientation="Horizontal">
                                                             <TextBlock Text="{Binding Key}" FontWeight="SemiBold"/>
                                                             <TextBlock Text="  changed" Foreground="{DynamicResource AccentBrush}" FontSize="11" VerticalAlignment="Center"
                                                                        Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                            <TextBlock Text="  needs a restart" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource FaintForegroundBrush}"
+                                                                       ToolTip="The mod reads this once, when the game or server starts"
+                                                                       Visibility="{Binding NeedsRestart, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                         </StackPanel>
                                                         <TextBlock Text="{Binding Description}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                                                    Visibility="{Binding HasDescription, Converter={StaticResource BoolToVisibilityConverter}}"/>
@@ -104,12 +109,36 @@
                                                         <CheckBox IsChecked="{Binding IsOn}" Style="{StaticResource ToggleSwitchStyle}" HorizontalAlignment="Left"
                                                                   AutomationProperties.Name="{Binding Key}"
                                                                   Visibility="{Binding IsToggle, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                                        <ComboBox ItemsSource="{Binding Choices}" Text="{Binding Value}" IsEditable="True"
+                                                        <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding ChoiceValue}"
                                                                   AutomationProperties.Name="{Binding Key}"
                                                                   Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                         <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
                                                                  AutomationProperties.Name="{Binding Key}"
                                                                  Visibility="{Binding IsText, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        <!-- A number: a slider when the mod gives one, otherwise a box; the range and any problem under it. -->
+                                                        <StackPanel Visibility="{Binding IsNumber, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <Slider Minimum="{Binding SliderMinimum}" Maximum="{Binding SliderMaximum}" SmallChange="{Binding SliderStep}" LargeChange="{Binding SliderStep}"
+                                                                        TickFrequency="{Binding SliderStep}" IsSnapToTickEnabled="True" Value="{Binding NumberValue}"
+                                                                        VerticalAlignment="Center" Margin="0,0,10,0"
+                                                                        AutomationProperties.Name="{Binding Key}"
+                                                                        Visibility="{Binding HasSlider, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                                <TextBox Grid.Column="1" Width="80" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                                         AutomationProperties.Name="{Binding Key}"
+                                                                         Visibility="{Binding HasSlider, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                                <TextBox Grid.ColumnSpan="2" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                                         AutomationProperties.Name="{Binding Key}"
+                                                                         Visibility="{Binding IsPlainNumber, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                            </Grid>
+                                                            <TextBlock Text="{Binding RangeText}" FontSize="11" Margin="0,3,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
+                                                                       Visibility="{Binding HasRangeText, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                            <TextBlock Text="{Binding ValueProblem}" FontSize="11" Margin="0,2,0,0" Foreground="{DynamicResource DangerBrush}"
+                                                                       Visibility="{Binding HasValueProblem, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        </StackPanel>
                                                     </Grid>
                                                 </Grid>
                                             </Border>

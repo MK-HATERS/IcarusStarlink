@@ -129,4 +129,61 @@ public class Ue4ssSettingsDocumentTests
         Assert.Equal("Mode:\nNoStability  buildings never become unstable\nForgiving    more forgiving\nOff          the game's own stability", settings["Mode"].Description);
         Assert.Equal(Ue4ssSettingKind.Toggle, settings["LogReports"].Kind);
     }
+
+    /// <summary>
+    /// MkHaters Stability's config.ini as it is now: a comment after each value. The editor showed
+    /// "Forgiving ; NoStability, Forgiving, Observe or Off" as the value, made no choices or switches
+    /// of them, and gave ExtraReach the paragraph about ForgivingBoost.
+    /// </summary>
+    [Fact]
+    public void ModConfig_CommentsAfterTheValue_GiveTheValueChoicesRangesAndMarkers()
+    {
+        const string ini =
+            "[Mode]\n" +
+            "; NoStability: everything is stable.\n" +
+            "Mode = Forgiving ; NoStability, Forgiving, Observe or Off\n" +
+            "\n" +
+            "[NoStability]\n" +
+            "SkipOriginal = 1 ; 1 = skip the game's calculation (faster); 0 = run it, then replace the answer\n" +
+            "\n" +
+            "[Forgiving]\n" +
+            "; Reach: stability spreads ExtraReach more pieces out from the ground.\n" +
+            "ForgivingBoost = Reach ; Reach, Strength or Both\n" +
+            "ExtraReach = 2 ; extra pieces of reach, for Reach and Both (0-10)\n" +
+            "MinimumStability = 0 ; the lowest stability any piece can have; 0 = no floor\n" +
+            "WeightMultiplier = 1 ; how much less weight counts; at 1 it is the game's own [slider 1 10 0.5]\n" +
+            "ReportEverySeconds = 60 ; how often the report runs, in seconds (at least 10)\n" +
+            "HotkeyKey = F3 ; F1-F12 or NumPad0-NumPad9; restart needed [restart]\n";
+
+        var document = Ue4ssSettingsDocument.Parse(ini, keepCommentLines: true);
+        var settings = document.Settings.ToDictionary(s => s.Key);
+
+        Assert.Equal(("Forgiving", Ue4ssSettingKind.Choice), (settings["Mode"].Value, settings["Mode"].Kind));
+        Assert.Equal(["NoStability", "Forgiving", "Observe", "Off"], settings["Mode"].Choices);
+        Assert.Equal("NoStability: everything is stable.", settings["Mode"].Description);
+        Assert.Equal(Ue4ssSettingKind.Toggle, settings["SkipOriginal"].Kind);
+        Assert.Equal(["Reach", "Strength", "Both"], settings["ForgivingBoost"].Choices);
+        Assert.Equal("extra pieces of reach, for Reach and Both", settings["ExtraReach"].Description);
+        Assert.Equal("how often the report runs, in seconds", settings["ReportEverySeconds"].Description);
+        Assert.Equal((Ue4ssSettingKind.Number, 0d, 10d), (settings["ExtraReach"].Kind, settings["ExtraReach"].Minimum, settings["ExtraReach"].Maximum));
+        Assert.Equal(Ue4ssSettingKind.Number, settings["MinimumStability"].Kind);
+        Assert.Equal((1d, 10d, 0.5d), (settings["WeightMultiplier"].Minimum, settings["WeightMultiplier"].Maximum, settings["WeightMultiplier"].Step));
+        Assert.DoesNotContain("[slider", settings["WeightMultiplier"].Description);
+        Assert.Equal((10d, (double?)null), (settings["ReportEverySeconds"].Minimum, settings["ReportEverySeconds"].Maximum));
+        Assert.True(settings["HotkeyKey"].NeedsRestart);
+        Assert.Equal("F1-F12 or NumPad0-NumPad9", settings["HotkeyKey"].Description);
+
+        // Saving a value keeps the comment after it, spacing and all.
+        Assert.Equal("Forgiving", document.GetValue("Mode", "Mode"));
+        document.SetValue("Mode", "Mode", "Observe");
+        document.SetValue("Forgiving", "ExtraReach", "4");
+        Assert.Contains("Mode = Observe ; NoStability, Forgiving, Observe or Off\n", document.ToText());
+        Assert.Contains("ExtraReach = 4 ; extra pieces of reach, for Reach and Both (0-10)\n", document.ToText());
+        Assert.Throws<ArgumentException>(() => document.SetValue("Mode", "Mode", "A ; B"));
+    }
+
+    /// <summary>UE4SS's own settings file keeps reading a ';' in a value as part of it (it has no comments after values).</summary>
+    [Fact]
+    public void Ue4ssSettings_KeepASemicolonInAValue() =>
+        Assert.Equal("a ; b", Ue4ssSettingsDocument.Parse("[General]\nX = a ; b\n").GetValue("General", "X"));
 }

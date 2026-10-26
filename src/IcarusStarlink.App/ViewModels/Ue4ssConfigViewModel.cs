@@ -38,6 +38,10 @@ public sealed partial class Ue4ssConfigField : ObservableObject
         Default = setting.Default;
         Kind = setting.Kind;
         Choices = setting.Choices;
+        Minimum = setting.Minimum;
+        Maximum = setting.Maximum;
+        Step = setting.Step;
+        NeedsRestart = setting.NeedsRestart;
         OriginalValue = originalValue ?? setting.Value;
         _value = setting.Value;
     }
@@ -49,17 +53,92 @@ public sealed partial class Ue4ssConfigField : ObservableObject
     public Ue4ssSettingKind Kind { get; }
     public IReadOnlyList<string> Choices { get; }
 
+    /// <summary>A number's range from its comment ("(0-10)", "at least 10"), when it has one.</summary>
+    public double? Minimum { get; }
+    public double? Maximum { get; }
+
+    /// <summary>Set when the mod asks for a slider ("[slider 1 10 0.5]").</summary>
+    public double? Step { get; }
+
+    /// <summary>The comment says it applies after the game (or server) restarts.</summary>
+    public bool NeedsRestart { get; }
+
     /// <summary>What the file says now (changes after a save).</summary>
     public string OriginalValue { get; private set; }
 
     public bool IsToggle => Kind == Ue4ssSettingKind.Toggle;
     public bool IsChoice => Kind == Ue4ssSettingKind.Choice;
     public bool IsText => Kind == Ue4ssSettingKind.Text;
+    public bool IsNumber => Kind == Ue4ssSettingKind.Number;
+
+    /// <summary>A slider and a box beside it, for a number the mod gives a slider range.</summary>
+    public bool HasSlider => IsNumber && Step is not null && Minimum is not null && Maximum is not null && Maximum > Minimum;
+
+    /// <summary>A number without a slider: just the box.</summary>
+    public bool IsPlainNumber => IsNumber && !HasSlider;
+    public double SliderMinimum => Minimum ?? 0;
+    public double SliderMaximum => Maximum ?? 1;
+    public double SliderStep => Step ?? 1;
+
+    /// <summary>The slider's position: the value as a number (left where it was while the box holds something else).</summary>
+    public double NumberValue
+    {
+        get => Ue4ssSettingsDocument.Number(Value) ?? SliderMinimum;
+        set
+        {
+            // The slider's own steps, written the way a person would ("1.5", "2").
+            var stepped = Math.Round(Math.Round((value - SliderMinimum) / SliderStep) * SliderStep + SliderMinimum, 6);
+            var text = stepped.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (text != Value.Trim())
+            {
+                Value = text;
+            }
+        }
+    }
+
+    /// <summary>"0 to 10", "at least 10", "up to 600": the range under a number's box.</summary>
+    public string RangeText => (Minimum, Maximum) switch
+    {
+        ({ } min, { } max) => $"{Format(min)} to {Format(max)}",
+        ({ } min, null) => $"at least {Format(min)}",
+        (null, { } max) => $"up to {Format(max)}",
+        _ => "",
+    };
+
+    public bool HasRangeText => IsNumber && RangeText.Length > 0;
+
+    /// <summary>Why the number in the box won't do: not a number, or outside its range. Empty when it's fine.</summary>
+    public string ValueProblem => !IsNumber ? ""
+        : Ue4ssSettingsDocument.Number(Value) is not { } n ? "Not a number"
+        : n < Minimum || n > Maximum ? $"Outside {RangeText}"
+        : "";
+
+    public bool HasValueProblem => ValueProblem.Length > 0;
+
+    private static string Format(double n) => n.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The drop-down's pick. A value that isn't one of the choices shows as no pick, and the
+    /// drop-down clearing itself never wipes the value.
+    /// </summary>
+    public string? ChoiceValue
+    {
+        get => Choices.FirstOrDefault(c => string.Equals(c, Value.Trim(), StringComparison.OrdinalIgnoreCase));
+        set
+        {
+            if (value is not null)
+            {
+                Value = value;
+            }
+        }
+    }
+
     public bool HasDescription => Description.Length > 0;
     public string DefaultText => Default is { Length: > 0 } d ? $"Default: {d}" : "";
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsChanged), nameof(IsOn), nameof(IsDefault), nameof(CanResetToDefault))]
+    [NotifyPropertyChangedFor(nameof(IsChanged), nameof(IsOn), nameof(IsDefault), nameof(CanResetToDefault),
+        nameof(NumberValue), nameof(ValueProblem), nameof(HasValueProblem), nameof(ChoiceValue))]
     private string _value;
 
     public bool IsChanged => Value.Trim() != OriginalValue.Trim();

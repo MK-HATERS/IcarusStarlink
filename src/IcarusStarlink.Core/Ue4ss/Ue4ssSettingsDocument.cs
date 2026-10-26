@@ -13,11 +13,18 @@ public enum Ue4ssSettingKind
 
     /// <summary>One of a fixed list ("Valid values (case-insensitive): EngineTick, ProcessEvent").</summary>
     Choice,
+
+    /// <summary>A number (a mod's own config): a box, or a slider when the mod asks for one ("[slider 1 10 0.5]").</summary>
+    Number,
 }
 
 /// <summary>One "Key = Value" line of UE4SS-settings.ini, with what its comment block says about it.</summary>
+/// <param name="Minimum">A number's lowest value, from its comment ("(0-10)", "[slider 1 10 0.5]").</param>
+/// <param name="Step">A slider's step; set only when the mod asks for a slider.</param>
+/// <param name="NeedsRestart">The comment says the setting applies after a restart ("[restart]", "restart needed").</param>
 public sealed record Ue4ssSetting(
-    string Section, string Key, string Value, string Description, string? Default, Ue4ssSettingKind Kind, IReadOnlyList<string> Choices);
+    string Section, string Key, string Value, string Description, string? Default, Ue4ssSettingKind Kind, IReadOnlyList<string> Choices,
+    double? Minimum = null, double? Maximum = null, double? Step = null, bool NeedsRestart = false);
 
 /// <summary>
 /// UE4SS-settings.ini, read and written line by line so that saving only changes the value part of
@@ -32,6 +39,13 @@ public sealed partial class Ue4ssSettingsDocument
     private readonly string _newline;
     private readonly string _descriptionSeparator;
 
+    /// <summary>
+    /// A mod's own config: text after " ;" on a setting's line is a comment ("Mode = Forgiving ;
+    /// NoStability, Forgiving, Observe or Off"), kept when the value changes and read for choices,
+    /// ranges and markers. UE4SS's own settings file has no such comments and is read as before.
+    /// </summary>
+    private bool InlineComments => _descriptionSeparator == "\n";
+
     private Ue4ssSettingsDocument(List<string> lines, List<string> endings, string newline, string descriptionSeparator)
     {
         _lines = lines;
@@ -39,6 +53,21 @@ public sealed partial class Ue4ssSettingsDocument
         _newline = newline;
         _descriptionSeparator = descriptionSeparator;
     }
+
+    /// <summary>A value and the comment after it on its line: "Forgiving ; NoStability or Off" → ("Forgiving", " ; NoStability or Off"). The comment starts at a ';' after white space (or right at the start).</summary>
+    private (string Value, string Comment) SplitInline(string raw)
+    {
+        if (!InlineComments)
+        {
+            return (raw, "");
+        }
+
+        var at = InlineCommentStart().Match(raw);
+        return at.Success ? (raw[..at.Index].TrimEnd(), raw[at.Index..]) : (raw, "");
+    }
+
+    [GeneratedRegex(@"(^|\s+);")]
+    private static partial Regex InlineCommentStart();
 
     [GeneratedRegex(@"^\s*\[(?<name>[^\]]+)\]\s*$")]
     private static partial Regex SectionLine();
@@ -113,8 +142,12 @@ public sealed partial class Ue4ssSettingsDocument
                 }
                 else if (KeyLine().Match(line) is { Success: true } keyMatch)
                 {
-                    var block = comments.Count == 0 && afterSetting && _descriptionSeparator == "\n" ? shared : [.. comments];
-                    settings.Add(Describe(section, keyMatch.Groups["key"].Value.Trim(), keyMatch.Groups["value"].Value.Trim(), block, _descriptionSeparator));
+                    var (value, comment) = SplitInline(keyMatch.Groups["value"].Value.Trim());
+                    var note = comment.Trim().TrimStart(';').Trim();
+                    // A setting with its own comment on its line is described by that; it doesn't
+                    // borrow the comment above the setting before it (that one was about the other).
+                    var block = comments.Count == 0 && afterSetting && _descriptionSeparator == "\n" && note.Length == 0 ? shared : [.. comments];
+                    settings.Add(Describe(section, keyMatch.Groups["key"].Value.Trim(), value, block, _descriptionSeparator, note));
                     shared = block;
                     comments.Clear();
                     afterSetting = true;
@@ -126,7 +159,7 @@ public sealed partial class Ue4ssSettingsDocument
     }
 
     public string? GetValue(string section, string key) =>
-        FindLine(section, key) is { } index ? KeyLine().Match(_lines[index]).Groups["value"].Value.Trim() : null;
+        FindLine(section, key) is { } index ? SplitInline(KeyLine().Match(_lines[index]).Groups["value"].Value.Trim()).Value.Trim() : null;
 
     /// <summary>Changes one value in place (adding the key to its section, or the section, when the file doesn't have it yet). True when the file changed.</summary>
     public bool SetValue(string section, string key, string value)
@@ -140,13 +173,26 @@ public sealed partial class Ue4ssSettingsDocument
         if (FindLine(section, key) is { } index)
         {
             var match = KeyLine().Match(_lines[index]);
-            if (match.Groups["value"].Value.Trim() == value)
+            // The comment after the value (a mod's own config) stays as it is, spacing and all.
+            var (current, comment) = SplitInline(match.Groups["value"].Value);
+            if (current.Trim() == value)
             {
                 return false;
             }
 
+            if (InlineComments && InlineCommentStart().IsMatch(value))
+            {
+                throw new ArgumentException("A value can't contain ' ;': the rest would be read as a comment.", nameof(value));
+            }
+
             var eq = match.Groups["eq"].Value;
-            _lines[index] = $"{match.Groups["lead"].Value}{match.Groups["key"].Value}{(eq.EndsWith(' ') || value.Length == 0 ? eq : eq + " ")}{value}";
+            // "Key = ; note" given a value: the note needs white space before its ';' to stay a note.
+            if (comment.Length > 0 && value.Length > 0 && !char.IsWhiteSpace(comment[0]))
+            {
+                comment = " " + comment;
+            }
+
+            _lines[index] = $"{match.Groups["lead"].Value}{match.Groups["key"].Value}{(eq.EndsWith(' ') || value.Length == 0 ? eq : eq + " ")}{value}{comment}";
             return true;
         }
 
@@ -228,11 +274,52 @@ public sealed partial class Ue4ssSettingsDocument
         return null;
     }
 
-    private static Ue4ssSetting Describe(string section, string key, string value, List<string> comments, string separator)
+    private static Ue4ssSetting Describe(string section, string key, string value, List<string> comments, string separator, string note = "")
     {
         string? defaultValue = null;
         var choices = new List<string>();
         var description = new List<string>();
+
+        // The comment on the setting's own line (a mod's config): its markers, its range, and a
+        // list of the values it can take, which becomes the choices.
+        double? minimum = null, maximum = null, step = null;
+        var needsRestart = false;
+        if (note.Length > 0)
+        {
+            if (SliderMarker().Match(note) is { Success: true } slider)
+            {
+                (minimum, maximum) = (Number(slider.Groups["min"].Value), Number(slider.Groups["max"].Value));
+                step = slider.Groups["step"].Success ? Number(slider.Groups["step"].Value) : null;
+                step ??= 1;
+            }
+
+            needsRestart = RestartMarker().IsMatch(note) || RestartWords().IsMatch(note);
+            note = RestartWords().Replace(Marker().Replace(note, ""), "").Trim().TrimEnd(';', ',').Trim();
+            if (minimum is null && RangeInNote().Match(note) is { Success: true } range)
+            {
+                (minimum, maximum) = (Number(range.Groups["min"].Value), Number(range.Groups["max"].Value));
+            }
+            else if (minimum is null && AtLeast().Match(note) is { Success: true } atLeast)
+            {
+                minimum = Number(atLeast.Groups["min"].Value);
+            }
+
+            // A range in brackets on its own ("(0-10)", "(at least 10)") shows under the box instead.
+            if (minimum is not null && Number(value) is not null)
+            {
+                note = RangeOnly().Replace(note, "").Trim();
+            }
+
+            if (ChoiceList().IsMatch(note))
+            {
+                var listed = WordOrList().Split(note).Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
+                if (listed.Count > 1 && listed.Contains(value, StringComparer.OrdinalIgnoreCase))
+                {
+                    choices.AddRange(listed);
+                    note = ""; // only the list: the drop-down shows it
+                }
+            }
+        }
         foreach (var comment in comments)
         {
             if (DefaultComment().Match(comment) is { Success: true } d)
@@ -270,15 +357,61 @@ public sealed partial class Ue4ssSettingsDocument
             }
         }
 
+        if (note.Length > 0)
+        {
+            description.Add(note);
+        }
+
         var text = string.Join(separator, description);
-        var isSwitch = separator == "\n"
+        var isModConfig = separator == "\n";
+        var isSwitch = isModConfig
             ? IsModSwitch(key, value, text)
             : IsToggle(value) && (defaultValue is null || IsToggle(defaultValue)) && !NumberDescription().IsMatch(text);
         var kind = choices.Count > 1 ? Ue4ssSettingKind.Choice
             : isSwitch ? Ue4ssSettingKind.Toggle
+            : isModConfig && Number(value) is not null ? Ue4ssSettingKind.Number
             : Ue4ssSettingKind.Text;
-        return new Ue4ssSetting(section, key, value, text, defaultValue, kind, choices);
+        return new Ue4ssSetting(section, key, value, text, defaultValue, kind, choices,
+            kind == Ue4ssSettingKind.Number ? minimum : null, kind == Ue4ssSettingKind.Number ? maximum : null,
+            kind == Ue4ssSettingKind.Number ? step : null, needsRestart);
     }
+
+    /// <summary>A number as a mod's config writes it ("2", "2.0", "-1"), or null.</summary>
+    public static double? Number(string text) =>
+        double.TryParse(text.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n)
+            && double.IsFinite(n) ? n : null;
+
+    // "[slider 1 10 0.5]": the mod asks for a slider from 1 to 10 in steps of 0.5.
+    [GeneratedRegex(@"\[slider\s+(?<min>-?[0-9.]+)\s+(?<max>-?[0-9.]+)(\s+(?<step>[0-9.]+))?\s*\]", RegexOptions.IgnoreCase)]
+    private static partial Regex SliderMarker();
+
+    [GeneratedRegex(@"\[restart\]", RegexOptions.IgnoreCase)]
+    private static partial Regex RestartMarker();
+
+    [GeneratedRegex(@"\s*[;,]?\s*\brestart (needed|required)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex RestartWords();
+
+    // Any "[word ...]" marker for tools, not for people.
+    [GeneratedRegex(@"\s*\[(slider|restart)[^\]]*\]", RegexOptions.IgnoreCase)]
+    private static partial Regex Marker();
+
+    // "(0-10)", "(1-100)", "(0-600; 0 = off)": the range a number takes.
+    [GeneratedRegex(@"\((?<min>-?\d+(\.\d+)?)\s*[-–]\s*(?<max>-?\d+(\.\d+)?)\s*[;),]")]
+    private static partial Regex RangeInNote();
+
+    // "(0-10)" or "(at least 10)" with nothing else in the brackets.
+    [GeneratedRegex(@"\s*\((at least\s+)?-?\d+(\.\d+)?(\s*[-–]\s*-?\d+(\.\d+)?)?\)", RegexOptions.IgnoreCase)]
+    private static partial Regex RangeOnly();
+
+    [GeneratedRegex(@"\bat least (?<min>-?\d+(\.\d+)?)", RegexOptions.IgnoreCase)]
+    private static partial Regex AtLeast();
+
+    // "Fair or Game", "Reach, Strength or Both", "A, B, C": only words, commas and "or".
+    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*(\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*(\s*,?\s+or\s+[A-Za-z_][A-Za-z0-9_]*)?$")]
+    private static partial Regex ChoiceList();
+
+    [GeneratedRegex(@"\s*,\s*or\s+|\s*,\s*|\s+or\s+")]
+    private static partial Regex WordOrList();
 
     /// <summary>
     /// A mod's own config: true/false is a switch; 0 or 1 only when the comment says what 1 means
