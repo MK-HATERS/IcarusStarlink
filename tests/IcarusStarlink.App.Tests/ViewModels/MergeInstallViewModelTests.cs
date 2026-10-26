@@ -1539,6 +1539,34 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.DoesNotContain(vm.Warnings, w => w.Contains("no longer match"));
     }
 
+    /// <summary>
+    /// Two mods spelling the same row differently ("smelterrecipe" / "SmelterRecipe"): the merge
+    /// groups them as one row and the conflict takes the first mod's spelling, so reordering them
+    /// changes the spelling. A pick saved under the other spelling must still be used.
+    /// </summary>
+    [Fact]
+    public async Task SavedWinner_RowSpelledInAnotherCaseByTheFirstMod_IsStillUsed()
+    {
+        var (library, settings) = TwoConflictingMods();
+        library.FolderPaths["ModA"] = CreateExmodFolder("ModA2",
+            BuildCraftTimeExmodJson("ModA", craftTime: 5).Replace("\"SmelterRecipe\"", "\"smelterrecipe\"", StringComparison.Ordinal), out _);
+        var store = new FakeProfileStore();
+        // Saved while ModB came first, so under ModB's spelling.
+        store.Save(new Profile { Name = "Default", MergeQueueFolderNames = ["ModA", "ModB"], ConflictWinners = new() { [CraftTimeWinnerKey] = "ModA" } });
+        var rebuild = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables() };
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, profileStore: store, settingsService: settings);
+
+        Assert.True(await vm.RebuildAsync());
+
+        Assert.DoesNotContain(vm.Warnings, w => w.Contains("no longer match"));
+        var pick = Assert.Single(rebuild.LastManualPicks!);
+        Assert.Equal(0, pick.Value);
+        // The conflict really carries the other spelling (or this test proves nothing).
+        Assert.Equal("smelterrecipe", pick.Key.ItemName);
+        await vm.RecomputeConflictCountAsync();
+        Assert.Equal("ModA", Assert.Single(vm.CreateConflictReviewForTesting().BuildWinners()).Value);
+    }
+
     /// <summary>A saved pick for a mod in the build that no longer matches a conflict is reported before building.</summary>
     [Fact]
     public async Task SavedWinners_NoLongerMatching_AreReported()
