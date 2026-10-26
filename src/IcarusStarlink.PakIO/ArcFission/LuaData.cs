@@ -40,7 +40,7 @@ public sealed class LuaTable
 /// FormatException. Written for ArcFission's mod.lua and rows.lua, which its library loads in an
 /// empty environment, so a real one never has more than this.
 /// </summary>
-public sealed class LuaData
+public sealed partial class LuaData
 {
     private readonly string _text;
     private int _at;
@@ -204,6 +204,18 @@ public sealed class LuaData
     {
         var quote = _text[_at++];
         var text = new StringBuilder();
+        // A Lua string is bytes: "\xC3\xA9" (or "\195\169") is é written as its two UTF-8 bytes.
+        // Escaped bytes are gathered and decoded as UTF-8 together, never one character each.
+        var bytes = new List<byte>();
+        void Flush()
+        {
+            if (bytes.Count > 0)
+            {
+                text.Append(Encoding.UTF8.GetString([.. bytes]));
+                bytes.Clear();
+            }
+        }
+
         while (true)
         {
             if (_at >= _text.Length || _text[_at] is '\n' or '\r')
@@ -214,11 +226,13 @@ public sealed class LuaData
             var c = _text[_at++];
             if (c == quote)
             {
+                Flush();
                 return text.ToString();
             }
 
             if (c != '\\')
             {
+                Flush();
                 text.Append(c);
                 continue;
             }
@@ -229,6 +243,11 @@ public sealed class LuaData
             }
 
             var e = _text[_at++];
+            if (e is not ('x' or 'z') && !char.IsAsciiDigit(e))
+            {
+                Flush();
+            }
+
             switch (e)
             {
                 case 'n': text.Append('\n'); break;
@@ -240,6 +259,8 @@ public sealed class LuaData
                 case 'v': text.Append('\v'); break;
                 case '\\' or '"' or '\'': text.Append(e); break;
                 case '\n':
+                    // A backslash before a line break: one line break (\n\r is one, as in Lua).
+                    TryChar('\r');
                     text.Append('\n');
                     break;
                 case '\r':
@@ -261,7 +282,7 @@ public sealed class LuaData
                         throw Error("'\\x' needs two hex digits");
                     }
 
-                    text.Append((char)int.Parse(_text.AsSpan(_at, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
+                    bytes.Add(byte.Parse(_text.AsSpan(_at, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
                     _at += 2;
                     break;
                 case 'u':
@@ -293,7 +314,7 @@ public sealed class LuaData
                             throw Error($"'\\{digits}' is more than one byte");
                         }
 
-                        text.Append((char)value);
+                        bytes.Add((byte)value);
                         break;
                     }
 
@@ -319,17 +340,6 @@ public sealed class LuaData
     private string LongString(int level)
     {
         _at += level + 2;
-        // A line break right after the opening bracket isn't part of the string.
-        if (_at < _text.Length && _text[_at] == '\r')
-        {
-            _at++;
-        }
-
-        if (_at < _text.Length && _text[_at] == '\n')
-        {
-            _at++;
-        }
-
         var close = "]" + new string('=', level) + "]";
         var end = _text.IndexOf(close, _at, StringComparison.Ordinal);
         if (end < 0)
@@ -337,10 +347,15 @@ public sealed class LuaData
             throw Error("a [[long string]] isn't closed");
         }
 
-        var value = _text[_at..end];
+        // As Lua reads it: each line break (\r\n, \n\r, \r or \n) is one \n, and a line break right
+        // after the opening bracket isn't part of the string.
+        var value = LineBreak().Replace(_text[_at..end], "\n");
         _at = end + close.Length;
-        return value;
+        return value.StartsWith('\n') ? value[1..] : value;
     }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\r\n|\n\r|\r|\n")]
+    private static partial System.Text.RegularExpressions.Regex LineBreak();
 
     private double Number()
     {
@@ -348,6 +363,13 @@ public sealed class LuaData
         if (_text[_at] == '-')
         {
             _at++;
+        }
+
+        // A number starts with a digit or a point: "-Infinity" or "-nan" is a word, which .NET
+        // would read as a number but Lua doesn't.
+        if (_at >= _text.Length || !(char.IsAsciiDigit(_text[_at]) || _text[_at] == '.'))
+        {
+            throw Error("a number starts with a digit or a point");
         }
 
         while (_at < _text.Length)
@@ -395,7 +417,8 @@ public sealed class LuaData
                 }
                 else
                 {
-                    while (_at < _text.Length && _text[_at] != '\n')
+                    // A line comment ends at a line break, a lone \r included (as Lua's).
+                    while (_at < _text.Length && _text[_at] is not ('\n' or '\r'))
                     {
                         _at++;
                     }
