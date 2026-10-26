@@ -149,24 +149,34 @@ public class InstallServiceTests : IDisposable
         Assert.Empty(Directory.Exists(_backupDirectory) ? Directory.GetFiles(_backupDirectory, "ZZ_ArcFission_*") : []);
     }
 
-    /// <summary>The library's own state.lua says which copy it uses: a stray higher number isn't taken for it (review finding).</summary>
+    /// <summary>
+    /// The highest number is the copy the game loads and the one the library writes next above, so
+    /// it's kept even when the library's state.lua names an older one. A stale state.lua is real: the
+    /// game's ArcFissionLibrary folder (state.lua with it) is copied onto a dedicated server, or an
+    /// older copy of the folder is restored. Keeping the state's older pak there made the library take
+    /// it as up to date (same fingerprint, no higher pak left) and serve its old tables for good;
+    /// keeping the highest one makes it rebuild once instead (review 2026-10-26).
+    /// </summary>
     [Fact]
-    public async Task InstallAsync_KeepsTheArcFissionDataPakTheLibrarysStateNames()
+    public async Task InstallAsync_KeepsTheHighestArcFissionDataPak_EvenWhenAStaleStateLuaNamesAnOlderOne()
     {
         var modsDirectory = Path.Combine(_fakeContentPath, "Paks", "mods");
         Directory.CreateDirectory(modsDirectory);
-        foreach (var name in new[] { "ZZ_ArcFission_Data_1_P.pak", "ZZ_ArcFission_Data_2_P.pak", "ZZ_ArcFission_Data_99_P.pak" })
+        foreach (var name in new[] { "ZZ_ArcFission_Data_1_P.pak", "ZZ_ArcFission_Data_2_P.pak", "ZZ_ArcFission_Data_3_P.pak" })
         {
             await File.WriteAllTextAsync(Path.Combine(modsDirectory, name), "library data");
         }
 
         var library = Path.Combine(Path.GetDirectoryName(_fakeContentPath.TrimEnd('\\', '/'))!, "Binaries", "Win64", "ue4ss", "Mods", "ArcFissionLibrary");
         Directory.CreateDirectory(library);
-        await File.WriteAllTextAsync(Path.Combine(library, "state.lua"), "return {\n    [\"gen\"] = 2,\n    [\"library\"] = \"1.3.0\",\n}\n");
+        await File.WriteAllTextAsync(Path.Combine(library, "enabled.txt"), "");
+        await File.WriteAllTextAsync(Path.Combine(library, "state.lua"), "return {\n    [\"gen\"] = 1,\n    [\"library\"] = \"1.3.0\",\n}\n");
+
+        Assert.Equal(["ZZ_ArcFission_Data_1_P.pak", "ZZ_ArcFission_Data_2_P.pak"], InstallManifestNames.OlderArcFissionDataPaks(_fakeContentPath));
 
         await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
 
-        Assert.Equal(["ZZ_ArcFission_Data_2_P.pak"], Directory.GetFiles(modsDirectory, "ZZ_ArcFission_*").Select(Path.GetFileName));
+        Assert.Equal(["ZZ_ArcFission_Data_3_P.pak"], Directory.GetFiles(modsDirectory, "ZZ_ArcFission_*").Select(Path.GetFileName));
     }
 
     [Fact]
