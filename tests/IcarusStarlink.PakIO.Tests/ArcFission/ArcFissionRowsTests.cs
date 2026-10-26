@@ -146,7 +146,9 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.Equal("Wireless_Power_Node", item.Name);
         Assert.Equal(99, item.Fields["Inputs"]![0]!["Count"]!.GetValue<int>());
         Assert.False(item.Fields.ContainsKey("Name"));
-        Assert.Contains(problems, p => p.Contains("already has row 'stone_pickaxe'"));
+        // The game's row is Stone_Pickaxe: one row to the game, skipped, and the note says the
+        // library alone (whose check is case-sensitive) would let the mod's row replace it.
+        Assert.Contains(problems, p => p.Contains("row 'stone_pickaxe'") && p.Contains("game's 'Stone_Pickaxe' in other capitals"));
         Assert.Contains(problems, p => p.Contains("also added by Another mod"));
 
         var changes = ExmodFieldChangeMapper.ToFieldChanges(package, new DefaultSemanticClassifier());

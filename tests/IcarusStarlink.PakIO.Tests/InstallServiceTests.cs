@@ -384,6 +384,23 @@ public class InstallServiceTests : IDisposable
 
         File.WriteAllText(Path.Combine(modsFolder, "ArcFissionLibrary", "enabled.txt"), "");
         Assert.True(InstallManifestNames.IsArcFissionLibraryActive(_fakeContentPath));
+        Assert.Null(InstallManifestNames.MisnamedArcFissionLibraryFolder(_fakeContentPath));
+    }
+
+    /// <summary>
+    /// The ArcFission mods register in Mods/ArcFissionLibrary/registry.txt (LIBRARY_FOLDER in their
+    /// arcfission.lua): a library turned on in a renamed folder hears from no mod and builds no rows,
+    /// so it doesn't count as installed, and the renamed folder is named so the user can fix it.
+    /// </summary>
+    [Fact]
+    public void IsArcFissionLibraryActive_ALibraryInARenamedFolder_DoesntCount_AndIsNamed()
+    {
+        var renamed = Path.Combine(_tempDir, "Binaries", "Win64", "ue4ss", "Mods", "ArcFissionLibrary-1.3.0");
+        Directory.CreateDirectory(renamed);
+        File.WriteAllText(Path.Combine(renamed, "enabled.txt"), "");
+
+        Assert.False(InstallManifestNames.IsArcFissionLibraryActive(_fakeContentPath));
+        Assert.Equal("ArcFissionLibrary-1.3.0", InstallManifestNames.MisnamedArcFissionLibraryFolder(_fakeContentPath));
     }
 
     /// <summary>Restore previous install puts the last pak and its mod list back, after backing up what's installed now, and can be undone the same way.</summary>

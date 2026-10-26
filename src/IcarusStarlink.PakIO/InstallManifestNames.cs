@@ -55,42 +55,60 @@ public static class InstallManifestNames
 
     /// <summary>
     /// Whether ArcFission Library itself (the UE4SS mod that writes the data pak) is installed in
-    /// the game and turned on: an "ArcFissionLibrary…" folder in ue4ss\Mods that has an enabled.txt
-    /// or that mods.txt lists as on (either makes UE4SS load it). Its data pak is only folded into the merge
-    /// and kept while this is true: a pak left behind after the library is removed holds whole
-    /// tables from the game version it was written for, and folding it in would put old values back.
+    /// the game and turned on: a folder named exactly ArcFissionLibrary in ue4ss\Mods that has an
+    /// enabled.txt or that mods.txt lists as on (either makes UE4SS load it). Exactly that name: the
+    /// ArcFission mods register in Mods/ArcFissionLibrary/registry.txt (LIBRARY_FOLDER in their
+    /// arcfission.lua), so a library in a renamed folder ("ArcFissionLibrary-1.3.0") hears from no
+    /// mod and builds no rows (MisnamedArcFissionLibraryFolder says so). Its data pak is only kept
+    /// while this is true: a pak left behind after the library is removed holds whole tables from
+    /// the game version it was written for, and loading it would put old values back.
     /// </summary>
-    public static bool IsArcFissionLibraryActive(string icarusContentPath)
+    public static bool IsArcFissionLibraryActive(string icarusContentPath) =>
+        EnabledArcFissionLibraryFolders(icarusContentPath).Any(n => string.Equals(n, ArcFissionLibraryFolder, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// A turned-on copy of ArcFission Library in a folder with another name ("ArcFissionLibrary-1.3.0",
+    /// "ArcFission Library"), while none is in a folder named ArcFissionLibrary: the mods can't reach
+    /// it, so no ArcFission rows are in game until it's renamed. Null otherwise.
+    /// </summary>
+    public static string? MisnamedArcFissionLibraryFolder(string icarusContentPath)
+    {
+        var enabled = EnabledArcFissionLibraryFolders(icarusContentPath);
+        return enabled.Any(n => string.Equals(n, ArcFissionLibraryFolder, StringComparison.OrdinalIgnoreCase)) ? null : enabled.FirstOrDefault();
+    }
+
+    /// <summary>The folder the ArcFission mods talk to (LIBRARY_FOLDER in their arcfission.lua).</summary>
+    public const string ArcFissionLibraryFolder = "ArcFissionLibrary";
+
+    /// <summary>Turned-on folders in ue4ss\Mods whose name reads "ArcFissionLibrary…" once spaces and punctuation are left out.</summary>
+    private static List<string> EnabledArcFissionLibraryFolders(string icarusContentPath)
     {
         try
         {
             var modsFolder = Ue4ssGamePaths.ResolveModsFolder(icarusContentPath);
             if (!Directory.Exists(modsFolder))
             {
-                return false;
+                return [];
             }
 
             var modsTxt = Ue4ssModsTxt.Load(Path.Combine(modsFolder, "mods.txt"));
-            foreach (var folder in Directory.GetDirectories(modsFolder))
+            var found = new List<string>();
+            foreach (var folder in Directory.GetDirectories(modsFolder).Order(StringComparer.OrdinalIgnoreCase))
             {
                 var name = Path.GetFileName(folder);
                 var letters = new string([.. name.Where(char.IsLetterOrDigit)]);
-                if (!letters.StartsWith("ArcFissionLibrary", StringComparison.OrdinalIgnoreCase))
+                if (letters.StartsWith(ArcFissionLibraryFolder, StringComparison.OrdinalIgnoreCase)
+                    && (modsTxt.IsEnabled(name) == true || File.Exists(Path.Combine(folder, "enabled.txt"))))
                 {
-                    continue;
-                }
-
-                if (modsTxt.IsEnabled(name) == true || File.Exists(Path.Combine(folder, "enabled.txt")))
-                {
-                    return true;
+                    found.Add(name);
                 }
             }
 
-            return false;
+            return found;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            return false;
+            return [];
         }
     }
 

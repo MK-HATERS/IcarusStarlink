@@ -181,6 +181,12 @@ public sealed partial class MergeInstallViewModel
             List<ExmodPackage> lowPriority = snapshot.ArcFission is { HasRows: true } arcFission
                 ? [await Task.Run(() => ArcFissionRows.ToPackage(arcFission, GetOrCreateGameTableIndex(), arcFissionNotes))]
                 : [];
+            if (snapshot.ArcFission is null && _settingsService.Current.IcarusContentPath is { Length: > 0 } content
+                && InstallManifestNames.MisnamedArcFissionLibraryFolder(content) is { } misnamed)
+            {
+                arcFissionNotes.Add($"ArcFission Library is in a folder named '{misnamed}'. ArcFission mods only reach it in a folder named exactly {InstallManifestNames.ArcFissionLibraryFolder}, so their rows aren't in game or in this merge. Rename the folder in ue4ss\\Mods.");
+            }
+
             foreach (var note in arcFissionNotes)
             {
                 Warnings.Add($"ArcFission: {note}");

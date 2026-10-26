@@ -288,9 +288,15 @@ public static partial class ArcFissionRows
             foreach (var row in mod.Rows)
             {
                 var key = $"{row.CurrentFile}|{row.Name}";
-                if (gameIndex.HasRow(row.CurrentFile, row.Name))
+                if (gameIndex.GameRowName(row.CurrentFile, row.Name) is { } gameRow)
                 {
-                    problems?.Add($"{mod.Name}: the game already has row '{row.Name}' in {GameTableIndex.TableNameOf(row.CurrentFile)}, so it's skipped (ArcFission Library skips it too).");
+                    // The library's own check is case-sensitive: it would add "stone_pickaxe" next to
+                    // the game's Stone_Pickaxe, and the game (row names ignore case) would then take
+                    // the mod's row in place of its own. The merge outranks the library's pak, so
+                    // skipping it here keeps the game's row; the note says what differs.
+                    problems?.Add(string.Equals(gameRow, row.Name, StringComparison.Ordinal)
+                        ? $"{mod.Name}: the game already has row '{row.Name}' in {GameTableIndex.TableNameOf(row.CurrentFile)}, so it's skipped (ArcFission Library skips it too)."
+                        : $"{mod.Name}: row '{row.Name}' in {GameTableIndex.TableNameOf(row.CurrentFile)} is the game's '{gameRow}' in other capitals (the game treats them as one row), so it's skipped and the game's row stays. ArcFission Library on its own would let it replace the game's row.");
                     continue;
                 }
 
@@ -341,11 +347,11 @@ public static partial class ArcFissionRows
     {
         foreach (var folder in Directory.GetDirectories(modsFolder))
         {
-            var letters = new string([.. Path.GetFileName(folder).Where(char.IsLetterOrDigit)]);
             var main = Path.Combine(folder, "Scripts", "main.lua");
             try
             {
-                if (letters.StartsWith("ArcFissionLibrary", StringComparison.OrdinalIgnoreCase) && File.Exists(main)
+                // The copy the mods talk to (IsArcFissionLibraryActive), not a renamed spare.
+                if (string.Equals(Path.GetFileName(folder), InstallManifestNames.ArcFissionLibraryFolder, StringComparison.OrdinalIgnoreCase) && File.Exists(main)
                     && LibraryVersionLine().Match(ReadText(main)) is { Success: true } match)
                 {
                     return match.Groups[1].Value;
