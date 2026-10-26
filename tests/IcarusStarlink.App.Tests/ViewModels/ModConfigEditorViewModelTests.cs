@@ -163,4 +163,25 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
             ini.Replace("Mode = Forgiving ;", "Mode = Observe ;").Replace("ExtraReach = 2 ;", "ExtraReach = 4 ;").Replace("WeightMultiplier = 1 ;", "WeightMultiplier = 2.5 ;"),
             File.ReadAllText(Path.Combine(game, "config.ini")));
     }
+
+    /// <summary>
+    /// "1,5" (a comma for decimals) or "ten" in a number field is refused, since the mod can't read
+    /// it; a number outside the range in the mod's comment is only warned about and saves.
+    /// </summary>
+    [Fact]
+    public void Save_RefusesANumberTheModCantRead_ButAllowsOneOutsideItsRange()
+    {
+        const string ini = "[Forgiving]\r\nExtraReach = 2 ; extra pieces of reach (0-10)\r\n";
+        var game = Mod("game", "config.ini", ini);
+        var vm = new ModConfigEditorViewModel("MkHatersStability", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+
+        Field(vm, "ExtraReach").Value = "1,5";
+        vm.SaveCommand.Execute(null);
+        Assert.StartsWith("Not saved: ExtraReach isn't a number", vm.StatusMessage);
+        Assert.Equal(ini, File.ReadAllText(Path.Combine(game, "config.ini")));
+
+        Field(vm, "ExtraReach").Value = "50";
+        vm.SaveCommand.Execute(null);
+        Assert.Equal(ini.Replace("= 2 ;", "= 50 ;"), File.ReadAllText(Path.Combine(game, "config.ini")));
+    }
 }

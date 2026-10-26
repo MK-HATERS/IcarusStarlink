@@ -35,6 +35,9 @@ public sealed partial class AppUpdateStepRow(AppUpdateStep step, string title) :
 public sealed partial class AppUpdateViewModel : ObservableObject
 {
     private readonly AppUpdateRelease _release;
+
+    /// <summary>The zip's checksum: the release's, or fetched again from GitHub for a Nexus download.</summary>
+    private string? _digest;
     private readonly IAppUpdateClient _appUpdateClient;
     private readonly INexusApiClient _nexusApiClient;
     private readonly string? _nexusApiKey;
@@ -52,6 +55,7 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         Func<string?> busyNow, bool skipOldExe, Action<string> openUrl, NxmUrl? nexusLink = null)
     {
         _release = release;
+        _digest = release.AssetDigest;
         _appUpdateClient = appUpdateClient;
         _nexusApiClient = nexusApiClient;
         _nexusApiKey = nexusApiKey;
@@ -125,6 +129,21 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         var workFolder = "";
         try
         {
+            // A zip from Nexus is only installed once it matches GitHub's checksum for the same
+            // version (user's call 2026-10-26): GitHub down or rate-limited, or a version put on
+            // Nexus before its GitHub release, stops here rather than installing unchecked.
+            if (FromNexus && _digest is null)
+            {
+                Step(AppUpdateStep.GetLink).State = "active";
+                ProgressText = "Getting the checksum from GitHub…";
+                _digest = (await _appUpdateClient.GetReleaseAsync(_release.Version, token))?.AssetDigest;
+                if (_digest is null)
+                {
+                    Fail($"Couldn't confirm v{_release.Version} against GitHub's checksum, so nothing was downloaded. GitHub may be busy: try again in a few minutes.");
+                    return false;
+                }
+            }
+
             var urls = await GetDownloadUrlsAsync(token);
             if (urls is null)
             {
@@ -142,8 +161,8 @@ public sealed partial class AppUpdateViewModel : ObservableObject
             Step(AppUpdateStep.Check).State = "active";
             ProgressText = "Checking the file…";
             IsProgressIndeterminate = true;
-            await GitHubAssetIntegrity.VerifySha256Async(_release.AssetDigest, zipPath, token);
-            Done(AppUpdateStep.Check, _release.AssetDigest is null
+            await GitHubAssetIntegrity.VerifySha256Async(_digest, zipPath, token);
+            Done(AppUpdateStep.Check, _digest is null
                 ? "No checksum published for this version: checked it holds Starlink while unpacking"
                 : "Matches the published checksum");
 

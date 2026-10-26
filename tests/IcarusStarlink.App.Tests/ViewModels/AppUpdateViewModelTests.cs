@@ -18,7 +18,7 @@ public sealed class AppUpdateViewModelTests
         var nexus = new FakeStarlinkNexus();
         var opened = new List<string>();
         var release = new AppUpdateRelease("3.3.0", "", "", AssetDigest: null, NexusFileId: 500);
-        var viewModel = new AppUpdateViewModel(release, new FakeGitHubUpdates(), nexus, "key", () => null, skipOldExe: false, opened.Add);
+        var viewModel = new AppUpdateViewModel(release, new FakeGitHubUpdates { ReleaseDigest = "sha256:" + new string('a', 64) }, nexus, "key", () => null, skipOldExe: false, opened.Add);
 
         var run = viewModel.RunAsync();
         Assert.True(viewModel.IsWaitingForNexus);
@@ -35,5 +35,26 @@ public sealed class AppUpdateViewModelTests
         Assert.True(viewModel.TryDeliverNexusLink("nxm://icarus/mods/330/files/500?key=abc&expires=1700000000&user_id=1"));
         Assert.False(await run);
         Assert.Equal([500], nexus.DownloadLinkFileIds);
+    }
+
+    /// <summary>
+    /// A Nexus download is only installed once it can be checked against GitHub's checksum for the
+    /// same version (user's call 2026-10-26). With none to be had, nothing is opened or downloaded.
+    /// </summary>
+    [Fact]
+    public async Task FromNexus_WithNoGitHubChecksum_StopsBeforeDownloading()
+    {
+        var nexus = new FakeStarlinkNexus();
+        var gitHub = new FakeGitHubUpdates();
+        var opened = new List<string>();
+        var release = new AppUpdateRelease("3.3.0", "", "", AssetDigest: null, NexusFileId: 500);
+        var viewModel = new AppUpdateViewModel(release, gitHub, nexus, "key", () => null, skipOldExe: false, opened.Add);
+
+        Assert.False(await viewModel.RunAsync());
+
+        Assert.Empty(opened);
+        Assert.Empty(gitHub.Downloads);
+        Assert.Empty(nexus.DownloadLinkFileIds);
+        Assert.Contains(viewModel.Steps, s => s.State == "failed");
     }
 }

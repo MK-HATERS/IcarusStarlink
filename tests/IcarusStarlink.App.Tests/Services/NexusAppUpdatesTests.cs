@@ -57,6 +57,12 @@ internal sealed class FakeGitHubUpdates : IAppUpdateClient
 {
     public List<IReadOnlyList<string>> Downloads { get; } = [];
 
+    /// <summary>The checksum GetReleaseAsync hands back for any version (null: GitHub has none or can't be reached).</summary>
+    public string? ReleaseDigest { get; init; }
+
+    public Task<AppUpdateRelease?> GetReleaseAsync(string version, CancellationToken cancellationToken = default) =>
+        Task.FromResult<AppUpdateRelease?>(ReleaseDigest is null ? null : new AppUpdateRelease(version, "", "", ReleaseDigest));
+
     public Task<AppUpdateRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken = default) => Task.FromResult<AppUpdateRelease?>(null);
 
     public Task DownloadAssetAsync(AppUpdateRelease release, string destinationPath, CancellationToken cancellationToken = default) =>

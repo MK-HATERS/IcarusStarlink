@@ -277,7 +277,11 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         }
         else
         {
-            var problems = ApplyFields();
+            // A number the mod can't read ("1,5", "ten") is refused; one outside the range its
+            // comment gives is only warned about, since the author may mean it (user's call 2026-10-26).
+            var notNumbers = _fields.Where(f => f.IsNumber && f.IsChanged && Ue4ssSettingsDocument.Number(f.Value) is null)
+                .Select(f => $"{f.Key} isn't a number (decimals take a dot: 1.5)");
+            var problems = notNumbers.Concat(ApplyFields()).ToList();
             if (problems.Count > 0)
             {
                 StatusMessage = $"Not saved: {string.Join("; ", problems)}";
