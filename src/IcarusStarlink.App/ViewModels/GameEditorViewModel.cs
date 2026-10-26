@@ -91,6 +91,12 @@ public sealed partial class GameEditorViewModel : ObservableObject
         ("Wood_Crate_Medium", "storage slots"),
         ("Metal_Pickaxe", "durability, mining"),
         ("Basic_Backpack", "inventory slots"),
+        ("Oxygen_Tank", "how much oxygen it holds"),
+        ("Kit_Generator", "fuel use, power"),
+        ("Kit_Stone_Furnace", "smelting, slots"),
+        ("IceBox", "storage slots"),
+        ("Wood_Bow", "accuracy, draw speed"),
+        ("Bandage_Basic", "healing"),
     ];
 
     /// <summary>The quick starts present in the loaded game data.</summary>

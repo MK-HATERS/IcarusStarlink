@@ -101,6 +101,12 @@ public static partial class GameItemEditor
         ["ModifierEffectiveness"] = ("Buff strength (%)", "Higher = a stronger buff; 100 = as designed."),
         ["RequiredMillijoules"] = ("Crafting work", "Higher = takes longer to craft; lower = faster."),
         ["ExperienceMultiplier"] = ("Crafting XP multiplier", "Higher = more XP for crafting it; 1 = as designed."),
+        // D_Generator: the Biofuel Generator makes 5000 from fuel at a ratio of 7500; raising a
+        // ratio from 10 to 450 made a biofuel can last 45 times longer (MkHaters Salt Collector, in game).
+        ["GenerationRate"] = ("Output", "How much it makes: power for a generator, water for a pump. Higher = more output."),
+        ["GenerationRatio"] = ("Fuel efficiency", "How much it makes from each bit of fuel. Higher = fuel lasts longer; lower = burns fuel faster."),
+        ["MaximumStoredUnits"] = ("Holds", "How much it holds (1000 = 1 litre). Higher = holds more."),
+        ["StartingSlots"] = ("Slots", "How many inventory slots it has."),
     };
 
     /// <summary>Everything about one game item the Editor can change, as it is with <paramref name="mod"/> applied (null mod = the game alone). Null when the game has no such item.</summary>
