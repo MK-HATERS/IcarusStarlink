@@ -1042,7 +1042,9 @@ public class RebuildServiceTests : IDisposable
         var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
 
         Assert.Equal(0, result.MergedFileCount);
-        Assert.Contains(result.Warnings, w => w.Contains("..-secret.json") && w.Contains("valid location"));
+        // One warning, the one naming the mod (the base-file reader used to add a second).
+        var warning = Assert.Single(result.Warnings, w => w.Contains("..-secret.json"));
+        Assert.StartsWith("Malicious Mod: the game has no table", warning);
         Assert.DoesNotContain(pakService.StagedRelativePathsAtCallTime, p => p.Contains("secret.json"));
     }
 
@@ -1059,7 +1061,8 @@ public class RebuildServiceTests : IDisposable
         var result = await service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []);
 
         Assert.Equal(0, result.MergedFileCount);
-        Assert.Contains(result.Warnings, w => w.Contains("valid location"));
+        Assert.Single(result.Warnings, w => w.Contains("secret2.json"));
+        Assert.Contains(result.Warnings, w => w.StartsWith("Malicious Mod 2: the game has no table", StringComparison.Ordinal));
         Assert.DoesNotContain(pakService.StagedRelativePathsAtCallTime, p => p.Contains("secret2.json"));
     }
 

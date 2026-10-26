@@ -299,9 +299,11 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
     }
 
     /// <summary>
-    /// Every file that isn't a field-merged table, staged walking the merge order (low-priority paks
-    /// first, then the queue as MergeOrder lays it out), so the later queue entry wins a literal
-    /// file collision — the same "later wins" the field merge uses. A queued EXMOD mod adds its real
+    /// Every file that isn't a field-merged table, staged after the merged tables (already in the
+    /// staging folder) by walking the queue in its true order (MergeParticipants.QueueOrder: queued
+    /// EXMOD mods and prebuilt paks by queue position, lowest priority first), so the later queue
+    /// entry wins a literal file collision — the same "later wins" the field merge uses. The
+    /// low-priority ArcFission rows have no files and aren't staged here. A queued EXMOD mod adds its real
     /// game assets (IsStagedAsset); a prebuilt pak adds whatever wasn't field-mergeable (binary
     /// assets, or a data/*.json with no matching base table), copied from the scratch extraction
     /// taken up front so nothing is extracted twice. A pak file the field-level merge already
