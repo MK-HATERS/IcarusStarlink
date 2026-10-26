@@ -618,6 +618,34 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Single(Directory.GetFiles(BackupsRoot, "*ZZ_ArcFission_Data_1_P.pak", SearchOption.AllDirectories));
     }
 
+    /// <summary>
+    /// An older ArcFission copy that's gone by the time the question is answered (the server's
+    /// library or the user took it off) is already done: the page used to say "Couldn't copy the
+    /// pak" although the copy had worked (review 2026-10-26).
+    /// </summary>
+    [Fact]
+    public void InstallMergedPak_AnOlderArcFissionCopyGoneBeforeTheMove_StillSaysInstalled()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(MergedPakPath)!);
+        File.WriteAllBytes(MergedPakPath, [1, 2, 3]);
+        var modsFolder = DedicatedServerLayout.PakModsFolder(_install);
+        Directory.CreateDirectory(modsFolder);
+        var older = Path.Combine(modsFolder, "ZZ_ArcFission_Data_1_P.pak");
+        File.WriteAllBytes(older, [1]);
+        File.WriteAllBytes(Path.Combine(modsFolder, "ZZ_ArcFission_Data_2_P.pak"), [2]);
+        var library = Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(_install), "ArcFissionLibrary");
+        Directory.CreateDirectory(library);
+        File.WriteAllText(Path.Combine(library, "enabled.txt"), "");
+        var (vm, _, _, dialogs) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        dialogs.WhileAsking = () => File.Delete(older);
+
+        vm.InstallMergedPakCommand.Execute(null);
+
+        Assert.StartsWith("Installed zz_zz_ISL-Merged_9999_P.pak", vm.StatusMessage);
+        Assert.Equal(["ZZ_ArcFission_Data_2_P.pak", "zz_zz_ISL-Merged_9999_P.pak"], vm.ServerPaks.Select(p => p.FileName).Order(StringComparer.Ordinal));
+    }
+
     [Fact]
     public void Ue4ss_InstallFromGameThenMatch_CopiesTheModsOnInTheGame()
     {
@@ -1057,9 +1085,13 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         /// <summary>Answers for the next confirms, in order; once empty, every confirm gets confirmResult.</summary>
         public Queue<bool> Answers { get; } = new();
 
+        /// <summary>Runs while a question is open (something changing on disk before the answer).</summary>
+        public Action? WhileAsking { get; set; }
+
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {
             Messages.Add(message);
+            WhileAsking?.Invoke();
             return Answers.Count > 0 ? Answers.Dequeue() : confirmResult;
         }
 

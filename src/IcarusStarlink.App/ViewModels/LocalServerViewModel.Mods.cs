@@ -260,7 +260,15 @@ public sealed partial class LocalServerViewModel
                 // Moved like every pak taken off a server (never deleted); Clean up backups trims them.
                 foreach (var old in oldArcFission)
                 {
-                    ServerModFiles.RemovePak(p.InstallFolder, old, backups);
+                    try
+                    {
+                        ServerModFiles.RemovePak(p.InstallFolder, old, backups);
+                    }
+                    catch (FileNotFoundException)
+                    {
+                        // Already gone since the question (the server's library or the user took it
+                        // off): nothing left to move, and the pak copy above worked.
+                    }
                 }
             });
             StatusMessage = $"Installed {Path.GetFileName(_mergedPakPath)} on '{p.Name}'. It loads on the next start."
