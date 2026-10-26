@@ -83,7 +83,7 @@ public partial class App
 
         foreach (var url in pending)
         {
-            Dispatcher.BeginInvoke(() => HandleNxmUrl(url));
+            WhileRunning(System.Windows.Threading.DispatcherPriority.Normal, () => HandleNxmUrl(url));
         }
     }
 

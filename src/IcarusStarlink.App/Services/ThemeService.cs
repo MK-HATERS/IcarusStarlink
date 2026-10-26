@@ -86,8 +86,20 @@ public sealed class ThemeService(ICustomSkinStore customSkinStore) : IThemeServi
             uri = ThemeUris[DefaultTheme];
         }
 
-        var dictionary = new ResourceDictionary { Source = uri };
         var colors = new Dictionary<string, string>();
+        ResourceDictionary dictionary;
+        try
+        {
+            dictionary = new ResourceDictionary { Source = uri };
+        }
+        catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException or System.IO.IOException)
+        {
+            // Windows closing every window at once (shutting down, signing out) while Settings was
+            // being built: WPF can no longer read its own resources ("The URI prefix is not
+            // recognized", 2026-10-26). The skin editor's colours are only a starting point.
+            return colors;
+        }
+
         foreach (var key in dictionary.Keys)
         {
             if (key is string name && dictionary[key] is SolidColorBrush brush)

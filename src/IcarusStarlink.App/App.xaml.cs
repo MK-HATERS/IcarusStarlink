@@ -89,7 +89,7 @@ public partial class App : Application
         // builds on a background thread (see the splash-screen Task.Run below), so OnStartup
         // returns and the WPF message loop starts pumping well before the window exists: a link
         // that arrives in that window is queued by HandleNxmUrl and handled once startup is done.
-        singleInstanceService.StartListening(message => Dispatcher.BeginInvoke(() =>
+        singleInstanceService.StartListening(message => WhileRunning(System.Windows.Threading.DispatcherPriority.Normal, () =>
         {
             if (message == SingleInstanceService.ActivateMessage)
             {
@@ -171,6 +171,10 @@ public partial class App : Application
             try
             {
                 RunStartup();
+            }
+            catch (Exception) when (IsClosing)
+            {
+                // Closed before startup finished (the host is disposed under it): not a failure.
             }
             catch (Exception ex)
             {
@@ -254,7 +258,7 @@ public partial class App : Application
                 // from HERE, after construction returns, because the flow runs inside the
                 // constructor and a navigation handled mid-construction would re-resolve this
                 // same singleton re-entrantly.
-                Dispatcher.BeginInvoke(() =>
+                WhileRunning(System.Windows.Threading.DispatcherPriority.Normal, () =>
                 {
                     var settingsViewModel = _host.Services.GetRequiredService<SettingsViewModel>();
                     if (settingsViewModel.FirstLaunchSetupNeededAttention)
@@ -267,12 +271,12 @@ public partial class App : Application
                 // warn (NxmHandlerWatch). After the Settings first-launch offer above, and again
                 // whenever the window comes forward (the other manager was likely just used).
                 var nxmHandlerWatch = _host.Services.GetRequiredService<NxmHandlerWatch>();
-                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, nxmHandlerWatch.Check);
+                WhileRunning(System.Windows.Threading.DispatcherPriority.Background, nxmHandlerWatch.Check);
                 Activated += (_, _) => nxmHandlerWatch.Check();
-                nxmHandlerWatch.StartWatching(action => Dispatcher.BeginInvoke(action));
+                nxmHandlerWatch.StartWatching(action => WhileRunning(System.Windows.Threading.DispatcherPriority.Normal, action));
 
                 // Has Steam updated Icarus since the mods were last made ready? The Library's bar (and a pop-up) says so.
-                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
+                WhileRunning(System.Windows.Threading.DispatcherPriority.Background, () =>
                 {
                     _ = _host.Services.GetRequiredService<LibraryViewModel>().CheckForGameUpdateAsync();
                 });
@@ -280,7 +284,7 @@ public partial class App : Application
                 // Dedicated servers: automation (crash restarts, the daily restart, auto-update,
                 // "start with Starlink") must run from launch, not from the first visit to the
                 // Server page, so its view model is built now when there is any server to watch.
-                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
+                WhileRunning(System.Windows.Threading.DispatcherPriority.Background, () =>
                 {
                     if (_host.Services.GetRequiredService<IDedicatedServerProfileStore>().GetAll().Count > 0)
                     {
@@ -290,7 +294,7 @@ public partial class App : Application
 
                 // The exe is IcarusStarlink.exe since 3.0: move shortcuts and nxm:// links off the
                 // old name and remove its launcher, once (ExeRenamePrompt).
-                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () =>
+                WhileRunning(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () =>
                 {
                     _ = ExeRenamePrompt.RunAtStartupAsync(mainWindow, settingsService,
                         _host.Services.GetRequiredService<IcarusStarlink.Core.Nexus.INxmProtocolRegistrar>(),
@@ -363,8 +367,43 @@ public partial class App : Application
     /// </summary>
     private IActivityLog? TryGetActivityLog() => SafeServiceResolver.TryGetService<IActivityLog>(_host?.Services);
 
+    /// <summary>
+    /// Starlink is closing (OnExit has started, or WPF's shutdown has): the host is being disposed
+    /// and WPF can't load windows or resources any more. Work queued at startup checks this first.
+    /// </summary>
+    public static bool IsClosing => s_closing || (Current is { } app && app.Dispatcher.HasShutdownStarted);
+
+    private static volatile bool s_closing;
+
+    /// <summary>
+    /// Startup work queued on the dispatcher, skipped once Starlink is closing, and quiet when
+    /// Starlink closed while it ran: a step that shows a window (the update offer while Settings is
+    /// built) pumps messages, so closing Starlink then disposes the host under it. Closing during
+    /// startup (or Windows shutting down) used to run every queued step against the disposed host:
+    /// ObjectDisposedException, "The URI prefix is not recognized" loading theme colours, several
+    /// crash reports and a hung process (2026-10-26).
+    /// </summary>
+    private void WhileRunning(System.Windows.Threading.DispatcherPriority priority, Action work) =>
+        Dispatcher.BeginInvoke(priority, () =>
+        {
+            if (IsClosing)
+            {
+                return;
+            }
+
+            try
+            {
+                work();
+            }
+            catch (Exception) when (IsClosing)
+            {
+                // Closed while this ran: nothing left to do it for.
+            }
+        });
+
     protected override void OnExit(ExitEventArgs e)
     {
+        s_closing = true;
         _singleInstanceService?.Dispose();
         _host?.Services.GetService<NxmHandlerWatch>()?.Stop();
         _host?.Dispose();
