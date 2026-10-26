@@ -419,6 +419,20 @@ public sealed class ModHealthCheckerTests : IDisposable
     }
 
     [Fact]
+    public void MovingATableIntoOneTheModAlreadyHas_KeepsTheRowsThatWorkToday_Winning()
+    {
+        // The mod has Bread in the real table (applied in game today) and an older copy under the
+        // folderless name (skipped today). Moving the old copy in must not make it win.
+        var package = Mod((Items, "Bread", "Weight", 5), ("D_ItemsStatic.json", "Bread", "Weight", 9));
+
+        var report = ModHealthChecker.Check(package, _data);
+        ModHealthChecker.ApplySure(package, report);
+
+        var breads = package.Rows.Single(r => r.CurrentFile == Items).FileItems.Where(i => i.Name == "Bread").ToList();
+        Assert.Equal(5, breads[^1].Fields["Weight"]!.GetValue<int>());
+    }
+
+    [Fact]
     public void ATableTheGameDoesntHaveAnywhere_IsOnlyListed_AndNoGameDataMeansNoTableIsUnknown()
     {
         var package = Mod(("Items-D_NoSuchThing.json", "Bread", "Weight", 5));

@@ -141,9 +141,11 @@ public static partial class ModHealthChecker
 
         if (package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, to, StringComparison.OrdinalIgnoreCase)) is { } existing)
         {
+            // In front of the rows already there: those apply in game today, so they keep winning
+            // (the later entry of a row wins) where both set the same thing.
+            existing.FileItems.InsertRange(0, moving.SelectMany(r => r.FileItems).ToList());
             foreach (var row in moving)
             {
-                existing.FileItems.AddRange(row.FileItems);
                 package.Rows.Remove(row);
             }
         }
