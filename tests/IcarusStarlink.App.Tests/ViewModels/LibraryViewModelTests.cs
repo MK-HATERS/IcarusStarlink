@@ -1258,6 +1258,25 @@ public sealed class LibraryViewModelTests
     }
 
     /// <summary>
+    /// Fix… from Merge &amp; Install's check: when the mod's check fails, the answer says so (shown on
+    /// the Merge page), instead of "it's opening" followed by a failure only this page's notice saw.
+    /// </summary>
+    [Fact]
+    public async Task OpenModFixFromElsewhere_ACheckThatFails_IsTheAnswer()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("Unreadable"); // the fake repository's folder path doesn't exist: the check throws
+        Directory.CreateDirectory(harness.DataFolder);
+        File.WriteAllText(Path.Combine(harness.DataFolder, "D_Placeholder.json"), "{}");
+        var vm = harness.Build();
+
+        var outcome = await vm.OpenModFixFromElsewhereAsync("Unreadable");
+
+        Assert.NotNull(outcome);
+        Assert.StartsWith("Couldn't check 'Unreadable':", outcome);
+    }
+
+    /// <summary>
     /// However the fix window closed, the row's badge is checked again; "Keep all as they are"
     /// applies nothing, so nothing is logged as fixed and nothing is backed up.
     /// </summary>

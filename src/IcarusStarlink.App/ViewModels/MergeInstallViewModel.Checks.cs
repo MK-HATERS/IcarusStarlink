@@ -42,8 +42,13 @@ public sealed partial class MergeInstallViewModel
     /// <summary>The Library's health check (null in tests that don't need it: no Per mod findings).</summary>
     private readonly ModFixService? _fixService;
 
-    /// <summary>Each queued mod's health report (by folder) and the rows Library mods add, kept until the Library or the game data changes (under _packageCacheLock).</summary>
-    private readonly Dictionary<string, ModHealthReport> _healthCache = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Each queued mod's health report (by folder) and the rows Library mods add, kept until the
+    /// Library or the game data changes (under _packageCacheLock). A report is also kept only while
+    /// its mod folder's fingerprint (file count + newest write time, as the package cache uses) is
+    /// unchanged, so a mod edited outside Starlink is checked again.
+    /// </summary>
+    private readonly Dictionary<string, (FolderFingerprint Fingerprint, ModHealthReport Report)> _healthCache = new(StringComparer.OrdinalIgnoreCase);
 
     private LibraryAddedRowSet? _libraryAddedRows;
 
@@ -270,25 +275,27 @@ public sealed partial class MergeInstallViewModel
         }
     }
 
-    /// <summary>A queued mod's health report, the Library's check (cached until the Library or the game data changes); null when it can't be read.</summary>
+    /// <summary>A queued mod's health report, the Library's check (cached until the Library or the game data changes, or the mod's files do); null when it can't be read.</summary>
     private ModHealthReport? HealthFor(LibraryEntry entry, IDictionary<string, JsonObject?> baseTables, GameValueHistory history, LibraryAddedRowSet libraryRows, int generation)
     {
-        lock (_packageCacheLock)
-        {
-            if (_healthCache.TryGetValue(entry.FolderName, out var cached))
-            {
-                return cached;
-            }
-        }
-
         try
         {
+            // Taken before the check: a change made while it runs is seen next time.
+            var fingerprint = ComputeFolderFingerprint(_libraryRepository.GetFolderPath(entry.FolderName));
+            lock (_packageCacheLock)
+            {
+                if (_healthCache.TryGetValue(entry.FolderName, out var cached) && cached.Fingerprint == fingerprint)
+                {
+                    return cached.Report;
+                }
+            }
+
             var report = _fixService!.Check(entry.FolderName, baseTables, history, libraryRows);
             lock (_packageCacheLock)
             {
                 if (generation == _checkCacheGeneration)
                 {
-                    _healthCache[entry.FolderName] = report;
+                    _healthCache[entry.FolderName] = (fingerprint, report);
                 }
             }
 
