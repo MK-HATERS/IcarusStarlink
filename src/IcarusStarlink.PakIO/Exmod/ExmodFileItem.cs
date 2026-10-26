@@ -23,6 +23,34 @@ public sealed class ExmodFileItem
     public static ExmodFileItem FromRow(string name, JsonObject row) =>
         new() { Name = name, Fields = DeepCloneFields(row.Where(kv => kv.Key != "Name")) };
 
+    /// <summary>
+    /// A row listed more than once in one table entry, the way the merge sees it: every copy's
+    /// fields together, a field set in two copies taking the later copy's value. Named like the
+    /// last copy. The values are the copies' own nodes (not cloned): for reading only.
+    /// </summary>
+    public static ExmodFileItem Combine(IReadOnlyList<ExmodFileItem> copies)
+    {
+        if (copies.Count == 1)
+        {
+            return copies[0];
+        }
+
+        var fields = new Dictionary<string, JsonNode?>();
+        foreach (var copy in copies)
+        {
+            foreach (var (key, value) in copy.Fields)
+            {
+                fields[key] = value;
+            }
+        }
+
+        return new() { Name = copies[^1].Name, Fields = fields };
+    }
+
+    /// <summary>Each row name's copies in one table entry combined (Combine), names compared ignoring case like the game.</summary>
+    public static IEnumerable<ExmodFileItem> CombineByName(IEnumerable<ExmodFileItem> items) =>
+        items.GroupBy(i => i.Name, StringComparer.OrdinalIgnoreCase).Select(g => Combine(g.ToList()));
+
     private static Dictionary<string, JsonNode?> DeepCloneFields(IEnumerable<KeyValuePair<string, JsonNode?>> fields)
     {
         var copy = new Dictionary<string, JsonNode?>();

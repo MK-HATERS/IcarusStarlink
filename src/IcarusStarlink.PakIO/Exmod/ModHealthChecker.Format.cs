@@ -27,11 +27,16 @@ public static partial class ModHealthChecker
         {
             var count = table.Sum(r => r.FileItems.Count);
             var name = GameTableIndex.TableNameOf(table.Key);
-            var match = gameIndex.CurrentFileFor(name) is { } found && !string.Equals(found, table.Key, StringComparison.OrdinalIgnoreCase) ? found : null;
+            // The move is offered only when the game has the table in one place: with two folders
+            // holding a table of that name, the name alone can't say which one the mod means.
+            var match = gameIndex.OnlyCurrentFileFor(name) is { } found && !string.Equals(found, table.Key, StringComparison.OrdinalIgnoreCase) ? found : null;
+            var inSeveral = match is null && gameIndex.CurrentFileFor(name) is not null;
             var skipped = $"The game has no table '{table.Key}', so the merge skips {(count == 1 ? "its row" : $"all {count} of its rows")}.";
             yield return new ModIssue(ModIssueKind.UnknownTable, table.Key, "", null, null, null, null, match,
                 match is null ? ModIssueFix.KeepMod : ModIssueFix.RenameTable, IsSure: match is not null,
-                match is null ? skipped : $"{skipped} The game keeps {name} as '{match}'.");
+                match is not null ? $"{skipped} The game keeps {name} as '{match}'."
+                    : inSeveral ? $"{skipped} The game has a table named {name} in more than one folder, so which one the mod means can't be told: edit the mod to name the folder."
+                    : skipped);
         }
     }
 
@@ -40,7 +45,8 @@ public static partial class ModHealthChecker
         foreach (var finding in ExmodFieldValidityChecker.Check(package, gameIndex))
         {
             var value = package.Rows.Where(r => string.Equals(r.CurrentFile, finding.CurrentFile, StringComparison.OrdinalIgnoreCase))
-                .SelectMany(r => r.FileItems).LastOrDefault(i => i.Name == finding.ItemName)?.Fields.GetValueOrDefault(finding.FieldName);
+                .SelectMany(r => r.FileItems).LastOrDefault(i => string.Equals(i.Name, finding.ItemName, StringComparison.OrdinalIgnoreCase) && i.Fields.ContainsKey(finding.FieldName))
+                ?.Fields.GetValueOrDefault(finding.FieldName);
             if (finding.IsUnknownField)
             {
                 // Matching the game's spelling is safe either way; a close name is only a guess.
@@ -67,7 +73,7 @@ public static partial class ModHealthChecker
         var texts = new List<(string File, string Item, string Field, JsonNode Value, string Table, string Key, string Text)>();
         foreach (var row in rows)
         {
-            foreach (var item in row.FileItems.GroupBy(i => i.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.Last()))
+            foreach (var item in ExmodFileItem.CombineByName(row.FileItems))
             {
                 foreach (var (field, value) in item.Fields)
                 {

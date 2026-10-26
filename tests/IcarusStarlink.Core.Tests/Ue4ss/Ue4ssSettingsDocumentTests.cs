@@ -35,6 +35,26 @@ public class Ue4ssSettingsDocumentTests
         "; Default: 1\r\n" +
         "GuiConsoleFontScaling = 1\r\n";
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AKeyListedTwiceInASection_ShowsAndEditsTheLastOne_TheValueThatIsRead(bool modConfig)
+    {
+        // A mod's Lua config reader fills a table line by line, and UE4SS's own ini parser writes
+        // each line into the same entry: either way the last line wins. Editing the first changed
+        // a line nothing reads.
+        var doc = Ue4ssSettingsDocument.Parse("[General]\nSpeed = 1\nOther = x\nSpeed = 2\n[Debug]\nSpeed = 9\n", keepCommentLines: modConfig);
+
+        Assert.Equal("2", doc.GetValue("General", "Speed"));
+        var general = doc.Settings.Where(s => s.Section == "General").ToList();
+        Assert.Equal(["Other", "Speed"], general.Select(s => s.Key));
+        Assert.Equal("2", general.Single(s => s.Key == "Speed").Value);
+        Assert.Equal("9", doc.GetValue("Debug", "Speed"));
+
+        Assert.True(doc.SetValue("General", "Speed", "5"));
+        Assert.Equal("[General]\nSpeed = 1\nOther = x\nSpeed = 5\n[Debug]\nSpeed = 9\n", doc.ToText());
+    }
+
     [Fact]
     public void Parse_ThenToText_KeepsTheFileExactly() =>
         Assert.Equal(RealisticIni, Ue4ssSettingsDocument.Parse(RealisticIni).ToText());

@@ -419,6 +419,24 @@ public sealed class ModHealthCheckerTests : IDisposable
     }
 
     [Fact]
+    public void ATableNamedWithoutItsFolder_WhenTheGameHasThatNameInTwoFolders_IsNotMovedOnAGuess()
+    {
+        Write("Items/D_Shared.json", new JsonArray { new JsonObject { ["Name"] = "Bread" } });
+        Write("Other/D_Shared.json", new JsonArray { new JsonObject { ["Name"] = "Bread" } });
+        var package = Mod(("D_Shared.json", "Bread", "Weight", 5));
+
+        var report = ModHealthChecker.Check(package, _data);
+
+        var issue = Assert.Single(report.Issues, i => i.Kind == ModIssueKind.UnknownTable);
+        Assert.False(issue.IsSure);
+        Assert.Null(issue.SuggestedRow);
+        Assert.Equal([ModIssueFix.KeepMod], issue.Choices);
+        Assert.Contains("more than one folder", issue.Why);
+        Assert.Equal(0, ModHealthChecker.ApplySure(package, report));
+        Assert.Contains(package.Rows, r => r.CurrentFile == "D_Shared.json");
+    }
+
+    [Fact]
     public void MovingATableIntoOneTheModAlreadyHas_KeepsTheRowsThatWorkToday_Winning()
     {
         // The mod has Bread in the real table (applied in game today) and an older copy under the
@@ -496,6 +514,46 @@ public sealed class ModHealthCheckerTests : IDisposable
         Assert.Equal(7, items[0].Fields["Weight"]!.GetValue<int>());
         Assert.False(items[0].Fields.ContainsKey("Wieght"));
         Assert.Equal(5, items[1].Fields["Weight"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void ARowListedTwice_AProblemOnlyInTheEarlierCopy_IsFound_AndTheSureFixGoesToThatCopy()
+    {
+        // The merge takes every copy's fields, so a misspelt field in the first copy reaches the game
+        // as much as one in the last; it used to be judged on the last copy only and never listed.
+        var package = Mod((Items, "Bread", "Weight", 5));
+        var items = package.Rows.Single(r => r.CurrentFile == Items).FileItems;
+        items.Insert(0, new ExmodFileItem { Name = "Bread", Fields = new() { ["weight"] = 7 } });
+
+        var report = ModHealthChecker.Check(package, _data);
+
+        var issue = Assert.Single(report.Issues, i => i.Kind == ModIssueKind.UnknownField);
+        Assert.Equal("weight", issue.FieldName);
+        Assert.Equal(7, issue.ModValue!.GetValue<int>());
+        Assert.True(issue.IsAutomatic);
+
+        ModHealthChecker.ApplySure(package, report);
+        Assert.Equal(7, items[0].Fields["Weight"]!.GetValue<int>());
+        Assert.False(items[0].Fields.ContainsKey("weight"));
+        Assert.Equal(5, items[1].Fields["Weight"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void ARowListedTwice_TheSameMisspellingInBothCopies_GivesOneFinding_AndAnOldCopyInTheEarlierOneIsFound()
+    {
+        var package = Mod((Items, "Wood_Floor", "Wieght", 5));
+        var items = package.Rows.Single(r => r.CurrentFile == Items).FileItems;
+        items.Insert(0, new ExmodFileItem { Name = "Wood_Floor", Fields = new() { ["Wieght"] = 6, ["Manual_Tags"] = Tags("Building.Wood", "Audio.Shelter") } });
+
+        var report = ModHealthChecker.Check(package, _data, fromPrebuiltPak: true);
+
+        Assert.Single(report.Issues, i => i.Kind == ModIssueKind.UnknownField);
+        Assert.Equal(5, report.Issues.Single(i => i.Kind == ModIssueKind.UnknownField).ModValue!.GetValue<int>());
+        var old = Assert.Single(report.Issues, i => i.Kind == ModIssueKind.OldCopy);
+        Assert.Equal("Manual_Tags", old.FieldName);
+
+        ModHealthChecker.ApplySure(package, report);
+        Assert.False(items[0].Fields.ContainsKey("Manual_Tags"));
     }
 
     [Fact]

@@ -29,6 +29,19 @@ public sealed class GameTableIndex(string dataFolder)
         }
     }
 
+    /// <summary>
+    /// Like CurrentFileFor, but null when the game has a table by that name in more than one
+    /// folder: then which one a mod means can't be told from the name alone.
+    /// </summary>
+    public string? OnlyCurrentFileFor(string tableName)
+    {
+        lock (_gate)
+        {
+            TablesByName();
+            return _tableNameCounts!.GetValueOrDefault(tableName) == 1 ? _currentFileByTable!.GetValueOrDefault(tableName) : null;
+        }
+    }
+
     /// <summary>Whether there's extracted game data at all (without it, every table looks unknown).</summary>
     public bool HasAnyTable()
     {
@@ -38,11 +51,23 @@ public sealed class GameTableIndex(string dataFolder)
         }
     }
 
+    /// <summary>How many folders have a table of each name (set with _currentFileByTable).</summary>
+    private Dictionary<string, int>? _tableNameCounts;
+
     /// <summary>Under _gate.</summary>
-    private Dictionary<string, string> TablesByName() =>
-        _currentFileByTable ??= ScaleRules.ListTables(DataFolder)
-            .GroupBy(f => Path.GetFileNameWithoutExtension(f.Split('-').Last()), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> TablesByName()
+    {
+        if (_currentFileByTable is null)
+        {
+            var groups = ScaleRules.ListTables(DataFolder)
+                .GroupBy(f => Path.GetFileNameWithoutExtension(f.Split('-').Last()), StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            _tableNameCounts = groups.ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+            _currentFileByTable = groups.ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        }
+
+        return _currentFileByTable;
+    }
 
     /// <summary>"Traits-D_Itemable.json" → "D_Itemable".</summary>
     public static string TableNameOf(string currentFile) => Path.GetFileNameWithoutExtension(currentFile.Split('-').Last());

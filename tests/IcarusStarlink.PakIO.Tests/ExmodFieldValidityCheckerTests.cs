@@ -43,6 +43,37 @@ public class ExmodFieldValidityCheckerTests : IDisposable
     }
 
     [Fact]
+    public void Check_RowListedTwice_AFieldMisspeltOnlyInTheEarlierCopy_IsFlaggedOnce_AndAWrongKindTheLaterCopyOverrides_IsNot()
+    {
+        // The merge takes every copy's fields (a field in both: the later value), so the earlier
+        // copy's typo reaches the game; its wrong-kind MaxStack doesn't (the later copy's wins).
+        WriteBaseTable("Traits/D_Itemable.json",
+            """{"RowStruct":"S","Defaults":{"MaxStack":1},"Rows":[{"Name":"Stone_Pickaxe","MaxStack":1}]}""");
+        var row = MakeRow("Traits-D_Itemable.json", "Stone_Pickaxe", new() { ["MaxStackk"] = JsonValue.Create(200), ["MaxStack"] = JsonValue.Create("lots") });
+        row.FileItems.Add(new ExmodFileItem { Name = "stone_pickaxe", Fields = new() { ["MaxStack"] = JsonValue.Create(5) } });
+
+        var finding = Assert.Single(ExmodFieldValidityChecker.Check(MakePackage(row), _dataFolder));
+
+        Assert.Equal("MaxStackk", finding.FieldName);
+        Assert.True(finding.IsUnknownField);
+        // The copy with the typo already has MaxStack: renaming it there would lose the typo's value.
+        Assert.Null(finding.SuggestedField);
+    }
+
+    [Fact]
+    public void Check_RowListedTwice_TheSameTypoInBothCopies_IsFlaggedOnce_AndTheRenameIsOfferedForTheCopyThatCounts()
+    {
+        WriteBaseTable("Traits/D_Itemable.json",
+            """{"RowStruct":"S","Defaults":{"MaxStack":1},"Rows":[{"Name":"Stone_Pickaxe","MaxStack":1}]}""");
+        var row = MakeRow("Traits-D_Itemable.json", "Stone_Pickaxe", new() { ["MaxStackk"] = JsonValue.Create(200), ["MaxStack"] = JsonValue.Create(4) });
+        row.FileItems.Add(new ExmodFileItem { Name = "Stone_Pickaxe", Fields = new() { ["MaxStackk"] = JsonValue.Create(300) } });
+
+        var finding = Assert.Single(ExmodFieldValidityChecker.Check(MakePackage(row), _dataFolder));
+
+        Assert.Equal("MaxStack", finding.SuggestedField);
+    }
+
+    [Fact]
     public void Check_FieldNameAndValueKindMatchBaseData_IsNotFlagged()
     {
         WriteBaseTable("Traits/D_Itemable.json",
