@@ -87,8 +87,14 @@ public sealed partial class Ue4ssConfigField : ObservableObject
         set
         {
             // The slider's own steps, written the way a person would ("1.5", "2").
-            var stepped = Math.Round(Math.Round((value - SliderMinimum) / SliderStep) * SliderStep + SliderMinimum, 6);
-            var text = stepped.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            // Plain decimals: the default ToString wrote "2E-05" for small steps; "+ 0" turns -0 into 0.
+            var stepped = Math.Round(Math.Round((value - SliderMinimum) / SliderStep) * SliderStep + SliderMinimum, 6) + 0d;
+            if (!double.IsFinite(stepped))
+            {
+                return;
+            }
+
+            var text = stepped.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
             if (text != Value.Trim())
             {
                 Value = text;

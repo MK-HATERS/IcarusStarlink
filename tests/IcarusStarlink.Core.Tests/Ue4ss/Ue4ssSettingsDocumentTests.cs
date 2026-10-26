@@ -182,6 +182,32 @@ public class Ue4ssSettingsDocumentTests
         Assert.Throws<ArgumentException>(() => document.SetValue("Mode", "Mode", "A ; B"));
     }
 
+    /// <summary>
+    /// A quoted value with " ; " inside it ("Prefix = "[Stability] ; " ; shown before each report")
+    /// was cut at the first ';' in the quotes: the value read as "[Stability]" with the rest as its
+    /// note, and changing it wrote the new value in front of half the old quoted text.
+    /// </summary>
+    [Fact]
+    public void ModConfig_SemicolonInsideQuotes_IsPartOfTheValue()
+    {
+        const string ini = "[Report]\nPrefix = \"[Stability] ; \" ; shown before each report\n";
+        var document = Ue4ssSettingsDocument.Parse(ini, keepCommentLines: true);
+
+        Assert.Equal("\"[Stability] ; \"", document.GetValue("Report", "Prefix"));
+        Assert.Equal("shown before each report", document.Settings.Single().Description);
+
+        document.SetValue("Report", "Prefix", "\"[S] ; \"");
+        Assert.Equal("[Report]\nPrefix = \"[S] ; \" ; shown before each report\n", document.ToText());
+    }
+
+    /// <summary>"[slider 0 10 0]" gave the slider a step of 0, and moving it wrote "NaN" into the mod's config.</summary>
+    [Fact]
+    public void ModConfig_SliderWithAZeroStep_StepsByOne()
+    {
+        var setting = Ue4ssSettingsDocument.Parse("[A]\nX = 2 ; how far [slider 0 10 0]\n", keepCommentLines: true).Settings.Single();
+        Assert.Equal(1d, setting.Step);
+    }
+
     /// <summary>UE4SS's own settings file keeps reading a ';' in a value as part of it (it has no comments after values).</summary>
     [Fact]
     public void Ue4ssSettings_KeepASemicolonInAValue() =>
