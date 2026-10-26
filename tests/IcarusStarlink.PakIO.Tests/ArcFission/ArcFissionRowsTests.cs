@@ -222,6 +222,27 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.Equal(["First", "Second", "Kept"], rows);
     }
 
+    /// <summary>
+    /// In Lua ["1"] (text) and [1] (a number) are two different keys, and ipairs only reads [1].
+    /// They used to be one key, so a rows list written with ["1"] = row gave the merge a row the
+    /// library never adds (review 2026-10-26).
+    /// </summary>
+    [Fact]
+    public void LuaData_TextAndNumberKeysAreDifferent_AndOnlyNumbersMakeAList()
+    {
+        var table = Assert.IsType<LuaTable>(LuaData.Parse("""return { ["1"] = "text", [1] = "number", [2.0] = "two" }"""));
+        Assert.Equal("text", table.Fields["1"]);
+        Assert.Equal(["number", "two"], table.Sequence());
+
+        Mod("WirelessPower", "WirelessPower", """
+            return { tables = { ["Crafting/D_ProcessorRecipes.json"] = {
+                ["1"] = { name = "TextKey", json = [[{ "Name": "TextKey" }]] },
+            } } }
+            """);
+
+        Assert.Empty(Assert.Single(ArcFissionRows.Scan(Content)!.Mods).Rows);
+    }
+
     [Fact]
     public void LuaData_ReadsTheEscapesLuaHas()
     {
@@ -300,7 +321,7 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.Equal(-25d, table.Fields["b"]);
         Assert.Equal(16d, table.Fields["c"]);
         Assert.Equal("it's", table.Fields["d e"]);
-        Assert.Equal(true, table.Fields["3"]);
+        Assert.False(table.Fields.ContainsKey("3")); // [3] is a number key, not the text "3"
         Assert.Equal(["x", "long ]] still", null], table.Table("nested")!.Items);
 
         Assert.Throws<FormatException>(() => LuaData.Parse("return os.execute('calc')"));

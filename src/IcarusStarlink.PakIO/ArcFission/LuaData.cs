@@ -3,10 +3,18 @@ using System.Text;
 
 namespace IcarusStarlink.PakIO.ArcFission;
 
-/// <summary>A Lua table read by LuaData: its named fields (name = v, ["name"] = v) and its list part ({ a, b }).</summary>
+/// <summary>
+/// A Lua table read by LuaData: its text-keyed fields (name = v, ["name"] = v), its number-keyed
+/// fields ([1] = v) and its list part ({ a, b }). Text and number keys are kept apart as Lua keeps
+/// them: ["1"] and [1] are two different keys, and only [1] is part of the list ipairs reads.
+/// </summary>
 public sealed class LuaTable
 {
+    /// <summary>Fields with a text key: name = v and ["name"] = v (["1"] too: that's text, not list entry 1).</summary>
     public Dictionary<string, object?> Fields { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Fields with a number key: [1] = v, [2.5] = v.</summary>
+    public Dictionary<double, object?> NumberFields { get; } = [];
 
     public List<object?> Items { get; } = [];
 
@@ -23,7 +31,7 @@ public sealed class LuaTable
     {
         for (var i = 1; ; i++)
         {
-            var value = i <= Items.Count ? Items[i - 1] : Fields.GetValueOrDefault(i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            var value = i <= Items.Count ? Items[i - 1] : NumberFields.GetValueOrDefault(i);
             if (value is null)
             {
                 yield break;
@@ -144,13 +152,17 @@ public sealed partial class LuaData
                 Expect(']');
                 SkipSpace();
                 Expect('=');
-                var keyText = key switch
+                switch (key)
                 {
-                    string s => s,
-                    double d => d.ToString(CultureInfo.InvariantCulture),
-                    _ => throw Error("a table key must be text or a number"),
-                };
-                table.Fields[keyText] = Value(depth);
+                    case string s:
+                        table.Fields[s] = Value(depth);
+                        break;
+                    case double d:
+                        table.NumberFields[d] = Value(depth);
+                        break;
+                    default:
+                        throw Error("a table key must be text or a number");
+                }
             }
             else if (Name() is { } name)
             {
