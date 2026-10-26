@@ -326,7 +326,19 @@ public static class MergeEngine
     private static (bool Found, JsonNode? Value) TryGetBaseValue(IReadOnlyDictionary<string, JsonObject> baseTablesByFile, string currentFile, string itemName, string fieldName)
     {
         if (!baseTablesByFile.TryGetValue(currentFile, out var table) || RowNames.FindKey(table, itemName) is not { } row
-            || table[row] is not JsonObject item || !item.ContainsKey(fieldName))
+            || table[row] is not JsonObject item)
+        {
+            return (false, null);
+        }
+
+        // One stat of the player's starting stats (StatEntries): the game's value of that stat, so a
+        // mod's copy of a stat it didn't change drops out like any unchanged field.
+        if (StatEntries.TryParse(fieldName, out _, out _))
+        {
+            return StatEntries.Get(item, fieldName);
+        }
+
+        if (!item.ContainsKey(fieldName))
         {
             return (false, null);
         }

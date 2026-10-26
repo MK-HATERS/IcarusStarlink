@@ -68,7 +68,12 @@ public static class TableApplier
 
             // IsFieldRemoved (not NewValue == null — see FieldChange) distinguishes "remove the
             // key" from "set it to an explicit JSON null".
-            if (change.IsFieldRemoved)
+            if (StatEntries.TryParse(change.FieldName, out _, out _))
+            {
+                // One stat of the player's starting stats (StatEntries): into the row's own list.
+                StatEntries.Apply(row, change);
+            }
+            else if (change.IsFieldRemoved)
             {
                 row.Remove(change.FieldName);
             }

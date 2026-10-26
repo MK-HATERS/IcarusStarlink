@@ -229,6 +229,13 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
             }
         }
 
+        // The player's starting stats merge one stat at a time, as in classic IMM (StatEntries).
+        // Before the sources below, so a stat's change is traced to its mod.
+        for (var i = 0; i < orderedModChanges.Count; i++)
+        {
+            orderedModChanges[i] = StatEntries.Split(orderedModChanges[i]);
+        }
+
         // The mod a resolved change came from: the very change a rule picked, else (a list that
         // combines several mods' entries) the mods that change that row.
         var sourceByChange = new Dictionary<FieldChange, string>(ReferenceEqualityComparer.Instance);

@@ -233,6 +233,12 @@ public sealed partial class MergeInstallViewModel
             }
         }
 
+        // Per stat, as the build merges them (StatEntries), so a pick's index means the same to both.
+        for (var i = 0; i < orderedModChanges.Count; i++)
+        {
+            orderedModChanges[i] = StatEntries.Split(orderedModChanges[i]);
+        }
+
         var (conflicts, newItemCollisions) = await Task.Run(() =>
         {
             // Base-aware filtering (see MergeEngine.Merge's own doc comment) needs real current

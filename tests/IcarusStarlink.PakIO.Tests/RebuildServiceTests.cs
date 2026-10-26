@@ -181,6 +181,35 @@ public class RebuildServiceTests : IDisposable
         public void Report(RebuildStageProgress value) => reported.Add(value);
     }
 
+    /// <summary>
+    /// laanp's WaypointTeleport sends 3 of the player's starting stats, as classic IMM (2.3.9+)
+    /// expects: merged as one value they replaced the whole list, so the built game had no health,
+    /// stamina or anything else. Now each stat merges on its own, with or without Player Boost.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RebuildAsync_AModSendingSomeStartingStats_KeepsTheGamesOtherStats(bool playerBoost)
+    {
+        WriteBaseTable("Stats/D_CharacterStartingStats.json",
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Base_Stats","StatsGranted":{"(Value=\"BaseMaximumHealth_+\")":300,"(Value=\"BaseMaximumStamina_+\")":200,"(Value=\"BaseMaximumFallDamage_%\")":100,"(Value=\"ChanceToResistSprain_%\")":0}}]}""");
+        var mod = MakeMod("WaypointTeleport", "Stats-D_CharacterStartingStats.json", "Base_Stats", new()
+        {
+            ["StatsGranted"] = System.Text.Json.Nodes.JsonNode.Parse("""{"(Value=\"BaseMaximumFallDamage_%\")":0,"(Value=\"ChanceToResistSprain_%\")":100}"""),
+        });
+        var pakService = new FakeUnrealPakService();
+
+        await new RebuildService(pakService).RebuildAsync([mod], new GameplayOptions { PlayerBoost = playerBoost ? BoostLevel.Level1 : BoostLevel.Off },
+            _dataFolder, _unrealPakExePath, _outputPakPath, []);
+
+        var table = System.Text.Json.Nodes.JsonNode.Parse(pakService.StagedFileContentsAtCallTime["data/Stats/D_CharacterStartingStats.json"])!;
+        var stats = table["Rows"]![0]!["StatsGranted"]!.AsObject();
+        Assert.Equal(0, (int)stats["(Value=\"BaseMaximumFallDamage_%\")"]!);
+        Assert.Equal(100, (int)stats["(Value=\"ChanceToResistSprain_%\")"]!);
+        Assert.Equal(playerBoost ? 350 : 300, (int)stats["(Value=\"BaseMaximumHealth_+\")"]!);
+        Assert.Equal(playerBoost ? 250 : 200, (int)stats["(Value=\"BaseMaximumStamina_+\")"]!);
+    }
+
     [Fact]
     public async Task RebuildAsync_SingleModSingleFieldChange_StagesMergedFileWithNewValue()
     {

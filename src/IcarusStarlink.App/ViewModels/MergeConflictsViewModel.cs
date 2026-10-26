@@ -97,7 +97,7 @@ public sealed partial class MergeConflictViewModel : ObservableObject
 
     public string Row => Conflict.ItemName;
 
-    public string Field => Conflict.FieldName;
+    public string Field => StatEntries.Display(Conflict.FieldName);
 
     public string Table => GameTableIndex.TableNameOf(Conflict.CurrentFile).Replace("D_", "", StringComparison.Ordinal);
 
