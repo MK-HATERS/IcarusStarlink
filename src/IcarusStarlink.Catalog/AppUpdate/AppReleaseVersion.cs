@@ -7,11 +7,14 @@ namespace IcarusStarlink.Catalog.AppUpdate;
 /// prerelease). System.Version can't read the second, so the update check couldn't compare a beta
 /// at all. Order: numbers first; a beta comes before the stable release of the same numbers
 /// (2.10.0-beta.2 &lt; 2.10.0), and betas order by their number (beta.1 &lt; beta.2).
-/// Anything after "+" (build metadata) is ignored.
+/// Anything after "+" (build metadata) is ignored. "2.9" reads as "2.9.0"; four numbers don't read.
 /// </summary>
 public sealed partial record AppReleaseVersion(Version Numbers, string? Prerelease) : IComparable<AppReleaseVersion>
 {
-    [GeneratedRegex(@"^v?(\d+(?:\.\d+){1,3})(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$")]
+    // Two or three numbers only. A fourth ("3.2.0.1") isn't how Starlink is versioned, and since
+    // ToString writes three it would have shown, and been fetched, as another release ("3.2.0"):
+    // such a version isn't a Starlink version and is skipped.
+    [GeneratedRegex(@"^v?(\d+\.\d+(?:\.\d+)?)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$")]
     private static partial Regex Pattern();
 
     public bool IsPrerelease => Prerelease is not null;

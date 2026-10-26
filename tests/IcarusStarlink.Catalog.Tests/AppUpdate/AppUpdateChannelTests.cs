@@ -40,6 +40,10 @@ public class AppUpdateChannelTests
     [InlineData("")]
     [InlineData("unknown")]
     [InlineData("beta")]
+    // Four numbers used to read as "3.2.0" (ToString writes three), so a Nexus file "3.2.0.1"
+    // would have been offered and fetched as release 3.2.0: not a Starlink version, skipped.
+    [InlineData("3.2.0.1")]
+    [InlineData("v3.2.0.1-beta.1")]
     public void AppReleaseVersion_NotAVersion(string text) => Assert.Null(AppReleaseVersion.TryParse(text));
 
     [Fact]
