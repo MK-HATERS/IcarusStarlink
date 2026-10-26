@@ -180,6 +180,28 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.Contains(problems, p => p.Contains("'Clash'") && p.Contains("two rows of that name"));
     }
 
+    /// <summary>
+    /// The library only falls back to rows.lua when the card has no rows at all: rows = true (or a
+    /// table) stops its check with an error, and a number names a file that isn't there. Starlink used
+    /// to read rows.lua for any of these and merge rows the game never gets (review 2026-10-26).
+    /// </summary>
+    [Theory]
+    [InlineData("true", "the library stops")]
+    [InlineData("{ \"rows.lua\" }", "the library stops")]
+    [InlineData("5", "a number")]
+    public void ACardWhoseRowsIsntText_IsLeftOut_AsTheLibraryLeavesItOut(string rowsValue, string said)
+    {
+        Mod("WirelessPower", "WirelessPower", Rows(("Crafting/D_ProcessorRecipes.json", "Wireless_Power_Node", 10)));
+        Mod("Odd", "Odd", Rows(("Crafting/D_ProcessorRecipes.json", "Odd_Row", 1)));
+        File.WriteAllText(Path.Combine(ModsFolder, "Odd", "ArcFission", "mod.lua"),
+            $$"""return { arcfission = 1, author = "ArcFission", id = "Odd", rows = {{rowsValue}} }""");
+
+        var scan = ArcFissionRows.Scan(Content)!;
+
+        Assert.Equal("WirelessPower", Assert.Single(scan.Mods).Id);
+        Assert.Contains(scan.Problems, p => p.StartsWith("Odd:") && p.Contains(said));
+    }
+
     [Fact]
     public void ABrokenModIsSaid_AndTheOthersStillCount()
     {

@@ -175,7 +175,16 @@ public static partial class ArcFissionRows
             return new ArcFissionMod(id, name, version, "", []);
         }
 
-        var rowsFileName = card.String("rows") ?? "rows.lua";
+        // The library reads join(dir, "ArcFission", rows or "rows.lua"): only a missing rows means
+        // rows.lua. rows = true or a table makes that join throw, which stops the library's whole
+        // check (no data rebuilt for any mod); a number names a file "5" that a mod never ships.
+        var rowsFileName = card.Fields.GetValueOrDefault("rows") switch
+        {
+            null => "rows.lua",
+            string s => s,
+            double => throw new FormatException("its ArcFission/mod.lua says rows = a number, not a file name, so the ArcFission Library finds no rows file and leaves it out"),
+            var other => throw new FormatException($"its ArcFission/mod.lua says rows = {(other is LuaTable ? "a table" : "true")}, which the ArcFission Library can't use as a file name: the library stops with an error and builds no ArcFission data until it's fixed"),
+        };
         if (rowsFileName.Length == 0 || rowsFileName != Path.GetFileName(rowsFileName)
             || rowsFileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || rowsFileName.Any(char.IsControl))
         {
