@@ -8,7 +8,11 @@ using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.PakIO.ArcFission;
 
-/// <summary>One row an ArcFission mod adds ("Crafting-D_ProcessorRecipes.json", "Wireless_Power_Node", the row).</summary>
+/// <summary>
+/// One row an ArcFission mod adds ("Crafting-D_ProcessorRecipes.json", "Wireless_Power_Node", the row).
+/// Name is the row's Lua name, which the library checks (row already in the game, row added by two
+/// mods); the game knows the row by its json's "Name", which ToPackage names it by.
+/// </summary>
 public sealed record ArcFissionRow(string CurrentFile, string Name, JsonObject Row);
 
 /// <param name="RowsHash">SHA-1 of the rows file as written (what ArcFission Library's own fingerprint uses).</param>
@@ -214,6 +218,9 @@ public static partial class ArcFissionRows
     /// <summary>
     /// The rows as one package for the merge: only rows the game doesn't have (the library skips
     /// those too), and a row two mods add only from the first. What was left out is in problems.
+    /// Those checks use the row's Lua name, as the library's do; the row itself is named by its
+    /// json's "Name", because the library splices the json in as written and that's the name the
+    /// game reads (so the merge and the game can't know the row by two names).
     /// </summary>
     public static ExmodPackage ToPackage(ArcFissionScan scan, GameTableIndex gameIndex, ICollection<string>? problems = null)
     {
@@ -228,6 +235,8 @@ public static partial class ArcFissionRows
         };
         var owner = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var files = new Dictionary<string, ExmodFileRow>(StringComparer.OrdinalIgnoreCase);
+        // "table|name" of each row put in the package, by the name the game knows it by.
+        var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var mod in scan.Mods)
         {
             foreach (var row in mod.Rows)
@@ -246,13 +255,35 @@ public static partial class ArcFissionRows
                 }
 
                 owner[key] = mod.Name;
+
+                // The library checks the row by its Lua name but adds the json text as written, so
+                // the game knows the row by the json's "Name". The merge names it the same way.
+                var tableName = GameTableIndex.TableNameOf(row.CurrentFile);
+                if ((row.Row["Name"] as JsonValue)?.TryGetValue<string>(out var gameName) != true || string.IsNullOrEmpty(gameName))
+                {
+                    problems?.Add($"{mod.Name}: row '{row.Name}' in {tableName} has no \"Name\" in its json, so the game gets a row with no name; it's left out of the merge.");
+                    continue;
+                }
+
+                var renamed = !string.Equals(gameName, row.Name, StringComparison.Ordinal);
+                if ((renamed && gameIndex.HasRow(row.CurrentFile, gameName)) || !emitted.Add($"{row.CurrentFile}|{gameName}"))
+                {
+                    problems?.Add($"{mod.Name}: row '{row.Name}' in {tableName} is named '{gameName}' in its json, a row that's already there, so the game would have two rows of that name; it's left out of the merge.");
+                    continue;
+                }
+
+                if (renamed)
+                {
+                    problems?.Add($"{mod.Name}: row '{row.Name}' in {tableName} is named '{gameName}' in its json; the game knows it as '{gameName}', so the merge uses that name.");
+                }
+
                 if (!files.TryGetValue(row.CurrentFile, out var file))
                 {
                     files[row.CurrentFile] = file = new ExmodFileRow { CurrentFile = row.CurrentFile };
                     package.Rows.Add(file);
                 }
 
-                file.FileItems.Add(ExmodFileItem.FromRow(row.Name, row.Row));
+                file.FileItems.Add(ExmodFileItem.FromRow(gameName, row.Row));
             }
         }
 

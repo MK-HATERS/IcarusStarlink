@@ -153,6 +153,33 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.All(changes, c => Assert.True(c.IsNewItem));
     }
 
+    /// <summary>
+    /// The library checks a row by its Lua name but splices its json as written, so the game knows
+    /// the row by the json's "Name". The merge used to name it by the Lua name: two names for one
+    /// row (review 2026-10-26). A json with no Name, or a Name already there, is left out and said.
+    /// </summary>
+    [Fact]
+    public void ToPackage_NamesTheRowByItsJsonName_AsTheGameGetsIt()
+    {
+        Mod("WirelessPower", "WirelessPower", """
+            return { tables = { ["Crafting/D_ProcessorRecipes.json"] = {
+                { name = "Lua_Name", json = [[{ "Name": "Json_Name", "CraftTime": 3 }]] },
+                { name = "No_Json_Name", json = [[{ "CraftTime": 4 }]] },
+                { name = "Clash", json = [[{ "Name": "Stone_Pickaxe", "CraftTime": 5 }]] },
+            } } }
+            """);
+        var problems = new List<string>();
+
+        var package = ArcFissionRows.ToPackage(ArcFissionRows.Scan(Content)!, new GameTableIndex(DataFolder), problems);
+
+        var item = Assert.Single(Assert.Single(package.Rows).FileItems);
+        Assert.Equal("Json_Name", item.Name);
+        Assert.Equal(3, item.Fields["CraftTime"]!.GetValue<int>());
+        Assert.Contains(problems, p => p.Contains("'Lua_Name'") && p.Contains("knows it as 'Json_Name'"));
+        Assert.Contains(problems, p => p.Contains("'No_Json_Name'") && p.Contains("no \"Name\""));
+        Assert.Contains(problems, p => p.Contains("'Clash'") && p.Contains("two rows of that name"));
+    }
+
     [Fact]
     public void ABrokenModIsSaid_AndTheOthersStillCount()
     {
