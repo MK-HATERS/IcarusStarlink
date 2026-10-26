@@ -230,6 +230,61 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.Throws<FormatException>(() => LuaData.Parse("return \"\\xZZ\""));
     }
 
+    /// <summary>
+    /// A Lua string is bytes: "\xC3\xA9" and "\195\169" are the two UTF-8 bytes of é (how Lua's own
+    /// %q and many serializers write text). They used to come out as two Latin-1 characters ("Ã©"),
+    /// so a row's text was silently wrong in the merge (review 2026-10-26).
+    /// </summary>
+    [Fact]
+    public void LuaData_EscapedBytesAreUtf8_LikeTheGameReadsThem()
+    {
+        Assert.Equal("Caf\u00e9 \u00e9", LuaData.Parse("return \"Caf\\xC3\\xA9 \\195\\169\""));
+        Assert.Equal("\u00e9\u00e9", LuaData.Parse("return \"\\xC3\\xA9\u00e9\""));
+        Assert.Equal("a\uFFFDb", LuaData.Parse("return \"a\\xFFb\""));
+    }
+
+    /// <summary>Lua's own rules for line breaks (review 2026-10-26): every \r\n, \n\r or lone \r in a [[long string]] is one \n, and a lone \r ends a -- comment, so the next field isn't swallowed by it.</summary>
+    [Fact]
+    public void LuaData_LineBreaks_AsLuaReadsThem()
+    {
+        Assert.Equal("a\nb\nc\nd", LuaData.Parse("return [[a\r\nb\rc\n\rd]]"));
+        Assert.Equal("x", LuaData.Parse("return [[\n\rx]]"));
+        Assert.Equal("a\nb", LuaData.Parse("return \"a\\\n\rb\""));
+
+        var table = Assert.IsType<LuaTable>(LuaData.Parse("return { a = 1, -- note\rb = 2 }"));
+        Assert.Equal(2d, table.Fields["b"]);
+    }
+
+    /// <summary>Words aren't numbers: "-Infinity" or "-nan" is an expression Lua refuses in a data file, not a value (review 2026-10-26).</summary>
+    [Fact]
+    public void LuaData_InfinityAndNanWordsAreRefused()
+    {
+        Assert.Throws<FormatException>(() => LuaData.Parse("return -Infinity"));
+        Assert.Throws<FormatException>(() => LuaData.Parse("return { arcfission = -NaN }"));
+        Assert.Equal(-0.5, LuaData.Parse("return -.5"));
+        Assert.Equal(1e10, LuaData.Parse("return 1E+10"));
+        Assert.Equal(-255d, LuaData.Parse("return -0xFF"));
+    }
+
+    /// <summary>
+    /// The library checks a card's "library" with its vercmp whatever its type, so library = 2 (a
+    /// number) needs library 2 and the mod is left out of the game. It used to be read only as text,
+    /// so a number skipped the check and the merge carried rows the game doesn't have (review 2026-10-26).
+    /// </summary>
+    [Fact]
+    public void ACardNeedingANewerLibrary_AsANumber_IsLeftOutToo()
+    {
+        Mod("WirelessPower", "WirelessPower", Rows(("Crafting/D_ProcessorRecipes.json", "Wireless_Power_Node", 10)));
+        Mod("NumberNeed", "NumberNeed", Rows(("Crafting/D_ProcessorRecipes.json", "Number_Row", 1)));
+        File.WriteAllText(Path.Combine(ModsFolder, "NumberNeed", "ArcFission", "mod.lua"),
+            """return { arcfission = 1, author = "ArcFission", id = "NumberNeed", library = 2 }""");
+
+        var scan = ArcFissionRows.Scan(Content)!;
+
+        Assert.Equal("WirelessPower", Assert.Single(scan.Mods).Id);
+        Assert.Contains(scan.Problems, p => p.StartsWith("NumberNeed:") && p.Contains("needs ArcFission Library 2"));
+    }
+
     [Fact]
     public void LuaData_ReadsDataOnly()
     {
