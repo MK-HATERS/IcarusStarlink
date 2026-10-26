@@ -456,6 +456,20 @@ public sealed class ModHealthCheckerTests : IDisposable
     }
 
     [Fact]
+    public void DeletingAFieldInOtherCase_IsNotRenamed_SinceTheRenameWouldDeleteTheGamesField()
+    {
+        // "weight": null deletes a field the game doesn't have (nothing happens in game); renamed to
+        // "Weight": null it would delete the game's Weight from the row.
+        var package = Mod((Items, "Bread", "weight", null));
+
+        var report = ModHealthChecker.Check(package, _data);
+        ModHealthChecker.ApplySure(package, report);
+
+        Assert.DoesNotContain(report.Issues, i => i.Kind == ModIssueKind.UnknownField && i.DefaultFix == ModIssueFix.RenameField);
+        Assert.DoesNotContain(package.Rows.SelectMany(r => r.FileItems), i => i.Fields.ContainsKey("Weight"));
+    }
+
+    [Fact]
     public void ARowListedTwice_GivesOneFinding_AndTheRenameKeepsACopyThatAlreadyHasTheRightName()
     {
         var package = Mod((Items, "Bread", "Wieght", 5));

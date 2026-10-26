@@ -87,6 +87,14 @@ public static class ExmodFieldValidityChecker
                 {
                     if (!schema.TryGetValue(fieldName, out var expectedKind))
                     {
+                        // A null deletes the field: deleting one the table doesn't have changes
+                        // nothing (the health check lists that as tidying), and renaming it to the
+                        // game's spelling would delete the game's field instead.
+                        if (value is null)
+                        {
+                            continue;
+                        }
+
                         var suggestion = Suggest(fieldName, schema.Keys);
                         // The rename would clash with the field the row already has under that name.
                         if (suggestion is not null && item.Fields.ContainsKey(suggestion))
@@ -125,7 +133,8 @@ public static class ExmodFieldValidityChecker
             return sameName;
         }
 
-        var close = names.Select(f => (Field: f, Distance: LevenshteinDistance.Compute(f.ToLowerInvariant(), fieldName.ToLowerInvariant())))
+        // Lengths further apart than the distance can't be that close (and a huge name from a mod file stays cheap).
+        var close = names.Where(f => Math.Abs(f.Length - fieldName.Length) <= MaxSuggestionDistance).Select(f => (Field: f, Distance: LevenshteinDistance.Compute(f.ToLowerInvariant(), fieldName.ToLowerInvariant())))
             .Where(c => c.Distance <= MaxSuggestionDistance)
             .OrderBy(c => c.Distance)
             .ToList();
