@@ -801,6 +801,89 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Equal(["ModA", "ModB"], vm.Queue.Select(e => e.FolderName));
     }
 
+    /// <summary>
+    /// A mod saved while a long build runs: the pak has the copy from before the save, so after
+    /// installing it the Library must say "Changed", not "In game". The build's record of its mods
+    /// used to be taken after the build, from the already-saved files.
+    /// </summary>
+    [Fact]
+    public async Task Rebuild_AModChangedWhileBuilding_ReadsChangedAfterInstall()
+    {
+        var (library, settings) = TwoConflictingMods();
+        var contentPath = Path.Combine(_tempRoot, "Content");
+        var modsFolder = Path.Combine(contentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsFolder);
+        settings.Current.IcarusContentPath = contentPath;
+        var rebuild = new FakeRebuildService();
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, settingsService: settings);
+        vm.Queue.Add(library.AllEntries[0]);
+        rebuild.DuringRebuild = () =>
+        {
+            // Saved in the mod editor mid-build.
+            File.WriteAllText(Path.Combine(library.FolderPaths["ModA"], "notes.txt"), "edited mid-build");
+            return Task.CompletedTask;
+        };
+
+        Assert.True(await vm.RebuildAsync());
+        var stagedPak = Path.Combine(_tempRoot, "Staged", "IcarusStarlink-Merged.pak");
+        File.Copy(stagedPak, Path.Combine(modsFolder, Path.GetFileName(stagedPak)), overwrite: true);
+        await vm.RefreshChangedSinceInstallAsync();
+
+        Assert.Equal("files changed", vm.ChangedSinceInstall["ModA"]);
+    }
+
+    /// <summary>
+    /// Two refreshes at once (the window coming forward as Install's question closes, then the
+    /// install itself): the one that read the old pak finishing last must not mark the mods just
+    /// installed "Changed".
+    /// </summary>
+    [Fact]
+    public async Task RefreshChangedSinceInstall_AnOlderRefreshFinishingLast_DoesNotWin()
+    {
+        var (library, settings) = TwoConflictingMods();
+        var contentPath = Path.Combine(_tempRoot, "Content");
+        var modsFolder = Path.Combine(contentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsFolder);
+        settings.Current.IcarusContentPath = contentPath;
+        var vm = CreateViewModel(libraryRepository: library, settingsService: settings);
+        var stagedFolder = Path.Combine(_tempRoot, "Staged");
+        var installedPak = Path.Combine(modsFolder, "IcarusStarlink-Merged.pak");
+        var recordPath = Path.Combine(stagedFolder, MergedModFingerprints.FileName);
+        // The old install was built from an older ModA; the new one from ModA as it is now.
+        File.WriteAllText(installedPak, "old pak");
+        MergedModFingerprints.Add(recordPath, new MergedBuildRecord(MergedModFingerprints.HashFile(installedPak), DateTimeOffset.UtcNow,
+            [new MergedModFingerprint("ModA", "1", "OLDHASH")]));
+        var newPak = Path.Combine(_tempRoot, "new.pak");
+        File.WriteAllText(newPak, "new pak");
+        MergedModFingerprints.Add(recordPath, new MergedBuildRecord(MergedModFingerprints.HashFile(newPak), DateTimeOffset.UtcNow,
+            [new MergedModFingerprint("ModA", "1", MergedModFingerprints.HashFolder(library.FolderPaths["ModA"]))]));
+
+        // The first refresh reads the old pak's record, then is held back.
+        using var holdFirst = new SemaphoreSlim(0);
+        using var firstIsReading = new SemaphoreSlim(0);
+        var calls = 0;
+        library.BeforeGetFolderPath = _ =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                firstIsReading.Release();
+                holdFirst.Wait();
+            }
+        };
+        var first = vm.RefreshChangedSinceInstallAsync();
+        Assert.True(await firstIsReading.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        // Install puts the new pak in; the refresh after it sees nothing changed.
+        File.Copy(newPak, installedPak, overwrite: true);
+        await vm.RefreshChangedSinceInstallAsync();
+        Assert.Empty(vm.ChangedSinceInstall);
+
+        holdFirst.Release();
+        await first;
+
+        Assert.Empty(vm.ChangedSinceInstall);
+    }
+
     /// <summary>Seen live: two same-name new items (combined, nothing to pick) opened the window on an empty Conflicts tab.</summary>
     [Fact]
     public void CheckWindow_OpensOnTheFirstTabWithSomethingToLookAt_NotOnCombinedNewItems()
@@ -1456,6 +1539,34 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.DoesNotContain(vm.Warnings, w => w.Contains("no longer match"));
     }
 
+    /// <summary>
+    /// Two mods spelling the same row differently ("smelterrecipe" / "SmelterRecipe"): the merge
+    /// groups them as one row and the conflict takes the first mod's spelling, so reordering them
+    /// changes the spelling. A pick saved under the other spelling must still be used.
+    /// </summary>
+    [Fact]
+    public async Task SavedWinner_RowSpelledInAnotherCaseByTheFirstMod_IsStillUsed()
+    {
+        var (library, settings) = TwoConflictingMods();
+        library.FolderPaths["ModA"] = CreateExmodFolder("ModA2",
+            BuildCraftTimeExmodJson("ModA", craftTime: 5).Replace("\"SmelterRecipe\"", "\"smelterrecipe\"", StringComparison.Ordinal), out _);
+        var store = new FakeProfileStore();
+        // Saved while ModB came first, so under ModB's spelling.
+        store.Save(new Profile { Name = "Default", MergeQueueFolderNames = ["ModA", "ModB"], ConflictWinners = new() { [CraftTimeWinnerKey] = "ModA" } });
+        var rebuild = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables() };
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, profileStore: store, settingsService: settings);
+
+        Assert.True(await vm.RebuildAsync());
+
+        Assert.DoesNotContain(vm.Warnings, w => w.Contains("no longer match"));
+        var pick = Assert.Single(rebuild.LastManualPicks!);
+        Assert.Equal(0, pick.Value);
+        // The conflict really carries the other spelling (or this test proves nothing).
+        Assert.Equal("smelterrecipe", pick.Key.ItemName);
+        await vm.RecomputeConflictCountAsync();
+        Assert.Equal("ModA", Assert.Single(vm.CreateConflictReviewForTesting().BuildWinners()).Value);
+    }
+
     /// <summary>A saved pick for a mod in the build that no longer matches a conflict is reported before building.</summary>
     [Fact]
     public async Task SavedWinners_NoLongerMatching_AreReported()
@@ -1866,7 +1977,14 @@ public sealed class MergeInstallViewModelTests : IDisposable
 
         public IReadOnlyList<string> ListFolderFiles(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
 
-        public string GetFolderPath(string folderName) => FolderPaths[folderName];
+        /// <summary>Runs before GetFolderPath answers (a test holds one caller back here).</summary>
+        public Action<string>? BeforeGetFolderPath { get; set; }
+
+        public string GetFolderPath(string folderName)
+        {
+            BeforeGetFolderPath?.Invoke(folderName);
+            return FolderPaths[folderName];
+        }
     }
 
     private sealed class FakeRebuildService : IRebuildService

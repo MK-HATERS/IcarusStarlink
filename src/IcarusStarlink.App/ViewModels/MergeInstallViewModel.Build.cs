@@ -171,6 +171,8 @@ public sealed partial class MergeInstallViewModel
             }
 
             using var perfScope = _performanceTracker.Track("Rebuild");
+            // Before the mods are read, so a change made while the build runs counts as "Changed".
+            var builtFrom = await FingerprintQueueAsync(snapshot.Queue);
             var loaded = await LoadQueuedPackagesAsync(snapshot.Queue);
             // The ArcFission mods' rows (read from their rows.lua): into the merge (which outranks
             // the data pak ArcFission Library writes), lowest priority, so any queued mod or option
@@ -229,7 +231,7 @@ public sealed partial class MergeInstallViewModel
             }
 
             CanCopyToGame = true;
-            await RecordBuildAsync(snapshot.Queue);
+            await RecordBuildAsync(builtFrom);
 
             // The Server page's "Install my merged pak" shows the new build without a page switch.
             _messenger.Send(new MergedPakBuiltMessage());
@@ -273,20 +275,44 @@ public sealed partial class MergeInstallViewModel
     private string BuildRecordPath => Path.Combine(Path.GetDirectoryName(_outputPakPath)!, MergedModFingerprints.FileName);
 
     /// <summary>
-    /// What this build was made from (each mod's version and a hash of its files), keyed by the
-    /// pak's hash, so the Library can later say which installed mods changed since
-    /// (ChangedSinceInstall). Best-effort: a failure only loses that hint.
+    /// Each queued mod's version and a hash of its files, taken BEFORE the build reads them: a mod
+    /// saved in the editor or updated while a long build runs then reads "Changed" afterwards
+    /// (the pak has the copy from before), never "In game". Null when they can't be read (the
+    /// build goes on without the hint).
     /// </summary>
-    private async Task RecordBuildAsync(IReadOnlyList<LibraryEntry> queue)
+    private async Task<IReadOnlyList<MergedModFingerprint>?> FingerprintQueueAsync(IReadOnlyList<LibraryEntry> queue)
     {
-        var mods = queue.Select(e => (e.FolderName, e.Version, Folder: _libraryRepository.GetFolderPath(e.FolderName))).ToList();
+        try
+        {
+            var mods = queue.Select(e => (e.FolderName, e.Version, Folder: _libraryRepository.GetFolderPath(e.FolderName))).ToList();
+            return await Task.Run(() => (IReadOnlyList<MergedModFingerprint>)
+                [.. mods.Select(m => new MergedModFingerprint(m.FolderName, m.Version, MergedModFingerprints.HashFolder(m.Folder)))]);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "Couldn't fingerprint the queued mods before the build");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// What this build was made from (each mod's version and a hash of its files, taken before the
+    /// build: FingerprintQueueAsync), keyed by the pak's hash, so the Library can later say which
+    /// installed mods changed since (ChangedSinceInstall). Best-effort: a failure only loses that hint.
+    /// </summary>
+    private async Task RecordBuildAsync(IReadOnlyList<MergedModFingerprint>? builtFrom)
+    {
+        if (builtFrom is null)
+        {
+            return;
+        }
+
         var pak = _outputPakPath;
         var recordPath = BuildRecordPath;
         try
         {
             await Task.Run(() => MergedModFingerprints.Add(recordPath, new MergedBuildRecord(
-                MergedModFingerprints.HashFile(pak), DateTimeOffset.UtcNow,
-                [.. mods.Select(m => new MergedModFingerprint(m.FolderName, m.Version, MergedModFingerprints.HashFolder(m.Folder)))])));
+                MergedModFingerprints.HashFile(pak), DateTimeOffset.UtcNow, builtFrom)));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

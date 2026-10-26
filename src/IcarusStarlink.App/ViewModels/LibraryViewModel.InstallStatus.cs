@@ -136,6 +136,7 @@ public sealed partial class LibraryViewModel
         var changedSinceInstall = mergeInstall?.ChangedSinceInstall ?? new Dictionary<string, string>();
         var pendingPak = 0;
         var updatedCount = 0;
+        var updatedNames = new List<string>();
         var inGameNotTicked = 0;
         var pendingDataChanges = new List<(string Name, bool TurnedOn)>();
         foreach (var item in _itemsByFolderName.Values)
@@ -196,6 +197,7 @@ public sealed partial class LibraryViewModel
             else if (updated)
             {
                 updatedCount++;
+                updatedNames.Add(item.Name);
             }
 
             if (inGame && !queued && !item.IsMergedPack)
@@ -237,11 +239,9 @@ public sealed partial class LibraryViewModel
         PendingChangesSummary = parts.Count == 0
             ? ""
             : $"Changes waiting: {string.Join(" and ", parts)}";
-        var updatedNames = _itemsByFolderName.Values
-            .Where(i => i.InstallStatus == "Changed")
-            .Select(i => i.Name)
-            .Order(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        // Every mod counted as changed above, also one whose status reads "Needs Apply" (its Lua
+        // half was ticked or unticked too): the bar used to count those without naming them.
+        updatedNames.Sort(StringComparer.OrdinalIgnoreCase);
         var updatedText = updatedNames.Count == 0 ? "" : $"Changed since your last Merge & Install: {string.Join(", ", updatedNames)}";
         var dataText = arcFission && pendingDataChanges.Count == 0
             ? "ArcFission's data changed since the last merge"

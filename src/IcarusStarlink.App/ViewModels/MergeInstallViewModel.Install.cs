@@ -202,6 +202,10 @@ public sealed partial class MergeInstallViewModel
     /// </summary>
     public async Task RefreshChangedSinceInstallAsync()
     {
+        // Several run at once (a Library change, an install, the window coming forward): only the
+        // latest one's answer is kept, or one that read the pak before an install could finish last
+        // and mark the mods just installed "Changed".
+        var version = ++_changedSinceInstallVersion;
         var contentPath = _settingsService.Current.IcarusContentPath;
         if (string.IsNullOrWhiteSpace(contentPath))
         {
@@ -214,7 +218,7 @@ public sealed partial class MergeInstallViewModel
         var current = _libraryRepository.GetAll().ToDictionary(e => e.FolderName, StringComparer.OrdinalIgnoreCase);
         try
         {
-            ChangedSinceInstall = await Task.Run(() =>
+            var changedNow = await Task.Run(() =>
             {
                 var changed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 if (MergedModFingerprints.ForInstalledPak(recordPath, installedPak) is not { } record)
@@ -239,13 +243,23 @@ public sealed partial class MergeInstallViewModel
 
                 return changed;
             });
+            if (version == _changedSinceInstallVersion)
+            {
+                ChangedSinceInstall = changedNow;
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Can't tell: no hint rather than a wrong one.
-            ChangedSinceInstall = new Dictionary<string, string>();
+            if (version == _changedSinceInstallVersion)
+            {
+                ChangedSinceInstall = new Dictionary<string, string>();
+            }
         }
     }
+
+    /// <summary>Guards RefreshChangedSinceInstallAsync like _checkVersion guards RecomputeChecksAsync.</summary>
+    private int _changedSinceInstallVersion;
 
     /// <summary>
     /// Big-plan item 8b: opens the pak-vs-pak comparison window (non-modal, like the editor's own
