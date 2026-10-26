@@ -202,6 +202,32 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.Contains(scan.Problems, p => p.StartsWith("Odd:") && p.Contains(said));
     }
 
+    /// <summary>
+    /// The library loads these files with Lua's load(), which doesn't skip a UTF-8 byte-order mark
+    /// and refuses a non-breaking space outside a string: such a mod's rows never reach the game.
+    /// Starlink read them with File.ReadAllText (BOM dropped) and skipped any Unicode space, so it
+    /// merged rows the game never gets (review 2026-10-26). Now it leaves them out and says why.
+    /// </summary>
+    [Fact]
+    public void ARowsFileTheLibraryCantLoad_BomOrNonBreakingSpace_IsLeftOutAndSaid()
+    {
+        Mod("WirelessPower", "WirelessPower", Rows(("Crafting/D_ProcessorRecipes.json", "Wireless_Power_Node", 10)));
+        Mod("BomRows", "BomRows", Rows(("Crafting/D_ProcessorRecipes.json", "Bom_Row", 1)));
+        File.WriteAllText(Path.Combine(ModsFolder, "BomRows", "ArcFission", "rows.lua"),
+            Rows(("Crafting/D_ProcessorRecipes.json", "Bom_Row", 1)), new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        Mod("BomCard", "BomCard", Rows(("Crafting/D_ProcessorRecipes.json", "Bom_Card_Row", 1)));
+        var card = Path.Combine(ModsFolder, "BomCard", "ArcFission", "mod.lua");
+        File.WriteAllText(card, File.ReadAllText(card), new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        Mod("Nbsp", "Nbsp", Rows(("Crafting/D_ProcessorRecipes.json", "Nbsp_Row", 1)).Replace("format = 1,", "format = 1,"));
+
+        var scan = ArcFissionRows.Scan(Content)!;
+
+        Assert.Equal("WirelessPower", Assert.Single(scan.Mods).Id);
+        Assert.Contains(scan.Problems, p => p.StartsWith("BomRows:") && p.Contains("rows.lua starts with a hidden byte-order mark"));
+        Assert.Contains(scan.Problems, p => p.StartsWith("BomCard:") && p.Contains("mod.lua starts with a hidden byte-order mark"));
+        Assert.Contains(scan.Problems, p => p.StartsWith("Nbsp:") && p.Contains("rows.lua") && p.Contains("non-breaking space"));
+    }
+
     [Fact]
     public void ABrokenModIsSaid_AndTheOthersStillCount()
     {

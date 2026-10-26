@@ -134,11 +134,46 @@ public static partial class ArcFissionRows
         return File.ReadAllText(path);
     }
 
+    /// <summary>
+    /// Reads a mod.lua or rows.lua as ArcFission Library does: its bytes as they are, given to Lua's
+    /// load(), which doesn't skip a byte-order mark (File.ReadAllText quietly drops one, so a file
+    /// the game never loads used to merge fine). A FormatException names the file and says why.
+    /// </summary>
+    private static object? ParseLuaFile(string path, out byte[] bytes)
+    {
+        var fileName = Path.GetFileName(path);
+        if (new FileInfo(path).Length > MaxFileBytes)
+        {
+            throw new FormatException($"{fileName} is larger than {MaxFileBytes / (1024 * 1024)} MB");
+        }
+
+        bytes = File.ReadAllBytes(path);
+        if (bytes is [0xEF, 0xBB, 0xBF, ..])
+        {
+            throw new FormatException($"{fileName} starts with a hidden byte-order mark (BOM) that the ArcFission Library can't read either; save it as UTF-8 without BOM");
+        }
+
+        if (bytes is [0xFF, 0xFE, ..] or [0xFE, 0xFF, ..])
+        {
+            throw new FormatException($"{fileName} is saved as UTF-16, which the ArcFission Library can't read either; save it as UTF-8 without BOM");
+        }
+
+        try
+        {
+            // GetString keeps a byte-order mark anywhere as a character (LuaData refuses it outside a string).
+            return LuaData.Parse(new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetString(bytes));
+        }
+        catch (FormatException ex)
+        {
+            throw new FormatException($"{fileName}: {ex.Message}", ex);
+        }
+    }
+
     /// <summary>One mod folder's identity card and rows. A FormatException says why the library wouldn't take it.</summary>
     public static ArcFissionMod ReadMod(string modFolder, string? libraryVersion)
     {
         var arcFissionFolder = Path.Combine(modFolder, "ArcFission");
-        if (LuaData.Parse(ReadText(Path.Combine(arcFissionFolder, "mod.lua"))) is not LuaTable card)
+        if (ParseLuaFile(Path.Combine(arcFissionFolder, "mod.lua"), out _) is not LuaTable card)
         {
             throw new FormatException("its identity card ArcFission/mod.lua isn't a table");
         }
@@ -191,8 +226,9 @@ public static partial class ArcFissionRows
             throw new FormatException($"its rows file '{rowsFileName}' isn't a file name inside its ArcFission folder");
         }
 
-        var rowsText = ReadText(Path.Combine(arcFissionFolder, rowsFileName));
-        if (LuaData.Parse(rowsText) is not LuaTable rowsFile || rowsFile.Table("tables") is not { } tables)
+        var rowsValue = ParseLuaFile(Path.Combine(arcFissionFolder, rowsFileName), out var rowsBytes);
+        var rowsText = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetString(rowsBytes);
+        if (rowsValue is not LuaTable rowsFile || rowsFile.Table("tables") is not { } tables)
         {
             throw new FormatException($"its {rowsFileName} has no 'tables'");
         }

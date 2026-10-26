@@ -281,8 +281,8 @@ public sealed partial class LuaData
                     text.Append('\n');
                     break;
                 case 'z':
-                    // \z skips the white space (line breaks too) that follows.
-                    while (_at < _text.Length && char.IsWhiteSpace(_text[_at]))
+                    // \z skips the white space (line breaks too) that follows: Lua's, ASCII only.
+                    while (_at < _text.Length && IsLuaSpace(_text[_at]))
                     {
                         _at++;
                     }
@@ -412,13 +412,30 @@ public sealed partial class LuaData
         throw Error($"'{token}' isn't a number");
     }
 
+    /// <summary>The white space Lua's own reader skips: ASCII only (a non-breaking space is not one).</summary>
+    private static bool IsLuaSpace(char c) => c is ' ' or '\t' or '\n' or '\v' or '\f' or '\r';
+
     private void SkipSpace()
     {
         while (_at < _text.Length)
         {
-            if (char.IsWhiteSpace(_text[_at]))
+            var c = _text[_at];
+            if (IsLuaSpace(c))
             {
                 _at++;
+            }
+            else if (c > '\x7F' && (char.IsWhiteSpace(c) || c is '﻿' or '​'))
+            {
+                // Lua's load() (how ArcFission Library reads these files) refuses any byte above 127
+                // outside a string or comment: a file with one doesn't load in game at all.
+                var what = c switch
+                {
+                    ' ' => "a non-breaking space",
+                    '﻿' => "a hidden byte-order mark",
+                    '​' => "a zero-width space",
+                    _ => "a non-ASCII space",
+                };
+                throw Error($"{what} (U+{(int)c:X4}) outside a string, which the ArcFission Library can't read either");
             }
             else if (_at + 1 < _text.Length && _text[_at] == '-' && _text[_at + 1] == '-')
             {
