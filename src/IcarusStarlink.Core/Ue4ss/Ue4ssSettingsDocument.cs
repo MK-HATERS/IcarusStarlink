@@ -62,12 +62,37 @@ public sealed partial class Ue4ssSettingsDocument
             return (raw, "");
         }
 
-        var at = InlineCommentStart().Match(raw);
-        return at.Success ? (raw[..at.Index].TrimEnd(), raw[at.Index..]) : (raw, "");
+        var at = InlineCommentStart(raw);
+        return at >= 0 ? (raw[..at].TrimEnd(), raw[at..]) : (raw, "");
     }
 
-    [GeneratedRegex(@"(^|\s+);")]
-    private static partial Regex InlineCommentStart();
+    /// <summary>
+    /// Where the comment after a value starts (the white space before its ';'), or -1. A ';' inside
+    /// double quotes is part of the value ("Prefix = "[A] ; " ; note").
+    /// </summary>
+    private static int InlineCommentStart(string raw)
+    {
+        var inQuotes = false;
+        for (var i = 0; i < raw.Length; i++)
+        {
+            if (raw[i] == '"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (raw[i] == ';' && !inQuotes && (i == 0 || char.IsWhiteSpace(raw[i - 1])))
+            {
+                var start = i;
+                while (start > 0 && char.IsWhiteSpace(raw[start - 1]))
+                {
+                    start--;
+                }
+
+                return start;
+            }
+        }
+
+        return -1;
+    }
 
     [GeneratedRegex(@"^\s*\[(?<name>[^\]]+)\]\s*$")]
     private static partial Regex SectionLine();
@@ -180,7 +205,7 @@ public sealed partial class Ue4ssSettingsDocument
                 return false;
             }
 
-            if (InlineComments && InlineCommentStart().IsMatch(value))
+            if (InlineComments && InlineCommentStart(value) >= 0)
             {
                 throw new ArgumentException("A value can't contain ' ;': the rest would be read as a comment.", nameof(value));
             }
@@ -290,7 +315,8 @@ public sealed partial class Ue4ssSettingsDocument
             {
                 (minimum, maximum) = (Number(slider.Groups["min"].Value), Number(slider.Groups["max"].Value));
                 step = slider.Groups["step"].Success ? Number(slider.Groups["step"].Value) : null;
-                step ??= 1;
+                // No step, or a step of 0 (the slider would write "NaN"): whole numbers.
+                step = step is > 0 ? step : 1;
             }
 
             needsRestart = RestartMarker().IsMatch(note) || RestartWords().IsMatch(note);

@@ -45,8 +45,10 @@ public static class NexusAppUpdates
         {
             files = await nexus.GetModFilesAsync(apiKey, NxmHandlerCommand.IcarusDomain, StarlinkModId, cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
+            // Includes Nexus not answering in time (HttpClient's timeout is a TaskCanceledException
+            // nobody asked for): that used to fail the whole check, GitHub's answer with it.
             return null;
         }
 

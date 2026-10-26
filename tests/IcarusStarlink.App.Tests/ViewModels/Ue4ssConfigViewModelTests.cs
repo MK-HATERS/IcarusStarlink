@@ -161,6 +161,22 @@ public class Ue4ssConfigViewModelTests : IDisposable
         Assert.Equal(["EnableAutoReloadingLuaMods"], vm.Sections.Single().Fields.Select(f => f.Key));
     }
 
+    /// <summary>
+    /// A slider in small steps wrote "2E-05" (C#'s short form) into the mod's config, which a mod
+    /// reading plain numbers can't use; and a slider with a step of 0 wrote "NaN".
+    /// </summary>
+    [Fact]
+    public void NumberValue_WritesPlainDecimals()
+    {
+        var small = new Ue4ssConfigField(Ue4ssSettingsDocument.Parse("[A]\nX = 0.00001 ; tiny [slider 0 0.001 0.00001]\n", keepCommentLines: true).Settings.Single());
+        small.NumberValue = 0.00002;
+        Assert.Equal("0.00002", small.Value);
+
+        var zeroStep = new Ue4ssConfigField(Ue4ssSettingsDocument.Parse("[A]\nX = 2 ; how far [slider 0 10 0]\n", keepCommentLines: true).Settings.Single());
+        zeroStep.NumberValue = 5;
+        Assert.Equal("5", zeroStep.Value);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

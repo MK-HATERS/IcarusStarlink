@@ -203,6 +203,13 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
         long? total;
         if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.IsFile)
         {
+            // Links are network data (Nexus hands out the server list): a file on this PC only
+            // ever comes from the developer's own test feed.
+            if (TestFeedFolder is null)
+            {
+                throw new HttpRequestException($"Not a download link: {url}");
+            }
+
             source = File.OpenRead(uri.LocalPath);
             total = source.Length;
         }

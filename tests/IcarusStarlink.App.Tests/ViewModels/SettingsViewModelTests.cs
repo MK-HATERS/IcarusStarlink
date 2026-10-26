@@ -923,6 +923,42 @@ public sealed class SettingsViewModelTests
         Assert.Equal(expectedCalls, harness.AppUpdateClient.LatestReleaseCalls);
     }
 
+    /// <summary>
+    /// A Mod Manager Download of an OLDER Starlink file on its Nexus page was offered as "Install
+    /// it as an update?" — one click from a downgrade that the wording hid.
+    /// </summary>
+    [Fact]
+    public async Task NexusLinkForAnOlderStarlink_IsOfferedAsAnOlderVersion_NotAnUpdate()
+    {
+        using var harness = new Harness(dialogConfirmResult: false);
+        harness.Settings.AutoCheckAppUpdates = false;
+        harness.CredentialStore.Save(CredentialTargets.NexusApiKey, "key");
+        var nexus = new IcarusStarlink.App.Tests.Services.FakeStarlinkNexus();
+        nexus.Files.Add(new NexusModFile(400, "IcarusStarlink-v1.0.0.zip", "Icarus Starlink", "1.0.0", "OLD_VERSION", false));
+        harness.NexusApiClient = nexus;
+        var vm = harness.BuildViewModel();
+
+        await vm.OfferUpdateFromNexusLinkAsync("nxm://icarus/mods/330/files/400?key=abc&expires=1700000000&user_id=1");
+
+        Assert.Contains("older", harness.DialogService.LastConfirmMessage);
+        Assert.DoesNotContain("as an update", harness.DialogService.LastConfirmMessage);
+    }
+
+    /// <summary>Nexus timing out while Starlink asked which file a link is: the user hears why, instead of nothing at all.</summary>
+    [Fact]
+    public async Task NexusLinkForStarlink_NexusTimesOut_SaysSo()
+    {
+        using var harness = new Harness(dialogConfirmResult: false);
+        harness.Settings.AutoCheckAppUpdates = false;
+        harness.CredentialStore.Save(CredentialTargets.NexusApiKey, "key");
+        harness.NexusApiClient = new IcarusStarlink.App.Tests.Services.FakeStarlinkNexus { FilesError = new TaskCanceledException("timed out") };
+        var vm = harness.BuildViewModel();
+
+        await vm.OfferUpdateFromNexusLinkAsync("nxm://icarus/mods/330/files/400?key=abc&expires=1700000000&user_id=1");
+
+        Assert.Contains("Nexus didn't say which version", vm.AppUpdateStatusMessage);
+    }
+
     [Fact]
     public async Task FirstLaunch_NxmHandlerNotRegistered_OffersToRegister_AcceptedRegisters()
     {
@@ -1016,9 +1052,12 @@ public sealed class SettingsViewModelTests
             _httpHandler = httpHandler ?? new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
         }
 
+        public readonly FakeCredentialStore CredentialStore = new();
+        public INexusApiClient NexusApiClient = new FakeNexusApiClient();
+
         public SettingsViewModel BuildViewModel() => new(
             SettingsService, UnrealPakService, WeeklyChangeReportStore,
-            SteamInstallLocator, new FakeCredentialStore(), new FakeNexusApiClient(),
+            SteamInstallLocator, CredentialStore, NexusApiClient,
             NxmProtocolRegistrar, Ue4ssLoaderInstallService, Ue4ssReleaseClient, AppUpdateClient,
             new HttpClient(_httpHandler), new FakeThemeService(), new FakeCustomSkinStore(),
             BuildImmMigrationService(),
