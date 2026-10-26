@@ -79,10 +79,11 @@ public static class ExmodFieldValidityChecker
                 continue;
             }
 
-            // A row listed twice: the last one is what the merge uses (as the health check judges it),
-            // and one finding per place, not one per copy.
-            foreach (var item in row.FileItems.GroupBy(i => i.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.Last()))
+            // A row listed twice: the merge takes every copy's fields (a field in two copies: the
+            // later one's value), so judge them together, one finding per field, not one per copy.
+            foreach (var copies in row.FileItems.GroupBy(i => i.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.ToList()))
             {
+                var item = ExmodFileItem.Combine(copies);
                 foreach (var (fieldName, value) in item.Fields)
                 {
                     if (!schema.TryGetValue(fieldName, out var expectedKind))
@@ -96,8 +97,9 @@ public static class ExmodFieldValidityChecker
                         }
 
                         var suggestion = Suggest(fieldName, schema.Keys);
-                        // The rename would clash with the field the row already has under that name.
-                        if (suggestion is not null && item.Fields.ContainsKey(suggestion))
+                        // The rename would clash with the field the row already has under that name,
+                        // in the copy whose value counts (the rename keeps that copy's other field).
+                        if (suggestion is not null && copies.Last(c => c.Fields.ContainsKey(fieldName)).Fields.ContainsKey(suggestion))
                         {
                             suggestion = null;
                         }

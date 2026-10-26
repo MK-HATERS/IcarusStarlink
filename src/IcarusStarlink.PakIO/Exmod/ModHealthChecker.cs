@@ -274,8 +274,9 @@ public static partial class ModHealthChecker
             // "revert the nerf" mod). Also decided once it's known whether this table is a copy.
             var oldByHistory = new List<ModIssue>();
 
-            // The last entry wins when a mod lists a row twice (as the merge does), so judge that one.
-            foreach (var item in row.FileItems.GroupBy(i => i.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.Last()))
+            // A row listed twice: the merge takes every copy's fields (a field in two copies: the
+            // later one's value), so judge them together. A fix goes to each copy that sets the field.
+            foreach (var item in ExmodFileItem.CombineByName(row.FileItems))
             {
                 if (!rowsByName.TryGetValue(item.Name, out var gameRow))
                 {
@@ -465,7 +466,7 @@ public static partial class ModHealthChecker
             }
 
             var fields = package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, stale.CurrentFile, StringComparison.OrdinalIgnoreCase))
-                ?.FileItems.LastOrDefault(i => string.Equals(i.Name, stale.ItemName, StringComparison.OrdinalIgnoreCase))?.Fields.Keys ?? Enumerable.Empty<string>();
+                ?.FileItems.Where(i => string.Equals(i.Name, stale.ItemName, StringComparison.OrdinalIgnoreCase)).SelectMany(i => i.Fields.Keys).Distinct() ?? Enumerable.Empty<string>();
             var suggestion = baseTableCache.TryGetValue(stale.CurrentFile, out var baseTable) && baseTable is not null ? StaleItemFixSuggester.Suggest(stale.ItemName, fields, baseTable) : null;
             if (suggestion is null)
             {
@@ -616,7 +617,8 @@ public static partial class ModHealthChecker
                     items.ForEach(i => i.Fields.Remove(field));
                     break;
                 case ModIssueFix.Merge when issue.FieldName is { } field && issue.MergedValue is not null:
-                    items.ForEach(i => i.Fields[field] = issue.MergedValue.DeepClone());
+                    // Only the copies that set it: a copy that leaves it out keeps leaving it out.
+                    items.Where(i => i.Fields.ContainsKey(field)).ToList().ForEach(i => i.Fields[field] = issue.MergedValue.DeepClone());
                     break;
                 case ModIssueFix.RenameRow when issue.SuggestedRow is { } newName:
                     items.ForEach(i => i.Name = newName);
@@ -856,7 +858,7 @@ public static partial class ModHealthChecker
             }
 
             var defaults = index.Defaults(row.CurrentFile);
-            foreach (var item in row.FileItems.GroupBy(i => i.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.Last()))
+            foreach (var item in ExmodFileItem.CombineByName(row.FileItems))
             {
                 var gameLinks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 CollectLinks(index.Row(row.CurrentFile, item.Name), gameLinks);
