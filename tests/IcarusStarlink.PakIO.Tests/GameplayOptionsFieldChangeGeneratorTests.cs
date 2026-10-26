@@ -209,6 +209,33 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
         Assert.Contains(conflict.Candidates, c => c.ModName == "Built-in gameplay options");
     }
 
+    /// <summary>
+    /// laanp's WaypointTeleport sets 3 stats on Base_Stats (no fall damage, no sprains). Player
+    /// Boost wins StatsGranted by default, and it used to start from the game's stats alone, so
+    /// turning it on put fall damage back. The mod's stats are now laid under the option's, later
+    /// mods over earlier ones, and the option's own stats still win.
+    /// </summary>
+    [Fact]
+    public void GenerateFixedFieldChanges_KeepsTheStatsQueuedModsSet_UnderTheOptionsOwn()
+    {
+        WriteCharacterStats("""{"Name":"Base_Stats","StatsGranted":{"(Value=\"BaseMaximumHealth_+\")":300,"(Value=\"BaseMaximumFallDamage_%\")":100,"(Value=\"ChanceToResistSprain_%\")":0}}""");
+        static FieldChange ModStats(string row, string json) =>
+            new("Stats-D_CharacterStartingStats.json", row, "StatsGranted", null, JsonNode.Parse(json), ValueSemantic.GenericCompound);
+        IReadOnlyList<FieldChange>[] earlier =
+        [
+            [ModStats("Base_Stats", """{"(Value=\"BaseMaximumFallDamage_%\")":0,"(Value=\"ChanceToResistSprain_%\")":50}""")],
+            [ModStats("base_stats", """{"(Value=\"ChanceToResistSprain_%\")":100,"(Value=\"BaseMaximumHealth_+\")":999}""")],
+        ];
+
+        var changes = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
+            new GameplayOptions { PlayerBoost = BoostLevel.Level1 }, _dataFolder, new MergeReport(), earlier);
+
+        var statsGranted = StatsGrantedOf(Assert.Single(changes));
+        Assert.Equal(0, (int)statsGranted["(Value=\"BaseMaximumFallDamage_%\")"]!);
+        Assert.Equal(100, (int)statsGranted["(Value=\"ChanceToResistSprain_%\")"]!); // the later mod
+        Assert.Equal(350, (int)statsGranted["(Value=\"BaseMaximumHealth_+\")"]!); // Player Boost's own
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dataFolder))

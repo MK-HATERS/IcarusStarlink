@@ -35,14 +35,18 @@ public static class GameplayOptionsFieldChangeGenerator
     /// Reads the real base game data fresh (not a merged-table dictionary) so both RebuildService
     /// and MergeInstallViewModel's own conflict-preview path can call this identically — the
     /// latter never has a merged result to work from, only dataFolder.
+    /// earlierChanges: every participant before the options, in merge order. The stats the options
+    /// write are laid over the stats those mods set on Base_Stats, so a mod's own stats (a "no fall
+    /// damage" mod) survive a Player Boost instead of being reset to the game's.
     /// </summary>
-    public static IReadOnlyList<FieldChange> GenerateFixedFieldChanges(GameplayOptions options, string dataFolder, MergeReport report)
+    public static IReadOnlyList<FieldChange> GenerateFixedFieldChanges(
+        GameplayOptions options, string dataFolder, MergeReport report, IEnumerable<IReadOnlyList<FieldChange>>? earlierChanges = null)
     {
         var changes = new List<FieldChange>();
 
         var needsStats = options.SpeedBoost != BoostLevel.Off || options.PlayerBoost != BoostLevel.Off
             || options.XpBoost != XpBoostLevel.Off || options.DisableTemperatures;
-        if (needsStats && GenerateCharacterStatsChange(options, dataFolder, report) is { } statsChange)
+        if (needsStats && GenerateCharacterStatsChange(options, dataFolder, report, earlierChanges) is { } statsChange)
         {
             changes.Add(statsChange);
         }
@@ -55,7 +59,8 @@ public static class GameplayOptionsFieldChangeGenerator
         return changes;
     }
 
-    private static FieldChange? GenerateCharacterStatsChange(GameplayOptions options, string dataFolder, MergeReport report)
+    private static FieldChange? GenerateCharacterStatsChange(
+        GameplayOptions options, string dataFolder, MergeReport report, IEnumerable<IReadOnlyList<FieldChange>>? earlierChanges)
     {
         var baseStatsRow = ReadKeyedRow(dataFolder, CharacterStatsFile, BaseStatsRowName, report);
         if (baseStatsRow is null)
@@ -63,12 +68,29 @@ public static class GameplayOptionsFieldChangeGenerator
             return null;
         }
 
-        // Starts from the real vanilla StatsGranted (not whatever a queued mod might also want
-        // there) — if this FieldChange wins the field's conflict (the default, since it's the
-        // highest-priority candidate), the result must be a complete, correct StatsGranted on its
-        // own, the same way it always was when no other mod touched this field.
+        // Starts from the game's StatsGranted with every earlier mod's stats laid over it, stat by
+        // stat, later mods over earlier ones: this change wins the field by default (it's last), so
+        // it must be a complete StatsGranted that keeps what those mods set. It used to start from
+        // the game's alone, so turning on Player Boost reset a queued mod's stats (laanp's
+        // WaypointTeleport: no fall damage, no sprains) to the game's (review 2026-10-26).
         var originalStatsGranted = baseStatsRow[StatsGrantedField] as JsonObject;
         var newStatsGranted = originalStatsGranted?.DeepClone() as JsonObject ?? [];
+        foreach (var modChanges in earlierChanges ?? [])
+        {
+            foreach (var change in modChanges)
+            {
+                if (!change.IsFieldRemoved && change.NewValue is JsonObject modStats
+                    && string.Equals(change.CurrentFile, CharacterStatsFile, StringComparison.OrdinalIgnoreCase)
+                    && RowNames.Comparer.Equals(change.ItemName, BaseStatsRowName)
+                    && string.Equals(change.FieldName, StatsGrantedField, StringComparison.Ordinal))
+                {
+                    foreach (var (stat, value) in modStats)
+                    {
+                        newStatsGranted[stat] = value?.DeepClone();
+                    }
+                }
+            }
+        }
 
         if (options.SpeedBoost != BoostLevel.Off)
         {
