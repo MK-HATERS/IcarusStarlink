@@ -488,11 +488,7 @@ public sealed partial class MergeInstallViewModel
                 // Fix… on a mod: the Library's own fix window for it.
                 if (reviewViewModel.FixFolderName is { } folder)
                 {
-                    var request = _messenger.Send(new OpenModFixMessage(folder));
-                    if (request.HasReceivedResponse && request.Response is { } refused)
-                    {
-                        ConflictStatusMessage = $"Couldn't open the fix window: {refused}";
-                    }
+                    await OpenModFixInLibraryAsync(folder);
                 }
             }
         }
@@ -500,6 +496,32 @@ public sealed partial class MergeInstallViewModel
         {
             // Same UI boundary as Rebuild itself — a malformed queued mod shouldn't crash the app.
             ConflictStatusMessage = $"Couldn't check the merge: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Fix… from the check window: the Library checks the mod and shows its fix window. Its answer
+    /// is the real outcome (refused, or the mod's check failed), said in this page's status line,
+    /// since the Library's own notice isn't on screen.
+    /// </summary>
+    internal async Task OpenModFixInLibraryAsync(string folderName)
+    {
+        string? failed;
+        try
+        {
+            var request = _messenger.Send(new OpenModFixMessage(folderName));
+            failed = request.HasReceivedResponse
+                ? await request.Response
+                : "the Library page isn't ready yet. Try again in a moment.";
+        }
+        catch (Exception ex)
+        {
+            failed = ex.Message;
+        }
+
+        if (failed is not null)
+        {
+            ConflictStatusMessage = $"Couldn't open the fix window: {failed}";
         }
     }
 }

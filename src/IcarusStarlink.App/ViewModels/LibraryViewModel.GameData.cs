@@ -621,19 +621,31 @@ public sealed partial class LibraryViewModel
             return;
         }
 
+        if (await CheckAndShowModFixAsync(item) is { } failed)
+        {
+            StatusMessage = failed;
+        }
+    }
+
+    /// <summary>
+    /// Checks the mod and shows its fix window (modal), then refreshes its badge. Returns why it
+    /// couldn't (busy, no game data, the check failed), or null once the window has been shown and
+    /// closed — so whoever asked can say it where the user is.
+    /// </summary>
+    private async Task<string?> CheckAndShowModFixAsync(LibraryItemViewModel item)
+    {
         if (ModFixBlockedReason(item) is { } blocked)
         {
-            StatusMessage = blocked;
-            return;
+            return blocked;
         }
 
         if (!HasExtractedGameData())
         {
-            StatusMessage = "No game data found — run Refresh game data in Settings first.";
-            return;
+            return "No game data found — run Refresh game data in Settings first.";
         }
 
         ModFixViewModel? viewModel = null;
+        string? failed = null;
         try
         {
             var folderName = item.FolderName;
@@ -652,8 +664,7 @@ public sealed partial class LibraryViewModel
             // A check or refresh may have started while this one ran.
             if (ModFixBlockedReason(item) is { } blockedNow)
             {
-                StatusMessage = blockedNow;
-                return;
+                return blockedNow;
             }
 
             item.SetHealth(report);
@@ -670,20 +681,23 @@ public sealed partial class LibraryViewModel
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Couldn't check '{item.Name}': {ex.Message}";
+            failed = $"Couldn't check '{item.Name}': {ex.Message}";
         }
 
         if (viewModel is not null)
         {
             await AfterModFixClosedAsync(item, viewModel);
         }
+
+        return failed;
     }
 
     /// <summary>
-    /// Fix… from Merge &amp; Install's check: why the fix window can't open right now (said on the
-    /// page the click came from, since this page's notice isn't on screen), or null when it's opening.
+    /// Fix… from Merge &amp; Install's check: checks the mod and shows its fix window, finishing with
+    /// why it couldn't (refused, or the check failed), or null once the window was shown and closed.
+    /// Said on the page the click came from, since this page's notice isn't on screen.
     /// </summary>
-    internal string? OpenModFixFromElsewhere(string folderName)
+    internal async Task<string?> OpenModFixFromElsewhereAsync(string folderName)
     {
         if (FindItem(folderName) is not { } item)
         {
@@ -700,18 +714,7 @@ public sealed partial class LibraryViewModel
             return "A fix window is already opening.";
         }
 
-        if (ModFixBlockedReason(item) is { } blocked)
-        {
-            return blocked;
-        }
-
-        if (!HasExtractedGameData())
-        {
-            return "No game data found — run Refresh game data in Settings first.";
-        }
-
-        _ = OpenModFixCommand.ExecuteAsync(item);
-        return null;
+        return await CheckAndShowModFixAsync(item);
     }
 
     /// <summary>What this page is rewriting mods for right now (asked before the app closes for an update); empty when nothing.</summary>

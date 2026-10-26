@@ -743,6 +743,25 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Contains("[ISL-111] ModA: D_ItemsStatic · Bread.Wieght:", report);
     }
 
+    /// <summary>
+    /// Fix… from the check window: the Library's answer comes when its check has run, and a check
+    /// that failed is said on this page (the Library's notice isn't on screen).
+    /// </summary>
+    [Fact]
+    public async Task OpenModFixInLibraryAsync_ACheckThatFailsLater_IsSaidInThisPagesStatusLine()
+    {
+        var vm = CreateViewModel();
+        var outcome = new TaskCompletionSource<string?>();
+        _messenger.Register<OpenModFixMessage>(this, (_, message) => message.Reply(outcome.Task));
+
+        var asking = vm.OpenModFixInLibraryAsync("ModA");
+        Assert.Null(vm.ConflictStatusMessage);
+        outcome.SetResult("Couldn't check 'ModA': the file is broken");
+        await asking;
+
+        Assert.Equal("Couldn't open the fix window: Couldn't check 'ModA': the file is broken", vm.ConflictStatusMessage);
+    }
+
     /// <summary>An add-on queued without the mod it's for: its links do nothing in game, named with the mod to add.</summary>
     [Fact]
     public async Task RecomputeChecksAsync_ALinkToARowOnlyAModOutsideTheMergeAdds_NamesThatMod()
