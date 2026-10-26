@@ -112,6 +112,42 @@ public sealed class ServerUe4ssSyncTests : IDisposable
         Assert.Equal("{\"server\":1}", File.ReadAllText(Path.Combine(serverMods, "Pets", "data", "players.json")));
     }
 
+    /// <summary>
+    /// ArcFission Library's state.lua, status.lua and registry.txt (and core_*.txt) are the game's
+    /// own session, written while it runs. They used to be copied onto the server, where a stale
+    /// state.lua names a data pak the server never built (review 2026-10-26). Never copied, the
+    /// server's own kept, never a difference; the library's code and core_off.txt still go.
+    /// </summary>
+    [Fact]
+    public void CopyToServer_ArcFissionLibrarysRuntimeState_IsntCopied_AndTheServersOwnStays()
+    {
+        var install = Path.Combine(_root, "install");
+        var serverMods = DedicatedServerLayout.Ue4ssModsFolder(install);
+        var gameMods = Path.Combine(_root, "game");
+        Mod("game", "ArcFissionLibrary", ("Scripts/main.lua", "local LIBRARY_VERSION = \"1.3.0\""), ("state.lua", "return { gen = 7 }"),
+            ("status.lua", "return { state = \"ok\" }"), ("registry.txt", "WirelessPower|0.9.5|E:/game|1|1"),
+            ("core_queue.txt", "session|1"), ("core_running.txt", "WirelessPower|1|ok"), ("core_off.txt", ""));
+
+        // New to the server: none of the game's runtime state goes along.
+        ServerUe4ssSync.CopyToServer(gameMods, "ArcFissionLibrary", install, Path.Combine(_root, "backups"));
+        var library = Path.Combine(serverMods, "ArcFissionLibrary");
+        Assert.Equal(["core_off.txt", Path.Combine("Scripts", "main.lua")], Directory.GetFiles(library, "*", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(library, f)).Where(f => f != "enabled.txt").Order(StringComparer.OrdinalIgnoreCase));
+
+        // An update: the server's own state stays as it was, and it isn't a difference.
+        File.WriteAllText(Path.Combine(library, "state.lua"), "return { gen = 2 }");
+        File.WriteAllText(Path.Combine(library, "status.lua"), "return { state = \"restart\" }");
+        Assert.Equal(ServerModState.Same, ServerUe4ssSync.Compare(gameMods, serverMods, new HashSet<string>()).Single().State);
+        File.WriteAllText(Path.Combine(gameMods, "ArcFissionLibrary", "Scripts", "main.lua"), "local LIBRARY_VERSION = \"1.3.1\"");
+
+        ServerUe4ssSync.CopyToServer(gameMods, "ArcFissionLibrary", install, Path.Combine(_root, "backups"));
+
+        Assert.Equal("local LIBRARY_VERSION = \"1.3.1\"", File.ReadAllText(Path.Combine(library, "Scripts", "main.lua")));
+        Assert.Equal("return { gen = 2 }", File.ReadAllText(Path.Combine(library, "state.lua")));
+        Assert.Equal("return { state = \"restart\" }", File.ReadAllText(Path.Combine(library, "status.lua")));
+        Assert.False(File.Exists(Path.Combine(library, "registry.txt")));
+    }
+
     /// <summary>A file missing from the server is a difference.</summary>
     [Fact]
     public void AFileMissingFromTheServer_IsADifference()

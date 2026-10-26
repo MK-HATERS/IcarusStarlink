@@ -153,6 +153,102 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.All(changes, c => Assert.True(c.IsNewItem));
     }
 
+    /// <summary>
+    /// The library checks a row by its Lua name but splices its json as written, so the game knows
+    /// the row by the json's "Name". The merge used to name it by the Lua name: two names for one
+    /// row (review 2026-10-26). A json with no Name, or a Name already there, is left out and said.
+    /// </summary>
+    [Fact]
+    public void ToPackage_NamesTheRowByItsJsonName_AsTheGameGetsIt()
+    {
+        Mod("WirelessPower", "WirelessPower", """
+            return { tables = { ["Crafting/D_ProcessorRecipes.json"] = {
+                { name = "Lua_Name", json = [[{ "Name": "Json_Name", "CraftTime": 3 }]] },
+                { name = "No_Json_Name", json = [[{ "CraftTime": 4 }]] },
+                { name = "Clash", json = [[{ "Name": "Stone_Pickaxe", "CraftTime": 5 }]] },
+            } } }
+            """);
+        var problems = new List<string>();
+
+        var package = ArcFissionRows.ToPackage(ArcFissionRows.Scan(Content)!, new GameTableIndex(DataFolder), problems);
+
+        var item = Assert.Single(Assert.Single(package.Rows).FileItems);
+        Assert.Equal("Json_Name", item.Name);
+        Assert.Equal(3, item.Fields["CraftTime"]!.GetValue<int>());
+        Assert.Contains(problems, p => p.Contains("'Lua_Name'") && p.Contains("knows it as 'Json_Name'"));
+        Assert.Contains(problems, p => p.Contains("'No_Json_Name'") && p.Contains("no \"Name\""));
+        Assert.Contains(problems, p => p.Contains("'Clash'") && p.Contains("two rows of that name"));
+    }
+
+    /// <summary>
+    /// The library only falls back to rows.lua when the card has no rows at all: rows = true (or a
+    /// table) stops its check with an error, and a number names a file that isn't there. Starlink used
+    /// to read rows.lua for any of these and merge rows the game never gets (review 2026-10-26).
+    /// </summary>
+    [Theory]
+    [InlineData("true", "the library stops")]
+    [InlineData("{ \"rows.lua\" }", "the library stops")]
+    [InlineData("5", "a number")]
+    public void ACardWhoseRowsIsntText_IsLeftOut_AsTheLibraryLeavesItOut(string rowsValue, string said)
+    {
+        Mod("WirelessPower", "WirelessPower", Rows(("Crafting/D_ProcessorRecipes.json", "Wireless_Power_Node", 10)));
+        Mod("Odd", "Odd", Rows(("Crafting/D_ProcessorRecipes.json", "Odd_Row", 1)));
+        File.WriteAllText(Path.Combine(ModsFolder, "Odd", "ArcFission", "mod.lua"),
+            $$"""return { arcfission = 1, author = "ArcFission", id = "Odd", rows = {{rowsValue}} }""");
+
+        var scan = ArcFissionRows.Scan(Content)!;
+
+        Assert.Equal("WirelessPower", Assert.Single(scan.Mods).Id);
+        Assert.Contains(scan.Problems, p => p.StartsWith("Odd:") && p.Contains(said));
+    }
+
+    /// <summary>
+    /// The library loads these files with Lua's load(), which doesn't skip a UTF-8 byte-order mark
+    /// and refuses a non-breaking space outside a string: such a mod's rows never reach the game.
+    /// Starlink read them with File.ReadAllText (BOM dropped) and skipped any Unicode space, so it
+    /// merged rows the game never gets (review 2026-10-26). Now it leaves them out and says why.
+    /// </summary>
+    [Fact]
+    public void ARowsFileTheLibraryCantLoad_BomOrNonBreakingSpace_IsLeftOutAndSaid()
+    {
+        Mod("WirelessPower", "WirelessPower", Rows(("Crafting/D_ProcessorRecipes.json", "Wireless_Power_Node", 10)));
+        Mod("BomRows", "BomRows", Rows(("Crafting/D_ProcessorRecipes.json", "Bom_Row", 1)));
+        File.WriteAllText(Path.Combine(ModsFolder, "BomRows", "ArcFission", "rows.lua"),
+            Rows(("Crafting/D_ProcessorRecipes.json", "Bom_Row", 1)), new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        Mod("BomCard", "BomCard", Rows(("Crafting/D_ProcessorRecipes.json", "Bom_Card_Row", 1)));
+        var card = Path.Combine(ModsFolder, "BomCard", "ArcFission", "mod.lua");
+        File.WriteAllText(card, File.ReadAllText(card), new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        Mod("Nbsp", "Nbsp", Rows(("Crafting/D_ProcessorRecipes.json", "Nbsp_Row", 1)).Replace("format = 1,", "format = 1,"));
+
+        var scan = ArcFissionRows.Scan(Content)!;
+
+        Assert.Equal("WirelessPower", Assert.Single(scan.Mods).Id);
+        Assert.Contains(scan.Problems, p => p.StartsWith("BomRows:") && p.Contains("rows.lua starts with a hidden byte-order mark"));
+        Assert.Contains(scan.Problems, p => p.StartsWith("BomCard:") && p.Contains("mod.lua starts with a hidden byte-order mark"));
+        Assert.Contains(scan.Problems, p => p.StartsWith("Nbsp:") && p.Contains("rows.lua") && p.Contains("non-breaking space"));
+    }
+
+    /// <summary>
+    /// RowsHash is the SHA-1 of the rows file's bytes, as the library hashes them. It used to hash
+    /// the decoded text, so two files differing only in bytes that aren't UTF-8 (a Latin-1 "é" in a
+    /// comment) hashed the same (review 2026-10-26).
+    /// </summary>
+    [Fact]
+    public void RowsHash_IsTheSha1OfTheFilesBytes()
+    {
+        Mod("WirelessPower", "WirelessPower", "");
+        var rowsPath = Path.Combine(ModsFolder, "WirelessPower", "ArcFission", "rows.lua");
+        byte[] Bytes(byte latin1) => [.. "-- caf"u8, latin1, .. "\nreturn { tables = {} }\n"u8];
+
+        File.WriteAllBytes(rowsPath, Bytes(0xE9));
+        var first = ArcFissionRows.ReadMod(Path.Combine(ModsFolder, "WirelessPower"), "1.3.0").RowsHash;
+        File.WriteAllBytes(rowsPath, Bytes(0xE8));
+        var second = ArcFissionRows.ReadMod(Path.Combine(ModsFolder, "WirelessPower"), "1.3.0").RowsHash;
+
+        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(Bytes(0xE9))).ToLowerInvariant(), first);
+        Assert.NotEqual(first, second);
+    }
+
     [Fact]
     public void ABrokenModIsSaid_AndTheOthersStillCount()
     {
@@ -220,6 +316,27 @@ public sealed class ArcFissionRowsTests : IDisposable
         var rows = Assert.Single(ArcFissionRows.Scan(Content)!.Mods).Rows.Select(r => r.Name);
 
         Assert.Equal(["First", "Second", "Kept"], rows);
+    }
+
+    /// <summary>
+    /// In Lua ["1"] (text) and [1] (a number) are two different keys, and ipairs only reads [1].
+    /// They used to be one key, so a rows list written with ["1"] = row gave the merge a row the
+    /// library never adds (review 2026-10-26).
+    /// </summary>
+    [Fact]
+    public void LuaData_TextAndNumberKeysAreDifferent_AndOnlyNumbersMakeAList()
+    {
+        var table = Assert.IsType<LuaTable>(LuaData.Parse("""return { ["1"] = "text", [1] = "number", [2.0] = "two" }"""));
+        Assert.Equal("text", table.Fields["1"]);
+        Assert.Equal(["number", "two"], table.Sequence());
+
+        Mod("WirelessPower", "WirelessPower", """
+            return { tables = { ["Crafting/D_ProcessorRecipes.json"] = {
+                ["1"] = { name = "TextKey", json = [[{ "Name": "TextKey" }]] },
+            } } }
+            """);
+
+        Assert.Empty(Assert.Single(ArcFissionRows.Scan(Content)!.Mods).Rows);
     }
 
     [Fact]
@@ -300,7 +417,7 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.Equal(-25d, table.Fields["b"]);
         Assert.Equal(16d, table.Fields["c"]);
         Assert.Equal("it's", table.Fields["d e"]);
-        Assert.Equal(true, table.Fields["3"]);
+        Assert.False(table.Fields.ContainsKey("3")); // [3] is a number key, not the text "3"
         Assert.Equal(["x", "long ]] still", null], table.Table("nested")!.Items);
 
         Assert.Throws<FormatException>(() => LuaData.Parse("return os.execute('calc')"));

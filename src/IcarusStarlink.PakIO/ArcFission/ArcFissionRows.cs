@@ -8,10 +8,14 @@ using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.PakIO.ArcFission;
 
-/// <summary>One row an ArcFission mod adds ("Crafting-D_ProcessorRecipes.json", "Wireless_Power_Node", the row).</summary>
+/// <summary>
+/// One row an ArcFission mod adds ("Crafting-D_ProcessorRecipes.json", "Wireless_Power_Node", the row).
+/// Name is the row's Lua name, which the library checks (row already in the game, row added by two
+/// mods); the game knows the row by its json's "Name", which ToPackage names it by.
+/// </summary>
 public sealed record ArcFissionRow(string CurrentFile, string Name, JsonObject Row);
 
-/// <param name="RowsHash">SHA-1 of the rows file as written (what ArcFission Library's own fingerprint uses).</param>
+/// <param name="RowsHash">SHA-1 of the rows file's raw bytes, as ArcFission Library's own fingerprint hashes them (empty for rows = false).</param>
 public sealed record ArcFissionMod(string Id, string Name, string Version, string RowsHash, IReadOnlyList<ArcFissionRow> Rows);
 
 /// <summary>The ArcFission mods turned on in the game, and what stopped any of them being read (said, never thrown).</summary>
@@ -130,11 +134,46 @@ public static partial class ArcFissionRows
         return File.ReadAllText(path);
     }
 
+    /// <summary>
+    /// Reads a mod.lua or rows.lua as ArcFission Library does: its bytes as they are, given to Lua's
+    /// load(), which doesn't skip a byte-order mark (File.ReadAllText quietly drops one, so a file
+    /// the game never loads used to merge fine). A FormatException names the file and says why.
+    /// </summary>
+    private static object? ParseLuaFile(string path, out byte[] bytes)
+    {
+        var fileName = Path.GetFileName(path);
+        if (new FileInfo(path).Length > MaxFileBytes)
+        {
+            throw new FormatException($"{fileName} is larger than {MaxFileBytes / (1024 * 1024)} MB");
+        }
+
+        bytes = File.ReadAllBytes(path);
+        if (bytes is [0xEF, 0xBB, 0xBF, ..])
+        {
+            throw new FormatException($"{fileName} starts with a hidden byte-order mark (BOM) that the ArcFission Library can't read either; save it as UTF-8 without BOM");
+        }
+
+        if (bytes is [0xFF, 0xFE, ..] or [0xFE, 0xFF, ..])
+        {
+            throw new FormatException($"{fileName} is saved as UTF-16, which the ArcFission Library can't read either; save it as UTF-8 without BOM");
+        }
+
+        try
+        {
+            // GetString keeps a byte-order mark anywhere as a character (LuaData refuses it outside a string).
+            return LuaData.Parse(new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetString(bytes));
+        }
+        catch (FormatException ex)
+        {
+            throw new FormatException($"{fileName}: {ex.Message}", ex);
+        }
+    }
+
     /// <summary>One mod folder's identity card and rows. A FormatException says why the library wouldn't take it.</summary>
     public static ArcFissionMod ReadMod(string modFolder, string? libraryVersion)
     {
         var arcFissionFolder = Path.Combine(modFolder, "ArcFission");
-        if (LuaData.Parse(ReadText(Path.Combine(arcFissionFolder, "mod.lua"))) is not LuaTable card)
+        if (ParseLuaFile(Path.Combine(arcFissionFolder, "mod.lua"), out _) is not LuaTable card)
         {
             throw new FormatException("its identity card ArcFission/mod.lua isn't a table");
         }
@@ -171,15 +210,24 @@ public static partial class ArcFissionRows
             return new ArcFissionMod(id, name, version, "", []);
         }
 
-        var rowsFileName = card.String("rows") ?? "rows.lua";
+        // The library reads join(dir, "ArcFission", rows or "rows.lua"): only a missing rows means
+        // rows.lua. rows = true or a table makes that join throw, which stops the library's whole
+        // check (no data rebuilt for any mod); a number names a file "5" that a mod never ships.
+        var rowsFileName = card.Fields.GetValueOrDefault("rows") switch
+        {
+            null => "rows.lua",
+            string s => s,
+            double => throw new FormatException("its ArcFission/mod.lua says rows = a number, not a file name, so the ArcFission Library finds no rows file and leaves it out"),
+            var other => throw new FormatException($"its ArcFission/mod.lua says rows = {(other is LuaTable ? "a table" : "true")}, which the ArcFission Library can't use as a file name: the library stops with an error and builds no ArcFission data until it's fixed"),
+        };
         if (rowsFileName.Length == 0 || rowsFileName != Path.GetFileName(rowsFileName)
             || rowsFileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || rowsFileName.Any(char.IsControl))
         {
             throw new FormatException($"its rows file '{rowsFileName}' isn't a file name inside its ArcFission folder");
         }
 
-        var rowsText = ReadText(Path.Combine(arcFissionFolder, rowsFileName));
-        if (LuaData.Parse(rowsText) is not LuaTable rowsFile || rowsFile.Table("tables") is not { } tables)
+        var rowsValue = ParseLuaFile(Path.Combine(arcFissionFolder, rowsFileName), out var rowsBytes);
+        if (rowsValue is not LuaTable rowsFile || rowsFile.Table("tables") is not { } tables)
         {
             throw new FormatException($"its {rowsFileName} has no 'tables'");
         }
@@ -207,13 +255,18 @@ public static partial class ArcFissionRows
             }
         }
 
-        var rowsHash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(rowsText))).ToLowerInvariant();
+        // The file's bytes as they are, as the library hashes them (not the decoded text: bytes that
+        // aren't UTF-8, in a comment say, decode to the same replacement character).
+        var rowsHash = Convert.ToHexString(SHA1.HashData(rowsBytes)).ToLowerInvariant();
         return new ArcFissionMod(id, name, version, rowsHash, rows);
     }
 
     /// <summary>
     /// The rows as one package for the merge: only rows the game doesn't have (the library skips
     /// those too), and a row two mods add only from the first. What was left out is in problems.
+    /// Those checks use the row's Lua name, as the library's do; the row itself is named by its
+    /// json's "Name", because the library splices the json in as written and that's the name the
+    /// game reads (so the merge and the game can't know the row by two names).
     /// </summary>
     public static ExmodPackage ToPackage(ArcFissionScan scan, GameTableIndex gameIndex, ICollection<string>? problems = null)
     {
@@ -228,6 +281,8 @@ public static partial class ArcFissionRows
         };
         var owner = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var files = new Dictionary<string, ExmodFileRow>(StringComparer.OrdinalIgnoreCase);
+        // "table|name" of each row put in the package, by the name the game knows it by.
+        var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var mod in scan.Mods)
         {
             foreach (var row in mod.Rows)
@@ -246,13 +301,35 @@ public static partial class ArcFissionRows
                 }
 
                 owner[key] = mod.Name;
+
+                // The library checks the row by its Lua name but adds the json text as written, so
+                // the game knows the row by the json's "Name". The merge names it the same way.
+                var tableName = GameTableIndex.TableNameOf(row.CurrentFile);
+                if ((row.Row["Name"] as JsonValue)?.TryGetValue<string>(out var gameName) != true || string.IsNullOrEmpty(gameName))
+                {
+                    problems?.Add($"{mod.Name}: row '{row.Name}' in {tableName} has no \"Name\" in its json, so the game gets a row with no name; it's left out of the merge.");
+                    continue;
+                }
+
+                var renamed = !string.Equals(gameName, row.Name, StringComparison.Ordinal);
+                if ((renamed && gameIndex.HasRow(row.CurrentFile, gameName)) || !emitted.Add($"{row.CurrentFile}|{gameName}"))
+                {
+                    problems?.Add($"{mod.Name}: row '{row.Name}' in {tableName} is named '{gameName}' in its json, a row that's already there, so the game would have two rows of that name; it's left out of the merge.");
+                    continue;
+                }
+
+                if (renamed)
+                {
+                    problems?.Add($"{mod.Name}: row '{row.Name}' in {tableName} is named '{gameName}' in its json; the game knows it as '{gameName}', so the merge uses that name.");
+                }
+
                 if (!files.TryGetValue(row.CurrentFile, out var file))
                 {
                     files[row.CurrentFile] = file = new ExmodFileRow { CurrentFile = row.CurrentFile };
                     package.Rows.Add(file);
                 }
 
-                file.FileItems.Add(ExmodFileItem.FromRow(row.Name, row.Row));
+                file.FileItems.Add(ExmodFileItem.FromRow(gameName, row.Row));
             }
         }
 

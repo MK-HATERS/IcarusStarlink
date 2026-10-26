@@ -3,10 +3,18 @@ using System.Text;
 
 namespace IcarusStarlink.PakIO.ArcFission;
 
-/// <summary>A Lua table read by LuaData: its named fields (name = v, ["name"] = v) and its list part ({ a, b }).</summary>
+/// <summary>
+/// A Lua table read by LuaData: its text-keyed fields (name = v, ["name"] = v), its number-keyed
+/// fields ([1] = v) and its list part ({ a, b }). Text and number keys are kept apart as Lua keeps
+/// them: ["1"] and [1] are two different keys, and only [1] is part of the list ipairs reads.
+/// </summary>
 public sealed class LuaTable
 {
+    /// <summary>Fields with a text key: name = v and ["name"] = v (["1"] too: that's text, not list entry 1).</summary>
     public Dictionary<string, object?> Fields { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Fields with a number key: [1] = v, [2.5] = v.</summary>
+    public Dictionary<double, object?> NumberFields { get; } = [];
 
     public List<object?> Items { get; } = [];
 
@@ -23,7 +31,7 @@ public sealed class LuaTable
     {
         for (var i = 1; ; i++)
         {
-            var value = i <= Items.Count ? Items[i - 1] : Fields.GetValueOrDefault(i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            var value = i <= Items.Count ? Items[i - 1] : NumberFields.GetValueOrDefault(i);
             if (value is null)
             {
                 yield break;
@@ -144,13 +152,17 @@ public sealed partial class LuaData
                 Expect(']');
                 SkipSpace();
                 Expect('=');
-                var keyText = key switch
+                switch (key)
                 {
-                    string s => s,
-                    double d => d.ToString(CultureInfo.InvariantCulture),
-                    _ => throw Error("a table key must be text or a number"),
-                };
-                table.Fields[keyText] = Value(depth);
+                    case string s:
+                        table.Fields[s] = Value(depth);
+                        break;
+                    case double d:
+                        table.NumberFields[d] = Value(depth);
+                        break;
+                    default:
+                        throw Error("a table key must be text or a number");
+                }
             }
             else if (Name() is { } name)
             {
@@ -269,8 +281,8 @@ public sealed partial class LuaData
                     text.Append('\n');
                     break;
                 case 'z':
-                    // \z skips the white space (line breaks too) that follows.
-                    while (_at < _text.Length && char.IsWhiteSpace(_text[_at]))
+                    // \z skips the white space (line breaks too) that follows: Lua's, ASCII only.
+                    while (_at < _text.Length && IsLuaSpace(_text[_at]))
                     {
                         _at++;
                     }
@@ -400,13 +412,30 @@ public sealed partial class LuaData
         throw Error($"'{token}' isn't a number");
     }
 
+    /// <summary>The white space Lua's own reader skips: ASCII only (a non-breaking space is not one).</summary>
+    private static bool IsLuaSpace(char c) => c is ' ' or '\t' or '\n' or '\v' or '\f' or '\r';
+
     private void SkipSpace()
     {
         while (_at < _text.Length)
         {
-            if (char.IsWhiteSpace(_text[_at]))
+            var c = _text[_at];
+            if (IsLuaSpace(c))
             {
                 _at++;
+            }
+            else if (c > '\x7F' && (char.IsWhiteSpace(c) || c is '﻿' or '​'))
+            {
+                // Lua's load() (how ArcFission Library reads these files) refuses any byte above 127
+                // outside a string or comment: a file with one doesn't load in game at all.
+                var what = c switch
+                {
+                    ' ' => "a non-breaking space",
+                    '﻿' => "a hidden byte-order mark",
+                    '​' => "a zero-width space",
+                    _ => "a non-ASCII space",
+                };
+                throw Error($"{what} (U+{(int)c:X4}) outside a string, which the ArcFission Library can't read either");
             }
             else if (_at + 1 < _text.Length && _text[_at] == '-' && _text[_at + 1] == '-')
             {
