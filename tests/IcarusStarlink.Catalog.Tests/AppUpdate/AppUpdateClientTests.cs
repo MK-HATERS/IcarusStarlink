@@ -56,6 +56,30 @@ public class AppUpdateClientTests
         }
     }
 
+    /// <summary>
+    /// A download link is network data (Nexus hands out the server list): a file:// link in it was
+    /// read straight off this PC as if downloaded. Only the developer's test feed (STARLINK_UPDATE_FEED)
+    /// may use a file on disk.
+    /// </summary>
+    [Fact]
+    public async Task DownloadAsync_AFileLinkWithoutTheTestFeed_IsRefused()
+    {
+        var localFile = Path.Combine(Path.GetTempPath(), $"starlink-local-{Guid.NewGuid():N}.zip");
+        var destinationPath = Path.Combine(Path.GetTempPath(), $"starlink-update-{Guid.NewGuid():N}.zip");
+        File.WriteAllText(localFile, "zip-bytes");
+        try
+        {
+            var client = new AppUpdateClient(new HttpClient(new FakeHttpMessageHandler([]))) { TestFeedFolder = null };
+            await Assert.ThrowsAsync<HttpRequestException>(() => client.DownloadAsync([new Uri(localFile).AbsoluteUri], null, destinationPath, null));
+            Assert.False(File.Exists(destinationPath));
+        }
+        finally
+        {
+            File.Delete(localFile);
+            File.Delete(destinationPath);
+        }
+    }
+
     [Fact]
     public async Task GetReleaseAsync_ReadsThatVersionsReleaseJson()
     {

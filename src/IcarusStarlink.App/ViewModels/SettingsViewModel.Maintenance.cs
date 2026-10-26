@@ -413,9 +413,10 @@ public sealed partial class SettingsViewModel
                     onGitHub?.AssetDigest, file.FileId);
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception)
         {
-            // Nexus didn't say which file it is: asked about below without a version.
+            // Nexus didn't say which file it is (a timeout too: nothing here is cancelled on
+            // purpose, and an escaped exception left the user with no word at all).
         }
 
         if (release is null)
@@ -425,8 +426,14 @@ public sealed partial class SettingsViewModel
         }
 
         var same = SameAppVersion(release.Version, InstalledAppVersion);
+        // An older file on the page (OLD_VERSION) is a step back, and says so.
+        var older = AppReleaseVersion.TryParse(release.Version) is { } offered && AppReleaseVersion.TryParse(InstalledAppVersion) is { } installed
+            && offered < installed;
+        var question = same ? $"That Nexus download is Icarus Starlink v{release.Version}, the version you have. Install it again?"
+            : older ? $"That Nexus download is Icarus Starlink v{release.Version}, an older version than yours (v{InstalledAppVersion}). Go back to it?"
+            : $"That Nexus download is Icarus Starlink v{release.Version} (you have v{InstalledAppVersion}). Install it as an update?";
         if (!_dialogService.Confirm(
-                (same ? $"That Nexus download is Icarus Starlink v{release.Version}, the version you have. Install it again?" : $"That Nexus download is Icarus Starlink v{release.Version} (you have v{InstalledAppVersion}). Install it as an update?")
+                question
                 + "\n\nThe app will close, update itself, and reopen. Your mods, profiles, and settings are not touched.",
                 "Install Icarus Starlink", ThemedConfirmSeverity.Question))
         {

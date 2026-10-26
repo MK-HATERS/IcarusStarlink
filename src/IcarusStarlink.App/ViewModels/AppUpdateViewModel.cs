@@ -228,13 +228,31 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         step.Detail = "Nexus opened in your browser: press Slow download (or Mod Manager Download) there, and Starlink takes it from there.";
         ProgressText = "Waiting for the download from Nexus…";
         IsWaitingForNexus = true;
-        _waitingForNexusLink = new TaskCompletionSource<NxmUrl?>(TaskCreationOptions.RunContinuationsAsynchronously);
         Current = this;
-        _openUrl(NexusAppUpdates.DownloadPageUrl(fileId));
         NxmUrl? link;
-        using (token.Register(() => _waitingForNexusLink.TrySetCanceled()))
+        var opened = false;
+        while (true)
         {
-            link = await _waitingForNexusLink.Task;
+            var waiting = _waitingForNexusLink = new TaskCompletionSource<NxmUrl?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!opened)
+            {
+                opened = true;
+                _openUrl(NexusAppUpdates.DownloadPageUrl(fileId));
+            }
+
+            using (token.Register(() => waiting.TrySetCanceled()))
+            {
+                link = await waiting.Task;
+            }
+
+            // Only this release's file: another one on the page (an older version) isn't what the
+            // window says it installs, and without a GitHub checksum nothing else would catch it.
+            if (link is null || link.FileId == fileId)
+            {
+                break;
+            }
+
+            step.Detail = $"That download was a different file on the page, not v{_release.Version}. Press Slow download (or Mod Manager Download) on v{_release.Version} there.";
         }
 
         IsWaitingForNexus = false;
