@@ -145,7 +145,14 @@ public static partial class ArcFissionRows
             throw new FormatException("its ArcFission/mod.lua isn't a valid ArcFission identity card (arcfission, author, id)");
         }
 
-        if (card.String("library") is { } needs && libraryVersion is not null && CompareVersions(needs, libraryVersion) > 0)
+        // The library's vercmp takes whatever the card says (tostring): library = 2, a number, needs 2.
+        var needs = card.Fields.GetValueOrDefault("library") switch
+        {
+            string s => s,
+            double d => d.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            _ => null,
+        };
+        if (needs is not null && libraryVersion is not null && CompareVersions(needs, libraryVersion) > 0)
         {
             throw new FormatException($"it needs ArcFission Library {needs} or newer (installed: {libraryVersion}), so the library leaves it out too");
         }
