@@ -157,13 +157,50 @@ public static class ServerUe4ssSync
         foreach (var file in Directory.EnumerateFiles(modFolder, "*", SearchOption.AllDirectories))
         {
             var relative = Path.GetRelativePath(modFolder, file);
-            if (IsRuntimeFile(relative))
+            if (IsRuntimeFile(relative) || IsArcFissionLibraryState(modFolder, relative))
             {
                 local.Add(relative);
             }
         }
 
         return local;
+    }
+
+    /// <summary>
+    /// What ArcFission Library (and the ArcFission mods talking to it) write in its folder while the
+    /// game runs (its main.lua 1.3.0 and README): state.lua (what the current data pak was built
+    /// from), status.lua (its answer to the mods), registry.txt (each mod's handshake this session),
+    /// core_queue.txt and core_running.txt (written each start). They describe the game's own
+    /// session, not settings: copied onto a server they're stale there. core_off.txt is the user's
+    /// own switch and isn't one of these.
+    /// </summary>
+    private static readonly string[] ArcFissionLibraryStateFiles = ["state.lua", "status.lua", "registry.txt", "core_queue.txt", "core_running.txt"];
+
+    /// <summary>A file in the ArcFission Library folder (named "ArcFissionLibrary…", as InstallManifestNames finds it) that is its runtime state.</summary>
+    private static bool IsArcFissionLibraryState(string modFolder, string relativePath)
+    {
+        var letters = new string([.. Path.GetFileName(Path.TrimEndingDirectorySeparator(modFolder)).Where(char.IsLetterOrDigit)]);
+        return letters.StartsWith("ArcFissionLibrary", StringComparison.OrdinalIgnoreCase)
+            && ArcFissionLibraryStateFiles.Contains(relativePath, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Copies a mod folder from the game onto the server, without the game's runtime state of ArcFission Library.</summary>
+    private static void CopyModFolder(string source, string target)
+    {
+        Directory.CreateDirectory(target);
+        foreach (var file in Directory.GetFiles(source))
+        {
+            var name = Path.GetFileName(file);
+            if (!IsArcFissionLibraryState(source, name))
+            {
+                File.Copy(file, Path.Combine(target, name), overwrite: true);
+            }
+        }
+
+        foreach (var folder in Directory.GetDirectories(source))
+        {
+            Directories.Copy(folder, Path.Combine(target, Path.GetFileName(folder)));
+        }
     }
 
     private static readonly string[] RuntimeExtensions = [".log", ".bak", ".cache", ".tmp", ".old", ".txt", ".md"];
@@ -208,7 +245,8 @@ public static class ServerUe4ssSync
     /// own config files, the files the mod wrote there (LocalFiles) and its on/off state are kept, and the old
     /// copy is moved into <paramref name="backupsFolder"/>\removed-ue4ss rather than deleted. A mod new
     /// to the server is turned on. The one way a mod goes onto a local server: nothing replaces the
-    /// server's copy by deleting it first.
+    /// server's copy by deleting it first. ArcFission Library's runtime state (state.lua, status.lua,
+    /// registry.txt…) is the game's own session: never copied; the server's own copies are kept.
     /// </summary>
     public static void CopyToServer(string gameModsFolder, string modName, string installFolder, string backupsFolder)
     {
@@ -224,7 +262,7 @@ public static class ServerUe4ssSync
         var txtPath = Path.Combine(serverMods, Ue4ssModStart.ListFileName);
         if (!Directory.Exists(target))
         {
-            Directories.Copy(source, target);
+            CopyModFolder(source, target);
             var list = Ue4ssModsTxt.Load(txtPath);
             list.Set(modName, true);
             list.Save(txtPath);
@@ -252,7 +290,7 @@ public static class ServerUe4ssSync
         Directory.Move(target, aside);
         try
         {
-            Directories.Copy(source, target);
+            CopyModFolder(source, target);
             foreach (var (relative, bytes) in keptFiles)
             {
                 var path = Path.Combine(target, relative);
