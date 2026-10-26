@@ -179,7 +179,17 @@ public sealed partial class Ue4ssSettingsDocument
                 }
             }
 
-            return settings;
+            // A key listed twice in a section: the last one is what's read (FindLine), so that's the
+            // one field shown.
+            var last = new Dictionary<(string, string), int>();
+            for (var i = 0; i < settings.Count; i++)
+            {
+                last[(settings[i].Section.ToLowerInvariant(), settings[i].Key.ToLowerInvariant())] = i;
+            }
+
+            return last.Count == settings.Count
+                ? settings
+                : settings.Where((s, i) => last[(s.Section.ToLowerInvariant(), s.Key.ToLowerInvariant())] == i).ToList();
         }
     }
 
@@ -270,8 +280,16 @@ public sealed partial class Ue4ssSettingsDocument
         return null;
     }
 
+    /// <summary>
+    /// The key's LAST line in the section (a section listed twice counts as one): a key listed
+    /// twice ends up with the last value, both in UE4SS's own ini parser (each line writes into the
+    /// same entry of the section's key map, RE-UE4SS IniParser TokenParser.cpp) and in the simple
+    /// line-by-line Lua readers mods use for their config. Showing or editing the first would
+    /// change a line nothing reads.
+    /// </summary>
     private int? FindLine(string section, string key)
     {
+        int? found = null;
         var current = "";
         for (var i = 0; i < _lines.Count; i++)
         {
@@ -292,11 +310,11 @@ public sealed partial class Ue4ssSettingsDocument
                 && KeyLine().Match(line) is { Success: true } keyMatch
                 && keyMatch.Groups["key"].Value.Trim().Equals(key, StringComparison.OrdinalIgnoreCase))
             {
-                return i;
+                found = i;
             }
         }
 
-        return null;
+        return found;
     }
 
     private static Ue4ssSetting Describe(string section, string key, string value, List<string> comments, string separator, string note = "")
