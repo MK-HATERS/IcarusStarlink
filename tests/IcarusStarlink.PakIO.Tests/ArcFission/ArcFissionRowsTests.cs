@@ -228,6 +228,27 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.Contains(scan.Problems, p => p.StartsWith("Nbsp:") && p.Contains("rows.lua") && p.Contains("non-breaking space"));
     }
 
+    /// <summary>
+    /// RowsHash is the SHA-1 of the rows file's bytes, as the library hashes them. It used to hash
+    /// the decoded text, so two files differing only in bytes that aren't UTF-8 (a Latin-1 "é" in a
+    /// comment) hashed the same (review 2026-10-26).
+    /// </summary>
+    [Fact]
+    public void RowsHash_IsTheSha1OfTheFilesBytes()
+    {
+        Mod("WirelessPower", "WirelessPower", "");
+        var rowsPath = Path.Combine(ModsFolder, "WirelessPower", "ArcFission", "rows.lua");
+        byte[] Bytes(byte latin1) => [.. "-- caf"u8, latin1, .. "\nreturn { tables = {} }\n"u8];
+
+        File.WriteAllBytes(rowsPath, Bytes(0xE9));
+        var first = ArcFissionRows.ReadMod(Path.Combine(ModsFolder, "WirelessPower"), "1.3.0").RowsHash;
+        File.WriteAllBytes(rowsPath, Bytes(0xE8));
+        var second = ArcFissionRows.ReadMod(Path.Combine(ModsFolder, "WirelessPower"), "1.3.0").RowsHash;
+
+        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(Bytes(0xE9))).ToLowerInvariant(), first);
+        Assert.NotEqual(first, second);
+    }
+
     [Fact]
     public void ABrokenModIsSaid_AndTheOthersStillCount()
     {

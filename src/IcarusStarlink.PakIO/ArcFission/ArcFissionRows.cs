@@ -15,7 +15,7 @@ namespace IcarusStarlink.PakIO.ArcFission;
 /// </summary>
 public sealed record ArcFissionRow(string CurrentFile, string Name, JsonObject Row);
 
-/// <param name="RowsHash">SHA-1 of the rows file as written (what ArcFission Library's own fingerprint uses).</param>
+/// <param name="RowsHash">SHA-1 of the rows file's raw bytes, as ArcFission Library's own fingerprint hashes them (empty for rows = false).</param>
 public sealed record ArcFissionMod(string Id, string Name, string Version, string RowsHash, IReadOnlyList<ArcFissionRow> Rows);
 
 /// <summary>The ArcFission mods turned on in the game, and what stopped any of them being read (said, never thrown).</summary>
@@ -227,7 +227,6 @@ public static partial class ArcFissionRows
         }
 
         var rowsValue = ParseLuaFile(Path.Combine(arcFissionFolder, rowsFileName), out var rowsBytes);
-        var rowsText = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetString(rowsBytes);
         if (rowsValue is not LuaTable rowsFile || rowsFile.Table("tables") is not { } tables)
         {
             throw new FormatException($"its {rowsFileName} has no 'tables'");
@@ -256,7 +255,9 @@ public static partial class ArcFissionRows
             }
         }
 
-        var rowsHash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(rowsText))).ToLowerInvariant();
+        // The file's bytes as they are, as the library hashes them (not the decoded text: bytes that
+        // aren't UTF-8, in a comment say, decode to the same replacement character).
+        var rowsHash = Convert.ToHexString(SHA1.HashData(rowsBytes)).ToLowerInvariant();
         return new ArcFissionMod(id, name, version, rowsHash, rows);
     }
 
