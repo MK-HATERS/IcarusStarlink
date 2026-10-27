@@ -156,4 +156,38 @@ public static class Ue4ssModConfigCarryOver
     }
 
     private static string ShowValue(string value) => value.Length > 60 ? value[..57] + "…" : value;
+
+    /// <summary>
+    /// Writes another copy's settings into this mod folder (a shared patch, a server's config): the
+    /// file's own layout stays and takes the values from <paramref name="text"/>; a file the mod
+    /// doesn't have yet is written as given. The replaced file is saved first under
+    /// <paramref name="backupFolder"/> (the mod's name, then the time). Returns the settings
+    /// <paramref name="text"/> named that this copy's file doesn't have, so the caller can say so.
+    /// </summary>
+    public static IReadOnlyList<string> ApplyValues(string modFolder, string relativePath, string text, string backupFolder)
+    {
+        var target = Path.Combine(modFolder, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        if (!File.Exists(target))
+        {
+            IO.AtomicFile.WriteAllText(target, text);
+            return [];
+        }
+
+        var current = File.ReadAllText(target);
+        if (current == text)
+        {
+            return [];
+        }
+
+        var review = new Ue4ssConfigReview { File = relativePath };
+        var merged = Merge(Ue4ssModConfigFiles.FormatOf(relativePath), playersText: text, shippedText: current, review);
+        var backup = Path.Combine(backupFolder, Path.GetFileName(Path.TrimEndingDirectorySeparator(modFolder)), DateTime.Now.ToString("yyyy-MM-dd_HHmmss"), relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
+        File.Copy(target, backup, overwrite: true);
+        // No layout to merge into (plain text, or a file holding tables over several lines): the
+        // given text is what the other copy runs, so it's taken whole.
+        IO.AtomicFile.WriteAllText(target, merged ?? text);
+        return merged is null ? [] : review.Removed;
+    }
 }

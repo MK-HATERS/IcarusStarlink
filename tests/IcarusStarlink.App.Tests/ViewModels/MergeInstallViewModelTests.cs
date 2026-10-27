@@ -14,6 +14,7 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Patches;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.Container;
@@ -88,7 +89,8 @@ public sealed class MergeInstallViewModelTests : IDisposable
         FakeGameDataFreshness? gameDataFreshness = null,
         FakePatchService? patchService = null,
         string? dataFolder = null,
-        bool withHealthCheck = false)
+        bool withHealthCheck = false,
+        Ue4ssPieces? ue4ss = null)
     {
         settingsService ??= new FakeSettingsService();
         libraryRepository ??= new FakeLibraryRepository();
@@ -125,7 +127,32 @@ public sealed class MergeInstallViewModelTests : IDisposable
             new FakeGameProcessChecker(gameRunning),
             gameDataFreshness,
             _dialogs,
-            withHealthCheck ? new ModFixService(libraryRepository, dataFolder) : null);
+            withHealthCheck ? new ModFixService(libraryRepository, dataFolder) : null,
+            ue4ss?.StateService, ue4ss?.Repository, ue4ss?.MetaStore);
+    }
+
+    /// <summary>The real UE4SS staging, sidecar store and enable/disable mover over temp folders, plus a fake game Mods folder.</summary>
+    private sealed record Ue4ssPieces(IUe4ssModStateService StateService, IUe4ssModRepository Repository, IUe4ssModMetaStore MetaStore, string GameModsFolder);
+
+    private Ue4ssPieces MakeUe4ss(FakeSettingsService settings)
+    {
+        settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Game", "Icarus", "Content");
+        var gameMods = Ue4ssGamePaths.ResolveModsFolder(settings.Current.IcarusContentPath);
+        Directory.CreateDirectory(gameMods);
+        var repository = new IcarusStarlink.Storage.Ue4ss.Ue4ssModRepository(Path.Combine(_tempRoot, "Staged_UE4SS"));
+        var metaStore = new IcarusStarlink.Storage.Ue4ss.Ue4ssModMetaStore(Path.Combine(_tempRoot, "Ue4ss_Meta"), Microsoft.Extensions.Logging.Abstractions.NullLogger<IcarusStarlink.Storage.Ue4ss.Ue4ssModMetaStore>.Instance);
+        return new Ue4ssPieces(new Ue4ssModStateService(repository), repository, metaStore, gameMods);
+    }
+
+    /// <summary>A UE4SS mod in the game's Mods folder, turned on, with a config.lua.</summary>
+    private static string InstallUe4ssModInGame(string gameMods, string name, string configText)
+    {
+        var folder = Path.Combine(gameMods, name);
+        Directory.CreateDirectory(Path.Combine(folder, "Scripts"));
+        File.WriteAllText(Path.Combine(folder, "Scripts", "main.lua"), "local VERSION = \"1.2.0\"");
+        File.WriteAllText(Path.Combine(folder, "config.lua"), configText);
+        File.WriteAllText(Path.Combine(folder, "enabled.txt"), "");
+        return folder;
     }
 
     /// <summary>A small extracted game: a few items, and the drinks they can link to.</summary>
@@ -162,6 +189,10 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public Func<string, string, bool> OnConfirm { get; set; } = (_, title) => throw new InvalidOperationException($"Unexpected question: {title}");
 
         public Func<string?> OnPickFile { get; set; } = () => null;
+
+        public Func<string?> OnPickSaveFile { get; set; } = () => null;
+
+        public string? PickSaveFile(string title, string filter, string defaultFileName, string? initialDirectory = null) => OnPickSaveFile();
 
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity) => OnConfirm(message, title);
 
@@ -1758,6 +1789,148 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.StartsWith("Imported 'Coop'", vm.PatchStatusMessage);
     }
 
+    /// <summary>
+    /// Format 2 export (2026-10-27): a Nexus-sourced pak mod is referenced by its ids with its pak
+    /// names; a mod from nowhere is bundled; the UE4SS mods on in the game come along, one
+    /// referenced by its Nexus id and one bundled from the game folder, with their config text.
+    /// </summary>
+    [Fact]
+    public async Task ExportPatch_FormatTwo_ReferencesSourcedMods_BundlesTheRest_AndCarriesUe4ssModsWithSettings()
+    {
+        var settings = new FakeSettingsService();
+        var ue4ss = MakeUe4ss(settings);
+        var toolsFolder = InstallUe4ssModInGame(ue4ss.GameModsFolder, "MkHatersTools", "return { MaxScale = 2.0 }");
+        File.WriteAllText(Path.Combine(toolsFolder, "config.default.lua"), "return { MaxScale = 4.0 }");
+        InstallUe4ssModInGame(ue4ss.GameModsFolder, "LocalLua", "return { A = 1 }");
+        Directory.CreateDirectory(Path.Combine(ue4ss.GameModsFolder, "shared")); // the framework's: never exported
+        ue4ss.MetaStore.Save("MkHatersTools", new Ue4ssModMeta { NexusModId = 500, NexusFileId = 5001, NexusName = "MkHaters Tools" });
+
+        var library = new FakeLibraryRepository();
+        var pakFolder = CreateOpaquePakFolder("Wireless");
+        var nexusPak = MakeEntry("Wireless", isOpaquePak: true);
+        nexusPak.NexusModId = 361;
+        nexusPak.NexusFileId = 1200;
+        nexusPak.PakFileNames = ["Prebuilt.pak"];
+        library.FolderPaths["Wireless"] = pakFolder;
+        library.FolderPaths["Homemade"] = CreateExmodFolder("Homemade", BuildCraftTimeExmodJson("Homemade", 5), out _);
+        library.AllEntries = [nexusPak, MakeEntry("Homemade")];
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["Wireless", "Homemade"] });
+        var patches = new FakePatchService();
+        var vm = CreateViewModel(libraryRepository: library, profileStore: store, settingsService: settings, patchService: patches, ue4ss: ue4ss);
+        vm.SelectedProfileName = "Coop";
+        var exportPath = Path.Combine(_tempRoot, "ISL-Patch-Coop.zip");
+        _dialogs.OnPickSaveFile = () => exportPath;
+
+        await vm.ExportPatchCommand.ExecuteAsync(null);
+
+        Assert.StartsWith("Exported 'Coop'", vm.PatchStatusMessage);
+        var manifest = patches.ExportedManifest!;
+        Assert.Equal(PatchManifest.CurrentFormatVersion, manifest.FormatVersion);
+        Assert.NotNull(manifest.ExportedAtUtc);
+        var wireless = manifest.Mods.Single(m => m.FolderName == "Wireless");
+        Assert.Equal((false, true, 361, 1200), (wireless.Bundled, wireless.IsPak, wireless.NexusModId, wireless.NexusFileId));
+        Assert.Equal(["Prebuilt.pak"], wireless.PakFileNames);
+        Assert.True(manifest.Mods.Single(m => m.FolderName == "Homemade").Bundled);
+        var bundle = patches.ExportedBundle!;
+        Assert.Equal(["Homemade"], bundle.Exmods.Keys);
+        Assert.Empty(bundle.PakFolders);
+        Assert.Equal(["LocalLua", "MkHatersTools"], manifest.Ue4ssMods.Select(m => m.Name).Order(StringComparer.Ordinal));
+        var tools = manifest.Ue4ssMods.Single(m => m.Name == "MkHatersTools");
+        Assert.Equal((500, 5001, "MkHaters Tools", "1.2.0", false), (tools.NexusModId, tools.NexusFileId, tools.NexusName, tools.Version, tools.Bundled));
+        var config = Assert.Single(tools.Configs); // the shipped defaults file isn't a setting
+        Assert.Equal(("config.lua", "return { MaxScale = 2.0 }"), (config.Path, config.Text));
+        Assert.True(manifest.Ue4ssMods.Single(m => m.Name == "LocalLua").Bundled);
+        Assert.Equal(Path.Combine(ue4ss.GameModsFolder, "LocalLua"), bundle.Ue4ssFolders["LocalLua"]);
+        Assert.True(manifest.IncludesConfigs);
+    }
+
+    /// <summary>Untick "Include UE4SS mod settings": the mods still travel, their configs don't.</summary>
+    [Fact]
+    public async Task ExportPatch_WithoutSettings_LeavesTheConfigsOut()
+    {
+        var settings = new FakeSettingsService();
+        var ue4ss = MakeUe4ss(settings);
+        InstallUe4ssModInGame(ue4ss.GameModsFolder, "MkHatersTools", "return { MaxScale = 2.0 }");
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA")] };
+        library.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", 5), out _);
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModA"] });
+        var patches = new FakePatchService();
+        var vm = CreateViewModel(libraryRepository: library, profileStore: store, settingsService: settings, patchService: patches, ue4ss: ue4ss);
+        vm.SelectedProfileName = "Coop";
+        vm.ExportIncludesConfigs = false;
+        _dialogs.OnPickSaveFile = () => Path.Combine(_tempRoot, "p.zip");
+
+        await vm.ExportPatchCommand.ExecuteAsync(null);
+
+        var tools = Assert.Single(patches.ExportedManifest!.Ue4ssMods);
+        Assert.Empty(tools.Configs);
+        Assert.False(patches.ExportedManifest.IncludesConfigs);
+    }
+
+    /// <summary>
+    /// Format 2 import: a referenced mod is found by its Nexus id even under another name; a
+    /// bundled pak mod goes into the Library as one pak mod; a bundled UE4SS mod lands in staging
+    /// and a referenced one already in the game is found, and both get the patch's settings
+    /// written into their own config (the game copy's old file backed up first).
+    /// </summary>
+    [Fact]
+    public async Task ImportPatch_FormatTwo_MatchesByNexusId_ImportsBundledPaksAndUe4ssMods_AndWritesTheirSettings()
+    {
+        var settings = new FakeSettingsService();
+        var ue4ss = MakeUe4ss(settings);
+        var toolsFolder = InstallUe4ssModInGame(ue4ss.GameModsFolder, "MkHatersTools", "return {\n    MaxScale = 4.0, -- biggest\n    Mine = true,\n}\n");
+        var renamed = MakeEntry("Wireless_Power_v2");
+        renamed.NexusModId = 361;
+        var library = new FakeLibraryRepository { AllEntries = [renamed] };
+        var extracted = Path.Combine(_tempRoot, "Extracted");
+        Directory.CreateDirectory(Path.Combine(extracted, "Paks", "My_Pak"));
+        File.WriteAllBytes(Path.Combine(extracted, "Paks", "My_Pak", "Model_P.pak"), [1]);
+        Directory.CreateDirectory(Path.Combine(extracted, "Ue4ss", "LocalLua", "LocalLua", "Scripts"));
+        File.WriteAllText(Path.Combine(extracted, "Ue4ss", "LocalLua", "LocalLua", "Scripts", "main.lua"), "lua");
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest
+                {
+                    FormatVersion = 2, ProfileName = "Server",
+                    Mods =
+                    [
+                        new PatchModEntry { FolderName = "Wireless", Name = "Wireless Power", Author = "Other", Version = "2", Bundled = false, NexusModId = 361 },
+                        new PatchModEntry { FolderName = "My_Pak", Name = "My Pak", Author = "Me", Version = "1", Bundled = true, IsPak = true, PakFileNames = ["Model_P.pak"] },
+                    ],
+                    Ue4ssMods =
+                    [
+                        new PatchUe4ssEntry { Name = "MkHatersTools", NexusModId = 500, Configs = [new PatchConfigFile { Path = "config.lua", Text = "return {\n    MaxScale = 2.0,\n    Theirs = 1,\n}\n" }] },
+                        new PatchUe4ssEntry { Name = "LocalLua", Bundled = true, Configs = [new PatchConfigFile { Path = "config.lua", Text = "return { A = 1 }" }] },
+                    ],
+                    IncludesConfigs = true,
+                },
+                new Dictionary<string, ExmodPackageContents>(),
+                new Dictionary<string, string> { ["My_Pak"] = Path.Combine(extracted, "Paks", "My_Pak") },
+                new Dictionary<string, string> { ["LocalLua"] = Path.Combine(extracted, "Ue4ss", "LocalLua", "LocalLua") }),
+        };
+        var vm = CreateViewModel(libraryRepository: library, profileStore: new FakeProfileStore(), settingsService: settings, patchService: patches, ue4ss: ue4ss);
+        _dialogs.OnPickFile = () => "patch.zip";
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+
+        Assert.StartsWith("Imported 'Server'", vm.PatchStatusMessage);
+        Assert.DoesNotContain("missing", vm.PatchStatusMessage);
+        Assert.Equal(["Wireless_Power_v2", "My Pak"], vm.Queue.Select(e => e.FolderName));
+        var pakImport = Assert.Single(library.ImportedPakSets);
+        Assert.Equal(("My Pak", "Patch"), (pakImport.Name, pakImport.Source));
+        Assert.Equal(["Model_P.pak"], pakImport.Paks.Select(Path.GetFileName));
+        // The game copy keeps its layout and takes the patch's value; the old file is backed up.
+        Assert.Equal("return {\n    MaxScale = 2.0, -- biggest\n    Mine = true,\n}\n", File.ReadAllText(Path.Combine(toolsFolder, "config.lua")));
+        Assert.Single(Directory.GetFiles(Path.Combine(_tempRoot, "Backups", "UE4SS-Mod-Configs"), "config.lua", SearchOption.AllDirectories));
+        // The bundled UE4SS mod is staged with its config.
+        Assert.Equal(["LocalLua"], ue4ss.Repository.GetAll());
+        Assert.Equal("return { A = 1 }", File.ReadAllText(Path.Combine(ue4ss.Repository.GetFolderPath("LocalLua"), "config.lua")));
+        Assert.Contains("tick LocalLua in the Library's UE4SS list", vm.PatchStatusMessage);
+    }
+
     /// <summary>Copy to game while a build runs would copy the pak the build is still writing: it's refused with a reason.</summary>
     [Fact]
     public async Task CopyToGame_WhileBuilding_IsRefused()
@@ -1953,7 +2126,20 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null) =>
             throw new NotSupportedException("Not exercised by these tests.");
 
-        public LibraryEntry ImportPaks(IReadOnlyList<string> pakFilePaths, string name, string? source = null, int? nexusModId = null, string? catalogEntryId = null) => throw new NotSupportedException("Not exercised by these tests.");
+        /// <summary>What ImportPaks was handed (a patch's bundled pak mod).</summary>
+        public List<(IReadOnlyList<string> Paks, string Name, string? Source, int? NexusModId)> ImportedPakSets { get; } = [];
+
+        public LibraryEntry ImportPaks(IReadOnlyList<string> pakFilePaths, string name, string? source = null, int? nexusModId = null, string? catalogEntryId = null)
+        {
+            ImportedPakSets.Add((pakFilePaths, name, source, nexusModId));
+            var entry = new LibraryEntry
+            {
+                FolderName = name, Name = name, Author = "?", Version = "?", Description = "", FileName = name, IsOpaquePak = true,
+                PakFileNames = [.. pakFilePaths.Select(Path.GetFileName)!], Source = source, NexusModId = nexusModId, CatalogEntryId = catalogEntryId,
+            };
+            AllEntries.Add(entry);
+            return entry;
+        }
 
         public LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null, string? mergedPackProfileName = null)
         {
@@ -2169,8 +2355,20 @@ public sealed class MergeInstallViewModelTests : IDisposable
         /// <summary>What ImportAsync reads from any patch file.</summary>
         public PatchImportContents? ImportResult { get; set; }
 
-        public Task ExportAsync(PatchManifest manifest, IReadOnlyDictionary<string, ExmodPackageContents> bundledMods, string outputPath, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+        /// <summary>What the last ExportAsync was handed.</summary>
+        public PatchManifest? ExportedManifest { get; private set; }
+
+        public PatchBundle? ExportedBundle { get; private set; }
+
+        public string? ExportedPath { get; private set; }
+
+        public Task ExportAsync(PatchManifest manifest, PatchBundle bundle, string outputPath, CancellationToken cancellationToken = default)
+        {
+            ExportedManifest = manifest;
+            ExportedBundle = bundle;
+            ExportedPath = outputPath;
+            return Task.CompletedTask;
+        }
 
         public Task<PatchImportContents> ImportAsync(string patchFilePath, CancellationToken cancellationToken = default) =>
             Task.FromResult(ImportResult ?? throw new NotSupportedException("Set ImportResult first."));

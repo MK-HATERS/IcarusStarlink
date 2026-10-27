@@ -14,6 +14,7 @@ using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Compare;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
@@ -37,6 +38,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     private readonly IInstallService _installService;
     private readonly IProfileStore _profileStore;
     private readonly IPatchService _patchService;
+    private readonly IUe4ssModStateService? _ue4ssStateService;
+    private readonly IUe4ssModRepository? _ue4ssRepository;
+    private readonly IUe4ssModMetaStore? _ue4ssMetaStore;
     private readonly IDaedalusCatalogClient _daedalusClient;
     private readonly IJimk72CatalogClient _jimk72Client;
     private readonly ISettingsService _settingsService;
@@ -151,11 +155,16 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         IPatchService patchService, IDaedalusCatalogClient daedalusClient, IJimk72CatalogClient jimk72Client,
         ISettingsService settingsService, IPakCompareService pakCompareService, PerformanceTracker performanceTracker, IActivityLog activityLog,
         string dataFolder, string outputPakPath, string backupDirectory, IMessenger? messenger = null, IGameProcessChecker? gameProcessChecker = null,
-        IGameDataFreshness? gameDataFreshness = null, IDialogService? dialogService = null, ModFixService? fixService = null)
+        IGameDataFreshness? gameDataFreshness = null, IDialogService? dialogService = null, ModFixService? fixService = null,
+        IUe4ssModStateService? ue4ssStateService = null, IUe4ssModRepository? ue4ssRepository = null, IUe4ssModMetaStore? ue4ssMetaStore = null)
     {
         IcarusStarlink.Core.Memory.IdleMemory.Register(this);
         _dialogs = dialogService ?? new WpfDialogService();
         _fixService = fixService;
+        // For Share a mod list: the UE4SS mods on in the game go into a patch, and a patch's come back. Optional: without them a patch carries data mods only.
+        _ue4ssStateService = ue4ssStateService;
+        _ue4ssRepository = ue4ssRepository;
+        _ue4ssMetaStore = ue4ssMetaStore;
 
         // Injectable so tests can give each view model its own messenger — the shared Default one
         // made this class's tests interfere with each other under the parallel runner.

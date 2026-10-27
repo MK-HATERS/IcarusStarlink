@@ -27,7 +27,7 @@ public class PatchServiceTests : IDisposable
         var manifest = new PatchManifest { ProfileName = "Weekend Build", Mods = [MakeEntry("ModA", bundled: false)] };
         var path = Path.Combine(_dir, "patch.json");
 
-        await _service.ExportAsync(manifest, new Dictionary<string, ExmodPackageContents>(), path);
+        await _service.ExportAsync(manifest, PatchBundle.Empty, path);
 
         var text = await File.ReadAllTextAsync(path);
         Assert.Contains("Weekend Build", text);
@@ -44,7 +44,7 @@ public class PatchServiceTests : IDisposable
             Options = new GameplayOptions { XpBoost = XpBoostLevel.Level1, SlotsMultiplier = 2, UnlimitedAmmo = true },
         };
         var path = Path.Combine(_dir, "patch.json");
-        await _service.ExportAsync(manifest, new Dictionary<string, ExmodPackageContents>(), path);
+        await _service.ExportAsync(manifest, PatchBundle.Empty, path);
 
         var result = await _service.ImportAsync(path);
 
@@ -62,7 +62,7 @@ public class PatchServiceTests : IDisposable
             Mods = [MakeEntry("ModA", bundled: false, name: "Mod A"), MakeEntry("ModB", bundled: false, name: "Mod B")],
         };
         var path = Path.Combine(_dir, "patch.json");
-        await _service.ExportAsync(manifest, new Dictionary<string, ExmodPackageContents>(), path);
+        await _service.ExportAsync(manifest, PatchBundle.Empty, path);
 
         var result = await _service.ImportAsync(path);
 
@@ -78,7 +78,7 @@ public class PatchServiceTests : IDisposable
         var bundled = new Dictionary<string, ExmodPackageContents> { ["Local_Edit"] = MakeExmod("Local_Edit", "Local Edit") };
         var path = Path.Combine(_dir, "patch.zip");
 
-        await _service.ExportAsync(manifest, bundled, path);
+        await _service.ExportAsync(manifest, PatchBundle.Of(bundled), path);
 
         var result = await _service.ImportAsync(path);
         Assert.Equal("Weekend Build", result.Manifest.ProfileName);
@@ -99,7 +99,7 @@ public class PatchServiceTests : IDisposable
         };
         var bundled = new Dictionary<string, ExmodPackageContents> { ["Local_Mod"] = MakeExmod("Local_Mod", "Local Mod") };
         var path = Path.Combine(_dir, "patch.zip");
-        await _service.ExportAsync(manifest, bundled, path);
+        await _service.ExportAsync(manifest, PatchBundle.Of(bundled), path);
 
         var result = await _service.ImportAsync(path);
 
@@ -175,6 +175,118 @@ public class PatchServiceTests : IDisposable
         await File.WriteAllBytesAsync(path, [0x50, 0x4B, 0x03, 0x04, 0x00, 0x00]);
 
         await Assert.ThrowsAsync<FormatException>(() => _service.ImportAsync(path));
+    }
+
+    /// <summary>
+    /// Format 2 (2026-10-27): a pak mod from nowhere travels as its pak files, a UE4SS mod with no
+    /// Nexus source as its folder (without its logs and enabled.txt), each with its ids and the
+    /// UE4SS mod's config text in the manifest; both come back extracted to a temp folder the
+    /// result removes when disposed.
+    /// </summary>
+    [Fact]
+    public async Task ExportAsync_ThenImportAsync_FormatTwo_RoundTripsPaksUe4ssModsAndConfigs()
+    {
+        var pakFolder = Path.Combine(_dir, "paks");
+        Directory.CreateDirectory(pakFolder);
+        File.WriteAllBytes(Path.Combine(pakFolder, "Model_P.pak"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(pakFolder, "Icons_P.pak"), [4, 5]);
+        var ue4ssFolder = Path.Combine(_dir, "MkHatersTools");
+        Directory.CreateDirectory(Path.Combine(ue4ssFolder, "Scripts"));
+        File.WriteAllText(Path.Combine(ue4ssFolder, "Scripts", "main.lua"), "local VERSION = \"1.5.0\"");
+        File.WriteAllText(Path.Combine(ue4ssFolder, "config.lua"), "return { MaxScale = 2.0 }");
+        File.WriteAllText(Path.Combine(ue4ssFolder, "MkHatersTools.log"), "noise");
+        File.WriteAllText(Path.Combine(ue4ssFolder, "enabled.txt"), "");
+        var manifest = new PatchManifest
+        {
+            FormatVersion = PatchManifest.CurrentFormatVersion,
+            ProfileName = "Server",
+            Mods =
+            [
+                new PatchModEntry { FolderName = "Nexus_Mod", Name = "Nexus Mod", Author = "A", Version = "2", Bundled = false, NexusModId = 361, NexusFileId = 1200 },
+                new PatchModEntry { FolderName = "My_Pak", Name = "My Pak", Author = "Me", Version = "1", Bundled = true, IsPak = true, PakFileNames = ["Model_P.pak", "Icons_P.pak"] },
+            ],
+            Ue4ssMods =
+            [
+                new PatchUe4ssEntry
+                {
+                    Name = "MkHatersTools", Version = "1.5.0", Bundled = true,
+                    Configs = [new PatchConfigFile { Path = "config.lua", Text = "return { MaxScale = 2.0 }" }],
+                },
+            ],
+            IncludesConfigs = true,
+        };
+        var bundle = new PatchBundle(
+            new Dictionary<string, ExmodPackageContents>(),
+            new Dictionary<string, IReadOnlyList<string>> { ["My_Pak"] = [Path.Combine(pakFolder, "Model_P.pak"), Path.Combine(pakFolder, "Icons_P.pak")] },
+            new Dictionary<string, string> { ["MkHatersTools"] = ue4ssFolder });
+        var path = Path.Combine(_dir, "patch.zip");
+
+        await _service.ExportAsync(manifest, bundle, path);
+
+        string extractedRoot;
+        using (var result = await _service.ImportAsync(path))
+        {
+            Assert.Equal(2, result.Manifest.FormatVersion);
+            Assert.Equal(361, result.Manifest.Mods[0].NexusModId);
+            Assert.Equal(1200, result.Manifest.Mods[0].NexusFileId);
+            var paks = Assert.Single(result.BundledPakFolders).Value;
+            Assert.Equal(["Icons_P.pak", "Model_P.pak"], Directory.GetFiles(paks).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+            Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(paks, "Model_P.pak")));
+            var ue4ss = Assert.Single(result.BundledUe4ssFolders).Value;
+            Assert.Equal("MkHatersTools", Path.GetFileName(ue4ss));
+            Assert.Equal("local VERSION = \"1.5.0\"", File.ReadAllText(Path.Combine(ue4ss, "Scripts", "main.lua")));
+            Assert.False(File.Exists(Path.Combine(ue4ss, "MkHatersTools.log")));
+            Assert.False(File.Exists(Path.Combine(ue4ss, "enabled.txt")));
+            var config = Assert.Single(Assert.Single(result.Manifest.Ue4ssMods).Configs);
+            Assert.Equal(("config.lua", "return { MaxScale = 2.0 }"), (config.Path, config.Text));
+            extractedRoot = result.ExtractedRoot!;
+            Assert.True(Directory.Exists(extractedRoot));
+        }
+
+        Assert.False(Directory.Exists(extractedRoot));
+    }
+
+    /// <summary>A patch written before format 2 (no FormatVersion, no UE4SS list) still reads, as format 1.</summary>
+    [Fact]
+    public async Task ImportAsync_FormatOneJson_ReadsAsFormatOne()
+    {
+        var path = Path.Combine(_dir, "old.json");
+        await File.WriteAllTextAsync(path, "{\"ProfileName\":\"Old\",\"Mods\":[{\"FolderName\":\"A\",\"Name\":\"A\",\"Author\":\"B\",\"Version\":\"1\",\"Bundled\":false}],\"Options\":{}}");
+
+        using var result = await _service.ImportAsync(path);
+
+        Assert.Equal(1, result.Manifest.FormatVersion);
+        Assert.Empty(result.Manifest.Ue4ssMods);
+        Assert.Null(result.Manifest.Mods[0].NexusModId);
+        Assert.Empty(result.Manifest.Mods[0].PakFileNames);
+        Assert.Null(result.ExtractedRoot);
+    }
+
+    /// <summary>A bundled entry whose path climbs out of its folder (a crafted archive) is refused.</summary>
+    [Fact]
+    public async Task ImportAsync_BundledEntryEscapingItsFolder_ThrowsFormatException()
+    {
+        var manifest = new PatchManifest
+        {
+            FormatVersion = 2, ProfileName = "Bad",
+            Ue4ssMods = [new PatchUe4ssEntry { Name = "Evil", Bundled = true }],
+        };
+        var path = Path.Combine(_dir, "evil.zip");
+        using (var zip = new System.IO.Compression.ZipArchive(File.Create(path), System.IO.Compression.ZipArchiveMode.Create))
+        {
+            using (var w = new StreamWriter(zip.CreateEntry("manifest.json").Open()))
+            {
+                w.Write(System.Text.Json.JsonSerializer.Serialize(manifest));
+            }
+
+            using (var w = new StreamWriter(zip.CreateEntry("BundledUe4ss/Evil/../../escape.lua").Open()))
+            {
+                w.Write("x");
+            }
+        }
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => _service.ImportAsync(path));
+        Assert.Contains("outside its folder", ex.Message);
     }
 
     public void Dispose()
