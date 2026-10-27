@@ -1094,6 +1094,58 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.False(vm.HasPatchCompare);
     }
 
+    /// <summary>Review 2026-10-27: Merge &amp; Install refusing the import (a build in progress) used to read as "no importer" and the UE4SS mods still went on the server.</summary>
+    [Fact]
+    public async Task ApplyPatchToServer_WhenMergeInstallIsBusy_PutsNothingOnTheServer()
+    {
+        var gameWin64 = MakeGameWithUe4ss(("MkHatersTools", true));
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest { FormatVersion = 2, ProfileName = "Server", Ue4ssMods = [new PatchUe4ssEntry { Name = "MkHatersTools" }] },
+                new Dictionary<string, IcarusStarlink.PakIO.Container.ExmodPackageContents>()),
+        };
+        var importer = new FakePatchImporter { Result = null };
+        var (vm, _, _, dialogs) = Build(pick: _install, patches: patches, importer: importer);
+        vm.AddExistingServerCommand.Execute(null);
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+        dialogs.OpenFilePath = Path.Combine(_root, "patch.zip");
+
+        await vm.ApplyPatchToServerCommand.ExecuteAsync(null);
+
+        Assert.Contains("busy", vm.ShareStatusMessage);
+        Assert.False(Directory.Exists(Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(_install), "MkHatersTools")));
+    }
+
+    /// <summary>Review 2026-10-27: a pak mod is its own pak file in Paks\mods, never a name in ISL-Merged.txt, so it read as missing everywhere.</summary>
+    [Fact]
+    public async Task ComparePatch_PakMod_IsFoundByItsPakFiles()
+    {
+        var content = Path.Combine(_root, "Game", "Icarus", "Content");
+        Settings.Current.IcarusContentPath = content;
+        Directory.CreateDirectory(Path.Combine(content, "Paks", "mods"));
+        File.WriteAllBytes(Path.Combine(content, "Paks", "mods", "Model_P.pak"), [1]);
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest
+                {
+                    FormatVersion = 2, ProfileName = "S",
+                    Mods = [new PatchModEntry { FolderName = "M", Name = "My Model", Author = "A", Version = "1", Bundled = false, NexusModId = 1, IsPak = true, PakFileNames = ["Model_P.pak"] }],
+                },
+                new Dictionary<string, IcarusStarlink.PakIO.Container.ExmodPackageContents>()),
+        };
+        var (vm, _, _, dialogs) = Build(pick: _install, library: new FakeLibrary(), patches: patches);
+        vm.AddExistingServerCommand.Execute(null);
+        dialogs.OpenFilePath = Path.Combine(_root, "patch.json");
+
+        await vm.ComparePatchCommand.ExecuteAsync(null);
+
+        var row = Assert.Single(vm.PatchCompareRows);
+        Assert.Equal(("Pak mod", "installed", "—"), (row.Kind, row.GameText, row.ServerText));
+    }
+
     private string MakeGameWithUe4ss(params (string Name, bool Enabled)[] mods)
     {
         var win64 = Path.Combine(_root, "Game", "Icarus", "Binaries", "Win64");

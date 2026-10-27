@@ -24,13 +24,17 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
     /// <summary>One UE4SS mod to put in a patch: its folder name and where its files are (the game's or a server's copy).</summary>
     public sealed record Ue4ssModSource(string Name, string Folder);
 
-    public (PatchManifest Manifest, PatchBundle Bundle) Build(
+    /// <param name="Skipped">Mods left out: a pak mod with no source and no pak files on disk (nothing to reference, nothing to bundle).</param>
+    public sealed record Result(PatchManifest Manifest, PatchBundle Bundle, IReadOnlyList<string> Skipped);
+
+    public Result Build(
         string profileName, IReadOnlyList<LibraryEntry> mods, GameplayOptions options, IReadOnlyList<Ue4ssModSource> ue4ssMods,
         bool includeConfigs, IReadOnlySet<(string Name, string Author)> catalogKeys)
     {
         var entries = new List<PatchModEntry>();
         var bundledExmods = new Dictionary<string, ExmodPackageContents>();
         var bundledPaks = new Dictionary<string, IReadOnlyList<string>>();
+        var skipped = new List<string>();
         foreach (var entry in mods)
         {
             if (entry.IsMissingFromLibrary)
@@ -52,6 +56,13 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
                 mod.PakFileNames = [.. paks.Select(Path.GetFileName)!];
                 if (!hasSource)
                 {
+                    if (paks.Count == 0)
+                    {
+                        // Marked bundled with nothing to bundle, the import would refuse the whole patch.
+                        skipped.Add(entry.Name);
+                        continue;
+                    }
+
                     bundledPaks[entry.FolderName] = paks;
                 }
             }
@@ -107,7 +118,7 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
             Ue4ssMods = ue4ssEntries,
             IncludesConfigs = includeConfigs && ue4ssEntries.Any(m => m.Configs.Count > 0),
         };
-        return (manifest, new PatchBundle(bundledExmods, bundledPaks, bundledUe4ss));
+        return new Result(manifest, new PatchBundle(bundledExmods, bundledPaks, bundledUe4ss), skipped);
     }
 
     /// <summary>The UE4SS mods on in a Mods folder (the game's or a server's), the framework's own left out, as sources for <see cref="Build"/>.</summary>

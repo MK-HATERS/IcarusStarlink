@@ -105,7 +105,7 @@ public sealed partial class LocalServerViewModel
                 return;
             }
 
-            var (manifest, bundle) = new PatchBuilder(_library, _ue4ssMetaStore)
+            var (manifest, bundle, skipped) = new PatchBuilder(_library, _ue4ssMetaStore)
                 .Build(p.Name, match.Matched, new GameplayOptions(), ue4ss, ServerExportIncludesConfigs, new HashSet<(string Name, string Author)>());
             var extension = bundle.IsEmpty ? "json" : "zip";
             if (_dialogService.PickSaveFile(
@@ -128,6 +128,11 @@ public sealed partial class LocalServerViewModel
             if (match.Unmatched.Count > 0)
             {
                 ShareStatusMessage += $" Not in your Library, so not in the patch: {string.Join(", ", match.Unmatched)}.";
+            }
+
+            if (skipped.Count > 0)
+            {
+                ShareStatusMessage += $" Left out (no source and no pak files to bundle): {string.Join(", ", skipped)}.";
             }
 
             _activityLog.Log($"Exported a patch of '{p.Name}' to '{exportPath}'.", ActivityEntryKind.Success);
@@ -169,11 +174,22 @@ public sealed partial class LocalServerViewModel
         {
             using var contents = await _patchService.ImportAsync(patchPath);
             var manifest = contents.Manifest;
-            var libraryLine = _patchImporter is null ? null : await _patchImporter.ImportPatchContentsAsync(contents);
-            if (libraryLine is not null && libraryLine.StartsWith("Import failed", StringComparison.Ordinal))
+            string? libraryLine = null;
+            if (_patchImporter is not null)
             {
-                ShareStatusMessage = libraryLine;
-                return;
+                libraryLine = await _patchImporter.ImportPatchContentsAsync(contents);
+                if (libraryLine is null)
+                {
+                    // Refused (a build in progress on Merge & Install): the Library side didn't happen, so nothing goes on the server either.
+                    ShareStatusMessage = "Merge & Install is busy building; apply the patch again when it's done.";
+                    return;
+                }
+
+                if (libraryLine.StartsWith("Import failed", StringComparison.Ordinal))
+                {
+                    ShareStatusMessage = libraryLine;
+                    return;
+                }
             }
 
             var serverLines = new List<string>();
@@ -308,13 +324,20 @@ public sealed partial class LocalServerViewModel
             var rows = new List<PatchCompareRow>();
 
             static bool Has(IReadOnlyList<string> names, string name) => names.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+            // A pak mod is its own pak file(s) in Paks\mods, never a name in the merged pak's list.
+            static bool HasPaks(string? paksFolder, PatchModEntry mod) =>
+                paksFolder is not null && mod.PakFileNames.Count > 0 && mod.PakFileNames.All(n => File.Exists(Path.Combine(paksFolder, n)));
+            var gamePaksFolder = GamePaksModsFolder();
+            var serverPaksFolder = DedicatedServerLayout.PakModsFolder(p.InstallFolder);
             foreach (var mod in manifest.Mods)
             {
                 var inLibrary = library.Any(e => string.Equals(e.Name, mod.Name, StringComparison.OrdinalIgnoreCase));
+                var inGame = mod.IsPak ? HasPaks(gamePaksFolder, mod) : Has(gameNames, mod.Name);
+                var onServer = mod.IsPak ? HasPaks(serverPaksFolder, mod) : Has(serverNames, mod.Name);
                 rows.Add(new PatchCompareRow(
                     mod.Name, mod.IsPak ? "Pak mod" : "Data mod", $"v{mod.Version}",
-                    Has(gameNames, mod.Name) ? "installed" : inLibrary ? "in Library, not installed" : "—",
-                    Has(serverNames, mod.Name) ? "installed" : "—"));
+                    inGame ? "installed" : inLibrary ? "in Library, not installed" : "—",
+                    onServer ? "installed" : "—"));
             }
 
             foreach (var name in gameNames.Concat(serverNames).Distinct(StringComparer.OrdinalIgnoreCase)

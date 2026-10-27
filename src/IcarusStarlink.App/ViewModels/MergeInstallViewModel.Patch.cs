@@ -90,7 +90,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
             // The UE4SS mods on in the game (the framework's own left out).
             var ue4ssMods = Ue4ssGameModsFolder is { } modsFolder ? PatchBuilder.Ue4ssModsOnIn(modsFolder) : [];
-            var (manifest, bundle) = new PatchBuilder(_libraryRepository, _ue4ssMetaStore)
+            var (manifest, bundle, skipped) = new PatchBuilder(_libraryRepository, _ue4ssMetaStore)
                 .Build(profileName, [.. Queue], BuildGameplayOptionsFromUi(), ue4ssMods, ExportIncludesConfigs, catalogKeys);
             if (manifest.Mods.Count == 0 && manifest.Ue4ssMods.Count == 0)
             {
@@ -124,6 +124,11 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
                 + (bundledCount > 0
                     ? $"{bundledCount} bundled (nowhere else to get them), the rest referenced by their Nexus or catalog source."
                     : "every one referenced by its Nexus or catalog source, nothing bundled.");
+
+            if (skipped.Count > 0)
+            {
+                PatchStatusMessage += $" Left out (no source and no pak files to bundle): {string.Join(", ", skipped)}.";
+            }
 
             if (failedSources.Count > 0)
             {
@@ -270,7 +275,10 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         {
             var manifest = contents.Manifest;
             var versionNotes = new List<string>();
-            var (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes);
+            // The bundled mods this import put in the Library, by the patch's folder name: the
+            // second pass (after downloads) finds them instead of importing them again.
+            var imported = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes, imported);
             var configured = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var ue4ss = ImportUe4ssFromPatch(contents, configured, versionNotes);
             var downloaded = 0;
@@ -305,7 +313,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
                 // What landed is matched the same way again; the UE4SS mods that just arrived get their settings now.
                 var before = missing.Count + ue4ss.Missing.Count;
-                (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes: null);
+                (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes: null, imported);
                 var again = ImportUe4ssFromPatch(contents, configured, versionNotes: null);
                 ue4ss = new Ue4ssImportOutcome(
                     [.. ue4ss.Lines.Concat(again.Lines).Distinct(StringComparer.Ordinal)],
@@ -397,7 +405,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
     /// differs from the patch's. A second call (after downloads) doesn't import the bundled
     /// mods again: it finds the copies the first call made.
     /// </summary>
-    private (List<string> Resolved, List<MissingPatchMod> Missing) ResolvePatchMods(PatchImportContents contents, List<string>? versionNotes)
+    private (List<string> Resolved, List<MissingPatchMod> Missing) ResolvePatchMods(PatchImportContents contents, List<string>? versionNotes, Dictionary<string, string> imported)
     {
         var resolved = new List<string>();
         var missing = new List<MissingPatchMod>();
@@ -405,13 +413,13 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         {
             if (mod.Bundled && mod.IsPak && contents.BundledPakFolders.TryGetValue(mod.FolderName, out var pakFolder))
             {
-                resolved.Add(_importedFromPatch.TryGetValue(mod.FolderName, out var pakCopy) ? pakCopy : _importedFromPatch[mod.FolderName] = ImportBundledPak(mod, pakFolder));
+                resolved.Add(imported.TryGetValue(mod.FolderName, out var pakCopy) ? pakCopy : imported[mod.FolderName] = ImportBundledPak(mod, pakFolder));
                 continue;
             }
 
             if (mod.Bundled && contents.BundledMods.TryGetValue(mod.FolderName, out var exmod))
             {
-                resolved.Add(_importedFromPatch.TryGetValue(mod.FolderName, out var exmodCopy) ? exmodCopy : _importedFromPatch[mod.FolderName] = ImportBundledMod(exmod));
+                resolved.Add(imported.TryGetValue(mod.FolderName, out var exmodCopy) ? exmodCopy : imported[mod.FolderName] = ImportBundledMod(exmod));
                 continue;
             }
 
@@ -433,9 +441,6 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
         return (resolved, missing);
     }
-
-    /// <summary>The bundled mods this import already put in the Library, by the patch's folder name (ResolvePatchMods runs twice when mods were downloaded).</summary>
-    private readonly Dictionary<string, string> _importedFromPatch = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The Library copy a referenced mod stands for: the same Nexus mod, else the same catalog entry, else the same name and author (a format 1 patch has only that).</summary>
     private LibraryEntry? FindLibraryMatch(PatchModEntry mod)
@@ -525,12 +530,22 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
         var modsFolder = Ue4ssGameModsFolder ?? "";
         var states = _ue4ssStateService.GetAll(modsFolder).ToDictionary(s => s.Name, StringComparer.OrdinalIgnoreCase);
+        // Each installed mod's Nexus id, read once: the fallback match for a renamed folder.
+        var byNexusId = new Dictionary<int, string>();
+        foreach (var state in states.Values)
+        {
+            if (_ue4ssMetaStore.Load(state.Name).NexusModId is { } id)
+            {
+                byNexusId.TryAdd(id, state.Name);
+            }
+        }
+
         var settingsApplied = 0;
         var landed = 0;
         var configBackups = Path.Combine(_backupDirectory, "UE4SS-Mod-Configs");
         foreach (var mod in wanted)
         {
-            var name = FindUe4ssMatch(mod, states.Values);
+            var name = FindUe4ssMatch(mod, states, byNexusId);
             if (name is null && mod.Bundled && contents.BundledUe4ssFolders.TryGetValue(mod.Name, out var bundledFolder))
             {
                 var namesInGame = _ue4ssRepository.ListInstalledInGame(modsFolder);
@@ -635,19 +650,8 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
     }
 
     /// <summary>The local UE4SS mod a patch entry stands for: the same folder name, else the same Nexus mod.</summary>
-    private string? FindUe4ssMatch(PatchUe4ssEntry mod, IEnumerable<Ue4ssModState> states)
-    {
-        var byName = states.FirstOrDefault(s => string.Equals(s.Name, mod.Name, StringComparison.OrdinalIgnoreCase));
-        if (byName is not null)
-        {
-            return byName.Name;
-        }
-
-        if (mod.NexusModId is { } nexusId && _ue4ssMetaStore is not null)
-        {
-            return states.FirstOrDefault(s => _ue4ssMetaStore.Load(s.Name).NexusModId == nexusId)?.Name;
-        }
-
-        return null;
-    }
+    private static string? FindUe4ssMatch(PatchUe4ssEntry mod, IReadOnlyDictionary<string, Ue4ssModState> states, IReadOnlyDictionary<int, string> byNexusId) =>
+        states.TryGetValue(mod.Name, out var byName) ? byName.Name
+        : mod.NexusModId is { } nexusId && byNexusId.TryGetValue(nexusId, out var byId) ? byId
+        : null;
 }

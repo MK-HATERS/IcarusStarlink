@@ -289,6 +289,20 @@ public class PatchServiceTests : IDisposable
         Assert.Contains("outside its folder", ex.Message);
     }
 
+    /// <summary>A manifest name that is a path (a crafted patch) is refused before anything is extracted or written: the names decide folders on both sides of an import.</summary>
+    [Theory]
+    [InlineData("{\"FormatVersion\":2,\"ProfileName\":\"Bad\",\"Mods\":[],\"Options\":{},\"Ue4ssMods\":[{\"Name\":\"..\\\\..\\\\evil\",\"Bundled\":true}]}")]
+    [InlineData("{\"FormatVersion\":2,\"ProfileName\":\"Bad\",\"Mods\":[{\"FolderName\":\"../up\",\"Name\":\"A\",\"Author\":\"B\",\"Version\":\"1\",\"Bundled\":true,\"IsPak\":true}],\"Options\":{}}")]
+    [InlineData("{\"FormatVersion\":2,\"ProfileName\":\"Bad\",\"Mods\":[{\"FolderName\":\"Ok\",\"Name\":\"A\",\"Author\":\"B\",\"Version\":\"1\",\"Bundled\":true,\"IsPak\":true,\"PakFileNames\":[\"C:\\\\Windows\\\\x.pak\"]}],\"Options\":{}}")]
+    public async Task ImportAsync_AManifestNameThatIsAPath_ThrowsFormatException(string json)
+    {
+        var path = Path.Combine(_dir, "names.json");
+        await File.WriteAllTextAsync(path, json);
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => _service.ImportAsync(path));
+        Assert.Contains("isn't a plain name", ex.Message);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

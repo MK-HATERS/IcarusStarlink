@@ -90,7 +90,19 @@ public static class ServerUe4ssSync
         {
             var a = Path.Combine(gameMod, config.RelativePath);
             var b = Path.Combine(serverMod, config.RelativePath);
-            if (!File.Exists(b) || NormalizedText(a) != NormalizedText(b))
+            bool differs;
+            try
+            {
+                differs = !File.Exists(b) || NormalizedText(a) != NormalizedText(b);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A file held by the running server (or being rewritten): can't say it's the same;
+                // that one file reads as differing rather than the whole table going empty.
+                differs = true;
+            }
+
+            if (differs)
             {
                 differing.Add(config.RelativePath);
             }

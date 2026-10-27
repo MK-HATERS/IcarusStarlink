@@ -108,6 +108,24 @@ public sealed class Ue4ssModConfigCarryOverTests : IDisposable
         Assert.Equal(["[A] X"], review.Kept);
     }
 
+    /// <summary>ApplyValues (a shared patch's settings): the local layout takes the values; applied again with nothing new it writes nothing and makes no backup (review 2026-10-27: a patch applied twice piled up identical backups).</summary>
+    [Fact]
+    public void ApplyValues_WritesTheValuesIntoTheLocalLayout_AndIsQuietTheSecondTime()
+    {
+        var mod = Mod("mine", ("config.lua", "return {\n    Range = 10, -- how far\n}\n"));
+        var backups = Path.Combine(_root, "backups");
+
+        var removed = Ue4ssModConfigCarryOver.ApplyValues(mod, "config.lua", "return {\n    Range = 50,\n    Gone = 1,\n}\r\n", backups);
+
+        Assert.Equal("return {\n    Range = 50, -- how far\n}\n", File.ReadAllText(Path.Combine(mod, "config.lua")));
+        Assert.Equal(["Gone = 1"], removed);
+        Assert.Single(Directory.GetFiles(backups, "config.lua", SearchOption.AllDirectories));
+
+        Ue4ssModConfigCarryOver.ApplyValues(mod, "config.lua", "return {\n    Range = 50,\n    Gone = 1,\n}\r\n", backups);
+
+        Assert.Single(Directory.GetFiles(backups, "config.lua", SearchOption.AllDirectories));
+    }
+
     /// <summary>The same settings in both: nothing to review, and the file is the new layout with nothing changed.</summary>
     [Fact]
     public void KeepInstalledConfigs_NothingChanged_NothingToReview()

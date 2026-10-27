@@ -222,7 +222,9 @@ public sealed class PatchService : IPatchService
             using (var source = entry.Open())
             using (var file = File.Create(destination))
             {
-                source.CopyTo(file);
+                // Bounded by the entry's declared length: a deflate stream that expands past what
+                // the header says (a bomb) is refused instead of filling the disk.
+                Safety.BoundedZipEntryCopy.CopyBounded(source, file, entry.Length, entry.FullName);
             }
 
             count++;
@@ -236,6 +238,16 @@ public sealed class PatchService : IPatchService
         var root = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Patch_{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         return root;
+    }
+
+    /// <summary>A manifest name must be one folder or file name: not empty, no separators, not "." or "..", no character a file name can't hold.</summary>
+    private static void RequireSafeName(string? name, string what)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name is "." or ".." || name.IndexOfAny(['/', '\\', ':']) >= 0
+            || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.Trim() != name)
+        {
+            throw new FormatException($"Patch manifest is corrupt: {what} ('{name}') isn't a plain name.");
+        }
     }
 
     private static string SafeFolderName(string name) =>
@@ -285,15 +297,24 @@ public sealed class PatchService : IPatchService
                 throw new FormatException("Patch manifest is corrupt: its UE4SS mod list is missing.");
             }
 
+            // The names decide where bundled files are extracted to and, later, which Library and
+            // Mods folders are written: a name that is a path (a crafted manifest) is refused here,
+            // before any of that.
             foreach (var mod in manifest.Mods)
             {
                 mod.PakFileNames ??= [];
+                RequireSafeName(mod.FolderName, "a mod's folder name");
+                foreach (var pak in mod.PakFileNames)
+                {
+                    RequireSafeName(pak, "a pak file name");
+                }
             }
 
             foreach (var mod in manifest.Ue4ssMods)
             {
                 mod.Configs ??= [];
                 mod.Configs.RemoveAll(c => c is null || string.IsNullOrWhiteSpace(c.Path));
+                RequireSafeName(mod.Name, "a UE4SS mod's name");
             }
 
             return manifest;

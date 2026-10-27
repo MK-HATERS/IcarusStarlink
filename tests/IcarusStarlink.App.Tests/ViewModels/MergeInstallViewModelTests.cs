@@ -2119,6 +2119,56 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Contains("close the game, then tick them", vm.PatchStatusMessage);
     }
 
+    /// <summary>Review 2026-10-27: the "already imported" memory was a field, so a second import of a patch bundling the same folder name reused the old copy instead of importing the new one.</summary>
+    [Fact]
+    public async Task ImportPatch_Twice_ImportsTheBundledPakAgain()
+    {
+        var extracted = Path.Combine(_tempRoot, "Extracted", "My_Pak");
+        Directory.CreateDirectory(extracted);
+        File.WriteAllBytes(Path.Combine(extracted, "Model_P.pak"), [1]);
+        var library = new FakeLibraryRepository();
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest
+                {
+                    FormatVersion = 2, ProfileName = "S",
+                    Mods = [new PatchModEntry { FolderName = "My_Pak", Name = "My Pak", Author = "Me", Version = "1", Bundled = true, IsPak = true, PakFileNames = ["Model_P.pak"] }],
+                },
+                new Dictionary<string, ExmodPackageContents>(),
+                new Dictionary<string, string> { ["My_Pak"] = extracted }),
+        };
+        var vm = CreateViewModel(libraryRepository: library, profileStore: new FakeProfileStore(), patchService: patches);
+        _dialogs.OnPickFile = () => "patch.zip";
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, library.ImportedPakSets.Count);
+    }
+
+    /// <summary>Review 2026-10-27: a pak mod with no source and no pak files on disk was marked bundled with nothing to bundle, and the import refused the whole patch. It's left out and named.</summary>
+    [Fact]
+    public async Task ExportPatch_PakModWithNoFilesAndNoSource_IsLeftOutAndNamed()
+    {
+        var library = new FakeLibraryRepository();
+        var ghost = MakeEntry("Ghost", isOpaquePak: true);
+        library.FolderPaths["Ghost"] = Path.Combine(_tempRoot, "Mods", "Ghost"); // never created
+        library.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", 5), out _);
+        library.AllEntries = [ghost, MakeEntry("ModA")];
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["Ghost", "ModA"] });
+        var patches = new FakePatchService();
+        var vm = CreateViewModel(libraryRepository: library, profileStore: store, patchService: patches);
+        vm.SelectedProfileName = "Coop";
+        _dialogs.OnPickSaveFile = () => Path.Combine(_tempRoot, "p.zip");
+
+        await vm.ExportPatchCommand.ExecuteAsync(null);
+
+        Assert.Equal(["ModA"], patches.ExportedManifest!.Mods.Select(m => m.FolderName));
+        Assert.Contains("Left out (no source and no pak files to bundle): Ghost", vm.PatchStatusMessage);
+    }
+
     /// <summary>Copy to game while a build runs would copy the pak the build is still writing: it's refused with a reason.</summary>
     [Fact]
     public async Task CopyToGame_WhileBuilding_IsRefused()

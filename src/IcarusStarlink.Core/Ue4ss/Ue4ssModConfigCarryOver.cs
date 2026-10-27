@@ -182,6 +182,14 @@ public static class Ue4ssModConfigCarryOver
 
         var review = new Ue4ssConfigReview { File = relativePath };
         var merged = Merge(Ue4ssModConfigFiles.FormatOf(relativePath), playersText: text, shippedText: current, review);
+        // The same values already (only line endings or trailing blanks apart): nothing to write,
+        // no backup to pile up (a patch applied twice used to make one each time).
+        static string Normal(string s) => s.Replace("\r\n", "\n").TrimEnd('\n', ' ', '\t');
+        if (Normal(merged ?? text) == Normal(current))
+        {
+            return merged is null ? [] : review.Removed;
+        }
+
         var backup = Path.Combine(backupFolder, Path.GetFileName(Path.TrimEndingDirectorySeparator(modFolder)), DateTime.Now.ToString("yyyy-MM-dd_HHmmss"), relativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
         File.Copy(target, backup, overwrite: true);

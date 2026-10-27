@@ -197,6 +197,19 @@ public sealed class ServerUe4ssSyncTests : IDisposable
         Assert.Equal([Path.Combine("config", "extra.ini")], ServerUe4ssSync.Compare(game, server, new HashSet<string>()).Single().DifferingConfigs);
     }
 
+    /// <summary>Review 2026-10-27: a config the running server holds open made Compare throw and the whole table empty; that one file reads as differing instead.</summary>
+    [Fact]
+    public void Compare_AConfigHeldOpenByTheServer_ReadsAsDiffering_NotAsAnError()
+    {
+        Mod("game", "Pets", ("Scripts/main.lua", "code"), ("config.lua", "return { a = 1 }"));
+        Mod("server", "Pets", ("Scripts/main.lua", "code"), ("config.lua", "return { a = 1 }"));
+        using var held = new FileStream(Path.Combine(_root, "server", "Pets", "config.lua"), FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var row = Assert.Single(ServerUe4ssSync.Compare(Path.Combine(_root, "game"), Path.Combine(_root, "server"), new HashSet<string>()));
+
+        Assert.Equal(["config.lua"], row.DifferingConfigs);
+    }
+
     [Fact]
     public void CopyConfigs_EitherWay_BacksUpTheReplacedFile_AndLeavesTheRestAlone()
     {
