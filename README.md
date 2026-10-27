@@ -192,6 +192,11 @@ gathered from the feature descriptions above:
   (`ZZ_ArcFission_Data_<n>_P.pak`, about 19 MB each, which that library rebuilds from the game's
   data) are removed at Install without a backup; its current one is never touched. On a local
   dedicated server they are moved into the server's backups instead.
+- **UE4SS mod config files** (`Binaries\Win64\ue4ss\Mods\<mod>\config.lua` and the like, in the
+  game and on a local dedicated server) — written only when you save in Edit config, press Match
+  settings on the Server page, or import a patch that carries settings; the file being replaced is
+  backed up first. A patch's bundled mods are unpacked under your temp folder while they are
+  imported and removed afterwards.
 - **Your save files** — reads and writes them only through the Save editor (and the world settings
   editor, on the Saves and Server pages), always backing up before a write, and refuses to touch a
   save while the game (or that server) is running (checked again immediately before the write
