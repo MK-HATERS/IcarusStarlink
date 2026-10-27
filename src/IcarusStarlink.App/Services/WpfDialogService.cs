@@ -10,6 +10,9 @@ public sealed class WpfDialogService : IDialogService
     public bool Confirm(string message, string title, ThemedConfirmSeverity severity) =>
         ThemedMessageBox.Show(message, title, severity);
 
+    public bool? ConfirmWithCancel(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText) =>
+        ThemedConfirmDialog.ShowWithCancel(Application.Current?.MainWindow, message, title, severity, yesText, noText);
+
     public RenamePromptResult PromptRename(
         string currentName,
         string description = "Changes how this mod displays in your Library only — its real folder, file name, and mod content are never touched.",

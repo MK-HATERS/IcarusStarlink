@@ -34,9 +34,15 @@ public sealed partial class ServerUe4ssRow : ObservableObject
     /// <summary>"v1.9.0 · on", "off": like the game's column, so a switched-off mod reads as off (it used to show only the version, as if unticking hadn't worked).</summary>
     public string ServerText => Comparison.OnServer ? Describe(Comparison.ServerVersion, Comparison.OnOnServer) : "—";
 
+    /// <summary>The game's and the server's copies run different settings (config.lua, config.ini…); Match settings… makes them the same.</summary>
+    public bool ConfigDiffers => Comparison.ConfigDiffers;
+
+    /// <summary>"Settings differ: config.lua" for the row's tooltip; null when they're the same.</summary>
+    public string? ConfigDiffersText => ConfigDiffers ? $"Settings differ: {string.Join(", ", Comparison.DifferingConfigs)}" : null;
+
     public string StateText => State switch
     {
-        ServerModState.Same => "Same as your game",
+        ServerModState.Same => ConfigDiffers ? "Same mod, different settings" : "Same as your game",
         ServerModState.ServerOutOfDate => Comparison.GameVersion is not null && Comparison.ServerVersion is not null && Comparison.GameVersion != Comparison.ServerVersion
             ? "Server out of date"
             : "Server copy differs",
@@ -53,7 +59,8 @@ public sealed partial class ServerUe4ssRow : ObservableObject
     /// <summary>Shown in the accent colour: out of date, or left on the server after it left your game.</summary>
     public bool NeedsAttention => NeedsUpdate || State == ServerModState.OnlyOnServer;
 
-    public bool IsSame => State == ServerModState.Same;
+    /// <summary>Shown in green: the same files and the same settings.</summary>
+    public bool IsSame => State == ServerModState.Same && !ConfigDiffers;
 
     /// <summary>The row's main button: put the game's copy on the server ("Copy to server" / "Update on server"); none when they match or the game doesn't have it.</summary>
     public string? CopyActionLabel => State switch

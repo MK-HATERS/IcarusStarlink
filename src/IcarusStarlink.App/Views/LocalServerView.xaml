@@ -891,7 +891,7 @@
                                     </Button.Style>
                                 </Button>
                                 <TextBlock FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" VerticalAlignment="Center" TextWrapping="Wrap"
-                                           Text="Versions come from each mod's main.lua; without one, the files are compared. The server's own config files don't count as a difference and are kept on update."/>
+                                           Text="Versions come from each mod's main.lua; without one, the files are compared. The server's own config files are kept on update; when they differ from your game's, Match settings… picks which copy both use."/>
                             </DockPanel>
                             <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource CardBackgroundBrush}">
                                 <StackPanel Grid.IsSharedSizeScope="True">
@@ -931,7 +931,7 @@
                                                                   Visibility="{Binding IsOnServer, Converter={StaticResource BoolToHiddenConverter}}"
                                                                   AutomationProperties.Name="{Binding Name, StringFormat='On on the server: {0}'}"
                                                                   ToolTip="On or off on the server (takes effect when it starts). An unticked mod stays on the server, switched off; Remove takes it off. Your game isn't changed."/>
-                                                        <TextBlock Grid.Column="4" Text="{Binding StateText}" VerticalAlignment="Center" FontSize="12">
+                                                        <TextBlock Grid.Column="4" Text="{Binding StateText}" VerticalAlignment="Center" FontSize="12" ToolTip="{Binding ConfigDiffersText}">
                                                             <TextBlock.Style>
                                                                 <Style TargetType="TextBlock">
                                                                     <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
@@ -952,6 +952,11 @@
                                                                     Command="{Binding DataContext.CopyUe4ssModToServerCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                     CommandParameter="{Binding}"
                                                                     Visibility="{Binding HasCopyAction, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                            <Button Content="Match settings…" Padding="8,1" FontSize="11.5" Margin="0,0,6,0"
+                                                                    Command="{Binding DataContext.MatchUe4ssModSettingsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    Visibility="{Binding ConfigDiffers, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                                    ToolTip="The game's and the server's copies have different settings. Pick which copy both should use; the replaced file is backed up first."/>
                                                             <Button Content="Remove" Padding="8,1" FontSize="11.5"
                                                                     Command="{Binding DataContext.RemoveServerUe4ssModCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                     CommandParameter="{Binding}"

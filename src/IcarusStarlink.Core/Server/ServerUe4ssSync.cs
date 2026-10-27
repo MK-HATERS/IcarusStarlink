@@ -25,7 +25,12 @@ public enum ServerModState
 
 /// <summary>One mod in the server's UE4SS table: what the game has, what the server has, how they compare.</summary>
 public sealed record ServerUe4ssComparison(
-    string Name, bool InGame, bool OnInGame, string? GameVersion, bool OnServer, bool OnOnServer, string? ServerVersion, ServerModState State);
+    string Name, bool InGame, bool OnInGame, string? GameVersion, bool OnServer, bool OnOnServer, string? ServerVersion, ServerModState State,
+    IReadOnlyList<string> DifferingConfigs)
+{
+    /// <summary>The game's and the server's copies have different settings (config.lua, config.ini…): <see cref="DifferingConfigs"/> names the files.</summary>
+    public bool ConfigDiffers => DifferingConfigs.Count > 0;
+}
 
 /// <summary>
 /// Keeps a dedicated server's UE4SS mods in step with the game's (user request 2026-10-23: the
@@ -60,10 +65,85 @@ public static class ServerUe4ssSync
                 : CompareCopies(game, server, gameVersion, serverVersion);
             result.Add(new ServerUe4ssComparison(
                 name, inGame, inGame && Ue4ssModStart.Starts(gameModsFolder, name, gameTxt), gameVersion,
-                onServer, onServer && Ue4ssModStart.Starts(serverModsFolder, name, serverTxt), serverVersion, state));
+                onServer, onServer && Ue4ssModStart.Starts(serverModsFolder, name, serverTxt), serverVersion, state,
+                inGame && onServer ? ConfigDifferences(game, server) : []));
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// The config files (config.lua, config.ini, config\*.ini…) that aren't the same in both copies
+    /// of a mod: different text (line endings aside), or only one copy has the file. The shipped
+    /// defaults (config.default.lua) are the mod's, not a setting, and never count. User request
+    /// 2026-10-27: the Server page said "Same as your game" while the server ran different settings.
+    /// </summary>
+    public static IReadOnlyList<string> ConfigDifferences(string modA, string modB)
+    {
+        var names = Ue4ssModConfigFiles.Find(modA).Concat(Ue4ssModConfigFiles.Find(modB))
+            .Where(c => !c.IsDefaults)
+            .Select(c => c.RelativePath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase);
+        var differing = new List<string>();
+        foreach (var relative in names)
+        {
+            var a = Path.Combine(modA, relative);
+            var b = Path.Combine(modB, relative);
+            if (!File.Exists(a) || !File.Exists(b) || NormalizedText(a) != NormalizedText(b))
+            {
+                differing.Add(relative);
+            }
+        }
+
+        return differing;
+    }
+
+    private static string NormalizedText(string path) =>
+        File.ReadAllText(path).Replace("\r\n", "\n").TrimEnd('\n', ' ', '\t');
+
+    /// <summary>
+    /// Makes <paramref name="targetModFolder"/>'s settings the same as <paramref name="sourceModFolder"/>'s:
+    /// every config file the source has (its shipped defaults aside) is copied over, and a target
+    /// file that is replaced is saved first under <paramref name="backupFolder"/> (the mod's name,
+    /// then the time). Config files only the target has are left alone. Returns the files written.
+    /// </summary>
+    public static IReadOnlyList<string> CopyConfigs(string sourceModFolder, string targetModFolder, string backupFolder)
+    {
+        if (!Directory.Exists(sourceModFolder))
+        {
+            throw new DirectoryNotFoundException($"'{sourceModFolder}' isn't there.");
+        }
+
+        if (!Directory.Exists(targetModFolder))
+        {
+            throw new DirectoryNotFoundException($"'{targetModFolder}' isn't there.");
+        }
+
+        var written = new List<string>();
+        var stamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+        foreach (var config in Ue4ssModConfigFiles.Find(sourceModFolder).Where(c => !c.IsDefaults))
+        {
+            var source = Path.Combine(sourceModFolder, config.RelativePath);
+            var target = Path.Combine(targetModFolder, config.RelativePath);
+            if (File.Exists(target))
+            {
+                if (File.ReadAllBytes(source).AsSpan().SequenceEqual(File.ReadAllBytes(target)))
+                {
+                    continue;
+                }
+
+                var backup = Path.Combine(backupFolder, Path.GetFileName(Path.TrimEndingDirectorySeparator(targetModFolder)), stamp, config.RelativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
+                File.Copy(target, backup, overwrite: true);
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            AtomicFile.Copy(source, target);
+            written.Add(config.RelativePath);
+        }
+
+        return written;
     }
 
     private static IEnumerable<string> ModFolders(string modsFolder) =>

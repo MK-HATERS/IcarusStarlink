@@ -670,6 +670,53 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     }
 
     /// <summary>
+    /// User request 2026-10-27: the same mod with different settings in the game and on the server
+    /// read as "Same as your game". The row says so, and Match settings… copies the chosen copy's
+    /// config the other way, backing the replaced file up first.
+    /// </summary>
+    [Fact]
+    public void Ue4ss_DifferentSettings_AreFlagged_AndMatchSettingsCopiesTheChosenCopy()
+    {
+        var gameWin64 = MakeGameWithUe4ss(("MkHatersTools", true));
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        var gameMod = Path.Combine(gameWin64, "ue4ss", "Mods", "MkHatersTools");
+        File.WriteAllText(Path.Combine(gameMod, "config.lua"), "return { Range = 10 }");
+        var (vm, _, _, dialogs) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+        vm.MatchServerToGameCommand.Execute(null);
+        var serverMod = Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(_install), "MkHatersTools");
+        File.WriteAllText(Path.Combine(serverMod, "config.lua"), "return { Range = 50 }");
+        vm.OnPageShown();
+
+        var row = vm.Ue4ssModRows.Single();
+        Assert.Equal(ServerModState.Same, row.State);
+        Assert.True(row.ConfigDiffers);
+        Assert.Equal("Same mod, different settings", row.StateText);
+        Assert.Equal("Settings differ: config.lua", row.ConfigDiffersText);
+        Assert.False(row.IsSame);
+
+        // Cancelled: nothing changes.
+        dialogs.ThreeWayAnswer = null;
+        vm.MatchUe4ssModSettingsCommand.Execute(row);
+        Assert.Equal("return { Range = 50 }", File.ReadAllText(Path.Combine(serverMod, "config.lua")));
+        Assert.Equal("return { Range = 10 }", File.ReadAllText(Path.Combine(gameMod, "config.lua")));
+
+        // The server's settings into the game; the game's old file is backed up.
+        dialogs.ThreeWayAnswer = false;
+        vm.MatchUe4ssModSettingsCommand.Execute(row);
+
+        Assert.Equal("return { Range = 50 }", File.ReadAllText(Path.Combine(gameMod, "config.lua")));
+        Assert.Contains("Your game now has", vm.StatusMessage);
+        var saved = Assert.Single(Directory.GetFiles(Path.Combine(BackupsRoot, "UE4SS-Mod-Configs"), "config.lua", SearchOption.AllDirectories));
+        Assert.Equal("return { Range = 10 }", File.ReadAllText(saved));
+        row = vm.Ue4ssModRows.Single();
+        Assert.False(row.ConfigDiffers);
+        Assert.Equal("Same as your game", row.StateText);
+        Assert.True(row.IsSame);
+    }
+
+    /// <summary>
     /// User report 2026-10-23: a mod updated in the game stayed old on the server and the page never
     /// said so. Now the row says "Server out of date", the tab says how many, and Update keeps the
     /// server's own config and on/off.
@@ -1093,6 +1140,15 @@ public sealed partial class LocalServerViewModelTests : IDisposable
             Messages.Add(message);
             WhileAsking?.Invoke();
             return Answers.Count > 0 ? Answers.Dequeue() : confirmResult;
+        }
+
+        /// <summary>The answer to a three-way question (true = the first button, false = the second, null = cancel).</summary>
+        public bool? ThreeWayAnswer { get; set; }
+
+        public bool? ConfirmWithCancel(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText)
+        {
+            Messages.Add(message);
+            return ThreeWayAnswer;
         }
 
         public RenamePromptResult PromptRename(string currentName, string description = "", string? resetValue = null, string resetLabel = "", string resetTooltip = "", string title = "", string fieldLabel = "") =>

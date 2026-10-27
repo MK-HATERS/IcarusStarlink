@@ -158,4 +158,42 @@ public sealed class ServerUe4ssSyncTests : IDisposable
         var row = Assert.Single(ServerUe4ssSync.Compare(Path.Combine(_root, "game"), Path.Combine(_root, "server"), new HashSet<string>()));
         Assert.Equal(ServerModState.ServerOutOfDate, row.State);
     }
+
+    /// <summary>User request 2026-10-27: the table said "Same as your game" while the server ran other settings. The shipped defaults aren't a setting; line endings don't count.</summary>
+    [Fact]
+    public void Compare_SameFiles_DifferentConfig_NamesTheConfig()
+    {
+        Mod("game", "Tools", ("Scripts/main.lua", "code"), ("config.lua", "return { a = 1 }\r\n"), ("config.default.lua", "return { a = 0 }"));
+        Mod("server", "Tools", ("Scripts/main.lua", "code"), ("config.lua", "return { a = 9 }\n"), ("config.default.lua", "return { a = 5 }"));
+        var game = Path.Combine(_root, "game");
+        var server = Path.Combine(_root, "server");
+
+        var row = Assert.Single(ServerUe4ssSync.Compare(game, server, new HashSet<string>()));
+        Assert.Equal(ServerModState.Same, row.State);
+        Assert.Equal(["config.lua"], row.DifferingConfigs);
+
+        File.WriteAllText(Path.Combine(server, "Tools", "config.lua"), "return { a = 1 }\n");
+        Assert.False(ServerUe4ssSync.Compare(game, server, new HashSet<string>()).Single().ConfigDiffers);
+    }
+
+    [Fact]
+    public void CopyConfigs_EitherWay_BacksUpTheReplacedFile_AndLeavesTheRestAlone()
+    {
+        var game = Mod("game", "Tools", ("Scripts/main.lua", "code"), ("config.lua", "game"), ("config.default.lua", "defaults"));
+        var server = Mod("server", "Tools", ("Scripts/main.lua", "server code"), ("config.lua", "server"), ("config/extra.ini", "[S]\nX=1\n"));
+        var backups = Path.Combine(_root, "backups");
+
+        var written = ServerUe4ssSync.CopyConfigs(game, server, backups);
+
+        Assert.Equal(["config.lua"], written);
+        Assert.Equal("game", File.ReadAllText(Path.Combine(server, "config.lua")));
+        Assert.Equal("server code", File.ReadAllText(Path.Combine(server, "Scripts", "main.lua")));
+        Assert.True(File.Exists(Path.Combine(server, "config", "extra.ini")));
+        Assert.False(File.Exists(Path.Combine(server, "config.default.lua")));
+        var saved = Assert.Single(Directory.GetFiles(Path.Combine(backups, "Tools"), "config.lua", SearchOption.AllDirectories));
+        Assert.Equal("server", File.ReadAllText(saved));
+
+        // The other way: config.lua is the same now (not written again); the server-only ini comes over.
+        Assert.Equal([Path.Combine("config", "extra.ini")], ServerUe4ssSync.CopyConfigs(server, game, backups));
+    }
 }

@@ -28,6 +28,13 @@ public interface IDialogService
     bool Confirm(string message, string title, ThemedConfirmSeverity severity);
 
     /// <summary>
+    /// Three answers, with the caller's words on the first two buttons: true = <paramref name="yesText"/>,
+    /// false = <paramref name="noText"/>, null = Cancel (or the window closed). The default answers
+    /// "cancelled", so a test fake only sets what it needs.
+    /// </summary>
+    bool? ConfirmWithCancel(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText) => null;
+
+    /// <summary>
     /// Same three-outcome shape RenameModDialog itself has (see its own doc comment for what
     /// resetValue null vs a real string means): Cancelled true means the caller does nothing at
     /// all; Cancelled false with NewDisplayName null means "reset/clear the override" (only

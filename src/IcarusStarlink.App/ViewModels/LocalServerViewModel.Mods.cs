@@ -471,6 +471,59 @@ public sealed partial class LocalServerViewModel
     [RelayCommand]
     private void RefreshServerMods() => RefreshMods();
 
+    /// <summary>
+    /// A row's "Match settings…": the game's and the server's copies of a mod have different
+    /// config files (user request 2026-10-27: the table said "Same as your game" while the server
+    /// ran other settings). Asks which copy's settings both should use and copies those files the
+    /// other way; a file that is replaced goes to the backups first. Nothing else about the mod
+    /// changes; the mod reads the file when it next starts (or sooner, with its own reload).
+    /// </summary>
+    [RelayCommand]
+    private void MatchUe4ssModSettings(ServerUe4ssRow? row)
+    {
+        if (SelectedProfile is not { } p || row is null || !row.ConfigDiffers)
+        {
+            return;
+        }
+
+        if (GameModsFolder() is not { } gameMods)
+        {
+            StatusMessage = "Set your Icarus Content folder in Settings first.";
+            return;
+        }
+
+        var files = string.Join(", ", row.Comparison.DifferingConfigs);
+        var answer = _dialogService.ConfirmWithCancel(
+            $"{row.Name} has different settings in your game and on '{p.Name}' ({files}).\n\nWhich settings should both use? The file that is replaced is saved in the backups first.",
+            "Match settings", ThemedConfirmSeverity.Question, "Use my game's settings on the server", "Use the server's settings in my game");
+        if (answer is null)
+        {
+            return;
+        }
+
+        var game = Path.Combine(gameMods, row.Name);
+        var server = Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(p.InstallFolder), row.Name);
+        try
+        {
+            var written = answer == true
+                ? ServerUe4ssSync.CopyConfigs(game, server, Path.Combine(ServerBackupsFolder(p), "ue4ss-configs"))
+                : ServerUe4ssSync.CopyConfigs(server, game, Path.Combine(_backupsRoot, "UE4SS-Mod-Configs"));
+            var names = string.Join(", ", written);
+            StatusMessage = answer == true
+                ? $"'{p.Name}' now has your game's settings for {row.Name} ({names}); the server reads them when it starts."
+                : $"Your game now has '{p.Name}'s settings for {row.Name} ({names}).";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = $"Couldn't copy {row.Name}'s settings: {ex.Message}";
+        }
+
+        var message = StatusMessage;
+        RefreshMods();
+        StatusMessage = message;
+    }
+
     [RelayCommand]
     private void RemoveServerUe4ssMod(ServerUe4ssRow? mod)
     {
