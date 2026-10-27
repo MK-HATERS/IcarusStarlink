@@ -176,6 +176,27 @@ public sealed class ServerUe4ssSyncTests : IDisposable
         Assert.False(ServerUe4ssSync.Compare(game, server, new HashSet<string>()).Single().ConfigDiffers);
     }
 
+    /// <summary>
+    /// Seen live 2026-10-27: Pet Commander writes Invulnerable.ini (the world's tames) beside its
+    /// config on the server, so the row read "different settings" and Match settings had nothing to
+    /// copy. A config-looking file only the server has is the server's own; a config the game has
+    /// and the server lacks is a difference.
+    /// </summary>
+    [Fact]
+    public void Compare_AConfigFileOnlyTheServerHas_IsTheServersOwn_NotADifference()
+    {
+        Mod("game", "Pets", ("Scripts/main.lua", "code"), ("config.lua", "return { a = 1 }"));
+        Mod("server", "Pets", ("Scripts/main.lua", "code"), ("config.lua", "return { a = 1 }"), ("Invulnerable.ini", "338769 = off ; MOA 'Maui'"));
+        var game = Path.Combine(_root, "game");
+        var server = Path.Combine(_root, "server");
+
+        Assert.False(ServerUe4ssSync.Compare(game, server, new HashSet<string>()).Single().ConfigDiffers);
+
+        Directory.CreateDirectory(Path.Combine(game, "Pets", "config"));
+        File.WriteAllText(Path.Combine(game, "Pets", "config", "extra.ini"), "[A]\nX = 1\n");
+        Assert.Equal([Path.Combine("config", "extra.ini")], ServerUe4ssSync.Compare(game, server, new HashSet<string>()).Single().DifferingConfigs);
+    }
+
     [Fact]
     public void CopyConfigs_EitherWay_BacksUpTheReplacedFile_AndLeavesTheRestAlone()
     {

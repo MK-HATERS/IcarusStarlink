@@ -509,10 +509,13 @@ public sealed partial class LocalServerViewModel
                 ? ServerUe4ssSync.CopyConfigs(game, server, Path.Combine(ServerBackupsFolder(p), "ue4ss-configs"))
                 : ServerUe4ssSync.CopyConfigs(server, game, Path.Combine(_backupsRoot, "UE4SS-Mod-Configs"));
             var names = string.Join(", ", written);
-            StatusMessage = answer == true
-                ? $"'{p.Name}' now has your game's settings for {row.Name} ({names}); the server reads them when it starts."
-                : $"Your game now has '{p.Name}'s settings for {row.Name} ({names}).";
-            _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
+            // Nothing written means the copies already matched file for file: said so, not claimed as a copy.
+            StatusMessage = written.Count == 0
+                ? $"{row.Name}'s settings are already the same in your game and on '{p.Name}'; nothing was copied."
+                : answer == true
+                    ? $"'{p.Name}' now has your game's settings for {row.Name} ({names}); the server reads them when it starts."
+                    : $"Your game now has '{p.Name}'s settings for {row.Name} ({names}).";
+            _activityLog.Log(StatusMessage, written.Count == 0 ? ActivityEntryKind.Info : ActivityEntryKind.Success);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

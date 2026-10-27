@@ -73,26 +73,26 @@ public static class ServerUe4ssSync
     }
 
     /// <summary>
-    /// The config files (config.lua, config.ini, config\*.ini…) that aren't the same in both copies
-    /// of a mod: different text (line endings aside), or only one copy has the file. The shipped
-    /// defaults (config.default.lua) are the mod's, not a setting, and never count. User request
-    /// 2026-10-27: the Server page said "Same as your game" while the server ran different settings.
+    /// The config files (config.lua, config.ini, config\*.ini…) of <paramref name="gameMod"/> that
+    /// the server's copy doesn't run the same: different text (line endings aside), or the server
+    /// lacks the file. A config-looking file only the server has is the server's own, never a
+    /// difference: Pet Commander writes its Invulnerable.ini (the world's tames by id) beside its
+    /// config where the world runs, so it's on the server and not in the game (seen live
+    /// 2026-10-27: it read as "different settings" that Match settings couldn't copy, since the
+    /// game had nothing to copy). The shipped defaults (config.default.lua) are the mod's, not a
+    /// setting, and never count. User request 2026-10-27: the Server page said "Same as your game"
+    /// while the server ran different settings.
     /// </summary>
-    public static IReadOnlyList<string> ConfigDifferences(string modA, string modB)
+    public static IReadOnlyList<string> ConfigDifferences(string gameMod, string serverMod)
     {
-        var names = Ue4ssModConfigFiles.Find(modA).Concat(Ue4ssModConfigFiles.Find(modB))
-            .Where(c => !c.IsDefaults)
-            .Select(c => c.RelativePath)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Order(StringComparer.OrdinalIgnoreCase);
         var differing = new List<string>();
-        foreach (var relative in names)
+        foreach (var config in Ue4ssModConfigFiles.Find(gameMod).Where(c => !c.IsDefaults))
         {
-            var a = Path.Combine(modA, relative);
-            var b = Path.Combine(modB, relative);
-            if (!File.Exists(a) || !File.Exists(b) || NormalizedText(a) != NormalizedText(b))
+            var a = Path.Combine(gameMod, config.RelativePath);
+            var b = Path.Combine(serverMod, config.RelativePath);
+            if (!File.Exists(b) || NormalizedText(a) != NormalizedText(b))
             {
-                differing.Add(relative);
+                differing.Add(config.RelativePath);
             }
         }
 
