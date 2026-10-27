@@ -66,6 +66,9 @@ public sealed partial class Ue4ssConfigField : ObservableObject
     /// <summary>What the file says now (changes after a save).</summary>
     public string OriginalValue { get; private set; }
 
+    /// <summary>The last update of the mod added this setting (at its default): marked "new in this version" until the user has reviewed the config.</summary>
+    public bool IsNewInVersion { get; set; }
+
     public bool IsToggle => Kind == Ue4ssSettingKind.Toggle;
     public bool IsChoice => Kind == Ue4ssSettingKind.Choice;
     public bool IsText => Kind == Ue4ssSettingKind.Text;

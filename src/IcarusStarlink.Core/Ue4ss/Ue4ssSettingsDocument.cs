@@ -22,9 +22,10 @@ public enum Ue4ssSettingKind
 /// <param name="Minimum">A number's lowest value, from its comment ("(0-10)", "[slider 1 10 0.5]").</param>
 /// <param name="Step">A slider's step; set only when the mod asks for a slider.</param>
 /// <param name="NeedsRestart">The comment says the setting applies after a restart ("[restart]", "restart needed").</param>
+/// <param name="Hidden">The mod asks for it not to be shown ("[hidden]": an internal or testing value); it stays in the file for hand edits.</param>
 public sealed record Ue4ssSetting(
     string Section, string Key, string Value, string Description, string? Default, Ue4ssSettingKind Kind, IReadOnlyList<string> Choices,
-    double? Minimum = null, double? Maximum = null, double? Step = null, bool NeedsRestart = false);
+    double? Minimum = null, double? Maximum = null, double? Step = null, bool NeedsRestart = false, bool Hidden = false);
 
 /// <summary>
 /// UE4SS-settings.ini, read and written line by line so that saving only changes the value part of
@@ -317,6 +318,35 @@ public sealed partial class Ue4ssSettingsDocument
         return found;
     }
 
+    /// <summary>
+    /// A setting of a Lua config (config.lua), described the same way as one of an ini: the
+    /// comment lines above it and the note after it on its line give the description, the tags
+    /// in the note ("[slider 0.5 4 0.5]", "[choice A B C]", "[dropdown A|B]", "[key]", "[restart]",
+    /// "[hidden]", as MkHaters Mod Settings reads them) the control. The Lua value's own kind
+    /// decides what it is: true/false a switch, a number a number (a slider with the tag), a
+    /// string text or a choice, anything else (a table on one line, nil) its Lua text.
+    /// </summary>
+    public static Ue4ssSetting DescribeLuaSetting(string key, string value, LuaConfigValueKind kind, IReadOnlyList<string> comments, string? note)
+    {
+        var described = Describe("", key, value, [.. comments], "\n", note ?? "");
+        var settingKind = kind switch
+        {
+            LuaConfigValueKind.Boolean => Ue4ssSettingKind.Toggle,
+            LuaConfigValueKind.Number => Ue4ssSettingKind.Number,
+            LuaConfigValueKind.String when described.Choices.Count > 1 => Ue4ssSettingKind.Choice,
+            _ => Ue4ssSettingKind.Text,
+        };
+        var isNumber = settingKind == Ue4ssSettingKind.Number;
+        return described with
+        {
+            Kind = settingKind,
+            Choices = settingKind == Ue4ssSettingKind.Choice ? described.Choices : [],
+            Minimum = isNumber ? described.Minimum : null,
+            Maximum = isNumber ? described.Maximum : null,
+            Step = isNumber ? described.Step : null,
+        };
+    }
+
     private static Ue4ssSetting Describe(string section, string key, string value, List<string> comments, string separator, string note = "")
     {
         string? defaultValue = null;
@@ -327,6 +357,7 @@ public sealed partial class Ue4ssSettingsDocument
         // list of the values it can take, which becomes the choices.
         double? minimum = null, maximum = null, step = null;
         var needsRestart = false;
+        var hidden = false;
         if (note.Length > 0)
         {
             if (SliderMarker().Match(note) is { Success: true } slider)
@@ -337,6 +368,15 @@ public sealed partial class Ue4ssSettingsDocument
                 step = step is > 0 ? step : 1;
             }
 
+            // "[choice A B C]" / "[dropdown Conifer Forest|Arctic]": the values it can take, as the mod lists them.
+            if (ChoiceMarker().Match(note) is { Success: true } choiceTag)
+            {
+                var list = choiceTag.Groups["list"].Value;
+                choices.AddRange((list.Contains('|') ? list.Split('|') : list.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                    .Select(c => c.Trim()).Where(c => c.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase));
+            }
+
+            hidden = HiddenMarker().IsMatch(note);
             needsRestart = RestartMarker().IsMatch(note) || RestartWords().IsMatch(note);
             note = RestartWords().Replace(Marker().Replace(note, ""), "").Trim().TrimEnd(';', ',').Trim();
             if (minimum is null && RangeInNote().Match(note) is { Success: true } range)
@@ -354,7 +394,7 @@ public sealed partial class Ue4ssSettingsDocument
                 note = RangeOnly().Replace(note, "").Trim();
             }
 
-            if (ChoiceList().IsMatch(note))
+            if (choices.Count == 0 && ChoiceList().IsMatch(note))
             {
                 var listed = WordOrList().Split(note).Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
                 if (listed.Count > 1 && listed.Contains(value, StringComparer.OrdinalIgnoreCase))
@@ -417,7 +457,7 @@ public sealed partial class Ue4ssSettingsDocument
             : Ue4ssSettingKind.Text;
         return new Ue4ssSetting(section, key, value, text, defaultValue, kind, choices,
             kind == Ue4ssSettingKind.Number ? minimum : null, kind == Ue4ssSettingKind.Number ? maximum : null,
-            kind == Ue4ssSettingKind.Number ? step : null, needsRestart);
+            kind == Ue4ssSettingKind.Number ? step : null, needsRestart, hidden);
     }
 
     /// <summary>A number as a mod's config writes it ("2", "2.0", "-1"), or null.</summary>
@@ -432,11 +472,18 @@ public sealed partial class Ue4ssSettingsDocument
     [GeneratedRegex(@"\[restart\]", RegexOptions.IgnoreCase)]
     private static partial Regex RestartMarker();
 
+    [GeneratedRegex(@"\[hidden\]", RegexOptions.IgnoreCase)]
+    private static partial Regex HiddenMarker();
+
+    // "[choice A B C]", "[dropdown Conifer Forest|Arctic|Desert]": the mod's own list of values.
+    [GeneratedRegex(@"\[(choice|dropdown)\s+(?<list>[^\]]+)\]", RegexOptions.IgnoreCase)]
+    private static partial Regex ChoiceMarker();
+
     [GeneratedRegex(@"\s*[;,]?\s*\brestart (needed|required)\b", RegexOptions.IgnoreCase)]
     private static partial Regex RestartWords();
 
-    // Any "[word ...]" marker for tools, not for people.
-    [GeneratedRegex(@"\s*\[(slider|restart)[^\]]*\]", RegexOptions.IgnoreCase)]
+    // Any "[word ...]" marker for tools, not for people (the tags MkHaters Mod Settings reads; "[Wax]" is text).
+    [GeneratedRegex(@"\s*\[(slider|restart|choice|dropdown|key|hidden)(\s[^\]]*)?\]", RegexOptions.IgnoreCase)]
     private static partial Regex Marker();
 
     // "(0-10)", "(1-100)", "(0-600; 0 = off)": the range a number takes.

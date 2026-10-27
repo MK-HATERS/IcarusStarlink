@@ -45,7 +45,16 @@ public sealed class ModReplacementResult
     /// <summary>Things that didn't go to plan but didn't fail the replacement (an enabled UE4SS mod that couldn't be re-enabled).</summary>
     public IReadOnlyList<string> Warnings { get; private init; } = [];
 
-    /// <summary>" Made 3 remembered fixes again. Couldn't enable …" — what to add to a success message; empty when there's nothing to say.</summary>
+    /// <summary>The UE4SS mod's config files kept from the previous copy ("config.lua"), so the player's settings survived the update.</summary>
+    public IReadOnlyList<string> KeptConfigs { get; private init; } = [];
+
+    /// <summary>Settings the new version's config has that the kept file lacked ("config.lua: Speed"): put in at the mod's defaults.</summary>
+    public IReadOnlyList<string> NewSettings { get; private init; } = [];
+
+    /// <summary>Settings the kept file had that the new version doesn't ("config.lua: OldName = 5"): left out, with the player's old value for a renamed one.</summary>
+    public IReadOnlyList<string> RemovedSettings { get; private init; } = [];
+
+    /// <summary>" Made 3 remembered fixes again. Kept your settings (config.lua). Couldn't enable …" — what to add to a success message; empty when there's nothing to say.</summary>
     public string Summary
     {
         get
@@ -56,13 +65,39 @@ public sealed class ModReplacementResult
                 parts.Add(FixesReapplied == 1 ? "Made 1 remembered fix again." : $"Made {FixesReapplied} remembered fixes again.");
             }
 
+            if (KeptConfigs.Count > 0)
+            {
+                parts.Add($"Kept your settings ({string.Join(", ", KeptConfigs)}).");
+            }
+
+            if (NewSettings.Count > 0 || RemovedSettings.Count > 0)
+            {
+                var review = new List<string>();
+                if (NewSettings.Count > 0)
+                {
+                    review.Add($"new, at their defaults: {string.Join("; ", NewSettings)}");
+                }
+
+                if (RemovedSettings.Count > 0)
+                {
+                    review.Add($"no longer in the mod (your values): {string.Join("; ", RemovedSettings)}");
+                }
+
+                parts.Add($"Look over its settings in Edit config — {string.Join(". ", review)}.");
+            }
+
             parts.AddRange(Warnings);
             return parts.Count == 0 ? "" : " " + string.Join(" ", parts);
         }
     }
 
-    internal static ModReplacementResult Success(IReadOnlyList<PendingDownloadActivatedItem> items, int fixesReapplied, IReadOnlyList<string> warnings) =>
-        new() { Succeeded = true, Items = items, FixesReapplied = fixesReapplied, Warnings = warnings };
+    internal static ModReplacementResult Success(
+        IReadOnlyList<PendingDownloadActivatedItem> items, int fixesReapplied, IReadOnlyList<string> warnings, Ue4ssModConfigCarryOverResult? configs = null) =>
+        new()
+        {
+            Succeeded = true, Items = items, FixesReapplied = fixesReapplied, Warnings = warnings,
+            KeptConfigs = configs?.Kept ?? [], NewSettings = configs?.NewSettings ?? [], RemovedSettings = configs?.RemovedSettings ?? [],
+        };
 
     internal static ModReplacementResult Cancel(string message) => new() { Cancelled = true, Message = message };
 
@@ -235,9 +270,11 @@ public sealed class ModReplacementService(
 
             var warnings = new List<string>();
             var fixes = await CarryOverAsync(request, items, oldLibrary, warnings);
+            // Before the new copy goes into the game: its config is set while it's still staged.
+            var configs = KeepUe4ssConfigs(request, items, oldUe4ss, scratch, warnings);
             RestoreUe4ss(items, oldUe4ss, modsFolder, warnings);
             CleanUpOldSources(items, oldLibrary);
-            return ModReplacementResult.Success(items, fixes, warnings);
+            return ModReplacementResult.Success(items, fixes, warnings, configs);
         }
         finally
         {
@@ -318,6 +355,56 @@ public sealed class ModReplacementService(
         }
 
         return fixes;
+    }
+
+    /// <summary>
+    /// The player's settings survive the update (user report 2026-10-27: activating a new Nexus
+    /// version of a UE4SS mod replaced config.lua with the shipped one, and the settings were only
+    /// in Backups\UE4SS). The old copy's config files, kept aside in the scratch folder, go into the
+    /// new staged copy over the shipped ones; the shipped defaults file (config.default.lua) stays
+    /// the new version's. Not for Reinstall original: the user asked for the copy as downloaded.
+    /// </summary>
+    private Ue4ssModConfigCarryOverResult KeepUe4ssConfigs(
+        ModReplacementRequest request, IReadOnlyList<PendingDownloadActivatedItem> items, IReadOnlyList<OldUe4ssCopy> oldUe4ss, string scratch, List<string> warnings)
+    {
+        if (request.Pristine)
+        {
+            return Ue4ssModConfigCarryOverResult.Nothing;
+        }
+
+        var kept = new List<string>();
+        var reviews = new List<Ue4ssConfigReview>();
+        var newNames = items.Where(i => i.Kind == PendingDownloadActivationKind.Ue4ssMod).Select(i => i.FolderName).ToList();
+        foreach (var name in newNames)
+        {
+            var old = oldUe4ss.FirstOrDefault(o => string.Equals(o.Name, name, StringComparison.OrdinalIgnoreCase))
+                ?? (oldUe4ss.Count == 1 && newNames.Count == 1 ? oldUe4ss[0] : null);
+            if (old is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                var newFolder = ue4ssRepository.GetFolderPath(name);
+                var result = Ue4ssModConfigCarryOver.KeepInstalledConfigs(Path.Combine(scratch, old.Name, old.Name), newFolder, Ue4ssModVersion.TryRead(newFolder));
+                kept.AddRange(result.Kept);
+                reviews.AddRange(result.Reviews);
+                // Remembered on the mod until the user has looked (the Library row and Edit config point it out).
+                if (result.Reviews.Count > 0)
+                {
+                    var meta = ue4ssMetaStore.Load(name);
+                    meta.ConfigReviews = [.. result.Reviews];
+                    ue4ssMetaStore.Save(name, meta);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                warnings.Add($"Couldn't keep your settings for '{name}': {ex.Message} — the previous copy is in Backups\\UE4SS.");
+            }
+        }
+
+        return new Ue4ssModConfigCarryOverResult(kept, reviews);
     }
 
     /// <summary>The UE4SS settings the user made (minimum loader version) carry over, and an enabled mod is enabled again.</summary>

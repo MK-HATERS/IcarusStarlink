@@ -295,11 +295,16 @@
                             </Path.Style>
                         </Path>
                     </Button>
-                    <Button Style="{StaticResource IconButtonStyle}" Width="24" Height="24" Padding="0" ToolTip="Edit config…" AutomationProperties.Name="Edit config"
+                    <Button Style="{StaticResource IconButtonStyle}" Width="24" Height="24" Padding="0" ToolTip="{Binding EditConfigTooltip}" AutomationProperties.Name="Edit config"
                             Command="{Binding DataContext.EditUe4ssModConfigCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
                             Visibility="{Binding HasConfig, Converter={StaticResource BoolToHiddenConverter}}">
-                        <Path Data="M4,6 H14 M18,6 H20 M4,12 H8 M12,12 H20 M4,18 H16 M14,6 a2,2 0 1 0 4,0 a2,2 0 1 0 -4,0 M8,12 a2,2 0 1 0 4,0 a2,2 0 1 0 -4,0"
-                              Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform"/>
+                        <Grid>
+                            <Path Data="M4,6 H14 M18,6 H20 M4,12 H8 M12,12 H20 M4,18 H16 M14,6 a2,2 0 1 0 4,0 a2,2 0 1 0 -4,0 M8,12 a2,2 0 1 0 4,0 a2,2 0 1 0 -4,0"
+                                  Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform"/>
+                            <!-- The last update added or dropped settings: a dot until the config has been looked over. -->
+                            <Ellipse Width="7" Height="7" Fill="{DynamicResource AccentBrush}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-3,0"
+                                     Visibility="{Binding ConfigNeedsReview, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        </Grid>
                     </Button>
                     <Button Style="{StaticResource IconButtonStyle}" Width="24" Height="24" Padding="0" Click="RowMoreButton_Click"
                             ToolTip="More actions (the same as right-clicking the row)" AutomationProperties.Name="More actions">

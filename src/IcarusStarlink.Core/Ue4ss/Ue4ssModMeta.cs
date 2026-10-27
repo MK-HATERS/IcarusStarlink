@@ -25,6 +25,41 @@ public sealed class Ue4ssModMeta
     /// this gets compared against the installed loader's own Ue4ssLoaderStatus.InstalledVersion.
     /// </summary>
     public string? MinUe4ssVersion { get; set; }
+
+    /// <summary>
+    /// What the last update did to the mod's config files (Ue4ssModConfigCarryOver): the settings
+    /// it added and the ones that no longer exist, for the user to look over in Edit config. Null or
+    /// empty once reviewed (or when an update changed nothing worth a look).
+    /// </summary>
+    public List<Ue4ssConfigReview>? ConfigReviews { get; set; }
+}
+
+/// <summary>One config file after an update: what changed between the player's file and the new version's, so the editor can point it out.</summary>
+public sealed class Ue4ssConfigReview
+{
+    /// <summary>The file, relative to the mod folder ("config.lua").</summary>
+    public string File { get; set; } = "";
+
+    public DateTime UpdatedAtUtc { get; set; }
+
+    /// <summary>The new version's name, when known ("1.4.0").</summary>
+    public string? Version { get; set; }
+
+    /// <summary>Settings this version has that the player's file didn't: at the mod's defaults.</summary>
+    public List<string> Added { get; set; } = [];
+
+    /// <summary>Settings the player's file had that this version doesn't (renamed or dropped), with the player's values: "OldName = 5".</summary>
+    public List<string> Removed { get; set; } = [];
+
+    /// <summary>Settings whose player value was carried over and differs from what the version ships.</summary>
+    public List<string> Kept { get; set; } = [];
+
+    /// <summary>
+    /// True when the file was rebuilt on the new version's layout (new comments and order, with the
+    /// player's values in it). False when the player's file was kept as it was, because it holds
+    /// things the merge can't carry (a table over several lines); new settings are then only named.
+    /// </summary>
+    public bool MergedIntoNewLayout { get; set; }
 }
 
 /// <summary>Reads/writes per-UE4SS-mod Nexus-link metadata keyed by folder name — mirrors LibraryMetaStore's own shape and reasoning (a separate sidecar directory, not a file dropped inside the mod's own folder).</summary>

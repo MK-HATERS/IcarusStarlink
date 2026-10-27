@@ -12,6 +12,15 @@
         <StackPanel DockPanel.Dock="Top">
             <TextBlock Text="Change this mod's settings. Saving only changes what you edit (every comment stays) and backs the old file up first. The mod reads its config when the game or server starts, unless it has its own reload key."
                        Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+            <!-- After an update: the settings it added (marked "new in this version" below) and the ones the mod no longer has. -->
+            <Border Visibility="{Binding HasReview, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,0,0,10" Padding="10,8" CornerRadius="4"
+                    BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" Background="{DynamicResource CardBackgroundBrush}">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Done reviewing" Command="{Binding DoneReviewingCommand}" VerticalAlignment="Center" Margin="12,0,0,0"
+                            ToolTip="Takes the marks off, here and in the Library"/>
+                    <TextBlock Text="{Binding ReviewText}" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="12.5"/>
+                </DockPanel>
+            </Border>
             <WrapPanel Margin="0,0,0,6">
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,6" Visibility="{Binding HasSeveralFiles, Converter={StaticResource BoolToVisibilityConverter}}">
                     <TextBlock Text="File" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -31,8 +40,11 @@
                           IsEnabled="{Binding CanUseFields}"
                           ToolTip="The whole file, for lists and anything the fields don't show. Switching back reads the fields from your text."/>
             </WrapPanel>
-            <TextBlock Text="{Binding CurrentPath}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}" TextTrimming="CharacterEllipsis" Margin="0,0,0,10"
+            <TextBlock Text="{Binding CurrentPath}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"
                        ToolTip="{Binding CurrentPath}"/>
+            <!-- The mod ships its defaults in config.default.lua: not offered as a file, read for "Default:" and Reset to default. -->
+            <TextBlock Text="{Binding DefaultsNote}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}" TextWrapping="Wrap" Margin="0,0,0,6"
+                       Visibility="{Binding DefaultsNote, Converter={StaticResource NullToVisibilityConverter}}"/>
         </StackPanel>
 
         <Border DockPanel.Dock="Bottom" Padding="0,10,0,0" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
@@ -93,6 +105,11 @@
                                                             <TextBlock Text="{Binding Key}" FontWeight="SemiBold"/>
                                                             <TextBlock Text="  changed" Foreground="{DynamicResource AccentBrush}" FontSize="11" VerticalAlignment="Center"
                                                                        Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                            <Border Margin="8,0,0,0" Padding="5,1" CornerRadius="3" VerticalAlignment="Center" Background="{DynamicResource AccentBrush}"
+                                                                    ToolTip="Added by the mod's last update, at its default"
+                                                                    Visibility="{Binding IsNewInVersion, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                                <TextBlock Text="new in this version" FontSize="10.5" Foreground="{DynamicResource AccentForegroundBrush}"/>
+                                                            </Border>
                                                             <TextBlock Text="  needs a restart" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource FaintForegroundBrush}"
                                                                        ToolTip="The mod reads this once, when the game or server starts"
                                                                        Visibility="{Binding NeedsRestart, Converter={StaticResource BoolToVisibilityConverter}}"/>

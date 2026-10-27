@@ -37,19 +37,31 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
 
     private IConfigText? _document;
     private IConfigText? _diskDocument;
+    private IConfigText? _defaults;
     private string _diskText = "";
     private bool _diskHasBom;
     private List<Ue4ssConfigField> _fields = [];
     private bool _loading;
 
-    public ModConfigEditorViewModel(string modName, IReadOnlyList<ModConfigLocation> locations, string backupDirectory)
+    private IReadOnlyList<Ue4ssConfigReview>? _reviews;
+    private readonly Action? _markReviewed;
+
+    /// <param name="reviews">What the last update changed in the config files (settings added or gone), to point out; null when nothing's waiting.</param>
+    /// <param name="markReviewed">Called by Done reviewing: the caller forgets the reviews.</param>
+    public ModConfigEditorViewModel(
+        string modName, IReadOnlyList<ModConfigLocation> locations, string backupDirectory,
+        IReadOnlyList<Ue4ssConfigReview>? reviews = null, Action? markReviewed = null)
     {
         ModName = modName;
         _allLocations = locations;
         _backupDirectory = backupDirectory;
+        _reviews = reviews is { Count: > 0 } ? reviews : null;
+        _markReviewed = markReviewed;
 
-        // Every config file any copy has, the first copy's first.
-        foreach (var file in locations.SelectMany(l => Ue4ssModConfigFiles.Find(l.ModFolder)))
+        // Every config file any copy has, the first copy's first (Find puts the main config.lua /
+        // config.ini first, so that's what opens). The shipped defaults (config.default.lua) aren't
+        // offered: they're what Reset to default reads, not a file to edit (user's call 2026-10-27).
+        foreach (var file in locations.SelectMany(l => Ue4ssModConfigFiles.Find(l.ModFolder)).Where(f => !f.IsDefaults))
         {
             if (!Files.Any(f => f.RelativePath.Equals(file.RelativePath, StringComparison.OrdinalIgnoreCase)))
             {
@@ -88,6 +100,62 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
     public bool ShowNoFieldsNote => !IsTextMode && !CanUseFields;
 
     public string CurrentPath => SelectedFile is { } f && SelectedLocation is { } l ? Path.Combine(l.ModFolder, f.RelativePath) : "";
+
+    /// <summary>The last update's changes to the file shown, until Done reviewing.</summary>
+    private Ue4ssConfigReview? CurrentReview =>
+        SelectedFile is { } f ? _reviews?.FirstOrDefault(r => r.File.Equals(f.RelativePath, StringComparison.OrdinalIgnoreCase)) : null;
+
+    public bool HasReview => CurrentReview is not null;
+
+    /// <summary>
+    /// "Updated to 1.4.0 on 27 Oct 2026: 2 new settings (marked below, at their defaults); 1 no
+    /// longer exists: OldName = 5 …" — what to look over after an update of the mod.
+    /// </summary>
+    public string? ReviewText
+    {
+        get
+        {
+            if (CurrentReview is not { } review)
+            {
+                return null;
+            }
+
+            var when = review.UpdatedAtUtc == default ? "" : $" on {review.UpdatedAtUtc.ToLocalTime():d MMM yyyy}";
+            var parts = new List<string>();
+            if (review.Added.Count > 0)
+            {
+                parts.Add(review.Added.Count == 1
+                    ? $"1 new setting (marked below, at its default): {review.Added[0]}"
+                    : $"{review.Added.Count} new settings (marked below, at their defaults)");
+            }
+
+            if (review.Removed.Count > 0)
+            {
+                parts.Add($"{(review.Removed.Count == 1 ? "1 setting the mod no longer has" : $"{review.Removed.Count} settings the mod no longer has")} (renamed or dropped; your values were: {string.Join(", ", review.Removed)}) — if it was renamed, set the new one to match");
+            }
+
+            var kept = review.MergedIntoNewLayout
+                ? "Your other settings were carried over into this version's file."
+                : "Your file was kept as it was (it holds something that can't be carried over, like a table over several lines), so the new settings aren't in it yet; add them by hand or with the mod's own Add them.";
+            return $"Updated{(review.Version is { Length: > 0 } v ? $" to {v}" : "")}{when}: {string.Join("; ", parts)}. {kept}";
+        }
+    }
+
+    /// <summary>The user has looked over the update's changes: the marks go, here and in the Library.</summary>
+    [RelayCommand]
+    private void DoneReviewing()
+    {
+        _reviews = null;
+        _markReviewed?.Invoke();
+        OnPropertyChanged(nameof(HasReview));
+        OnPropertyChanged(nameof(ReviewText));
+        BuildFields();
+    }
+
+    /// <summary>Where "Default:" and Reset to default come from when the mod ships its defaults in a file beside this one; null when it doesn't.</summary>
+    public string? DefaultsNote => _defaults is not null && SelectedFile is { } f
+        ? $"The defaults shown come from the mod's {Path.GetFileName(Ue4ssModConfigFiles.DefaultsPathFor(f.RelativePath))} (not edited here); Reset to default puts a setting back to them."
+        : null;
 
     [ObservableProperty]
     private Ue4ssModConfigFile? _selectedFile;
@@ -179,7 +247,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         _loading = true;
         try
         {
-            _document = _diskDocument = null;
+            _document = _diskDocument = _defaults = null;
             _fields = [];
             AlsoSaveTo.Clear();
             StatusMessage = null;
@@ -192,6 +260,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
                     _diskText = Encoding.UTF8.GetString(bytes, _diskHasBom ? 3 : 0, bytes.Length - (_diskHasBom ? 3 : 0));
                     _diskDocument = Parse(file.Format, _diskText);
                     _document = Parse(file.Format, _diskText);
+                    _defaults = ReadDefaults(location, file);
                     RawText = _diskText;
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -209,6 +278,9 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
             IsTextMode = !CanUseFields && _document is not null;
             OnPropertyChanged(nameof(HasOtherLocations));
             OnPropertyChanged(nameof(CurrentPath));
+            OnPropertyChanged(nameof(DefaultsNote));
+            OnPropertyChanged(nameof(HasReview));
+            OnPropertyChanged(nameof(ReviewText));
         }
         finally
         {
@@ -216,11 +288,43 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The values the mod ships with, from the file beside this one (config.default.lua next to
+    /// config.lua, the way the MkHaters mods keep them), read the same way; null when there is none.
+    /// </summary>
+    private static IConfigText? ReadDefaults(ModConfigLocation location, Ue4ssModConfigFile file)
+    {
+        var path = Path.Combine(location.ModFolder, Ue4ssModConfigFiles.DefaultsPathFor(file.RelativePath));
+        if (file.Format == Ue4ssModConfigFormat.Text || !File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Parse(file.Format, File.ReadAllText(path));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>A setting with no "Default:" of its own takes the shipped defaults file's value.</summary>
+    private Ue4ssSetting WithShippedDefault(Ue4ssSetting setting) =>
+        setting.Default is null && _defaults?.Get(setting.Section, setting.Key) is { } shipped ? setting with { Default = shipped } : setting;
+
     private void BuildFields()
     {
+        // A setting the mod marks [hidden] (internal or testing) stays in the file, out of the fields.
+        var added = CurrentReview?.Added ?? [];
+        static string Name(Ue4ssSetting s) => s.Section.Length == 0 ? s.Key : $"[{s.Section}] {s.Key}";
         _fields = _document is null
             ? []
-            : [.. _document.Settings.Select(s => new Ue4ssConfigField(s, _diskDocument?.Get(s.Section, s.Key)))];
+            : [.. _document.Settings.Where(s => !s.Hidden).Select(s => new Ue4ssConfigField(WithShippedDefault(s), _diskDocument?.Get(s.Section, s.Key))
+            {
+                IsNewInVersion = added.Contains(Name(s), StringComparer.OrdinalIgnoreCase),
+            })];
         OnPropertyChanged(nameof(CanUseFields));
         OnPropertyChanged(nameof(ShowFields));
         OnPropertyChanged(nameof(ShowNoFieldsNote));
@@ -445,10 +549,9 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
 
     private sealed class LuaText(LuaConfigDocument document) : IConfigText
     {
+        // Numbers, sliders, choices, [restart] and [hidden] from the comments, as MkHaters Mod Settings reads them.
         public IReadOnlyList<Ue4ssSetting> Settings =>
-            [.. document.Settings.Select(s => new Ue4ssSetting(
-                "", s.Key, s.Value, s.Description, null,
-                s.Kind == LuaConfigValueKind.Boolean ? Ue4ssSettingKind.Toggle : Ue4ssSettingKind.Text, []))];
+            [.. document.Settings.Select(s => Ue4ssSettingsDocument.DescribeLuaSetting(s.Key, s.Value, s.Kind, s.Comments, s.Note))];
 
         public string? Get(string section, string key) => document.GetValue(key);
 

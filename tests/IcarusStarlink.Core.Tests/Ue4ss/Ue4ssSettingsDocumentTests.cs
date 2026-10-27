@@ -232,4 +232,33 @@ public class Ue4ssSettingsDocumentTests
     [Fact]
     public void Ue4ssSettings_KeepASemicolonInAValue() =>
         Assert.Equal("a ; b", Ue4ssSettingsDocument.Parse("[General]\nX = a ; b\n").GetValue("General", "X"));
+
+    /// <summary>
+    /// A Lua setting described the way MkHaters Mod Settings reads it (2026-10-27): the Lua kind
+    /// decides the control, the tags in the note refine it, and the tags leave the text shown.
+    /// </summary>
+    [Fact]
+    public void DescribeLuaSetting_ReadsTheMkHatersTags()
+    {
+        var speed = Ue4ssSettingsDocument.DescribeLuaSetting("Speed", "1.5", LuaConfigValueKind.Number, ["Move"], "how fast [slider 0.5 4 0.5]");
+        Assert.Equal((Ue4ssSettingKind.Number, 0.5, 4d, 0.5, "Move\nhow fast"), (speed.Kind, speed.Minimum, speed.Maximum, speed.Step, speed.Description));
+
+        var biome = Ue4ssSettingsDocument.DescribeLuaSetting("Biome", "Arctic", LuaConfigValueKind.String, [], "where [dropdown Conifer Forest|Arctic|Desert]");
+        Assert.Equal((Ue4ssSettingKind.Choice, "where"), (biome.Kind, biome.Description));
+        Assert.Equal(["Conifer Forest", "Arctic", "Desert"], biome.Choices);
+
+        var mode = Ue4ssSettingsDocument.DescribeLuaSetting("Mode", "Fair", LuaConfigValueKind.String, [], "[choice Fair Game Both] [restart]");
+        Assert.Equal((Ue4ssSettingKind.Choice, true, ""), (mode.Kind, mode.NeedsRestart, mode.Description));
+        Assert.Equal(["Fair", "Game", "Both"], mode.Choices);
+
+        var key = Ue4ssSettingsDocument.DescribeLuaSetting("OpenKey", "F4", LuaConfigValueKind.String, [], "the menu's key [key]");
+        Assert.Equal((Ue4ssSettingKind.Text, "the menu's key", false), (key.Kind, key.Description, key.Hidden));
+
+        var probe = Ue4ssSettingsDocument.DescribeLuaSetting("DebugProbe", "false", LuaConfigValueKind.Boolean, [], "testing [hidden]");
+        Assert.Equal((Ue4ssSettingKind.Toggle, true), (probe.Kind, probe.Hidden));
+
+        var keys = Ue4ssSettingsDocument.DescribeLuaSetting("OpenKey", "{ key = \"F4\", shift = true }", LuaConfigValueKind.Table, [], "opens the window");
+        Assert.Equal(Ue4ssSettingKind.Text, keys.Kind);
+        Assert.Empty(keys.Choices);
+    }
 }

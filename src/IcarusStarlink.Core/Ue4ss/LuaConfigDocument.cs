@@ -20,7 +20,16 @@ public enum LuaConfigValueKind
 }
 
 /// <summary>One "Key = value" line of a Lua config, with the comment above it (and after it on the line).</summary>
-public sealed record LuaConfigSetting(string Key, string Value, LuaConfigValueKind Kind, string Description);
+/// <param name="Description">The comment lines above the setting and the one after it on its line, joined with line breaks.</param>
+/// <param name="Comments">The comment lines right above the setting (a note about it), without the "--".</param>
+/// <param name="Note">The comment after the value on the setting's own line, without the "--"; null when there is none. Where MkHaters mods put their tags ("[slider 1 10]", "[restart]").</param>
+public sealed record LuaConfigSetting(string Key, string Value, LuaConfigValueKind Kind, string Description, IReadOnlyList<string> Comments, string? Note)
+{
+    public LuaConfigSetting(string key, string value, LuaConfigValueKind kind, string description)
+        : this(key, value, kind, description, description.Length == 0 ? [] : description.Split('\n'), null)
+    {
+    }
+}
 
 /// <summary>
 /// A UE4SS Lua mod's config file ("return { Enabled = true, ... }" or "Config.Enabled = true"),
@@ -36,14 +45,25 @@ public sealed partial class LuaConfigDocument
     private readonly List<string> _endings;
     private readonly List<Entry> _entries;
 
-    private sealed record Entry(int Line, string Key, int ValueStart, int ValueLength, LuaConfigValueKind Kind, char Quote, string Description);
+    private sealed record Entry(int Line, string Key, int ValueStart, int ValueLength, LuaConfigValueKind Kind, char Quote, IReadOnlyList<string> Comments, string? Note)
+    {
+        public string Description => string.Join("\n", Note is { Length: > 0 } ? Comments.Append(Note) : Comments);
+    }
 
     private LuaConfigDocument(List<string> lines, List<string> endings)
     {
         _lines = lines;
         _endings = endings;
-        _entries = Scan(lines);
+        _entries = Scan(lines, out var unknown);
+        UnknownLineCount = unknown;
     }
+
+    /// <summary>
+    /// Lines that aren't a setting, a comment, blank, or the table's own braces: the inside of a
+    /// table over several lines (Wildlife's Herds), code, anything else. A file with none of these
+    /// is entirely settings, so it can be rebuilt on another file's layout without losing a thing.
+    /// </summary>
+    public int UnknownLineCount { get; }
 
     public static LuaConfigDocument Parse(string text)
     {
@@ -54,7 +74,7 @@ public sealed partial class LuaConfigDocument
     public string ToText() => TextLines.Join(_lines, _endings);
 
     public IReadOnlyList<LuaConfigSetting> Settings =>
-        [.. _entries.Select(e => new LuaConfigSetting(e.Key, DisplayValue(e), e.Kind, e.Description))];
+        [.. _entries.Select(e => new LuaConfigSetting(e.Key, DisplayValue(e), e.Kind, e.Description, e.Comments, e.Note))];
 
     public string? GetValue(string key) => Find(key) is { } e ? DisplayValue(e) : null;
 
@@ -213,12 +233,17 @@ public sealed partial class LuaConfigDocument
     [GeneratedRegex(@"^(?<lead>\s*(?:local\s+)?)(?<key>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*=(?!=)\s*")]
     private static partial Regex KeyStart();
 
-    private static List<Entry> Scan(List<string> lines)
+    // "return {", "local Config = {", "Config = {", "}" or "}," (optionally with a comment after): the table's own lines.
+    [GeneratedRegex(@"^(?:(?:return\s*|(?:local\s+)?[A-Za-z_][A-Za-z0-9_.]*\s*=\s*)?\{|\}[,;]?)\s*(?:--.*)?$")]
+    private static partial Regex TableBrace();
+
+    private static List<Entry> Scan(List<string> lines, out int unknownLines)
     {
         var entries = new List<Entry>();
         var comments = new List<string>();
         var depth = 0;
         var inBlockComment = false;
+        unknownLines = 0;
         for (var i = 0; i < lines.Count; i++)
         {
             var line = lines[i];
@@ -250,8 +275,11 @@ public sealed partial class LuaConfigDocument
 
             if (depth <= 1 && TryReadSetting(line, out var key, out var start, out var length, out var kind, out var quote, out var inline))
             {
-                var description = string.Join("\n", inline is { Length: > 0 } ? comments.Append(inline) : comments);
-                entries.Add(new Entry(i, key, start, length, kind, quote, description));
+                entries.Add(new Entry(i, key, start, length, kind, quote, [.. comments], inline));
+            }
+            else if (!(depth <= 1 && TableBrace().IsMatch(trimmed)))
+            {
+                unknownLines++;
             }
 
             comments.Clear();

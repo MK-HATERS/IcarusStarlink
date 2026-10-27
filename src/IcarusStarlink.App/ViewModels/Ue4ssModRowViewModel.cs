@@ -92,6 +92,15 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasConfig;
 
+    /// <summary>Set by LibraryViewModel: the last update added settings to its config or dropped some (Ue4ssModMeta.ConfigReviews), and the user hasn't looked yet.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EditConfigTooltip))]
+    private bool _configNeedsReview;
+
+    public string EditConfigTooltip => ConfigNeedsReview
+        ? "Edit config… — look over the settings: the last update added some or dropped some"
+        : "Edit config…";
+
     public bool NeedsAction => IsDirty || (LoaderMissing && IsEnabled) || IsSwitchedOffInGame;
 
     /// <summary>

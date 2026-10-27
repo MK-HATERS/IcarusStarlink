@@ -226,6 +226,76 @@ public sealed class ModReplacementServiceTests : IDisposable
         Assert.Equal(345, _ue4ssMeta.Load("MiniMapa").NexusModId);
     }
 
+    /// <summary>
+    /// User report 2026-10-27: activating a new Nexus version of a UE4SS mod replaced the player's
+    /// config.lua with the shipped one. The update keeps the installed config (and names the new
+    /// settings it lacks); the shipped defaults file is the new version's.
+    /// </summary>
+    [Fact]
+    public async Task Replace_EnabledUe4ssMod_KeepsThePlayersConfig()
+    {
+        _settings.Current.IcarusContentPath = Path.Combine(_root, "Game", "Icarus", "Content");
+        var gameMods = Ue4ssGamePaths.ResolveModsFolder(_settings.Current.IcarusContentPath);
+        var gameMod = Path.Combine(gameMods, "MkHatersTools");
+        Directory.CreateDirectory(Path.Combine(gameMod, "Scripts"));
+        File.WriteAllText(Path.Combine(gameMod, "Scripts", "main.lua"), "old");
+        File.WriteAllText(Path.Combine(gameMod, "config.lua"), "return {\n    MaxScale = 2.0, -- mine\n}\n");
+        File.WriteAllText(Path.Combine(gameMod, "config.default.lua"), "return {\n    MaxScale = 4.0,\n}\n");
+
+        var result = await Service().ReplaceAsync(
+            new ModReplacementRequest("MkHaters Tools", [], ["MkHatersTools"]),
+            removeOld =>
+            {
+                removeOld();
+                var source = Path.Combine(_root, "Unpacked", "MkHatersTools");
+                Directory.CreateDirectory(Path.Combine(source, "Scripts"));
+                File.WriteAllText(Path.Combine(source, "Scripts", "main.lua"), "new");
+                File.WriteAllText(Path.Combine(source, "config.lua"), "return {\n    MaxScale = 4.0,\n    MinScale = 0.25, -- new\n}\n");
+                File.WriteAllText(Path.Combine(source, "config.default.lua"), "return {\n    MaxScale = 4.0,\n    MinScale = 0.25,\n}\n");
+                var name = _ue4ss.ImportFromFolder(Path.GetDirectoryName(source)!, "MkHatersTools");
+                return Task.FromResult<IReadOnlyList<PendingDownloadActivatedItem>>([new PendingDownloadActivatedItem(name, PendingDownloadActivationKind.Ue4ssMod)]);
+            });
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("new", File.ReadAllText(Path.Combine(gameMod, "Scripts", "main.lua")));
+        // The new layout with the player's value in it, the new setting at its default.
+        Assert.Equal("return {\n    MaxScale = 2.0,\n    MinScale = 0.25, -- new\n}\n", File.ReadAllText(Path.Combine(gameMod, "config.lua")));
+        Assert.Equal("return {\n    MaxScale = 4.0,\n    MinScale = 0.25,\n}\n", File.ReadAllText(Path.Combine(gameMod, "config.default.lua")));
+        Assert.Equal(["config.lua"], result.KeptConfigs);
+        Assert.Equal(["config.lua: MinScale"], result.NewSettings);
+        Assert.Contains("Kept your settings (config.lua).", result.Summary);
+        Assert.Contains("Look over its settings in Edit config", result.Summary);
+        // Remembered on the mod, for the Library row's mark and the editor's review banner.
+        var review = Assert.Single(_ue4ssMeta.Load("MkHatersTools").ConfigReviews!);
+        Assert.Equal(["MinScale"], review.Added);
+    }
+
+    /// <summary>Reinstall original is the copy as downloaded: the shipped config, not the player's.</summary>
+    [Fact]
+    public async Task Replace_PristineUe4ssMod_TakesTheShippedConfig()
+    {
+        var old = Path.Combine(_root, "Old", "Pets");
+        Directory.CreateDirectory(old);
+        File.WriteAllText(Path.Combine(old, "config.lua"), "mine");
+        _ue4ss.ImportFromFolder(Path.GetDirectoryName(old)!, "Pets");
+
+        var result = await Service().ReplaceAsync(
+            new ModReplacementRequest("Pets", [], ["Pets"], Pristine: true),
+            removeOld =>
+            {
+                removeOld();
+                var source = Path.Combine(_root, "Unpacked", "Pets");
+                Directory.CreateDirectory(source);
+                File.WriteAllText(Path.Combine(source, "config.lua"), "shipped");
+                var name = _ue4ss.ImportFromFolder(Path.GetDirectoryName(source)!, "Pets");
+                return Task.FromResult<IReadOnlyList<PendingDownloadActivatedItem>>([new PendingDownloadActivatedItem(name, PendingDownloadActivationKind.Ue4ssMod)]);
+            });
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("shipped", File.ReadAllText(Path.Combine(_ue4ss.GetFolderPath("Pets"), "config.lua")));
+        Assert.Empty(result.KeptConfigs);
+    }
+
     /// <summary>Reinstall original forgets the fix choices — but only once it worked (it used to forget them first, then report success either way).</summary>
     [Fact]
     public async Task Replace_Pristine_ForgetsTheFixChoicesOnlyAfterItWorked()

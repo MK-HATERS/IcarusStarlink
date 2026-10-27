@@ -112,6 +112,7 @@ public sealed partial class LibraryViewModel
                 row.NotStartedReason = state.IsSwitchedOffInGame ? state.WhyNotStarted : null;
                 row.NexusFileId = meta.NexusFileId;
                 row.HasConfig = ModHasConfig(state);
+                row.ConfigNeedsReview = row.HasConfig && meta.ConfigReviews is { Count: > 0 };
                 row.LocalVersion = ModLocalVersion(state);
                 Ue4ssMods.Add(row);
             }
@@ -324,7 +325,15 @@ public sealed partial class LibraryViewModel
                 }
             }
 
-            var viewModel = new ModConfigEditorViewModel(row.Name, locations, _backupDirectory);
+            // What the last update changed in the config (settings added or gone), until the user says they've looked.
+            var reviews = _ue4ssModMetaStore.Load(row.Name).ConfigReviews;
+            var viewModel = new ModConfigEditorViewModel(row.Name, locations, _backupDirectory, reviews, markReviewed: () =>
+            {
+                var meta = _ue4ssModMetaStore.Load(row.Name);
+                meta.ConfigReviews = null;
+                _ue4ssModMetaStore.Save(row.Name, meta);
+                row.ConfigNeedsReview = false;
+            });
             if (!viewModel.HasFiles)
             {
                 Ue4ssStatusMessage = $"'{row.Name}' has no config file.";

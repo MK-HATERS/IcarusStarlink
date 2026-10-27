@@ -184,4 +184,68 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
         vm.SaveCommand.Execute(null);
         Assert.Equal(ini.Replace("= 2 ;", "= 50 ;"), File.ReadAllText(Path.Combine(game, "config.ini")));
     }
+
+    /// <summary>
+    /// MkHaters Tools' layout (user 2026-10-27): config.lua opens first; config.default.lua isn't
+    /// offered as a file but gives every setting its default, so Reset to default works; a Scripts
+    /// module that reads the config isn't a config; the comment tags give a slider, a restart note
+    /// and hide a testing value, as MkHaters Mod Settings reads them.
+    /// </summary>
+    [Fact]
+    public void MkHatersLayout_OpensConfigLua_HidesTheDefaultsFile_AndUsesItForReset()
+    {
+        const string config = "return {\r\n    Enabled = true,               -- the whole mod [restart]\r\n    MaxScale = 2.0,               -- biggest size [slider 1 4 0.5]\r\n    DebugProbe = true,            -- testing [hidden]\r\n}\r\n";
+        const string defaults = "return {\r\n    Enabled = true,\r\n    MaxScale = 4.0,\r\n    DebugProbe = false,\r\n}\r\n";
+        var game = Mod("game", "config.lua", config);
+        File.WriteAllText(Path.Combine(game, "config.default.lua"), defaults);
+        Directory.CreateDirectory(Path.Combine(game, "Scripts"));
+        File.WriteAllText(Path.Combine(game, "Scripts", "mk_config.lua"), "local M = {}\nlocal function readAll(path) end\nreturn M\n");
+        var vm = new ModConfigEditorViewModel("MkHatersTools", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+
+        Assert.Equal(["config.lua"], vm.Files.Select(f => f.RelativePath));
+        Assert.Contains("config.default.lua", vm.DefaultsNote);
+        Assert.Equal(["Enabled", "MaxScale"], vm.Sections.SelectMany(s => s.Fields).Select(f => f.Key)); // DebugProbe is [hidden]
+        var scale = Field(vm, "MaxScale");
+        Assert.True(scale.HasSlider);
+        Assert.Equal("biggest size", scale.Description);
+        Assert.Equal("Default: 4.0", scale.DefaultText);
+        Assert.True(scale.CanResetToDefault);
+        Assert.True(Field(vm, "Enabled").NeedsRestart);
+        Assert.False(Field(vm, "Enabled").CanResetToDefault);
+
+        scale.ResetToDefaultCommand.Execute(null);
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(config.Replace("MaxScale = 2.0", "MaxScale = 4.0"), File.ReadAllText(Path.Combine(game, "config.lua")));
+        Assert.Equal(defaults, File.ReadAllText(Path.Combine(game, "config.default.lua")));
+    }
+
+    /// <summary>
+    /// After an update (user request 2026-10-27): the settings the update added are marked, the
+    /// ones the mod no longer has are listed with the old values, and Done reviewing clears it all.
+    /// </summary>
+    [Fact]
+    public void AfterAnUpdate_NewSettingsAreMarked_GoneOnesListed_DoneReviewingClearsThem()
+    {
+        var game = Mod("game", "config.lua", Lua);
+        var reviews = new List<IcarusStarlink.Core.Ue4ss.Ue4ssConfigReview>
+        {
+            new() { File = "config.lua", Version = "1.4.0", UpdatedAtUtc = new DateTime(2026, 10, 27, 12, 0, 0, DateTimeKind.Utc), Added = ["Debug"], Removed = ["OldRadius = 5"], Kept = ["DefendRadius"], MergedIntoNewLayout = true },
+        };
+        var reviewed = false;
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"), reviews, () => reviewed = true);
+
+        Assert.True(vm.HasReview);
+        Assert.Contains("Updated to 1.4.0", vm.ReviewText);
+        Assert.Contains("OldRadius = 5", vm.ReviewText);
+        Assert.True(Field(vm, "Debug").IsNewInVersion);
+        Assert.False(Field(vm, "Enabled").IsNewInVersion);
+
+        vm.DoneReviewingCommand.Execute(null);
+
+        Assert.True(reviewed);
+        Assert.False(vm.HasReview);
+        Assert.Null(vm.ReviewText);
+        Assert.False(Field(vm, "Debug").IsNewInVersion);
+    }
 }
