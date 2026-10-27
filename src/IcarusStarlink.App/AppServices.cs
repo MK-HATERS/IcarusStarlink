@@ -291,7 +291,9 @@ internal static class AppServices
             // Share a mod list: the UE4SS mods on in the game travel in a patch.
             ue4ssStateService: sp.GetRequiredService<IUe4ssModStateService>(),
             ue4ssRepository: sp.GetRequiredService<IUe4ssModRepository>(),
-            ue4ssMetaStore: sp.GetRequiredService<IUe4ssModMetaStore>()));
+            ue4ssMetaStore: sp.GetRequiredService<IUe4ssModMetaStore>(),
+            // Import patch fetches the mods a patch references through the Downloads page (registered below: resolved lazily).
+            patchFetcher: new DownloadsPatchFetcher(sp.GetRequiredService<DownloadsViewModel>, sp.GetRequiredService<ICredentialStore>())));
         services.AddSingleton(sp => new DownloadsViewModel(
             sp.GetRequiredService<IDaedalusCatalogClient>(),
             sp.GetRequiredService<IJimk72CatalogClient>(),

@@ -3,6 +3,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Services;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Core.Activity;
@@ -308,18 +310,28 @@ public sealed partial class MergeInstallViewModel
         }
     }
 
+    /// <summary>A mod the patch names that isn't in the Library: what it's called and where it could come from.</summary>
+    private sealed record MissingPatchMod(string Label, int? NexusModId, string? CatalogEntryId)
+    {
+        public bool CanFetch(IPatchModFetcher fetcher) => (NexusModId is not null && fetcher.CanFetchNexus) || CatalogEntryId is not null;
+    }
+
+    /// <summary>What ImportUe4ssFromPatch found and did.</summary>
+    private sealed record Ue4ssImportOutcome(List<string> Lines, List<string> ToTurnOn, List<MissingPatchMod> Missing);
+
     /// <summary>
     /// "Import + Sync reinstalls listed mods (force refresh; does not skip same version)" per the
     /// spec — a bundled mod always overwrites whatever's already in the Library under the same
     /// folder name, rather than skipping it as "already have it", since the whole point is syncing
     /// exactly what the patch carries. A referenced mod is matched by its Nexus id, then its
-    /// catalog id, then (Name, Author) against the local Library; if it's missing, this reports
-    /// it rather than failing the whole import — same SkipWithWarning philosophy as everywhere else
-    /// the merge pipeline can hit a gap. A bundled UE4SS mod lands in staging; a referenced one is
-    /// looked for among the game's and the staged ones; either gets the patch's settings written
-    /// into its own config (the local file is backed up first). ImportAsync itself doesn't need
-    /// the network (unlike Export), but this still awaits it properly rather than blocking the UI
-    /// thread on a zip read/extract that can take real time for a patch with bundled content.
+    /// catalog id, then (Name, Author) against the local Library; the ones that are missing are
+    /// offered as one download (through the Downloads page's own Nexus and Database pipelines),
+    /// and what still isn't there is reported rather than failing the whole import — same
+    /// SkipWithWarning philosophy as everywhere else the merge pipeline can hit a gap. A copy
+    /// whose version isn't the patch's is kept and noted in the warnings. A bundled UE4SS mod
+    /// lands in staging; a referenced one is looked for among the game's and the staged ones;
+    /// either gets the patch's settings written into its own config (the local file is backed up
+    /// first), and the ones not on in the game are offered to be turned on (the game closed).
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportPatchAsync()
@@ -337,41 +349,58 @@ public sealed partial class MergeInstallViewModel
         try
         {
             using var contents = await _patchService.ImportAsync(patchPath);
-            var resolvedFolderNames = new List<string>();
-            var missing = new List<string>();
+            var manifest = contents.Manifest;
+            var versionNotes = new List<string>();
+            var (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes);
+            var configured = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var ue4ss = ImportUe4ssFromPatch(contents, configured, versionNotes);
+            var downloaded = 0;
+            var notFetched = new List<string>();
 
-            foreach (var mod in contents.Manifest.Mods)
+            // One question for everything the patch names that isn't here yet and can be fetched.
+            var fetchable = missing.Concat(ue4ss.Missing).Where(m => _patchFetcher is not null && m.CanFetch(_patchFetcher)).ToList();
+            if (fetchable.Count > 0 && _patchFetcher is { } fetcher
+                && _dialogs.Confirm(
+                    $"{fetchable.Count} mod(s) in '{manifest.ProfileName}' aren't in your Library:\n\n{string.Join("\n", fetchable.Select(m => $"• {m.Label}"))}\n\n"
+                    + "Download them now? Each comes through the Downloads page from Nexus or the IMM Database and is added to your Library.",
+                    "Get the patch's mods", ThemedConfirmSeverity.Question))
             {
-                if (mod.Bundled && mod.IsPak && contents.BundledPakFolders.TryGetValue(mod.FolderName, out var pakFolder))
+                foreach (var mod in fetchable)
                 {
-                    resolvedFolderNames.Add(ImportBundledPak(mod, pakFolder));
-                    continue;
+                    try
+                    {
+                        if (mod.NexusModId is { } nexusId && fetcher.CanFetchNexus)
+                        {
+                            await fetcher.FetchNexusAsync(nexusId, mod.Label);
+                        }
+                        else if (mod.CatalogEntryId is { } catalogId && !await fetcher.FetchCatalogAsync(catalogId, mod.Label))
+                        {
+                            notFetched.Add($"{mod.Label} (no longer in the IMM Database)");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        notFetched.Add($"{mod.Label} ({ex.Message})");
+                    }
                 }
 
-                if (mod.Bundled && contents.BundledMods.TryGetValue(mod.FolderName, out var exmod))
-                {
-                    resolvedFolderNames.Add(ImportBundledMod(exmod));
-                    continue;
-                }
-
-                if (FindLibraryMatch(mod) is { } existing)
-                {
-                    resolvedFolderNames.Add(existing.FolderName);
-                }
-                else
-                {
-                    missing.Add($"{mod.Name} by {mod.Author}{(mod.NexusModId is { } id ? $" (Nexus #{id})" : "")}");
-                }
+                // What landed is matched the same way again; the UE4SS mods that just arrived get their settings now.
+                var before = missing.Count + ue4ss.Missing.Count;
+                (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes: null);
+                var again = ImportUe4ssFromPatch(contents, configured, versionNotes: null);
+                ue4ss = new Ue4ssImportOutcome(
+                    [.. ue4ss.Lines.Concat(again.Lines).Distinct(StringComparer.Ordinal)],
+                    [.. ue4ss.ToTurnOn.Concat(again.ToTurnOn).Distinct(StringComparer.OrdinalIgnoreCase)],
+                    again.Missing);
+                downloaded = before - (missing.Count + ue4ss.Missing.Count);
             }
-
-            var ue4ss = ImportUe4ssFromPatch(contents);
 
             // A pending auto-save of the profile in use is written first: written after the import,
             // it put the old queue back over a patch imported under the same profile name.
             SaveWorkingState();
-            _profileStore.Save(new Profile { Name = contents.Manifest.ProfileName, MergeQueueFolderNames = resolvedFolderNames, Options = contents.Manifest.Options });
+            _profileStore.Save(new Profile { Name = manifest.ProfileName, MergeQueueFolderNames = resolvedFolderNames, Options = manifest.Options });
             _messenger.Send(new LibraryChangedMessage());
-            var importedName = contents.Manifest.ProfileName;
+            var importedName = manifest.ProfileName;
             if (string.Equals(SelectedProfileName, importedName, StringComparison.OrdinalIgnoreCase))
             {
                 // Already selected, so setting it again changes nothing: load it here, or the page
@@ -395,17 +424,43 @@ public sealed partial class MergeInstallViewModel
                 SelectedProfileName = ProfileNames.FirstOrDefault(n => string.Equals(n, importedName, StringComparison.OrdinalIgnoreCase)) ?? importedName;
             }
 
-            var summary = new List<string>();
-            if (missing.Count > 0)
+            // The copies whose version isn't the patch's: kept, listed where the build warnings go.
+            Warnings.Clear();
+            foreach (var note in versionNotes)
             {
-                summary.Add($"{missing.Count} mod(s) missing, get them from the Downloads page first: {string.Join(", ", missing)}");
+                Warnings.Add(note);
             }
 
-            summary.AddRange(ue4ss);
+            var turnedOn = await OfferToTurnOnUe4ssAsync(ue4ss.ToTurnOn);
+
+            var summary = new List<string>();
+            if (downloaded > 0)
+            {
+                summary.Add($"{downloaded} mod(s) downloaded");
+            }
+
+            var stillMissing = missing.Select(m => m.Label).Concat(ue4ss.Missing.Select(m => m.Label)).ToList();
+            if (stillMissing.Count > 0)
+            {
+                summary.Add($"{stillMissing.Count} mod(s) missing, get them from the Downloads page first: {string.Join(", ", stillMissing)}");
+            }
+
+            if (notFetched.Count > 0)
+            {
+                summary.Add($"couldn't download {string.Join(", ", notFetched)}");
+            }
+
+            if (versionNotes.Count > 0)
+            {
+                summary.Add($"{versionNotes.Count} mod(s) are a different version from the patch's (see the warnings below)");
+            }
+
+            summary.AddRange(ue4ss.Lines);
+            summary.AddRange(turnedOn);
             PatchStatusMessage = summary.Count == 0
-                ? $"Imported '{contents.Manifest.ProfileName}'."
-                : $"Imported '{contents.Manifest.ProfileName}' — {string.Join(". ", summary)}.";
-            _activityLog.Log(PatchStatusMessage, missing.Count > 0 ? ActivityEntryKind.Warning : ActivityEntryKind.Success);
+                ? $"Imported '{manifest.ProfileName}'."
+                : $"Imported '{manifest.ProfileName}' — {string.Join(". ", summary)}.";
+            _activityLog.Log(PatchStatusMessage, stillMissing.Count > 0 || notFetched.Count > 0 ? ActivityEntryKind.Warning : ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
@@ -413,6 +468,53 @@ public sealed partial class MergeInstallViewModel
             _activityLog.Log(PatchStatusMessage, ActivityEntryKind.Warning);
         }
     }
+
+    /// <summary>
+    /// The patch's data mods against the Library: a bundled one is imported (replacing a same-named
+    /// copy), a referenced one matched; the queue's folder names in the patch's order, and what's
+    /// missing. <paramref name="versionNotes"/> (when given) collects the matches whose version
+    /// differs from the patch's. A second call (after downloads) doesn't import the bundled
+    /// mods again: it finds the copies the first call made.
+    /// </summary>
+    private (List<string> Resolved, List<MissingPatchMod> Missing) ResolvePatchMods(PatchImportContents contents, List<string>? versionNotes)
+    {
+        var resolved = new List<string>();
+        var missing = new List<MissingPatchMod>();
+        foreach (var mod in contents.Manifest.Mods)
+        {
+            if (mod.Bundled && mod.IsPak && contents.BundledPakFolders.TryGetValue(mod.FolderName, out var pakFolder))
+            {
+                resolved.Add(_importedFromPatch.TryGetValue(mod.FolderName, out var pakCopy) ? pakCopy : _importedFromPatch[mod.FolderName] = ImportBundledPak(mod, pakFolder));
+                continue;
+            }
+
+            if (mod.Bundled && contents.BundledMods.TryGetValue(mod.FolderName, out var exmod))
+            {
+                resolved.Add(_importedFromPatch.TryGetValue(mod.FolderName, out var exmodCopy) ? exmodCopy : _importedFromPatch[mod.FolderName] = ImportBundledMod(exmod));
+                continue;
+            }
+
+            if (FindLibraryMatch(mod) is { } existing)
+            {
+                resolved.Add(existing.FolderName);
+                if (versionNotes is not null && !UpdateVersionComparer.AreEquivalent(existing.Version, mod.Version))
+                {
+                    versionNotes.Add($"'{existing.Name}' is {existing.Version} in your Library; the patch was made with {mod.Version}. Get update in the Library if you want to match it.");
+                }
+            }
+            else
+            {
+                missing.Add(new MissingPatchMod(
+                    $"{mod.Name} by {mod.Author}{(mod.NexusModId is { } id ? $" (Nexus #{id})" : mod.CatalogEntryId is not null ? " (IMM Database)" : "")}",
+                    mod.NexusModId, mod.CatalogEntryId));
+            }
+        }
+
+        return (resolved, missing);
+    }
+
+    /// <summary>The bundled mods this import already put in the Library, by the patch's folder name (ResolvePatchMods runs twice when mods were downloaded).</summary>
+    private readonly Dictionary<string, string> _importedFromPatch = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The Library copy a referenced mod stands for: the same Nexus mod, else the same catalog entry, else the same name and author (a format 1 patch has only that).</summary>
     private LibraryEntry? FindLibraryMatch(PatchModEntry mod)
@@ -478,33 +580,32 @@ public sealed partial class MergeInstallViewModel
     }
 
     /// <summary>
-    /// The patch's UE4SS mods: a bundled one goes into staging (replacing a same-named staged copy;
-    /// one already in the game is kept and only gets the settings), a referenced one is looked for
-    /// by name or Nexus id among the game's and the staged mods. Each found mod gets the patch's
-    /// config files written into its own (the local file backed up first). Returns the lines for
-    /// the status message.
+    /// The patch's UE4SS mods: a bundled one goes into staging (a same-named copy already here is
+    /// kept and only gets the settings), a referenced one is looked for by name or Nexus id among
+    /// the game's and the staged mods. Each found mod gets the patch's config files written into
+    /// its own (the local file backed up first), once (<paramref name="configured"/> remembers).
     /// </summary>
-    private List<string> ImportUe4ssFromPatch(PatchImportContents contents)
+    private Ue4ssImportOutcome ImportUe4ssFromPatch(PatchImportContents contents, HashSet<string> configured, List<string>? versionNotes)
     {
         var lines = new List<string>();
+        var toTurnOn = new List<string>();
+        var missing = new List<MissingPatchMod>();
         var wanted = contents.Manifest.Ue4ssMods;
         if (wanted.Count == 0)
         {
-            return lines;
+            return new Ue4ssImportOutcome(lines, toTurnOn, missing);
         }
 
         if (_ue4ssStateService is null || _ue4ssRepository is null || _ue4ssMetaStore is null)
         {
             lines.Add($"{wanted.Count} UE4SS mod(s) in the patch were skipped (UE4SS isn't set up here)");
-            return lines;
+            return new Ue4ssImportOutcome(lines, toTurnOn, missing);
         }
 
         var modsFolder = Ue4ssGameModsFolder ?? "";
         var states = _ue4ssStateService.GetAll(modsFolder).ToDictionary(s => s.Name, StringComparer.OrdinalIgnoreCase);
-        var missing = new List<string>();
         var settingsApplied = 0;
         var landed = 0;
-        var notTurnedOn = new List<string>();
         var configBackups = Path.Combine(_backupDirectory, "UE4SS-Mod-Configs");
         foreach (var mod in wanted)
         {
@@ -524,27 +625,36 @@ public sealed partial class MergeInstallViewModel
 
             if (name is null)
             {
-                missing.Add(mod.NexusName ?? mod.Name);
+                missing.Add(new MissingPatchMod($"{mod.NexusName ?? mod.Name} (UE4SS mod{(mod.NexusModId is { } id ? $", Nexus #{id}" : "")})", mod.NexusModId, null));
                 continue;
             }
 
             var state = states[name];
             var folder = state.IsInGame ? Path.Combine(modsFolder, name) : _ue4ssRepository.GetFolderPath(name);
-            foreach (var config in mod.Configs)
+            if (versionNotes is not null && mod.Version is { Length: > 0 } wantedVersion && Ue4ssModVersion.TryRead(folder) is { } have
+                && !UpdateVersionComparer.AreEquivalent(have, wantedVersion))
             {
-                var relative = config.Path.Replace('/', Path.DirectorySeparatorChar);
-                if (relative.Contains("..", StringComparison.Ordinal) || Path.IsPathRooted(relative))
-                {
-                    continue; // a config path that leaves the mod folder isn't one
-                }
-
-                Ue4ssModConfigCarryOver.ApplyValues(folder, relative, config.Text, configBackups);
-                settingsApplied++;
+                versionNotes.Add($"UE4SS mod '{name}' is {have} here; the patch was made with {wantedVersion}.");
             }
 
-            if (!state.IsEnabled)
+            if (configured.Add(name))
             {
-                notTurnedOn.Add(name);
+                foreach (var config in mod.Configs)
+                {
+                    var relative = config.Path.Replace('/', Path.DirectorySeparatorChar);
+                    if (relative.Contains("..", StringComparison.Ordinal) || Path.IsPathRooted(relative))
+                    {
+                        continue; // a config path that leaves the mod folder isn't one
+                    }
+
+                    Ue4ssModConfigCarryOver.ApplyValues(folder, relative, config.Text, configBackups);
+                    settingsApplied++;
+                }
+            }
+
+            if (mod.Enabled && !state.IsEnabled)
+            {
+                toTurnOn.Add(name);
             }
         }
 
@@ -558,16 +668,48 @@ public sealed partial class MergeInstallViewModel
             lines.Add($"settings written for {wanted.Count - missing.Count} UE4SS mod(s) (your old files are in Backups\\UE4SS-Mod-Configs)");
         }
 
-        if (notTurnedOn.Count > 0)
+        return new Ue4ssImportOutcome(lines, toTurnOn, missing);
+    }
+
+    /// <summary>
+    /// The UE4SS mods the patch runs that are off here: one question, then Apply puts them in the
+    /// game (the same move the Library's Apply makes, backed up the same way). Not while the game
+    /// runs: its Mods folder is in use. Returns the lines for the status message.
+    /// </summary>
+    private async Task<List<string>> OfferToTurnOnUe4ssAsync(List<string> toTurnOn)
+    {
+        var lines = new List<string>();
+        if (toTurnOn.Count == 0 || _ue4ssStateService is null || Ue4ssGameModsFolder is not { } modsFolder)
         {
-            lines.Add($"tick {string.Join(", ", notTurnedOn)} in the Library's UE4SS list and press Apply to turn them on");
+            return lines;
         }
 
-        if (missing.Count > 0)
+        var names = string.Join(", ", toTurnOn);
+        if (_gameProcessChecker?.IsRunning() == true)
         {
-            lines.Add($"{missing.Count} UE4SS mod(s) missing, get them from Nexus first: {string.Join(", ", missing)}");
+            lines.Add($"the patch runs {names}: close the game, then tick them in the Library's UE4SS list and press Apply");
+            return lines;
         }
 
+        if (!_dialogs.Confirm(
+                $"The patch runs these UE4SS mods, which are off in your game:\n\n{string.Join("\n", toTurnOn.Select(n => $"• {n}"))}\n\nTurn them on now? They go into the game's Mods folder (the same as Apply in the Library); the game must be closed.",
+                "Turn on the patch's UE4SS mods", ThemedConfirmSeverity.Question))
+        {
+            lines.Add($"tick {names} in the Library's UE4SS list and press Apply to turn them on");
+            return lines;
+        }
+
+        var service = _ue4ssStateService;
+        var backups = _backupDirectory;
+        var failures = await Task.Run(() => service.Apply(modsFolder, toTurnOn.ToDictionary(n => n, _ => true, StringComparer.OrdinalIgnoreCase), backups));
+        _messenger.Send(new LibraryChangedMessage());
+        var on = toTurnOn.Where(n => failures.All(f => !string.Equals(f.Name, n, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (on.Count > 0)
+        {
+            lines.Add($"turned on {string.Join(", ", on)} in the game");
+        }
+
+        lines.AddRange(failures.Select(f => $"couldn't turn on {f.Name}: {f.Reason}"));
         return lines;
     }
 

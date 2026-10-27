@@ -90,7 +90,8 @@ public sealed class MergeInstallViewModelTests : IDisposable
         FakePatchService? patchService = null,
         string? dataFolder = null,
         bool withHealthCheck = false,
-        Ue4ssPieces? ue4ss = null)
+        Ue4ssPieces? ue4ss = null,
+        IPatchModFetcher? fetcher = null)
     {
         settingsService ??= new FakeSettingsService();
         libraryRepository ??= new FakeLibraryRepository();
@@ -128,7 +129,34 @@ public sealed class MergeInstallViewModelTests : IDisposable
             gameDataFreshness,
             _dialogs,
             withHealthCheck ? new ModFixService(libraryRepository, dataFolder) : null,
-            ue4ss?.StateService, ue4ss?.Repository, ue4ss?.MetaStore);
+            ue4ss?.StateService, ue4ss?.Repository, ue4ss?.MetaStore, fetcher);
+    }
+
+    /// <summary>Stands in for the Downloads page: what Import patch asks it to fetch, and a callback that puts the mod wherever the test wants it.</summary>
+    private sealed class FakePatchModFetcher : IPatchModFetcher
+    {
+        public bool CanFetchNexus { get; set; } = true;
+
+        public List<int> NexusFetches { get; } = [];
+
+        public List<string> CatalogFetches { get; } = [];
+
+        public Action<int> OnFetchNexus { get; set; } = _ => { };
+
+        public Func<string, bool> OnFetchCatalog { get; set; } = _ => false;
+
+        public Task FetchNexusAsync(int nexusModId, string displayName)
+        {
+            NexusFetches.Add(nexusModId);
+            OnFetchNexus(nexusModId);
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> FetchCatalogAsync(string catalogEntryId, string displayName)
+        {
+            CatalogFetches.Add(catalogEntryId);
+            return Task.FromResult(OnFetchCatalog(catalogEntryId));
+        }
     }
 
     /// <summary>The real UE4SS staging, sidecar store and enable/disable mover over temp folders, plus a fake game Mods folder.</summary>
@@ -1913,6 +1941,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         };
         var vm = CreateViewModel(libraryRepository: library, profileStore: new FakeProfileStore(), settingsService: settings, patchService: patches, ue4ss: ue4ss);
         _dialogs.OnPickFile = () => "patch.zip";
+        _dialogs.OnConfirm = (_, title) => title == "Turn on the patch's UE4SS mods" ? false : throw new InvalidOperationException(title);
 
         await vm.ImportPatchCommand.ExecuteAsync(null);
 
@@ -1929,6 +1958,165 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Equal(["LocalLua"], ue4ss.Repository.GetAll());
         Assert.Equal("return { A = 1 }", File.ReadAllText(Path.Combine(ue4ss.Repository.GetFolderPath("LocalLua"), "config.lua")));
         Assert.Contains("tick LocalLua in the Library's UE4SS list", vm.PatchStatusMessage);
+    }
+
+    /// <summary>
+    /// Stage 2 (2026-10-27): the mods a patch names that aren't here are one question, then they
+    /// come through the Downloads page (a data mod by Nexus id, a UE4SS mod too), are matched
+    /// again, and the UE4SS mod that just arrived gets the patch's settings.
+    /// </summary>
+    [Fact]
+    public async Task ImportPatch_MissingMods_AreOfferedAsOneDownload_ThenQueuedAndConfigured()
+    {
+        var settings = new FakeSettingsService();
+        var ue4ss = MakeUe4ss(settings);
+        var library = new FakeLibraryRepository();
+        var fetcher = new FakePatchModFetcher();
+        fetcher.OnFetchNexus = id =>
+        {
+            if (id == 361)
+            {
+                var entry = MakeEntry("Wireless");
+                entry.NexusModId = 361;
+                library.AllEntries.Add(entry);
+            }
+            else if (id == 500)
+            {
+                var source = Path.Combine(_tempRoot, "Dl", "MkHatersTools");
+                Directory.CreateDirectory(Path.Combine(source, "Scripts"));
+                File.WriteAllText(Path.Combine(source, "Scripts", "main.lua"), "local VERSION = \"1.5.0\"");
+                File.WriteAllText(Path.Combine(source, "config.lua"), "return {\n    MaxScale = 4.0,\n}\n");
+                var name = ue4ss.Repository.ImportFromFolder(Path.GetDirectoryName(source)!, "MkHatersTools");
+                ue4ss.MetaStore.Save(name, new Ue4ssModMeta { NexusModId = 500 });
+            }
+        };
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest
+                {
+                    FormatVersion = 2, ProfileName = "Server",
+                    Mods = [new PatchModEntry { FolderName = "Wireless", Name = "Wireless Power", Author = "Other", Version = "1", Bundled = false, NexusModId = 361 }],
+                    Ue4ssMods = [new PatchUe4ssEntry { Name = "MkHatersTools", NexusName = "MkHaters Tools", NexusModId = 500, Version = "1.5.0", Configs = [new PatchConfigFile { Path = "config.lua", Text = "return {\n    MaxScale = 2.0,\n}\n" }] }],
+                },
+                new Dictionary<string, ExmodPackageContents>()),
+        };
+        var vm = CreateViewModel(libraryRepository: library, profileStore: new FakeProfileStore(), settingsService: settings, patchService: patches, ue4ss: ue4ss, fetcher: fetcher);
+        _dialogs.OnPickFile = () => "patch.json";
+        var questions = new List<string>();
+        _dialogs.OnConfirm = (message, title) =>
+        {
+            questions.Add(title);
+            return title == "Get the patch's mods"; // download yes; turn on, no
+        };
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+
+        Assert.Equal(["Get the patch's mods", "Turn on the patch's UE4SS mods"], questions);
+        Assert.Equal([361, 500], fetcher.NexusFetches);
+        Assert.Equal(["Wireless"], vm.Queue.Select(e => e.FolderName));
+        Assert.Equal("return {\n    MaxScale = 2.0,\n}\n", File.ReadAllText(Path.Combine(ue4ss.Repository.GetFolderPath("MkHatersTools"), "config.lua")));
+        Assert.Contains("2 mod(s) downloaded", vm.PatchStatusMessage);
+        Assert.Contains("tick MkHatersTools", vm.PatchStatusMessage);
+        Assert.DoesNotContain("missing", vm.PatchStatusMessage);
+    }
+
+    /// <summary>No Nexus key: a Nexus mod can't be fetched, so it's only named as missing, with no question.</summary>
+    [Fact]
+    public async Task ImportPatch_MissingNexusMod_WithoutAKey_IsJustNamed()
+    {
+        var fetcher = new FakePatchModFetcher { CanFetchNexus = false };
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest { FormatVersion = 2, ProfileName = "S", Mods = [new PatchModEntry { FolderName = "W", Name = "Wireless Power", Author = "O", Version = "1", Bundled = false, NexusModId = 361 }] },
+                new Dictionary<string, ExmodPackageContents>()),
+        };
+        var vm = CreateViewModel(libraryRepository: new FakeLibraryRepository(), profileStore: new FakeProfileStore(), patchService: patches, fetcher: fetcher);
+        _dialogs.OnPickFile = () => "patch.json";
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+
+        Assert.Empty(fetcher.NexusFetches);
+        Assert.Contains("1 mod(s) missing", vm.PatchStatusMessage);
+        Assert.Contains("Wireless Power by O (Nexus #361)", vm.PatchStatusMessage);
+    }
+
+    /// <summary>A copy at another version than the patch's is used, and the difference goes to the warnings.</summary>
+    [Fact]
+    public async Task ImportPatch_DifferentVersion_KeepsTheCopyAndWarns()
+    {
+        var mine = MakeEntry("Wireless");
+        mine.NexusModId = 361;
+        mine.Version = "1.2";
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest { FormatVersion = 2, ProfileName = "S", Mods = [new PatchModEntry { FolderName = "W", Name = "Wireless Power", Author = "O", Version = "1.4", Bundled = false, NexusModId = 361 }] },
+                new Dictionary<string, ExmodPackageContents>()),
+        };
+        var vm = CreateViewModel(libraryRepository: new FakeLibraryRepository { AllEntries = [mine] }, profileStore: new FakeProfileStore(), patchService: patches);
+        _dialogs.OnPickFile = () => "patch.json";
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+
+        Assert.Equal(["Wireless"], vm.Queue.Select(e => e.FolderName));
+        Assert.Contains("1 mod(s) are a different version", vm.PatchStatusMessage);
+        var warning = Assert.Single(vm.Warnings);
+        Assert.Contains("is 1.2 in your Library; the patch was made with 1.4", warning);
+    }
+
+    /// <summary>A staged UE4SS mod the patch runs is offered to be turned on; yes puts it in the game's Mods folder the way Apply does.</summary>
+    [Fact]
+    public async Task ImportPatch_Ue4ssModOffHere_TurnsItOnWhenConfirmed()
+    {
+        var settings = new FakeSettingsService();
+        var ue4ss = MakeUe4ss(settings);
+        var source = Path.Combine(_tempRoot, "Src", "LocalLua");
+        Directory.CreateDirectory(Path.Combine(source, "Scripts"));
+        File.WriteAllText(Path.Combine(source, "Scripts", "main.lua"), "lua");
+        ue4ss.Repository.ImportFromFolder(Path.GetDirectoryName(source)!, "LocalLua");
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest { FormatVersion = 2, ProfileName = "S", Ue4ssMods = [new PatchUe4ssEntry { Name = "LocalLua", Enabled = true }] },
+                new Dictionary<string, ExmodPackageContents>()),
+        };
+        var vm = CreateViewModel(libraryRepository: new FakeLibraryRepository(), profileStore: new FakeProfileStore(), settingsService: settings, patchService: patches, ue4ss: ue4ss);
+        _dialogs.OnPickFile = () => "patch.json";
+        _dialogs.OnConfirm = (_, title) => title == "Turn on the patch's UE4SS mods";
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+
+        Assert.True(File.Exists(Path.Combine(ue4ss.GameModsFolder, "LocalLua", "Scripts", "main.lua")));
+        Assert.True(File.Exists(Path.Combine(ue4ss.GameModsFolder, "LocalLua", "enabled.txt")));
+        Assert.Empty(ue4ss.Repository.GetAll());
+        Assert.Contains("turned on LocalLua in the game", vm.PatchStatusMessage);
+    }
+
+    /// <summary>With the game running nothing is moved into its Mods folder: no question, a note instead.</summary>
+    [Fact]
+    public async Task ImportPatch_Ue4ssModOffHere_GameRunning_OnlyNotes()
+    {
+        var settings = new FakeSettingsService();
+        var ue4ss = MakeUe4ss(settings);
+        var source = Path.Combine(_tempRoot, "Src", "LocalLua");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(Path.Combine(source, "main.lua"), "lua");
+        ue4ss.Repository.ImportFromFolder(Path.GetDirectoryName(source)!, "LocalLua");
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest { FormatVersion = 2, ProfileName = "S", Ue4ssMods = [new PatchUe4ssEntry { Name = "LocalLua", Enabled = true }] },
+                new Dictionary<string, ExmodPackageContents>()),
+        };
+        var vm = CreateViewModel(libraryRepository: new FakeLibraryRepository(), profileStore: new FakeProfileStore(), settingsService: settings, patchService: patches, ue4ss: ue4ss, gameRunning: true);
+        _dialogs.OnPickFile = () => "patch.json";
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+
+        Assert.Equal(["LocalLua"], ue4ss.Repository.GetAll());
+        Assert.Contains("close the game, then tick them", vm.PatchStatusMessage);
     }
 
     /// <summary>Copy to game while a build runs would copy the pak the build is still writing: it's refused with a reason.</summary>
