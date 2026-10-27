@@ -42,42 +42,47 @@
         <TextBlock Grid.Row="2" Text="{Binding ProfileStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0"
                    TextWrapping="Wrap" Visibility="{Binding ProfileStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-        <!-- Sharing a mod list: collapsed by default — exporting/importing a patch is a real but
-             occasional action, not something a returning user needs to see every time. Classic IMM
-             migration lives only in Settings now (Migrate from IMM tab) — a second, queue-only
-             "Import IMM mod list" here looked redundant with it and was removed. -->
-        <Expander Grid.Row="3" Margin="0,16,0,0" IsExpanded="False" AutomationProperties.Name="Share a mod list">
-            <Expander.Header>
-                <DockPanel LastChildFill="False">
-                    <TextBlock DockPanel.Dock="Left" Text="Share a mod list" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
-                    <TextBlock DockPanel.Dock="Left" Text="Export patch · Import patch (your data mods, UE4SS mods and their settings, for friends and servers)" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+        <!-- Share a mod list (stage 4 of the share plan, 2026-10-27): a compact card instead of the
+             collapsed expander, so a new user sees what a patch is. A patch is the selected profile
+             as it runs here: its data mods (by their Nexus or catalog source, or bundled), the UE4SS
+             mods on in the game, and their settings. Classic IMM migration lives only in Settings
+             (Migrate from IMM tab). -->
+        <Border Grid.Row="3" Margin="0,16,0,0" Padding="12,8" CornerRadius="4" BorderThickness="1"
+                BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource CardBackgroundBrush}" AutomationProperties.Name="Share a mod list">
+            <StackPanel>
+                <DockPanel LastChildFill="True">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <CheckBox Content="Include UE4SS mod settings" IsChecked="{Binding ExportIncludesConfigs}" VerticalAlignment="Center" Margin="0,0,12,0"
+                                  ToolTip="The config files (config.lua, config.ini) of the UE4SS mods on in your game travel in the patch, so a friend gets your settings and keys too. Untick to share the mods alone."/>
+                        <Button Command="{Binding ExportPatchCommand}" IsEnabled="{Binding IsNotExportingPatch}"
+                                ToolTip="Writes a patch of the selected profile: its mods by their Nexus or IMM Database source (bundled when they have none), the UE4SS mods on in your game, and their settings"
+                                AutomationProperties.Name="Export patch">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Export patch…" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding ImportPatchCommand}" Margin="8,0,0,0"
+                                ToolTip="Loads a patch someone shared: its profile is recreated, mods you lack are offered as one download, its UE4SS mods land with their settings and can be turned on"
+                                AutomationProperties.Name="Import patch">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
+                                <TextBlock Text="Import patch…" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                    <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                        <TextBlock Text="Share a mod list" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                        <TextBlock FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"
+                                   Text="A patch is this profile as it runs here: its data mods, the UE4SS mods on in your game, and their settings. A friend imports it and gets the same setup; a server host exports one from the Server page."/>
+                    </StackPanel>
                 </DockPanel>
-            </Expander.Header>
-            <StackPanel Orientation="Horizontal">
-                <CheckBox Content="Include UE4SS mod settings" IsChecked="{Binding ExportIncludesConfigs}" VerticalAlignment="Center" Margin="0,0,12,0"
-                          ToolTip="The config files (config.lua, config.ini) of the UE4SS mods on in your game travel in the patch, so a friend gets your settings and keys too. Untick to share the mods alone."/>
-                <Button Command="{Binding ExportPatchCommand}" IsEnabled="{Binding IsNotExportingPatch}"
-                        ToolTip="Share the selected profile's mod list with a friend or server — bundles anything not in the community catalog"
-                        AutomationProperties.Name="Export patch">
-                    <StackPanel Orientation="Horizontal">
-                        <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                        <TextBlock Text="Export patch…" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
-                <Button Command="{Binding ImportPatchCommand}" Margin="8,0,0,0"
-                        ToolTip="Load a patch someone shared — recreates its profile and syncs any bundled mods into your Library"
-                        AutomationProperties.Name="Import patch">
-                    <StackPanel Orientation="Horizontal">
-                        <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
-                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
-                        <TextBlock Text="Import patch…" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
+                <TextBlock Text="{Binding PatchStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"
+                           Visibility="{Binding PatchStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
             </StackPanel>
-        </Expander>
-        <TextBlock Grid.Row="4" Text="{Binding PatchStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
-                   Visibility="{Binding PatchStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+        </Border>
 
         <!-- Two columns now, not three: Library's own browsing pane left this page entirely
              (redesign-round-2 pilot) — mods reach the queue from Library itself (multi-select +

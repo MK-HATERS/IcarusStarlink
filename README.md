@@ -93,7 +93,8 @@ with short codes); gameplay-option toggles
 temperatures, remove level cap — values sourced from classic IMM's own documented behavior, or a
 real community mod's where classic IMM never covered one) that participate in the same conflict
 detection as regular mods, profiles (with their own backup/restore) with exportable/importable
-patches, and a rebuild → install pipeline that backs up whatever it's about to replace and
+patches (the profile as it runs: data mods by source, the UE4SS mods on in the game and their
+settings; importing one downloads what you lack, and a server host can export, apply and compare one), and a rebuild → install pipeline that backs up whatever it's about to replace and
 independently re-reads the pak it just built to confirm nothing staged for packing went missing.
 Conflicts can be decided per line: pick the winning mod for each conflicting field, and the
 profile remembers it. The queue and your last merge are kept across restarts. Everything installs
