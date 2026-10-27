@@ -44,12 +44,19 @@ public sealed partial class LocalServerViewModel : ObservableObject
         IDedicatedServerProfileStore store, IDedicatedServerProcessService processes, IDialogService dialogService,
         IActivityLog activityLog, ISteamCmdService? steamCmd = null, Core.Settings.ISettingsService? settings = null,
         string? mergedPakPath = null, string? backupsRoot = null, Func<string, string?>? pickFolder = null, Func<string?>? pickSteamCmdExe = null, bool startTimer = true,
-        IFirewallService? firewall = null, string? dataFolder = null)
+        IFirewallService? firewall = null, string? dataFolder = null,
+        Core.Library.ILibraryRepository? library = null, PakIO.Patches.IPatchService? patchService = null, Core.Ue4ss.IUe4ssModMetaStore? ue4ssMetaStore = null,
+        IPatchImporter? patchImporter = null)
     {
         // Set before SelectedProfile below: selecting a profile loads its CreateProspect, which
         // reads (and caches) ProspectChoices from this folder. As an init property it arrived
         // too late, so the dropdown only ever held "Don't create one".
         DataFolder = dataFolder;
+        // Share with players (the Mods tab): optional, the page works without them.
+        _library = library;
+        _patchService = patchService;
+        _ue4ssMetaStore = ue4ssMetaStore;
+        _patchImporter = patchImporter;
         _firewall = firewall;
         _steamCmd = steamCmd;
         _settings = settings;

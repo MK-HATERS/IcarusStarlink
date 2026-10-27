@@ -18,7 +18,7 @@ using IcarusStarlink.PakIO.Patches;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>Export and Import patch (a profile shared with friends), and a classic IMM mod list loaded as the queue.</summary>
-public sealed partial class MergeInstallViewModel
+public sealed partial class MergeInstallViewModel : IPatchImporter
 {
     // --- Export/Import patch (6.3; format 2 with sources, paks, UE4SS mods and their settings, 2026-10-27) ---
     [ObservableProperty]
@@ -88,49 +88,16 @@ public sealed partial class MergeInstallViewModel
                 .Select(e => CatalogKey.Normalize(e.Name, e.Author))
                 .ToHashSet();
 
-            var mods = new List<PatchModEntry>();
-            var bundledExmods = new Dictionary<string, ExmodPackageContents>();
-            var bundledPaks = new Dictionary<string, IReadOnlyList<string>>();
-            foreach (var entry in Queue)
-            {
-                if (entry.IsMissingFromLibrary)
-                {
-                    continue;
-                }
-
-                var hasSource = entry.NexusModId is not null || entry.CatalogEntryId is not null
-                    || catalogKeys.Contains(CatalogKey.Normalize(entry.Name, entry.Author));
-                var mod = new PatchModEntry
-                {
-                    FolderName = entry.FolderName, Name = entry.Name, Author = entry.Author, Version = entry.Version,
-                    Bundled = !hasSource, NexusModId = entry.NexusModId, NexusFileId = entry.NexusFileId, CatalogEntryId = entry.CatalogEntryId,
-                    IsPak = entry.IsOpaquePak,
-                };
-                if (entry.IsOpaquePak)
-                {
-                    var paks = PakFilesOf(entry);
-                    mod.PakFileNames = [.. paks.Select(Path.GetFileName)!];
-                    if (!hasSource)
-                    {
-                        bundledPaks[entry.FolderName] = paks;
-                    }
-                }
-                else if (!hasSource)
-                {
-                    bundledExmods[entry.FolderName] = ExmodFolder.Read(_libraryRepository.GetFolderPath(entry.FolderName));
-                }
-
-                mods.Add(mod);
-            }
-
-            var (ue4ssMods, bundledUe4ss) = CollectUe4ssForPatch();
-            if (mods.Count == 0 && ue4ssMods.Count == 0)
+            // The UE4SS mods on in the game (the framework's own left out).
+            var ue4ssMods = Ue4ssGameModsFolder is { } modsFolder ? PatchBuilder.Ue4ssModsOnIn(modsFolder) : [];
+            var (manifest, bundle) = new PatchBuilder(_libraryRepository, _ue4ssMetaStore)
+                .Build(profileName, [.. Queue], BuildGameplayOptionsFromUi(), ue4ssMods, ExportIncludesConfigs, catalogKeys);
+            if (manifest.Mods.Count == 0 && manifest.Ue4ssMods.Count == 0)
             {
                 PatchStatusMessage = "Nothing to export — every queued mod is missing from your Library.";
                 return;
             }
 
-            var bundle = new PatchBundle(bundledExmods, bundledPaks, bundledUe4ss);
             var extension = bundle.IsEmpty ? "json" : "zip";
             // The picker blocks until the user responds, so the "Checking…" message above would
             // otherwise sit on screen — stale-looking — for as long as they take to pick a location.
@@ -144,24 +111,13 @@ public sealed partial class MergeInstallViewModel
                 return;
             }
 
-            var manifest = new PatchManifest
-            {
-                FormatVersion = PatchManifest.CurrentFormatVersion,
-                ProfileName = profileName,
-                ExportedAtUtc = DateTime.UtcNow,
-                StarlinkVersion = typeof(MergeInstallViewModel).Assembly.GetName().Version?.ToString(3),
-                Mods = mods,
-                Options = BuildGameplayOptionsFromUi(),
-                Ue4ssMods = ue4ssMods,
-                IncludesConfigs = ExportIncludesConfigs && ue4ssMods.Any(m => m.Configs.Count > 0),
-            };
             await _patchService.ExportAsync(manifest, bundle, exportPath);
 
-            var bundledCount = bundledExmods.Count + bundledPaks.Count + bundledUe4ss.Count;
-            var parts = new List<string> { $"{mods.Count} data mod(s)" };
-            if (ue4ssMods.Count > 0)
+            var bundledCount = bundle.Exmods.Count + bundle.PakFolders.Count + bundle.Ue4ssFolders.Count;
+            var parts = new List<string> { $"{manifest.Mods.Count} data mod(s)" };
+            if (manifest.Ue4ssMods.Count > 0)
             {
-                parts.Add($"{ue4ssMods.Count} UE4SS mod(s){(manifest.IncludesConfigs ? " with their settings" : "")}");
+                parts.Add($"{manifest.Ue4ssMods.Count} UE4SS mod(s){(manifest.IncludesConfigs ? " with their settings" : "")}");
             }
 
             PatchStatusMessage = $"Exported '{profileName}' to '{exportPath}' — {string.Join(" and ", parts)}; "
@@ -188,62 +144,6 @@ public sealed partial class MergeInstallViewModel
         {
             IsExportingPatch = false;
         }
-    }
-
-    /// <summary>A pak mod's files: the ones its entry names, else every pak in its folder.</summary>
-    private IReadOnlyList<string> PakFilesOf(LibraryEntry entry)
-    {
-        var folder = _libraryRepository.GetFolderPath(entry.FolderName);
-        var named = entry.PakFileNames.Select(n => Path.Combine(folder, n)).Where(File.Exists).ToList();
-        return named.Count > 0 ? named : Directory.Exists(folder) ? [.. Directory.GetFiles(folder, "*.pak").Order(StringComparer.OrdinalIgnoreCase)] : [];
-    }
-
-    /// <summary>
-    /// The UE4SS mods on in the game (the framework's own left out): a Nexus id to reference them
-    /// by, else bundled from the game folder; their config files when the box is ticked.
-    /// </summary>
-    private (List<PatchUe4ssEntry> Mods, Dictionary<string, string> Bundled) CollectUe4ssForPatch()
-    {
-        var mods = new List<PatchUe4ssEntry>();
-        var bundled = new Dictionary<string, string>();
-        if (Ue4ssGameModsFolder is not { } modsFolder || _ue4ssStateService is null)
-        {
-            return (mods, bundled);
-        }
-
-        foreach (var state in _ue4ssStateService.GetAll(modsFolder).Where(s => s.IsEnabled && s.IsInGame && !Ue4ssServerFiles.FrameworkMods.Contains(s.Name)))
-        {
-            var folder = Path.Combine(modsFolder, state.Name);
-            var meta = _ue4ssMetaStore?.Load(state.Name);
-            var entry = new PatchUe4ssEntry
-            {
-                Name = state.Name, NexusName = meta?.NexusName, NexusModId = meta?.NexusModId, NexusFileId = meta?.NexusFileId,
-                Version = Ue4ssModVersion.TryRead(folder), Enabled = true, Bundled = meta?.NexusModId is null,
-            };
-            if (entry.Bundled)
-            {
-                bundled[state.Name] = folder;
-            }
-
-            if (ExportIncludesConfigs)
-            {
-                foreach (var config in Ue4ssModConfigFiles.Find(folder).Where(c => !c.IsDefaults))
-                {
-                    try
-                    {
-                        entry.Configs.Add(new PatchConfigFile { Path = config.RelativePath.Replace('\\', '/'), Text = File.ReadAllText(Path.Combine(folder, config.RelativePath)) });
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        // A config that can't be read right now is left out; the mod still travels.
-                    }
-                }
-            }
-
-            mods.Add(entry);
-        }
-
-        return (mods, bundled);
     }
 
     /// <summary>
@@ -349,6 +249,25 @@ public sealed partial class MergeInstallViewModel
         try
         {
             using var contents = await _patchService.ImportAsync(patchPath);
+            await ImportPatchContentsAsync(contents);
+        }
+        catch (Exception ex)
+        {
+            PatchStatusMessage = $"Import failed: {ex.Message}";
+            _activityLog.Log(PatchStatusMessage, ActivityEntryKind.Warning);
+        }
+    }
+
+    /// <summary>The Library side of an import, for this page's own Import patch and the Server page's "Apply a patch to this server" (IPatchImporter).</summary>
+    public async Task<string?> ImportPatchContentsAsync(PatchImportContents contents)
+    {
+        if (RefuseWhileRebuilding())
+        {
+            return null;
+        }
+
+        try
+        {
             var manifest = contents.Manifest;
             var versionNotes = new List<string>();
             var (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes);
@@ -461,11 +380,13 @@ public sealed partial class MergeInstallViewModel
                 ? $"Imported '{manifest.ProfileName}'."
                 : $"Imported '{manifest.ProfileName}' — {string.Join(". ", summary)}.";
             _activityLog.Log(PatchStatusMessage, stillMissing.Count > 0 || notFetched.Count > 0 ? ActivityEntryKind.Warning : ActivityEntryKind.Success);
+            return PatchStatusMessage;
         }
         catch (Exception ex)
         {
             PatchStatusMessage = $"Import failed: {ex.Message}";
             _activityLog.Log(PatchStatusMessage, ActivityEntryKind.Warning);
+            return PatchStatusMessage;
         }
     }
 

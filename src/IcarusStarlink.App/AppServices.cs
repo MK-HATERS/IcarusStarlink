@@ -403,7 +403,12 @@ internal static class AppServices
             Path.Combine(appDataDirectory, "Staged_Build", IcarusStarlink.PakIO.InstallManifestNames.MergedPakFileName),
             Path.Combine(appDataDirectory, "Backups"),
             firewall: sp.GetRequiredService<IFirewallService>(),
-            dataFolder: Path.Combine(appDataDirectory, "Data")));
+            dataFolder: Path.Combine(appDataDirectory, "Data"),
+            // Share with players: a patch of what the server runs, and a patch applied to it (Merge & Install does the Library side).
+            library: sp.GetRequiredService<ILibraryRepository>(),
+            patchService: sp.GetRequiredService<IPatchService>(),
+            ue4ssMetaStore: sp.GetRequiredService<IUe4ssModMetaStore>(),
+            patchImporter: sp.GetRequiredService<MergeInstallViewModel>()));
         services.AddSingleton<IFirewallService, FirewallService>();
         services.AddSingleton<HelpViewModel>();
 

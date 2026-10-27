@@ -987,6 +987,85 @@
                                     </TextBlock>
                                 </StackPanel>
                             </Border>
+
+                            <!-- Share with players: a patch of what this server runs, a patch applied to it, a patch compared with it. -->
+                            <TextBlock Text="SHARE WITH PLAYERS" Style="{StaticResource ServerSectionLabelStyle}" Margin="0,18,0,0"/>
+                            <TextBlock FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap" Margin="0,0,0,6"
+                                       Text="A patch is what this server runs: the mods in its merged pak, its UE4SS mods and their settings. Players import it on Merge &amp; Install and get the same setup. Apply does the reverse: a patch's mods into your Library and its UE4SS mods onto this server."/>
+                            <WrapPanel>
+                                <Button Content="Export patch for players…" Command="{Binding ExportServerPatchCommand}" Margin="0,0,8,6"
+                                        ToolTip="Writes a patch of what the server runs (its mod list from ISL-Merged.txt, matched to your Library; its UE4SS mods on, from its own folder)"/>
+                                <Button Content="Apply a patch to this server…" Command="{Binding ApplyPatchToServerCommand}" Margin="0,0,8,6"
+                                        ToolTip="Imports the patch on Merge &amp; Install (its mods, downloads, UE4SS mods, settings, the profile), then puts its UE4SS mods and settings on this server. The merged pak is built on Merge &amp; Install and installed from here. The server must be stopped."/>
+                                <Button Content="Compare a patch…" Command="{Binding ComparePatchCommand}" Margin="0,0,8,6"
+                                        ToolTip="Lines a patch up against your game and this server, one row per mod"/>
+                                <CheckBox Content="Include UE4SS mod settings" IsChecked="{Binding ServerExportIncludesConfigs}" VerticalAlignment="Center" Margin="0,0,0,6"
+                                          ToolTip="The export carries the server's config files (config.lua, config.ini), so players get its keys and values too"/>
+                            </WrapPanel>
+                            <TextBlock Text="{Binding ShareStatusMessage}" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,2,0,6"
+                                       Visibility="{Binding ShareStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource CardBackgroundBrush}" Margin="0,2,0,0"
+                                    Visibility="{Binding HasPatchCompare, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <StackPanel>
+                                    <DockPanel Margin="10,6,10,4">
+                                        <Button DockPanel.Dock="Right" Content="Close" Command="{Binding ClosePatchCompareCommand}" Padding="8,1" FontSize="11.5"/>
+                                        <TextBlock Text="{Binding PatchCompareTitle}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    </DockPanel>
+                                    <Grid Margin="10,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="160"/>
+                                            <ColumnDefinition Width="*" MinWidth="90"/>
+                                            <ColumnDefinition Width="1.2*" MinWidth="110"/>
+                                            <ColumnDefinition Width="1.2*" MinWidth="110"/>
+                                            <ColumnDefinition Width="1.2*" MinWidth="110"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="MOD" Style="{StaticResource FieldLabelStyle}"/>
+                                        <TextBlock Grid.Column="1" Text="KIND" Style="{StaticResource FieldLabelStyle}"/>
+                                        <TextBlock Grid.Column="2" Text="PATCH" Style="{StaticResource FieldLabelStyle}"/>
+                                        <TextBlock Grid.Column="3" Text="YOUR GAME" Style="{StaticResource FieldLabelStyle}"/>
+                                        <TextBlock Grid.Column="4" Text="SERVER" Style="{StaticResource FieldLabelStyle}"/>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding PatchCompareRows}" AlternationCount="2">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border x:Name="CompareRowBorder" Padding="10,3" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="2*" MinWidth="160"/>
+                                                            <ColumnDefinition Width="*" MinWidth="90"/>
+                                                            <ColumnDefinition Width="1.2*" MinWidth="110"/>
+                                                            <ColumnDefinition Width="1.2*" MinWidth="110"/>
+                                                            <ColumnDefinition Width="1.2*" MinWidth="110"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <Grid.Resources>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="FontSize" Value="12"/>
+                                                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Differs}" Value="True">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Grid.Resources>
+                                                        <TextBlock Grid.Column="0" Text="{Binding Name}" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource ForegroundBrush}"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Kind}"/>
+                                                        <TextBlock Grid.Column="2" Text="{Binding PatchText}"/>
+                                                        <TextBlock Grid.Column="3" Text="{Binding GameText}"/>
+                                                        <TextBlock Grid.Column="4" Text="{Binding ServerText}"/>
+                                                    </Grid>
+                                                </Border>
+                                                <DataTemplate.Triggers>
+                                                    <Trigger Property="ItemsControl.AlternationIndex" Value="1">
+                                                        <Setter TargetName="CompareRowBorder" Property="Background" Value="#14808080"/>
+                                                    </Trigger>
+                                                </DataTemplate.Triggers>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
                             </StackPanel>
                             </Grid>
                         </StackPanel>

@@ -4,8 +4,11 @@ using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
+using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Patches;
 using IcarusStarlink.Core.Server;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.PakIO.Patches;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
 
@@ -42,12 +45,15 @@ public sealed partial class LocalServerViewModelTests : IDisposable
 
     private string MergedPakPath => Path.Combine(_root, "Staged_Build", IcarusStarlink.PakIO.InstallManifestNames.MergedPakFileName);
 
-    private (LocalServerViewModel Vm, FakeStore Store, FakeProcesses Processes, FakeDialogs Dialogs) Build(string? pick = null, bool confirm = true, string? pickExe = null, FakeStore? existingStore = null)
+    private (LocalServerViewModel Vm, FakeStore Store, FakeProcesses Processes, FakeDialogs Dialogs) Build(
+        string? pick = null, bool confirm = true, string? pickExe = null, FakeStore? existingStore = null,
+        FakeLibrary? library = null, FakePatchService? patches = null, FakePatchImporter? importer = null)
     {
         var store = existingStore ?? new FakeStore();
         var processes = new FakeProcesses();
         var dialogs = new FakeDialogs(confirm);
-        var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, () => pickExe, startTimer: false, firewall: Firewall)
+        var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, () => pickExe, startTimer: false, firewall: Firewall,
+            library: library, patchService: patches, patchImporter: importer)
         {
             StartPollDelay = TimeSpan.Zero,
             RunWorkInline = true,
@@ -959,6 +965,135 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     }
 
     /// <summary>A fake game install with UE4SS: Icarus\Binaries\Win64\{dwmapi.dll, ue4ss\UE4SS.dll, ue4ss\Mods\…}. Returns its Win64 folder.</summary>
+    /// <summary>A server with a merged pak and its ISL-Merged.txt listing <paramref name="modNames"/>.</summary>
+    private void InstallServerMergedPak(params string[] modNames)
+    {
+        var paks = DedicatedServerLayout.PakModsFolder(_install);
+        Directory.CreateDirectory(paks);
+        File.WriteAllBytes(Path.Combine(paks, IcarusStarlink.PakIO.InstallManifestNames.MergedPakFileName), [1, 2, 3]);
+        File.WriteAllText(Path.Combine(paks, IcarusStarlink.PakIO.InstallManifestNames.PakManifest), "Includes the following mods:\r\n" + string.Join("\r\n", modNames) + "\r\n");
+    }
+
+    private static LibraryEntry Entry(string name, int? nexusModId = null) => new()
+    {
+        FolderName = name, Name = name, Author = "A", Version = "1", Description = "", FileName = name, NexusModId = nexusModId,
+    };
+
+    /// <summary>
+    /// Stage 3 (2026-10-27): Export for players is a patch of what the server runs — its merged
+    /// pak's mod list matched to the Library (a mod the Library lacks is named, not exported), and
+    /// the UE4SS mods on on the server with the server's own settings.
+    /// </summary>
+    [Fact]
+    public async Task ExportServerPatch_CarriesTheServersModListAndItsUe4ssModsWithSettings()
+    {
+        var gameWin64 = MakeGameWithUe4ss(("MkHatersTools", true));
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        var library = new FakeLibrary { Entries = [Entry("Wireless Power", nexusModId: 361)] };
+        var patches = new FakePatchService();
+        var (vm, _, _, dialogs) = Build(pick: _install, library: library, patches: patches);
+        vm.AddExistingServerCommand.Execute(null);
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+        vm.MatchServerToGameCommand.Execute(null);
+        var serverMod = Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(_install), "MkHatersTools");
+        File.WriteAllText(Path.Combine(serverMod, "config.lua"), "return { Range = 50 }");
+        InstallServerMergedPak("Wireless Power", "Something Else");
+        dialogs.SaveFilePath = Path.Combine(_root, "ISL-Patch-server.json");
+
+        await vm.ExportServerPatchCommand.ExecuteAsync(null);
+
+        var manifest = patches.ExportedManifest!;
+        Assert.Equal(PatchManifest.CurrentFormatVersion, manifest.FormatVersion);
+        var mod = Assert.Single(manifest.Mods);
+        Assert.Equal(("Wireless Power", 361, false), (mod.Name, mod.NexusModId, mod.Bundled));
+        var tools = Assert.Single(manifest.Ue4ssMods);
+        Assert.Equal(("MkHatersTools", true), (tools.Name, tools.Bundled)); // no Nexus id known: bundled from the server's folder
+        Assert.Equal("return { Range = 50 }", Assert.Single(tools.Configs).Text); // the server's settings, not the game's
+        Assert.Equal(serverMod, patches.ExportedBundle!.Ue4ssFolders["MkHatersTools"]);
+        Assert.Contains("Not in your Library, so not in the patch: Something Else", vm.ShareStatusMessage);
+    }
+
+    /// <summary>Apply a patch: Merge &amp; Install does the Library side, then the patch's UE4SS mods go on the server from the game's copies, with the patch's settings written into the server's copy.</summary>
+    [Fact]
+    public async Task ApplyPatchToServer_ImportsOnTheLibrarySide_ThenPutsTheUe4ssModsAndSettingsOnTheServer()
+    {
+        var gameWin64 = MakeGameWithUe4ss(("MkHatersTools", true));
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        var gameMod = Path.Combine(gameWin64, "ue4ss", "Mods", "MkHatersTools");
+        File.WriteAllText(Path.Combine(gameMod, "config.lua"), "return {\n    Range = 10, -- how far\n}\n");
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest
+                {
+                    FormatVersion = 2, ProfileName = "Server",
+                    Ue4ssMods = [new PatchUe4ssEntry { Name = "MkHatersTools", Configs = [new PatchConfigFile { Path = "config.lua", Text = "return {\n    Range = 50,\n}\n" }] }],
+                },
+                new Dictionary<string, IcarusStarlink.PakIO.Container.ExmodPackageContents>()),
+        };
+        var importer = new FakePatchImporter { Result = "Imported 'Server'." };
+        var (vm, _, _, dialogs) = Build(pick: _install, patches: patches, importer: importer);
+        vm.AddExistingServerCommand.Execute(null);
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+        dialogs.OpenFilePath = Path.Combine(_root, "patch.zip");
+
+        await vm.ApplyPatchToServerCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, importer.Calls);
+        var serverMod = Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(_install), "MkHatersTools");
+        Assert.True(File.Exists(Path.Combine(serverMod, "Scripts", "main.lua")));
+        // The game copy's layout with the patch's value.
+        Assert.Equal("return {\n    Range = 50, -- how far\n}\n", File.ReadAllText(Path.Combine(serverMod, "config.lua")));
+        Assert.StartsWith("Applied 'Server'. Imported 'Server'.", vm.ShareStatusMessage);
+        Assert.Contains("1 UE4SS mod(s) put on the server (MkHatersTools)", vm.ShareStatusMessage);
+        Assert.Contains("build and install the merged pak", vm.ShareStatusMessage);
+        Assert.Equal(ServerModState.Same, vm.Ue4ssModRows.Single().State);
+    }
+
+    /// <summary>Compare a patch: one row per mod with what the patch, the game and the server have; settings that differ from the patch's are said so.</summary>
+    [Fact]
+    public async Task ComparePatch_OneRowPerMod_AcrossPatchGameAndServer()
+    {
+        var gameWin64 = MakeGameWithUe4ss(("MkHatersTools", true));
+        var content = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        Settings.Current.IcarusContentPath = content;
+        File.WriteAllText(Path.Combine(gameWin64, "ue4ss", "Mods", "MkHatersTools", "config.lua"), "return { Range = 10 }");
+        Directory.CreateDirectory(Path.Combine(content, "Paks", "mods"));
+        File.WriteAllText(Path.Combine(content, "Paks", "mods", IcarusStarlink.PakIO.InstallManifestNames.PakManifest), "Includes the following mods:\r\nWireless Power\r\nOnly In Game\r\n");
+        InstallServerMergedPak("Wireless Power");
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest
+                {
+                    FormatVersion = 2, ProfileName = "Server", ExportedAtUtc = new DateTime(2026, 10, 27, 12, 0, 0, DateTimeKind.Utc), StarlinkVersion = "3.4.0",
+                    Mods =
+                    [
+                        new PatchModEntry { FolderName = "W", Name = "Wireless Power", Author = "A", Version = "2", Bundled = false, NexusModId = 361 },
+                        new PatchModEntry { FolderName = "N", Name = "Nowhere Yet", Author = "A", Version = "1", Bundled = false },
+                    ],
+                    Ue4ssMods = [new PatchUe4ssEntry { Name = "MkHatersTools", Version = "1.0", Configs = [new PatchConfigFile { Path = "config.lua", Text = "return { Range = 50 }" }] }],
+                },
+                new Dictionary<string, IcarusStarlink.PakIO.Container.ExmodPackageContents>()),
+        };
+        var (vm, _, _, dialogs) = Build(pick: _install, library: new FakeLibrary(), patches: patches);
+        vm.AddExistingServerCommand.Execute(null);
+        dialogs.OpenFilePath = Path.Combine(_root, "patch.json");
+
+        await vm.ComparePatchCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasPatchCompare);
+        Assert.Contains("'Server' exported", vm.PatchCompareTitle);
+        var rows = vm.PatchCompareRows.ToDictionary(r => r.Name);
+        Assert.Equal(("v2", "installed", "installed", false), (rows["Wireless Power"].PatchText, rows["Wireless Power"].GameText, rows["Wireless Power"].ServerText, rows["Wireless Power"].Differs));
+        Assert.Equal(("v1", "—", "—"), (rows["Nowhere Yet"].PatchText, rows["Nowhere Yet"].GameText, rows["Nowhere Yet"].ServerText));
+        Assert.Equal(("—", "installed", "—"), (rows["Only In Game"].PatchText, rows["Only In Game"].GameText, rows["Only In Game"].ServerText));
+        Assert.Equal(("on (v1.0), with settings", "on · settings differ", "—"), (rows["MkHatersTools"].PatchText, rows["MkHatersTools"].GameText, rows["MkHatersTools"].ServerText));
+
+        vm.ClosePatchCompareCommand.Execute(null);
+        Assert.False(vm.HasPatchCompare);
+    }
+
     private string MakeGameWithUe4ss(params (string Name, bool Enabled)[] mods)
     {
         var win64 = Path.Combine(_root, "Game", "Icarus", "Binaries", "Win64");
@@ -1153,5 +1288,79 @@ public sealed partial class LocalServerViewModelTests : IDisposable
 
         public RenamePromptResult PromptRename(string currentName, string description = "", string? resetValue = null, string resetLabel = "", string resetTooltip = "", string title = "", string fieldLabel = "") =>
             throw new NotSupportedException();
+
+        /// <summary>What a file picker returns (Apply a patch, Compare a patch); null cancels.</summary>
+        public string? OpenFilePath { get; set; }
+
+        /// <summary>Where a save picker saves (Export patch for players); null cancels.</summary>
+        public string? SaveFilePath { get; set; }
+
+        public string? PickFile(string title, string filter, string? initialDirectory = null) => OpenFilePath;
+
+        public string? PickSaveFile(string title, string filter, string defaultFileName, string? initialDirectory = null) => SaveFilePath;
+    }
+
+    /// <summary>What Export for players needs of the Library: the entries, and a folder for a bundled mod (none here: every test mod has a source).</summary>
+    private sealed class FakeLibrary : ILibraryRepository
+    {
+        public List<LibraryEntry> Entries { get; set; } = [];
+
+        public IReadOnlyList<LibraryEntry> GetAll() => Entries;
+        public string GetFolderPath(string folderName) => Path.Combine(Path.GetTempPath(), "nowhere", folderName);
+        public IReadOnlyList<string> UnreadableFolders => [];
+        public IReadOnlyList<LibraryEntry> Search(string query) => throw new NotSupportedException();
+        public LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null) => throw new NotSupportedException();
+        public LibraryEntry ImportPak(string pakFilePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null, string? mergedPackProfileName = null) => throw new NotSupportedException();
+        public LibraryEntry ImportPaks(IReadOnlyList<string> pakFilePaths, string name, string? source = null, int? nexusModId = null, string? catalogEntryId = null) => throw new NotSupportedException();
+        public void SetNexusMetadata(string folderName, string? name, string? author, string? description, string? version) => throw new NotSupportedException();
+        public void Refresh() => throw new NotSupportedException();
+        public void Delete(string folderName) => throw new NotSupportedException();
+        public void UpdateMetadata(string folderName, bool isPinned, bool isFavorite, string notes) => throw new NotSupportedException();
+        public void MarkLocallyEdited(string folderName) => throw new NotSupportedException();
+        public void MarkConvertedFromPrebuiltPak(string folderName) => throw new NotSupportedException();
+        public void SetDisplayNameOverride(string folderName, string? displayName) => throw new NotSupportedException();
+        public void LinkToNexus(string folderName, int nexusModId) => throw new NotSupportedException();
+        public void SetCatalogEntry(string folderName, string catalogEntryId) => throw new NotSupportedException();
+        public string BackupMod(string folderName) => throw new NotSupportedException();
+        public bool HasModBackup(string folderName) => false;
+        public bool RestoreLatestModBackup(string folderName) => throw new NotSupportedException();
+        public string? TryGetLatestModBackupPath(string folderName) => null;
+        public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank) => throw new NotSupportedException();
+        public IReadOnlyList<string> ListAssetPaths(string folderName) => [];
+        public IReadOnlyList<string> ListAssetPaths(string folderName, IReadOnlyList<string> precomputedFiles) => [];
+        public byte[] ReadAssetContent(string folderName, string relativePath) => throw new NotSupportedException();
+        public string? ReadReadme(string folderName) => null;
+        public string? ReadReadme(string folderName, IReadOnlyList<string> precomputedFiles) => null;
+        public IReadOnlyList<string> ListFolderFiles(string folderName) => [];
+    }
+
+    private sealed class FakePatchService : IPatchService
+    {
+        public PatchManifest? ExportedManifest { get; private set; }
+        public PatchBundle? ExportedBundle { get; private set; }
+        public PatchImportContents? ImportResult { get; set; }
+
+        public Task ExportAsync(PatchManifest manifest, PatchBundle bundle, string outputPath, CancellationToken cancellationToken = default)
+        {
+            ExportedManifest = manifest;
+            ExportedBundle = bundle;
+            return Task.CompletedTask;
+        }
+
+        public Task<PatchImportContents> ImportAsync(string patchFilePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult(ImportResult ?? throw new NotSupportedException("Set ImportResult first."));
+    }
+
+    /// <summary>Stands in for Merge &amp; Install's Library-side import.</summary>
+    private sealed class FakePatchImporter : IPatchImporter
+    {
+        public string? Result { get; set; }
+        public int Calls { get; private set; }
+
+        public Task<string?> ImportPatchContentsAsync(PatchImportContents contents)
+        {
+            Calls++;
+            return Task.FromResult(Result);
+        }
     }
 }
